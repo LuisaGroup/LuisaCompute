@@ -32,6 +32,9 @@ llvm::Function *MetalCodegenLLVMImpl::_declare_kernel(const xir::KernelFunction 
             arguments.emplace_back(llvm_type);
         }
     }
+    auto ift_pointer = llvm::PointerType::get(
+        _context, air_address_space_device);
+    arguments.append(_ray_query_pipelines.size(), ift_pointer);
     auto i32 = llvm::Type::getInt32Ty(_context);
     auto i32x3 = llvm::FixedVectorType::get(i32, 3u);
     arguments.append({i32x3, i32, i32x3, i32x3, i32x3, i32x3, i32, i32});
@@ -87,11 +90,16 @@ llvm::Function *MetalCodegenLLVMImpl::_declare_raster_stage(const xir::RasterSta
 
 llvm::Function *MetalCodegenLLVMImpl::_declare_callable(const xir::CallableFunction *function) noexcept {
     llvm::SmallVector<llvm::Type *> arguments;
+    auto is_ray_query_pipeline_handler =
+        _ray_query_pipeline_handlers.contains(function);
     for (auto argument : function->arguments()) {
         auto llvm_type = argument->is_reference() &&
                                  !is_indirect_dispatch_buffer_type(argument->type()) ?
                              llvm::PointerType::get(
-                                 _context, air_address_space_generic) :
+                                 _context,
+                                 is_ray_query_pipeline_handler ?
+                                     air_address_space_ray_data :
+                                     air_address_space_generic) :
                              _type(argument->type())->reg_type;
         arguments.emplace_back(llvm_type);
         if (argument->type()->is_texture() &&
@@ -221,6 +229,12 @@ llvm::Function *MetalCodegenLLVMImpl::_translate_kernel(const xir::KernelFunctio
             context.sampled_textures.try_emplace(argument, iterator++);
         }
     }
+    context.intersection_tables.reserve(_ray_query_pipelines.size());
+    for (auto i = 0u; i < _ray_query_pipelines.size(); i++) {
+        auto table = &*iterator++;
+        table->setName(luisa::format("ray.query.ift.{}", i));
+        context.intersection_tables.emplace_back(table);
+    }
     _bind_state_parameters(context, iterator);
     auto body = _translate_function(context, function);
     IB builder{context.entry_block};
@@ -270,6 +284,12 @@ llvm::Function *MetalCodegenLLVMImpl::_translate_callable(const xir::CallableFun
             _texture_needs_sampled_split(argument)) {
             context.sampled_textures.try_emplace(argument, iterator++);
         }
+    }
+    if (auto iter = _ray_query_pipeline_handlers.find(function);
+        iter != _ray_query_pipeline_handlers.end()) {
+        context.pipeline_handler = &iter->second;
+        auto query_argument = function->arguments().front();
+        context.pipeline_payload = context.value(query_argument);
     }
     _bind_state_parameters(context, iterator);
     auto body = _translate_function(context, function);
@@ -330,10 +350,13 @@ void MetalCodegenLLVMImpl::_emit_kernel_entry(const xir::KernelFunction *kernel,
     auto i32x4 = llvm::FixedVectorType::get(i32, 4u);
     auto args_pointer = llvm::PointerType::get(_context, air_address_space_constant);
     auto dispatch_pointer = llvm::PointerType::get(_context, indirect ? air_address_space_device : air_address_space_constant);
-    auto function_type = llvm::FunctionType::get(llvm::Type::getVoidTy(_context),
-                                                 {args_pointer, dispatch_pointer,
-                                                  i32x3, i32x3, i32x3, i32x3, i32, i32},
-                                                 false);
+    auto ift_pointer = llvm::PointerType::get(
+        _context, air_address_space_device);
+    llvm::SmallVector<llvm::Type *> entry_arguments{
+        args_pointer, dispatch_pointer};
+    entry_arguments.append({i32x3, i32x3, i32x3, i32x3, i32, i32});
+    auto function_type = llvm::FunctionType::get(
+        llvm::Type::getVoidTy(_context), entry_arguments, false);
     auto name = indirect ? "kernel_main_indirect" : "kernel_main";
     auto function = llvm::Function::Create(function_type, llvm::GlobalValue::ExternalLinkage, name, _module);
     function->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Local);
@@ -351,12 +374,14 @@ void MetalCodegenLLVMImpl::_emit_kernel_entry(const xir::KernelFunction *kernel,
     dispatch_data->setName(indirect ? "dispatch_size_and_kernel_id" : "dispatch_size");
     auto layout = _root_argument_layout();
     auto dispatch_type = indirect ? static_cast<llvm::Type *>(i32x4) : i32x3;
+    llvm::SmallVector<llvm::Metadata *> pointer_element_types{
+        md_i32(_context, 0u),
+        llvm::ValueAsMetadata::get(llvm::UndefValue::get(layout.type)),
+        md_i32(_context, 1u),
+        llvm::ValueAsMetadata::get(llvm::UndefValue::get(dispatch_type))};
     function->setMetadata(
         "arg_eltypes",
-        llvm::MDNode::get(
-            _context,
-            {md_i32(_context, 0u), llvm::ValueAsMetadata::get(llvm::UndefValue::get(layout.type)),
-             md_i32(_context, 1u), llvm::ValueAsMetadata::get(llvm::UndefValue::get(dispatch_type))}));
+        llvm::MDNode::get(_context, pointer_element_types));
     args->addAttr(llvm::Attribute::NoUndef);
     args->addAttr(llvm::Attribute::ReadOnly);
     args->addAttr(llvm::Attribute::getWithAlignment(_context, llvm::Align{kernel_argument_alignment}));
@@ -367,7 +392,9 @@ void MetalCodegenLLVMImpl::_emit_kernel_entry(const xir::KernelFunction *kernel,
     dispatch_data->addAttr(llvm::Attribute::getWithAlignment(_context, llvm::Align{16u}));
     dispatch_data->addAttr(llvm::Attribute::getWithDereferenceableBytes(_context, 16u));
     dispatch_data->addAttr(llvm::Attribute::get(_context, "air-buffer-no-alias"));
-    for (auto i = 2u; i < function->arg_size(); i++) { function->getArg(i)->addAttr(llvm::Attribute::NoUndef); }
+    for (auto i = 2u; i < function->arg_size(); i++) {
+        function->getArg(i)->addAttr(llvm::Attribute::NoUndef);
+    }
 
     auto entry = llvm::BasicBlock::Create(_context, "entry", function);
     IB builder{entry};
@@ -378,12 +405,13 @@ void MetalCodegenLLVMImpl::_emit_kernel_entry(const xir::KernelFunction *kernel,
         dispatch_size = builder.CreateShuffleVector(dispatch_raw, {0, 1, 2});
         kernel_id = builder.CreateExtractElement(dispatch_raw, 3u);
     }
-    auto thread_id = function->getArg(2u);
-    auto block_id = function->getArg(3u);
-    auto dispatch_id = function->getArg(4u);
-    auto block_size = function->getArg(5u);
-    auto warp_size = function->getArg(6u);
-    auto warp_lane_id = function->getArg(7u);
+    auto builtin_base = 2u;
+    auto thread_id = function->getArg(builtin_base + 0u);
+    auto block_id = function->getArg(builtin_base + 1u);
+    auto dispatch_id = function->getArg(builtin_base + 2u);
+    auto block_size = function->getArg(builtin_base + 3u);
+    auto warp_size = function->getArg(builtin_base + 4u);
+    auto warp_lane_id = function->getArg(builtin_base + 5u);
     auto in_bounds_components = builder.CreateICmpUGT(dispatch_size, dispatch_id);
     auto all_type = llvm::FunctionType::get(builder.getInt1Ty(), {in_bounds_components->getType()}, false);
     auto all_function = llvm::cast<llvm::Function>(
@@ -429,6 +457,17 @@ void MetalCodegenLLVMImpl::_emit_kernel_entry(const xir::KernelFunction *kernel,
                 builder, args, argument, argument_index, true));
         }
         argument_index++;
+    }
+    for (auto i = 0u; i < _ray_query_pipelines.size(); i++) {
+        auto table_pointer = builder.CreateStructGEP(
+            layout.type, args,
+            layout.intersection_table_member_indices[i]);
+        auto table_handle = builder.CreateStructGEP(
+            _air_intersection_function_table_wrapper(),
+            table_pointer, 0u);
+        arguments.emplace_back(builder.CreateAlignedLoad(
+            ift_pointer, table_handle, llvm::Align{8u},
+            luisa::format("ray_query_ift_{}", i)));
     }
     arguments.append({dispatch_size, kernel_id, thread_id, block_id, dispatch_id, block_size, warp_size, warp_lane_id});
     auto implementation_call = builder.CreateCall(implementation, arguments);
@@ -940,6 +979,14 @@ void MetalCodegenLLVMImpl::_translate_instruction(IB &builder, FunctionContext &
             if (is_ray_query_type(inst->type())) {
                 LUISA_ASSERT(instruction->is_local(),
                              "Metal AIR ray-query objects must be local.");
+                if (_pipeline_query_objects.contains(instruction)) {
+                    auto allocation = _temporary(
+                        function, builder.getInt8Ty(), 1u);
+                    allocation->setName(
+                        inst->name().value_or("ray.query.pipeline"));
+                    result = allocation;
+                    break;
+                }
                 auto config = _air_ray_tracing_config(instruction);
                 llvm::SmallVector<llvm::Value *, 0u> arguments;
                 auto allocation = _air_ray_query_call(
@@ -1033,6 +1080,11 @@ void MetalCodegenLLVMImpl::_translate_instruction(IB &builder, FunctionContext &
             _translate_ray_query_object_write(
                 builder, function,
                 static_cast<const xir::RayQueryObjectWriteInst *>(inst));
+            break;
+        case xir::DerivedInstructionTag::RAY_QUERY_PIPELINE:
+            _translate_ray_query_pipeline(
+                builder, function,
+                static_cast<const xir::RayQueryPipelineInst *>(inst));
             break;
         case xir::DerivedInstructionTag::RESOURCE_READ: result = _translate_resource_read(builder, function, static_cast<const xir::ResourceReadInst *>(inst)); break;
         case xir::DerivedInstructionTag::RESOURCE_WRITE: _translate_resource_write(builder, function, static_cast<const xir::ResourceWriteInst *>(inst)); break;

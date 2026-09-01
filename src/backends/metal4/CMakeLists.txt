@@ -72,6 +72,7 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             llvm_codegen/metal_codegen_llvm_type.cpp
             llvm_codegen/metal_codegen_llvm_function.cpp
             llvm_codegen/metal_codegen_llvm_access.cpp
+            llvm_codegen/metal_codegen_llvm_ray_pipeline.cpp
             llvm_codegen/metal_codegen_llvm_resource.cpp
             llvm_codegen/metal_codegen_llvm_atomic.cpp
             llvm_codegen/metal_codegen_llvm_arithmetic.cpp

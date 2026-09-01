@@ -105,7 +105,7 @@ void MetalAccel::build(MetalCommandEncoder &encoder,
                         _primitives[m.index] = primitive;
                         auto resource_id =
                             primitive->handle()->gpuResourceID();
-                        _instances[m.index].mesh_index = m.index;
+                        _instances[m.index].intersection_function_offset = 0u;
                         _instances[m.index].acceleration_structure_id =
                             resource_id;
                         m.primitive =

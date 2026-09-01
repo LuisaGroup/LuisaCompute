@@ -66,6 +66,56 @@ namespace detail {
     }
 }
 
+[[nodiscard]] bool supported_ray_payload_capture(
+    const xir::Value *value, luisa::string &reason) noexcept {
+    if (value == nullptr || value->type() == nullptr) {
+        reason = "ray-query pipeline has a null captured argument";
+        return false;
+    }
+    if (value->is_lvalue() &&
+        (!value->isa<xir::AllocaInst>() ||
+         !static_cast<const xir::AllocaInst *>(value)->is_local())) {
+        reason = "ray-query payload reference capture is not a local allocation";
+        return false;
+    }
+    auto supported_payload_type = [&](auto &&self,
+                                      const Type *type) noexcept -> bool {
+        switch (type->tag()) {
+            case Type::Tag::BOOL: [[fallthrough]];
+            case Type::Tag::INT8: [[fallthrough]];
+            case Type::Tag::UINT8: [[fallthrough]];
+            case Type::Tag::INT16: [[fallthrough]];
+            case Type::Tag::UINT16: [[fallthrough]];
+            case Type::Tag::INT32: [[fallthrough]];
+            case Type::Tag::UINT32: [[fallthrough]];
+            case Type::Tag::INT64: [[fallthrough]];
+            case Type::Tag::UINT64: [[fallthrough]];
+            case Type::Tag::FLOAT16: [[fallthrough]];
+            case Type::Tag::FLOAT32: return true;
+            case Type::Tag::VECTOR: [[fallthrough]];
+            case Type::Tag::MATRIX: [[fallthrough]];
+            case Type::Tag::ARRAY:
+                return self(self, type->element());
+            case Type::Tag::STRUCTURE:
+                for (auto member : type->members()) {
+                    if (!self(self, member)) { return false; }
+                }
+                return true;
+            case Type::Tag::BUFFER:
+                return type->element() == nullptr ||
+                       self(self, type->element());
+            case Type::Tag::BINDLESS_ARRAY: return true;
+            default: return false;
+        }
+    };
+    if (!supported_payload_type(supported_payload_type, value->type())) {
+        reason = "ray-query payload cannot represent captured type '" +
+                 luisa::string{value->type()->description()} + "'";
+        return false;
+    }
+    return true;
+}
+
 [[nodiscard]] bool supported_print_type(const Type *type) noexcept {
     if (type == nullptr) { return false; }
     if (type->is_scalar()) { return type->tag() != Type::Tag::FLOAT64; }
@@ -451,7 +501,8 @@ namespace detail {
     if (has_ray_query_operand &&
         instruction->derived_instruction_tag() != xir::DerivedInstructionTag::STORE &&
         instruction->derived_instruction_tag() != xir::DerivedInstructionTag::RAY_QUERY_OBJECT_READ &&
-        instruction->derived_instruction_tag() != xir::DerivedInstructionTag::RAY_QUERY_OBJECT_WRITE) {
+        instruction->derived_instruction_tag() != xir::DerivedInstructionTag::RAY_QUERY_OBJECT_WRITE &&
+        instruction->derived_instruction_tag() != xir::DerivedInstructionTag::RAY_QUERY_PIPELINE) {
         reason = "ray-query object escaped its initialization/read/write operations";
         return false;
     }
@@ -514,6 +565,12 @@ namespace detail {
                             reason = "ray-query object escaped a write operand";
                             return false;
                         }
+                    } else if (user->isa<xir::RayQueryPipelineInst>()) {
+                        if (static_cast<const xir::RayQueryPipelineInst *>(user)
+                                ->query_object() != allocation) {
+                            reason = "ray-query object escaped a pipeline operand";
+                            return false;
+                        }
                     } else {
                         reason = "ray-query object has an unsupported use";
                         return false;
@@ -544,7 +601,11 @@ namespace detail {
             }
             auto query = static_cast<const xir::ResourceQueryInst *>(store->value());
             if (query->op() != xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL &&
-                query->op() != xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY) {
+                query->op() != xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY &&
+                query->op() != xir::ResourceQueryOp::
+                                   RAY_TRACING_QUERY_ALL_MOTION_BLUR &&
+                query->op() != xir::ResourceQueryOp::
+                                   RAY_TRACING_QUERY_ANY_MOTION_BLUR) {
                 reason = "ray-query object was initialized by a non-query operation";
                 return false;
             }
@@ -557,6 +618,88 @@ namespace detail {
             return false;
         }
         case xir::DerivedInstructionTag::CALL: break;
+        case xir::DerivedInstructionTag::RAY_QUERY_PIPELINE: {
+            auto pipeline = static_cast<const xir::RayQueryPipelineInst *>(
+                instruction);
+            if (pipeline->query_object() == nullptr ||
+                !pipeline->query_object()->isa<xir::AllocaInst>() ||
+                !is_ray_query_type(pipeline->query_object()->type())) {
+                reason =
+                    "Metal AIR ray-query pipeline requires a local query object";
+                return false;
+            }
+            for (auto captured : pipeline->captured_argument_uses()) {
+                if (!supported_ray_payload_capture(
+                        captured->value(), reason)) {
+                    return false;
+                }
+            }
+            auto valid_handler = [&](const xir::Function *handler) noexcept {
+                if (handler == nullptr ||
+                    !handler->isa<xir::CallableFunction>() ||
+                    handler->type() != nullptr ||
+                    handler->arguments().count_size() !=
+                        pipeline->captured_argument_count() + 1u) {
+                    return false;
+                }
+                auto argument = handler->arguments().begin();
+                if (!argument->is_reference() ||
+                    argument->type() != pipeline->query_object()->type()) {
+                    return false;
+                }
+                ++argument;
+                for (auto captured : pipeline->captured_argument_uses()) {
+                    if (argument == handler->arguments().end() ||
+                        argument->type() != captured->value()->type() ||
+                        argument->is_reference() !=
+                            captured->value()->is_lvalue()) {
+                        return false;
+                    }
+                    ++argument;
+                }
+                return argument == handler->arguments().end();
+            };
+            if (!valid_handler(pipeline->on_surface_function()) ||
+                !valid_handler(pipeline->on_procedural_function())) {
+                reason = "Metal AIR ray-query pipeline has an invalid handler ABI";
+                return false;
+            }
+            auto procedural = pipeline->on_procedural_function();
+            auto procedural_empty = true;
+            procedural->definition()->traverse_instructions(
+                [&procedural_empty](const xir::Instruction *candidate) noexcept {
+                    procedural_empty &= candidate->isa<xir::ReturnInst>();
+                });
+            if (!procedural_empty) {
+                reason =
+                    "Metal AIR loop-to-IFT currently requires an empty procedural handler";
+                return false;
+            }
+            auto config_for_pipeline = AIRRayTracingConfig{};
+            auto query_object = pipeline->query_object();
+            for (auto use : query_object->use_list()) {
+                auto user = use->user();
+                if (user == nullptr || !user->isa<xir::StoreInst>()) {
+                    continue;
+                }
+                auto store = static_cast<const xir::StoreInst *>(user);
+                if (store->variable() != query_object ||
+                    !store->value()->isa<xir::ResourceQueryInst>()) {
+                    continue;
+                }
+                auto constructor =
+                    static_cast<const xir::ResourceQueryInst *>(store->value());
+                auto basis = constructor->find_metadata<xir::CurveBasisMD>();
+                config_for_pipeline.curves =
+                    basis != nullptr && basis->curve_basis_set().any();
+            }
+            if (config_for_pipeline.curves) {
+                reason =
+                    "Metal AIR loop-to-IFT currently requires triangle-only acceleration structures";
+                return false;
+            }
+            break;
+        }
         case xir::DerivedInstructionTag::ATOMIC: {
             auto atomic = static_cast<const xir::AtomicInst *>(instruction);
             auto type = atomic->type();
@@ -622,9 +765,18 @@ namespace detail {
         }
         case xir::DerivedInstructionTag::RAY_QUERY_OBJECT_READ: {
             auto read = static_cast<const xir::RayQueryObjectReadInst *>(instruction);
+            auto query_operand = read->operand_count() == 1u ?
+                                     read->operand(0u) :
+                                     nullptr;
+            auto valid_query_operand =
+                query_operand != nullptr &&
+                is_ray_query_type(query_operand->type()) &&
+                (query_operand->isa<xir::AllocaInst>() ||
+                 (query_operand->isa<xir::Argument>() &&
+                  static_cast<const xir::Argument *>(query_operand)
+                      ->is_reference()));
             if (read->operand_count() != 1u ||
-                !read->operand(0u)->isa<xir::AllocaInst>() ||
-                !is_ray_query_type(read->operand(0u)->type())) {
+                !valid_query_operand) {
                 reason = "ray-query read does not target a local query object";
                 return false;
             }
@@ -673,9 +825,18 @@ namespace detail {
                 write->op() == xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_COMMIT_PROCEDURAL ?
                     2u :
                     1u;
+            auto query_operand = write->operand_count() >= 1u ?
+                                     write->operand(0u) :
+                                     nullptr;
+            auto valid_query_operand =
+                query_operand != nullptr &&
+                is_ray_query_type(query_operand->type()) &&
+                (query_operand->isa<xir::AllocaInst>() ||
+                 (query_operand->isa<xir::Argument>() &&
+                  static_cast<const xir::Argument *>(query_operand)
+                      ->is_reference()));
             if (write->operand_count() != expected_operands ||
-                !write->operand(0u)->isa<xir::AllocaInst>() ||
-                !is_ray_query_type(write->operand(0u)->type()) ||
+                !valid_query_operand ||
                 (expected_operands == 2u &&
                  (write->operand(1u)->type() == nullptr ||
                   !write->operand(1u)->type()->is_float32()))) {
@@ -686,39 +847,41 @@ namespace detail {
         }
         case xir::DerivedInstructionTag::RESOURCE_QUERY: {
             auto query = static_cast<const xir::ResourceQueryInst *>(instruction);
-            if (query->op() ==
-                    xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR ||
-                query->op() ==
-                    xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR) {
-                reason =
-                    "Metal 4 intersection_query does not accept motion "
-                    "acceleration structures or a ray-time operand";
-                return false;
-            }
-            if (query->op() == xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL ||
-                query->op() == xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY) {
-                if (config.enable_extended_accel_limits) {
-                    reason =
-                        "Metal 4 intersection_query does not accept the "
-                        "extended_limits tag";
-                    return false;
-                }
+            auto is_static_ray_query =
+                query->op() == xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL ||
+                query->op() == xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY;
+            auto is_motion_ray_query =
+                query->op() == xir::ResourceQueryOp::
+                                   RAY_TRACING_QUERY_ALL_MOTION_BLUR ||
+                query->op() == xir::ResourceQueryOp::
+                                   RAY_TRACING_QUERY_ANY_MOTION_BLUR;
+            if (is_static_ray_query || is_motion_ray_query) {
+                auto is_any =
+                    query->op() == xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY ||
+                    query->op() == xir::ResourceQueryOp::
+                                       RAY_TRACING_QUERY_ANY_MOTION_BLUR;
                 auto expected_type =
-                    query->op() == xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY ?
+                    is_any ?
                         ray_query_any_type_name :
                         ray_query_all_type_name;
-                if (query->operand_count() != 3u ||
+                auto mask_index = is_motion_ray_query ? 3u : 2u;
+                if (query->operand_count() !=
+                        (is_motion_ray_query ? 4u : 3u) ||
                     query->operand(0u)->type() == nullptr ||
                     !query->operand(0u)->type()->is_accel() ||
                     !is_ray_type(query->operand(1u)->type()) ||
-                    query->operand(2u)->type() == nullptr ||
-                    !query->operand(2u)->type()->is_uint32() ||
+                    (is_motion_ray_query &&
+                     (query->operand(2u)->type() == nullptr ||
+                      !query->operand(2u)->type()->is_float32())) ||
+                    query->operand(mask_index)->type() == nullptr ||
+                    !query->operand(mask_index)->type()->is_uint32() ||
                     !is_ray_query_type(query->type()) ||
                     query->type()->description() != expected_type) {
                     reason = "invalid acceleration ray-query operands or result type";
                     return false;
                 }
                 auto initialization_count = 0u;
+                auto consumed_by_pipeline = false;
                 for (auto use : query->use_list()) {
                     auto user = use->user();
                     if (user == nullptr || !user->isa<xir::StoreInst>()) {
@@ -733,9 +896,33 @@ namespace detail {
                         return false;
                     }
                     initialization_count++;
+                    for (auto object_use : store->variable()->use_list()) {
+                        auto object_user = object_use->user();
+                        consumed_by_pipeline |=
+                            object_user != nullptr &&
+                            object_user->isa<xir::RayQueryPipelineInst>() &&
+                            static_cast<const xir::RayQueryPipelineInst *>(
+                                object_user)
+                                    ->query_object() == store->variable();
+                    }
                 }
                 if (initialization_count != 1u) {
                     reason = "ray-query construction must have exactly one initialization store";
+                    return false;
+                }
+                if (!consumed_by_pipeline && is_motion_ray_query) {
+                    reason =
+                        "Metal 4 intersection_query does not accept motion "
+                        "acceleration structures or a ray-time operand; the "
+                        "query was not eligible for pipeline outlining";
+                    return false;
+                }
+                if (!consumed_by_pipeline &&
+                    config.enable_extended_accel_limits) {
+                    reason =
+                        "Metal 4 intersection_query does not accept the "
+                        "extended_limits tag; the query was not eligible for "
+                        "pipeline outlining";
                     return false;
                 }
                 break;
@@ -972,6 +1159,23 @@ bool luisa_compute_metal_codegen_llvm_supported(
     auto raster_stage_count = 0u;
     const xir::RasterStageFunction *raster_stage = nullptr;
     auto raster_depth_mode = detail::AIRRasterDepthMode::NONE;
+    llvm::DenseSet<const xir::Function *> ray_pipeline_handlers;
+    for (auto function : xir_module.function_list()) {
+        if (auto definition = function->definition()) {
+            definition->traverse_instructions(
+            [&ray_pipeline_handlers](const xir::Instruction *instruction) noexcept {
+                if (!instruction->isa<xir::RayQueryPipelineInst>()) { return; }
+                auto pipeline = static_cast<const xir::RayQueryPipelineInst *>(
+                    instruction);
+                if (auto handler = pipeline->on_surface_function()) {
+                    ray_pipeline_handlers.insert(handler);
+                }
+                if (auto handler = pipeline->on_procedural_function()) {
+                    ray_pipeline_handlers.insert(handler);
+                }
+            });
+        }
+    }
     for (auto function : xir_module.function_list()) {
         if (function->derived_function_tag() == xir::DerivedFunctionTag::EXTERNAL &&
             (!function->name().has_value() || function->name()->empty())) {
@@ -986,10 +1190,14 @@ bool luisa_compute_metal_codegen_llvm_supported(
             raster_stage_count++;
             raster_stage = static_cast<const xir::RasterStageFunction *>(function);
         }
+        auto argument_index = 0u;
         for (auto argument : function->arguments()) {
             if (!detail::supported_type(argument->type(), local_reason)) { return fail(std::move(local_reason)); }
             if (detail::is_ray_query_type(argument->type())) {
-                return fail("function has an escaping ray-query argument");
+                if (!ray_pipeline_handlers.contains(function) ||
+                    argument_index != 0u || !argument->is_reference()) {
+                    return fail("function has an escaping ray-query argument");
+                }
             }
             if (argument->type()->is_texture() &&
                 !detail::supported_texture_usage(argument, local_reason)) {
@@ -1001,6 +1209,7 @@ bool luisa_compute_metal_codegen_llvm_supported(
                 !detail::is_indirect_dispatch_buffer_type(argument->type())) {
                 return fail("entry function has an unsupported reference argument");
             }
+            argument_index++;
         }
         if (auto definition = function->definition()) {
             auto supported = true;

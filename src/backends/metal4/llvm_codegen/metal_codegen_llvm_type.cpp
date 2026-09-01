@@ -360,6 +360,21 @@ llvm::StructType *MetalCodegenLLVMImpl::_air_intersection_function_table() noexc
     return _air_intersection_function_table_type;
 }
 
+llvm::StructType *MetalCodegenLLVMImpl::_air_intersection_function_table_wrapper() noexcept {
+    if (_air_intersection_function_table_wrapper_type == nullptr) {
+        auto pointer = llvm::PointerType::get(
+            _context, air_address_space_device);
+        _air_intersection_function_table_wrapper_type =
+            llvm::StructType::create(
+                _context, {pointer},
+                "luisa.air.intersection.function.table");
+        _set_struct_pointer_element_type(
+            _air_intersection_function_table_wrapper_type, 0u,
+            _air_intersection_function_table());
+    }
+    return _air_intersection_function_table_wrapper_type;
+}
+
 llvm::StructType *MetalCodegenLLVMImpl::_air_intersection_result(
     bool curves) noexcept {
     auto &result_type = curves ?
@@ -730,6 +745,12 @@ const MetalCodegenLLVMImpl::KernelArguments &MetalCodegenLLVMImpl::_root_argumen
             layout.sampled_texture_member_indices.emplace_back(
                 std::numeric_limits<unsigned>::max());
         }
+    }
+    for ([[maybe_unused]] auto &&pipeline : _ray_query_pipelines) {
+        auto [table_offset, member_index] = append_member(
+            _air_intersection_function_table_wrapper());
+        layout.intersection_table_offsets.emplace_back(table_offset);
+        layout.intersection_table_member_indices.emplace_back(member_index);
     }
     layout.size = std::max<size_t>(kernel_argument_alignment, luisa::align(offset, kernel_argument_alignment));
     if (layout.size != offset) {

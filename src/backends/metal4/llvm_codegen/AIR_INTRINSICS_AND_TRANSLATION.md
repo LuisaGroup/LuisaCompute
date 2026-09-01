@@ -11,14 +11,16 @@ The authoritative implementation is:
 
 - [metal_codegen_llvm.cpp](metal_codegen_llvm.cpp),
   [metal_codegen_llvm.h](metal_codegen_llvm.h), and the focused
-  `metal_codegen_llvm_{type,function,access,resource,atomic,arithmetic,metadata,preflight}.cpp`
+  `metal_codegen_llvm_{type,function,access,resource,atomic,arithmetic,metadata,preflight,ray_pipeline}.cpp`
   translation units for XIR-to-LLVM/AIR lowering.
 - [metal_codegen_llvm_builtin.cpp](metal_codegen_llvm_builtin.cpp) for the five
   fixed runtime-support entry points expressed directly as LLVM/AIR, and
   [metal_builtin_air.cpp](../metal_builtin_air.cpp) for their verification,
   optimization, downgrade, and joint MTLB packaging.
 - [metal_xir_pipeline.cpp](../metal_xir_pipeline.cpp) for AST-to-XIR lowering
-  and XIR optimization.
+  and XIR optimization, and
+  [lower_ray_query_to_pipeline.cpp](../../../xir/passes/lower_ray_query_to_pipeline.cpp)
+  for transactional handler-region outlining and capture analysis.
 - [metal_air_pipeline.cpp](../metal_air_pipeline.cpp) for LLVM optimization,
   LLVM 14 bitcode downgrade, and library assembly.
 - [metal_metallib.cpp](../metal_metallib.cpp) for the reconstructed MTLB
@@ -66,11 +68,13 @@ AST -> XIR
     |
     +-- basic XIR optimization
     +-- if autodiff scopes remain:
-    |     lower ray-query loops and switches
+    |     outline eligible ray-query loops to IFT pipelines
+    |     lower every retained ray-query loop
     |     destructure CFG -> immediately inline callables
     |     cleanup -> simplify CFG -> reg2mem -> restructure CFG
     |     verify -> lower autodiff -> reg2mem -> verify
-    +-- lower ray-query loops and switches
+    +-- outline eligible ray-query loops to IFT pipelines
+    +-- lower every retained ray-query loop
     +-- destructure CFG -> immediately inline all eligible call sites
     +-- mem2reg -> SSA optimization
     +-- remove unused callables
@@ -93,6 +97,7 @@ LLVM 21 IR with AIR target, intrinsics, and metadata
 JuliaLLVM downgrade writer -> LLVM 14-compatible bitcode
     |
     +-- compute: kernel_main + kernel_main_indirect
+    +-- compute IFT: one air.intersection entry per outlined query
     +-- raster: vertex_main + fragment_main
     |
     v
@@ -103,9 +108,12 @@ MTLDevice::newLibrary(data)
     |
     +-- MTLFunction kernel_main
     +-- MTLFunction kernel_main_indirect
+    +-- MTL intersection functions
     |
     v
-MTL4::Compiler -> MTL4 compute/render pipeline state
+MTL4::Compiler -> static linking -> compute/render pipeline state
+    |
+    +-- one-entry MTLIntersectionFunctionTable per outlined query
 ~~~
 
 The `metal4` module contains no MSL shader code generator. Stable resource
@@ -116,10 +124,10 @@ The original `metal` backend remains the separate source-MSL implementation.
 ### 2.1 XIR pass order
 
 `metal_translate_ast_to_xir` performs the following order. Pass failure reports
-from ray-query-loop lowering, switch lowering, CFG destructuring, and CFG
-restructuring are fatal rather than being treated as a partially lowered
-module. Inlining likewise rejects a nonzero malformed-call count instead of
-silently carrying malformed call sites into LLVM lowering.
+from ray-query outlining/lowering, CFG destructuring, and CFG restructuring are
+fatal rather than being treated as a partially lowered module. Inlining
+likewise rejects a nonzero malformed-call count instead of silently carrying
+malformed call sites into LLVM lowering.
 
 1. Translate the traced AST with `ast_to_xir_translate`.
 2. Verify the translated module.
@@ -127,8 +135,9 @@ silently carrying malformed call sites into LLVM lowering.
    `ShaderOption::enable_fast_math`.
 4. If the module contains an autodiff scope, run this pre-autodiff
    normalization:
-   - `lower_ray_query_loop_to_loop`
-   - `lower_switch`
+   - `outline-ray-query-pipelines` when
+     `ShaderOption::enable_ray_query_pipeline` is true
+   - `lower-ray-query-to-loop` for every retained query loop
    - `destructure_cfg`
    - `inline_all` with autodiff scopes allowed in callers
    - one post-inline cleanup iteration
@@ -140,8 +149,9 @@ silently carrying malformed call sites into LLVM lowering.
    - `reg2mem` again
    - verify the same no-PHI and unique-merge invariants again
 5. Run the main lowering pipeline:
-   - `lower_ray_query_loop_to_loop`
-   - `lower_switch`
+   - `outline-ray-query-pipelines` when
+     `ShaderOption::enable_ray_query_pipeline` is true
+   - `lower-ray-query-to-loop` for every retained query loop
    - `destructure_cfg`
    - `inline_all`
    - `mem2reg`
@@ -153,9 +163,11 @@ silently carrying malformed call sites into LLVM lowering.
    pipeline repeats this reachable-block verification immediately before
    XIR-to-LLVM translation.
 
-Inlining is deliberately scheduled immediately after CFG destructuring in
-both normalization paths. Multi-block inlining rejects structured caller or
-callee CFG; for functions made plain by
+The outlining pass is scheduled before retained ray-query-loop lowering and
+before CFG destructuring. Inlining is deliberately scheduled immediately after
+CFG destructuring in both normalization paths; no pass is inserted between
+`destructure_cfg` and `inline_all`. Multi-block inlining rejects structured
+caller or callee CFG; for functions made plain by
 `destructure_cfg`, its block splitting and branch insertion preserve the
 unstructured form expected by LLVM lowering. Recursive callables and functions
 with structured operations deliberately preserved by that pass can remain
@@ -765,8 +777,11 @@ constructors as reads of global state. Early CSE and GVN do not common them,
 and LICM does not hoist them out of their original control-flow location. DCE
 may still remove an unused constructor. This memory-effect rule also applies
 to the motion-blur forms. The current Metal 4 `intersection_query` API has no
-motion-AS tag or ray-time operand, so those forms are rejected by AIR
-preflight before allocation or reset emission.
+motion-AS tag or ray-time operand, so a motion query that remains in this
+native stateful form is rejected by AIR preflight before allocation or reset
+emission. Eligible triangle-only loops are outlined earlier into the Section
+8.8.1 IFT path, which uses the direct motion-capable `air.intersect` family and
+therefore carries the dynamic ray-time operand.
 
 This object lifecycle is deliberately local to one lowered function. Query
 objects are not root arguments, reflected resources, byte-addressable
@@ -789,6 +804,9 @@ The host and AIR emitter share these rules:
   structure handle plus a device pointer to 72-byte `LCInstance` records.
 - A direct texture occupies eight bytes in the LLVM root structure, while the
   host still starts the following logical argument at the next 16-byte boundary.
+- Each outlined ray query appends an eight-byte wrapped intersection-function-
+  table resource ID. Like every logical root field, each wrapper starts at the
+  next 16-byte boundary; direct and indirect entries use the identical layout.
 - Arrays and structures use their Luisa memory representation and may be
   passed as top-level uniform arguments.
 
@@ -1507,6 +1525,230 @@ including all four extended-limits suffix families. Direct procedural
 closest/any remains outside this family because Luisa's procedural callbacks
 require the stateful query API below.
 
+#### 8.8.1 Stateful-loop to intersection-function-table pipeline
+
+Metal has two materially different ways to express a filtered ray query. The
+native `intersection_query` object in Section 8.9 exposes an explicit mutable
+software state machine, but the public Metal 4 form does not accept motion-AS
+tags or ray time. The direct `air.intersect` family above accepts a ray-data
+payload and a non-null intersection-function table (IFT), and its intersection
+function returns the accept/continue decision. The Metal4 backend therefore
+converts an eligible XIR query loop as follows:
+
+~~~text
+RayQueryLoop(query object)
+  dispatch -> surface handler -> dispatch
+           -> empty procedural handler -> dispatch
+           -> loop merge
+
+        outline handlers and context
+                    |
+                    v
+RayQueryPipeline(query object, surface callable,
+                 empty procedural callable, captures...)
+                    |
+                    v
+air.intersect(..., non-null IFT, ray-data payload, payload size, ...)
+                    +-- hardware calls luisa_ray_query_surface_N
+                    +-- intersection function runs outlined handler
+                    +-- returns {accept_intersection, continue_search}
+~~~
+
+This conversion is controlled by
+`ShaderOption::enable_ray_query_pipeline`, which defaults to true. Setting it
+to false is an explicit validation and performance-comparison mode; it retains
+the native stateful representation and is not an MSL fallback.
+
+**Selection and scheduling.** `outline-ray-query-pipelines` runs after the
+basic XIR optimizations, but before `lower-ray-query-to-loop`, CFG
+destructuring, and inlining. The shared XIR pass first preflights every loop in
+a function and only mutates the function after the complete shape and capture
+set are known. It outlines the complete surface and procedural handler regions,
+including nested structured `if`, `switch`, `for`, `while`, `break`, and
+`continue` control flow. Cross-handler SSA, overlapping handler regions,
+nested query loops, parent-function returns, foreign predecessors, and merge
+PHIs that cannot be moved atomically reject the candidate without partially
+rewriting it. After selection, retained loops are lowered normally. The later
+`destructure_cfg -> inline_all` pair remains adjacent.
+
+Metal adds a stricter, deliberately conservative module gate before invoking
+the shared outliner. A module remains entirely stateful if any query:
+
+- enables a curve basis;
+- tests or reads a procedural candidate, or commits a procedural distance; or
+- reads a candidate object-space ray.
+
+The current AIR intersection-function entry is triangle-only and the outlined
+procedural handler must be empty. This module-wide gate prevents a mixed module
+from accidentally giving different queries incompatible intersector template
+arguments. It also means that a mixed procedural/curve query plus a motion
+triangle query remains native as a whole, after which the native motion query
+fails closed for the reason in Section 8.9. World-space ray reads do not force
+retention: their values can be carried in ray data.
+
+**Capture boundary.** A selected loop may capture the following values:
+
+- bool, signed/unsigned 8/16/32/64-bit integers, half, and float;
+- recursively composed vectors, matrices, arrays, and structures;
+- buffers whose element representation is recursively supported; and
+- bindless arrays.
+
+An lvalue capture is accepted only when it is a local `AllocaInst`. Its value
+is copied into ray data before traversal and copied back after `air.intersect`,
+so local mutable state has the same externally visible value as the stateful
+loop. An arbitrary reference could alias another capture and is rejected.
+Acceleration structures, textures, custom resources, doubles, and unsupported
+element types are not payload captures. The acceleration structure used to
+construct the query remains an ordinary kernel-side operand; attempting to
+reference an independent `Accel` from inside the outlined callback is not
+silently converted to a pointer capture.
+
+The payload is a natural-layout LLVM structure named
+`%LuisaRayQueryPayloadN`. Its fixed logical field order is:
+
+~~~text
+uchar accept, uchar continue_search,
+uint candidate_kind, uint instance_id, uint primitive_id,
+float2 barycentrics, float distance,
+float3 world_origin, float3 world_direction,
+float t_min, float t_max,
+uint3 dispatch_size, uint kernel_id,
+uint3 thread_id, uint3 block_id, uint3 dispatch_id, uint3 block_size,
+uint warp_size, uint warp_lane,
+<captured fields in XIR capture order>
+~~~
+
+Only fields actually read by the callback are physically retained; unused
+fixed fields become zero-length byte arrays so later field ordinals remain
+stable. `accept` and `continue_search` are always present. They are stored as
+one-byte `uchar` values in payload memory and converted to `i1` only for the
+intersection-function return. This is intentional storage ABI: it avoids
+packing four logical bool fields as four LLVM `i1` bits and is consistent with
+Luisa's one-byte bool structure layout. Captured aggregates use their ordinary
+Luisa/AIR memory types. Buffer captures receive nested `LCBuffer.<element>`
+`air.struct_type_info`; bindless captures receive `LCBindlessArray` with an
+`LCBindlessItem` pointer field. These metadata records are required even when
+the opaque-pointer LLVM layout alone has the same byte size.
+
+**Intersection entry ABI.** One external AIR entry is emitted per selected
+pipeline:
+
+~~~llvm
+define <{ i1, i1 }> @luisa_ray_query_surface_N(
+    ptr addrspace(5) %payload,
+    i32 %primitive_id,
+    i32 %geometry_id,
+    i32 %instance_id,
+    <2 x float> %barycentrics,
+    float %distance)
+~~~
+
+Address space 5 is AIR ray-data storage. `arg_eltypes` records the concrete
+`%LuisaRayQueryPayloadN` pointee, and the pointer is annotated with its actual
+ABI alignment and dereferenceable payload size. The entry initializes
+`accept = 0`, `continue_search = 1`, and the triangle candidate fields, calls
+the outlined surface callable, then returns a packed pair described by
+`air.accept_intersection` and `air.continue_search`. `commit()` writes
+`accept = 1`. If the callback observes the world-space ray, `commit()` also
+copies the candidate distance into the payload's current `t_max`; a subsequent
+`candidate.ray()` therefore sees the same contracted traversal interval as the
+stateful API. `terminate()` writes `continue_search = 0`. The function's
+`!air.intersection` record additionally contains `air.triangle`,
+`air.instancing`, and `air.triangle_data`, plus exact payload, primitive,
+geometry, instance, barycentric, and distance argument metadata.
+
+The kernel-side call uses the same `air.intersect<suffix>` result and field
+mapping as ordinary closest-hit tracing, but changes these operands:
+
+- the IFT is non-null;
+- the payload is the address-space-5 ray-data object and the byte count is its
+  exact LLVM allocation size;
+- `force_opaque` is false so the callback can run;
+- the geometry control is `3`, the triangle plus bounding-box bit pattern
+  observed in Apple's Metal 4 triangle-data IFT oracle; using `1` traverses the
+  triangles but does not invoke the IFT entry on the tested runtime; and
+- for this triangle-only IFT form, the otherwise unused curve-basis and
+  curve-type controls are `0xffffffff` as in the oracle.
+
+`QueryAny` selects the ordinary `accept_any = true` tail. Motion queries use
+the `.primitive_motion.instance_motion` suffix and insert their dynamic `float`
+time immediately after the visibility mask. No time is hidden in the payload.
+The committed hit is reconstructed from the returned intersection record.
+
+**Root IFT resource ABI.** The public `kernel_main` and
+`kernel_main_indirect` signatures do not expose IFTs as extra top-level buffer
+arguments. Each table's `MTL::ResourceID` is embedded in root buffer 0 using a
+wrapper recovered from a Metal 4 oracle:
+
+~~~llvm
+%struct._intersection_function_table_t = type opaque
+%luisa.air.intersection.function.table = type {
+    ptr addrspace(1)
+}
+%luisa.arguments = type {
+    <ordinary root fields and explicit padding>,
+    %luisa.air.intersection.function.table,
+    <padding and additional wrappers>
+}
+~~~
+
+`llvm.struct_eltypes` assigns the wrapper pointer the opaque
+`%struct._intersection_function_table_t` pointee. A bare pointer field produced
+an Apple compiler-service XPC interruption in the differential oracle, while
+the one-field wrapper is accepted. The physical resource ID occupies eight
+bytes, but each logical wrapper begins at the next 16-byte root offset. Root
+reflection describes it as an `air.intersection_function_table` indirect
+argument with `air.read_write` and the canonical type name
+`intersection_function_table<instancing, triangle_data[, motion tags...]>`.
+
+The external entry loads each wrapped table from root buffer 0 and forwards it
+as a hidden argument to the private `kernel_main_impl`. This design is required
+for GPU-written indirect dispatch. Luisa's ICB commands bind only root buffer 0
+and dispatch-data buffer 1 and use non-inherited buffers; a table bound at a
+separate top-level slot would therefore disappear when the command executes.
+Embedding the ResourceID in the shared root keeps direct and indirect layouts
+identical. At launch, `MetalShader` copies every direct or indirect table's
+`gpuResourceID()` into the corresponding root field and declares the table via
+`use_resource` before execution.
+
+**Library and runtime linking.** LLVM generation first produces independently
+verified direct and indirect modules and requires their ordered intersection-
+function lists and root sizes to match. For every function name, it clones the
+optimized module, retains one `!air.intersection` record, removes kernel
+metadata, internalizes other definitions, optimizes and verifies the clone,
+and downgrades it to LLVM 14 bitcode. The kernel module has all intersection
+entries and intersection metadata removed before its own downgrade. The MTLB
+therefore contains:
+
+~~~text
+kernel_main                         KERNEL
+kernel_main_indirect                KERNEL
+luisa_ray_query_surface_0           INTERSECTION
+luisa_ray_query_surface_1           INTERSECTION
+...
+~~~
+
+The ordered names are serialized in shader metadata as
+`INTERSECTION_FUNCTIONS`, so the same contract survives memory cache, disk
+cache, and AOT archive loading. For each direct and indirect compute PSO, the
+MTL4 compiler installs an `MTL4::StaticLinkingDescriptor`, enables binary
+linking, and links all listed intersection functions. It then creates one
+one-entry `MTL::IntersectionFunctionTable` per query, asks the linked PSO for
+that function's handle, and installs the handle at table index zero. Direct and
+indirect PSOs own separate table objects and therefore separate ResourceIDs.
+The Metal4 pipeline-data-set archive includes the linked form; its accompanying
+metallib and ordered metadata are retained so the tables can be reconstructed
+when the archive is loaded.
+
+This path is fail-closed. A nonempty procedural handler, curve/object-space
+query, unsupported capture, inconsistent direct/indirect function list,
+missing linked function handle, or table-creation failure does not fall back to
+MSL. The focused runtime coverage in Section 16 executes high-level and direct
+`proceed()` state machines, QueryAll/QueryAny commit and terminate, mutable
+scalar state, Buffer and Bindless captures, nested structured control flow,
+direct and GPU-written indirect dispatch, AOT reload, motion ray time, and
+Metal API Validation.
+
 ### 8.9 Stateful intersection-query lifecycle and intrinsics
 
 #### 8.9.1 Native lifecycle and exact declarations
@@ -1553,7 +1795,9 @@ declare void @air.abort_intersection_query<query-suffix>(
 `.instancing.triangle_data.curve_data` when `CurveBasisMD` is nonempty. The
 stateful Metal 4 query API does not accept the `.primitive_motion` or
 `.instance_motion` tags and has no reset-time ray-time parameter. Motion query
-constructors therefore fail preflight instead of selecting a guessed suffix.
+constructors that reach this native lowering therefore fail preflight instead
+of selecting a guessed suffix. Eligible triangle-only constructors are removed
+earlier by the Section 8.8.1 pipeline transform.
 
 The repeated `intersection_query` in the two commit names is intentional and
 matches the Apple oracle. Allocate, reset, next, both commits, abort, and
@@ -1715,8 +1959,8 @@ AIR accepts only the normalized, compiler-owned lifecycle above:
 - `IS_TERMINATED` must immediately follow `PROCEED` for the same query in the
   normalized traversal, and procedural operations select the bounding-box
   geometry flag;
-- static curve controls are taken from `CurveBasisMD`; motion query
-  constructors fail with the explicit diagnostic that Metal 4
+- static curve controls are taken from `CurveBasisMD`; a motion query retained
+  in native stateful form fails with the explicit diagnostic that Metal 4
   `intersection_query` accepts neither motion acceleration structures nor a
   ray-time operand.
 
@@ -2285,8 +2529,9 @@ Not currently supported in AIR:
 
 - direct procedural closest/any tracing; procedural support requires explicit
   stateful bounding-box candidate traversal and commit;
-- stateful motion-blur ray queries, because Metal 4 `intersection_query`
-  accepts neither a motion-acceleration-structure tag nor a ray-time operand;
+- native stateful motion-blur ray queries that are not eligible for Section
+  8.8.1 IFT outlining, because Metal 4 `intersection_query` accepts neither a
+  motion-acceleration-structure tag nor a ray-time operand;
 - clock and unresolved external functions or calls;
 - double, float8, int4/fp4, cooperative-matrix operations, and custom types other than the
   indirect-dispatch handle and the two local ray-query types;
@@ -2319,9 +2564,12 @@ path and rejects unsupported raster features rather than silently compiling
 one stage through a different ABI. Direct compute texture operations, static
 and motion triangle/curve traces, instance access, the local static
 triangle/curve/procedural-bounding-box query subset above, and the raster
-subset in Section 12.2 are AIR-native. Stateful motion queries,
-extended-limits stateful queries, and raster shaders requesting extended
-limits remain outside that boundary.
+subset in Section 12.2 are AIR-native. This also includes eligible triangle
+motion queries converted to the Section 8.8.1 IFT path.
+Native stateful motion queries retained because they use curves, procedural
+candidates, candidate object-space rays, or unsupported captures remain
+outside that boundary, as do extended-limits stateful queries and raster
+shaders requesting extended limits.
 The documented bindless buffer, texture-read, mip-query, and sampling paths
 also pass preflight and have dedicated strict AIR runtime coverage.
 
@@ -3183,9 +3431,12 @@ instance/user metadata, composes a 90-degree outer rotation with a translating
 keyframe, and refreshes changed keyframes through a TLAS refit. The companion
 `test_metal4_motion_instance_render` produces a 160 by 120 PNG using scanline
 ray time and checks 1,431 hit pixels, more than one-third-frame horizontal
-motion extent, and separated upper/lower hit centroids. Both pass Metal API
-and GPU Validation on the Apple M1 Max compatibility-build path; the shader
-and traversal code remain Metal4 AIR.
+motion extent, and separated upper/lower hit centroids. It also executes
+triangle `QueryAll` and `QueryAny` after loop-to-IFT conversion through both
+direct and GPU-written indirect dispatch, varies ray time by scanline, checks
+the matrix-motion user ID independently, and reloads the resulting AOT
+archive. The focused IFT run passes Metal API Validation on the Apple M1 Max
+compatibility-build path; the shader and traversal code remain Metal4 AIR.
 
 Stateful triangle and procedural-bounding-box traversal is strict-runtime
 validated by the focused `test_metal_xir_air_ray_query` CTest. It covers
@@ -3196,9 +3447,24 @@ world-ray getters. The strict `test_metal4_air_world_and_object_ray` regression
 also exercises candidate object-space origin/direction under a non-identity
 instance transform, before and after commit, and compares it with the immutable
 world-space ray. It verifies that an out-of-range procedural distance is
-ignored instead of reaching the native bounding-box commit intrinsic. Because
-the backend is AIR-only, none of those assertions can pass through an MSL
-fallback.
+ignored instead of reaching the native bounding-box commit intrinsic.
+
+`test_metal_xir_air_ray_query_state_machine` adds an explicit low-level
+`query.proceed()` matrix. Its triangle kernel is compiled once with IFT
+outlining and once with outlining disabled, and each shader runs through both
+direct and GPU-written indirect dispatch. The callback captures a direct
+Buffer, Bindless buffer, writable Buffer, mutable locals, and a nested uniform
+aggregate containing a four-field bool structure plus `byte4`. This forces the
+four-byte bool/byte-vector ABI through ray-data capture rather than testing it
+only at the root argument boundary. The handler executes nested `for`,
+`continue`, `break`, `switch`, and conditional commit control flow; all four
+modes must match exact expected payloads. A second explicit
+state machine uses two procedural AABBs, dynamic distance/selection resources,
+world- and object-space ray reads, and the same direct/indirect matrix. The
+pipeline-enabled procedural module must retain its stateful path atomically and
+match the explicitly stateful shader. The executable passes all 50 assertions
+both normally and with Metal API Validation on the Apple M1 Max. Because the
+backend is AIR-only, none of these assertions can pass through an MSL fallback.
 
 True vertex/fragment execution is strict-runtime validated by
 `test_metal_xir_air_raster`. Before drawing, the test enables the post-O2 LLVM
@@ -3521,7 +3787,58 @@ depth-buffer implementation first checks actual class selector responsiveness;
 when absent, Luisa D24S8 storage safely uses D32S8A24. Both logical formats
 still execute their independent two-draw Replace/Equal stencil tests.
 
-### 16.5 Useful commands
+### 16.5 Loop-to-IFT closure and M1 Max A/B (2026-09-01)
+
+The loop-to-pipeline implementation was closed on the Apple M1 Max with a
+CMake/Ninja build. The full configured CTest matrix passes **167/167**. The
+Metal4 integration matrix passes **38/38** both normally and with
+`MTL_DEBUG_LAYER=1` plus `LUISA_ENABLE_VALIDATION=1`; this includes all fifteen
+registered rendering examples. The explicit state-machine test covers the
+pipeline/stateful and direct/GPU-written-indirect Cartesian product for a
+triangle query, while its procedural-AABB query proves conservative stateful
+retention. The motion test covers dynamic ray time, `QueryAll`, `QueryAny`,
+direct and indirect dispatch, AOT archive reload, and instance user ID.
+
+`test_path_tracing_cutout` now accepts
+`--ray-query-lowering pipeline|loop` and reports shader compilation separately
+from the synchronized render interval. `--iterations N` resets the accumulator,
+sampler state, random seed, and animation sequence before each measured
+offline iteration, so both lowerings receive identical work. The matched
+1024 by 1024 benchmark used 256 spp, 64 spp per dispatch, and the same
+deterministic output. Eight warm iterations per lowering were collected in
+two opposite execution orders:
+
+| Cutout path metric | Pipeline/IFT | Stateful loop | Difference |
+|---|---:|---:|---:|
+| Pooled median render time | 5,161.215 ms | 4,523.187 ms | IFT **14.106% slower** |
+| Derived throughput | 49.601 spp/s | 56.597 spp/s | IFT **12.362% lower** |
+| Fresh-runtime cold shader compile | 312.700 ms | 397.989 ms | IFT **21.430% less time** |
+| Warm archive load observed in the paired runs | about 1.2 ms | about 0.9 ms | both effectively cache hits |
+
+The final pipeline and stateful PNG files are byte-identical, both with
+SHA-256
+`92ec051f680e1ecd0d6d3526ed85b1c7a7d1be508d6c093619a490993b098cc5`.
+An always-commit control removes the cutout predicate but retains the
+intersection callback. Its three-iteration medians were 4,014.288 ms
+(63.772 spp/s) for IFT and 3,287.907 ms (77.861 spp/s) for the stateful loop:
+IFT was 22.092% slower in time and 18.095% lower in throughput. On this Apple7
+GPU, the intersection-function callback therefore has a measurable execution
+cost; the transform supplies motion-ray-query expressibility and a shorter
+cold compile, not an automatic rendering speedup. This result must not be
+generalized to Apple9/Apple10 hardware without the same paired device run.
+
+One reproducible warm pair is:
+
+~~~sh
+./bin/example_path_tracing_cutout metal4 --offline --spp 256 \
+  --iterations 5 --max-spp-per-dispatch 64 \
+  --trace-mode cutout-query --ray-query-lowering pipeline
+./bin/example_path_tracing_cutout metal4 --offline --spp 256 \
+  --iterations 5 --max-spp-per-dispatch 64 \
+  --trace-mode cutout-query --ray-query-lowering loop
+~~~
+
+### 16.6 Useful commands
 
 Dump XIR and optimized LLVM:
 
@@ -3634,10 +3951,12 @@ correct atomic lowering requires an explicit AIR intrinsic/ABI convention.
   extended-limits suffix families. The local stateful static
   triangle/curve/procedural-bounding-box query subset in Section 8.9 is
   likewise covered. The fixed-AppData raster subset in Section 12.2 is also
-  AIR-native and strict-runtime-tested. Direct procedural traces and stateful
-  motion queries remain fail-closed. Stateful queries and raster shaders also
-  reject the extended-limits option because Apple's Metal 4 frontend rejects
-  that stateful query tag combination.
+  AIR-native and strict-runtime-tested. Eligible triangle stateful loops,
+  including motion and dynamic ray time, are also AIR-native through the
+  Section 8.8.1 IFT transform. Direct procedural traces and retained native
+  stateful motion queries remain fail-closed. Native stateful queries and
+  raster shaders also reject the extended-limits option because Apple's Metal
+  4 frontend rejects that stateful query tag combination.
 - Luisa's standalone runtime `MotionInstance` is implemented with separate
   shader-visible 72-byte instance records and native 48-byte indirect-motion
   descriptors. Matrix motion and refit are strict-runtime-tested on Apple7;
@@ -3670,10 +3989,12 @@ correct atomic lowering requires an explicit AIR intrinsic/ABI convention.
 | Type/ABI and native shader logging | [metal_codegen_llvm_type.cpp](metal_codegen_llvm_type.cpp) |
 | Raster varying interpolation validation | [metal_codegen_llvm_raster.cpp](metal_codegen_llvm_raster.cpp), [raster_interpolation.h](../../../../include/luisa/dsl/raster/raster_interpolation.h) |
 | Resource, curve, motion, and query lowering | [metal_codegen_llvm_resource.cpp](metal_codegen_llvm_resource.cpp), [metal_codegen_llvm_access.cpp](metal_codegen_llvm_access.cpp) |
+| Ray-query payload, intersection entry, and IFT lowering | [metal_codegen_llvm_ray_pipeline.cpp](metal_codegen_llvm_ray_pipeline.cpp) |
 | Fail-closed support preflight | [metal_codegen_llvm_preflight.cpp](metal_codegen_llvm_preflight.cpp) |
 | Public codegen configuration/result | [metal_codegen_llvm.h](metal_codegen_llvm.h) |
 | LLVM-generated runtime builtin entries and ABI metadata | [metal_codegen_llvm_builtin.cpp](metal_codegen_llvm_builtin.cpp) |
 | AST-to-XIR orchestration | [metal_xir_pipeline.cpp](../metal_xir_pipeline.cpp) |
+| Transactional XIR query-loop outlining and capture analysis | [lower_ray_query_to_pipeline.cpp](../../../xir/passes/lower_ray_query_to_pipeline.cpp) |
 | Shared XIR pipeline factories | [pass_pipeline.cpp](../../../xir/passes/pass_pipeline.cpp) |
 | LLVM O2, version selection, dual entries, packaging | [metal_air_pipeline.cpp](../metal_air_pipeline.cpp) |
 | Runtime builtin verification, downgrade, and five-entry packaging | [metal_builtin_air.cpp](../metal_builtin_air.cpp) |
@@ -3694,8 +4015,8 @@ correct atomic lowering requires an explicit AIR intrinsic/ABI convention.
 | Pinned upstream typed-pointer and LLVM 14 writer base | [PointerRewriter.cpp](../../../ext/llvm-downgrade/src/PointerRewriter.cpp), [ValueEnumerator140.cpp](../../../ext/llvm-downgrade/src/ValueEnumerator140.cpp), [BitcodeWriter140.cpp](../../../ext/llvm-downgrade/src/BitcodeWriter140.cpp) |
 | AIR-only shader creation | [metal_device.cpp](../metal_device.cpp) |
 | Build-time BC6H/BC7 metallib embedding and runtime binary loading | [metal_tex_compress.cpp](../metal_tex_compress.cpp), [CMakeLists.txt](../CMakeLists.txt) |
-| In-memory MTLB loading and PSO creation | [metal_compiler.cpp](../metal_compiler.cpp) |
-| Host argument packing, minimum root block, and direct/indirect dispatch | [metal_shader.cpp](../metal_shader.cpp) |
+| In-memory MTLB loading, MTL4 static linking, IFT creation, and PSO creation | [metal_compiler.cpp](../metal_compiler.cpp) |
+| Host argument/IFT ResourceID packing, minimum root block, and direct/indirect dispatch | [metal_shader.cpp](../metal_shader.cpp) |
 | 256-byte-aligned root/upload staging allocations | [metal_stage_buffer_pool.cpp](../metal_stage_buffer_pool.cpp) |
 | Native logging, command options, allocator reuse, completion, and callback ownership | [metal_stream.cpp](../metal_stream.cpp), [metal_stream.h](../metal_stream.h) |
 | Apple9 AS guard and synchronized pre-Apple9 bridge | [metal_acceleration_structure_build.cpp](../metal_acceleration_structure_build.cpp), [metal_stream.cpp](../metal_stream.cpp) |
@@ -3705,6 +4026,7 @@ correct atomic lowering requires an explicit AIR intrinsic/ABI convention.
 | Strict AIR acceleration semantics | [test_metal_xir_air_accel.cpp](../../../tests/integration/runtime/test_metal_xir_air_accel.cpp) |
 | Extended-limits AIR trace semantics and suffixes | [test_metal4_air_extended_accel_limits.cpp](../../../tests/integration/runtime/test_metal4_air_extended_accel_limits.cpp) |
 | Stateful AIR ray-query semantics | [test_metal_xir_air_ray_query.cpp](../../../tests/integration/runtime/test_metal_xir_air_ray_query.cpp) |
+| Explicit pipeline/stateful, resource-capture, CFG, and procedural state machines | [test_metal_xir_air_ray_query_state_machine.cpp](../../../tests/integration/runtime/test_metal_xir_air_ray_query_state_machine.cpp) |
 | Strict AIR typed-bindless semantics | [test_metal_xir_air_typed_bindless.cpp](../../../tests/integration/runtime/test_metal_xir_air_typed_bindless.cpp) |
 | Strict AIR vertex/fragment metadata and draw semantics | [test_metal_xir_air_raster.cpp](../../../tests/integration/runtime/test_metal_xir_air_raster.cpp) |
 | Strict Metal4 raster stencil semantics | [test_metal4_raster_stencil.cpp](../../../tests/integration/runtime/test_metal4_raster_stencil.cpp) |
@@ -3713,6 +4035,7 @@ correct atomic lowering requires an explicit AIR intrinsic/ABI convention.
 | Typed-bindless AST alias normalization | [test_xir_translators.cpp](../../../tests/unit/xir/test_xir_translators.cpp) |
 | XIR storage-cast validation | [test_xir_verifier.cpp](../../../tests/unit/xir/test_xir_verifier.cpp) |
 | Direct ray-query proceed normalization | [test_xir_pass_reconstruct_ray_query_loop.cpp](../../../tests/unit/xir/test_xir_pass_reconstruct_ray_query_loop.cpp) |
+| Query-loop handler outlining, captures, CFG, and atomic rejection | [test_xir_pass_lower_ray_query_to_pipeline.cpp](../../../tests/unit/xir/test_xir_pass_lower_ray_query_to_pipeline.cpp) |
 | Query-constructor CSE/LICM constraints | [test_xir_pass_licm.cpp](../../../tests/unit/xir/test_xir_pass_licm.cpp) |
 | Strict AIR autodiff semantics | [test_autodiff.cpp](../../../tests/unit/dsl/test_autodiff.cpp) |
 | AST pack/unpack usage and XIR shape | [test_ast_pack_usage.cpp](../../../tests/unit/xir/test_ast_pack_usage.cpp) |

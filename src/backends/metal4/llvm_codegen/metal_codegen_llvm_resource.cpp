@@ -5,8 +5,15 @@ namespace luisa::compute::metal::detail {
 llvm::Value *MetalCodegenLLVMImpl::_translate_resource_query(IB &builder, FunctionContext &function, const xir::ResourceQueryInst *inst) noexcept {
     switch (inst->op()) {
         case xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL: [[fallthrough]];
-        case xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY: {
-            auto config = _air_ray_tracing_config(inst);
+        case xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY: [[fallthrough]];
+        case xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR: [[fallthrough]];
+        case xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR: {
+            auto motion =
+                inst->op() == xir::ResourceQueryOp::
+                                  RAY_TRACING_QUERY_ALL_MOTION_BLUR ||
+                inst->op() == xir::ResourceQueryOp::
+                                  RAY_TRACING_QUERY_ANY_MOTION_BLUR;
+            auto config = _air_ray_tracing_config(inst, motion);
             const xir::StoreInst *initialization{nullptr};
             for (auto use : inst->use_list()) {
                 auto user = use->user();
@@ -24,9 +31,21 @@ llvm::Value *MetalCodegenLLVMImpl::_translate_resource_query(IB &builder, Functi
                          "Metal AIR ray-query construction has no local query object.");
             auto query_object = initialization->variable();
             auto query = _value(builder, function, query_object);
+            if (_pipeline_query_objects.contains(query_object)) {
+                // The pipeline instruction consumes the constructor operands
+                // directly and records the returned intersection value. Keep
+                // the initialization store as an identity operation so the
+                // XIR query object's address remains stable.
+                return query;
+            }
+            LUISA_ASSERT(
+                !motion,
+                "Metal AIR stateful intersection_query cannot lower a motion "
+                "query; it must be outlined to a ray-query pipeline first.");
             auto accel = _value(builder, function, inst->operand(0u));
             auto ray = _value(builder, function, inst->operand(1u));
-            auto mask = _value(builder, function, inst->operand(2u));
+            auto mask = _value(
+                builder, function, inst->operand(motion ? 3u : 2u));
             auto handle_wrapper = builder.CreateExtractValue(accel, 0u);
             auto handle = builder.CreateExtractValue(handle_wrapper, 0u);
             auto vectorize_float3 = [&builder](llvm::Value *value) noexcept {
@@ -79,7 +98,9 @@ llvm::Value *MetalCodegenLLVMImpl::_translate_resource_query(IB &builder, Functi
                 builder.getInt1(false),
                 builder.getInt1(
                     inst->op() ==
-                    xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY)};
+                            xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY ||
+                    inst->op() == xir::ResourceQueryOp::
+                                      RAY_TRACING_QUERY_ANY_MOTION_BLUR)};
             std::array extra_pointer_types{
                 std::pair<unsigned, llvm::Type *>{
                     5u, _air_accel_handle()}};
@@ -507,6 +528,11 @@ llvm::Value *MetalCodegenLLVMImpl::_translate_ray_query_object_read(
     const xir::RayQueryObjectReadInst *inst) noexcept {
     LUISA_ASSERT(inst->operand_count() == 1u,
                  "Metal AIR ray-query reads require one query object.");
+    if (function.pipeline_handler != nullptr ||
+        function.pipeline_query_results.contains(inst->operand(0u))) {
+        return _translate_pipeline_ray_query_read(
+            builder, function, inst);
+    }
     auto config = _air_ray_tracing_config(inst->operand(0u));
     auto query = _value(builder, function, inst->operand(0u));
     auto getter = [&](luisa::string_view operation,
@@ -719,6 +745,11 @@ llvm::Value *MetalCodegenLLVMImpl::_translate_ray_query_object_read(
 void MetalCodegenLLVMImpl::_translate_ray_query_object_write(
     IB &builder, FunctionContext &function,
     const xir::RayQueryObjectWriteInst *inst) noexcept {
+    if (function.pipeline_handler != nullptr) {
+        _translate_pipeline_ray_query_write(
+            builder, function, inst);
+        return;
+    }
     LUISA_ASSERT(inst->operand_count() >= 1u,
                  "Metal AIR ray-query writes require a query object.");
     auto config = _air_ray_tracing_config(inst->operand(0u));

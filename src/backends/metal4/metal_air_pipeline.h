@@ -35,6 +35,7 @@ metal_air_target_for_current_device() noexcept;
 struct MetalAIRCodegenResult {
     luisa::vector<std::byte> library;
     luisa::vector<std::pair<luisa::string, luisa::string>> format_types;
+    luisa::vector<luisa::string> intersection_functions;
     size_t root_argument_size{0u};
 };
 

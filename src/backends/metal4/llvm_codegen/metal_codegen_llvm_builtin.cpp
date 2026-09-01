@@ -401,8 +401,8 @@ private:
                 i64, b.CreateStructGEP(
                          types.modification, modification, 5u));
             b.CreateStore(
-                index,
-                b.CreateStructGEP(types.instance, instance, 4u));
+                b.getInt32(0u),
+                b.CreateStructGEP(types.instance, instance, 3u));
             b.CreateStore(
                 primitive,
                 b.CreateStructGEP(types.instance, instance, 5u));
@@ -459,7 +459,7 @@ private:
         _emit_if(builder, flag(32u), "user_id", [&](IB &b) noexcept {
             b.CreateStore(
                 user_id,
-                b.CreateStructGEP(types.instance, instance, 3u));
+                b.CreateStructGEP(types.instance, instance, 4u));
         });
         builder.CreateBr(exit);
         builder.SetInsertPoint(exit);
@@ -1095,7 +1095,7 @@ void MetalBuiltinLLVMCodegen::_add_update_accel_metadata(
                                  _md_string("uint"),
                                  _md_string("intersection_function_offset"),
                                  _md_i32(60u), _md_i32(4u), _md_i32(0u),
-                                 _md_string("uint"), _md_string("mesh_index"),
+                                 _md_string("uint"), _md_string("user_id"),
                                  _md_i32(64u), _md_i32(8u), _md_i32(0u),
                                  _md_string("ulong"),
                                  _md_string("acceleration_structure_id")});

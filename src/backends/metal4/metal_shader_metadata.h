@@ -18,6 +18,7 @@ struct MetalShaderMetadata {
     luisa::vector<Usage> argument_usages;
     luisa::vector<uint8_t> argument_sampled;
     luisa::vector<std::pair<luisa::string, luisa::string>> format_types;
+    luisa::vector<luisa::string> intersection_functions;
 
     [[nodiscard]] auto operator==(const MetalShaderMetadata &rhs) const noexcept {
         return checksum == rhs.checksum &&
@@ -26,7 +27,8 @@ struct MetalShaderMetadata {
                argument_types == rhs.argument_types &&
                argument_usages == rhs.argument_usages &&
                argument_sampled == rhs.argument_sampled &&
-               format_types == rhs.format_types;
+               format_types == rhs.format_types &&
+               intersection_functions == rhs.intersection_functions;
     }
 };
 

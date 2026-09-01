@@ -1337,6 +1337,7 @@ select_ray_query_loops(
         size_t handler_instruction_count;
         size_t input_capture_count;
         size_t output_capture_count;
+        bool capture_filter_eligible;
         bool capture_eligible;
     };
     auto capture_count_within_limit = [](size_t input_count,
@@ -1368,12 +1369,25 @@ select_ray_query_loops(
         // exactly once before changing the callback ABI.
         auto input_capture_count = capture_list.in_values.size();
         auto output_capture_count = capture_list.out_values.size();
-        auto capture_eligible = capture_count_within_limit(
-            input_capture_count, output_capture_count,
-            options.max_captured_argument_count);
+        auto capture_filter_eligible = true;
+        if (options.captured_argument_filter != nullptr) {
+            for (auto *value : capture_list.in_values) {
+                capture_filter_eligible &=
+                    options.captured_argument_filter(value, false);
+            }
+            for (auto *value : capture_list.out_values) {
+                capture_filter_eligible &=
+                    options.captured_argument_filter(value, true);
+            }
+        }
+        auto capture_eligible =
+            capture_filter_eligible &&
+            capture_count_within_limit(
+                input_capture_count, output_capture_count,
+                options.max_captured_argument_count);
         // Output captures cannot be localized. If they alone exceed the
         // budget, no input-localization result can make the loop eligible.
-        if (!capture_eligible &&
+        if (!capture_eligible && capture_filter_eligible &&
             output_capture_count <=
                 options.max_captured_argument_count) {
             ++info.selection_localization_analysis_count;
@@ -1384,9 +1398,11 @@ select_ray_query_loops(
                 localized_input_capture_count <= input_capture_count,
                 "Localized ray-query handler captures exceed input captures.");
             input_capture_count -= localized_input_capture_count;
-            capture_eligible = capture_count_within_limit(
-                input_capture_count, output_capture_count,
-                options.max_captured_argument_count);
+            capture_eligible =
+                capture_filter_eligible &&
+                capture_count_within_limit(
+                    input_capture_count, output_capture_count,
+                    options.max_captured_argument_count);
         }
         capture_eligible_loop_count += capture_eligible ? 1u : 0u;
         candidates.emplace_back(Candidate{
@@ -1395,6 +1411,7 @@ select_ray_query_loops(
             .handler_instruction_count = handler_instruction_count,
             .input_capture_count = input_capture_count,
             .output_capture_count = output_capture_count,
+            .capture_filter_eligible = capture_filter_eligible,
             .capture_eligible = capture_eligible});
     }
     luisa::vector<RayQueryLoopInst *> selected;
@@ -1415,11 +1432,12 @@ select_ray_query_loops(
             selected.emplace_back(candidate.loop);
         } else {
             LUISA_VERBOSE(
-                "lower_ray_query_to_pipeline: retaining loop with {} handler block(s), {} handler instruction(s), at most {} input and {} output captured argument(s) (capture_limit={}, min_handler_instructions={}, eligible_loop_count={}, small_handler_loop_threshold={}).",
+                "lower_ray_query_to_pipeline: retaining loop with {} handler block(s), {} handler instruction(s), at most {} input and {} output captured argument(s) (capture_filter={}, capture_limit={}, min_handler_instructions={}, eligible_loop_count={}, small_handler_loop_threshold={}).",
                 candidate.handler_block_count,
                 candidate.handler_instruction_count,
                 candidate.input_capture_count,
                 candidate.output_capture_count,
+                candidate.capture_filter_eligible,
                 options.max_captured_argument_count,
                 options.min_handler_instruction_count,
                 capture_eligible_loop_count,

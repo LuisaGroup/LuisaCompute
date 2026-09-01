@@ -156,6 +156,14 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
                 to_underlying(Usage::WRITE)) != 0u;
     };
 
+    auto encode_intersection_tables = [&](auto &&tables) noexcept {
+        for (auto &&table : tables) {
+            auto resource_id = table->gpuResourceID();
+            copy(&resource_id, sizeof(resource_id));
+            encoder.use_resource(table.get());
+        }
+    };
+
     auto mark_usage = [&](Argument arg, size_t index) noexcept {
         auto argument_usage = _argument_usages[index];
         switch (arg.tag) {
@@ -208,7 +216,6 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
     };
 
     if (command->is_indirect()) {
-
         auto indirect = command->indirect_dispatch();
         if (indirect.max_dispatch_size == 0u) {
             warn_empty_launch();
@@ -225,6 +232,8 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
         for (auto arg : command->arguments()) {
             encode(arg, split_sampled_texture(argument_index++, arg));
         }
+        encode_intersection_tables(
+            _handle.indirect_intersection_tables);
         auto argument_size = std::max(
             luisa::align(argument_offset, argument_alignment),
             static_cast<size_t>(argument_alignment));
@@ -311,6 +320,7 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
             encode(arg, split_sampled_texture(argument_index, arg));
             mark_usage(arg, argument_index++);
         }
+        encode_intersection_tables(_handle.entry_intersection_tables);
 
         auto size = std::max(
             luisa::align(argument_offset, argument_alignment),

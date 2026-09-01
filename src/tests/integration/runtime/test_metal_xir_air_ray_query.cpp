@@ -12,6 +12,7 @@
 #include <cmath>
 
 #include <luisa/luisa-compute.h>
+#include <luisa/dsl/dispatch_indirect.h>
 #include <luisa/dsl/sugar.h>
 
 using namespace luisa;
@@ -39,6 +40,7 @@ void test_metal_xir_air_ray_query(Device &device) {
     constexpr std::array triangles{
         Triangle{0u, 1u, 2u},
         Triangle{3u, 4u, 5u}};
+    constexpr std::array acceptance{0u, 1u};
 
     auto vertex_buffer = device.create_buffer<float3>(vertices.size());
     auto triangle_buffer = device.create_buffer<Triangle>(triangles.size());
@@ -49,10 +51,13 @@ void test_metal_xir_air_ray_query(Device &device) {
 
     auto result_buffer = device.create_buffer<uint>(18u);
     auto hit_data_buffer = device.create_buffer<float4>(4u);
+    auto acceptance_buffer =
+        device.create_buffer<uint>(acceptance.size());
 
     Kernel1D ray_query_kernel = [](AccelVar accel,
                                    BufferUInt results,
-                                   BufferFloat4 hit_data) noexcept {
+                                   BufferFloat4 hit_data,
+                                   BufferUInt acceptance) noexcept {
         auto ray = make_ray(make_float3(0.0f, 0.0f, 1.0f),
                             make_float3(0.0f, 0.0f, -1.0f),
                             0.0f, 10.0f);
@@ -70,7 +75,7 @@ void test_metal_xir_air_ray_query(Device &device) {
                                         .on_surface_candidate([&](SurfaceCandidate &candidate) noexcept {
                                             auto hit = candidate.hit();
                                             all_candidate_count += 1u;
-                                            $if (hit.prim == 1u) {
+                                            $if (acceptance.read(hit.prim) != 0u) {
                                                 all_candidate_inst = hit.inst;
                                                 all_candidate_prim = hit.prim;
                                                 all_candidate_bary = hit.bary;
@@ -146,19 +151,46 @@ void test_metal_xir_air_ray_query(Device &device) {
         results.write(16u, ite(filtered_hit->miss(), 1u, 0u));
         results.write(17u, filtered_hit.hit_type);
     };
-    auto ray_query_shader = device.compile(ray_query_kernel);
+    auto ray_query_shader = device.compile(
+        ray_query_kernel, ShaderOption{.enable_cache = false});
+    auto indirect_dispatch_buffer =
+        device.create_indirect_dispatch_buffer(1u);
+    Kernel1D prepare_indirect = [](
+                                    Var<IndirectDispatchBuffer> commands) noexcept {
+        commands.set_dispatch_count(1u);
+        commands.set_kernel(
+            0u, make_uint3(1u), make_uint3(1u), 0u);
+    };
+    auto prepare_indirect_shader = device.compile(prepare_indirect);
+    auto indirect_result_buffer = device.create_buffer<uint>(18u);
+    auto indirect_hit_data_buffer = device.create_buffer<float4>(4u);
 
     std::array<uint, 18u> results{};
     std::array<float4, 4u> hit_data{};
+    std::array<uint, 18u> indirect_results{};
+    std::array<float4, 4u> indirect_hit_data{};
 
     auto stream = device.create_stream();
     stream << vertex_buffer.copy_from(luisa::span{vertices})
            << triangle_buffer.copy_from(luisa::span{triangles})
+           << acceptance_buffer.copy_from(luisa::span{acceptance})
            << mesh.build()
            << accel.build()
-           << ray_query_shader(accel, result_buffer, hit_data_buffer).dispatch(1u)
+           << ray_query_shader(
+                  accel, result_buffer, hit_data_buffer,
+                  acceptance_buffer)
+                  .dispatch(1u)
+           << prepare_indirect_shader(indirect_dispatch_buffer).dispatch(1u)
+           << ray_query_shader(
+                  accel, indirect_result_buffer,
+                  indirect_hit_data_buffer, acceptance_buffer)
+                  .dispatch(indirect_dispatch_buffer)
            << result_buffer.copy_to(luisa::span{results})
            << hit_data_buffer.copy_to(luisa::span{hit_data})
+           << indirect_result_buffer.copy_to(
+                  luisa::span{indirect_results})
+           << indirect_hit_data_buffer.copy_to(
+                  luisa::span{indirect_hit_data})
            << synchronize();
 
     constexpr auto surface_hit = static_cast<uint>(HitType::Surface);
@@ -209,6 +241,12 @@ void test_metal_xir_air_ray_query(Device &device) {
     expect(results[15] == 0u) << "filtered QueryAll should report no candidates";
     expect(results[16] == 1u) << "filtered QueryAll should produce a miss";
     expect(results[17] == miss) << "filtered QueryAll hit type should be Miss";
+    expect(indirect_results == results)
+        << "indirect ray-query pipeline integer payload differs from direct";
+    for (auto i = 0u; i < hit_data.size(); i++) {
+        expect(all(abs(indirect_hit_data[i] - hit_data[i]) < epsilon))
+            << "indirect ray-query pipeline float payload differs from direct";
+    }
 }
 
 void test_metal_xir_air_procedural_ray_query(Device &device) {

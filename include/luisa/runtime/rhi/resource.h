@@ -180,6 +180,13 @@ struct ShaderOption {
     ///   The `LUISA_XIR_ENABLE_SCALARIZER` environment variable, when set,
     ///   overrides this field.
     bool enable_scalarizer{false};
+    /// \brief Whether XIR backends may outline stateful ray-query loops into
+    ///   native ray-query pipelines and intersection functions.
+    /// \details This is enabled by default. Disabling it preserves the
+    ///   stateful query-loop representation and is primarily useful for
+    ///   validation and performance comparisons. It currently affects the
+    ///   Metal4 AIR backend; other backends may ignore it.
+    bool enable_ray_query_pipeline{true};
     /// \brief Whether the native driver may run its full optimization
     ///   pipeline while creating the shader.
     /// \details Disabling this option provides a bounded-compilation escape
@@ -329,13 +336,15 @@ struct hash<compute::ShaderOption> {
         constexpr auto enable_extended_accel_limits_shift = 4u;
         constexpr auto enable_driver_optimization_shift = 5u;
         constexpr auto enable_scalarizer_shift = 6u;
+        constexpr auto enable_ray_query_pipeline_shift = 7u;
         auto opt_hash = hash_value((static_cast<uint>(option.enable_cache) << enable_cache_shift) |
                                        (static_cast<uint>(option.enable_fast_math) << enable_fast_math_shift) |
                                        (static_cast<uint>(option.enable_debug_info) << enable_debug_info_shift) |
                                        (static_cast<uint>(option.compile_only) << compile_only_shift) |
                                        (static_cast<uint>(option.enable_extended_accel_limits) << enable_extended_accel_limits_shift) |
                                        (static_cast<uint>(option.enable_driver_optimization) << enable_driver_optimization_shift) |
-                                       (static_cast<uint>(option.enable_scalarizer) << enable_scalarizer_shift),
+                                       (static_cast<uint>(option.enable_scalarizer) << enable_scalarizer_shift) |
+                                       (static_cast<uint>(option.enable_ray_query_pipeline) << enable_ray_query_pipeline_shift),
                                    seed);
         auto name_hash = hash_value(option.name, seed);
         auto native_include_hash = hash_value(option.native_include, seed);

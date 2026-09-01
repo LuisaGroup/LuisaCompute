@@ -7,7 +7,7 @@ struct alignas(8) AccelInstance {
     uint options;
     uint mask;
     uint intersection_function_offset;
-    uint mesh_index;
+    uint user_id;
     ulong acceleration_structure_id;
 };
 
@@ -43,7 +43,7 @@ static_assert(sizeof(AccelInstanceModification) == 80u, "");
         auto m = mods[tid];
         auto instance = instances[m.index];
         if (m.flags & update_flag_primitive) {
-            instance.mesh_index = m.index;
+            instance.intersection_function_offset = 0u;
             instance.acceleration_structure_id = m.primitive;
         }
         if (m.flags & update_flag_visibility) {
@@ -69,7 +69,7 @@ static_assert(sizeof(AccelInstanceModification) == 80u, "");
             instance.transform[11] = m.affine[2].w;
         }
         if (m.flags & update_flag_user_id) {
-            instance.intersection_function_offset = m.user_id;
+            instance.user_id = m.user_id;
         }
         instances[m.index] = instance;
     }

@@ -327,7 +327,7 @@ llvm::MDNode *MetalCodegenLLVMImpl::_root_argument_metadata(
                                        md_i32(_context, 56u), md_i32(_context, 4u), md_i32(_context, 0u),
                                        md_string(_context, "uint"), md_string(_context, "intersection_function_offset"),
                                        md_i32(_context, 60u), md_i32(_context, 4u), md_i32(_context, 0u),
-                                       md_string(_context, "uint"), md_string(_context, "mesh_index"),
+                                       md_string(_context, "uint"), md_string(_context, "user_id"),
                                        md_i32(_context, 64u), md_i32(_context, 8u), md_i32(_context, 0u),
                                        md_string(_context, "ulong"), md_string(_context, "acceleration_structure_id")});
             auto instances_detail = node({md_i32(_context, 1u), md_string(_context, "air.buffer"),
@@ -438,6 +438,38 @@ llvm::MDNode *MetalCodegenLLVMImpl::_root_argument_metadata(
         struct_field_index++;
         logical_index++;
     }
+    for (auto i = 0u; i < _ray_query_pipelines.size(); i++) {
+        auto &&config = _ray_query_pipelines[i].config;
+        luisa::string type_name{
+            "intersection_function_table<instancing, triangle_data"};
+        if (config.curves) { type_name.append(", curve_data"); }
+        if (config.motion) {
+            type_name.append(", primitive_motion, instance_motion");
+        }
+        if (config.extended_limits) {
+            type_name.append(", extended_limits");
+        }
+        type_name.push_back('>');
+        auto name = luisa::format("ray_query_ift_{}", i);
+        auto detail = node({
+            md_i32(_context, struct_field_index),
+            md_string(_context, "air.intersection_function_table"),
+            md_string(_context, "air.location_index"),
+            md_i32(_context, physical_index), md_i32(_context, 1u),
+            md_string(_context, "air.read_write"),
+            md_string(_context, "air.arg_type_name"),
+            md_string(_context, type_name),
+            md_string(_context, "air.arg_name"),
+            md_string(_context, name)});
+        struct_fields.append({
+            md_i32(_context, static_cast<uint32_t>(
+                                 layout.intersection_table_offsets[i])),
+            md_i32(_context, 8u), md_i32(_context, 0u),
+            md_string(_context, type_name), md_string(_context, name),
+            md_string(_context, "air.indirect_argument"), detail});
+        physical_index++;
+        struct_field_index++;
+    }
     auto struct_info = node(struct_fields);
     return node({md_i32(_context, argument_index), md_string(_context, "air.indirect_buffer"),
                  md_string(_context, "air.buffer_size"), md_i32(_context, static_cast<uint32_t>(argument_struct_size)),
@@ -469,14 +501,22 @@ void MetalCodegenLLVMImpl::_add_kernel_metadata(llvm::Function *function, size_t
                      md_string(_context, "air.arg_type_name"), md_string(_context, type),
                      md_string(_context, "air.arg_name"), md_string(_context, name)});
     };
-    auto argument_info = node({args_info,
-                               dispatch_info,
-                               builtin(2u, "air.thread_position_in_threadgroup", "uint3", "thread_id"),
-                               builtin(3u, "air.threadgroup_position_in_grid", "uint3", "block_id"),
-                               builtin(4u, "air.thread_position_in_grid", "uint3", "dispatch_id"),
-                               builtin(5u, "air.threads_per_threadgroup", "uint3", "block_size"),
-                               builtin(6u, "air.threads_per_simdgroup", "uint", "warp_size"),
-                               builtin(7u, "air.thread_index_in_simdgroup", "uint", "warp_lane_id")});
+    llvm::SmallVector<llvm::Metadata *> arguments{args_info, dispatch_info};
+    auto builtin_base = 2u;
+    arguments.append({
+        builtin(builtin_base + 0u,
+                "air.thread_position_in_threadgroup", "uint3", "thread_id"),
+        builtin(builtin_base + 1u,
+                "air.threadgroup_position_in_grid", "uint3", "block_id"),
+        builtin(builtin_base + 2u,
+                "air.thread_position_in_grid", "uint3", "dispatch_id"),
+        builtin(builtin_base + 3u,
+                "air.threads_per_threadgroup", "uint3", "block_size"),
+        builtin(builtin_base + 4u,
+                "air.threads_per_simdgroup", "uint", "warp_size"),
+        builtin(builtin_base + 5u,
+                "air.thread_index_in_simdgroup", "uint", "warp_lane_id")});
+    auto argument_info = node(arguments);
     auto stage_info = node({});
     auto kernel_info = node({llvm::ValueAsMetadata::get(function), stage_info, argument_info});
     _module.getOrInsertNamedMetadata("air.kernel")->addOperand(kernel_info);

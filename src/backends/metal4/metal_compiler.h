@@ -36,10 +36,19 @@ private:
                              const PipelineDescriptorHandle &desc,
                              const MetalShaderMetadata &metadata) const noexcept;
 
+    void _store_metal4_archive(
+        luisa::string_view name, bool is_aot,
+        luisa::span<const std::byte> metallib,
+        MTL4::PipelineDataSetSerializer *serializer,
+        const MetalShaderMetadata &metadata) const noexcept;
+
     [[nodiscard]] std::pair<PipelineDescriptorHandle, MetalShaderHandle>
     _load_kernels_from_library(
         MTL::Library *library, uint3 block_size,
-        bool create_archive_descriptors) const noexcept;
+        luisa::span<const luisa::string> intersection_functions,
+        bool create_archive_descriptors,
+        MTL4::Compiler *compiler = nullptr,
+        MTL4::Archive *archive = nullptr) const noexcept;
 
 public:
     explicit MetalCompiler(const MetalDevice *device) noexcept;

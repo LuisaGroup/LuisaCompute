@@ -9,6 +9,7 @@
 #include <llvm/Passes/OptimizationLevel.h>
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Support/raw_ostream.h>
+#include <llvm/Transforms/Utils/Cloning.h>
 
 #include <luisa/core/logging.h>
 #include <luisa/runtime/rhi/resource.h>
@@ -216,7 +217,9 @@ void dump_llvm_module(const llvm::Module &module, luisa::string_view path) noexc
 
 struct AIRCodegenEntry {
     std::vector<std::byte> bitcode;
+    luisa::vector<std::vector<std::byte>> intersection_bitcodes;
     luisa::vector<std::pair<luisa::string, luisa::string>> format_types;
+    luisa::vector<luisa::string> intersection_functions;
     size_t root_argument_size;
 };
 
@@ -234,8 +237,68 @@ struct AIRCodegenEntry {
         auto path = luisa::format("{}.{}.ll", base_config.source_file, dump_suffix);
         dump_llvm_module(*result.module, path);
     }
+    luisa::vector<std::vector<std::byte>> intersection_bitcodes;
+    intersection_bitcodes.reserve(result.intersection_functions.size());
+    for (auto &&entry_name : result.intersection_functions) {
+        auto intersection_module = llvm::CloneModule(*result.module);
+        if (auto metadata = intersection_module->getNamedMetadata(
+                "air.intersection")) {
+            llvm::MDNode *selected_operand = nullptr;
+            for (auto i = 0u; i < metadata->getNumOperands(); i++) {
+                auto operand = metadata->getOperand(i);
+                auto value = llvm::dyn_cast<llvm::ValueAsMetadata>(
+                    operand->getOperand(0u));
+                auto function = value == nullptr ? nullptr :
+                                                     llvm::dyn_cast<llvm::Function>(
+                                                         value->getValue());
+                if (function != nullptr &&
+                    function->getName() == entry_name) {
+                    selected_operand = operand;
+                    break;
+                }
+            }
+            metadata->clearOperands();
+            LUISA_ASSERT(selected_operand != nullptr,
+                         "Missing AIR intersection metadata for '{}'.",
+                         entry_name);
+            metadata->addOperand(selected_operand);
+        }
+        if (auto metadata = intersection_module->getNamedMetadata(
+                "air.kernel")) {
+            metadata->clearOperands();
+        }
+        for (auto &function : *intersection_module) {
+            if (!function.isDeclaration() &&
+                function.getName() != entry_name) {
+                function.setLinkage(llvm::GlobalValue::InternalLinkage);
+            }
+        }
+        optimize_llvm_module(*intersection_module);
+        verify_llvm_module(*intersection_module,
+                           "intersection module extraction");
+        if (dump_llvm_enabled()) {
+            auto path = luisa::format(
+                "{}.{}.{}.ll", base_config.source_file,
+                dump_suffix, entry_name);
+            dump_llvm_module(*intersection_module, path);
+        }
+        intersection_bitcodes.emplace_back(
+            llvm_downgrade_to_14(std::move(intersection_module)));
+    }
+    if (auto metadata = result.module->getNamedMetadata(
+            "air.intersection")) {
+        metadata->clearOperands();
+    }
+    for (auto &&entry_name : result.intersection_functions) {
+        if (auto intersection = result.module->getFunction(entry_name)) {
+            intersection->eraseFromParent();
+        }
+    }
     return {.bitcode = llvm_downgrade_to_14(std::move(result.module)),
+            .intersection_bitcodes = std::move(intersection_bitcodes),
             .format_types = std::move(result.format_types),
+            .intersection_functions =
+                std::move(result.intersection_functions),
             .root_argument_size = result.root_argument_size};
 }
 
@@ -397,21 +460,39 @@ MetalAIRCodegenResult metal_codegen_air(
                  "Metal AIR direct and indirect printer format tables differ.");
     LUISA_ASSERT(direct.root_argument_size == indirect.root_argument_size,
                  "Metal AIR direct and indirect root argument layouts differ.");
+    LUISA_ASSERT(
+        direct.intersection_functions == indirect.intersection_functions,
+        "Metal AIR direct and indirect intersection function tables differ.");
 
     auto library_target = metallib_target_for_air(target);
-    std::array functions{
-        MetalLibFunction{"kernel_main", direct.bitcode},
-        MetalLibFunction{"kernel_main_indirect", indirect.bitcode}};
+    luisa::vector<MetalLibFunction> functions;
+    functions.reserve(2u + direct.intersection_functions.size());
+    functions.emplace_back(MetalLibFunction{
+        "kernel_main", direct.bitcode, MetalLibProgramType::KERNEL});
+    functions.emplace_back(MetalLibFunction{
+        "kernel_main_indirect", indirect.bitcode,
+        MetalLibProgramType::KERNEL});
+    for (auto i = 0u; i < direct.intersection_functions.size(); i++) {
+        auto &&name = direct.intersection_functions[i];
+        functions.emplace_back(MetalLibFunction{
+            name, direct.intersection_bitcodes[i],
+            MetalLibProgramType::INTERSECTION});
+    }
     auto library = make_metallib(library_target, functions);
-    std::array<luisa::string_view, 2u> entry_points{
-        "kernel_main", "kernel_main_indirect"};
-    constexpr std::array program_types{
-        MetalLibProgramType::KERNEL,
-        MetalLibProgramType::KERNEL};
+    luisa::vector<luisa::string_view> entry_points;
+    luisa::vector<MetalLibProgramType> program_types;
+    entry_points.reserve(functions.size());
+    program_types.reserve(functions.size());
+    for (auto &&function : functions) {
+        entry_points.emplace_back(function.name);
+        program_types.emplace_back(function.type);
+    }
     LUISA_ASSERT(validate_metallib(library, entry_points, program_types),
                  "Generated Metal library failed structural validation.");
     return {.library = std::move(library),
             .format_types = std::move(direct.format_types),
+            .intersection_functions =
+                std::move(direct.intersection_functions),
             .root_argument_size = direct.root_argument_size};
 }
 

@@ -9,15 +9,20 @@
 #include <luisa/xir/passes/destructure_cfg.h>
 #include <luisa/xir/passes/inline.h>
 #include <luisa/xir/passes/lower_ray_query_to_loop.h>
+#include <luisa/xir/passes/lower_ray_query_to_pipeline.h>
 #include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/passes/reg2mem.h>
 #include <luisa/xir/passes/restructure_cfg.h>
 #include <luisa/xir/passes/simplify_cfg.h>
 #include <luisa/xir/passes/unused_callable_removal.h>
+#include <luisa/xir/instructions/ray_query.h>
+#include <luisa/xir/instructions/resource.h>
+#include <luisa/xir/metadata/curve_basis.h>
 #include <luisa/xir/translators/ast2xir.h>
 #include <luisa/xir/translators/xir2text.h>
 #include <luisa/xir/verifier.h>
+#include <luisa/xir/instructions/alloca.h>
 
 namespace luisa::compute::metal {
 
@@ -79,6 +84,126 @@ void verify_xir_or_error(
     return result.lowered_ray_query_loop_count > 0u;
 }
 
+[[nodiscard]] bool metal_ray_payload_type_supported(
+    const Type *type) noexcept {
+    if (type == nullptr) { return false; }
+    switch (type->tag()) {
+        case Type::Tag::BOOL: [[fallthrough]];
+        case Type::Tag::INT8: [[fallthrough]];
+        case Type::Tag::UINT8: [[fallthrough]];
+        case Type::Tag::INT16: [[fallthrough]];
+        case Type::Tag::UINT16: [[fallthrough]];
+        case Type::Tag::INT32: [[fallthrough]];
+        case Type::Tag::UINT32: [[fallthrough]];
+        case Type::Tag::INT64: [[fallthrough]];
+        case Type::Tag::UINT64: [[fallthrough]];
+        case Type::Tag::FLOAT16: [[fallthrough]];
+        case Type::Tag::FLOAT32: return true;
+        case Type::Tag::VECTOR: [[fallthrough]];
+        case Type::Tag::MATRIX: [[fallthrough]];
+        case Type::Tag::ARRAY:
+            return metal_ray_payload_type_supported(type->element());
+        case Type::Tag::STRUCTURE:
+            for (auto member : type->members()) {
+                if (!metal_ray_payload_type_supported(member)) {
+                    return false;
+                }
+            }
+            return true;
+        // MSL explicitly permits device pointers in ray_data. Buffers are a
+        // {device pointer, size} value, and bindless arrays are an argument-
+        // buffer device pointer; both therefore have a lossless payload ABI.
+        case Type::Tag::BUFFER:
+            return type->element() == nullptr ||
+                   metal_ray_payload_type_supported(type->element());
+        case Type::Tag::BINDLESS_ARRAY: return true;
+        default: return false;
+    }
+}
+
+[[nodiscard]] bool metal_ray_payload_capture_supported(
+    const xir::Value *value, bool) noexcept {
+    if (value == nullptr ||
+        !metal_ray_payload_type_supported(value->type())) {
+        return false;
+    }
+    // Copying a captured reference into its own ray-data field preserves one
+    // local allocation's state across candidates. Reject arbitrary lvalues,
+    // whose aliases could otherwise be split into independent payload fields.
+    if (value->is_lvalue()) {
+        return value->isa<xir::AllocaInst>() &&
+               static_cast<const xir::AllocaInst *>(value)->is_local();
+    }
+    return true;
+}
+
+[[nodiscard]] bool outline_ray_query_pipelines(
+    xir::Module *module, xir::PassReport &report) noexcept {
+    auto requires_stateful_lowering = false;
+    for (auto function : module->function_list()) {
+        if (auto definition = function->definition()) {
+            definition->traverse_instructions(
+                [&requires_stateful_lowering](
+                    const xir::Instruction *instruction) noexcept {
+                    if (requires_stateful_lowering) { return; }
+                    if (instruction->isa<xir::ResourceQueryInst>()) {
+                        auto query = static_cast<
+                            const xir::ResourceQueryInst *>(instruction);
+                        auto is_ray_query =
+                            query->op() == xir::ResourceQueryOp::
+                                               RAY_TRACING_QUERY_ALL ||
+                            query->op() == xir::ResourceQueryOp::
+                                               RAY_TRACING_QUERY_ANY ||
+                            query->op() == xir::ResourceQueryOp::
+                                               RAY_TRACING_QUERY_ALL_MOTION_BLUR ||
+                            query->op() == xir::ResourceQueryOp::
+                                               RAY_TRACING_QUERY_ANY_MOTION_BLUR;
+                        if (is_ray_query) {
+                            auto basis = query->find_metadata<
+                                xir::CurveBasisMD>();
+                            requires_stateful_lowering =
+                                basis != nullptr &&
+                                basis->curve_basis_set().any();
+                        }
+                    } else if (instruction->isa<
+                                   xir::RayQueryObjectReadInst>()) {
+                        auto read = static_cast<
+                            const xir::RayQueryObjectReadInst *>(instruction);
+                        requires_stateful_lowering =
+                            read->op() == xir::RayQueryObjectReadOp::
+                                              RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY ||
+                            read->op() == xir::RayQueryObjectReadOp::
+                                              RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT ||
+                            read->op() == xir::RayQueryObjectReadOp::
+                                              RAY_QUERY_OBJECT_IS_PROCEDURAL_CANDIDATE;
+                    } else if (instruction->isa<
+                                   xir::RayQueryObjectWriteInst>()) {
+                        auto write = static_cast<
+                            const xir::RayQueryObjectWriteInst *>(instruction);
+                        requires_stateful_lowering =
+                            write->op() == xir::RayQueryObjectWriteOp::
+                                               RAY_QUERY_OBJECT_COMMIT_PROCEDURAL;
+                    }
+                });
+        }
+    }
+    if (requires_stateful_lowering) {
+        report.set("retained_non_triangle_ray_query_module", 1u);
+        return false;
+    }
+    xir::LowerRayQueryToPipelineOptions options;
+    options.captured_argument_filter =
+        metal_ray_payload_capture_supported;
+    auto result = xir::lower_ray_query_to_pipeline_pass_run_on_module(
+        module, &report, options);
+    if (!result.succeeded()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Metal XIR rejected {} ray-query pipeline candidate(s).",
+            result.error_count);
+    }
+    return result.lowered_loop_count > 0u;
+}
+
 [[nodiscard]] bool reg2mem(xir::Module *module, xir::PassReport &report) noexcept {
     auto result = xir::reg2mem_pass_run_on_module(module, &report);
     return result.lowered_phi_count > 0u ||
@@ -110,6 +235,10 @@ void optimize_xir_for_air(
 
     if (has_autodiff_scope(module)) {
         xir::PassPipeline pre_autodiff;
+        if (option.enable_ray_query_pipeline) {
+            pre_autodiff.add("outline-ray-query-pipelines",
+                             outline_ray_query_pipelines);
+        }
         pre_autodiff.add("lower-ray-query-to-loop", lower_ray_query_loops);
         pre_autodiff.add("destructure-cfg-before-inline", destructure_cfg);
         pre_autodiff.add("inline-all-autodiff-callables", [](xir::Module *m, xir::PassReport &report) {
@@ -166,6 +295,10 @@ void optimize_xir_for_air(
     }
 
     xir::PassPipeline lowering;
+    if (option.enable_ray_query_pipeline) {
+        lowering.add("outline-ray-query-pipelines",
+                     outline_ray_query_pipelines);
+    }
     lowering.add("lower-ray-query-to-loop", lower_ray_query_loops);
     lowering.add("destructure-cfg", destructure_cfg);
     lowering.add("inline-all", [](xir::Module *m, xir::PassReport &report) {

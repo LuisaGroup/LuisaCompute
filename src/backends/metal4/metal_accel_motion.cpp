@@ -303,8 +303,9 @@ void MetalAccel::_prepare_motion_data(
         auto &destination = motion_instances[i];
         destination.options = source.options;
         destination.mask = source.mask;
-        destination.intersectionFunctionTableOffset = source.user_id;
-        destination.userID = source.mesh_index;
+        destination.intersectionFunctionTableOffset =
+            source.intersection_function_offset;
+        destination.userID = source.user_id;
         destination.accelerationStructureID = handle->gpuResourceID();
         destination.motionTransformsStartIndex =
             static_cast<uint32_t>(transform_index);

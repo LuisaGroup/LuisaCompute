@@ -10,6 +10,7 @@ namespace luisa::compute::xir {
 class Module;
 class Function;
 class PassReport;
+class Value;
 
 class RayQueryLoopInst;
 class RayQueryPipelineInst;
@@ -60,6 +61,13 @@ struct LowerRayQueryToPipelineOptions {
     // for a different lowering.
     size_t max_captured_argument_count{
         std::numeric_limits<size_t>::max()};
+    // Optional backend ABI filter. It is evaluated on the original input and
+    // output capture values before outlining; returning false retains the
+    // complete loop for another lowering. The second argument identifies an
+    // output capture. Input allocations that a later localization proof could
+    // remove are conservatively presented to this callback as well.
+    bool (*captured_argument_filter)(const Value *, bool is_output) noexcept{
+        nullptr};
     // Optional backend profitability filter. A capture-eligible loop is
     // selected when its two handler regions contain at least this many XIR
     // instructions, or when its function contains at least

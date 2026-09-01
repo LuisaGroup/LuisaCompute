@@ -930,7 +930,7 @@ struct alignas(16) LCInstance {
     uint options;
     uint mask;
     uint intersection_function_offset;
-    uint mesh_index;
+    uint user_id;
 };
 
 static_assert(sizeof(LCInstance) == 64u, "");
@@ -1301,11 +1301,11 @@ inline void ray_query_terminate(LCRayQuery q) {
 }
 
 [[nodiscard]] inline auto accel_instance_user_id(LCAccel accel, uint i) {
-    return accel.instances[i].intersection_function_offset;
+    return accel.instances[i].user_id;
 }
 
 inline void accel_set_instance_user_id(LCAccel accel, uint i, uint user_id) {
-    accel.instances[i].intersection_function_offset = user_id;
+    accel.instances[i].user_id = user_id;
 }
 
 inline void accel_set_instance_transform(LCAccel accel, uint i, float4x4 m) {

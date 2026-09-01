@@ -160,6 +160,7 @@ void MetalCodegenLLVMImpl::_link_native_include() noexcept {
 }
 
 MetalCodegenLLVMResult MetalCodegenLLVMImpl::generate(const xir::Module &xir_module) noexcept {
+    _collect_ray_query_pipelines(xir_module);
     luisa::string reason;
     LUISA_ASSERT(luisa_compute_metal_codegen_llvm_supported(xir_module, _config, &reason),
                  "XIR module is unsupported by Metal AIR LLVM codegen: {}", reason);
@@ -204,6 +205,7 @@ MetalCodegenLLVMResult MetalCodegenLLVMImpl::generate(const xir::Module &xir_mod
             static_cast<void>(_translate_callable(static_cast<const xir::CallableFunction *>(function)));
         }
     }
+    _emit_ray_query_intersection_functions();
     if (_config.program == MetalAIRProgram::COMPUTE) {
         static_cast<void>(_translate_kernel(_kernel));
     } else {

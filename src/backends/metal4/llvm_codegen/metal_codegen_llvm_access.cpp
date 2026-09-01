@@ -225,7 +225,12 @@ AIRRayTracingConfig MetalCodegenLLVMImpl::_air_ray_tracing_config(
 llvm::Value *MetalCodegenLLVMImpl::_air_trace(
     IB &builder, llvm::Value *accel, llvm::Value *ray,
     llvm::Value *mask, llvm::Value *time,
-    AIRRayTracingConfig config, bool accept_any) noexcept {
+    AIRRayTracingConfig config, bool accept_any,
+    llvm::Value *intersection_table,
+    llvm::Value *payload,
+    uint64_t payload_size,
+    bool force_opaque,
+    bool has_procedural) noexcept {
     LUISA_ASSERT(accel->getType() == _accel() && ray->getType()->isStructTy(),
                  "Invalid Metal AIR trace operands.");
     LUISA_ASSERT(config.motion == (time != nullptr),
@@ -254,28 +259,34 @@ llvm::Value *MetalCodegenLLVMImpl::_air_trace(
     direction = vectorize_float3(direction);
     mask = builder.CreateZExtOrTrunc(mask, builder.getInt32Ty());
 
-    auto ift_pointer_type = llvm::PointerType::get(
-        _context, air_address_space_device);
-    auto null_ift_type = llvm::FunctionType::get(
-        ift_pointer_type, {}, false);
-    auto null_ift = _module.getOrInsertFunction(
-        "air.get_null_intersection_function_table", null_ift_type);
-    if (auto f = llvm::dyn_cast<llvm::Function>(null_ift.getCallee())) {
-        _set_air_pointer_element_types(
-            f, {}, _air_intersection_function_table());
-        f->setMustProgress();
-        f->setDoesNotFreeMemory();
-        f->setDoesNotThrow();
-        f->setWillReturn();
-        f->setOnlyReadsMemory();
-        f->setOnlyAccessesInaccessibleMemory();
-    }
-    auto ift = builder.CreateCall(null_ift);
-
+    auto has_intersection_function_table = intersection_table != nullptr;
     auto payload_pointer_type = llvm::PointerType::get(
         _context, air_address_space_generic);
-    auto payload = llvm::ConstantPointerNull::get(
-        llvm::cast<llvm::PointerType>(payload_pointer_type));
+    if (intersection_table == nullptr) {
+        auto ift_pointer_type = llvm::PointerType::get(
+            _context, air_address_space_device);
+        auto null_ift_type = llvm::FunctionType::get(
+            ift_pointer_type, {}, false);
+        auto null_ift = _module.getOrInsertFunction(
+            "air.get_null_intersection_function_table", null_ift_type);
+        if (auto f = llvm::dyn_cast<llvm::Function>(null_ift.getCallee())) {
+            _set_air_pointer_element_types(
+                f, {}, _air_intersection_function_table());
+            f->setMustProgress();
+            f->setDoesNotFreeMemory();
+            f->setDoesNotThrow();
+            f->setWillReturn();
+            f->setOnlyReadsMemory();
+            f->setOnlyAccessesInaccessibleMemory();
+        }
+        intersection_table = builder.CreateCall(null_ift);
+    }
+    if (payload == nullptr) {
+        payload = llvm::ConstantPointerNull::get(
+            llvm::cast<llvm::PointerType>(payload_pointer_type));
+    } else if (payload->getType() != payload_pointer_type) {
+        payload = builder.CreateAddrSpaceCast(payload, payload_pointer_type);
+    }
     llvm::SmallVector<llvm::Value *, 21u> arguments{
         origin, direction, t_min, t_max, handle, mask};
     if (config.motion) {
@@ -284,18 +295,24 @@ llvm::Value *MetalCodegenLLVMImpl::_air_trace(
         arguments.emplace_back(time);
     }
     auto ift_index = static_cast<unsigned>(arguments.size());
-    arguments.emplace_back(ift);
+    arguments.emplace_back(intersection_table);
     auto payload_index = static_cast<unsigned>(arguments.size());
     arguments.append({
-        payload, builder.getInt64(0u),
+        payload, builder.getInt64(payload_size),
         builder.getInt32(0u),// winding
         builder.getInt32(0u),// triangle culling
         builder.getInt32(0u),// geometry culling
         builder.getInt32(0u),// opacity culling
-        builder.getInt32(1u),// force opaque
-        builder.getInt32(config.geometry_type()),
-        builder.getInt32(config.curve_basis),
-        builder.getInt32(0u),// round curves
+        builder.getInt32(force_opaque ? 1u : 0u),
+        builder.getInt32(config.geometry_type(has_procedural)),
+        builder.getInt32(
+            !config.curves && has_intersection_function_table ?
+                ~0u :
+                config.curve_basis),
+        builder.getInt32(
+            !config.curves && has_intersection_function_table ?
+                ~0u :
+                0u),// round curves
         builder.getInt32(config.curve_control_point_count),
         builder.getInt1(false),// do not assume identity transforms
         builder.getInt1(accept_any)});

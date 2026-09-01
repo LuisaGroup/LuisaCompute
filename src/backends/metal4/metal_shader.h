@@ -12,6 +12,10 @@ class MetalCommandEncoder;
 struct MetalShaderHandle {
     NS::SharedPtr<MTL::ComputePipelineState> entry;
     NS::SharedPtr<MTL::ComputePipelineState> indirect_entry;
+    luisa::vector<NS::SharedPtr<MTL::IntersectionFunctionTable>>
+        entry_intersection_tables;
+    luisa::vector<NS::SharedPtr<MTL::IntersectionFunctionTable>>
+        indirect_intersection_tables;
 };
 
 class MetalShader {

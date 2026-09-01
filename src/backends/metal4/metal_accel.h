@@ -29,8 +29,8 @@ private:
         MTL::PackedFloat4x3 transformation;
         MTL::AccelerationStructureInstanceOptions options;
         uint32_t mask;
+        uint32_t intersection_function_offset;
         uint32_t user_id;
-        uint32_t mesh_index;
         MTL::ResourceID acceleration_structure_id;
     };
     static_assert(sizeof(Instance) == 72u);
@@ -46,10 +46,10 @@ private:
     static_assert(offsetof(Instance, mask) ==
                   offsetof(MTL::IndirectAccelerationStructureInstanceDescriptor,
                            mask));
-    static_assert(offsetof(Instance, user_id) ==
+    static_assert(offsetof(Instance, intersection_function_offset) ==
                   offsetof(MTL::IndirectAccelerationStructureInstanceDescriptor,
                            intersectionFunctionTableOffset));
-    static_assert(offsetof(Instance, mesh_index) ==
+    static_assert(offsetof(Instance, user_id) ==
                   offsetof(MTL::IndirectAccelerationStructureInstanceDescriptor,
                            userID));
     static_assert(offsetof(Instance, acceleration_structure_id) ==

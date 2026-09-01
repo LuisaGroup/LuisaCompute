@@ -50,6 +50,11 @@ namespace {
     return std::numeric_limits<uint64_t>::max();
 }
 
+[[nodiscard]] bool reject_int_ray_query_capture(
+    const Value *value, bool) noexcept {
+    return value->type() != Type::of<int>();
+}
+
 struct RayQueryFixture {
     KernelFunction *kernel;
     BasicBlock *body;
@@ -1154,6 +1159,37 @@ void register_tests() {
                !capture_free.body->terminator()->isa<RayQueryLoopInst>());
         expect(captured.body->terminator() == captured.loop);
         expect(captured.dispatch->terminator() == captured.dispatch_inst);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "capture_filter_selectively_retains_rejected_loops"_test = [] {
+        Module m;
+        auto capture_free = make_fixture(m);
+        XIRBuilder b;
+        b.set_insertion_point(capture_free.surface);
+        b.br(capture_free.dispatch);
+
+        auto captured = make_fixture(m);
+        auto *value =
+            captured.kernel->create_value_argument(Type::of<int>());
+        b.set_insertion_point(captured.body->instructions().front());
+        auto *state = b.alloca_local(Type::of<int>());
+        b.set_insertion_point(captured.surface);
+        b.store(state, value);
+        b.br(captured.dispatch);
+
+        size_t skipped_loop_count = 0u;
+        auto info = lower_ray_query_to_pipeline_pass_run_on_module(
+            &m, nullptr,
+            {.captured_argument_filter = reject_int_ray_query_capture,
+             .skipped_loop_count = &skipped_loop_count});
+
+        expect(info.succeeded());
+        expect(info.lowered_loop_count == 1u);
+        expect(skipped_loop_count == 1u);
+        expect(capture_free.body->terminator() == nullptr ||
+               !capture_free.body->terminator()->isa<RayQueryLoopInst>());
+        expect(captured.body->terminator() == captured.loop);
         expect(xir_verify_module(&m).succeeded());
     };
 

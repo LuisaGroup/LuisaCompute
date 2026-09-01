@@ -47,7 +47,7 @@ namespace {
 // Bump this whenever a Metal AIR lowering or ABI change can alter generated
 // code without changing the source AST, ShaderOption, or target tuple.
 constexpr auto metal_air_compute_cache_revision =
-    0x4c55495341414903ull;
+    0x4c55495341414908ull;
 
 [[nodiscard]] uint64_t pack_air_version(
     MetalAIRVersion version) noexcept {
@@ -591,6 +591,8 @@ ShaderCreationInfo MetalDevice::create_shader(const ShaderOption &option, Functi
             codegen_ms = codegen_clock.toc();
             generated_size_bytes = air.library.size();
             metadata.format_types = std::move(air.format_types);
+            metadata.intersection_functions =
+                std::move(air.intersection_functions);
             Clock compile_clock;
             pipeline = _compiler->compile(
                 air.library, option, metadata);

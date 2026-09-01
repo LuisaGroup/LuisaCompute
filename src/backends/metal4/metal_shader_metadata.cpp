@@ -31,6 +31,12 @@ luisa::string serialize_metal_shader_metadata(const MetalShaderMetadata &metadat
         for (auto c : fmt) { result.append(luisa::format("{:02x}", static_cast<uint>(c))); }
         result.append(" ").append(type).append(" ");
     }
+    result.append(luisa::format(
+        "INTERSECTION_FUNCTIONS {} ",
+        metadata.intersection_functions.size()));
+    for (auto &&name : metadata.intersection_functions) {
+        result.append(name).append(" ");
+    }
     result.append(luisa::format("CURVE_BASES {} ", metadata.curve_bases.count()));
     for (auto i = 0u; i < curve_basis_count; i++) {
         if (auto basis = static_cast<CurveBasis>(i);
@@ -82,6 +88,7 @@ luisa::optional<MetalShaderMetadata> deserialize_metal_shader_metadata(luisa::st
     luisa::optional<luisa::vector<Usage>> argument_usages;
     luisa::optional<luisa::vector<uint8_t>> argument_sampled;
     luisa::optional<luisa::vector<std::pair<luisa::string, luisa::string>>> format_types;
+    luisa::optional<luisa::vector<luisa::string>> intersection_functions;
 
     for (;;) {
         auto token = read_token();
@@ -306,6 +313,30 @@ luisa::optional<MetalShaderMetadata> deserialize_metal_shader_metadata(luisa::st
                 types.emplace_back(fmt, type);
             }
             format_types.emplace(std::move(types));
+        } else if (token == "INTERSECTION_FUNCTIONS") {
+            if (intersection_functions.has_value()) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Duplicate intersection functions in shader metadata.");
+                return luisa::nullopt;
+            }
+            auto x = parse_number(read_token());
+            if (!x.has_value()) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Invalid intersection function count in shader metadata.");
+                return luisa::nullopt;
+            }
+            luisa::vector<luisa::string> names;
+            names.reserve(x.value());
+            for (auto i = 0ull; i < x.value(); i++) {
+                auto name = read_token();
+                if (name.empty()) {
+                    LUISA_WARNING_WITH_LOCATION(
+                        "Invalid intersection function name in shader metadata.");
+                    return luisa::nullopt;
+                }
+                names.emplace_back(name);
+            }
+            intersection_functions.emplace(std::move(names));
         } else {
             LUISA_WARNING_WITH_LOCATION(
                 "Invalid token in shader metadata: {}.", token);
@@ -351,6 +382,10 @@ luisa::optional<MetalShaderMetadata> deserialize_metal_shader_metadata(luisa::st
             "Missing format types in shader metadata.");
         return luisa::nullopt;
     }
+    if (!intersection_functions.has_value()) {
+        // Backward-compatible with archives emitted before loop-to-IFT.
+        intersection_functions.emplace();
+    }
     return MetalShaderMetadata{
         .checksum = checksum.value(),
         .curve_bases = curve_bases.value(),
@@ -358,7 +393,9 @@ luisa::optional<MetalShaderMetadata> deserialize_metal_shader_metadata(luisa::st
         .argument_types = std::move(argument_types.value()),
         .argument_usages = std::move(argument_usages.value()),
         .argument_sampled = std::move(argument_sampled.value()),
-        .format_types = std::move(format_types.value())};
+        .format_types = std::move(format_types.value()),
+        .intersection_functions =
+            std::move(intersection_functions.value())};
 }
 
 }// namespace luisa::compute::metal

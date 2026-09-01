@@ -11,6 +11,7 @@
 #include <vector>
 
 #include <luisa/luisa-compute.h>
+#include <luisa/dsl/dispatch_indirect.h>
 #include <luisa/dsl/sugar.h>
 
 using namespace luisa;
@@ -68,10 +69,21 @@ void render_motion_instance(Device &device,
     auto accel = device.create_accel();
     accel.emplace_back(
         motion_instance, translation_matrix(0.0f, 0.0f, -0.2f),
-        0xffu, true, 73u);
+        0xffu, false, 73u);
 
     auto pixels_buffer = device.create_buffer<uint>(width * height);
     auto hits_buffer = device.create_buffer<uint>(width * height);
+    auto query_pixels_buffer = device.create_buffer<uint>(width * height);
+    auto query_hits_buffer = device.create_buffer<uint>(width * height);
+    auto query_any_hits_buffer = device.create_buffer<uint>(width * height);
+    auto indirect_query_pixels_buffer =
+        device.create_buffer<uint>(width * height);
+    auto indirect_query_hits_buffer =
+        device.create_buffer<uint>(width * height);
+    auto indirect_query_any_hits_buffer =
+        device.create_buffer<uint>(width * height);
+    auto acceptance_buffer = device.create_buffer<uint>(1u);
+    auto instance_user_id_buffer = device.create_buffer<uint>(1u);
     Kernel2D render = [](AccelVar accel, BufferUInt pixels,
                          BufferUInt hits) noexcept {
         auto coord = dispatch_id().xy();
@@ -102,19 +114,152 @@ void render_motion_instance(Device &device,
     };
     auto shader = device.compile(render);
 
+    Kernel2D render_query = [](AccelVar accel, BufferUInt pixels,
+                               BufferUInt hits,
+                               BufferUInt any_hits,
+                               BufferUInt acceptance) noexcept {
+        set_block_size(8u, 8u, 1u);
+        auto coord = dispatch_id().xy();
+        auto pixel = make_float2(coord) + 0.5f;
+        auto uv = pixel / make_float2(width, height);
+        auto world = (uv * 2.0f - 1.0f) * make_float2(1.6f, -1.2f);
+        auto ray = make_ray(
+            make_float3(world, 1.5f),
+            make_float3(0.0f, 0.0f, -1.0f), 0.0f, 10.0f);
+        auto time = uv.y;
+        UInt all_candidate_count = 0u;
+        Var<CommittedHit> hit =
+            accel.traverse_motion(ray, time, {})
+                .on_surface_candidate(
+                    [&](SurfaceCandidate &candidate) noexcept {
+                        auto candidate_hit = candidate.hit();
+                        all_candidate_count += 1u;
+                        $if (acceptance.read(candidate_hit.prim) != 0u) {
+                            candidate.commit();
+                        };
+                    })
+                .trace();
+        UInt any_candidate_count = 0u;
+        Var<CommittedHit> any_hit =
+            accel.traverse_any_motion(ray, time, {})
+                .on_surface_candidate(
+                    [&](SurfaceCandidate &candidate) noexcept {
+                        auto candidate_hit = candidate.hit();
+                        any_candidate_count += 1u;
+                        $if (acceptance.read(candidate_hit.prim) != 0u) {
+                            candidate.commit();
+                            candidate.terminate();
+                        };
+                    })
+                .trace();
+        auto did_hit = !hit->miss();
+        auto background = lerp(
+            make_float3(0.025f, 0.04f, 0.075f),
+            make_float3(0.08f, 0.12f, 0.18f), uv.y);
+        auto barycentric = make_float3(
+            hit.bary.x, hit.bary.y,
+            1.0f - hit.bary.x - hit.bary.y);
+        auto foreground =
+            0.18f + 0.82f * max(barycentric, make_float3(0.0f));
+        auto color = select(background, foreground, did_hit);
+        auto rgba = make_uint3(
+            round(clamp(color, 0.0f, 1.0f) * 255.0f));
+        auto index = coord.y * width + coord.x;
+        pixels.write(index, rgba.x | (rgba.y << 8u) |
+                                (rgba.z << 16u) | (255u << 24u));
+        hits.write(index, ite(did_hit & (all_candidate_count == 1u),
+                              1u, 0u));
+        any_hits.write(index, ite(!any_hit->miss() &
+                                      (any_candidate_count == 1u),
+                                  1u, 0u));
+    };
+    ShaderOption query_shader_option{.enable_cache = false};
+    query_shader_option.name = std::filesystem::absolute(
+        std::filesystem::path{opts.output_dir} /
+        "test_metal4_motion_ray_query.aot").string();
+    auto query_shader =
+        device.compile(render_query, query_shader_option);
+    auto indirect_dispatch_buffer =
+        device.create_indirect_dispatch_buffer(1u);
+    Kernel1D prepare_indirect = [](
+                                    Var<IndirectDispatchBuffer> commands) noexcept {
+        commands.set_dispatch_count(1u);
+        commands.set_kernel(
+            0u, make_uint3(8u, 8u, 1u),
+            make_uint3(width, height, 1u), 0u);
+    };
+    auto prepare_indirect_shader = device.compile(prepare_indirect);
+    Kernel1D read_instance_user_id = [](AccelVar accel,
+                                        BufferUInt output) noexcept {
+        output.write(0u, accel.instance_user_id(0u));
+    };
+    auto read_instance_user_id_shader =
+        device.compile(read_instance_user_id);
+
     std::vector<uint> pixels(width * height);
     std::vector<uint> hits(width * height);
+    std::vector<uint> query_pixels(width * height);
+    std::vector<uint> query_hits(width * height);
+    std::vector<uint> query_any_hits(width * height);
+    std::vector<uint> indirect_query_pixels(width * height);
+    std::vector<uint> indirect_query_hits(width * height);
+    std::vector<uint> indirect_query_any_hits(width * height);
+    std::array<uint, 1u> instance_user_ids{};
+    constexpr std::array acceptance{1u};
     auto stream = device.create_stream(StreamTag::GRAPHICS);
     stream << vertex_buffer.copy_from(luisa::span{vertices})
            << triangle_buffer.copy_from(luisa::span{triangles})
+           << acceptance_buffer.copy_from(luisa::span{acceptance})
            << mesh.build()
            << motion_instance.build()
            << accel.build()
+           << read_instance_user_id_shader(
+                  accel, instance_user_id_buffer)
+                  .dispatch(1u)
            << shader(accel, pixels_buffer, hits_buffer)
+                  .dispatch(width, height)
+           << query_shader(accel, query_pixels_buffer, query_hits_buffer,
+                           query_any_hits_buffer, acceptance_buffer)
                   .dispatch(width, height)
            << pixels_buffer.copy_to(luisa::span{pixels})
            << hits_buffer.copy_to(luisa::span{hits})
+           << query_pixels_buffer.copy_to(luisa::span{query_pixels})
+           << query_hits_buffer.copy_to(luisa::span{query_hits})
+           << query_any_hits_buffer.copy_to(luisa::span{query_any_hits})
+           << instance_user_id_buffer.copy_to(
+                  luisa::span{instance_user_ids})
            << synchronize();
+    LUISA_INFO("Direct motion ray-query IFT dispatch completed.");
+
+    stream << prepare_indirect_shader(indirect_dispatch_buffer).dispatch(1u)
+           << query_shader(
+                  accel, indirect_query_pixels_buffer,
+                  indirect_query_hits_buffer,
+                  indirect_query_any_hits_buffer, acceptance_buffer)
+                  .dispatch(indirect_dispatch_buffer)
+           << indirect_query_pixels_buffer.copy_to(
+                  luisa::span{indirect_query_pixels})
+           << indirect_query_hits_buffer.copy_to(
+                  luisa::span{indirect_query_hits})
+           << indirect_query_any_hits_buffer.copy_to(
+                  luisa::span{indirect_query_any_hits})
+           << synchronize();
+    LUISA_INFO("Indirect motion ray-query IFT dispatch completed.");
+
+    expect(query_pixels == pixels)
+        << "motion QueryAll pipeline image differs from direct trace";
+    expect(query_hits == hits)
+        << "motion QueryAll pipeline hit mask differs from direct trace";
+    expect(query_any_hits == hits)
+        << "motion QueryAny pipeline hit mask differs from direct trace";
+    expect(instance_user_ids[0] == 73u)
+        << "motion acceleration instance user ID did not round-trip";
+    expect(indirect_query_pixels == pixels)
+        << "indirect motion QueryAll pipeline image differs from direct trace";
+    expect(indirect_query_hits == hits)
+        << "indirect motion QueryAll pipeline hit mask differs from direct trace";
+    expect(indirect_query_any_hits == hits)
+        << "indirect motion QueryAny pipeline hit mask differs from direct trace";
 
     auto hit_count = size_t{0u};
     auto upper_count = size_t{0u};
@@ -170,8 +315,11 @@ void render_motion_instance(Device &device,
                      0;
     expect(saved) << "failed to save Metal4 matrix-motion render";
     if (saved) {
-        LUISA_INFO("Saved Metal4 matrix-motion render to {} ({} hit pixels).",
-                   output_path.string(), hit_count);
+        LUISA_INFO(
+            "Saved Metal4 matrix-motion render to {} ({} hit pixels); "
+            "direct trace, direct/indirect QueryAll pipeline, and "
+            "direct/indirect QueryAny pipeline match.",
+            output_path.string(), hit_count);
     }
 }
 

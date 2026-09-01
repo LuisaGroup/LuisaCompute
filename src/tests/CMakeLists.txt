@@ -422,6 +422,7 @@ if (TARGET luisa-compute-backend-metal4)
             test_metal4_air_extended_accel_limits
             test_metal4_motion_instance_render
             test_metal_xir_air_ray_query
+            test_metal_xir_air_ray_query_state_machine
             test_metal_xir_air_typed_bindless
             test_metal_xir_air_raster
             test_metal4_raster_stencil)

@@ -11,6 +11,7 @@
 #include <utility>
 
 #include <llvm/ADT/DenseMap.h>
+#include <llvm/ADT/DenseSet.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Bitcode/BitcodeWriter.h>
 #include <llvm/Config/llvm-config.h>
@@ -45,6 +46,7 @@ static constexpr auto air_address_space_generic = 0u;
 static constexpr auto air_address_space_device = 1u;
 static constexpr auto air_address_space_constant = 2u;
 static constexpr auto air_address_space_threadgroup = 3u;
+static constexpr auto air_address_space_ray_data = 5u;
 static constexpr auto air_texture_access_read = 1u;
 static constexpr auto air_texture_access_write = 2u;
 static constexpr auto air_texture_access_read_write = 3u;
@@ -86,8 +88,8 @@ static constexpr auto ray_trace_curve_motion_extended_intrinsic_suffix =
 static constexpr auto accel_instance_transform_field = 0u;
 static constexpr auto accel_instance_options_field = 1u;
 static constexpr auto accel_instance_mask_field = 2u;
-static constexpr auto accel_instance_user_id_field = 3u;
-static constexpr auto accel_instance_mesh_index_field = 4u;
+static constexpr auto accel_instance_intersection_function_offset_field = 3u;
+static constexpr auto accel_instance_user_id_field = 4u;
 static constexpr auto accel_instance_resource_id_field = 5u;
 static constexpr auto shader_log_subsystem =
     luisa::string_view{"org.luisa.compute"};
@@ -272,6 +274,60 @@ enum class AIRRasterDepthMode : uint8_t {
 class MetalCodegenLLVMImpl {
 
 private:
+    enum RayQueryPayloadField : unsigned {
+        ray_query_payload_accept = 0u,
+        ray_query_payload_continue,
+        ray_query_payload_candidate_kind,
+        ray_query_payload_instance,
+        ray_query_payload_primitive,
+        ray_query_payload_barycentrics,
+        ray_query_payload_distance,
+        ray_query_payload_world_origin,
+        ray_query_payload_world_direction,
+        ray_query_payload_min_distance,
+        ray_query_payload_max_distance,
+        ray_query_payload_dispatch_size,
+        ray_query_payload_kernel_id,
+        ray_query_payload_thread_id,
+        ray_query_payload_block_id,
+        ray_query_payload_dispatch_id,
+        ray_query_payload_block_size,
+        ray_query_payload_warp_size,
+        ray_query_payload_warp_lane,
+        ray_query_payload_field_count
+    };
+
+    struct RayQueryPayloadCapture {
+        const xir::Value *value;
+        const Type *type;
+        unsigned payload_index;
+        bool reference;
+    };
+
+    struct RayQueryPipeline {
+        const xir::RayQueryPipelineInst *instruction;
+        const xir::AllocaInst *query_object;
+        const xir::ResourceQueryInst *constructor;
+        const xir::CallableFunction *surface_handler;
+        size_t index;
+        AIRRayTracingConfig config;
+        llvm::StructType *payload_type;
+        uint32_t payload_field_mask;
+        luisa::vector<RayQueryPayloadCapture> captures;
+        luisa::string function_name;
+
+        [[nodiscard]] bool uses_payload_field(
+            RayQueryPayloadField field) const noexcept {
+            return (payload_field_mask &
+                    (1u << static_cast<unsigned>(field))) != 0u;
+        }
+    };
+
+    struct RayQueryPipelineHandler {
+        const RayQueryPipeline *pipeline;
+        bool surface;
+    };
+
     struct LLVMTypeInfo {
         llvm::Type *mem_type;
         llvm::Type *reg_type;
@@ -284,6 +340,8 @@ private:
         luisa::vector<unsigned> member_indices;
         luisa::vector<size_t> sampled_texture_offsets;
         luisa::vector<unsigned> sampled_texture_member_indices;
+        luisa::vector<size_t> intersection_table_offsets;
+        luisa::vector<unsigned> intersection_table_member_indices;
         llvm::StructType *type;
         size_t size;
     };
@@ -328,8 +386,12 @@ private:
         llvm::DenseMap<const xir::Value *, llvm::Value *> sampled_textures;
         llvm::DenseMap<const xir::BasicBlock *, llvm::BasicBlock *> block_exits;
         llvm::DenseMap<llvm::Value *, llvm::Value *> last_query_proceed;
+        llvm::DenseMap<const xir::Value *, llvm::Value *> pipeline_query_results;
+        luisa::vector<llvm::Value *> intersection_tables;
         luisa::vector<RayQueryAllocation> ray_query_allocations;
         luisa::vector<const xir::PhiInst *> pending_phi_nodes;
+        const RayQueryPipelineHandler *pipeline_handler{nullptr};
+        llvm::Value *pipeline_payload{nullptr};
 
         explicit FunctionContext(llvm::Function *f) noexcept
             : function{f},
@@ -394,6 +456,7 @@ private:
     llvm::StructType *_accel_instance_type{nullptr};
     llvm::StructType *_accel_type{nullptr};
     llvm::StructType *_air_intersection_function_table_type{nullptr};
+    llvm::StructType *_air_intersection_function_table_wrapper_type{nullptr};
     llvm::StructType *_air_intersection_result_type{nullptr};
     llvm::StructType *_air_curve_intersection_result_type{nullptr};
     llvm::StructType *_air_intersection_query_type{nullptr};
@@ -404,6 +467,10 @@ private:
     llvm::GlobalVariable *_sampler_table{nullptr};
     luisa::vector<PrintFormat> _print_formats;
     llvm::DenseMap<const xir::PrintInst *, uint32_t> _print_tokens;
+    luisa::vector<RayQueryPipeline> _ray_query_pipelines;
+    llvm::DenseMap<const xir::RayQueryPipelineInst *, size_t> _ray_query_pipeline_indices;
+    llvm::DenseMap<const xir::CallableFunction *, RayQueryPipelineHandler> _ray_query_pipeline_handlers;
+    llvm::DenseSet<const xir::Value *> _pipeline_query_objects;
 
 public:
     explicit MetalCodegenLLVMImpl(MetalCodegenLLVMConfig config) noexcept
@@ -437,6 +504,7 @@ private:
     [[nodiscard]] llvm::StructType *_accel_instance() noexcept;
     [[nodiscard]] llvm::StructType *_accel() noexcept;
     [[nodiscard]] llvm::StructType *_air_intersection_function_table() noexcept;
+    [[nodiscard]] llvm::StructType *_air_intersection_function_table_wrapper() noexcept;
     [[nodiscard]] llvm::StructType *_air_intersection_result(
         bool curves = false) noexcept;
     [[nodiscard]] llvm::StructType *_air_intersection_query() noexcept;
@@ -521,7 +589,12 @@ private:
     [[nodiscard]] llvm::Value *_air_trace(
         IB &builder, llvm::Value *accel, llvm::Value *ray,
         llvm::Value *mask, llvm::Value *time,
-        AIRRayTracingConfig config, bool accept_any) noexcept;
+        AIRRayTracingConfig config, bool accept_any,
+        llvm::Value *intersection_table = nullptr,
+        llvm::Value *payload = nullptr,
+        uint64_t payload_size = 0u,
+        bool force_opaque = true,
+        bool has_procedural = false) noexcept;
     [[nodiscard]] llvm::CallInst *_air_ray_query_call(
         IB &builder, luisa::string_view operation,
         llvm::Type *return_type,
@@ -560,6 +633,25 @@ private:
     void _add_module_metadata() noexcept;
     void _collect_print_formats(const xir::Module &module) noexcept;
     void _link_native_include() noexcept;
+
+    void _collect_ray_query_pipelines(const xir::Module &module) noexcept;
+    [[nodiscard]] const RayQueryPipeline &_ray_query_pipeline(
+        const xir::RayQueryPipelineInst *instruction) const noexcept;
+    void _emit_ray_query_intersection_functions() noexcept;
+    void _translate_ray_query_pipeline(
+        IB &builder, FunctionContext &function,
+        const xir::RayQueryPipelineInst *instruction) noexcept;
+    [[nodiscard]] llvm::Value *_translate_pipeline_ray_query_read(
+        IB &builder, FunctionContext &function,
+        const xir::RayQueryObjectReadInst *instruction) noexcept;
+    void _translate_pipeline_ray_query_write(
+        IB &builder, FunctionContext &function,
+        const xir::RayQueryObjectWriteInst *instruction) noexcept;
+    [[nodiscard]] llvm::Value *_pipeline_payload_pointer(
+        IB &builder, const FunctionContext &function,
+        RayQueryPayloadField field) const noexcept;
+    void _add_ray_query_intersection_metadata(
+        llvm::Function *function, const RayQueryPipeline &pipeline) noexcept;
 };
 
 }// namespace luisa::compute::metal::detail
