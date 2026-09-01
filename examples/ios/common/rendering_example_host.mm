@@ -2,9 +2,10 @@
 #import <QuartzCore/CAMetalLayer.h>
 
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include <unistd.h>
 
@@ -342,12 +343,26 @@ namespace {
         @autoreleasepool {
             auto executable = std::string{
                 NSBundle.mainBundle.executablePath.UTF8String};
-            auto backend = std::string{"metal4"};
-            std::array<char *, 2u> arguments{
-                executable.data(), backend.data()};
+            auto process_arguments = NSProcessInfo.processInfo.arguments;
+            std::vector<std::string> argument_storage;
+            argument_storage.reserve(process_arguments.count + 1u);
+            argument_storage.emplace_back(std::move(executable));
+            argument_storage.emplace_back("metal4");
+            for (NSUInteger i = 1u; i < process_arguments.count; i++) {
+                auto argument = [process_arguments objectAtIndex:i];
+                if (auto utf8 = argument.UTF8String; utf8 != nullptr) {
+                    argument_storage.emplace_back(utf8);
+                }
+            }
+            std::vector<char *> arguments;
+            arguments.reserve(argument_storage.size());
+            for (auto &argument : argument_storage) {
+                arguments.emplace_back(argument.data());
+            }
             NSLog(@"LUISA_IOS_RENDERING_EXAMPLE start=1 name='%s' "
-                  "backend='metal4'",
-                  LUISA_IOS_RENDERING_EXAMPLE_NAME);
+                  "backend='metal4' forwarded_argc=%zu",
+                  LUISA_IOS_RENDERING_EXAMPLE_NAME,
+                  arguments.size() - 2u);
             auto exit_code = luisa_ios_rendering_example_main(
                 static_cast<int>(arguments.size()), arguments.data());
             NSLog(@"LUISA_IOS_RENDERING_EXAMPLE finished=1 name='%s' "

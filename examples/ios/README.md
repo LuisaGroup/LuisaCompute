@@ -12,7 +12,27 @@ example source -> Context -> create_device(argv[1])
 The rendering sources do not hard-code `metal4`. The small iOS host supplies it
 as `argv[1]`, exactly as a desktop launch such as
 `example_path_tracing metal4` does. The source `main` is renamed only while it
-is included in its iOS application target.
+is included in its iOS application target. Arguments passed after the bundle
+identifier are forwarded unchanged starting at `argv[2]`, so the same example
+options can select an offline run or a finite performance experiment:
+
+~~~sh
+xcrun devicectl device process launch \
+  --device <device-id> --terminate-existing --console \
+  <bundle-id> -- \
+  --offline --spp 64 --max-spp-per-dispatch 1
+~~~
+
+Launching without additional arguments retains the normal interactive
+Window/Swapchain behavior.
+
+`example_ios_path_tracing_cutout` additionally accepts
+`--trace-mode direct|opaque-query|accept-query|cutout-query`. The `direct` and
+`opaque-query` modes use an all-opaque acceleration structure and produce the
+same image, making them a matched direct-intersector versus stateful-query
+measurement. They must not be described as an intersection-function pipeline
+measurement until the Metal4 backend binds a non-null intersection function
+table for `RayQueryPipelineInst`.
 
 ## Reproducible build scripts
 
