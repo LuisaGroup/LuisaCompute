@@ -452,7 +452,18 @@ public:
                 case '\n': ss.append("\\n"); break;
                 case '\r': ss.append("\\r"); break;
                 case '\t': ss.append("\\t"); break;
-                default: ss.push_back(c); break;
+                default: {
+                    auto u = static_cast<unsigned char>(c);
+                    if (u < 0x20u) {
+                        constexpr auto hex = "0123456789abcdef";
+                        ss.append("\\u00");
+                        ss.push_back(hex[u >> 4u]);
+                        ss.push_back(hex[u & 0x0fu]);
+                    } else {
+                        ss.push_back(c);
+                    }
+                    break;
+                }
             }
         }
         ss.push_back('"');
@@ -660,10 +671,15 @@ private:
         auto tag = (v.is_local() || v.is_builtin()) && is_argument ?
                        "ARGUMENT" :
                        luisa::to_string(v.tag());
-        vars.emplace_back(JSON::Object{
+        auto variable = JSON{JSON::Object{
             {"tag", tag},
             {"type", _type_index(v.type())},
-        });
+            {"usage", luisa::to_string(_func_ctx->f.variable_usage(v.uid()))},
+        }};
+        if (auto name = _func_ctx->f.get_variable_name(v.uid()); !name.empty()) {
+            variable["name"] = name;
+        }
+        vars.emplace_back(std::move(variable));
         return index;
     }
     [[nodiscard]] uint _constant_index(ConstantData c) noexcept {
@@ -747,6 +763,10 @@ private:
         auto old_ctx = std::exchange(_func_ctx, &ctx);
         // convert
         ctx.j["tag"] = luisa::to_string(f.tag());
+        if (!f.name().empty()) { ctx.j["name"] = f.name(); }
+        if (auto warp_size = f.allowed_warp_size()) {
+            ctx.j["allowed_warp_size"] = static_cast<uint32_t>(*warp_size);
+        }
         ctx.j["curve_bases"] = [bs = f.required_curve_bases()] {
             JSON::Array a;
             a.reserve(bs.count());
@@ -908,6 +928,18 @@ private:
             }
             return a;
         }();
+        if (expr->is_builtin() && expr->curve_basis_set().any()) {
+            j["curve_bases"] = [bs = expr->curve_basis_set()] {
+                JSON::Array a;
+                a.reserve(bs.count());
+                for (auto i = 0u; i < curve_basis_count; i++) {
+                    if (auto basis = static_cast<CurveBasis>(i); bs.test(basis)) {
+                        a.emplace_back(luisa::to_string(basis));
+                    }
+                }
+                return a;
+            }();
+        }
     }
     void _convert_cast_expr(JSON &j, const CastExpr *expr) noexcept {
         j["op"] = luisa::to_string(expr->op());
@@ -1113,6 +1145,8 @@ public:
         LUISA_ASSERT(converter._func_ctx == nullptr,
                      "Function context stack corrupted.");
         auto j = std::move(converter._root);
+        j["schema"] = "luisa.compute.ast";
+        j["version"] = ast_json_schema_version;
         j["entry"] = entry;
         return j;
     }
@@ -1120,6 +1154,8 @@ public:
         AST2JSON converter;
         auto t = converter._type_index(type);
         auto j = std::move(converter._root);
+        j["schema"] = "luisa.compute.type";
+        j["version"] = ast_json_schema_version;
         j["root"] = t;
         return j;
     }

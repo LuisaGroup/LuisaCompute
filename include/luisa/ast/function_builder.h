@@ -461,6 +461,9 @@ public:
     void comment_(luisa::string comment) noexcept;
     /// Add assign statement
     void assign(const Expression *lhs, const Expression *rhs) noexcept;
+    /// Add an expression statement. This is primarily used by structured AST
+    /// reconstruction where the expression has already been materialized.
+    void expression_statement(const Expression *expr) noexcept;
 
     /// Add if statement
     [[nodiscard]] IfStmt *if_(const Expression *cond) noexcept;
