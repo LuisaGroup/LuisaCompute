@@ -71,7 +71,8 @@ namespace {
 }
 
 void check_counted_array_capacity_guard(
-    std::uint32_t guard_capacity, bool expect_contraction) {
+    std::uint32_t guard_capacity, bool write_element,
+    bool expect_contraction) {
     Module module;
     BasicBlock *entry;
     auto *kernel = make_kernel(module, entry);
@@ -117,8 +118,12 @@ void check_counted_array_capacity_guard(
 
     builder.set_insertion_point(append);
     auto *append_index = builder.load(Type::of<uint>(), count);
-    auto *element = builder.gep(Type::of<uint>(), array, {append_index});
-    builder.store(element, module.create_constant_one(Type::of<uint>()));
+    if (write_element) {
+        auto *element = builder.gep(
+            Type::of<uint>(), array, {append_index});
+        builder.store(
+            element, module.create_constant_one(Type::of<uint>()));
+    }
     auto *old_count = builder.load(Type::of<uint>(), count);
     auto *next_count = builder.call(
         Type::of<uint>(), ArithmeticOp::BINARY_ADD,
@@ -161,6 +166,1381 @@ void check_counted_array_capacity_guard(
            (expect_contraction ? resume : original_block));
     expect(xir_verify_module(&module).succeeded());
 
+    auto after = coro_cfg_distill_pass_run_on_function(kernel);
+    expect(after.succeeded());
+    expect(frame_contains(after, array) == !expect_contraction);
+}
+
+void check_counted_array_control_guard(
+    bool mutate_index_after_guard, bool expect_contraction) {
+    Module module;
+    BasicBlock *entry;
+    auto *kernel = make_kernel(module, entry);
+    auto *resume = kernel->create_basic_block();
+    auto *append = kernel->create_basic_block();
+    auto *guard_snapshot = kernel->create_basic_block();
+    auto *guard = kernel->create_basic_block();
+    auto *guard_proxy = kernel->create_basic_block();
+    auto *consume = kernel->create_basic_block();
+    auto *done = kernel->create_basic_block();
+    auto *array_type = Type::array(Type::of<uint>(), 4u);
+    XIRBuilder builder;
+
+    builder.set_insertion_point(entry);
+    auto *array = builder.alloca_local(array_type);
+    array->set_name("control_guard_array");
+    auto *count = builder.alloca_local(Type::of<uint>());
+    count->set_name("control_guard_count");
+    auto *index = builder.alloca_local(Type::of<uint>());
+    index->set_name("control_guard_index");
+    auto *count_copy = builder.alloca_local(Type::of<uint>());
+    auto *index_copy = builder.alloca_local(Type::of<uint>());
+    auto *less_copy = builder.alloca_local(Type::of<bool>());
+    auto *exit_copy = builder.alloca_local(Type::of<bool>());
+    builder.coro_suspend(21u, "counted-control-guard", nullptr);
+
+    builder.set_insertion_point(resume);
+    builder.coro_resume(21u, nullptr);
+    builder.store(count, module.create_constant_zero(Type::of<uint>()));
+    builder.br(append);
+
+    builder.set_insertion_point(append);
+    auto *append_index = builder.load(Type::of<uint>(), count);
+    auto *element = builder.gep(Type::of<uint>(), array, {append_index});
+    builder.store(element, module.create_constant_one(Type::of<uint>()));
+    auto *old_count = builder.load(Type::of<uint>(), count);
+    auto *next_count = builder.call(
+        Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+        {old_count, module.create_constant_one(Type::of<uint>())});
+    builder.store(count, next_count);
+    builder.store(index, module.create_constant_zero(Type::of<uint>()));
+    builder.br(guard_snapshot);
+
+    builder.set_insertion_point(guard_snapshot);
+    auto *loaded_count = builder.load(Type::of<uint>(), count);
+    builder.store(count_copy, loaded_count);
+    builder.br(guard);
+
+    builder.set_insertion_point(guard);
+    auto *loaded_index = builder.load(Type::of<uint>(), index);
+    auto *copied_count = builder.load(Type::of<uint>(), count_copy);
+    auto *in_prefix = builder.call(
+        Type::of<bool>(), ArithmeticOp::BINARY_LESS,
+        {loaded_index, copied_count});
+    builder.store(less_copy, in_prefix);
+    auto *copied_less = builder.load(Type::of<bool>(), less_copy);
+    auto *should_exit = builder.call(
+        Type::of<bool>(), ArithmeticOp::UNARY_BIT_NOT,
+        {copied_less});
+    builder.store(exit_copy, should_exit);
+    auto *copied_exit = builder.load(Type::of<bool>(), exit_copy);
+    builder.cond_br(copied_exit, done, guard_proxy);
+
+    builder.set_insertion_point(guard_proxy);
+    builder.br(consume);
+
+    builder.set_insertion_point(consume);
+    if (mutate_index_after_guard) {
+        auto *stale_index = builder.load(Type::of<uint>(), index);
+        auto *changed_index = builder.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+            {stale_index, module.create_constant_one(Type::of<uint>())});
+        builder.store(index, changed_index);
+    }
+    auto *read_index = builder.load(Type::of<uint>(), index);
+    builder.store(index_copy, read_index);
+    auto *copied_index = builder.load(Type::of<uint>(), index_copy);
+    auto *selected = builder.gep(Type::of<uint>(), array, {copied_index});
+    static_cast<void>(builder.load(Type::of<uint>(), selected));
+    auto *old_index = builder.load(Type::of<uint>(), index);
+    auto *next_index = builder.call(
+        Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+        {old_index, module.create_constant_one(Type::of<uint>())});
+    builder.store(index, next_index);
+    builder.br(guard);
+
+    builder.set_insertion_point(done);
+    builder.return_void();
+
+    expect(xir_verify_module(&module).succeeded());
+    auto before = coro_cfg_distill_pass_run_on_function(kernel);
+    expect(before.succeeded());
+    expect(frame_contains(before, array));
+
+    auto original_block = array->parent_block();
+    auto info = coro_alloca_scope_pass_run_on_function(kernel);
+    expect(info.initialized_prefix_proof_count ==
+           (expect_contraction ? 1u : 0u));
+    expect(info.rejected_prior_lifetime_observation_count >=
+           (expect_contraction ? 0u : 1u));
+    expect(array->parent_block() ==
+           (expect_contraction ? append : original_block));
+    expect(xir_verify_module(&module).succeeded());
+
+    auto after = coro_cfg_distill_pass_run_on_function(kernel);
+    expect(after.succeeded());
+    expect(frame_contains(after, array) == !expect_contraction);
+}
+
+void check_counted_array_outer_lifetime_placement() {
+    Module module;
+    BasicBlock *entry;
+    auto *kernel = make_kernel(module, entry);
+    auto *read_index = kernel->create_value_argument(Type::of<uint>());
+    auto *resume = kernel->create_basic_block();
+    auto *header = kernel->create_basic_block();
+    auto *append = kernel->create_basic_block();
+    auto *read_guard = kernel->create_basic_block();
+    auto *read = kernel->create_basic_block();
+    auto *latch = kernel->create_basic_block();
+    auto *done = kernel->create_basic_block();
+    auto *array_type = Type::array(Type::of<uint>(), 4u);
+    XIRBuilder builder;
+
+    builder.set_insertion_point(entry);
+    auto *array = builder.alloca_local(array_type);
+    auto *count = builder.alloca_local(Type::of<uint>());
+    auto *read_cursor = builder.alloca_local(Type::of<uint>());
+    array->set_name("outer_lifetime_array");
+    builder.coro_suspend(22u, "counted-outer-lifetime", nullptr);
+
+    builder.set_insertion_point(resume);
+    builder.coro_resume(22u, nullptr);
+    builder.store(count, module.create_constant_zero(Type::of<uint>()));
+    builder.br(header);
+
+    builder.set_insertion_point(header);
+    auto *guard_count = builder.load(Type::of<uint>(), count);
+    std::uint32_t capacity = 4u;
+    auto *has_capacity = builder.call(
+        Type::of<bool>(), ArithmeticOp::BINARY_LESS,
+        {guard_count,
+         module.create_constant(Type::of<uint>(), &capacity)});
+    builder.cond_br(has_capacity, append, done);
+
+    builder.set_insertion_point(append);
+    auto *append_index = builder.load(Type::of<uint>(), count);
+    auto *element = builder.gep(Type::of<uint>(), array, {append_index});
+    builder.store(element, module.create_constant_one(Type::of<uint>()));
+    auto *old_count = builder.load(Type::of<uint>(), count);
+    auto *next_count = builder.call(
+        Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+        {old_count, module.create_constant_one(Type::of<uint>())});
+    builder.store(count, next_count);
+    builder.br(read_guard);
+
+    builder.set_insertion_point(read_guard);
+    builder.store(read_cursor, read_index);
+    auto *cursor = builder.load(Type::of<uint>(), read_cursor);
+    auto *current_count = builder.load(Type::of<uint>(), count);
+    auto *in_prefix = builder.call(
+        Type::of<bool>(), ArithmeticOp::BINARY_LESS,
+        {cursor, current_count});
+    builder.cond_br(in_prefix, read, latch);
+
+    builder.set_insertion_point(read);
+    auto *read_cursor_value = builder.load(Type::of<uint>(), read_cursor);
+    auto *selected = builder.gep(
+        Type::of<uint>(), array, {read_cursor_value});
+    static_cast<void>(builder.load(Type::of<uint>(), selected));
+    builder.br(latch);
+
+    builder.set_insertion_point(latch);
+    builder.br(header);
+
+    builder.set_insertion_point(done);
+    builder.return_void();
+
+    expect(xir_verify_module(&module).succeeded());
+    auto before = coro_cfg_distill_pass_run_on_function(kernel);
+    expect(before.succeeded());
+    expect(frame_contains(before, array));
+
+    auto info = coro_alloca_scope_pass_run_on_function(kernel);
+    expect(info.initialized_prefix_proof_count == 1u);
+    expect(array->parent_block() == resume);
+    expect(xir_verify_module(&module).succeeded());
+
+    auto after = coro_cfg_distill_pass_run_on_function(kernel);
+    expect(after.succeeded());
+    expect(!frame_contains(after, array));
+}
+
+void check_counted_array_saved_allocation_ticket(
+    bool mutate_ticket_after_increment,
+    bool ticket_comes_from_counter,
+    bool expect_contraction) {
+    Module module;
+    BasicBlock *entry;
+    auto *kernel = make_kernel(module, entry);
+    auto *resume = kernel->create_basic_block();
+    auto *append = kernel->create_basic_block();
+    auto *forward = kernel->create_basic_block();
+    auto *consume = kernel->create_basic_block();
+    auto *done = kernel->create_basic_block();
+    auto *array_type = Type::array(Type::of<uint>(), 4u);
+    XIRBuilder builder;
+
+    builder.set_insertion_point(entry);
+    auto *array = builder.alloca_local(array_type);
+    array->set_name("saved_ticket_array");
+    auto *count = builder.alloca_local(Type::of<uint>());
+    count->set_name("saved_ticket_count");
+    auto *ticket = builder.alloca_local(Type::of<uint>());
+    ticket->set_name("saved_ticket_index");
+    auto *forwarded_ticket = builder.alloca_local(Type::of<uint>());
+    auto *unrelated = builder.alloca_local(Type::of<uint>());
+    builder.coro_suspend(23u, "counted-saved-ticket", nullptr);
+
+    builder.set_insertion_point(resume);
+    builder.coro_resume(23u, nullptr);
+    builder.store(count, module.create_constant_zero(Type::of<uint>()));
+    builder.store(unrelated, module.create_constant_one(Type::of<uint>()));
+    builder.br(append);
+
+    builder.set_insertion_point(append);
+    auto *ticket_source = builder.load(
+        Type::of<uint>(),
+        ticket_comes_from_counter ? count : unrelated);
+    builder.store(ticket, ticket_source);
+    auto *append_index = builder.load(Type::of<uint>(), count);
+    auto *element = builder.gep(Type::of<uint>(), array, {append_index});
+    builder.store(element, module.create_constant_one(Type::of<uint>()));
+    auto *old_count = builder.load(Type::of<uint>(), count);
+    auto *next_count = builder.call(
+        Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+        {old_count, module.create_constant_one(Type::of<uint>())});
+    builder.store(count, next_count);
+    builder.br(forward);
+
+    builder.set_insertion_point(forward);
+    if (mutate_ticket_after_increment) {
+        auto *old_ticket = builder.load(Type::of<uint>(), ticket);
+        auto *next_ticket = builder.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+            {old_ticket, module.create_constant_one(Type::of<uint>())});
+        builder.store(ticket, next_ticket);
+    }
+    auto *saved_ticket = builder.load(Type::of<uint>(), ticket);
+    builder.store(forwarded_ticket, saved_ticket);
+    builder.br(consume);
+
+    builder.set_insertion_point(consume);
+    auto *read_index = builder.load(Type::of<uint>(), forwarded_ticket);
+    auto *selected = builder.gep(Type::of<uint>(), array, {read_index});
+    static_cast<void>(builder.load(Type::of<uint>(), selected));
+    builder.br(done);
+
+    builder.set_insertion_point(done);
+    builder.return_void();
+
+    expect(xir_verify_module(&module).succeeded());
+    auto before = coro_cfg_distill_pass_run_on_function(kernel);
+    expect(before.succeeded());
+    expect(frame_contains(before, array));
+
+    auto original_block = array->parent_block();
+    auto info = coro_alloca_scope_pass_run_on_function(kernel);
+    expect(info.initialized_prefix_proof_count ==
+           (expect_contraction ? 1u : 0u));
+    expect(array->parent_block() ==
+           (expect_contraction ? resume : original_block));
+    expect(xir_verify_module(&module).succeeded());
+
+    auto after = coro_cfg_distill_pass_run_on_function(kernel);
+    expect(after.succeeded());
+    expect(frame_contains(after, array) == !expect_contraction);
+}
+
+void check_counted_array_boolean_guarded_ticket(
+    bool mark_failed_allocation_valid,
+    bool expect_contraction) {
+    Module module;
+    BasicBlock *entry;
+    auto *kernel = make_kernel(module, entry);
+    auto *can_allocate =
+        kernel->create_value_argument(Type::of<bool>());
+    auto *resume = kernel->create_basic_block();
+    auto *success = kernel->create_basic_block();
+    auto *failure = kernel->create_basic_block();
+    auto *merge = kernel->create_basic_block();
+    auto *guard = kernel->create_basic_block();
+    auto *consume = kernel->create_basic_block();
+    auto *done = kernel->create_basic_block();
+    auto *array_type = Type::array(Type::of<uint>(), 4u);
+    XIRBuilder builder;
+
+    builder.set_insertion_point(entry);
+    auto *array = builder.alloca_local(array_type);
+    array->set_name("guarded_ticket_array");
+    auto *count = builder.alloca_local(Type::of<uint>());
+    auto *ticket = builder.alloca_local(Type::of<uint>());
+    auto *valid = builder.alloca_local(Type::of<bool>());
+    auto *forwarded_ticket = builder.alloca_local(Type::of<uint>());
+    auto *forwarded_valid = builder.alloca_local(Type::of<bool>());
+    builder.coro_suspend(24u, "counted-guarded-ticket", nullptr);
+
+    builder.set_insertion_point(resume);
+    builder.coro_resume(24u, nullptr);
+    builder.store(count, module.create_constant_zero(Type::of<uint>()));
+    auto *old_count = builder.load(Type::of<uint>(), count);
+    builder.store(ticket, old_count);
+    builder.store(valid, module.create_constant_zero(Type::of<bool>()));
+    builder.cond_br(can_allocate, success, failure);
+
+    builder.set_insertion_point(success);
+    auto *append_index = builder.load(Type::of<uint>(), count);
+    auto *element = builder.gep(Type::of<uint>(), array, {append_index});
+    builder.store(element, module.create_constant_one(Type::of<uint>()));
+    auto *current_count = builder.load(Type::of<uint>(), count);
+    auto *next_count = builder.call(
+        Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+        {current_count, module.create_constant_one(Type::of<uint>())});
+    builder.store(count, next_count);
+    builder.store(valid, module.create_constant_one(Type::of<bool>()));
+    builder.br(merge);
+
+    builder.set_insertion_point(failure);
+    if (mark_failed_allocation_valid) {
+        builder.store(valid, module.create_constant_one(Type::of<bool>()));
+    }
+    builder.br(merge);
+
+    builder.set_insertion_point(merge);
+    auto *merged_ticket = builder.load(Type::of<uint>(), ticket);
+    builder.store(forwarded_ticket, merged_ticket);
+    auto *merged_valid = builder.load(Type::of<bool>(), valid);
+    builder.store(forwarded_valid, merged_valid);
+    builder.br(guard);
+
+    builder.set_insertion_point(guard);
+    auto *is_valid = builder.load(Type::of<bool>(), forwarded_valid);
+    builder.cond_br(is_valid, consume, done);
+
+    builder.set_insertion_point(consume);
+    auto *read_index = builder.load(Type::of<uint>(), forwarded_ticket);
+    auto *selected = builder.gep(Type::of<uint>(), array, {read_index});
+    static_cast<void>(builder.load(Type::of<uint>(), selected));
+    builder.br(done);
+
+    builder.set_insertion_point(done);
+    builder.return_void();
+
+    expect(xir_verify_module(&module).succeeded());
+    auto before = coro_cfg_distill_pass_run_on_function(kernel);
+    expect(before.succeeded());
+    expect(frame_contains(before, array));
+    auto original_block = array->parent_block();
+    auto info = coro_alloca_scope_pass_run_on_function(kernel);
+    expect(info.initialized_prefix_proof_count ==
+           (expect_contraction ? 1u : 0u));
+    expect(array->parent_block() ==
+           (expect_contraction ? resume : original_block));
+    expect(xir_verify_module(&module).succeeded());
+    auto after = coro_cfg_distill_pass_run_on_function(kernel);
+    expect(after.succeeded());
+    expect(frame_contains(after, array) == !expect_contraction);
+}
+
+void check_counted_array_conjunctive_guarded_ticket(
+    bool guard_emission_path, bool expect_contraction) {
+    Module module;
+    BasicBlock *entry;
+    auto *kernel = make_kernel(module, entry);
+    auto *emission_path =
+        kernel->create_value_argument(Type::of<bool>());
+    auto *survives_cutoff =
+        kernel->create_value_argument(Type::of<bool>());
+    auto *can_allocate =
+        kernel->create_value_argument(Type::of<bool>());
+    auto *resume = kernel->create_basic_block();
+    auto *emission = kernel->create_basic_block();
+    auto *allocate = kernel->create_basic_block();
+    auto *allocation_success = kernel->create_basic_block();
+    auto *allocation_failure = kernel->create_basic_block();
+    auto *allocation_merge = kernel->create_basic_block();
+    auto *mode_merge = kernel->create_basic_block();
+    auto *setup = kernel->create_basic_block();
+    auto *consume = kernel->create_basic_block();
+    auto *done = kernel->create_basic_block();
+    auto *array_type = Type::array(Type::of<uint>(), 4u);
+    XIRBuilder builder;
+
+    builder.set_insertion_point(entry);
+    auto *array = builder.alloca_local(array_type);
+    array->set_name("conjunctive_guard_array");
+    auto *count = builder.alloca_local(Type::of<uint>());
+    count->set_name("conjunctive_guard_count");
+    auto *ticket = builder.alloca_local(Type::of<uint>());
+    ticket->set_name("conjunctive_guard_ticket");
+    auto *valid = builder.alloca_local(Type::of<bool>());
+    valid->set_name("conjunctive_guard_valid");
+    auto *setup_active = builder.alloca_local(Type::of<bool>());
+    setup_active->set_name("conjunctive_guard_setup_active");
+    auto *emission_copy = builder.alloca_local(Type::of<bool>());
+    emission_copy->set_name("conjunctive_guard_emission");
+    auto *not_emission_copy = builder.alloca_local(Type::of<bool>());
+    not_emission_copy->set_name("conjunctive_guard_not_emission");
+    builder.coro_suspend(25u, "counted-conjunctive-guard", nullptr);
+
+    builder.set_insertion_point(resume);
+    builder.coro_resume(25u, nullptr);
+    builder.store(count, module.create_constant_zero(Type::of<uint>()));
+    builder.store(ticket, module.create_constant_zero(Type::of<uint>()));
+    builder.store(valid, module.create_constant_zero(Type::of<bool>()));
+    builder.store(setup_active, module.create_constant_zero(Type::of<bool>()));
+    builder.store(emission_copy, emission_path);
+    auto *is_emission = builder.load(Type::of<bool>(), emission_copy);
+    builder.cond_br(is_emission, emission, allocate);
+
+    builder.set_insertion_point(emission);
+    builder.store(setup_active, survives_cutoff);
+    builder.br(mode_merge);
+
+    builder.set_insertion_point(allocate);
+    auto *old_count = builder.load(Type::of<uint>(), count);
+    builder.store(ticket, old_count);
+    builder.cond_br(
+        can_allocate, allocation_success, allocation_failure);
+
+    builder.set_insertion_point(allocation_success);
+    auto *append_index = builder.load(Type::of<uint>(), count);
+    auto *element = builder.gep(Type::of<uint>(), array, {append_index});
+    builder.store(element, module.create_constant_one(Type::of<uint>()));
+    auto *current_count = builder.load(Type::of<uint>(), count);
+    auto *next_count = builder.call(
+        Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+        {current_count, module.create_constant_one(Type::of<uint>())});
+    builder.store(count, next_count);
+    builder.store(valid, module.create_constant_one(Type::of<bool>()));
+    builder.br(allocation_merge);
+
+    builder.set_insertion_point(allocation_failure);
+    builder.br(allocation_merge);
+
+    builder.set_insertion_point(allocation_merge);
+    auto *allocated = builder.load(Type::of<bool>(), valid);
+    builder.store(setup_active, allocated);
+    builder.br(mode_merge);
+
+    builder.set_insertion_point(mode_merge);
+    auto *active = builder.load(Type::of<bool>(), setup_active);
+    builder.cond_br(active, setup, done);
+
+    builder.set_insertion_point(setup);
+    if (guard_emission_path) {
+        auto *emission_value =
+            builder.load(Type::of<bool>(), emission_copy);
+        auto *not_emission = builder.call(
+            Type::of<bool>(), ArithmeticOp::UNARY_BIT_NOT,
+            {emission_value});
+        builder.store(not_emission_copy, not_emission);
+        auto *guard = builder.load(Type::of<bool>(), not_emission_copy);
+        builder.cond_br(guard, consume, done);
+    } else {
+        builder.br(consume);
+    }
+
+    builder.set_insertion_point(consume);
+    auto *selected_index = builder.load(Type::of<uint>(), ticket);
+    auto *selected = builder.gep(
+        Type::of<uint>(), array, {selected_index});
+    static_cast<void>(builder.load(Type::of<uint>(), selected));
+    builder.br(done);
+
+    builder.set_insertion_point(done);
+    builder.return_void();
+
+    expect(xir_verify_module(&module).succeeded());
+    auto before = coro_cfg_distill_pass_run_on_function(kernel);
+    expect(before.succeeded());
+    expect(frame_contains(before, array));
+    auto original_block = array->parent_block();
+    auto info = coro_alloca_scope_pass_run_on_function(kernel);
+    expect(info.initialized_prefix_proof_count ==
+           (expect_contraction ? 1u : 0u));
+    expect(array->parent_block() ==
+           (expect_contraction ? resume : original_block));
+    expect(xir_verify_module(&module).succeeded());
+    auto after = coro_cfg_distill_pass_run_on_function(kernel);
+    expect(after.succeeded());
+    expect(frame_contains(after, array) == !expect_contraction);
+}
+
+void check_counted_array_nonwrapping_decrement(
+    bool guard_positive_count, bool expect_contraction) {
+    Module module;
+    BasicBlock *entry;
+    auto *kernel = make_kernel(module, entry);
+    auto *create_initial_element =
+        kernel->create_value_argument(Type::of<bool>());
+    auto *resume = kernel->create_basic_block();
+    auto *initial_append = kernel->create_basic_block();
+    auto *initial_skip = kernel->create_basic_block();
+    auto *initial_merge = kernel->create_basic_block();
+    auto *decrement = kernel->create_basic_block();
+    auto *replacement_append = kernel->create_basic_block();
+    auto *consume = kernel->create_basic_block();
+    auto *done = kernel->create_basic_block();
+    auto *array_type = Type::array(Type::of<uint>(), 4u);
+    XIRBuilder builder;
+
+    builder.set_insertion_point(entry);
+    auto *array = builder.alloca_local(array_type);
+    array->set_name("nonwrapping_decrement_array");
+    auto *count = builder.alloca_local(Type::of<uint>());
+    count->set_name("nonwrapping_decrement_count");
+    auto *ticket = builder.alloca_local(Type::of<uint>());
+    ticket->set_name("nonwrapping_decrement_ticket");
+    builder.coro_suspend(26u, "counted-nonwrapping-decrement", nullptr);
+
+    builder.set_insertion_point(resume);
+    builder.coro_resume(26u, nullptr);
+    builder.store(count, module.create_constant_zero(Type::of<uint>()));
+    builder.cond_br(
+        create_initial_element, initial_append, initial_skip);
+
+    builder.set_insertion_point(initial_append);
+    auto *initial_index = builder.load(Type::of<uint>(), count);
+    auto *initial_element = builder.gep(
+        Type::of<uint>(), array, {initial_index});
+    builder.store(
+        initial_element, module.create_constant_one(Type::of<uint>()));
+    auto *initial_count = builder.load(Type::of<uint>(), count);
+    auto *initial_next = builder.call(
+        Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+        {initial_count, module.create_constant_one(Type::of<uint>())});
+    builder.store(count, initial_next);
+    builder.br(initial_merge);
+
+    builder.set_insertion_point(initial_skip);
+    builder.br(initial_merge);
+
+    builder.set_insertion_point(initial_merge);
+    if (guard_positive_count) {
+        auto *current_count = builder.load(Type::of<uint>(), count);
+        auto *positive = builder.call(
+            Type::of<bool>(), ArithmeticOp::BINARY_GREATER,
+            {current_count,
+             module.create_constant_zero(Type::of<uint>())});
+        builder.cond_br(positive, decrement, done);
+    } else {
+        builder.br(decrement);
+    }
+
+    builder.set_insertion_point(decrement);
+    auto *count_before_decrement = builder.load(Type::of<uint>(), count);
+    auto *decremented = builder.call(
+        Type::of<uint>(), ArithmeticOp::BINARY_SUB,
+        {count_before_decrement,
+         module.create_constant_one(Type::of<uint>())});
+    builder.store(count, decremented);
+    builder.br(replacement_append);
+
+    builder.set_insertion_point(replacement_append);
+    auto *replacement_index = builder.load(Type::of<uint>(), count);
+    builder.store(ticket, replacement_index);
+    auto *replacement_element = builder.gep(
+        Type::of<uint>(), array, {replacement_index});
+    builder.store(
+        replacement_element, module.create_constant_one(Type::of<uint>()));
+    auto *replacement_count = builder.load(Type::of<uint>(), count);
+    auto *replacement_next = builder.call(
+        Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+        {replacement_count,
+         module.create_constant_one(Type::of<uint>())});
+    builder.store(count, replacement_next);
+    builder.br(consume);
+
+    builder.set_insertion_point(consume);
+    auto *read_index = builder.load(Type::of<uint>(), ticket);
+    auto *selected = builder.gep(
+        Type::of<uint>(), array, {read_index});
+    static_cast<void>(builder.load(Type::of<uint>(), selected));
+    builder.br(done);
+
+    builder.set_insertion_point(done);
+    builder.return_void();
+
+    expect(xir_verify_module(&module).succeeded());
+    auto before = coro_cfg_distill_pass_run_on_function(kernel);
+    expect(before.succeeded());
+    expect(frame_contains(before, array));
+    auto original_block = array->parent_block();
+    auto info = coro_alloca_scope_pass_run_on_function(kernel);
+    expect(info.initialized_prefix_proof_count ==
+           (expect_contraction ? 1u : 0u));
+    expect(array->parent_block() ==
+           (expect_contraction ? resume : original_block));
+    expect(xir_verify_module(&module).succeeded());
+    auto after = coro_cfg_distill_pass_run_on_function(kernel);
+    expect(after.succeeded());
+    expect(frame_contains(after, array) == !expect_contraction);
+}
+
+void check_counted_array_masked_witness(
+    bool assume_initial_mask_zero,
+    bool set_mask_without_append,
+    bool overwrite_mask_with_unknown,
+    bool reset_count_after_initial_contract,
+    bool route_flags_through_copy,
+    bool expect_contraction) {
+    Module module;
+    BasicBlock *entry;
+    auto *kernel = make_kernel(module, entry);
+    auto *initial_flags =
+        kernel->create_value_argument(Type::of<uint>());
+    auto *append_closure =
+        kernel->create_value_argument(Type::of<bool>());
+    auto *choose_dynamic =
+        kernel->create_value_argument(Type::of<bool>());
+    auto *dynamic_index =
+        kernel->create_value_argument(Type::of<uint>());
+    auto *unknown_flags =
+        kernel->create_value_argument(Type::of<uint>());
+    auto *resume = kernel->create_basic_block();
+    auto *append = kernel->create_basic_block();
+    auto *skip_append = kernel->create_basic_block();
+    auto *allocation_merge = kernel->create_basic_block();
+    auto *pick = kernel->create_basic_block();
+    auto *dynamic_guard = kernel->create_basic_block();
+    auto *dynamic_pick = kernel->create_basic_block();
+    auto *pick_merge = kernel->create_basic_block();
+    auto *done = kernel->create_basic_block();
+    auto *array_type = Type::array(Type::of<uint>(), 4u);
+    constexpr uint32_t scatter_mask = 0x14u;
+    XIRBuilder builder;
+
+    builder.set_insertion_point(entry);
+    auto *array = builder.alloca_local(array_type);
+    array->set_name("masked_witness_array");
+    auto *count = builder.alloca_local(Type::of<uint>());
+    count->set_name("masked_witness_count");
+    auto *flags = builder.alloca_local(Type::of<uint>());
+    flags->set_name("masked_witness_flags");
+    auto *flag_copy = builder.alloca_local(Type::of<uint>());
+    flag_copy->set_name("masked_witness_flag_copy");
+    auto *sampled = builder.alloca_local(Type::of<uint>());
+    sampled->set_name("masked_witness_sampled");
+    auto *candidate = builder.alloca_local(Type::of<uint>());
+    candidate->set_name("masked_witness_candidate");
+    builder.coro_suspend(28u, "counted-masked-witness", nullptr);
+
+    builder.set_insertion_point(resume);
+    builder.coro_resume(28u, nullptr);
+    if (!reset_count_after_initial_contract &&
+        !route_flags_through_copy) {
+        builder.store(count, module.create_constant_zero(Type::of<uint>()));
+    }
+    builder.store(flags, initial_flags);
+    builder.store(candidate, dynamic_index);
+    if (assume_initial_mask_zero) {
+        auto *initial = builder.load(Type::of<uint>(), flags);
+        auto *masked = builder.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_BIT_AND,
+            {initial, module.create_constant(
+                          Type::of<uint>(), &scatter_mask)});
+        auto *is_zero = builder.call(
+            Type::of<bool>(), ArithmeticOp::BINARY_EQUAL,
+            {masked, module.create_constant_zero(Type::of<uint>())});
+        builder.assume_(is_zero, "static flags contain no closure bits");
+    }
+    // A counter reset changes the truth of C>0 but does not change S. The
+    // analysis must therefore retain an independently proved S&M==0 fact
+    // across the reset instead of invalidating the implication wholesale.
+    if (route_flags_through_copy) {
+        auto *initial = builder.load(Type::of<uint>(), flags);
+        builder.store(flag_copy, initial);
+        // Model a lowering-created snapshot that precedes the counted
+        // storage reset. A fresh lifetime placed after this reset would cut
+        // the exact def-use chain needed by the later guarded read.
+        builder.store(count, module.create_constant_zero(Type::of<uint>()));
+    } else if (reset_count_after_initial_contract) {
+        builder.store(count, module.create_constant_zero(Type::of<uint>()));
+    }
+    builder.cond_br(append_closure, append, skip_append);
+
+    builder.set_insertion_point(append);
+    auto *append_index = builder.load(Type::of<uint>(), count);
+    auto *element = builder.gep(Type::of<uint>(), array, {append_index});
+    builder.store(element, module.create_constant_one(Type::of<uint>()));
+    auto *old_count = builder.load(Type::of<uint>(), count);
+    auto *next_count = builder.call(
+        Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+        {old_count, module.create_constant_one(Type::of<uint>())});
+    builder.store(count, next_count);
+    auto *old_flags = builder.load(
+        Type::of<uint>(),
+        route_flags_through_copy ? flag_copy : flags);
+    auto *new_flags = builder.call(
+        Type::of<uint>(), ArithmeticOp::BINARY_BIT_OR,
+        {old_flags,
+         module.create_constant(Type::of<uint>(), &scatter_mask)});
+    builder.store(flags, new_flags);
+    builder.br(allocation_merge);
+
+    builder.set_insertion_point(skip_append);
+    if (set_mask_without_append) {
+        auto *old_flags = builder.load(
+            Type::of<uint>(),
+            route_flags_through_copy ? flag_copy : flags);
+        auto *new_flags = builder.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_BIT_OR,
+            {old_flags,
+             module.create_constant(Type::of<uint>(), &scatter_mask)});
+        builder.store(flags, new_flags);
+    }
+    builder.br(allocation_merge);
+
+    builder.set_insertion_point(allocation_merge);
+    if (overwrite_mask_with_unknown) {
+        builder.store(flags, unknown_flags);
+    }
+    auto *current_flags = builder.load(Type::of<uint>(), flags);
+    auto *masked = builder.call(
+        Type::of<uint>(), ArithmeticOp::BINARY_BIT_AND,
+        {current_flags,
+         module.create_constant(Type::of<uint>(), &scatter_mask)});
+    auto *has_scatter = builder.call(
+        Type::of<bool>(), ArithmeticOp::BINARY_NOT_EQUAL,
+        {masked, module.create_constant_zero(Type::of<uint>())});
+    builder.cond_br(has_scatter, pick, done);
+
+    builder.set_insertion_point(pick);
+    builder.store(sampled, module.create_constant_zero(Type::of<uint>()));
+    builder.br(dynamic_guard);
+
+    builder.set_insertion_point(dynamic_guard);
+    auto *current_count = builder.load(Type::of<uint>(), count);
+    auto *candidate_index = builder.load(Type::of<uint>(), candidate);
+    auto *in_prefix = builder.call(
+        Type::of<bool>(), ArithmeticOp::BINARY_LESS,
+        {candidate_index, current_count});
+    auto *choose_in_prefix = builder.call(
+        Type::of<bool>(), ArithmeticOp::BINARY_BIT_AND,
+        {choose_dynamic, in_prefix});
+    builder.cond_br(choose_in_prefix, dynamic_pick, pick_merge);
+
+    builder.set_insertion_point(dynamic_pick);
+    auto *selected_candidate = builder.load(Type::of<uint>(), candidate);
+    builder.store(sampled, selected_candidate);
+    builder.br(pick_merge);
+
+    builder.set_insertion_point(pick_merge);
+    auto *selected_index = builder.load(Type::of<uint>(), sampled);
+    auto *selected = builder.gep(
+        Type::of<uint>(), array, {selected_index});
+    static_cast<void>(builder.load(Type::of<uint>(), selected));
+    builder.br(done);
+
+    builder.set_insertion_point(done);
+    builder.return_void();
+
+    expect(xir_verify_module(&module).succeeded());
+    auto before = coro_cfg_distill_pass_run_on_function(kernel);
+    expect(before.succeeded());
+    expect(frame_contains(before, array));
+    auto original_block = array->parent_block();
+    auto info = coro_alloca_scope_pass_run_on_function(kernel);
+    expect(info.initialized_prefix_proof_count ==
+           (expect_contraction ? 1u : 0u));
+    expect(array->parent_block() ==
+           (expect_contraction ? resume : original_block));
+    expect(xir_verify_module(&module).succeeded());
+    auto after = coro_cfg_distill_pass_run_on_function(kernel);
+    expect(after.succeeded());
+    expect(frame_contains(after, array) == !expect_contraction);
+}
+
+void check_counted_array_masked_expression_update(
+    bool update_may_set_scatter, bool expect_contraction) {
+    Module module;
+    BasicBlock *entry;
+    auto *kernel = make_kernel(module, entry);
+    auto *append_closure =
+        kernel->create_value_argument(Type::of<bool>());
+    auto *select_update =
+        kernel->create_value_argument(Type::of<bool>());
+    auto *resume = kernel->create_basic_block();
+    auto *append = kernel->create_basic_block();
+    auto *skip_append = kernel->create_basic_block();
+    auto *merge = kernel->create_basic_block();
+    auto *pick = kernel->create_basic_block();
+    auto *done = kernel->create_basic_block();
+    auto *array_type = Type::array(Type::of<uint>(), 4u);
+    constexpr uint32_t scatter_mask = 0x14u;
+    constexpr uint32_t unrelated_flag = 0x08u;
+    XIRBuilder builder;
+
+    builder.set_insertion_point(entry);
+    auto *array = builder.alloca_local(array_type);
+    array->set_name("masked_expression_array");
+    auto *count = builder.alloca_local(Type::of<uint>());
+    count->set_name("masked_expression_count");
+    auto *flags = builder.alloca_local(Type::of<uint>());
+    flags->set_name("masked_expression_flags");
+    auto *dynamic_update = builder.alloca_local(Type::of<uint>());
+    dynamic_update->set_name("masked_expression_update");
+    builder.coro_suspend(30u, "counted-masked-expression", nullptr);
+
+    builder.set_insertion_point(resume);
+    builder.coro_resume(30u, nullptr);
+    builder.store(count, module.create_constant_zero(Type::of<uint>()));
+    builder.store(flags, module.create_constant_zero(Type::of<uint>()));
+    builder.cond_br(append_closure, append, skip_append);
+
+    builder.set_insertion_point(append);
+    auto *index = builder.load(Type::of<uint>(), count);
+    auto *element = builder.gep(Type::of<uint>(), array, {index});
+    builder.store(element, module.create_constant_one(Type::of<uint>()));
+    auto *old_count = builder.load(Type::of<uint>(), count);
+    auto *new_count = builder.call(
+        Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+        {old_count, module.create_constant_one(Type::of<uint>())});
+    builder.store(count, new_count);
+    auto *old_flags = builder.load(Type::of<uint>(), flags);
+    auto *new_flags = builder.call(
+        Type::of<uint>(), ArithmeticOp::BINARY_BIT_OR,
+        {old_flags,
+         module.create_constant(Type::of<uint>(), &scatter_mask)});
+    builder.store(flags, new_flags);
+    builder.br(merge);
+
+    builder.set_insertion_point(skip_append);
+    builder.br(merge);
+
+    builder.set_insertion_point(merge);
+    auto *selected_bit = module.create_constant(
+        Type::of<uint>(), update_may_set_scatter ?
+                              &scatter_mask :
+                              &unrelated_flag);
+    auto *selected_update = builder.call(
+        Type::of<uint>(), ArithmeticOp::SELECT,
+        {module.create_constant_zero(Type::of<uint>()),
+         selected_bit, select_update});
+    builder.store(dynamic_update, selected_update);
+    auto *current_flags = builder.load(Type::of<uint>(), flags);
+    auto *current_update = builder.load(Type::of<uint>(), dynamic_update);
+    auto *updated_flags = builder.call(
+        Type::of<uint>(), ArithmeticOp::BINARY_BIT_OR,
+        {current_flags, current_update});
+    builder.store(flags, updated_flags);
+    auto *final_flags = builder.load(Type::of<uint>(), flags);
+    auto *masked_flags = builder.call(
+        Type::of<uint>(), ArithmeticOp::BINARY_BIT_AND,
+        {final_flags,
+         module.create_constant(Type::of<uint>(), &scatter_mask)});
+    auto *has_scatter = builder.call(
+        Type::of<bool>(), ArithmeticOp::BINARY_NOT_EQUAL,
+        {masked_flags, module.create_constant_zero(Type::of<uint>())});
+    builder.cond_br(has_scatter, pick, done);
+
+    builder.set_insertion_point(pick);
+    auto *selected = builder.gep(
+        Type::of<uint>(), array,
+        {module.create_constant_zero(Type::of<uint>())});
+    static_cast<void>(builder.load(Type::of<uint>(), selected));
+    builder.br(done);
+
+    builder.set_insertion_point(done);
+    builder.return_void();
+
+    expect(xir_verify_module(&module).succeeded());
+    auto before = coro_cfg_distill_pass_run_on_function(kernel);
+    expect(before.succeeded());
+    expect(frame_contains(before, array));
+    auto original_block = array->parent_block();
+    auto info = coro_alloca_scope_pass_run_on_function(kernel);
+    expect(info.initialized_prefix_proof_count ==
+           (expect_contraction ? 1u : 0u));
+    expect(array->parent_block() ==
+           (expect_contraction ? resume : original_block));
+    expect(xir_verify_module(&module).succeeded());
+    auto after = coro_cfg_distill_pass_run_on_function(kernel);
+    expect(after.succeeded());
+    expect(frame_contains(after, array) == !expect_contraction);
+}
+
+void check_counted_array_exhausted_capacity_guard(
+    bool positive_initial_capacity, bool expect_contraction) {
+    Module module;
+    BasicBlock *entry;
+    auto *kernel = make_kernel(module, entry);
+    auto *preallocate =
+        kernel->create_value_argument(Type::of<bool>());
+    auto *resume = kernel->create_basic_block();
+    auto *first_append = kernel->create_basic_block();
+    auto *first_skip = kernel->create_basic_block();
+    auto *publish = kernel->create_basic_block();
+    auto *second_append = kernel->create_basic_block();
+    auto *second_skip = kernel->create_basic_block();
+    auto *pick_guard = kernel->create_basic_block();
+    auto *pick = kernel->create_basic_block();
+    auto *done = kernel->create_basic_block();
+    auto *array_type = Type::array(Type::of<uint>(), 1u);
+    constexpr uint32_t scatter_mask = 0x14u;
+    XIRBuilder builder;
+
+    builder.set_insertion_point(entry);
+    auto *array = builder.alloca_local(array_type);
+    array->set_name("exhausted_capacity_array");
+    auto *count = builder.alloca_local(Type::of<uint>());
+    count->set_name("exhausted_capacity_count");
+    auto *left = builder.alloca_local(Type::of<uint>());
+    left->set_name("exhausted_capacity_left");
+    auto *flags = builder.alloca_local(Type::of<uint>());
+    flags->set_name("exhausted_capacity_flags");
+    builder.coro_suspend(31u, "counted-exhausted-capacity", nullptr);
+
+    builder.set_insertion_point(resume);
+    builder.coro_resume(31u, nullptr);
+    builder.store(count, module.create_constant_zero(Type::of<uint>()));
+    const uint32_t initial_capacity = positive_initial_capacity ? 1u : 0u;
+    builder.store(
+        left,
+        module.create_constant(Type::of<uint>(), &initial_capacity));
+    builder.store(flags, module.create_constant_zero(Type::of<uint>()));
+    auto *initial_left = builder.load(Type::of<uint>(), left);
+    auto *initial_left_nonzero = builder.call(
+        Type::of<bool>(), ArithmeticOp::BINARY_NOT_EQUAL,
+        {initial_left, module.create_constant_zero(Type::of<uint>())});
+    auto *take_first = builder.call(
+        Type::of<bool>(), ArithmeticOp::BINARY_BIT_AND,
+        {preallocate, initial_left_nonzero});
+    builder.cond_br(take_first, first_append, first_skip);
+
+    builder.set_insertion_point(first_append);
+    auto *first_index = builder.load(Type::of<uint>(), count);
+    auto *first_element = builder.gep(
+        Type::of<uint>(), array, {first_index});
+    builder.store(
+        first_element, module.create_constant_one(Type::of<uint>()));
+    auto *first_count = builder.load(Type::of<uint>(), count);
+    auto *next_first_count = builder.call(
+        Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+        {first_count, module.create_constant_one(Type::of<uint>())});
+    builder.store(count, next_first_count);
+    auto *first_left = builder.load(Type::of<uint>(), left);
+    auto *next_first_left = builder.call(
+        Type::of<uint>(), ArithmeticOp::BINARY_SUB,
+        {first_left, module.create_constant_one(Type::of<uint>())});
+    builder.store(left, next_first_left);
+    builder.br(publish);
+
+    builder.set_insertion_point(first_skip);
+    builder.br(publish);
+
+    // Cycles' transparent closure publishes its type flag before attempting
+    // closure_alloc. If capacity is exhausted, an earlier allocation proves
+    // count>0; otherwise the following append succeeds. The renderer must not
+    // annotate this lifetime -- the compiler has to prove that disjunction.
+    builder.set_insertion_point(publish);
+    auto *old_flags = builder.load(Type::of<uint>(), flags);
+    auto *new_flags = builder.call(
+        Type::of<uint>(), ArithmeticOp::BINARY_BIT_OR,
+        {old_flags,
+         module.create_constant(Type::of<uint>(), &scatter_mask)});
+    builder.store(flags, new_flags);
+    auto *remaining = builder.load(Type::of<uint>(), left);
+    auto *has_capacity = builder.call(
+        Type::of<bool>(), ArithmeticOp::BINARY_NOT_EQUAL,
+        {remaining, module.create_constant_zero(Type::of<uint>())});
+    builder.cond_br(has_capacity, second_append, second_skip);
+
+    builder.set_insertion_point(second_append);
+    auto *second_index = builder.load(Type::of<uint>(), count);
+    auto *second_element = builder.gep(
+        Type::of<uint>(), array, {second_index});
+    builder.store(
+        second_element, module.create_constant_one(Type::of<uint>()));
+    auto *second_count = builder.load(Type::of<uint>(), count);
+    auto *next_second_count = builder.call(
+        Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+        {second_count, module.create_constant_one(Type::of<uint>())});
+    builder.store(count, next_second_count);
+    builder.br(pick_guard);
+
+    builder.set_insertion_point(second_skip);
+    builder.br(pick_guard);
+
+    builder.set_insertion_point(pick_guard);
+    auto *current_flags = builder.load(Type::of<uint>(), flags);
+    auto *masked_flags = builder.call(
+        Type::of<uint>(), ArithmeticOp::BINARY_BIT_AND,
+        {current_flags,
+         module.create_constant(Type::of<uint>(), &scatter_mask)});
+    auto *has_scatter = builder.call(
+        Type::of<bool>(), ArithmeticOp::BINARY_NOT_EQUAL,
+        {masked_flags, module.create_constant_zero(Type::of<uint>())});
+    builder.cond_br(has_scatter, pick, done);
+
+    builder.set_insertion_point(pick);
+    auto *selected = builder.gep(
+        Type::of<uint>(), array,
+        {module.create_constant_zero(Type::of<uint>())});
+    static_cast<void>(builder.load(Type::of<uint>(), selected));
+    builder.br(done);
+
+    builder.set_insertion_point(done);
+    builder.return_void();
+
+    expect(xir_verify_module(&module).succeeded());
+    auto before = coro_cfg_distill_pass_run_on_function(kernel);
+    expect(before.succeeded());
+    expect(frame_contains(before, array));
+    auto original_block = array->parent_block();
+    auto info = coro_alloca_scope_pass_run_on_function(kernel);
+    expect(info.initialized_prefix_proof_count ==
+           (expect_contraction ? 1u : 0u));
+    expect(array->parent_block() ==
+           (expect_contraction ? resume : original_block));
+    expect(xir_verify_module(&module).succeeded());
+    auto after = coro_cfg_distill_pass_run_on_function(kernel);
+    expect(after.succeeded());
+    expect(frame_contains(after, array) == !expect_contraction);
+}
+
+void check_counted_array_impossible_masked_edge(
+    bool constrain_unbacked_path, bool expect_contraction,
+    bool derive_mode_before_suspend = false,
+    bool allow_emission_transition = false) {
+    Module module;
+    BasicBlock *entry;
+    auto *kernel = make_kernel(module, entry);
+    auto *initial_mode =
+        kernel->create_value_argument(Type::of<uint>());
+    auto *select_transition =
+        kernel->create_value_argument(Type::of<bool>());
+    auto *mode_false = derive_mode_before_suspend ?
+                           kernel->create_basic_block() :
+                           nullptr;
+    auto *mode_true = derive_mode_before_suspend ?
+                          kernel->create_basic_block() :
+                          nullptr;
+    auto *mode_merge = derive_mode_before_suspend ?
+                           kernel->create_basic_block() :
+                           nullptr;
+    auto *resume = kernel->create_basic_block();
+    auto *mode_update = derive_mode_before_suspend ?
+                            kernel->create_basic_block() :
+                            nullptr;
+    auto *unbacked = kernel->create_basic_block();
+    auto *append = kernel->create_basic_block();
+    auto *merge = kernel->create_basic_block();
+    auto *pick = kernel->create_basic_block();
+    auto *done = kernel->create_basic_block();
+    auto *array_type = Type::array(Type::of<uint>(), 4u);
+    constexpr uint32_t emission_mask = 0x20u;
+    constexpr uint32_t scatter_mask = 0x14u;
+    XIRBuilder builder;
+
+    builder.set_insertion_point(entry);
+    auto *array = builder.alloca_local(array_type);
+    array->set_name("impossible_masked_edge_array");
+    auto *count = builder.alloca_local(Type::of<uint>());
+    count->set_name("impossible_masked_edge_count");
+    auto *flags = builder.alloca_local(Type::of<uint>());
+    flags->set_name("impossible_masked_edge_flags");
+    auto *mode = builder.alloca_local(Type::of<uint>());
+    mode->set_name("impossible_masked_edge_mode");
+    auto *mode_source = builder.alloca_local(Type::of<uint>());
+    mode_source->set_name("impossible_masked_edge_mode_source");
+    if (derive_mode_before_suspend) {
+        builder.store(
+            mode_source,
+            module.create_constant_zero(Type::of<uint>()));
+        builder.cond_br(select_transition, mode_true, mode_false);
+
+        builder.set_insertion_point(mode_false);
+        auto *false_mode = builder.load(Type::of<uint>(), mode_source);
+        constexpr uint32_t false_arm_bits = 0x40u;
+        auto *false_arm = builder.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_BIT_OR,
+            {false_mode,
+             module.create_constant(
+                 Type::of<uint>(), &false_arm_bits)});
+        builder.store(mode_source, false_arm);
+        builder.br(mode_merge);
+
+        builder.set_insertion_point(mode_true);
+        auto *true_mode = builder.load(Type::of<uint>(), mode_source);
+        const auto true_arm_bits = allow_emission_transition ?
+                                       emission_mask :
+                                       uint32_t{0x80u};
+        auto *true_arm = builder.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_BIT_OR,
+            {true_mode,
+             module.create_constant(
+                 Type::of<uint>(), &true_arm_bits)});
+        builder.store(mode_source, true_arm);
+        builder.br(mode_merge);
+
+        builder.set_insertion_point(mode_merge);
+        builder.store(
+            mode, builder.load(Type::of<uint>(), mode_source));
+        // The copied value is durable even though its source is overwritten
+        // before the suspend. This prevents exact load forwarding from
+        // collapsing the test back to one alloca and exercises sparse
+        // cross-slot known-zero propagation.
+        builder.store(mode_source, initial_mode);
+    }
+    builder.coro_suspend(29u, "counted-impossible-masked-edge", nullptr);
+
+    builder.set_insertion_point(resume);
+    builder.coro_resume(29u, nullptr);
+    if (!derive_mode_before_suspend) {
+        builder.store(mode, initial_mode);
+    }
+    builder.store(count, module.create_constant_zero(Type::of<uint>()));
+    builder.store(flags, module.create_constant_zero(Type::of<uint>()));
+    if (derive_mode_before_suspend) {
+        constexpr uint32_t unused_suffix_index = 3u;
+        auto *unused_suffix = builder.gep(
+            Type::of<uint>(), array,
+            {module.create_constant(Type::of<uint>(),
+                                    &unused_suffix_index)});
+        builder.store(
+            unused_suffix,
+            module.create_constant_zero(Type::of<uint>()));
+        builder.br(mode_update);
+        builder.set_insertion_point(mode_update);
+        auto *current_mode = builder.load(Type::of<uint>(), mode);
+        constexpr uint32_t resumed_false_bits = 0x100u;
+        auto *false_arm = builder.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_BIT_OR,
+            {current_mode,
+             module.create_constant(
+                 Type::of<uint>(), &resumed_false_bits)});
+        const auto resumed_true_bits = allow_emission_transition ?
+                                           emission_mask :
+                                           uint32_t{0x200u};
+        auto *true_arm = builder.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_BIT_OR,
+            {current_mode,
+             module.create_constant(
+                 Type::of<uint>(), &resumed_true_bits)});
+        // The prefix relation domain deliberately does not interpret
+        // arbitrary SELECT expressions. Edge reachability must instead use
+        // the independent whole-CFG known-bits theorem at the later guard.
+        auto *selected_mode = builder.call(
+            Type::of<uint>(), ArithmeticOp::SELECT,
+            {false_arm, true_arm, select_transition});
+        builder.store(mode, selected_mode);
+    }
+    if (constrain_unbacked_path) {
+        auto *current_mode = builder.load(Type::of<uint>(), mode);
+        auto *masked_mode = builder.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_BIT_AND,
+            {current_mode,
+             module.create_constant(Type::of<uint>(), &emission_mask)});
+        auto *mode_is_zero = builder.call(
+            Type::of<bool>(), ArithmeticOp::BINARY_EQUAL,
+            {masked_mode,
+             module.create_constant_zero(Type::of<uint>())});
+        builder.assume_(mode_is_zero, "emission path is unreachable");
+    }
+    auto *current_mode = builder.load(Type::of<uint>(), mode);
+    auto *masked_mode = builder.call(
+        Type::of<uint>(), ArithmeticOp::BINARY_BIT_AND,
+        {current_mode,
+         module.create_constant(Type::of<uint>(), &emission_mask)});
+    auto *take_unbacked = builder.call(
+        Type::of<bool>(), ArithmeticOp::BINARY_NOT_EQUAL,
+        {masked_mode, module.create_constant_zero(Type::of<uint>())});
+    builder.cond_br(take_unbacked, unbacked, append);
+
+    // This path deliberately creates the same invalid implication as an
+    // emission-only closure setup: it publishes a scatter flag without
+    // adding an initialized closure. It is safe only when the incoming
+    // masked contract proves the edge unreachable.
+    builder.set_insertion_point(unbacked);
+    auto *unbacked_flags = builder.load(Type::of<uint>(), flags);
+    auto *unbacked_scatter = builder.call(
+        Type::of<uint>(), ArithmeticOp::BINARY_BIT_OR,
+        {unbacked_flags,
+         module.create_constant(Type::of<uint>(), &scatter_mask)});
+    builder.store(flags, unbacked_scatter);
+    builder.br(merge);
+
+    builder.set_insertion_point(append);
+    auto *index = builder.load(Type::of<uint>(), count);
+    auto *element = builder.gep(Type::of<uint>(), array, {index});
+    builder.store(element, module.create_constant_one(Type::of<uint>()));
+    auto *old_count = builder.load(Type::of<uint>(), count);
+    auto *new_count = builder.call(
+        Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+        {old_count, module.create_constant_one(Type::of<uint>())});
+    builder.store(count, new_count);
+    auto *append_flags = builder.load(Type::of<uint>(), flags);
+    auto *append_scatter = builder.call(
+        Type::of<uint>(), ArithmeticOp::BINARY_BIT_OR,
+        {append_flags,
+         module.create_constant(Type::of<uint>(), &scatter_mask)});
+    builder.store(flags, append_scatter);
+    builder.br(merge);
+
+    builder.set_insertion_point(merge);
+    auto *current_flags = builder.load(Type::of<uint>(), flags);
+    auto *masked_flags = builder.call(
+        Type::of<uint>(), ArithmeticOp::BINARY_BIT_AND,
+        {current_flags,
+         module.create_constant(Type::of<uint>(), &scatter_mask)});
+    auto *has_scatter = builder.call(
+        Type::of<bool>(), ArithmeticOp::BINARY_NOT_EQUAL,
+        {masked_flags, module.create_constant_zero(Type::of<uint>())});
+    builder.cond_br(has_scatter, pick, done);
+
+    builder.set_insertion_point(pick);
+    auto *selected = builder.gep(
+        Type::of<uint>(), array,
+        {module.create_constant_zero(Type::of<uint>())});
+    static_cast<void>(builder.load(Type::of<uint>(), selected));
+    builder.br(done);
+
+    builder.set_insertion_point(done);
+    builder.return_void();
+
+    expect(xir_verify_module(&module).succeeded());
+    auto before = coro_cfg_distill_pass_run_on_function(kernel);
+    expect(before.succeeded());
+    expect(frame_contains(before, array));
+    auto original_block = array->parent_block();
+    auto info = coro_alloca_scope_pass_run_on_function(kernel);
+    expect(info.initialized_prefix_proof_count ==
+           (expect_contraction ? 1u : 0u));
+    expect(array->parent_block() ==
+           (expect_contraction ? resume : original_block));
+    expect(xir_verify_module(&module).succeeded());
+    auto after = coro_cfg_distill_pass_run_on_function(kernel);
+    expect(after.succeeded());
+    expect(frame_contains(after, array) == !expect_contraction);
+}
+
+void check_counted_array_rollback_tail(
+    uint32_t ticket_offset, bool include_ticket_identity,
+    bool ticket_from_append, bool join_nonrollback,
+    bool expect_contraction) {
+    Module module;
+    BasicBlock *entry;
+    auto *kernel = make_kernel(module, entry);
+    auto *prepend_element =
+        kernel->create_value_argument(Type::of<bool>());
+    auto *dynamic_ticket =
+        kernel->create_value_argument(Type::of<uint>());
+    auto *request_rollback =
+        kernel->create_value_argument(Type::of<bool>());
+    auto *resume = kernel->create_basic_block();
+    auto *prepend = kernel->create_basic_block();
+    auto *skip_prepend = kernel->create_basic_block();
+    auto *append = kernel->create_basic_block();
+    auto *rollback = kernel->create_basic_block();
+    auto *consume = kernel->create_basic_block();
+    auto *done = kernel->create_basic_block();
+    auto *array_type = Type::array(Type::of<uint>(), 4u);
+    XIRBuilder builder;
+
+    builder.set_insertion_point(entry);
+    auto *array = builder.alloca_local(array_type);
+    array->set_name("rollback_tail_array");
+    auto *count = builder.alloca_local(Type::of<uint>());
+    count->set_name("rollback_tail_count");
+    auto *ticket = builder.alloca_local(Type::of<uint>());
+    ticket->set_name("rollback_tail_ticket");
+    builder.coro_suspend(27u, "counted-rollback-tail", nullptr);
+
+    builder.set_insertion_point(resume);
+    builder.coro_resume(27u, nullptr);
+    builder.store(count, module.create_constant_zero(Type::of<uint>()));
+    builder.cond_br(prepend_element, prepend, skip_prepend);
+
+    const auto append_one = [&](BasicBlock *block,
+                                BasicBlock *next) noexcept {
+        builder.set_insertion_point(block);
+        auto *index = builder.load(Type::of<uint>(), count);
+        auto *element = builder.gep(Type::of<uint>(), array, {index});
+        builder.store(element, module.create_constant_one(Type::of<uint>()));
+        auto *old_count = builder.load(Type::of<uint>(), count);
+        auto *new_count = builder.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+            {old_count, module.create_constant_one(Type::of<uint>())});
+        builder.store(count, new_count);
+        builder.br(next);
+    };
+    append_one(prepend, append);
+
+    builder.set_insertion_point(skip_prepend);
+    builder.br(append);
+
+    // The second append guarantees C>0 while retaining a dynamic C in {1,2}.
+    // The ticket is unrelated until the branch establishes I+1=C.
+    builder.set_insertion_point(append);
+    auto *append_index = builder.load(Type::of<uint>(), count);
+    auto *append_element = builder.gep(
+        Type::of<uint>(), array, {append_index});
+    builder.store(
+        append_element, module.create_constant_one(Type::of<uint>()));
+    auto *old_count = builder.load(Type::of<uint>(), count);
+    auto *new_count = builder.call(
+        Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+        {old_count, module.create_constant_one(Type::of<uint>())});
+    auto *ticket_value = ticket_from_append ?
+                             static_cast<Value *>(append_index) :
+                             static_cast<Value *>(dynamic_ticket);
+    builder.store(ticket, ticket_value);
+    builder.store(count, new_count);
+    auto *current_count = builder.load(Type::of<uint>(), count);
+    auto *positive = builder.call(
+        Type::of<bool>(), ArithmeticOp::BINARY_GREATER,
+        {current_count, module.create_constant_zero(Type::of<uint>())});
+    Value *rollback_guard = builder.call(
+        Type::of<bool>(), ArithmeticOp::BINARY_BIT_AND,
+        {request_rollback, positive});
+    if (include_ticket_identity) {
+        auto *current_ticket = builder.load(Type::of<uint>(), ticket);
+        auto *offset_ticket = builder.call(
+            Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+            {current_ticket,
+             module.create_constant(Type::of<uint>(), &ticket_offset)});
+        auto *is_last = builder.call(
+            Type::of<bool>(), ArithmeticOp::BINARY_EQUAL,
+            {offset_ticket, current_count});
+        rollback_guard = builder.call(
+            Type::of<bool>(), ArithmeticOp::BINARY_BIT_AND,
+            {rollback_guard, is_last});
+    }
+    builder.cond_br(
+        rollback_guard, rollback,
+        join_nonrollback ? consume : done);
+
+    builder.set_insertion_point(rollback);
+    auto *count_before_rollback = builder.load(Type::of<uint>(), count);
+    auto *rolled_back_count = builder.call(
+        Type::of<uint>(), ArithmeticOp::BINARY_SUB,
+        {count_before_rollback,
+         module.create_constant_one(Type::of<uint>())});
+    builder.store(count, rolled_back_count);
+    builder.br(consume);
+
+    builder.set_insertion_point(consume);
+    auto *read_index = builder.load(Type::of<uint>(), ticket);
+    auto *selected = builder.gep(Type::of<uint>(), array, {read_index});
+    static_cast<void>(builder.load(Type::of<uint>(), selected));
+    builder.br(done);
+
+    builder.set_insertion_point(done);
+    builder.return_void();
+
+    expect(xir_verify_module(&module).succeeded());
+    auto before = coro_cfg_distill_pass_run_on_function(kernel);
+    expect(before.succeeded());
+    expect(frame_contains(before, array));
+    auto original_block = array->parent_block();
+    auto info = coro_alloca_scope_pass_run_on_function(kernel);
+    expect(info.initialized_prefix_proof_count ==
+           (expect_contraction ? 1u : 0u));
+    expect(array->parent_block() ==
+           (expect_contraction ? resume : original_block));
+    expect(xir_verify_module(&module).succeeded());
     auto after = coro_cfg_distill_pass_run_on_function(kernel);
     expect(after.succeeded());
     expect(frame_contains(after, array) == !expect_contraction);
@@ -1072,11 +2452,150 @@ void register_coro_alloca_scope_tests() {
     };
 
     "counted_array_capacity_guard_preserves_prefix_in_loop"_test = [] {
-        check_counted_array_capacity_guard(2u, true);
+        check_counted_array_capacity_guard(2u, true, true);
     };
 
-    "counted_array_mismatched_capacity_guard_is_rejected"_test = [] {
-        check_counted_array_capacity_guard(3u, false);
+    "counted_array_control_guard_proves_dynamic_read"_test = [] {
+        check_counted_array_control_guard(false, true);
+    };
+
+    "counted_array_control_guard_is_killed_by_index_store"_test = [] {
+        check_counted_array_control_guard(true, false);
+    };
+
+    "counted_array_uses_outer_fresh_lifetime_before_inner_loop"_test = [] {
+        check_counted_array_outer_lifetime_placement();
+    };
+
+    "counted_array_saved_preincrement_ticket_is_in_new_prefix"_test = [] {
+        check_counted_array_saved_allocation_ticket(false, true, true);
+    };
+
+    "counted_array_saved_ticket_relation_is_killed_by_store"_test = [] {
+        check_counted_array_saved_allocation_ticket(true, true, false);
+    };
+
+    "counted_array_unrelated_saved_ticket_is_rejected"_test = [] {
+        check_counted_array_saved_allocation_ticket(false, false, false);
+    };
+
+    "counted_array_valid_guard_restores_saved_ticket_relation"_test = [] {
+        check_counted_array_boolean_guarded_ticket(false, true);
+    };
+
+    "counted_array_invalid_guard_correlation_is_rejected"_test = [] {
+        check_counted_array_boolean_guarded_ticket(true, false);
+    };
+
+    "counted_array_conjunctive_guard_restores_saved_ticket_relation"_test = [] {
+        check_counted_array_conjunctive_guarded_ticket(true, true);
+    };
+
+    "counted_array_conjunctive_guard_is_required_for_saved_ticket"_test = [] {
+        check_counted_array_conjunctive_guarded_ticket(false, false);
+    };
+
+    "counted_array_positive_guard_preserves_prefix_across_decrement"_test = [] {
+        check_counted_array_nonwrapping_decrement(true, true);
+    };
+
+    "counted_array_possibly_wrapping_decrement_is_rejected"_test = [] {
+        check_counted_array_nonwrapping_decrement(false, false);
+    };
+
+    "counted_array_masked_witness_proves_cycles_picker_default"_test = [] {
+        check_counted_array_masked_witness(
+            true, false, false, false, false, true);
+    };
+
+    "counted_array_masked_zero_survives_counter_reset"_test = [] {
+        check_counted_array_masked_witness(
+            true, false, false, true, false, true);
+    };
+
+    "counted_array_masked_witness_survives_copy_chain"_test = [] {
+        check_counted_array_masked_witness(
+            true, false, false, false, true, true);
+    };
+
+    "counted_array_masked_witness_requires_initial_zero_contract"_test = [] {
+        check_counted_array_masked_witness(
+            false, false, false, false, false, false);
+    };
+
+    "counted_array_masked_witness_rejects_unbacked_flag_set"_test = [] {
+        check_counted_array_masked_witness(
+            true, true, false, false, false, false);
+    };
+
+    "counted_array_masked_witness_is_killed_by_unknown_store"_test = [] {
+        check_counted_array_masked_witness(
+            true, false, true, false, false, false);
+    };
+
+    "counted_array_masked_relation_survives_unrelated_select_or"_test = [] {
+        check_counted_array_masked_expression_update(false, true);
+    };
+
+    "counted_array_masked_relation_rejects_scatter_select_or"_test = [] {
+        check_counted_array_masked_expression_update(true, false);
+    };
+
+    "counted_array_exhausted_capacity_implies_nonempty_prefix"_test = [] {
+        check_counted_array_exhausted_capacity_guard(true, true);
+    };
+
+    "counted_array_zero_capacity_does_not_imply_nonempty_prefix"_test = [] {
+        check_counted_array_exhausted_capacity_guard(false, false);
+    };
+
+    "counted_array_prunes_impossible_masked_nonzero_edge"_test = [] {
+        check_counted_array_impossible_masked_edge(true, true);
+    };
+
+    "counted_array_keeps_possible_masked_nonzero_edge"_test = [] {
+        check_counted_array_impossible_masked_edge(false, false);
+    };
+
+    "counted_array_prunes_masked_edge_after_known_zero_select"_test = [] {
+        check_counted_array_impossible_masked_edge(
+            false, true, true, false);
+    };
+
+    "counted_array_keeps_masked_edge_after_possible_nonzero_select"_test = [] {
+        check_counted_array_impossible_masked_edge(
+            false, false, true, true);
+    };
+
+    "counted_array_rollback_preserves_initialized_last_slot"_test = [] {
+        check_counted_array_rollback_tail(
+            1u, true, false, false, true);
+    };
+
+    "counted_array_rollback_join_preserves_guarded_safe_disjunction"_test = [] {
+        check_counted_array_rollback_tail(
+            1u, true, true, true, true);
+    };
+
+    "counted_array_rollback_rejects_unrelated_tail_ticket"_test = [] {
+        check_counted_array_rollback_tail(
+            1u, false, false, false, false);
+    };
+
+    "counted_array_rollback_rejects_nonlast_ticket_identity"_test = [] {
+        check_counted_array_rollback_tail(
+            2u, true, false, false, false);
+    };
+
+    "counted_array_bounded_prefix_accepts_wider_logical_counter"_test = [] {
+        // Executions which dereference the physical array are in-bounds by
+        // the XIR memory contract. The bounded-prefix theorem therefore does
+        // not require the logical counter guard to equal the array extent.
+        check_counted_array_capacity_guard(3u, true, true);
+    };
+
+    "counted_array_increment_without_element_definition_is_rejected"_test = [] {
+        check_counted_array_capacity_guard(2u, false, false);
     };
 
     "counted_array_prefix_resolves_block_local_multi_store_copies"_test = [] {
