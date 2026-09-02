@@ -618,6 +618,8 @@ luisa_compute_add_test(test_warp_prefix_scan    unit/runtime/test_warp_prefix_sc
 luisa_compute_add_test(test_warp_sparse_collectives unit/runtime/test_warp_sparse_collectives.cpp)
 luisa_compute_add_test(test_hip_wave_size       unit/runtime/test_hip_wave_size.cpp)
 luisa_compute_add_test(test_mha_warp_reduction  unit/runtime/test_mha_warp_reduction.cpp)
+luisa_compute_add_test(test_ast_json_serde      unit/ast/test_ast_json_serde.cpp
+        LABELS "unit;unit_ast")
 if (TARGET luisa-compute-backend-vk AND LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV)
     # Requires an explicit backend argument and a physical Vulkan device, so
     # build it for the native path but keep it out of unattended CTest runs.
