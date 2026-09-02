@@ -69,6 +69,17 @@ and hardware information, thread settings, the binary hash, and source
 revision. `results.md` is the readable comparison. Failed cases are retained
 and cause a nonzero exit code; no speed ratio is published for an invalid case.
 
+## Pipeline-window measurements
+
+The [M1 Max pipeline comparison, 2026-09-03](results/m1-max-20260903-pipeline.md)
+records all 48 GEMM pairs at `aeeee8eaf`: the same binary and 8×8×16 block
+shape, two pipeline windows, and CPU worker / Metal worker / Metal group.
+All numerical checks passed. CPU 1024³ improved from 37.870 to 12.577 ms
+(3.01×), but Metal group moved from 4.334 to 4.439 ms and remained about
+12.8× slower than PyTorch. The report includes every shape, raw samples,
+compilation costs, and measurement limits; legality alone does not establish
+pipeline profitability.
+
 ## Cooperative execution measurements
 
 The [M1 Max execution comparison, 2026-09-03](results/m1-max-20260903-execution.md)
