@@ -241,7 +241,7 @@ void test_dsl_elementwise_end_to_end() {
             auto i = axis("i", result.extent<0>());
             for (auto &element : parallel(shape(i))) {
                 auto index = element.index();
-                result(index) = x(index).load() + 2.0f * y(index).load();
+                result(index).store(x(index).load() + 2.0f * y(index).load());
             }
         });
     auto kernel = definition.capture(
@@ -289,7 +289,7 @@ void test_dsl_reduction_end_to_end() {
                 for (auto &column_nest : row_nest.reduce(shape(column))) {
                     sum += source(row_nest[row], column_nest[column]).load();
                 }
-                result(row_nest[row]) = sum;
+                result(row_nest[row]).store(sum);
             }
         });
     auto kernel = definition.capture(
@@ -350,7 +350,7 @@ void test_dsl_masked_stencil_end_to_end() {
                 auto left = source(left_index).load(left_valid, 0.0f);
                 auto center = source(index).load();
                 auto right = source(right_index).load(right_valid, 0.0f);
-                result(element[i]) = left + 2.0f * center + right;
+                result(element[i]).store(left + 2.0f * center + right);
             }
         });
     auto kernel = definition.capture(tensor_shape("source", n), tensor_shape("result", n));

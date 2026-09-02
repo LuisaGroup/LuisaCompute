@@ -1,6 +1,7 @@
 // End-to-end Tile DSL PoCs for stencil, ranking, and irregular algorithms.
 
 #include "ut/ut.hpp"
+#include "tile_tirx_test_utils.h"
 
 #include <tvm/ffi/function.h>
 #include <tvm/ffi/string.h>
@@ -11,6 +12,7 @@
 #include <luisa/tile/bridge/tirx/compiler.h>
 #include <luisa/tile/bridge/tirx/lower.h>
 #include <luisa/tile/dsl.h>
+#include <luisa/tile/algorithms.h>
 
 #include <algorithm>
 #include <array>
@@ -18,7 +20,6 @@
 #include <cstdint>
 #include <initializer_list>
 #include <limits>
-#include <type_traits>
 #include <utility>
 
 using namespace luisa;
@@ -29,79 +30,9 @@ using namespace boost::ut::literals;
 
 namespace {
 
-struct Executable {
-    tvm::ffi::Optional<tvm::ffi::Module> module;
-    tvm::ffi::Optional<tvm::ffi::Function> entry;
-    luisa::string error;
+using luisa::test::tile_tirx::Runtime;
 
-    [[nodiscard]] bool ok() const noexcept {
-        return error.empty() && module.has_value() && entry.has_value();
-    }
-};
-
-[[nodiscard]] Executable build(Kernel &kernel) {
-    Executable result;
-    if (!kernel.valid()) {
-        result.error = "Tile DSL capture or verification failed";
-        for (auto &&diagnostic : kernel.diagnostics()) {
-            result.error.append(": ");
-            result.error.append(diagnostic);
-        }
-        return result;
-    }
-    auto native = lower(kernel.function());
-    if (!native) {
-        result.error = std::move(native.error);
-        return result;
-    }
-    auto compilation = compile(std::move(native.value), kernel.function().name());
-    if (!compilation) {
-        result.error = luisa::string{compilation.error()};
-        return result;
-    }
-    result.module = compilation.module();
-    auto entry_name = kernel.function().name();
-    result.entry = result.module.value()->GetFunction(
-        tvm::ffi::String{entry_name.data(), entry_name.size()}, true);
-    if (!result.entry) { result.error = "compiled module has no requested entry function"; }
-    return result;
-}
-
-template<typename T>
-[[nodiscard]] constexpr DLDataType dl_data_type() noexcept {
-    if constexpr (std::is_same_v<T, float>) {
-        return DLDataType{kDLFloat, 32, 1};
-    } else if constexpr (std::is_same_v<T, int64_t>) {
-        return DLDataType{kDLInt, 64, 1};
-    } else {
-        static_assert(std::is_same_v<T, void>, "unsupported test tensor element type");
-    }
-}
-
-template<typename T>
-[[nodiscard]] tvm::runtime::Tensor upload(
-    std::initializer_list<int64_t> shape,
-    const luisa::vector<T> &values) {
-    auto tensor = tvm::runtime::Tensor::Empty(
-        tvm::ffi::Shape{shape}, dl_data_type<T>(), tvm::Device{kDLCPU, 0});
-    tensor.CopyFromBytes(values.data(), values.size() * sizeof(T));
-    return tensor;
-}
-
-template<typename T>
-[[nodiscard]] tvm::runtime::Tensor allocate(std::initializer_list<int64_t> shape) {
-    return tvm::runtime::Tensor::Empty(
-        tvm::ffi::Shape{shape}, dl_data_type<T>(), tvm::Device{kDLCPU, 0});
-}
-
-template<typename T>
-[[nodiscard]] luisa::vector<T> download(const tvm::runtime::Tensor &tensor, size_t count) {
-    luisa::vector<T> values(count);
-    tensor.CopyToBytes(values.data(), values.size() * sizeof(T));
-    return values;
-}
-
-void test_depthwise_convolution_and_max_pool() {
+void test_depthwise_convolution_and_max_pool(Runtime &runtime) {
     constexpr int64_t height = 5;
     constexpr int64_t width = 6;
     constexpr int64_t channels = 3;
@@ -115,23 +46,19 @@ void test_depthwise_convolution_and_max_pool() {
            TensorView<float, 3> pool) {
             auto y = axis("y", source.extent<0>());
             auto x = axis("x", source.extent<1>());
-            auto channel = axis("channel", source.extent<2>());
-            auto filter_y = axis("filter_y", weights.extent<0>());
-            auto filter_x = axis("filter_x", weights.extent<1>());
-            for (auto &element : parallel(shape(y, x, channel))) {
-                auto convolution_sum = Scalar<float>{0.0f};
-                auto pool_maximum = Scalar<float>{-1e30f};
-                for (auto &tap : element.reduce(shape(filter_y, filter_x))) {
-                    auto source_y = element[y] + tap[filter_y] - padding;
-                    auto source_x = element[x] + tap[filter_x] - padding;
-                    auto valid = (source_y >= 0) && (source_y < source.extent<0>()) &&
-                                 (source_x >= 0) && (source_x < source.extent<1>());
-                    auto value = source(source_y, source_x, element[channel]).load(valid, 0.0f);
-                    convolution_sum += value * weights(tap[filter_y], tap[filter_x], element[channel]).load();
-                    pool_maximum = max(pool_maximum, value);
-                }
-                convolution(element[y], element[x], element[channel]) = convolution_sum;
-                pool(element[y], element[x], element[channel]) = pool_maximum;
+            auto c = axis("channel", source.extent<2>());
+            auto fy = axis("filter_y", weights.extent<0>());
+            auto fx = axis("filter_x", weights.extent<1>());
+            auto oy = axis("local_y", 1);
+            auto ox = axis("local_x", 1);
+            for (auto &nest : parallel(shape(y, x))) {
+                auto window = source[coord(nest[y] - padding, nest[x] - padding, 0), shape(fy, fx, c)];
+                auto filter = weights[coord(0, 0, 0), shape(fy, fx, c)];
+                auto conv = reduce(window * filter, shape(fy, fx), add);
+                auto pooled = reduce(window, shape(fy, fx), maximum);
+                auto destination = coord(nest[y], nest[x], 0);
+                convolution(destination, shape(oy, ox, c)).store(reshape(conv, shape(oy, ox, c)));
+                pool(destination, shape(oy, ox, c)).store(reshape(pooled, shape(oy, ox, c)));
             }
         });
     auto kernel = definition.capture(
@@ -139,7 +66,7 @@ void test_depthwise_convolution_and_max_pool() {
         tensor_shape("weights", filter_size, filter_size, channels),
         tensor_shape("convolution", height, width, channels),
         tensor_shape("pool", height, width, channels));
-    auto executable = build(kernel);
+    auto executable = runtime.build(kernel);
     expect(executable.ok()) << executable.error;
     if (!executable.ok()) { return; }
 
@@ -151,13 +78,13 @@ void test_depthwise_convolution_and_max_pool() {
     for (auto i = 0u; i < weights.size(); i++) {
         weights[i] = static_cast<float>(static_cast<int32_t>((i * 5u) % 17u) - 8) * 0.0625f;
     }
-    auto input_tensor = upload<float>({height, width, channels}, input);
-    auto weights_tensor = upload<float>({filter_size, filter_size, channels}, weights);
-    auto convolution_tensor = allocate<float>({height, width, channels});
-    auto pool_tensor = allocate<float>({height, width, channels});
+    auto input_tensor = runtime.upload<float>({height, width, channels}, input);
+    auto weights_tensor = runtime.upload<float>({filter_size, filter_size, channels}, weights);
+    auto convolution_tensor = runtime.allocate<float>({height, width, channels});
+    auto pool_tensor = runtime.allocate<float>({height, width, channels});
     (*executable.entry)(input_tensor, weights_tensor, convolution_tensor, pool_tensor);
-    auto convolution = download<float>(convolution_tensor, input.size());
-    auto pool = download<float>(pool_tensor, input.size());
+    auto convolution = runtime.download<float>(convolution_tensor, input.size());
+    auto pool = runtime.download<float>(pool_tensor, input.size());
     auto input_index = [](int64_t iy, int64_t ix, int64_t c) noexcept {
         return static_cast<size_t>((iy * width + ix) * channels + c);
     };
@@ -188,7 +115,7 @@ void test_depthwise_convolution_and_max_pool() {
     }
 }
 
-void test_sobel_and_ordered_median() {
+void test_sobel_and_ordered_median(Runtime &runtime) {
     constexpr int64_t height = 6;
     constexpr int64_t width = 7;
     constexpr int64_t tap_count = 9;
@@ -200,60 +127,31 @@ void test_sobel_and_ordered_median() {
            TensorView<float, 2> median) {
             auto y = axis("y", source.extent<0>());
             auto x = axis("x", source.extent<1>());
+            auto fy = axis("filter_y", 3);
+            auto fx = axis("filter_x", 3);
             auto tap = axis("tap", tap_count);
-            auto candidate = axis("candidate", tap_count);
-            auto other = axis("other", tap_count);
-            for (auto &element : parallel(shape(y, x))) {
-                auto gx = Scalar<float>{0.0f};
-                auto gy = Scalar<float>{0.0f};
-                for (auto &sample : element.reduce(shape(tap))) {
-                    auto dy = sample[tap] / 3 - 1;
-                    auto dx = sample[tap] % 3 - 1;
-                    auto source_y = element[y] + dy;
-                    auto source_x = element[x] + dx;
-                    auto valid = (source_y >= 0) && (source_y < source.extent<0>()) &&
-                                 (source_x >= 0) && (source_x < source.extent<1>());
-                    auto value = source(source_y, source_x).load(valid, 0.0f);
-                    auto weight_x = dx * select(dy == 0, int64_t{2}, int64_t{1});
-                    auto weight_y = dy * select(dx == 0, int64_t{2}, int64_t{1});
-                    gx += value * cast<float>(weight_x);
-                    gy += value * cast<float>(weight_y);
-                }
-
-                auto middle = Scalar<float>{0.0f};
-                for (auto &candidate_nest : element.serial(shape(candidate))) {
-                    auto candidate_dy = candidate_nest[candidate] / 3 - 1;
-                    auto candidate_dx = candidate_nest[candidate] % 3 - 1;
-                    auto candidate_y = element[y] + candidate_dy;
-                    auto candidate_x = element[x] + candidate_dx;
-                    auto candidate_valid = (candidate_y >= 0) && (candidate_y < source.extent<0>()) &&
-                                           (candidate_x >= 0) && (candidate_x < source.extent<1>());
-                    auto candidate_value = source(candidate_y, candidate_x).load(candidate_valid, 0.0f);
-                    auto rank = Scalar<int64_t>{0};
-                    for (auto &other_nest : candidate_nest.reduce(shape(other))) {
-                        auto other_dy = other_nest[other] / 3 - 1;
-                        auto other_dx = other_nest[other] % 3 - 1;
-                        auto other_y = element[y] + other_dy;
-                        auto other_x = element[x] + other_dx;
-                        auto other_valid = (other_y >= 0) && (other_y < source.extent<0>()) &&
-                                           (other_x >= 0) && (other_x < source.extent<1>());
-                        auto other_value = source(other_y, other_x).load(other_valid, 0.0f);
-                        auto before = (other_value < candidate_value) ||
-                                      ((other_value == candidate_value) &&
-                                       (other_nest[other] < candidate_nest[candidate]));
-                        rank += cast<int64_t>(before);
-                    }
-                    middle = select(rank == 4, candidate_value, middle);
-                }
-                gradient_x(element[y], element[x]) = gx;
-                gradient_y(element[y], element[x]) = gy;
-                median(element[y], element[x]) = middle;
+            auto oy = axis("local_y", 1);
+            auto ox = axis("local_x", 1);
+            for (auto &nest : parallel(shape(y, x))) {
+                auto window = source[coord(nest[y] - 1, nest[x] - 1), shape(fy, fx)];
+                auto dy = iota(fy) - 1;
+                auto dx = iota(fx) - 1;
+                auto weight_x = cast<float>(dx * select(dy == 0, int64_t{2}, int64_t{1}));
+                auto weight_y = cast<float>(dy * select(dx == 0, int64_t{2}, int64_t{1}));
+                auto gx = reduce(window * weight_x, shape(fy, fx), add);
+                auto gy = reduce(window * weight_y, shape(fy, fx), add);
+                auto ordered = sort(reshape(window, shape(tap)), tap);
+                auto middle = gather(ordered.values, full<int64_t>(IndexSpace{}, 4), tap);
+                auto destination = coord(nest[y], nest[x]);
+                gradient_x(destination, shape(oy, ox)).store(gx);
+                gradient_y(destination, shape(oy, ox)).store(gy);
+                median(destination, shape(oy, ox)).store(middle);
             }
         });
     auto kernel = definition.capture(
         tensor_shape("input", height, width), tensor_shape("gradient_x", height, width),
         tensor_shape("gradient_y", height, width), tensor_shape("median", height, width));
-    auto executable = build(kernel);
+    auto executable = runtime.build(kernel);
     expect(executable.ok()) << executable.error;
     if (!executable.ok()) { return; }
 
@@ -261,14 +159,14 @@ void test_sobel_and_ordered_median() {
     for (auto i = 0u; i < input.size(); i++) {
         input[i] = static_cast<float>(static_cast<int32_t>((i * 13u) % 31u) - 15) * 0.125f;
     }
-    auto input_tensor = upload<float>({height, width}, input);
-    auto gx_tensor = allocate<float>({height, width});
-    auto gy_tensor = allocate<float>({height, width});
-    auto median_tensor = allocate<float>({height, width});
+    auto input_tensor = runtime.upload<float>({height, width}, input);
+    auto gx_tensor = runtime.allocate<float>({height, width});
+    auto gy_tensor = runtime.allocate<float>({height, width});
+    auto median_tensor = runtime.allocate<float>({height, width});
     (*executable.entry)(input_tensor, gx_tensor, gy_tensor, median_tensor);
-    auto gx = download<float>(gx_tensor, input.size());
-    auto gy = download<float>(gy_tensor, input.size());
-    auto median = download<float>(median_tensor, input.size());
+    auto gx = runtime.download<float>(gx_tensor, input.size());
+    auto gy = runtime.download<float>(gy_tensor, input.size());
+    auto median = runtime.download<float>(median_tensor, input.size());
     auto load = [&](int64_t iy, int64_t ix) noexcept {
         return iy >= 0 && iy < height && ix >= 0 && ix < width ?
                    input[static_cast<size_t>(iy * width + ix)] :
@@ -300,7 +198,7 @@ void test_sobel_and_ordered_median() {
     }
 }
 
-void test_stable_sort_and_topk() {
+void test_stable_sort_and_topk(Runtime &runtime) {
     constexpr int64_t rows = 3;
     constexpr int64_t columns = 8;
     constexpr int64_t top_k = 3;
@@ -309,37 +207,22 @@ void test_stable_sort_and_topk() {
         [](TensorView<const float, 2> source,
            TensorView<float, 2> sorted_value,
            TensorView<int64_t, 2> sorted_index) {
-            auto row = axis("row", sorted_value.extent<0>());
-            auto output_rank = axis("output_rank", sorted_value.extent<1>());
-            auto candidate = axis("candidate", source.extent<1>());
-            auto other = axis("other", source.extent<1>());
-            for (auto &output_element : parallel(shape(row, output_rank))) {
-                auto selected_value = Scalar<float>{-1e30f};
-                auto selected_index = Scalar<int64_t>{-1};
-                for (auto &candidate_nest : output_element.serial(shape(candidate))) {
-                    auto candidate_index = candidate_nest[candidate];
-                    auto candidate_value = source(output_element[row], candidate_index).load();
-                    auto rank = Scalar<int64_t>{0};
-                    for (auto &other_nest : candidate_nest.reduce(shape(other))) {
-                        auto other_index = other_nest[other];
-                        auto other_value = source(output_element[row], other_index).load();
-                        auto before = (other_value > candidate_value) ||
-                                      ((other_value == candidate_value) &&
-                                       (other_index < candidate_index));
-                        rank += cast<int64_t>(before);
-                    }
-                    auto matches = rank == output_element[output_rank];
-                    selected_value = select(matches, candidate_value, selected_value);
-                    selected_index = select(matches, candidate_index, selected_index);
-                }
-                sorted_value(output_element[row], output_element[output_rank]) = selected_value;
-                sorted_index(output_element[row], output_element[output_rank]) = selected_index;
+            auto row = axis("row", source.extent<0>());
+            auto r = axis("local_row", 1);
+            auto c = axis("column", source.extent<1>());
+            auto rank = axis("output_rank", sorted_value.extent<1>());
+            for (auto &nest : parallel(shape(row))) {
+                auto value = source[coord(nest.index(), 0), shape(r, c)];
+                auto ranked = topk(value, c, sorted_value.extent<1>());
+                auto destination = coord(nest.index(), 0);
+                sorted_value(destination, shape(r, rank)).store(ranked.values);
+                sorted_index(destination, shape(r, rank)).store(ranked.indices);
             }
         });
     auto kernel = definition.capture(
         tensor_shape("input", rows, columns), tensor_shape("sorted_value", rows, columns),
         tensor_shape("sorted_index", rows, columns));
-    auto executable = build(kernel);
+    auto executable = runtime.build(kernel);
     expect(executable.ok()) << executable.error;
     if (!executable.ok()) { return; }
 
@@ -347,12 +230,23 @@ void test_stable_sort_and_topk() {
         2.0f, -1.0f, 2.0f, 5.0f, 5.0f, 0.0f, 3.0f, 2.0f,
         -4.0f, 8.0f, 1.0f, 8.0f, 2.0f, 2.0f, 7.0f, -1.0f,
         0.5f, 0.5f, -2.0f, 4.0f, 1.5f, 4.0f, 3.0f, 0.5f};
-    auto input_tensor = upload<float>({rows, columns}, input);
-    auto value_tensor = allocate<float>({rows, columns});
-    auto index_tensor = allocate<int64_t>({rows, columns});
+    auto input_tensor = runtime.upload<float>({rows, columns}, input);
+    auto value_tensor = runtime.allocate<float>({rows, columns});
+    auto index_tensor = runtime.allocate<int64_t>({rows, columns});
     (*executable.entry)(input_tensor, value_tensor, index_tensor);
-    auto values = download<float>(value_tensor, input.size());
-    auto indices = download<int64_t>(index_tensor, input.size());
+    auto values = runtime.download<float>(value_tensor, input.size());
+    auto indices = runtime.download<int64_t>(index_tensor, input.size());
+    auto topk_kernel = definition.capture(
+        tensor_shape("input", rows, columns), tensor_shape("topk_value", rows, top_k),
+        tensor_shape("topk_index", rows, top_k));
+    auto topk_executable = runtime.build(topk_kernel);
+    expect(topk_executable.ok()) << topk_executable.error;
+    if (!topk_executable.ok()) { return; }
+    auto topk_value_tensor = runtime.allocate<float>({rows, top_k});
+    auto topk_index_tensor = runtime.allocate<int64_t>({rows, top_k});
+    (*topk_executable.entry)(input_tensor, topk_value_tensor, topk_index_tensor);
+    auto topk_values = runtime.download<float>(topk_value_tensor, rows * top_k);
+    auto topk_indices = runtime.download<int64_t>(topk_index_tensor, rows * top_k);
     for (auto row = 0; row < rows; row++) {
         luisa::vector<std::pair<float, int64_t>> expected;
         expected.reserve(columns);
@@ -369,13 +263,14 @@ void test_stable_sort_and_topk() {
             expect(eq(indices[index], expected[static_cast<size_t>(rank)].second));
         }
         for (auto rank = 0; rank < top_k; rank++) {
-            auto index = static_cast<size_t>(row * columns + rank);
-            expect(eq(indices[index], expected[static_cast<size_t>(rank)].second));
+            auto index = static_cast<size_t>(row * top_k + rank);
+            expect(eq(topk_values[index], expected[static_cast<size_t>(rank)].first));
+            expect(eq(topk_indices[index], expected[static_cast<size_t>(rank)].second));
         }
     }
 }
 
-void test_segmented_accumulation() {
+void test_segmented_accumulation(Runtime &runtime) {
     constexpr int64_t item_count = 13;
     constexpr int64_t bucket_count = 5;
     auto definition = tile_kernel(
@@ -386,35 +281,34 @@ void test_segmented_accumulation() {
            TensorView<int64_t, 1> counts) {
             auto item = axis("item", ids.extent<0>());
             auto bucket = axis("bucket", sums.extent<0>());
-            for (auto &segment : parallel(shape(bucket))) {
-                auto sum = Scalar<float>{0.0f};
-                auto count = Scalar<int64_t>{0};
-                for (auto &source : segment.reduce(shape(item))) {
-                    auto matches = ids(source[item]).load() == segment[bucket];
-                    sum += select(matches, values(source[item]).load(), 0.0f);
-                    count += cast<int64_t>(matches);
-                }
-                sums(segment[bucket]) = sum;
-                counts(segment[bucket]) = count;
+            auto output = axis("output", 1);
+            for (auto &nest : parallel(shape(bucket))) {
+                auto id = ids[coord(0), shape(item)];
+                auto value = values[coord(0), shape(item)];
+                auto matches = id == nest.index();
+                auto sum = reduce(select(matches, value, 0.0f), item, add);
+                auto count = reduce(cast<int64_t>(matches), item, add);
+                sums(coord(nest.index()), shape(output)).store(sum);
+                counts(coord(nest.index()), shape(output)).store(count);
             }
         });
     auto kernel = definition.capture(
         tensor_shape("ids", item_count), tensor_shape("values", item_count),
         tensor_shape("sums", bucket_count), tensor_shape("counts", bucket_count));
-    auto executable = build(kernel);
+    auto executable = runtime.build(kernel);
     expect(executable.ok()) << executable.error;
     if (!executable.ok()) { return; }
 
     luisa::vector<int64_t> ids{3, 1, 0, 3, 4, 1, 3, 2, 0, 2, 2, 4, 1};
     luisa::vector<float> values{1.0f, -2.0f, 3.0f, 4.5f, 1.5f, 2.0f, -1.0f,
                                 8.0f, 0.5f, -3.0f, 2.5f, 7.0f, 1.25f};
-    auto ids_tensor = upload<int64_t>({item_count}, ids);
-    auto values_tensor = upload<float>({item_count}, values);
-    auto sums_tensor = allocate<float>({bucket_count});
-    auto counts_tensor = allocate<int64_t>({bucket_count});
+    auto ids_tensor = runtime.upload<int64_t>({item_count}, ids);
+    auto values_tensor = runtime.upload<float>({item_count}, values);
+    auto sums_tensor = runtime.allocate<float>({bucket_count});
+    auto counts_tensor = runtime.allocate<int64_t>({bucket_count});
     (*executable.entry)(ids_tensor, values_tensor, sums_tensor, counts_tensor);
-    auto sums = download<float>(sums_tensor, bucket_count);
-    auto counts = download<int64_t>(counts_tensor, bucket_count);
+    auto sums = runtime.download<float>(sums_tensor, bucket_count);
+    auto counts = runtime.download<int64_t>(counts_tensor, bucket_count);
     for (auto bucket = 0; bucket < bucket_count; bucket++) {
         auto expected_sum = 0.0f;
         auto expected_count = int64_t{0};
@@ -429,7 +323,7 @@ void test_segmented_accumulation() {
     }
 }
 
-void test_all_structured_regions() {
+void test_all_structured_regions(Runtime &runtime) {
     constexpr int64_t rows = 3;
     constexpr int64_t phases = 2;
     constexpr int64_t steps = 3;
@@ -441,24 +335,25 @@ void test_all_structured_regions() {
             auto phase = axis("phase", source.extent<1>());
             auto step = axis("step", source.extent<2>());
             auto lane = axis("lane", source.extent<3>());
-            for (auto &row_nest : parallel(shape(row))) {
-                auto sum = Scalar<float>{0.0f};
-                for (auto &phase_nest : row_nest.serial(shape(phase))) {
-                    for (auto &step_nest : phase_nest.pipeline(
-                             shape(step), PipelinePolicy{.stages = 2u, .initiation_interval = 1u})) {
+            auto r = axis("local_row", 1);
+            auto p = axis("local_phase", 1);
+            auto s = axis("local_step", 1);
+            for (auto &nest : parallel(shape(row))) {
+                auto sum = zeros<float>(shape(r));
+                for (auto &phase_nest : nest.serial(shape(phase))) {
+                    for (auto &step_nest : phase_nest.pipeline(shape(step), {.stages = 2, .initiation_interval = 1})) {
                         step_nest.stage("load");
-                        for (auto &lane_nest : step_nest.reduce(shape(lane))) {
-                            sum += source(row_nest[row], phase_nest[phase], step_nest[step], lane_nest[lane]).load();
-                        }
+                        auto value = source[coord(nest[row], phase_nest[phase], step_nest[step], 0), shape(r, p, s, lane)];
                         step_nest.stage("consume");
+                        sum += reshape(reduce(value, lane, add), shape(r));
                     }
                 }
-                result(row_nest[row]) = sum;
+                result(coord(nest[row]), shape(r)).store(sum);
             }
         });
     auto kernel = definition.capture(
         tensor_shape("input", rows, phases, steps, lanes), tensor_shape("result", rows));
-    auto executable = build(kernel);
+    auto executable = runtime.build(kernel);
     expect(executable.ok()) << executable.error;
     if (!executable.ok()) { return; }
 
@@ -466,10 +361,10 @@ void test_all_structured_regions() {
     for (auto i = 0u; i < input.size(); i++) {
         input[i] = static_cast<float>(static_cast<int32_t>((i * 3u) % 19u) - 9) * 0.25f;
     }
-    auto input_tensor = upload<float>({rows, phases, steps, lanes}, input);
-    auto result_tensor = allocate<float>({rows});
+    auto input_tensor = runtime.upload<float>({rows, phases, steps, lanes}, input);
+    auto result_tensor = runtime.allocate<float>({rows});
     (*executable.entry)(input_tensor, result_tensor);
-    auto result = download<float>(result_tensor, rows);
+    auto result = runtime.download<float>(result_tensor, rows);
     auto row_stride = phases * steps * lanes;
     for (auto row = 0; row < rows; row++) {
         auto expected = 0.0f;
@@ -483,10 +378,13 @@ void test_all_structured_regions() {
 }// namespace
 
 int main(int argc, char *argv[]) {
-    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
-    "tile_tirx_poc_depthwise_pool"_test = test_depthwise_convolution_and_max_pool;
-    "tile_tirx_poc_sobel_median"_test = test_sobel_and_ordered_median;
-    "tile_tirx_poc_stable_sort_topk"_test = test_stable_sort_and_topk;
-    "tile_tirx_poc_segmented_accumulation"_test = test_segmented_accumulation;
-    "tile_tirx_poc_all_structured_regions"_test = test_all_structured_regions;
+    auto runtime = Runtime{argc > 1 ? argv[1] : "cpu"};
+    boost::ut::detail::cfg::parse_arg_with_fallback(
+        argc > 1 ? argc - 1 : argc,
+        const_cast<const char **>(argc > 1 ? argv + 1 : argv));
+    "tile_tirx_poc_depthwise_pool"_test = [&] { test_depthwise_convolution_and_max_pool(runtime); };
+    "tile_tirx_poc_sobel_median"_test = [&] { test_sobel_and_ordered_median(runtime); };
+    "tile_tirx_poc_stable_sort_topk"_test = [&] { test_stable_sort_and_topk(runtime); };
+    "tile_tirx_poc_segmented_accumulation"_test = [&] { test_segmented_accumulation(runtime); };
+    "tile_tirx_poc_all_structured_regions"_test = [&] { test_all_structured_regions(runtime); };
 }

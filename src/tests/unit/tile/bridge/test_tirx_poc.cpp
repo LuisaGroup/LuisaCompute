@@ -1,11 +1,13 @@
 // End-to-end execution tests for the Tile DSL PoC kernel gallery.
-// This test covers portable scalar reference realizations of:
+// Every memory access selects a subtile; arithmetic stays in Tile SSA.
+// This test covers:
 // - row statistics and common losses
 // - softmax, LayerNorm, and RMSNorm
 // - pipelined GEMM
 // - padded, strided, multi-channel Conv2D
 
 #include "ut/ut.hpp"
+#include "tile_tirx_test_utils.h"
 
 #include <tvm/ffi/function.h>
 #include <tvm/ffi/string.h>
@@ -16,14 +18,14 @@
 #include <luisa/tile/bridge/tirx/compiler.h>
 #include <luisa/tile/bridge/tirx/lower.h>
 #include <luisa/tile/dsl.h>
+#include <luisa/tile/algorithms.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <initializer_list>
 #include <limits>
-#include <type_traits>
-#include <utility>
 
 using namespace luisa;
 using namespace luisa::compute::tile;
@@ -33,139 +35,52 @@ using namespace boost::ut::literals;
 
 namespace {
 
-struct Executable {
-    tvm::ffi::Optional<tvm::ffi::Module> module;
-    tvm::ffi::Optional<tvm::ffi::Function> entry;
-    luisa::string error;
+using luisa::test::tile_tirx::Runtime;
 
-    [[nodiscard]] bool ok() const noexcept {
-        return error.empty() && module.has_value() && entry.has_value();
-    }
-};
-
-[[nodiscard]] Executable build(Kernel &kernel) {
-    Executable result;
-    if (!kernel.valid()) {
-        result.error = "Tile DSL capture or verification failed";
-        for (auto &&diagnostic : kernel.diagnostics()) {
-            result.error.append(": ");
-            result.error.append(diagnostic);
-        }
-        return result;
-    }
-    auto native = lower(kernel.function());
-    if (!native) {
-        result.error = std::move(native.error);
-        return result;
-    }
-    auto compilation = compile(std::move(native.value), kernel.function().name());
-    if (!compilation) {
-        result.error = luisa::string{compilation.error()};
-        return result;
-    }
-    result.module = compilation.module();
-    auto entry_name = kernel.function().name();
-    result.entry = result.module.value()->GetFunction(
-        tvm::ffi::String{entry_name.data(), entry_name.size()}, true);
-    if (!result.entry) { result.error = "compiled module has no requested entry function"; }
-    return result;
-}
-
-template<typename T>
-[[nodiscard]] constexpr DLDataType dl_data_type() noexcept {
-    if constexpr (std::is_same_v<T, float>) {
-        return DLDataType{kDLFloat, 32, 1};
-    } else if constexpr (std::is_same_v<T, int32_t>) {
-        return DLDataType{kDLInt, 32, 1};
-    } else if constexpr (std::is_same_v<T, int64_t>) {
-        return DLDataType{kDLInt, 64, 1};
-    } else {
-        static_assert(std::is_same_v<T, void>, "unsupported test tensor element type");
-    }
-}
-
-template<typename T>
-[[nodiscard]] tvm::runtime::Tensor upload(
-    std::initializer_list<int64_t> shape,
-    const luisa::vector<T> &values) {
-    auto tensor = tvm::runtime::Tensor::Empty(
-        tvm::ffi::Shape{shape}, dl_data_type<T>(), tvm::Device{kDLCPU, 0});
-    tensor.CopyFromBytes(values.data(), values.size() * sizeof(T));
-    return tensor;
-}
-
-template<typename T>
-[[nodiscard]] tvm::runtime::Tensor allocate(std::initializer_list<int64_t> shape) {
-    return tvm::runtime::Tensor::Empty(
-        tvm::ffi::Shape{shape}, dl_data_type<T>(), tvm::Device{kDLCPU, 0});
-}
-
-template<typename T>
-[[nodiscard]] luisa::vector<T> download(const tvm::runtime::Tensor &tensor, size_t count) {
-    luisa::vector<T> values(count);
-    tensor.CopyToBytes(values.data(), values.size() * sizeof(T));
-    return values;
-}
-
-void test_row_statistics_and_losses() {
+void test_row_statistics_and_losses(Runtime &runtime) {
     constexpr int64_t rows = 3;
     constexpr int64_t columns = 5;
     constexpr float huber_delta = 0.75f;
     constexpr float epsilon = 1e-4f;
     auto definition = tile_kernel(
         "tile_poc_statistics_losses",
-        [](TensorView<const float, 2> x,
-           TensorView<const float, 2> target,
-           TensorView<const float, 2> probability,
-           TensorView<float, 1> sum_out,
-           TensorView<float, 1> mean_out,
-           TensorView<float, 1> peak_out,
-           TensorView<int64_t, 1> argmax_out,
-           TensorView<float, 1> mse_out,
-           TensorView<float, 1> mae_out,
-           TensorView<float, 1> huber_out,
-           TensorView<float, 1> bce_out) {
+        [=](TensorView<const float, 2> x,
+            TensorView<const float, 2> target,
+            TensorView<const float, 2> probability,
+            TensorView<float, 1> sum_out,
+            TensorView<float, 1> mean_out,
+            TensorView<float, 1> peak_out,
+            TensorView<int64_t, 1> argmax_out,
+            TensorView<float, 1> mse_out,
+            TensorView<float, 1> mae_out,
+            TensorView<float, 1> huber_out,
+            TensorView<float, 1> bce_out) {
             auto row = axis("row", x.extent<0>());
-            auto column = axis("column", x.extent<1>());
-
-            for (auto &row_nest : parallel(shape(row))) {
-                auto sum = Scalar<float>{0.0f};
-                auto peak = Scalar<float>{-1e30f};
-                auto best_index = Scalar<int64_t>{0};
-                auto mse = Scalar<float>{0.0f};
-                auto mae = Scalar<float>{0.0f};
-                auto huber = Scalar<float>{0.0f};
-                auto bce = Scalar<float>{0.0f};
-                for (auto &item : row_nest.reduce(shape(column))) {
-                    auto index = item[column];
-                    auto value = x(row_nest[row], index).load();
-                    auto expected = target(row_nest[row], index).load();
-                    auto p = probability(row_nest[row], index).load();
-                    auto difference = value - expected;
-                    auto magnitude = abs(difference);
-                    auto better = (value > peak) || ((value == peak) && (index < best_index));
-                    sum += value;
-                    peak = select(better, value, peak);
-                    best_index = select(better, index, best_index);
-                    mse += difference * difference;
-                    mae += magnitude;
-                    huber += select(
-                        magnitude <= huber_delta,
-                        0.5f * difference * difference,
-                        huber_delta * (magnitude - 0.5f * huber_delta));
-                    auto clamped = min(max(p, epsilon), 1.0f - epsilon);
-                    bce -= expected * luisa::compute::tile::log(clamped) +
-                           (1.0f - expected) * luisa::compute::tile::log(1.0f - clamped);
-                }
+            auto r = axis("local_row", 1);
+            auto c = axis("column", x.extent<1>());
+            for (auto &nest : parallel(shape(row))) {
+                auto origin = coord(nest.index(), 0);
+                auto value = x[origin, shape(r, c)];
+                auto expected = target[origin, shape(r, c)];
+                auto probability_tile = probability[origin, shape(r, c)];
+                auto difference = value - expected;
+                auto magnitude = abs(difference);
+                auto p = min(max(probability_tile, epsilon), 1.0f - epsilon);
+                auto huber = select(magnitude <= huber_delta,
+                                    0.5f * difference * difference,
+                                    huber_delta * (magnitude - 0.5f * huber_delta));
+                auto bce = -(expected * luisa::compute::tile::log(p) + (1.0f - expected) * luisa::compute::tile::log(1.0f - p));
+                auto sum = reduce(value, c, add);
                 auto denominator = static_cast<float>(x.extent<1>());
-                sum_out(row_nest[row]) = sum;
-                mean_out(row_nest[row]) = sum / denominator;
-                peak_out(row_nest[row]) = peak;
-                argmax_out(row_nest[row]) = best_index;
-                mse_out(row_nest[row]) = mse / denominator;
-                mae_out(row_nest[row]) = mae / denominator;
-                huber_out(row_nest[row]) = huber / denominator;
-                bce_out(row_nest[row]) = bce / denominator;
+                auto destination = coord(nest.index());
+                sum_out(destination, shape(r)).store(sum);
+                mean_out(destination, shape(r)).store(sum / denominator);
+                peak_out(destination, shape(r)).store(reduce(value, c, maximum));
+                argmax_out(destination, shape(r)).store(argmax(value, c));
+                mse_out(destination, shape(r)).store(reduce(difference * difference, c, add) / denominator);
+                mae_out(destination, shape(r)).store(reduce(magnitude, c, add) / denominator);
+                huber_out(destination, shape(r)).store(reduce(huber, c, add) / denominator);
+                bce_out(destination, shape(r)).store(reduce(bce, c, add) / denominator);
             }
         });
     auto kernel = definition.capture(
@@ -176,7 +91,7 @@ void test_row_statistics_and_losses() {
         tensor_shape("peak", rows), tensor_shape("argmax", rows),
         tensor_shape("mse", rows), tensor_shape("mae", rows),
         tensor_shape("huber", rows), tensor_shape("bce", rows));
-    auto executable = build(kernel);
+    auto executable = runtime.build(kernel);
     expect(executable.ok()) << executable.error;
     if (!executable.ok()) { return; }
 
@@ -192,29 +107,29 @@ void test_row_statistics_and_losses() {
         0.1f, 0.8f, 0.6f, 0.4f, 0.2f,
         0.9f, 0.3f, 0.7f, 0.2f, 0.55f,
         0.05f, 0.65f, 0.15f, 0.75f, 0.25f};
-    auto x_tensor = upload<float>({rows, columns}, x);
-    auto target_tensor = upload<float>({rows, columns}, target);
-    auto probability_tensor = upload<float>({rows, columns}, probability);
-    auto sum_tensor = allocate<float>({rows});
-    auto mean_tensor = allocate<float>({rows});
-    auto peak_tensor = allocate<float>({rows});
-    auto argmax_tensor = allocate<int64_t>({rows});
-    auto mse_tensor = allocate<float>({rows});
-    auto mae_tensor = allocate<float>({rows});
-    auto huber_tensor = allocate<float>({rows});
-    auto bce_tensor = allocate<float>({rows});
+    auto x_tensor = runtime.upload<float>({rows, columns}, x);
+    auto target_tensor = runtime.upload<float>({rows, columns}, target);
+    auto probability_tensor = runtime.upload<float>({rows, columns}, probability);
+    auto sum_tensor = runtime.allocate<float>({rows});
+    auto mean_tensor = runtime.allocate<float>({rows});
+    auto peak_tensor = runtime.allocate<float>({rows});
+    auto argmax_tensor = runtime.allocate<int64_t>({rows});
+    auto mse_tensor = runtime.allocate<float>({rows});
+    auto mae_tensor = runtime.allocate<float>({rows});
+    auto huber_tensor = runtime.allocate<float>({rows});
+    auto bce_tensor = runtime.allocate<float>({rows});
     (*executable.entry)(x_tensor, target_tensor, probability_tensor,
                         sum_tensor, mean_tensor, peak_tensor, argmax_tensor,
                         mse_tensor, mae_tensor, huber_tensor, bce_tensor);
 
-    auto sums = download<float>(sum_tensor, rows);
-    auto means = download<float>(mean_tensor, rows);
-    auto peaks = download<float>(peak_tensor, rows);
-    auto argmax = download<int64_t>(argmax_tensor, rows);
-    auto mses = download<float>(mse_tensor, rows);
-    auto maes = download<float>(mae_tensor, rows);
-    auto hubers = download<float>(huber_tensor, rows);
-    auto bces = download<float>(bce_tensor, rows);
+    auto sums = runtime.download<float>(sum_tensor, rows);
+    auto means = runtime.download<float>(mean_tensor, rows);
+    auto peaks = runtime.download<float>(peak_tensor, rows);
+    auto argmax = runtime.download<int64_t>(argmax_tensor, rows);
+    auto mses = runtime.download<float>(mse_tensor, rows);
+    auto maes = runtime.download<float>(mae_tensor, rows);
+    auto hubers = runtime.download<float>(huber_tensor, rows);
+    auto bces = runtime.download<float>(bce_tensor, rows);
     for (auto r = 0; r < rows; r++) {
         auto sum = 0.0f;
         auto peak = -std::numeric_limits<float>::infinity();
@@ -253,49 +168,37 @@ void test_row_statistics_and_losses() {
     }
 }
 
-void test_softmax_layernorm_rmsnorm() {
+void test_softmax_layernorm_rmsnorm(Runtime &runtime) {
     constexpr int64_t rows = 4;
     constexpr int64_t columns = 7;
     constexpr float epsilon = 1e-5f;
     auto definition = tile_kernel(
         "tile_poc_softmax_norm",
-        [](TensorView<const float, 2> x,
-           TensorView<float, 2> softmax_out,
-           TensorView<float, 2> layernorm_out,
-           TensorView<float, 2> rmsnorm_out) {
+        [=](TensorView<const float, 2> x,
+            TensorView<float, 2> softmax_out,
+            TensorView<float, 2> layernorm_out,
+            TensorView<float, 2> rmsnorm_out) {
             auto row = axis("row", x.extent<0>());
-            auto column = axis("column", x.extent<1>());
-            for (auto &row_nest : parallel(shape(row))) {
-                auto peak = Scalar<float>{-1e30f};
-                for (auto &item : row_nest.reduce(shape(column))) {
-                    peak = max(peak, x(row_nest[row], item[column]).load());
-                }
-                auto exponential_sum = Scalar<float>{0.0f};
-                auto sum = Scalar<float>{0.0f};
-                auto square_sum = Scalar<float>{0.0f};
-                for (auto &item : row_nest.reduce(shape(column))) {
-                    auto value = x(row_nest[row], item[column]).load();
-                    exponential_sum += exp(value - peak);
-                    sum += value;
-                    square_sum += value * value;
-                }
+            auto r = axis("local_row", 1);
+            auto c = axis("column", x.extent<1>());
+            for (auto &nest : parallel(shape(row))) {
+                auto origin = coord(nest.index(), 0);
+                auto value = x[origin, shape(r, c)];
+                auto peak = reduce(value, c, maximum);
+                auto exponentials = exp(value - peak);
                 auto denominator = static_cast<float>(x.extent<1>());
-                auto mean = sum / denominator;
-                auto variance = max(square_sum / denominator - mean * mean, 0.0f);
-                auto inverse_stddev = 1.0f / sqrt(variance + epsilon);
-                auto inverse_rms = 1.0f / sqrt(square_sum / denominator + epsilon);
-                for (auto &item : row_nest.parallel(shape(column))) {
-                    auto value = x(row_nest[row], item[column]).load();
-                    softmax_out(row_nest[row], item[column]) = exp(value - peak) / exponential_sum;
-                    layernorm_out(row_nest[row], item[column]) = (value - mean) * inverse_stddev;
-                    rmsnorm_out(row_nest[row], item[column]) = value * inverse_rms;
-                }
+                auto mean = reduce(value, c, add) / denominator;
+                auto mean_square = reduce(value * value, c, add) / denominator;
+                auto variance = max(mean_square - mean * mean, 0.0f);
+                softmax_out(origin, shape(r, c)).store(exponentials / reduce(exponentials, c, add));
+                layernorm_out(origin, shape(r, c)).store((value - mean) / sqrt(variance + epsilon));
+                rmsnorm_out(origin, shape(r, c)).store(value / sqrt(mean_square + epsilon));
             }
         });
     auto kernel = definition.capture(
         tensor_shape("x", rows, columns), tensor_shape("softmax", rows, columns),
         tensor_shape("layernorm", rows, columns), tensor_shape("rmsnorm", rows, columns));
-    auto executable = build(kernel);
+    auto executable = runtime.build(kernel);
     expect(executable.ok()) << executable.error;
     if (!executable.ok()) { return; }
 
@@ -303,14 +206,14 @@ void test_softmax_layernorm_rmsnorm() {
     for (auto i = 0u; i < x.size(); i++) {
         x[i] = static_cast<float>(static_cast<int32_t>((i * 7u) % 19u) - 9) * 0.3f;
     }
-    auto x_tensor = upload<float>({rows, columns}, x);
-    auto softmax_tensor = allocate<float>({rows, columns});
-    auto layernorm_tensor = allocate<float>({rows, columns});
-    auto rmsnorm_tensor = allocate<float>({rows, columns});
+    auto x_tensor = runtime.upload<float>({rows, columns}, x);
+    auto softmax_tensor = runtime.allocate<float>({rows, columns});
+    auto layernorm_tensor = runtime.allocate<float>({rows, columns});
+    auto rmsnorm_tensor = runtime.allocate<float>({rows, columns});
     (*executable.entry)(x_tensor, softmax_tensor, layernorm_tensor, rmsnorm_tensor);
-    auto softmax_values = download<float>(softmax_tensor, x.size());
-    auto layernorm_values = download<float>(layernorm_tensor, x.size());
-    auto rmsnorm_values = download<float>(rmsnorm_tensor, x.size());
+    auto softmax_values = runtime.download<float>(softmax_tensor, x.size());
+    auto layernorm_values = runtime.download<float>(layernorm_tensor, x.size());
+    auto rmsnorm_values = runtime.download<float>(rmsnorm_tensor, x.size());
     for (auto r = 0; r < rows; r++) {
         auto begin = static_cast<size_t>(r * columns);
         auto peak = -std::numeric_limits<float>::infinity();
@@ -340,60 +243,69 @@ void test_softmax_layernorm_rmsnorm() {
     }
 }
 
-void test_pipelined_gemm() {
-    constexpr int64_t m_size = 5;
-    constexpr int64_t n_size = 4;
-    constexpr int64_t k_size = 7;
+void test_pipelined_gemm(Runtime &runtime) {
     auto definition = tile_kernel(
         "tile_poc_pipelined_gemm",
-        [](TensorView<const float, 2> a,
-           TensorView<const float, 2> b,
-           TensorView<float, 2> c) {
-            auto m = axis("m", a.extent<0>());
-            auto n = axis("n", b.extent<1>());
-            auto k = axis("k", a.extent<1>());
-            for (auto &output : parallel(shape(m, n))) {
-                auto accumulator = Scalar<float>{0.0f};
-                for (auto &step : output.pipeline(
-                         shape(k), PipelinePolicy{.stages = 2u, .initiation_interval = 1u})) {
+        [=](TensorView<const float, 2> a,
+            TensorView<const float, 2> b,
+            TensorView<float, 2> c) {
+            constexpr auto bm = 4;
+            constexpr auto bn = 4;
+            constexpr auto bk = 4;
+            auto gm = axis("block_m", (a.extent<0>() + bm - 1) / bm);
+            auto gn = axis("block_n", (b.extent<1>() + bn - 1) / bn);
+            auto kt = axis("k_tiles", (a.extent<1>() + bk - 1) / bk);
+            auto m = axis("m", bm);
+            auto n = axis("n", bn);
+            auto k = axis("k", bk);
+            for (auto &nest : parallel(shape(gm, gn))) {
+                auto m0 = nest[gm] * bm;
+                auto n0 = nest[gn] * bn;
+                auto acc = zeros<float>(shape(m, n));
+                for (auto &step : nest.pipeline(shape(kt), {.stages = 2, .initiation_interval = 1})) {
                     step.stage("load");
-                    auto lhs = a(output[m], step[k]).load();
-                    auto rhs = b(step[k], output[n]).load();
+                    auto a_tile = a[coord(m0, step.index() * bk), shape(m, k)];
+                    auto b_tile = b[coord(step.index() * bk, n0), shape(k, n)];
                     step.stage("compute");
-                    accumulator += lhs * rhs;
+                    acc = mma(a_tile, b_tile, acc);
                 }
-                c(output[m], output[n]) = accumulator;
+                c(coord(m0, n0), shape(m, n)).store(acc);
             }
         });
-    auto kernel = definition.capture(
-        tensor_shape("a", m_size, k_size), tensor_shape("b", k_size, n_size),
-        tensor_shape("c", m_size, n_size));
-    auto executable = build(kernel);
-    expect(executable.ok()) << executable.error;
-    if (!executable.ok()) { return; }
+    constexpr std::array<std::array<int64_t, 3>, 8> cases{{{1, 1, 1}, {5, 4, 7}, {4, 13, 3}, {13, 3, 9}, {9, 11, 10}, {16, 16, 16}, {31, 17, 29}, {65, 33, 17}}};
+    for (auto [m_size, n_size, k_size] : cases) {
+        auto kernel = definition.capture(
+            tensor_shape("a", m_size, k_size), tensor_shape("b", k_size, n_size),
+            tensor_shape("c", m_size, n_size));
+        expect(eq(luisa::test::tile_tirx::count_operations(kernel.function().body(), OperationKind::MMA), 1u));
+        auto executable = runtime.build(kernel);
+        expect(executable.ok()) << executable.error;
+        if (!executable.ok()) { return; }
 
-    luisa::vector<float> a(m_size * k_size);
-    luisa::vector<float> b(k_size * n_size);
-    for (auto i = 0u; i < a.size(); i++) { a[i] = static_cast<float>((i % 11u) + 1u) * 0.1f; }
-    for (auto i = 0u; i < b.size(); i++) { b[i] = static_cast<float>(static_cast<int32_t>(i % 9u) - 4) * 0.2f; }
-    auto a_tensor = upload<float>({m_size, k_size}, a);
-    auto b_tensor = upload<float>({k_size, n_size}, b);
-    auto c_tensor = allocate<float>({m_size, n_size});
-    (*executable.entry)(a_tensor, b_tensor, c_tensor);
-    auto c = download<float>(c_tensor, m_size * n_size);
-    for (auto m = 0; m < m_size; m++) {
-        for (auto n = 0; n < n_size; n++) {
-            auto expected = 0.0f;
-            for (auto k = 0; k < k_size; k++) {
-                expected += a[static_cast<size_t>(m * k_size + k)] *
-                            b[static_cast<size_t>(k * n_size + n)];
+        luisa::vector<float> a(m_size * k_size);
+        luisa::vector<float> b(k_size * n_size);
+        for (auto i = 0u; i < a.size(); i++) { a[i] = static_cast<float>((i % 11u) + 1u) * 0.1f; }
+        for (auto i = 0u; i < b.size(); i++) { b[i] = static_cast<float>(static_cast<int32_t>(i % 9u) - 4) * 0.2f; }
+        auto a_tensor = runtime.upload<float>({m_size, k_size}, a);
+        auto b_tensor = runtime.upload<float>({k_size, n_size}, b);
+        auto c_tensor = runtime.allocate<float>({m_size, n_size});
+        (*executable.entry)(a_tensor, b_tensor, c_tensor);
+        auto c = runtime.download<float>(c_tensor, m_size * n_size);
+        for (auto m = 0; m < m_size; m++) {
+            for (auto n = 0; n < n_size; n++) {
+                auto expected = 0.0f;
+                for (auto k = 0; k < k_size; k++) {
+                    expected += a[static_cast<size_t>(m * k_size + k)] *
+                                b[static_cast<size_t>(k * n_size + n)];
+                }
+                expect(std::abs(c[static_cast<size_t>(m * n_size + n)] - expected) < 1e-5f)
+                    << "at (" << m << "," << n << "): actual " << c[static_cast<size_t>(m * n_size + n)] << ", expected " << expected;
             }
-            expect(std::abs(c[static_cast<size_t>(m * n_size + n)] - expected) < 1e-5f);
         }
     }
 }
 
-void test_padded_strided_conv2d() {
+void test_padded_strided_conv2d(Runtime &runtime) {
     constexpr int64_t batch_size = 1;
     constexpr int64_t input_height = 5;
     constexpr int64_t input_width = 6;
@@ -408,30 +320,35 @@ void test_padded_strided_conv2d() {
     constexpr int64_t output_width = 3;
     auto definition = tile_kernel(
         "tile_poc_conv2d",
-        [](TensorView<const float, 4> x,
-           TensorView<const float, 4> weights,
-           TensorView<const float, 1> bias,
-           TensorView<float, 4> y) {
+        [=](TensorView<const float, 4> x,
+            TensorView<const float, 4> weights,
+            TensorView<const float, 1> bias,
+            TensorView<float, 4> y) {
             auto batch = axis("batch", y.extent<0>());
-            auto input_channel = axis("input_channel", x.extent<3>());
-            auto filter_y = axis("filter_y", weights.extent<0>());
-            auto filter_x = axis("filter_x", weights.extent<1>());
             auto output_y = axis("output_y", y.extent<1>());
             auto output_x = axis("output_x", y.extent<2>());
-            auto output_channel = axis("output_channel", y.extent<3>());
-            for (auto &output : parallel(shape(batch, output_y, output_x, output_channel))) {
-                auto accumulator = Scalar<float>{0.0f};
-                for (auto &tap : output.reduce(shape(filter_y, filter_x, input_channel))) {
-                    auto source_y = output[output_y] * stride + tap[filter_y] * dilation - padding;
-                    auto source_x = output[output_x] * stride + tap[filter_x] * dilation - padding;
-                    auto valid = (source_y >= 0) && (source_y < x.extent<1>()) &&
-                                 (source_x >= 0) && (source_x < x.extent<2>());
-                    auto source = x(output[batch], source_y, source_x, tap[input_channel]).load(valid, 0.0f);
-                    auto weight = weights(tap[filter_y], tap[filter_x], tap[input_channel], output[output_channel]).load();
-                    accumulator += source * weight;
-                }
-                auto value = accumulator + bias(output[output_channel]).load();
-                y(output[batch], output[output_y], output[output_x], output[output_channel]) = max(value, 0.0f);
+            auto b = axis("local_batch", 1);
+            auto oy = axis("local_y", 1);
+            auto ox = axis("local_x", 1);
+            auto fy = axis("filter_y", weights.extent<0>());
+            auto fx = axis("filter_x", weights.extent<1>());
+            auto ic = axis("input_channel", x.extent<3>());
+            auto oc = axis("output_channel", y.extent<3>());
+            auto wy = axis("window_y", (weights.extent<0>() - 1) * dilation + 1);
+            auto wx = axis("window_x", (weights.extent<1>() - 1) * dilation + 1);
+            for (auto &nest : parallel(shape(batch, output_y, output_x))) {
+                auto n0 = nest[batch];
+                auto y0 = nest[output_y];
+                auto x0 = nest[output_x];
+                auto window = x[coord(n0, y0 * stride - padding, x0 * stride - padding, 0), shape(b, wy, wx, ic)];
+                auto taps = reindex(window, shape(b, fy, fx, ic), [&](const Nest &element) {
+                    return coord(element[b], element[fy] * dilation, element[fx] * dilation, element[ic]);
+                });
+                auto filter = weights[coord(0, 0, 0, 0), shape(fy, fx, ic, oc)];
+                auto bias_tile = bias[coord(0), shape(oc)];
+                auto value = reduce(taps * filter, shape(fy, fx, ic), add) + bias_tile;
+                auto result = reshape(max(value, 0.0f), shape(b, oy, ox, oc));
+                y(coord(n0, y0, x0, 0), shape(b, oy, ox, oc)).store(result);
             }
         });
     auto kernel = definition.capture(
@@ -439,7 +356,7 @@ void test_padded_strided_conv2d() {
         tensor_shape("weights", filter_height, filter_width, input_channels, output_channels),
         tensor_shape("bias", output_channels),
         tensor_shape("y", batch_size, output_height, output_width, output_channels));
-    auto executable = build(kernel);
+    auto executable = runtime.build(kernel);
     expect(executable.ok()) << executable.error;
     if (!executable.ok()) { return; }
 
@@ -453,12 +370,12 @@ void test_padded_strided_conv2d() {
         weights[i] = static_cast<float>(static_cast<int32_t>((i * 3u) % 13u) - 6) * 0.0625f;
     }
     for (auto i = 0u; i < bias.size(); i++) { bias[i] = static_cast<float>(i) * 0.1f - 0.05f; }
-    auto x_tensor = upload<float>({batch_size, input_height, input_width, input_channels}, x);
-    auto weights_tensor = upload<float>({filter_height, filter_width, input_channels, output_channels}, weights);
-    auto bias_tensor = upload<float>({output_channels}, bias);
-    auto y_tensor = allocate<float>({batch_size, output_height, output_width, output_channels});
+    auto x_tensor = runtime.upload<float>({batch_size, input_height, input_width, input_channels}, x);
+    auto weights_tensor = runtime.upload<float>({filter_height, filter_width, input_channels, output_channels}, weights);
+    auto bias_tensor = runtime.upload<float>({output_channels}, bias);
+    auto y_tensor = runtime.allocate<float>({batch_size, output_height, output_width, output_channels});
     (*executable.entry)(x_tensor, weights_tensor, bias_tensor, y_tensor);
-    auto y = download<float>(y_tensor, batch_size * output_height * output_width * output_channels);
+    auto y = runtime.download<float>(y_tensor, batch_size * output_height * output_width * output_channels);
 
     auto x_index = [](int64_t n, int64_t iy, int64_t ix, int64_t c) noexcept {
         return static_cast<size_t>(((n * input_height + iy) * input_width + ix) * input_channels + c);
@@ -495,9 +412,12 @@ void test_padded_strided_conv2d() {
 }// namespace
 
 int main(int argc, char *argv[]) {
-    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
-    "tile_tirx_poc_statistics_losses"_test = test_row_statistics_and_losses;
-    "tile_tirx_poc_softmax_norm"_test = test_softmax_layernorm_rmsnorm;
-    "tile_tirx_poc_pipelined_gemm"_test = test_pipelined_gemm;
-    "tile_tirx_poc_conv2d"_test = test_padded_strided_conv2d;
+    auto runtime = Runtime{argc > 1 ? argv[1] : "cpu"};
+    boost::ut::detail::cfg::parse_arg_with_fallback(
+        argc > 1 ? argc - 1 : argc,
+        const_cast<const char **>(argc > 1 ? argv + 1 : argv));
+    "tile_tirx_poc_statistics_losses"_test = [&] { test_row_statistics_and_losses(runtime); };
+    "tile_tirx_poc_softmax_norm"_test = [&] { test_softmax_layernorm_rmsnorm(runtime); };
+    "tile_tirx_poc_pipelined_gemm"_test = [&] { test_pipelined_gemm(runtime); };
+    "tile_tirx_poc_conv2d"_test = [&] { test_padded_strided_conv2d(runtime); };
 }

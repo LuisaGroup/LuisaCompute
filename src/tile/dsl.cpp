@@ -34,6 +34,11 @@ public:
     luisa::vector<luisa::weak_ptr<ValueSlot>> slots;
     luisa::vector<ScopeStorage *> scopes;
     luisa::vector<std::pair<Dim, Value *>> coordinates;
+    struct PositionalDimension {
+        size_t from_right;
+        Dim dimension;
+    };
+    luisa::vector<PositionalDimension> positional_dimensions;
 
     explicit CaptureContext(KernelStorage *kernel) noexcept
         : kernel{kernel}, builder{kernel->root} {}
@@ -50,9 +55,11 @@ public:
         return slot;
     }
 
-    [[nodiscard]] Value *coordinate(Dim dimension) const noexcept {
-        for (auto iter = coordinates.rbegin(); iter != coordinates.rend(); iter++) {
-            if (iter->first == dimension) { return iter->second; }
+    [[nodiscard]] Value *coordinate(Dim dimension, size_t visible_count) const noexcept {
+        if (visible_count > coordinates.size()) { return nullptr; }
+        for (auto i = visible_count; i != 0u; i--) {
+            auto &&entry = coordinates[i - 1u];
+            if (entry.first == dimension) { return entry.second; }
         }
         return nullptr;
     }
@@ -70,6 +77,8 @@ struct ScopeStorage {
     IndexSpace domain;
     exec::Scope execution_scope{exec::Scope::AUTOMATIC};
     PipelinePolicy pipeline_policy;
+    ScalarType element_type{ScalarType::INVALID};
+    Value *element_result{nullptr};
     Block *parent_block{nullptr};
     Operation *operation{nullptr};
     Block *body{nullptr};
@@ -120,7 +129,7 @@ void enter_scope(ScopeStorage &scope) noexcept {
     scope.entered = true;
     auto context = scope.context;
     if (context == nullptr || current_capture != context) { return; }
-    if (!scope.domain.is_valid() || scope.domain.empty()) {
+    if (!scope.domain.is_valid() || (scope.domain.empty() && scope.kind != OperationKind::TILE_MAP)) {
         context->error("execution nest requires a non-empty valid shape");
         return;
     }
@@ -148,7 +157,9 @@ void enter_scope(ScopeStorage &scope) noexcept {
         }
     }
     scope.parent_block = context->builder.insertion_block();
-    scope.operation = context->builder.create_structured(scope.kind, scope.domain);
+    scope.operation = scope.kind == OperationKind::TILE_MAP ?
+                          context->builder.create_tile_map(Type::tile(scope.element_type, scope.domain)) :
+                          context->builder.create_structured(scope.kind, scope.domain);
     if (scope.operation == nullptr) {
         context->error("failed to create structured TileIR operation");
         return;
@@ -193,14 +204,14 @@ void exit_scope(ScopeStorage &scope) noexcept {
     for (auto &&entry : scope.snapshot) {
         auto slot = entry.slot.lock();
         if (!slot || slot->value == entry.value) { continue; }
-        if (scope.kind == OperationKind::PARALLEL) {
-            context->error("parallel nests cannot mutate an outer scalar; store through a View instead");
+        if (scope.kind == OperationKind::PARALLEL || scope.kind == OperationKind::TILE_MAP) {
+            context->error("parallel nests and tile.map cannot mutate an outer value");
             slot->value = entry.value;
             continue;
         }
         if (entry.value == nullptr || slot->value == nullptr ||
             !(entry.value->type() == slot->value->type())) {
-            context->error("loop-carried scalar assignment changed type or became invalid");
+            context->error("loop-carried value assignment changed type or became invalid");
             slot->value = entry.value;
             continue;
         }
@@ -215,6 +226,7 @@ void exit_scope(ScopeStorage &scope) noexcept {
     luisa::vector<Value *> yields;
     yields.reserve(carries.size());
     for (auto &&carry : carries) { yields.emplace_back(carry.final); }
+    if (scope.kind == OperationKind::TILE_MAP) { yields.emplace_back(scope.element_result); }
     static_cast<void>(context->builder.create(OperationKind::YIELD, yields));
     context->builder.set_insertion_block(scope.parent_block);
     context->coordinates.resize(scope.coordinate_base);
@@ -249,7 +261,7 @@ void ValueHandle::_assign(Value *value) noexcept {
         return;
     }
     if (value == nullptr || _slot->context != current_capture || !(value->type() == _slot->value->type())) {
-        _slot->context->error("scalar assignment requires a valid value of the same type and capture");
+        _slot->context->error("value assignment requires a valid value of the same type and capture");
         return;
     }
     _slot->value = value;
@@ -291,6 +303,113 @@ ValueHandle make_elementwise_operation(
     }
     auto operation = current_capture->builder.create_elementwise(op, values, Type::scalar(result_type));
     return operation == nullptr ? ValueHandle{} : ValueHandle{current_capture->make_slot(operation->result(0u))};
+}
+
+void capture_error(luisa::string_view message) noexcept {
+    if (current_capture != nullptr) { current_capture->error(message); }
+}
+
+ValueHandle make_tile_constant(ScalarType type, const IndexSpace &space, Attribute value) noexcept {
+    if (current_capture == nullptr) { return {}; }
+    Type result[]{Type::tile(type, space)};
+    auto operation = current_capture->builder.create(OperationKind::CONSTANT, {}, result);
+    if (operation == nullptr) { return {}; }
+    operation->set_attribute("value", std::move(value));
+    return ValueHandle{current_capture->make_slot(operation->result(0u))};
+}
+
+ValueHandle make_tile_elementwise(ElementwiseOp op, luisa::span<Value *const> operands, ScalarType type) noexcept {
+    if (current_capture == nullptr) { return {}; }
+    IndexSpace space;
+    // Preserve the most informative operand's dimension order. For select,
+    // value operands take precedence over the boolean mask when ranks tie.
+    auto first = op == ElementwiseOp::SELECT ? 1u : 0u;
+    for (auto i = first; i < operands.size() + first; i++) {
+        auto index = i % operands.size();
+        auto value = operands[index];
+        if (value != nullptr && value->type().is_tile() &&
+            (space.empty() || value->type().index_space()->rank() > space.rank())) {
+            space = *value->type().index_space();
+        }
+    }
+    for (auto value : operands) {
+        if (value == nullptr) {
+            capture_error("Tile operation received an invalid operand");
+            return {};
+        }
+        if (!value->type().is_tile()) { continue; }
+        for (auto &&axis : value->type().index_space()->axes()) {
+            if (auto existing = space.axis_index(axis.dimension)) {
+                if (space.axis(*existing).extent != axis.extent) {
+                    auto current = space.axis(*existing).extent;
+                    if (axis.extent.is_constant() && axis.extent.constant_value() == 1u) { continue; }
+                    if (!current.is_constant() || current.constant_value() != 1u) {
+                        capture_error("Tile broadcasting requires equal or singleton extents for shared dimensions");
+                        return {};
+                    }
+                    IndexSpace enlarged;
+                    for (auto &&item : space.axes()) {
+                        static_cast<void>(enlarged.add(item.dimension, item.dimension == axis.dimension ? axis.extent : item.extent));
+                    }
+                    space = std::move(enlarged);
+                }
+            } else if (!space.add(axis.dimension, axis.extent)) {
+                capture_error("Tile broadcasting encountered an invalid dimension");
+                return {};
+            }
+        }
+    }
+    auto operation = current_capture->builder.create_elementwise(op, operands, Type::tile(type, space));
+    return operation == nullptr ? ValueHandle{} : ValueHandle{current_capture->make_slot(operation->result(0u))};
+}
+
+ValueHandle make_mma(Value *a, Value *b, Value *accumulator) noexcept {
+    if (current_capture == nullptr) { return {}; }
+    auto operation = current_capture->builder.create_mma(a, b, accumulator);
+    return operation == nullptr ? ValueHandle{} : ValueHandle{current_capture->make_slot(operation->result(0u))};
+}
+
+ValueHandle load_tile(Value *view, luisa::span<Value *const> origin, const IndexSpace &space,
+                      BoundsMode bounds, Value *fallback) noexcept {
+    if (current_capture == nullptr) { return {}; }
+    auto operation = current_capture->builder.create_tile_load(view, origin, space, bounds, fallback);
+    if (operation == nullptr) {
+        capture_error("failed to create subtile load");
+        return {};
+    }
+    return ValueHandle{current_capture->make_slot(operation->result(0u))};
+}
+
+void store_tile(Value *view, luisa::span<Value *const> origin, const IndexSpace &space,
+                Value *tile, BoundsMode bounds) noexcept {
+    if (current_capture != nullptr && current_capture->builder.create_tile_store(view, origin, space, tile, bounds) == nullptr) {
+        capture_error("failed to create subtile store");
+    }
+}
+
+ValueHandle extract_tile(Value *tile, luisa::span<Value *const> indices) noexcept {
+    if (current_capture == nullptr) { return {}; }
+    auto operation = current_capture->builder.create_tile_extract(tile, indices);
+    if (operation == nullptr) {
+        capture_error("failed to extract a Tile element");
+        return {};
+    }
+    return ValueHandle{current_capture->make_slot(operation->result(0u))};
+}
+
+ValueHandle capture_tile_map(const IndexSpace &space, ScalarType type,
+                             const std::function<Value *(const Nest &)> &body) noexcept {
+    if (current_capture == nullptr) { return {}; }
+    ScopeStorage scope;
+    scope.context = current_capture;
+    scope.kind = OperationKind::TILE_MAP;
+    scope.domain = space;
+    scope.element_type = type;
+    enter_scope(scope);
+    if (scope.operation == nullptr) { return {}; }
+    scope.element_result = body(scope.nest);
+    exit_scope(scope);
+    return ValueHandle{current_capture->make_slot(scope.operation->result(0u))};
 }
 
 ValueHandle load_view(
@@ -375,6 +494,28 @@ IndexSpace make_shape(luisa::span<const Axis> axes) noexcept {
     return result;
 }
 
+IndexSpace make_positional_shape(luisa::span<const uint64_t> extents) noexcept {
+    IndexSpace result;
+    if (current_capture == nullptr) { return result; }
+    for (auto i = 0u; i < extents.size(); i++) {
+        auto from_right = extents.size() - i - 1u;
+        Dim dimension;
+        for (auto &&candidate : current_capture->positional_dimensions) {
+            if (candidate.from_right == from_right) {
+                dimension = candidate.dimension;
+                break;
+            }
+        }
+        if (!dimension) {
+            dimension = current_capture->kernel->module->dimensions().create_dimension(
+                luisa::format("positional.{}", from_right));
+            current_capture->positional_dimensions.emplace_back(CaptureContext::PositionalDimension{from_right, dimension});
+        }
+        static_cast<void>(result.add(dimension, extents[i]));
+    }
+    return result;
+}
+
 DeclaredTensorView declare_tensor_view(
     size_t argument_index,
     luisa::string_view name,
@@ -412,7 +553,8 @@ luisa::vector<ValueHandle> nest_indices(const Nest &nest, const IndexSpace &spac
     if (current_capture == nullptr || nest._scope == nullptr || nest._scope->context != current_capture) { return result; }
     result.reserve(space.rank());
     for (auto &&axis : space.axes()) {
-        auto coordinate = current_capture->coordinate(axis.dimension);
+        auto coordinate = current_capture->coordinate(
+            axis.dimension, nest._scope->coordinate_base + nest._scope->domain.rank());
         if (coordinate == nullptr) {
             current_capture->error("active execution hierarchy does not define every requested View dimension");
             return {};
@@ -462,8 +604,15 @@ luisa::span<const luisa::string> Kernel::diagnostics() const noexcept {
 }
 
 Scalar<int64_t> Nest::index(const Axis &axis) const noexcept {
-    if (_scope == nullptr || _scope->context == nullptr || !axis) { return {}; }
-    auto value = _scope->context->coordinate(axis.dimension());
+    return index(axis.dimension());
+}
+
+Scalar<int64_t> Nest::index(Dim dimension) const noexcept {
+    if (_scope == nullptr || _scope->context == nullptr || !dimension) { return {}; }
+    // Resolve against this Nest and its ancestors, not a currently active
+    // descendant that may reuse the same dimension identity.
+    auto value = _scope->context->coordinate(dimension, _scope->coordinate_base + _scope->domain.rank());
+    if (value == nullptr) { _scope->context->error("the active hierarchy does not define this coordinate"); }
     return value == nullptr ? Scalar<int64_t>{} : Scalar<int64_t>{detail::ValueHandle{_scope->context->make_slot(value)}};
 }
 
@@ -472,9 +621,7 @@ Scalar<int64_t> Nest::index() const noexcept {
         if (_scope != nullptr) { _scope->context->error("index() without an Axis requires a rank-one local nest"); }
         return {};
     }
-    auto dimension = _scope->domain.axis(0u).dimension;
-    auto value = _scope->context->coordinate(dimension);
-    return value == nullptr ? Scalar<int64_t>{} : Scalar<int64_t>{detail::ValueHandle{_scope->context->make_slot(value)}};
+    return index(_scope->domain.axis(0u).dimension);
 }
 
 NestRange Nest::parallel(IndexSpace domain, exec::Scope scope) const noexcept {

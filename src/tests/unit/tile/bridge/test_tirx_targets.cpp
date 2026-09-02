@@ -94,7 +94,7 @@ void test_same_axpy_on_cpu_and_metal() {
             auto element = axis("element", result.extent<0>());
             for (auto &item : parallel(shape(element))) {
                 auto index = item.index();
-                result(index) = 1.25f * x(index).load() - 0.75f * y(index).load() + 0.5f;
+                result(index).store(1.25f * x(index).load() - 0.75f * y(index).load() + 0.5f);
             }
         });
     auto kernel = definition.capture(
@@ -159,7 +159,7 @@ void test_same_reduction_on_cpu_and_metal() {
                 for (auto &item : row_nest.reduce(shape(column))) {
                     sum += x(row_nest[row], item[column]).load();
                 }
-                result(row_nest[row]) = sum;
+                result(row_nest[row]).store(sum);
             }
         });
     auto kernel = definition.capture(

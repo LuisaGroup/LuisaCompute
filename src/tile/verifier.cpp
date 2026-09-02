@@ -215,6 +215,39 @@ private:
         }
         auto &&view_type = operation->operand(0u)->type();
         auto rank = view_type.index_space()->rank();
+        if (operation->domain()) {
+            auto &&space = *operation->domain();
+            if (!_space_belongs_to_module(space) || space.rank() != rank) {
+                _error(operation, "subtile access requires a module-local domain matching the View rank");
+                return;
+            }
+            auto is_load = operation->kind() == OperationKind::VIEW_LOAD;
+            auto expected_count = rank + (is_load ? 1u : 2u);
+            auto has_fallback = is_load && operation->operand_count() == expected_count + 1u;
+            if (operation->operand_count() != expected_count && !has_fallback) {
+                _error(operation, "subtile access origin count must match the View rank");
+                return;
+            }
+            for (auto i = 0u; i < rank; i++) {
+                if (!is_index(operation->operand(i + 1u))) {
+                    _error(operation, "subtile origins must be integer scalar values");
+                }
+            }
+            auto tile_type = Type::tile(view_type.scalar_type(), space);
+            if (is_load) {
+                if (operation->result_count() != 1u || operation->result(0u)->type() != tile_type) {
+                    _error(operation, "subtile load must produce a Tile with the requested domain and element type");
+                }
+                if (has_fallback && (operation->operand(rank + 1u) == nullptr ||
+                                     operation->operand(rank + 1u)->type() != Type::scalar(view_type.scalar_type()))) {
+                    _error(operation, "subtile load fallback must match the View element type");
+                }
+            } else if (operation->result_count() != 0u || operation->operand(rank + 1u) == nullptr ||
+                       operation->operand(rank + 1u)->type() != tile_type) {
+                _error(operation, "subtile store requires a Tile matching the requested domain and element type");
+            }
+            return;
+        }
         auto ordinary_operands = rank + (operation->kind() == OperationKind::VIEW_LOAD ? 1u : 2u);
         auto masked_load = operation->kind() == OperationKind::VIEW_LOAD &&
                            operation->operand_count() == rank + 3u;
@@ -268,6 +301,17 @@ private:
 
     [[nodiscard]] static bool _same_element_type(const Type &lhs, const Type &rhs) noexcept {
         return _same_element_shape(lhs, rhs) && _element_scalar_type(lhs) == _element_scalar_type(rhs);
+    }
+
+    [[nodiscard]] static bool _broadcasts_to(const Type &source, const Type &destination) noexcept {
+        if (!source.is_tile()) { return _is_element_value(source) && _is_element_value(destination); }
+        if (!destination.is_tile()) { return false; }
+        for (auto &&axis : source.index_space()->axes()) {
+            auto index = destination.index_space()->axis_index(axis.dimension);
+            if (!index || (destination.index_space()->axis(*index).extent != axis.extent &&
+                           (!axis.extent.is_constant() || axis.extent.constant_value() != 1u))) { return false; }
+        }
+        return true;
     }
 
     [[nodiscard]] static bool _is_floating(ScalarType type) noexcept {
@@ -326,9 +370,11 @@ private:
         if (op == ElementwiseOp::SELECT) {
             auto &&condition = operation->operand(0u)->type();
             if (condition.scalar_type() != ScalarType::BOOL ||
-                !_same_element_shape(condition, result) ||
-                !_same_element_type(operation->operand(1u)->type(), result) ||
-                !_same_element_type(operation->operand(2u)->type(), result)) {
+                !_broadcasts_to(condition, result) ||
+                !_broadcasts_to(operation->operand(1u)->type(), result) ||
+                !_broadcasts_to(operation->operand(2u)->type(), result) ||
+                _element_scalar_type(operation->operand(1u)->type()) != _element_scalar_type(result) ||
+                _element_scalar_type(operation->operand(2u)->type()) != _element_scalar_type(result)) {
                 _error(operation, "elementwise select requires a shape-matched bool condition and matching values");
             }
             return;
@@ -342,7 +388,8 @@ private:
                 return;
             }
             for (auto i = 0u; i < operation->operand_count(); i++) {
-                if (!(operation->operand(i)->type() == result)) {
+                if (!_broadcasts_to(operation->operand(i)->type(), result) ||
+                    operation->operand(i)->type().scalar_type() != ScalarType::BOOL) {
                     _error(operation, "logical elementwise operation requires bool operands and result");
                     return;
                 }
@@ -354,14 +401,16 @@ private:
                           op == ElementwiseOp::GT || op == ElementwiseOp::GE;
         if (comparison) {
             auto &&lhs = operation->operand(0u)->type();
-            if (!_same_element_type(lhs, operation->operand(1u)->type()) || result.scalar_type() != ScalarType::BOOL ||
-                !_same_element_shape(lhs, result)) {
+            if (_element_scalar_type(lhs) != _element_scalar_type(operation->operand(1u)->type()) ||
+                result.scalar_type() != ScalarType::BOOL || !_broadcasts_to(lhs, result) ||
+                !_broadcasts_to(operation->operand(1u)->type(), result)) {
                 _error(operation, "elementwise comparison requires matching inputs and a shape-matched bool result");
             }
             return;
         }
         for (auto i = 0u; i < operation->operand_count(); i++) {
-            if (!_same_element_type(operation->operand(i)->type(), result)) {
+            if (!_broadcasts_to(operation->operand(i)->type(), result) ||
+                _element_scalar_type(operation->operand(i)->type()) != _element_scalar_type(result)) {
                 _error(operation, "elementwise arithmetic requires operands and result to have identical types");
                 return;
             }
@@ -438,6 +487,51 @@ private:
                 }
                 break;
             case OperationKind::ELEMENTWISE: _verify_elementwise(operation); break;
+            case OperationKind::TILE_EXTRACT: {
+                if (operation->operand_count() == 0u || operation->operand(0u) == nullptr ||
+                    !operation->operand(0u)->type().is_tile()) {
+                    _error(operation, "tile.extract requires a Tile operand");
+                    break;
+                }
+                auto &&tile_type = operation->operand(0u)->type();
+                if (operation->operand_count() != tile_type.index_space()->rank() + 1u ||
+                    operation->result_count() != 1u ||
+                    operation->result(0u)->type() != Type::scalar(tile_type.scalar_type())) {
+                    _error(operation, "tile.extract index count and scalar result must match the Tile");
+                    break;
+                }
+                for (auto i = 1u; i < operation->operand_count(); i++) {
+                    auto index = operation->operand(i);
+                    if (index == nullptr || (index->type().kind() != TypeKind::INDEX &&
+                                             (index->type().kind() != TypeKind::SCALAR || !_is_integer(index->type().scalar_type())))) {
+                        _error(operation, "tile.extract indices must be integer scalar values");
+                    }
+                }
+                break;
+            }
+            case OperationKind::TILE_MAP: {
+                if (operation->operand_count() != 0u || operation->result_count() != 1u ||
+                    !operation->result(0u)->type().is_tile() || !operation->domain() ||
+                    !_space_belongs_to_module(*operation->domain()) ||
+                    *operation->result(0u)->type().index_space() != *operation->domain() ||
+                    operation->region_count() != 1u || operation->region(0u)->block_count() != 1u) {
+                    _error(operation, "tile.map requires a Tile result, matching domain, and one element region");
+                    break;
+                }
+                auto block = operation->region(0u)->block(0u);
+                if (block->argument_count() != operation->domain()->rank()) {
+                    _error(operation, "tile.map block arguments must match its logical coordinate rank");
+                }
+                for (auto &&argument : block->arguments()) {
+                    if (argument->type().kind() != TypeKind::INDEX) {
+                        _error(operation, "tile.map coordinates must have index type");
+                    }
+                }
+                if (block->operations().empty() || block->operations().back()->kind() != OperationKind::YIELD) {
+                    _error(operation, "tile.map must end with an element yield");
+                }
+                break;
+            }
             case OperationKind::MMA: _verify_mma(operation); break;
             case OperationKind::VIEW_LOAD:
             case OperationKind::VIEW_STORE: _verify_view(operation); break;
@@ -455,7 +549,10 @@ private:
                         _error(operation, "yield operand count must match parent operation results");
                     } else {
                         for (auto i = 0u; i < operation->operand_count(); i++) {
-                            if (operation->operand(i) == nullptr || !(operation->operand(i)->type() == parent->result(i)->type())) {
+                            auto expected_type = parent->kind() == OperationKind::TILE_MAP ?
+                                                     Type::scalar(parent->result(i)->type().scalar_type()) :
+                                                     parent->result(i)->type();
+                            if (operation->operand(i) == nullptr || !(operation->operand(i)->type() == expected_type)) {
                                 _error(operation, "yield operand type must match its parent result");
                             }
                         }
@@ -509,6 +606,16 @@ private:
 
     void _verify_operation(const Operation *operation, const Block *expected_parent, luisa::optional<ExecutionScope> active_scope) noexcept {
         if (operation->parent_block() != expected_parent) { _error(operation, "operation parent pointer is inconsistent"); }
+        if (operation->memory_effect() != MemoryEffect::NONE) {
+            auto region = expected_parent->parent_region();
+            while (auto parent = region->parent_operation()) {
+                if (parent->kind() == OperationKind::TILE_MAP) {
+                    _error(operation, "tile.map is pure; addressable memory effects must remain in the enclosing execution nest");
+                    break;
+                }
+                region = parent->parent_block()->parent_region();
+            }
+        }
         if (!_operation_ids.emplace(operation->id()).second) { _error(operation, "operation id is not unique within the function"); }
         for (auto i = 0u; i < operation->operand_count(); i++) {
             auto use = operation->operand_use(i);

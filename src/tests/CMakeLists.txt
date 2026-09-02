@@ -537,11 +537,33 @@ luisa_compute_add_test(test_manual_ast      unit/ast/test_manual_ast.cpp)
 luisa_compute_add_test(test_tile_layout unit/tile/test_tile_layout.cpp LABELS "unit;unit_tile")
 luisa_compute_add_test(test_tile_ir unit/tile/test_tile_ir.cpp LABELS "unit;unit_tile")
 luisa_compute_add_test(test_tile_dsl unit/tile/test_tile_dsl.cpp LABELS "unit;unit_tile")
+set(_tile_test_cpp_standards 20)
+set(_tile_poc_cpp_standard 20)
+if ("cxx_std_23" IN_LIST CMAKE_CXX_COMPILE_FEATURES)
+    list(APPEND _tile_test_cpp_standards 23)
+    set(_tile_poc_cpp_standard 23)
+endif ()
+foreach (_tile_cpp_standard IN LISTS _tile_test_cpp_standards)
+    luisa_compute_add_test(test_tile_values_cpp${_tile_cpp_standard}
+            unit/tile/test_tile_values.cpp LABELS "unit;unit_tile")
+    target_include_directories(test_tile_values_cpp${_tile_cpp_standard}
+            PRIVATE ${PROJECT_SOURCE_DIR}/docs/source)
+    set_target_properties(test_tile_values_cpp${_tile_cpp_standard} PROPERTIES
+            CXX_STANDARD ${_tile_cpp_standard} CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+endforeach ()
 if (LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE)
     luisa_compute_add_test(test_tile_tirx
             unit/tile/bridge/test_tirx_layout.cpp
             LABELS "unit;unit_tile;unit_tile_tirx")
     target_link_libraries(test_tile_tirx PRIVATE luisa::tile-tirx)
+    luisa_compute_add_test(test_tile_tirx_values
+            unit/tile/bridge/test_tirx_values.cpp LABELS "unit;unit_tile;unit_tile_tirx")
+    target_link_libraries(test_tile_tirx_values PRIVATE luisa::tile-tirx)
+    set_target_properties(test_tile_tirx_values PROPERTIES CXX_STANDARD ${_tile_poc_cpp_standard} CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+    # Opt-in timing executable: never a noisy CTest performance threshold.
+    luisa_compute_add_test(benchmark_tile_tirx benchmark/benchmark_tile_tirx.cpp)
+    target_link_libraries(benchmark_tile_tirx PRIVATE luisa::tile-tirx)
+    set_target_properties(benchmark_tile_tirx PROPERTIES CXX_STANDARD ${_tile_poc_cpp_standard} CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
     luisa_compute_add_test(test_tile_tirx_poc
             unit/tile/bridge/test_tirx_poc.cpp
             LABELS "unit;unit_tile;unit_tile_tirx;unit_tile_poc")
@@ -554,11 +576,20 @@ if (LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE)
             unit/tile/bridge/test_tirx_poc_algorithms.cpp
             LABELS "unit;unit_tile;unit_tile_tirx;unit_tile_poc")
     target_link_libraries(test_tile_tirx_poc_algorithms PRIVATE luisa::tile-tirx)
+    # Prefer native C++23 subscript syntax when available, without raising
+    # the project's C++20 minimum. Both modes share the same source.
+    set_target_properties(test_tile_tirx_poc test_tile_tirx_poc_neural test_tile_tirx_poc_algorithms
+            PROPERTIES CXX_STANDARD ${_tile_poc_cpp_standard} CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
     if (APPLE AND LUISA_TILE_TVM_METAL_RUNTIME_LIBRARY)
         luisa_compute_add_test(test_tile_tirx_targets
                 unit/tile/bridge/test_tirx_targets.cpp
                 LABELS "unit;unit_tile;unit_tile_tirx;unit_tile_targets")
         target_link_libraries(test_tile_tirx_targets PRIVATE luisa::tile-tirx)
+        foreach (_tile_poc IN ITEMS test_tile_tirx_poc test_tile_tirx_poc_neural test_tile_tirx_poc_algorithms test_tile_tirx_values)
+            add_test(NAME ${_tile_poc}_metal COMMAND ${_tile_poc} metal)
+            set_tests_properties(${_tile_poc}_metal PROPERTIES
+                    LABELS "unit;unit_tile;unit_tile_tirx;unit_tile_poc;unit_tile_targets")
+        endforeach ()
     endif ()
 endif ()
 

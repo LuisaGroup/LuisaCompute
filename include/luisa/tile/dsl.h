@@ -26,6 +26,10 @@ template<typename T>
 class Scalar;
 template<typename T>
 class ElementRef;
+template<typename T>
+class Tile;
+template<typename T, size_t Rank>
+class MemoryRef;
 template<typename T, size_t Rank>
 class TensorView;
 template<size_t Rank>
@@ -51,11 +55,20 @@ struct PipelinePolicy {
     uint32_t initiation_interval{1u};
 };
 
+namespace bounds {
+inline constexpr auto assume = BoundsMode::ASSUME;
+inline constexpr auto zero = BoundsMode::ZERO;
+}// namespace bounds
+
 namespace detail {
 
 struct ValueSlot;
 struct KernelStorage;
 struct ScopeStorage;
+template<size_t Rank>
+struct Coordinates;
+template<size_t Rank>
+struct TileSelection;
 
 struct DeclaredTensorView {
     Value *value{nullptr};
@@ -84,6 +97,12 @@ private:
     friend class ::luisa::compute::tile::Nest;
     template<typename T>
     friend class ::luisa::compute::tile::Scalar;
+    friend ValueHandle make_tile_constant(ScalarType, const IndexSpace &, Attribute) noexcept;
+    friend ValueHandle make_tile_elementwise(ElementwiseOp, luisa::span<Value *const>, ScalarType) noexcept;
+    friend ValueHandle make_mma(Value *, Value *, Value *) noexcept;
+    friend ValueHandle load_tile(Value *, luisa::span<Value *const>, const IndexSpace &, BoundsMode, Value *) noexcept;
+    friend ValueHandle extract_tile(Value *, luisa::span<Value *const>) noexcept;
+    friend ValueHandle capture_tile_map(const IndexSpace &, ScalarType, const std::function<Value *(const Nest &)> &) noexcept;
 
 public:
     ValueHandle() noexcept = default;
@@ -112,6 +131,18 @@ LUISA_TILE_API void store_view(
     luisa::span<const ValueHandle> indices,
     const ValueHandle &value) noexcept;
 
+[[nodiscard]] LUISA_TILE_API ValueHandle make_tile_constant(ScalarType type, const IndexSpace &space, Attribute value) noexcept;
+[[nodiscard]] LUISA_TILE_API ValueHandle make_tile_elementwise(ElementwiseOp op, luisa::span<Value *const> operands, ScalarType type) noexcept;
+[[nodiscard]] LUISA_TILE_API ValueHandle make_mma(Value *a, Value *b, Value *accumulator) noexcept;
+[[nodiscard]] LUISA_TILE_API ValueHandle load_tile(Value *view, luisa::span<Value *const> origin,
+                                                   const IndexSpace &space, BoundsMode bounds, Value *fallback = nullptr) noexcept;
+LUISA_TILE_API void store_tile(Value *view, luisa::span<Value *const> origin,
+                               const IndexSpace &space, Value *tile, BoundsMode bounds) noexcept;
+[[nodiscard]] LUISA_TILE_API ValueHandle extract_tile(Value *tile, luisa::span<Value *const> indices) noexcept;
+[[nodiscard]] LUISA_TILE_API ValueHandle capture_tile_map(
+    const IndexSpace &space, ScalarType type, const std::function<Value *(const Nest &)> &body) noexcept;
+LUISA_TILE_API void capture_error(luisa::string_view message) noexcept;
+
 class LUISA_TILE_API CaptureGuard final {
 
 private:
@@ -128,6 +159,7 @@ public:
 
 [[nodiscard]] LUISA_TILE_API Axis create_axis(luisa::string_view name, Extent extent) noexcept;
 [[nodiscard]] LUISA_TILE_API IndexSpace make_shape(luisa::span<const Axis> axes) noexcept;
+[[nodiscard]] LUISA_TILE_API IndexSpace make_positional_shape(luisa::span<const uint64_t> extents) noexcept;
 [[nodiscard]] LUISA_TILE_API DeclaredTensorView declare_tensor_view(
     size_t argument_index,
     luisa::string_view name,
@@ -194,6 +226,8 @@ private:
     friend class Nest;
     template<typename U>
     friend class ElementRef;
+    template<typename U>
+    friend class Tile;
     template<typename U, size_t Rank>
     friend class TensorView;
     template<scalar_cpp_type U>
@@ -489,6 +523,17 @@ template<typename... A>
     return detail::make_shape(values);
 }
 
+template<std::integral... E>
+    requires(sizeof...(E) > 0u)
+[[nodiscard]] IndexSpace shape(E... extents) noexcept {
+    if (((extents < 0) || ...)) {
+        detail::capture_error("Tile shape extents cannot be negative");
+        return {};
+    }
+    uint64_t values[]{static_cast<uint64_t>(extents)...};
+    return detail::make_positional_shape(values);
+}
+
 class LUISA_TILE_API Kernel final {
 
 private:
@@ -536,6 +581,7 @@ public:
     Nest() noexcept = default;
 
     [[nodiscard]] Scalar<int64_t> index(const Axis &axis) const noexcept;
+    [[nodiscard]] Scalar<int64_t> index(Dim dimension) const noexcept;
     [[nodiscard]] Scalar<int64_t> index() const noexcept;
     [[nodiscard]] Scalar<int64_t> operator[](const Axis &axis) const noexcept { return index(axis); }
 
@@ -619,6 +665,13 @@ public:
     ElementRef(Value *view, luisa::vector<detail::ValueHandle> indices) noexcept
         : _view{view}, _indices{std::move(indices)} {}
 
+    ElementRef(const ElementRef &) noexcept = default;
+    ElementRef(ElementRef &&) noexcept = default;
+    // A reference is an address, not a value definition. Memory effects must
+    // use load/store; even reference-to-reference assignment is not a copy.
+    ElementRef &operator=(const ElementRef &) noexcept = delete;
+    ElementRef &operator=(ElementRef &&) noexcept = delete;
+
     [[nodiscard]] Scalar<ValueType> load() const noexcept {
         return Scalar<ValueType>{detail::load_view(_view, _indices)};
     }
@@ -636,22 +689,6 @@ public:
     void store(ValueType value) const noexcept
         requires(!std::is_const_v<T>)
     { store(Scalar<ValueType>{value}); }
-
-    operator Scalar<ValueType>() const noexcept {// NOLINT(google-explicit-constructor)
-        return load();
-    }
-    ElementRef &operator=(const Scalar<ValueType> &value) noexcept
-        requires(!std::is_const_v<T>)
-    {
-        store(value);
-        return *this;
-    }
-    ElementRef &operator=(ValueType value) noexcept
-        requires(!std::is_const_v<T>)
-    {
-        store(value);
-        return *this;
-    }
 };
 
 // Concrete, host-side metadata used by capture/JIT. The current bridge accepts
@@ -727,9 +764,16 @@ public:
         requires(Dimension < Rank)
     [[nodiscard]] uint64_t extent() const noexcept { return _extents[Dimension]; }
 
-    [[nodiscard]] ElementRef<T> operator[](const Nest &nest) const noexcept {
-        return ElementRef<T>{_view, detail::nest_indices(nest, _space)};
-    }
+    [[nodiscard]] MemoryRef<T, Rank> tile(detail::Coordinates<Rank> origin,
+                                          IndexSpace space, BoundsMode bounds = bounds::zero) const noexcept;
+    [[nodiscard]] MemoryRef<T, Rank> operator()(detail::Coordinates<Rank> origin,
+                                                IndexSpace space, BoundsMode bounds = bounds::zero) const noexcept;
+#if defined(__cpp_multidimensional_subscript) && __cpp_multidimensional_subscript >= 202110L
+    [[nodiscard]] Tile<std::remove_cv_t<T>> operator[](detail::Coordinates<Rank> origin,
+                                                       IndexSpace space, BoundsMode bounds = bounds::zero) const noexcept;
+#else
+    [[nodiscard]] Tile<std::remove_cv_t<T>> operator[](detail::TileSelection<Rank> selection) const noexcept;
+#endif
 
     template<typename... I>
         requires(sizeof...(I) == Rank && (std::same_as<std::remove_cvref_t<I>, Scalar<int64_t>> && ...))
@@ -829,3 +873,5 @@ template<typename F>
 }
 
 }// namespace luisa::compute::tile
+
+#include <luisa/tile/value.h>

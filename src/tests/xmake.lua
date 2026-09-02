@@ -1,12 +1,12 @@
 local lc_enable_gui = has_config("lc_enable_gui")
 
-local function test_proj(name, source, gui_dep, callable, kind)
+local function test_proj(name, source, gui_dep, callable, kind, cxx_standard)
     if gui_dep and not lc_enable_gui then
         return
     end
     target(name)
     add_deps("lc-backends-dummy", {inherit = false, links = false})
-    _config_project({project_kind = kind or "binary"})
+    _config_project({project_kind = kind or "binary", cxx_standard = cxx_standard})
     add_files(source)
     add_includedirs("./", "./common")
     add_deps("lc-runtime", "lc-dsl", "lc-vstl", "stb-image")
@@ -227,6 +227,16 @@ end)
 test_proj("test_tile_dsl", "unit/tile/test_tile_dsl.cpp", false, function()
     add_deps("lc-tile")
 end)
+for _, standard in ipairs({20, 23}) do
+    test_proj("test_tile_values_cpp" .. standard, "unit/tile/test_tile_values.cpp", false, function()
+        add_deps("lc-tile")
+        add_includedirs("$(projectdir)/docs/source")
+        -- Keep the C++23 compatibility target opt-in on older toolchains.
+        if standard == 23 then
+            set_default(false)
+        end
+    end, nil, "cxx" .. standard)
+end
 -- unit/dsl
 test_proj("test_binding_group", "unit/dsl/test_binding_group.cpp")
 test_proj("test_binding_group_template", "unit/dsl/test_binding_group_template.cpp")

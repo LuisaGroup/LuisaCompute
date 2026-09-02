@@ -1,6 +1,6 @@
 # Luisa Tile DSL: A From-Scratch Design
 
-- Status: architecture proposal and syntax contract, revision 13
+- Status: architecture proposal and executable core syntax contract, revision 15
 - Compatibility with the removed prototype: none
 - Primary workloads: GEMM, attention, convolution, normalization, quantized,
   sparse, grouped, and persistent neural-network kernels
@@ -33,68 +33,15 @@ Execution is declared first; data, resources, mappings, and target choices attac
 to it through typed relationships.
 ```
 
-The canonical C++ shape is:
+The canonical executable C++ spelling is included from the same source as
+the C++20/C++23 capture tests. FP32 is used here to match the current tested
+native bridge; additional element types do not change the access convention.
 
-~~~cpp
-auto make_gemm(GemmConfig cfg) {
-    return tile_kernel([=](TensorView<const bf16, 2> A,
-                           TensorView<const bf16, 2> B,
-                           TensorView<bf16, 2> C) {
-        auto [m, n, reduction] = dims("m", "n", "reduction");
-        auto A_mk = A.with_dims(m, reduction);
-        auto B_kn = B.with_dims(reduction, n);
-        auto C_mn = C.with_dims(m, n);
-
-        auto M = A_mk.extent(m);
-        auto N = B_kn.extent(n);
-        auto K = A_mk.extent(reduction);
-
-        for (auto &nest : parallel(
-                 shape(ceil_div(M, cfg.block_m),
-                       ceil_div(N, cfg.block_n)))) {
-            auto [tm, tn] = nest.index();
-            auto m0 = tm * cfg.block_m;
-            auto n0 = tn * cfg.block_n;
-            auto acc = zeros<f32>(
-                shape(m(cfg.block_m), n(cfg.block_n)));
-
-            for (auto &subnest : nest.parallel(shape(cfg.groups))) {
-                for (auto &k : subnest.pipeline(
-                         range(0, K, cfg.block_k),
-                         pipeline_policy{
-                             .max_in_flight = cfg.max_in_flight,
-                             .initiation_interval = 1})) {
-                    auto k0 = k.index();
-
-                    k.stage("load");
-                    auto a = A_mk.tile(
-                                  coord(m0, k0),
-                                  shape(cfg.block_m, cfg.block_k),
-                                  bounds::zero)
-                                 .load();
-                    auto b = B_kn.tile(
-                                  coord(k0, n0),
-                                  shape(cfg.block_k, cfg.block_n),
-                                  bounds::zero)
-                                 .load();
-
-                    k.stage("compute");
-                    acc = mma(a, b, acc);
-                }
-            }
-
-            for (auto &leaf : nest.parallel(exec::infer)) {
-                auto out = cast<bf16>(maximum(acc, 0.0f));
-                C_mn.tile(
-                     coord(m0, n0),
-                     shape(cfg.block_m, cfg.block_n),
-                     bounds::predicate)
-                    .store(out);
-            }
-        }
-    });
-}
-~~~
+```{literalinclude} tile_programming_poc.cpp
+:language: cpp
+:start-at: struct GemmConfig
+:end-before: // Read equivalence
+```
 
 Important properties of this surface:
 
@@ -106,9 +53,13 @@ Important properties of this surface:
   SIMD, or vector.
 - The outer spatial nest supplies an anchor context; the innermost enclosing
   `parallel` supplies the default frontier. Data dependencies, explicit child
-  coordinates, and the assigned value constrain the final anchor. Thus
-  assigning nest-owned `acc` inside `subnest` is one logical tile update
-  distributed through that child level, without `.at(...)` noise.
+  coordinates, and the assigned value constrain the final anchor. Distributed
+  child updates require an exact-cover proof; the current capture rejects
+  outer-value mutation in `parallel` until that analysis is implemented.
+  `serial`, `pipeline`, and `reduce` already infer Scalar and Tile carried state.
+- `outer.index(...)` resolves against that Nest's own ancestor path, never
+  against an active descendant. Nested positional shapes may reuse dimension
+  identities without changing an explicitly named parent's coordinate.
 - `parallel`, `serial`, `pipeline`, and `reduce` are the complete core
   structured-region vocabulary. They share one range-for capture protocol but
   have distinct spatial, temporal, and algebraic semantics.
@@ -134,9 +85,10 @@ SIMT DSL. `tile_kernel(lambda)` retains the C++ definition; it does **not** invo
 it before concrete argument metadata is available. On a JIT specialization,
 the frontend creates parameters in signature order, attaches the concrete
 shape/stride metadata to their proxies, and invokes the lambda to build one
-candidate TileIR. `with_dims` gives positional dimensions kernel-local semantic
-identities. No `input`, `output`, `GemmSpec`, or symbolic integer language is
-needed in the body.
+candidate TileIR. `axis(name, extent)` gives logical dimensions kernel-local
+identities; `shape(axis...)` relates operands without mutating the external
+views. Numeric `shape(extents...)` supplies positional dimensions. No `input`,
+`output`, `GemmSpec`, or symbolic integer language is needed in the body.
 
 `TensorView<const T, R>` optionally prohibits writes through that parameter.
 `TensorView<T, R>` permits reads and writes; it does not promise that the
@@ -745,7 +697,7 @@ Fine-grained SIMT-like code simply nests again:
 ~~~cpp
 for (auto &leaf : subnest.parallel(exec::infer)) {
     auto index = leaf.index();
-    output[index] = activation(input[index]);
+    output(index).store(activation(input(index).load()));
 }
 ~~~
 
@@ -1940,21 +1892,54 @@ definition when that is the declared semantics.
 
 ### 8.3 Addressable storage uses explicit effects
 
-Assignment is reserved for staged Tile definitions. An explicit `Memory`
-exposes only effectful `store` and `load` operations:
+Assignment is reserved for staged Scalar and Tile definitions. Addressable
+storage, including `Memory`, views, and scalar element references, exposes
+only explicit `store` and `load` effects:
 
 ~~~cpp
 acc = f(acc);                    // Tile SSA definition
 As.store(input_view.load());     // View -> Tile -> Memory
 As.store(value);                 // Tile -> Memory
 auto staged = As.load();         // Memory -> Tile
+auto x = A[coord(m0, k0), shape(m, k)]; // TensorView -> Tile
+C(coord(m0, n0), shape(m, n)).store(value);
 ~~~
 
 The receiver makes the addressed object unambiguous, and every addressable
 read or write is visible at the call site. `Memory = Tile` and `Memory = View`
-are both ill-formed; there is no assignment shortcut and no implicit load from
-a view. A `TensorView` or subview must first produce a Tile with `.load()`, and
-`Memory::store` accepts only such a Tile value.
+are both ill-formed. The access convention is:
+
+| Surface | Meaning |
+|---|---|
+| `A(origin, shape)` | `MemoryRef`, no memory effect |
+| `A.tile(origin, shape)` | The identical `MemoryRef` |
+| `A[origin, shape]` | `A(origin, shape).load()`, a Tile SSA value |
+| `C(origin, shape).store(value)` | The explicit memory write |
+
+`origin` is `coord(...)`; the optional third argument is a bounds policy.
+`bounds::zero` is the default for every spelling: zero-fill reads and masked
+tail stores. `bounds::assume` promises valid addresses. A nonzero read fallback
+is explicit: `A(origin, shape).load(fallback)`.
+
+C++23 uses native multidimensional `operator[]`. In C++20, `operator,` is
+overloaded only for the DSL coordinate/shape/bounds combinations and packages
+one typed selection for `operator[]`. Both paths enter the same load builder;
+the language version cannot change the access, bounds, or SSA semantics.
+The optional Clang comma-subscript deprecation diagnostic is suppressed only
+at deliberate C++20 use sites, not globally from a public header.
+
+There is no implicit `MemoryRef`-to-Tile conversion. `auto x = A[...]` loads
+once; subsequent `x = ...` only defines a value. Tile assignment is lvalue
+qualified, so `A[...] = ...` is rejected rather than becoming a discarded
+value assignment or an accidental store. Manual `Memory::store` likewise
+accepts only an explicitly produced Tile.
+
+The same rule applies after scalar descent: `y(i) = value` and `y(i) = x(i)`
+are ill-formed, not stores or reference rebinding. The implemented
+`ElementRef` has no implicit load and deletes copy/move assignment; retaining
+an address with `auto ref = y(i)` is allowed, then `ref.load()` and
+`ref.store(value)` record effects. Compile-time tests enforce this distinction
+while ordinary `acc = ...` and `acc += ...` still capture value definitions.
 
 Each `Memory::store` defines a new hidden `MemoryState` token; `Memory::load`
 consumes the reaching state and returns Tile SSA. The explicit View load and
@@ -2288,7 +2273,7 @@ Scheduled TileIR (physical scopes + index maps)
        target-specific TVM code generation
 ~~~
 
-The current scalar bootstrap implements only the default root case. It leaves
+The current reference schedule implements only the default root case. It leaves
 logical `parallel` as marked serial TIRx during structural export, then maps the
 outermost marked region to LLVM `kParallel` or to a Metal/CUDA-style
 `blockIdx.x * threads + threadIdx.x` grid with a tail predicate. Unbound nested
@@ -2320,11 +2305,20 @@ imports generated device modules into the host runtime module. A scalar
 `PrimFunc` compile-and-execute test is the minimum ABI smoke test; Python is not
 loaded even for pass orchestration.
 
-The bootstrap implementation already lowers static-JIT-specialized view
-arguments, scalar constants and typed elementwise opcodes, view loads/stores,
-and `parallel`/`serial`/`pipeline`/`reduce` regions with inferred scalar carried
-state. Unsupported Tile, MMA, and explicit-memory forms fail closed rather than
-falling through a name-based dispatch. The compiler distinguishes ordinary
+The native implementation lowers static-JIT-specialized view arguments,
+Scalar and Tile constants, typed elementwise operations with named-dimension
+broadcasting, bounded subtile loads/stores, pure Tile extraction/map, semantic
+MMA, and `parallel`/`serial`/`pipeline`/`reduce` with inferred Scalar or Tile
+carried state. Loads preserve snapshots across later writes; structured yields
+snapshot every carried value before updating any carry storage.
+
+Pure elementwise expressions can fuse into their consumer. The initial
+reference schedule materializes loaded Tiles, map results, and MMA results
+into compiler-owned local storage; MMA lowers to a checked contraction loop.
+This establishes semantics, not tensor-core performance or asynchronous
+pipeline execution. Explicit manual-memory bridge support, optimized
+execution/distribution plans, and target atom selection remain work in
+progress and unsupported forms fail closed. The compiler distinguishes ordinary
 TIRx statements (`STANDARD`) from programs containing native TIRx
 `TilePrimitive` calls (`TILE`), because only the latter require `LowerTIRx`.
 Both paths run `LowerTIRxOpaque` before host/device splitting so thread-binding

@@ -113,6 +113,7 @@ enum class OperationKind : uint8_t {
     CONSTANT,
     ELEMENTWISE,
     TILE_MAP,
+    TILE_EXTRACT,
     MMA,
     VIEW_LOAD,
     VIEW_STORE,
@@ -164,6 +165,11 @@ enum class MemoryEffect : uint8_t {
     WRITE,
     ALLOCATE,
     UNKNOWN
+};
+
+enum class BoundsMode : uint8_t {
+    ASSUME,
+    ZERO
 };
 
 [[nodiscard]] LUISA_TILE_API luisa::string_view to_string(OperationKind kind) noexcept;
@@ -298,6 +304,7 @@ private:
     Block *_parent{nullptr};
     OperationKind _kind{OperationKind::CUSTOM};
     ElementwiseOp _elementwise_op{ElementwiseOp::INVALID};
+    BoundsMode _bounds_mode{BoundsMode::ASSUME};
     luisa::string _custom_name;
     luisa::vector<luisa::ManagedPtr<Use>> _operands;
     luisa::vector<luisa::unique_ptr<Value>> _results;
@@ -324,6 +331,7 @@ public:
     [[nodiscard]] auto id() const noexcept { return _id; }
     [[nodiscard]] auto kind() const noexcept { return _kind; }
     [[nodiscard]] auto elementwise_op() const noexcept { return _elementwise_op; }
+    [[nodiscard]] auto bounds_mode() const noexcept { return _bounds_mode; }
     [[nodiscard]] luisa::string_view name() const noexcept;
     [[nodiscard]] auto parent_block() noexcept { return _parent; }
     [[nodiscard]] const auto *parent_block() const noexcept { return _parent; }
@@ -557,11 +565,18 @@ public:
                                                 luisa::span<Value *const> operands,
                                                 Type result_type) noexcept;
     [[nodiscard]] Operation *create_mma(Value *a, Value *b, Value *accumulator) noexcept;
+    [[nodiscard]] Operation *create_tile_map(Type result_type) noexcept;
+    [[nodiscard]] Operation *create_tile_extract(Value *tile, luisa::span<Value *const> indices) noexcept;
     [[nodiscard]] Operation *create_view_load(Value *view,
                                               luisa::span<Value *const> indices,
                                               Value *predicate = nullptr,
                                               Value *fallback = nullptr) noexcept;
     [[nodiscard]] Operation *create_view_store(Value *view, luisa::span<Value *const> indices, Value *value) noexcept;
+    [[nodiscard]] Operation *create_tile_load(Value *view, luisa::span<Value *const> origin,
+                                              const IndexSpace &space, BoundsMode bounds,
+                                              Value *fallback = nullptr) noexcept;
+    [[nodiscard]] Operation *create_tile_store(Value *view, luisa::span<Value *const> origin,
+                                               const IndexSpace &space, Value *tile, BoundsMode bounds) noexcept;
     [[nodiscard]] Operation *create_memory_alloc(const Type &memory_type, luisa::string_view resource_class = {}) noexcept;
     [[nodiscard]] Operation *create_memory_load(Value *memory, Value *state) noexcept;
     [[nodiscard]] Operation *create_memory_store(Value *memory, Value *state, Value *tile) noexcept;

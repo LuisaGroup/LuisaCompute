@@ -5,6 +5,8 @@
 #include <luisa/tile.h>
 
 #include <concepts>
+#include <type_traits>
+#include <utility>
 
 using namespace luisa;
 using namespace luisa::compute::tile;
@@ -27,6 +29,16 @@ void test_lambda_signature_capture() {
     static_assert(!writable_element<ElementRef<const float>>);
     static_assert(writable_element<ElementRef<float>>);
     static_assert(std::same_as<decltype(std::declval<ElementRef<const float>>().load()), Scalar<float>>);
+    static_assert(!std::is_convertible_v<ElementRef<float>, Scalar<float>>);
+    static_assert(!std::is_convertible_v<ElementRef<const float>, Scalar<float>>);
+    static_assert(!std::is_assignable_v<ElementRef<float> &, Scalar<float>>);
+    static_assert(!std::is_assignable_v<ElementRef<float> &&, Scalar<float>>);
+    static_assert(!std::is_assignable_v<ElementRef<float> &, float>);
+    static_assert(!std::is_copy_assignable_v<ElementRef<float>>);
+    static_assert(!std::is_move_assignable_v<ElementRef<float>>);
+    static_assert(!std::is_assignable_v<ElementRef<float> &, ElementRef<const float>>);
+    static_assert(std::is_copy_constructible_v<ElementRef<float>>);
+    static_assert(std::is_move_constructible_v<ElementRef<float>>);
 
     auto captures = 0u;
     auto definition = tile_kernel(
@@ -38,7 +50,7 @@ void test_lambda_signature_capture() {
             auto i = axis("i", result.extent<0>());
             for (auto &element : parallel(shape(i))) {
                 auto index = element.index();
-                result(index) = a(index).load() + b(index).load();
+                result(index).store(a(index).load() + b(index).load());
             }
         });
     expect(eq(captures, 0u));
@@ -85,7 +97,7 @@ void test_elementwise_capture() {
 
             for (auto &element : parallel(shape(i))) {
                 auto index = element.index();
-                c(index) = a(index).load() + b(index).load();
+                c(index).store(a(index).load() + b(index).load());
             }
         });
     auto kernel = definition.capture(
@@ -128,7 +140,7 @@ void test_reduction_capture_and_implicit_carry() {
                 for (auto &column_nest : row_nest.reduce(shape(column))) {
                     sum += a(row_nest[row], column_nest[column]).load();
                 }
-                result(row_nest[row]) = sum;
+                result(row_nest[row]).store(sum);
             }
         });
     auto kernel = definition.capture(tensor_shape("a", 5u, 7u), tensor_shape("result", 5u));
@@ -188,7 +200,7 @@ void test_logical_and_masked_view_capture() {
                 auto source_index = index - 1;
                 auto in_bounds = (source_index >= 0) && (source_index < source.extent<0>());
                 auto use_fallback = !in_bounds || (index < 0);
-                result(index) = source(source_index).load(!use_fallback, 0.0f);
+                result(index).store(source(source_index).load(!use_fallback, 0.0f));
             }
         });
     auto kernel = definition.capture(tensor_shape("source", 8u), tensor_shape("result", 8u));

@@ -61,6 +61,7 @@ luisa::string_view to_string(OperationKind kind) noexcept {
         case OperationKind::CONSTANT: return "tile.constant"sv;
         case OperationKind::ELEMENTWISE: return "tile.elementwise"sv;
         case OperationKind::TILE_MAP: return "tile.map"sv;
+        case OperationKind::TILE_EXTRACT: return "tile.extract"sv;
         case OperationKind::MMA: return "tile.mma"sv;
         case OperationKind::VIEW_LOAD: return "tile.view.load"sv;
         case OperationKind::VIEW_STORE: return "tile.view.store"sv;
@@ -462,6 +463,59 @@ Operation *IRBuilder::create_mma(Value *a, Value *b, Value *accumulator) noexcep
     Value *operands[]{a, b, accumulator};
     Type results[]{accumulator->type()};
     return create(OperationKind::MMA, operands, results);
+}
+
+Operation *IRBuilder::create_tile_map(Type result_type) noexcept {
+    if (!result_type.is_tile()) { return nullptr; }
+    auto space = *result_type.index_space();
+    Type results[]{std::move(result_type)};
+    auto operation = create(OperationKind::TILE_MAP, {}, results);
+    if (operation == nullptr) { return nullptr; }
+    operation->set_domain(std::move(space));
+    auto block = operation->add_region("element")->append_block();
+    for (auto i = 0u; i < operation->domain()->rank(); i++) {
+        static_cast<void>(block->add_argument(Type::index()));
+    }
+    return operation;
+}
+
+Operation *IRBuilder::create_tile_extract(Value *tile, luisa::span<Value *const> indices) noexcept {
+    if (tile == nullptr || !tile->type().is_tile()) { return nullptr; }
+    luisa::vector<Value *> operands{tile};
+    operands.insert(operands.end(), indices.begin(), indices.end());
+    Type result[]{Type::scalar(tile->type().scalar_type())};
+    return create(OperationKind::TILE_EXTRACT, operands, result);
+}
+
+Operation *IRBuilder::create_tile_load(
+    Value *view, luisa::span<Value *const> origin, const IndexSpace &space,
+    BoundsMode bounds, Value *fallback) noexcept {
+    if (view == nullptr || !view->type().is_view()) { return nullptr; }
+    luisa::vector<Value *> operands{view};
+    operands.insert(operands.end(), origin.begin(), origin.end());
+    if (fallback != nullptr) { operands.emplace_back(fallback); }
+    Type result[]{Type::tile(view->type().scalar_type(), space)};
+    auto operation = create(OperationKind::VIEW_LOAD, operands, result);
+    if (operation != nullptr) {
+        operation->_bounds_mode = bounds;
+        operation->set_domain(space);
+    }
+    return operation;
+}
+
+Operation *IRBuilder::create_tile_store(
+    Value *view, luisa::span<Value *const> origin, const IndexSpace &space,
+    Value *tile, BoundsMode bounds) noexcept {
+    if (view == nullptr || !view->type().is_view() || tile == nullptr) { return nullptr; }
+    luisa::vector<Value *> operands{view};
+    operands.insert(operands.end(), origin.begin(), origin.end());
+    operands.emplace_back(tile);
+    auto operation = create(OperationKind::VIEW_STORE, operands);
+    if (operation != nullptr) {
+        operation->_bounds_mode = bounds;
+        operation->set_domain(space);
+    }
+    return operation;
 }
 
 Operation *IRBuilder::create_view_load(
