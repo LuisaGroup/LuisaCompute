@@ -97,19 +97,24 @@ Leaving the resource unspecified lets the mapper choose it. A resource
 constraint does not change ownership; unsupported placements fail explicitly.
 Use `memory<T>(layout(shape, stride(...)), resource)` for ordinary strided
 storage, or pass a composed `IndexMap` for a custom address map. A whole-Tile
-Memory layout must be total, in bounds, and injective. The current finite
-proof fallback covers up to 1,048,576 logical points; unknown proofs fail
-native realization, not structural representation. Range-aware parallel
-writes and asynchronous pipeline versions are not implemented yet.
+Memory layout must be total, in bounds, and injective. `IndexMap::prove()`
+proves ordinary affine layouts without enumerating their elements. Remaining
+maps use an exhaustive fallback of up to 1,048,576 logical points; an unknown
+proof fails native realization, not structural representation. Range-aware
+parallel writes and asynchronous pipeline versions are not implemented yet.
 
 `test_tile_tirx_memory` runs ragged manual GEMMs, multiple independently updated
 resources, old-value snapshots, nested temporal regions, ancestor reads,
 worker-private state, and resource/capacity rejection on CPU and Metal. It also
 checks padded/transposed/composed-XOR layouts and logical shifts through the
 sign bit, including physical allocation shapes, padding capacity, and empty
-domains. LLVM also tests vector-private state. Native index-expression tests compare
-compiled address calculations with the TileIR evaluator. The canonical
-example above is independently captured under both C++20 and C++23.
+domains. LLVM also tests vector-private state and 513-by-2047 Memory snapshots
+with identity, padded, and transposed layouts, above the enumeration budget.
+The same large layouts export on Metal but correctly exceed its threadgroup
+storage capacity; this is a resource constraint, not a failed layout proof.
+Native index-expression tests compare compiled address calculations with the
+TileIR evaluator. The canonical example above is independently captured
+under both C++20 and C++23.
 
 ## 3. Elementwise bias + GELU + residual
 

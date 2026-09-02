@@ -298,6 +298,11 @@ void test_invalid_memory_layouts() {
                    }).capture();
     expect(!aliased.valid());
     expect(has_diagnostic(aliased, "injective"));
+    auto large_alias = tile_kernel("memory_layout_large_alias", [] {
+                           static_cast<void>(memory<float>(layout(shape(1048577, 7), stride(0, 1))));
+                       }).capture();
+    expect(!large_alias.valid()) << "an algebraic disproof must not disappear above the enumeration budget";
+    expect(has_diagnostic(large_alias, "injective"));
     auto invalid = tile_kernel("memory_layout_bounds", [] {
                        auto space = shape(7);
                        IndexExpr outputs[]{IndexExpr::coordinate(space.axis(0).dimension) + IndexExpr::constant(1)};

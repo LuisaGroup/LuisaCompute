@@ -72,6 +72,11 @@ luisa::optional<size_t> IndexSpace::axis_index(Dim dimension) const noexcept {
 }
 
 luisa::optional<uint64_t> IndexSpace::static_volume() const noexcept {
+    // A known zero factor fixes the product even when an earlier factor is
+    // dynamic or the nonzero factors alone would overflow uint64_t.
+    for (auto &&axis : _axes) {
+        if (axis.extent.is_constant() && axis.extent.constant_value() == 0u) { return 0u; }
+    }
     uint64_t volume = 1u;
     for (auto &&axis : _axes) {
         if (!axis.extent.is_constant()) { return luisa::nullopt; }

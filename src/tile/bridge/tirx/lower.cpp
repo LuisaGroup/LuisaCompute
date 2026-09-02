@@ -373,9 +373,9 @@ private:
         auto &&type = memory->type();
         auto &&layout = operation.memory_layout();
         if (layout) {
-            auto proof = layout->analyze_finite();
-            if (!proof.enumerated || !proof.total || !proof.in_bounds || !proof.injective) {
-                _fail("native Memory layout requires a proved total, in-bounds, injective map; the current finite proof budget is 1048576 logical points");
+            auto proof = layout->prove();
+            if (!proof.is_storage_safe()) {
+                _fail("native Memory layout requires a proved total, in-bounds, injective map; unresolved maps use a finite proof budget of 1048576 logical points");
                 return;
             }
         }
@@ -387,6 +387,12 @@ private:
         }
         auto name = tvm::ffi::String{std::string{"tile_memory_"} + std::to_string(memory->id())};
         auto buffer = tvm::tirx::decl_buffer(std::move(shape), _primitive_type(type.scalar_type()), std::move(name), "local");
+        auto volume = storage_space.static_volume();
+        auto element_bytes = static_cast<uint64_t>((buffer->dtype.bits() * buffer->dtype.lanes() + 7) / 8);
+        if (!volume || element_bytes == 0u || *volume > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) / element_bytes) {
+            _fail("native Memory allocation exceeds signed 64-bit byte addressing");
+            return;
+        }
         tvm::ffi::Map<tvm::ffi::String, tvm::ffi::Any> annotations;
         if (auto resource = operation.resource_class_constraint()) {
             annotations.Set(memory_resource_annotation, tvm::ffi::String{std::string{*resource}});

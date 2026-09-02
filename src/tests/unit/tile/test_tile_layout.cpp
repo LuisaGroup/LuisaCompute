@@ -3,11 +3,14 @@
 // - function-local dimension identity and dynamic extents
 // - strided, permuted, reshaped, and bitwise maps
 // - composition closure and finite injectivity/surjectivity analysis
+// - conservative affine proofs checked against exhaustive semantic oracles
 // - exact set-valued correspondences for replicated placement
 
 #include "ut/ut.hpp"
 
 #include <utility>
+#include <array>
+#include <limits>
 
 #include <luisa/tile/layout.h>
 
@@ -188,6 +191,262 @@ void test_dynamic_layout_is_structural() {
     expect(eq((*mapped)[0], 17));
 }
 
+void test_large_affine_proofs() {
+    DimensionContext dimensions;
+    auto m = dimensions.create_dimension("m");
+    auto n = dimensions.create_dimension("n");
+    auto storage = dimensions.create_dimension("storage");
+    IndexSpace space;
+    expect(space.add(m, 1048577u));
+    expect(space.add(n, 7u));
+    for (auto strides : {std::array<uint64_t, 2u>{11u, 1u}, std::array<uint64_t, 2u>{1u, 1048580u}}) {
+        auto map = IndexMap::strided(space, storage, strides);
+        expect(map.has_value());
+        if (!map) { continue; }
+        auto proof = map->prove(0u);
+        expect(proof.is_storage_safe());
+        expect(!proof.enumerated);
+        expect(proof.surjective == ProofStatus::DISPROVEN);
+        expect(!map->analyze_finite().enumerated);
+    }
+    auto identity = IndexMap::identity(space).prove(0u);
+    expect(identity.is_storage_safe());
+    expect(identity.surjective == ProofStatus::PROVEN);
+    Dim order[]{n, m};
+    auto transpose = IndexMap::permute(space, order);
+    expect(transpose.has_value());
+    if (!transpose) { return; }
+    uint64_t strides[]{1048580u, 1u};
+    auto storage_map = IndexMap::strided(transpose->codomain(), storage, strides);
+    expect(storage_map.has_value());
+    if (!storage_map) { return; }
+    auto composed = IndexMap::compose(*storage_map, *transpose);
+    expect(composed.has_value());
+    if (composed) { expect(composed->prove(0u).is_storage_safe()); }
+    auto i = IndexExpr::coordinate(m);
+    auto j = IndexExpr::coordinate(n);
+    IndexSpace reversed_storage;
+    expect(reversed_storage.add(storage, 1048576u * 11u + 7u));
+    IndexExpr reversed[]{(IndexExpr::constant(1048576) - i) * IndexExpr::constant(11) + j};
+    expect(IndexMap{space, reversed_storage, reversed}.prove(0u).is_storage_safe());
+
+    // Unit dimensions may carry zero strides without introducing aliases.
+    IndexSpace unit;
+    expect(unit.add(m, 1u));
+    expect(unit.add(n, 1048577u));
+    uint64_t unit_strides[]{0u, 1u};
+    auto unit_map = IndexMap::strided(unit, storage, unit_strides);
+    expect(unit_map.has_value());
+    if (unit_map) { expect(unit_map->prove(0u).is_storage_safe()); }
+}
+
+void test_joint_affine_rank_proofs() {
+    DimensionContext dimensions;
+    auto group = dimensions.create_dimension("group");
+    auto m = dimensions.create_dimension("m");
+    auto n = dimensions.create_dimension("n");
+    auto u = dimensions.create_dimension("u");
+    auto v = dimensions.create_dimension("v");
+    IndexSpace domain;
+    expect(domain.add(m, 1048577u));
+    expect(domain.add(n, 1048577u));
+    IndexSpace codomain;
+    expect(codomain.add(u, 3145729u));
+    expect(codomain.add(v, 3145729u));
+    auto i = IndexExpr::coordinate(m);
+    auto j = IndexExpr::coordinate(n);
+    IndexExpr outputs[]{i * IndexExpr::constant(2) + j, i + j * IndexExpr::constant(2)};
+    auto proof = IndexMap{domain, codomain, outputs}.prove(0u);
+    expect(proof.is_storage_safe()) << "joint full rank proves injectivity even when no individual row separates axes";
+    expect(proof.surjective == ProofStatus::DISPROVEN);
+    expect(!proof.enumerated);
+
+    // First recover a mixed-radix coordinate, then use matrix rank to recover
+    // the remaining two. Neither condition alone proves this 3 -> 2 map.
+    IndexSpace mixed_domain;
+    expect(mixed_domain.add(group, 3u));
+    expect(mixed_domain.add(m, 1025u));
+    expect(mixed_domain.add(n, 1025u));
+    IndexSpace mixed_codomain;
+    expect(mixed_codomain.add(u, 10241u));
+    expect(mixed_codomain.add(v, 3073u));
+    IndexExpr mixed[]{IndexExpr::coordinate(group) * IndexExpr::constant(4096) + i + j,
+                      i + j * IndexExpr::constant(2)};
+    expect(IndexMap{mixed_domain, mixed_codomain, mixed}.prove(0u).is_storage_safe());
+
+    // Rank failure modulo one prime is UNKNOWN, never evidence of singularity
+    // over the integers. The independent finite fallback can still prove it.
+    IndexSpace small;
+    expect(small.add(m, 2u));
+    expect(small.add(n, 2u));
+    IndexSpace large;
+    expect(large.add(u, 4294967295u));
+    expect(large.add(v, 4294967295u));
+    auto prime = IndexExpr::constant(2147483647);
+    IndexExpr scaled[]{(i + j) * prime, (i - j) * prime + prime};
+    IndexMap scaled_map{small, large, scaled};
+    auto unknown = scaled_map.prove(0u);
+    expect(unknown.total == ProofStatus::PROVEN);
+    expect(unknown.injective == ProofStatus::UNKNOWN);
+    expect(!unknown.is_storage_safe() && !unknown.is_storage_invalid());
+    auto finite = scaled_map.prove(4u);
+    expect(finite.enumerated && finite.is_storage_safe());
+}
+
+void test_affine_proof_counterexamples() {
+    DimensionContext dimensions;
+    auto m = dimensions.create_dimension("m");
+    auto n = dimensions.create_dimension("n");
+    auto s = dimensions.create_dimension("storage");
+    auto i = IndexExpr::coordinate(m);
+    auto j = IndexExpr::coordinate(n);
+    IndexSpace large;
+    expect(large.add(m, 1048577u));
+    expect(large.add(n, 7u));
+    uint64_t broadcast_strides[]{0u, 1u};
+    auto broadcast = IndexMap::strided(large, s, broadcast_strides);
+    expect(broadcast.has_value());
+    if (broadcast) {
+        auto proof = broadcast->prove(0u);
+        expect(proof.total == ProofStatus::PROVEN);
+        expect(proof.in_bounds == ProofStatus::PROVEN);
+        expect(proof.injective == ProofStatus::DISPROVEN);
+        expect(proof.is_storage_invalid());
+    }
+    IndexSpace small;
+    expect(small.add(m, 3u));
+    expect(small.add(n, 2u));
+    for (auto reversed : {false, true}) {
+        IndexSpace storage;
+        expect(storage.add(s, 9u));
+        auto x = i * IndexExpr::constant(2);
+        auto y = j * IndexExpr::constant(4);
+        IndexExpr outputs[]{reversed ? x - y + IndexExpr::constant(4) : x + y};
+        auto proof = IndexMap{small, storage, outputs}.prove(0u);
+        expect(proof.total == ProofStatus::PROVEN);
+        expect(proof.injective == ProofStatus::DISPROVEN) << "a GCD-derived pair is a concrete collision witness";
+        expect(!proof.enumerated);
+    }
+    IndexSpace storage;
+    expect(storage.add(s, 8u));
+    IndexExpr nonseparated[]{i * IndexExpr::constant(2) + j * IndexExpr::constant(3)};
+    IndexMap injective{small, storage, nonseparated};
+    expect(injective.prove(0u).injective == ProofStatus::UNKNOWN);
+    expect(injective.prove(5u).injective == ProofStatus::UNKNOWN);
+    expect(injective.prove(6u).is_storage_safe());
+    expect(injective.prove(6u).enumerated);
+
+    IndexSpace line;
+    expect(line.add(m, 3u));
+    auto overflow = i * IndexExpr::constant(std::numeric_limits<int64_t>::max());
+    IndexExpr cancelled[]{overflow - overflow};
+    expect(IndexMap{line, storage, cancelled}.prove(0u).total == ProofStatus::DISPROVEN);
+    IndexExpr outside[]{i + IndexExpr::constant(7)};
+    expect(IndexMap{line, storage, outside}.prove(0u).is_storage_invalid());
+
+    IndexSpace interior;
+    expect(interior.add(m, 4u));
+    auto product = i * (IndexExpr::constant(3) - i) * IndexExpr::constant(std::numeric_limits<int64_t>::max());
+    IndexExpr invalid_interior[]{product - product};
+    IndexMap partial{interior, storage, invalid_interior};
+    expect(partial.prove(0u).total == ProofStatus::UNKNOWN) << "valid endpoints do not prove the interior safe";
+    expect(partial.prove(4u).total == ProofStatus::DISPROVEN);
+}
+
+void test_layout_proof_cardinality_edges() {
+    DimensionContext dimensions;
+    auto m = dimensions.create_dimension("m");
+    auto n = dimensions.create_dimension("n");
+    auto zero = dimensions.create_dimension("zero");
+    auto count = dimensions.create_dynamic_extent("count");
+    IndexSpace huge;
+    expect(huge.add(m, uint64_t{1u} << 40u));
+    expect(huge.add(n, uint64_t{1u} << 40u));
+    expect(!huge.static_volume());
+    auto proof = IndexMap::identity(huge).prove(0u);
+    expect(proof.is_storage_safe());
+    expect(proof.surjective == ProofStatus::PROVEN);
+    expect(!proof.enumerated);
+    auto empty = huge;
+    expect(empty.add(zero, 0u));
+    expect(empty.static_volume() == luisa::optional<uint64_t>{0u});
+    IndexSpace storage;
+    expect(storage.add(zero, 0u));
+    IndexExpr unreachable[]{floor_div(IndexExpr::coordinate(m), IndexExpr::constant(0))};
+    auto vacuous = IndexMap{empty, storage, unreachable}.prove(0u);
+    expect(vacuous.is_storage_safe());
+    expect(vacuous.surjective == ProofStatus::PROVEN);
+    IndexSpace dynamic_empty;
+    expect(dynamic_empty.add(m, Extent::dynamic(count)));
+    expect(dynamic_empty.add(zero, 0u));
+    expect(dynamic_empty.static_volume() == luisa::optional<uint64_t>{0u});
+    expect(IndexMap{dynamic_empty, storage, unreachable}.prove(0u).is_storage_safe());
+
+    IndexSpace boundary;
+    expect(boundary.add(m, uint64_t{1u} << 63u));
+    expect(IndexMap::identity(boundary).prove(0u).is_storage_safe());
+    IndexSpace unrepresentable;
+    expect(unrepresentable.add(m, (uint64_t{1u} << 63u) + 1u));
+    expect(!IndexMap::identity(unrepresentable).prove(0u).is_storage_safe());
+    IndexSpace dynamic;
+    expect(dynamic.add(m, Extent::dynamic(count)));
+    expect(IndexMap::identity(dynamic).prove(0u).total == ProofStatus::UNKNOWN);
+}
+
+void test_affine_proof_finite_oracle() {
+    DimensionContext dimensions;
+    auto m = dimensions.create_dimension("m");
+    auto n = dimensions.create_dimension("n");
+    auto u = dimensions.create_dimension("u");
+    auto v = dimensions.create_dimension("v");
+    auto i = IndexExpr::coordinate(m);
+    auto j = IndexExpr::coordinate(n);
+    auto c = [](int64_t value) noexcept { return IndexExpr::constant(value); };
+    auto agrees = [](ProofStatus proof, bool oracle) noexcept {
+        return proof == ProofStatus::UNKNOWN || (proof == ProofStatus::PROVEN) == oracle;
+    };
+    auto cases = 0u;
+    auto proven = 0u;
+    auto disproven = 0u;
+    for (auto extents : {std::array{2u, 3u}, std::array{3u, 2u}, std::array{1u, 4u}, std::array{4u, 1u}, std::array{3u, 3u}}) {
+        IndexSpace domain;
+        expect(domain.add(m, extents[0]));
+        expect(domain.add(n, extents[1]));
+        IndexSpace codomain;
+        expect(codomain.add(u, 7u));
+        expect(codomain.add(v, 11u));
+        for (auto a = -2; a <= 2; a++) {
+            for (auto b = -2; b <= 2; b++) {
+                for (auto d = -2; d <= 2; d++) {
+                    for (auto e = -2; e <= 2; e++) {
+                        for (auto offset : {-1, 0, 4}) {
+                            IndexExpr outputs[]{i * c(a) + j * c(b) + c(offset),
+                                                i * c(d) + j * c(e) + c(4 - offset)};
+                            IndexMap map{domain, codomain, outputs};
+                            auto proof = map.prove(0u);
+                            auto oracle = map.analyze_finite(16u);
+                            auto sound = oracle.enumerated && !proof.enumerated &&
+                                         agrees(proof.total, oracle.total) && agrees(proof.in_bounds, oracle.in_bounds) &&
+                                         agrees(proof.injective, oracle.injective) && agrees(proof.surjective, oracle.surjective);
+                            if (!sound) {
+                                expect(sound) << "affine proof disagrees with exhaustive oracle: "
+                                              << extents[0] << "," << extents[1] << " coefficients="
+                                              << a << "," << b << "," << d << "," << e << " offset=" << offset;
+                                return;
+                            }
+                            cases++;
+                            proven += proof.is_storage_safe();
+                            disproven += proof.is_storage_invalid();
+                        }
+                    }
+                }
+            }
+        }
+    }
+    expect(eq(cases, 9375u));
+    expect(proven != 0u && disproven != 0u);
+}
+
 void test_layout_correspondence() {
     DimensionContext dimensions;
     auto logical_dimension = dimensions.create_dimension("logical");
@@ -244,5 +503,10 @@ int main(int argc, char *argv[]) {
     "tile_layout_bitwise_swizzle"_test = test_bitwise_swizzle;
     "tile_layout_index_expression_inspection"_test = test_index_expression_inspection;
     "tile_dynamic_layout_is_structural"_test = test_dynamic_layout_is_structural;
+    "tile_large_affine_proofs"_test = test_large_affine_proofs;
+    "tile_joint_affine_rank_proofs"_test = test_joint_affine_rank_proofs;
+    "tile_affine_proof_counterexamples"_test = test_affine_proof_counterexamples;
+    "tile_layout_proof_cardinality_edges"_test = test_layout_proof_cardinality_edges;
+    "tile_affine_proof_finite_oracle"_test = test_affine_proof_finite_oracle;
     "tile_layout_correspondence"_test = test_layout_correspondence;
 }

@@ -1060,12 +1060,55 @@ signed arithmetic shift. These expressions are not mislabeled as TIRx
 analysis contract. The factored shard/replica subset separately uses native
 `TileLayout` as described above.
 
-For explicit Memory, small static maps have an exhaustive totality, bounds,
-and injectivity proof. The current fallback budget is 1,048,576 logical points.
-Larger or symbolic maps remain structurally representable, but native Memory
-realization rejects an unknown proof. This budget is a current proof-engine
-limit, not a claim about algebraic expressibility. Symbolic normal forms and
-proof procedures for the full grammar above are still implementation work.
+The implemented `IndexMap::prove()` returns `LayoutProof`, with separate
+`PROVEN`, `DISPROVEN`, or `UNKNOWN` facts for totality, bounds, injectivity,
+and surjectivity. A total map's checked `apply()` must succeed throughout its
+domain and land inside the declared codomain. `analyze_finite()` remains an
+independent exhaustive oracle; passing zero to `prove()` disables that fallback.
+
+~~~text
+IndexExpr DAG
+   |-- checked affine normalization --> exact range + injectivity conditions
+   |-- concrete invalid point / colliding pair --> disproof
+   `-- unresolved --> exhaustive finite fallback, within its budget
+                        |
+                        `-- still unknown: preserve Candidate IR,
+                                          reject native Memory realization
+~~~
+
+For static boxes, the affine normalizer retains `b + A*x` only if every
+original subexpression has a representable signed-64-bit range. Cancellation
+never hides an overflowing intermediate or a division by zero. Constant and
+coordinate leaves, add/subtract, and multiplication by a domain-constant
+expression are supported. This normal form is analysis state, not another
+layout type or a restriction on the stored DAG.
+
+Injectivity uses two exact sufficient conditions. Given equal outputs, write
+`delta = x - y`; each unresolved coordinate satisfies `|delta_i| <= n_i - 1`.
+If a row has
+
+~~~text
+|A[j,i]| > sum(k != i, unresolved) |A[j,k]| * (n_k - 1),
+~~~
+
+then any nonzero `delta_i` is too large to be canceled by the others, so
+`delta_i = 0`. Repeat this argument to recover mixed-radix coordinates,
+including ordinary dense, padded, reversed, and transposed strided layouts.
+Full column rank of the remaining matrix modulo the prime `2^31 - 1` is
+another sufficient proof: a nonzero modular minor is a nonzero integer minor,
+so the remaining delta is zero over the rationals too. A modular rank failure
+is **unknown**, not a proof of aliasing. Pigeonhole arguments, zero columns,
+and evaluated GCD-derived colliding pairs provide disproofs. Known cardinality
+and injectivity determine surjectivity where possible.
+
+This is not the full mixed-radix complement/inversion algebra described by
+[CuTe](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/cute/02_layout_algebra.html),
+nor the planned GF(2) normal form for bit-linear maps. Those remain separate
+proof/normalization work. The finite fallback budget is 1,048,576 logical
+points, but proved affine layouts are not subject to that cap. Large
+non-affine or symbolic maps may remain unknown. Exhaustive small-box tests
+cross-check every affirmative or negative affine fact against the independent
+evaluator; none of the safety conditions rely on sampled success.
 
 ## 5. Value distribution is a layout, not another algebra
 
@@ -1587,6 +1630,10 @@ is not evaluated. After checking execution/resource constraints, native
 lowering removes unused zero-sized plain allocations. It rejects a zero-sized
 allocation with surviving load/store uses rather than leaving a dangling
 buffer. An empty allocation never bypasses an explicit resource constraint.
+Known zero factors are recognized before multiplying extents, even when the
+remaining product overflows or contains dynamic factors. Layout safety does
+not imply feasible storage: native Memory also checks signed-64-bit byte
+addressing, followed by the target's separate resource-capacity constraints.
 
 ~~~text
 parallel instance (logical owner)

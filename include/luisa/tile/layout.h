@@ -91,6 +91,29 @@ struct LayoutProperties {
     uint64_t codomain_points{0u};
 };
 
+enum class ProofStatus : uint8_t {
+    UNKNOWN,
+    PROVEN,
+    DISPROVEN
+};
+
+struct LayoutProof {
+    // Same predicates as analyze_finite(): total means checked apply()
+    // succeeds throughout the declared domain, including codomain bounds.
+    ProofStatus total{ProofStatus::UNKNOWN};
+    ProofStatus in_bounds{ProofStatus::UNKNOWN};
+    ProofStatus injective{ProofStatus::UNKNOWN};
+    ProofStatus surjective{ProofStatus::UNKNOWN};
+    bool enumerated{false};
+
+    [[nodiscard]] bool is_storage_safe() const noexcept {
+        return total == ProofStatus::PROVEN && in_bounds == ProofStatus::PROVEN && injective == ProofStatus::PROVEN;
+    }
+    [[nodiscard]] bool is_storage_invalid() const noexcept {
+        return total == ProofStatus::DISPROVEN || in_bounds == ProofStatus::DISPROVEN || injective == ProofStatus::DISPROVEN;
+    }
+};
+
 class LUISA_TILE_API IndexMap final {
 
 private:
@@ -107,6 +130,10 @@ public:
     [[nodiscard]] luisa::span<const IndexExpr> outputs() const noexcept { return _outputs; }
     [[nodiscard]] bool verify() const noexcept;
     [[nodiscard]] luisa::optional<luisa::vector<int64_t>> apply(luisa::span<const int64_t> point) const noexcept;
+    // Conservative algebraic proofs, followed by bounded exhaustive fallback.
+    // Passing zero disables enumeration; UNKNOWN is never a safety proof.
+    [[nodiscard]] LayoutProof prove(uint64_t max_fallback_points = 1024u * 1024u) const noexcept;
+    // Kept independent of prove() as an exact small-domain semantic oracle.
     [[nodiscard]] LayoutProperties analyze_finite(uint64_t max_points = 1024u * 1024u) const noexcept;
 
     [[nodiscard]] static IndexMap identity(const IndexSpace &space) noexcept;

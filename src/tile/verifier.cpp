@@ -263,8 +263,8 @@ private:
                         !_space_belongs_to_module(layout->codomain())) {
                         _error(operation, "Memory layout must map its logical element space to a valid module-local storage space");
                     } else {
-                        auto properties = layout->analyze_finite();
-                        if (properties.enumerated && (!properties.total || !properties.in_bounds || !properties.injective)) {
+                        auto proof = layout->prove();
+                        if (proof.is_storage_invalid()) {
                             _error(operation, "Memory layout must be total, in bounds, and injective for whole-Tile load/store");
                         }
                     }

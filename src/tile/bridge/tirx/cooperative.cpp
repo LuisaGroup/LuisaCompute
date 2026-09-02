@@ -184,7 +184,11 @@ protected:
             offset == nullptr || offset->value != 0) {
             throw std::runtime_error{"cooperative Tile storage requires an unplaced compact compiler temporary"};
         }
-        auto bytes = static_cast<uint64_t>((buffer->dtype.bits() * buffer->dtype.lanes() + 7) / 8);
+        auto empty = std::any_of(buffer->shape.begin(), buffer->shape.end(), [](auto &&dimension) noexcept {
+            auto extent = dimension.template as<tvm::IntImmNode>();
+            return extent != nullptr && extent->value == 0;
+        });
+        auto bytes = empty ? uint64_t{0u} : static_cast<uint64_t>((buffer->dtype.bits() * buffer->dtype.lanes() + 7) / 8);
         for (auto &&dimension : buffer->shape) {
             auto extent = static_extent(dimension);
             if (extent != 0u && bytes > std::numeric_limits<uint64_t>::max() / extent) {

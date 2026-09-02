@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <limits>
+#include <numeric>
 #include <utility>
 
 #include <luisa/core/stl/unordered_map.h>
@@ -149,6 +150,233 @@ struct IndexExprNode {
         linear += static_cast<uint64_t>(point[i]);
     }
     return linear;
+}
+
+struct AffineForm {
+    int64_t offset{0};
+    luisa::vector<int64_t> coefficients;
+    int64_t minimum{0};
+    int64_t maximum{0};
+
+    [[nodiscard]] bool is_constant() const noexcept {
+        return std::all_of(coefficients.begin(), coefficients.end(), [](auto value) noexcept { return value == 0; });
+    }
+};
+
+class AffineAnalyzer {
+
+private:
+    const IndexSpace &_domain;
+    luisa::span<const int64_t> _limits;
+    luisa::unordered_map<const IndexExprNode *, luisa::optional<AffineForm>> _cache;
+
+    [[nodiscard]] luisa::optional<AffineForm> _finish(AffineForm form) const noexcept {
+        form.minimum = form.offset;
+        form.maximum = form.offset;
+        for (auto i = 0u; i < _limits.size(); i++) {
+            auto term = checked_multiply(form.coefficients[i], _limits[i]);
+            if (!term) { return luisa::nullopt; }
+            auto &bound = *term < 0 ? form.minimum : form.maximum;
+            auto sum = checked_add(bound, *term);
+            if (!sum) { return luisa::nullopt; }
+            bound = *sum;
+        }
+        return form;
+    }
+
+    [[nodiscard]] luisa::optional<AffineForm> _compute(const IndexExprNode *node) noexcept {
+        if (node == nullptr) { return luisa::nullopt; }
+        AffineForm form;
+        if (node->kind == IndexExprKind::CONSTANT || node->kind == IndexExprKind::COORDINATE) {
+            form.coefficients.resize(_domain.rank(), 0);
+            if (node->kind == IndexExprKind::CONSTANT) {
+                form.offset = node->constant;
+            } else {
+                auto axis = _domain.axis_index(node->dimension);
+                if (!axis) { return luisa::nullopt; }
+                // A unit axis is identically zero on this specialized domain.
+                form.coefficients[*axis] = _limits[*axis] == 0 ? 0 : 1;
+            }
+            return _finish(std::move(form));
+        }
+        if (node->kind != IndexExprKind::ADD && node->kind != IndexExprKind::SUBTRACT &&
+            node->kind != IndexExprKind::MULTIPLY) { return luisa::nullopt; }
+        auto lhs = analyze(node->lhs.get());
+        auto rhs = analyze(node->rhs.get());
+        // Every original subexpression must be safe before normalization can
+        // cancel it. In particular, 0 * (1 / 0) is not the constant zero map.
+        if (!lhs || !rhs) { return luisa::nullopt; }
+        if (node->kind == IndexExprKind::MULTIPLY) {
+            if (!rhs->is_constant()) { std::swap(lhs, rhs); }
+            if (!rhs->is_constant()) { return luisa::nullopt; }
+            auto factor = rhs->offset;
+            auto offset = checked_multiply(lhs->offset, factor);
+            if (!offset) { return luisa::nullopt; }
+            lhs->offset = *offset;
+            for (auto &coefficient : lhs->coefficients) {
+                auto product = checked_multiply(coefficient, factor);
+                if (!product) { return luisa::nullopt; }
+                coefficient = *product;
+            }
+        } else {
+            auto combine = node->kind == IndexExprKind::ADD ? checked_add : checked_subtract;
+            auto offset = combine(lhs->offset, rhs->offset);
+            if (!offset) { return luisa::nullopt; }
+            lhs->offset = *offset;
+            for (auto i = 0u; i < lhs->coefficients.size(); i++) {
+                auto coefficient = combine(lhs->coefficients[i], rhs->coefficients[i]);
+                if (!coefficient) { return luisa::nullopt; }
+                lhs->coefficients[i] = *coefficient;
+            }
+        }
+        return _finish(std::move(*lhs));
+    }
+
+public:
+    AffineAnalyzer(const IndexSpace &domain, luisa::span<const int64_t> limits) noexcept
+        : _domain{domain}, _limits{limits} {}
+
+    [[nodiscard]] luisa::optional<AffineForm> analyze(const IndexExprNode *node) noexcept {
+        if (auto iter = _cache.find(node); iter != _cache.end()) { return iter->second; }
+        auto result = _compute(node);
+        _cache.emplace(node, result);
+        return result;
+    }
+};
+
+[[nodiscard]] uint64_t magnitude(int64_t value) noexcept {
+    return value < 0 ? uint64_t{0u} - static_cast<uint64_t>(value) : static_cast<uint64_t>(value);
+}
+
+[[nodiscard]] bool full_column_rank(luisa::span<const AffineForm> forms, luisa::span<const uint8_t> resolved) noexcept {
+    auto columns = static_cast<size_t>(std::count(resolved.begin(), resolved.end(), uint8_t{0u}));
+    if (columns == 0u) { return true; }
+    if (forms.size() < columns) { return false; }
+    // A nonzero minor modulo this prime is a nonzero integer minor. This is
+    // an exact sufficient proof over Q, not a floating-point rank estimate.
+    // Products of residues fit uint64_t because p < 2^31.
+    constexpr uint64_t prime = 2147483647u;
+    auto power = [](uint64_t base, uint64_t exponent) noexcept {
+        auto result = uint64_t{1u};
+        while (exponent != 0u) {
+            if ((exponent & 1u) != 0u) { result = result * base % prime; }
+            base = base * base % prime;
+            exponent >>= 1u;
+        }
+        return result;
+    };
+    luisa::vector<luisa::vector<uint64_t>> matrix;
+    matrix.reserve(forms.size());
+    for (auto &&form : forms) {
+        auto &row = matrix.emplace_back();
+        row.reserve(columns);
+        for (auto i = 0u; i < resolved.size(); i++) {
+            if (resolved[i] != 0u) { continue; }
+            auto value = form.coefficients[i] % static_cast<int64_t>(prime);
+            row.emplace_back(static_cast<uint64_t>(value < 0 ? value + static_cast<int64_t>(prime) : value));
+        }
+    }
+    auto rank = size_t{0u};
+    for (auto column = size_t{0u}; column < columns; column++) {
+        auto pivot = rank;
+        while (pivot < matrix.size() && matrix[pivot][column] == 0u) { pivot++; }
+        if (pivot == matrix.size()) { continue; }
+        std::swap(matrix[rank], matrix[pivot]);
+        auto inverse = power(matrix[rank][column], prime - 2u);
+        for (auto row = rank + 1u; row < matrix.size(); row++) {
+            auto factor = matrix[row][column] * inverse % prime;
+            for (auto j = column; j < columns; j++) {
+                auto term = factor * matrix[rank][j] % prime;
+                matrix[row][j] = (matrix[row][j] + prime - term) % prime;
+            }
+        }
+        rank++;
+    }
+    return rank == columns;
+}
+
+[[nodiscard]] bool prove_affine_injective(luisa::span<const AffineForm> forms, luisa::span<const int64_t> limits) noexcept {
+    luisa::vector<uint8_t> resolved(limits.size(), 0u);
+    for (auto i = 0u; i < limits.size(); i++) { resolved[i] = limits[i] == 0; }
+    auto changed = true;
+    while (changed) {
+        changed = false;
+        for (auto &&form : forms) {
+            auto span = uint64_t{0u};
+            auto overflow = false;
+            for (auto i = 0u; i < limits.size(); i++) {
+                if (resolved[i] != 0u) { continue; }
+                auto weight = magnitude(form.coefficients[i]);
+                auto extent = static_cast<uint64_t>(limits[i]);
+                if (extent != 0u && weight > (std::numeric_limits<uint64_t>::max() - span) / extent) {
+                    overflow = true;
+                    break;
+                }
+                span += weight * extent;
+            }
+            if (overflow) { continue; }
+            for (auto i = 0u; i < limits.size(); i++) {
+                if (resolved[i] != 0u) { continue; }
+                auto weight = magnitude(form.coefficients[i]);
+                auto term = weight * static_cast<uint64_t>(limits[i]);
+                // Equality of output coordinates cannot cancel a nonzero
+                // delta_i if its smallest step exceeds every other delta.
+                if (weight > span - term) {
+                    resolved[i] = 1u;
+                    changed = true;
+                    span -= term;
+                }
+            }
+        }
+    }
+    return full_column_rank(forms, resolved);
+}
+
+[[nodiscard]] bool has_affine_collision(const IndexMap &map, luisa::span<const AffineForm> forms,
+                                        luisa::span<const int64_t> limits) noexcept {
+    for (auto i = 0u; i < limits.size(); i++) {
+        if (limits[i] == 0) { continue; }
+        if (std::all_of(forms.begin(), forms.end(), [i](auto &&form) noexcept { return form.coefficients[i] == 0; })) { return true; }
+        for (auto j = i + 1u; j < limits.size(); j++) {
+            if (limits[j] == 0) { continue; }
+            for (auto &&form : forms) {
+                auto a = form.coefficients[i];
+                auto b = form.coefficients[j];
+                if (a == 0 && b == 0) { continue; }
+                auto divisor = std::gcd(magnitude(a), magnitude(b));
+                auto di = magnitude(b) / divisor;
+                auto dj = magnitude(a) / divisor;
+                if (di <= static_cast<uint64_t>(limits[i]) && dj <= static_cast<uint64_t>(limits[j])) {
+                    luisa::vector<int64_t> positive(limits.size(), 0);
+                    luisa::vector<int64_t> negative(limits.size(), 0);
+                    (b < 0 ? negative : positive)[i] = static_cast<int64_t>(di);
+                    (a > 0 ? negative : positive)[j] = static_cast<int64_t>(dj);
+                    auto lhs = map.apply(positive);
+                    auto rhs = map.apply(negative);
+                    if (lhs && rhs && *lhs == *rhs) { return true; }
+                }
+                break;
+            }
+        }
+    }
+    return false;
+}
+
+[[nodiscard]] bool equal_static_cardinality(const IndexSpace &lhs, const IndexSpace &rhs) noexcept {
+    auto a = lhs.static_volume();
+    auto b = rhs.static_volume();
+    if (a && b) { return *a == *b; }
+    // Preserve useful facts for products larger than uint64 without treating
+    // overflow as zero. This sufficient test also recognizes permutations.
+    auto extents = [](const IndexSpace &space) noexcept {
+        luisa::vector<uint64_t> result;
+        for (auto &&axis : space.axes()) {
+            if (axis.extent.constant_value() != 1u) { result.emplace_back(axis.extent.constant_value()); }
+        }
+        std::sort(result.begin(), result.end());
+        return result;
+    };
+    return extents(lhs) == extents(rhs);
 }
 
 }// namespace detail
@@ -317,6 +545,86 @@ LayoutProperties IndexMap::analyze_finite(uint64_t max_points) const noexcept {
     }
     properties.surjective = properties.total && properties.in_bounds && images.size() == *codomain_volume;
     return properties;
+}
+
+LayoutProof IndexMap::prove(uint64_t max_fallback_points) const noexcept {
+    constexpr auto yes = ProofStatus::PROVEN;
+    constexpr auto no = ProofStatus::DISPROVEN;
+    constexpr auto unknown = ProofStatus::UNKNOWN;
+    auto fallback = [&](LayoutProof proof) noexcept {
+        if (proof.total != unknown && proof.in_bounds != unknown &&
+            proof.injective != unknown && proof.surjective != unknown) { return proof; }
+        auto finite = analyze_finite(max_fallback_points);
+        return finite.enumerated ? LayoutProof{finite.total ? yes : no, finite.in_bounds ? yes : no,
+                                               finite.injective ? yes : no, finite.surjective ? yes : no, true} :
+                                   proof;
+    };
+    if (!verify()) { return {no, no, no, no}; }
+    auto empty = [](const IndexSpace &space) noexcept {
+        return std::any_of(space.axes().begin(), space.axes().end(), [](auto &&axis) noexcept {
+            return axis.extent.is_constant() && axis.extent.constant_value() == 0u;
+        });
+    };
+    auto is_static = [](const IndexSpace &space) noexcept {
+        return std::all_of(space.axes().begin(), space.axes().end(), [](auto &&axis) noexcept { return axis.extent.is_constant(); });
+    };
+    if (empty(_domain)) {
+        return {yes, yes, yes, empty(_codomain) ? yes : (is_static(_codomain) ? no : unknown)};
+    }
+    if (!is_static(_domain) || !is_static(_codomain)) { return {}; }
+    luisa::vector<int64_t> limits;
+    limits.reserve(_domain.rank());
+    for (auto &&axis : _domain.axes()) {
+        auto limit = axis.extent.constant_value() - 1u;
+        if (limit > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) { return fallback({}); }
+        limits.emplace_back(static_cast<int64_t>(limit));
+    }
+    luisa::vector<int64_t> origin(_domain.rank(), 0);
+    auto first = apply(origin);
+    auto last = apply(limits);
+    // A concrete counterexample disproves totality; success at these points
+    // does not prove anything about the rest of the domain.
+    if (!first || !last) { return {no, no, no, no}; }
+    LayoutProof proof;
+    if (origin != limits && *first == *last) { proof.injective = no; }
+    detail::AffineAnalyzer analyzer{_domain, limits};
+    luisa::vector<detail::AffineForm> forms;
+    forms.reserve(_outputs.size());
+    for (auto i = 0u; i < _outputs.size(); i++) {
+        auto form = analyzer.analyze(_outputs[i]._node.get());
+        if (!form) { return fallback(proof); }
+        auto extent = _codomain.axis(i).extent.constant_value();
+        if (form->minimum < 0 || static_cast<uint64_t>(form->maximum) >= extent) { return {no, no, no, no}; }
+        forms.emplace_back(std::move(*form));
+    }
+    proof.total = yes;
+    proof.in_bounds = yes;
+    auto domain_volume = _domain.static_volume();
+    auto codomain_volume = _codomain.static_volume();
+    if (proof.injective != no) {
+        if (codomain_volume && (!domain_volume || *domain_volume > *codomain_volume)) {
+            proof.injective = no;
+        } else if (detail::prove_affine_injective(forms, limits)) {
+            proof.injective = yes;
+        } else if (detail::has_affine_collision(*this, forms, limits)) {
+            proof.injective = no;
+        }
+    }
+    auto same_cardinality = detail::equal_static_cardinality(_domain, _codomain);
+    if (codomain_volume && *codomain_volume == 1u) {
+        proof.surjective = yes;
+    } else if (domain_volume && (!codomain_volume || *domain_volume < *codomain_volume)) {
+        proof.surjective = no;
+    } else if (proof.injective == yes) {
+        if (same_cardinality) {
+            proof.surjective = yes;
+        } else if (domain_volume && codomain_volume) {
+            proof.surjective = no;
+        }
+    } else if (proof.injective == no && same_cardinality) {
+        proof.surjective = no;
+    }
+    return fallback(proof);
 }
 
 IndexMap IndexMap::identity(const IndexSpace &space) noexcept {

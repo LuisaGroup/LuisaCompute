@@ -283,21 +283,23 @@ void test_vector_private_memory(Runtime &runtime) {
 
 void test_empty_memory_layout(Runtime &runtime) {
     auto scope = root_scope(runtime);
-    auto kernel = tile_kernel("manual_empty_memory_layout", [scope] {
-                      for (auto &nest : parallel(shape(1), scope)) {
-                          auto space = shape(0);
-                          // Totality is vacuous on an empty domain. No address
-                          // arithmetic or physical load/store may be evaluated.
-                          IndexExpr address[]{floor_div(IndexExpr::coordinate(space.axis(0).dimension), IndexExpr::constant(0))};
-                          auto scratch = memory<float>(IndexMap{space, space, address});
-                          scratch.store(zeros<float>(space));
-                          static_cast<void>(scratch.load());
-                      }
-                  }).capture();
-    expect(kernel.valid());
-    auto executable = runtime.build(kernel);
-    expect(executable.ok()) << executable.error;
-    if (executable.ok()) { (*executable.entry)(); }
+    for (auto overflowing_prefix : {false, true}) {
+        auto kernel = tile_kernel("manual_empty_memory_layout", [=] {
+                          for (auto &nest : parallel(shape(1), scope)) {
+                              auto space = overflowing_prefix ? shape(uint64_t{1u} << 40u, uint64_t{1u} << 40u, 0u) : shape(0);
+                              // Totality is vacuous on an empty domain. No address
+                              // arithmetic or physical load/store may be evaluated.
+                              IndexExpr address[]{floor_div(IndexExpr::coordinate(space.axis(0).dimension), IndexExpr::constant(0))};
+                              auto scratch = memory<float>(IndexMap{space, shape(0), address});
+                              scratch.store(zeros<float>(space));
+                              static_cast<void>(scratch.load());
+                          }
+                      }).capture();
+        expect(kernel.valid());
+        auto executable = runtime.build(kernel);
+        expect(executable.ok()) << executable.error;
+        if (executable.ok()) { (*executable.entry)(); }
+    }
 }
 
 void test_live_empty_storage(Runtime &runtime) {
@@ -411,8 +413,12 @@ void test_memory_layouts(Runtime &runtime) {
 void test_unproved_layout(Runtime &runtime) {
     auto kernel = tile_kernel("manual_unproved_layout", [] {
                       for (auto &nest : parallel(shape(1), exec::Scope::WORKER)) {
-                          auto space = shape(1048577);
-                          auto scratch = memory<float>(IndexMap::identity(space));
+                          // This large Gray-code bijection is representable,
+                          // but outside the implemented affine proof rules.
+                          auto space = shape(2097152);
+                          auto i = IndexExpr::coordinate(space.axis(0).dimension);
+                          IndexExpr address[]{bit_xor(i, shift_right(i, IndexExpr::constant(1)))};
+                          auto scratch = memory<float>(IndexMap{space, space, address});
                           scratch.store(zeros<float>(space));
                       }
                   }).capture();
@@ -420,6 +426,78 @@ void test_unproved_layout(Runtime &runtime) {
     auto executable = runtime.build(kernel);
     expect(!executable.ok());
     expect(executable.error.find("proof budget") != luisa::string::npos) << executable.error;
+}
+
+void test_large_proved_layouts(Runtime &runtime) {
+    constexpr auto rows = 513;
+    constexpr auto columns = 2047;
+    static_assert(rows * columns > 1048576);
+    for (auto kind : {0, 1, 2}) {
+        auto scope = root_scope(runtime);
+        auto resource = root_resource(runtime);
+        auto definition = tile_kernel("manual_large_proved_layout", [=](TensorView<const float, 2> input,
+                                                                        TensorView<float, 2> output) {
+            for (auto &nest : parallel(shape(1), scope)) {
+                auto space = shape(rows, columns);
+                auto address = IndexMap::identity(space);
+                if (kind == 1) {
+                    address = layout(space, stride(columns + 3, 1));
+                } else if (kind == 2) {
+                    Dim order[]{space.axis(1).dimension, space.axis(0).dimension};
+                    auto transposed = IndexMap::permute(space, order);
+                    expect(transposed.has_value());
+                    if (!transposed) { return; }
+                    address = *transposed;
+                }
+                expect(address.prove(0u).is_storage_safe());
+                auto scratch = memory<float>(address, resource);
+                auto origin = coord(0, 0);
+                scratch.store(input.tile(origin, space).load());
+                auto old = scratch.load();
+                scratch.store(old * 2.0f + 1.0f);
+                output(origin, space).store(scratch.load() + old);
+            }
+        });
+        auto kernel = definition.capture(tensor_shape(rows, columns), tensor_shape(rows, columns));
+        expect(kernel.valid());
+        auto native = bridge::tirx::lower(kernel.function());
+        expect(native.ok()) << native.error;
+        if (!native) { continue; }
+        auto executable = runtime.build(kernel);
+        if (runtime.target() == "metal") {
+            // The map is proved. A multi-megabyte group-owned allocation is
+            // rejected by the separate hardware capacity constraint instead.
+            expect(!executable.ok());
+            expect(executable.error.find("shared-memory capacity") != luisa::string::npos) << executable.error;
+            continue;
+        }
+        expect(executable.ok()) << executable.error;
+        if (!executable.ok()) { continue; }
+        auto input = values(rows * columns);
+        auto source = runtime.upload<float>({rows, columns}, input);
+        auto output = runtime.allocate<float>({rows, columns});
+        (*executable.entry)(source, output);
+        for (auto &value : input) { value = value * 3.0f + 1.0f; }
+        expect_near(runtime.download<float>(output, input.size()), input);
+    }
+}
+
+void test_memory_address_overflow(Runtime &runtime) {
+    for (auto extents : {std::array<uint64_t, 2u>{uint64_t{1u} << 40u, uint64_t{1u} << 40u},
+                         std::array<uint64_t, 2u>{uint64_t{1u} << 61u, 1u}}) {
+        auto kernel = tile_kernel("manual_address_overflow", [extents] {
+                          auto space = shape(extents[0], extents[1]);
+                          // Logical identity remains provable even when its
+                          // physical allocation cannot be byte-addressed.
+                          auto map = IndexMap::identity(space);
+                          expect(map.prove(0u).is_storage_safe());
+                          static_cast<void>(memory<float>(map));
+                      }).capture();
+        expect(kernel.valid());
+        auto executable = runtime.build(kernel);
+        expect(!executable.ok());
+        expect(executable.error.find("64-bit byte addressing") != luisa::string::npos) << executable.error;
+    }
 }
 
 void test_manual_capacity(Runtime &runtime) {
@@ -510,6 +588,8 @@ int main(int argc, char *argv[]) {
     "tile_native_memory_live_empty_storage"_test = [&] { test_live_empty_storage(runtime); };
     "tile_native_memory_layouts"_test = [&] { test_memory_layouts(runtime); };
     "tile_native_memory_unproved_layout"_test = [&] { test_unproved_layout(runtime); };
+    "tile_native_memory_large_proved_layouts"_test = [&] { test_large_proved_layouts(runtime); };
+    "tile_native_memory_address_overflow"_test = [&] { test_memory_address_overflow(runtime); };
     "tile_native_memory_capacity"_test = [&] { test_manual_capacity(runtime); };
     "tile_native_memory_resource_constraints"_test = [&] { test_unsupported_resources(runtime); };
 }
