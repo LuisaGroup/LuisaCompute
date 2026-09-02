@@ -162,8 +162,20 @@ protected:
 
     [[nodiscard]] tvm::tirx::Stmt VisitStmt_(const tvm::tirx::AllocBufferNode *allocation) final {
         auto buffer = allocation->buffer;
+        auto annotations = allocation->annotations;
+        if (auto constraint = annotations.Get(memory_resource_annotation)) {
+            auto resource = constraint.value().as<tvm::ffi::String>();
+            auto expected = _lane_depth == 0u ? "shared" : "private";
+            if (!resource || resource.value() != expected) {
+                auto name = resource ? std::string{resource.value()} : std::string{"<invalid>"};
+                throw std::runtime_error{"Memory resource '" + name +
+                                         "' cannot realize this logical owner in cooperative Metal execution"};
+            }
+            annotations.erase(memory_resource_annotation);
+        }
         if (_lane_depth != 0u) {
-            auto result = StmtExprMutator::VisitStmt_(allocation);
+            auto result = StmtExprMutator::VisitStmt_(allocation).as_or_throw<tvm::tirx::AllocBuffer>();
+            result.CopyOnWrite()->annotations = std::move(annotations);
             _buffers.emplace(buffer.get(), buffer);
             return result;
         }
@@ -187,7 +199,7 @@ protected:
         auto type = tvm::tirx::BufferType{"shared", buffer->dtype, buffer->shape, {}, buffer->elem_offset, buffer->data_alignment, buffer->offset_factor};
         auto shared = tvm::tirx::BufferVar{buffer.name() + "_shared", std::move(type), buffer.span()};
         _buffers.emplace(buffer.get(), shared);
-        return tvm::tirx::AllocBuffer{std::move(shared), allocation->annotations, allocation->span};
+        return tvm::tirx::AllocBuffer{std::move(shared), std::move(annotations), allocation->span};
     }
 
     [[nodiscard]] tvm::Expr VisitExpr_(const tvm::tirx::BufferLoadNode *load) final {

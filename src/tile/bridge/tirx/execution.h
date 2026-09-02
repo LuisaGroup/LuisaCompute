@@ -11,6 +11,8 @@ inline constexpr auto execution_scope_annotation = "luisa.tile.execution_scope";
 // Positive rank of a perfect, rectangular serial element-loop nest. Keep its
 // axes intact until the selected target actually needs worker partitioning.
 inline constexpr auto independent_elements_annotation = "luisa.tile.independent_elements";
+// Hard resource constraints survive structural export until target binding.
+inline constexpr auto memory_resource_annotation = "luisa.tile.memory_resource";
 
 // Give every logical vector lane its own compiler-local storage before TIRx
 // vectorization. TIRx currently does not privatize AllocBuffer itself.

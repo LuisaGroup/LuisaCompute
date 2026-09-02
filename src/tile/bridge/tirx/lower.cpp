@@ -30,6 +30,7 @@ private:
     luisa::string _error;
     luisa::unordered_map<const Value *, tvm::PrimExpr> _expressions;
     luisa::unordered_map<const Value *, tvm::tirx::BufferVar> _views;
+    luisa::unordered_map<const Value *, tvm::tirx::BufferVar> _memories;
     luisa::unordered_map<const Value *, TileExpression> _tiles;
     uint64_t _temporary_index{0u};
 
@@ -366,6 +367,45 @@ private:
         _bind_storage(result, std::move(buffer));
     }
 
+    void _lower_memory_alloc(const Operation &operation, Statements &statements) {
+        auto memory = operation.result(0u);
+        auto &&type = memory->type();
+        auto shape = _shape(*type.index_space());
+        if (shape.size() != type.index_space()->rank()) {
+            _fail("native Memory allocation requires JIT-specialized static extents");
+            return;
+        }
+        auto name = tvm::ffi::String{std::string{"tile_memory_"} + std::to_string(memory->id())};
+        auto buffer = tvm::tirx::decl_buffer(std::move(shape), _primitive_type(type.scalar_type()), std::move(name), "local");
+        tvm::ffi::Map<tvm::ffi::String, tvm::ffi::Any> annotations;
+        if (auto resource = operation.resource_class_constraint()) {
+            annotations.Set(memory_resource_annotation, tvm::ffi::String{std::string{*resource}});
+        }
+        statements.push_back(tvm::tirx::AllocBuffer{buffer, std::move(annotations)});
+        _memories.emplace(memory, std::move(buffer));
+    }
+
+    void _lower_memory_access(const Operation &operation, Statements &statements) {
+        auto memory = _memories.find(operation.operand(0u));
+        if (memory == _memories.end()) {
+            _fail("native Memory access requires a lexically visible allocation");
+            return;
+        }
+        if (operation.kind() == OperationKind::MEMORY_STORE) {
+            statements.push_back(_copy_to_storage(operation.operand(2u), memory->second));
+        } else {
+            auto result = operation.result(0u);
+            auto snapshot = _new_storage(result->type(), statements);
+            statements.push_back(_for_each(*result->type().index_space(), [&](const Indices &indices) {
+                return tvm::tirx::BufferStore{snapshot, tvm::tirx::BufferLoad{memory->second, indices}, indices};
+            }));
+            _bind_storage(result, std::move(snapshot));
+        }
+        // MemoryState is an ordering token, not a runtime payload. The
+        // verifier has established the reaching state; serial TIRx effects
+        // plus target-generated synchronization implement that dependency.
+    }
+
     void _lower_mma(const Operation &operation, Statements &statements) {
         auto result = operation.result(0);
         auto &&space = *result->type().index_space();
@@ -487,10 +527,14 @@ private:
             }
         }
 
-        tvm::ffi::Array<tvm::tirx::BufferVar> carries;
+        luisa::vector<tvm::tirx::BufferVar> carries;
         tvm::ffi::Array<tvm::tirx::Stmt> prefix;
         carries.reserve(operation.result_count());
         for (auto i = 0u; i < operation.result_count(); i++) {
+            if (operation.result(i)->type().kind() == TypeKind::MEMORY_STATE) {
+                carries.emplace_back();
+                continue;
+            }
             auto buffer = _new_storage(operation.result(i)->type(), prefix);
             carries.push_back(buffer);
             prefix.push_back(_copy_to_storage(operation.operand(i), buffer));
@@ -525,7 +569,7 @@ private:
         }
         prefix.push_back(std::move(loop_body));
         for (auto i = 0u; i < operation.result_count(); i++) {
-            _bind_storage(operation.result(i), carries[i]);
+            if (carries[i].defined()) { _bind_storage(operation.result(i), carries[i]); }
         }
         return tvm::tirx::SeqStmt::Flatten(prefix);
     }
@@ -612,9 +656,9 @@ private:
                 break;
             }
             case OperationKind::MMA: _lower_mma(operation, statements); break;
-            case OperationKind::MEMORY_ALLOC:
+            case OperationKind::MEMORY_ALLOC: _lower_memory_alloc(operation, statements); break;
             case OperationKind::MEMORY_LOAD:
-            case OperationKind::MEMORY_STORE:
+            case OperationKind::MEMORY_STORE: _lower_memory_access(operation, statements); break;
             case OperationKind::CUSTOM:
                 _fail(luisa::format("TileIR operation '{}' is not supported by the native TIRx bridge", operation.name()));
                 break;
@@ -623,7 +667,7 @@ private:
 
     [[nodiscard]] tvm::tirx::Stmt _lower_block(
         const Block &block,
-        const tvm::ffi::Array<tvm::tirx::BufferVar> &carries,
+        const luisa::vector<tvm::tirx::BufferVar> &carries,
         bool allow_yield,
         const Indices *element_indices = nullptr) {
         tvm::ffi::Array<tvm::tirx::Stmt> statements;
@@ -645,10 +689,14 @@ private:
                     carries[0], _expression(operation.operand(0)), *element_indices});
                 continue;
             }
-            tvm::ffi::Array<tvm::tirx::BufferVar> snapshots;
+            luisa::vector<tvm::tirx::BufferVar> snapshots;
             snapshots.reserve(carries.size());
             for (auto i = 0u; i < carries.size(); i++) {
                 auto value = operation.operand(i);
+                if (value->type().kind() == TypeKind::MEMORY_STATE) {
+                    snapshots.emplace_back();
+                    continue;
+                }
                 auto buffer = _new_storage(value->type(), statements);
                 statements.push_back(_copy_to_storage(value, buffer));
                 snapshots.push_back(std::move(buffer));
@@ -658,6 +706,7 @@ private:
             // one update cannot change the expression of a later update.
             for (auto i = 0u; i < carries.size(); i++) {
                 auto &&type = operation.operand(i)->type();
+                if (type.kind() == TypeKind::MEMORY_STATE) { continue; }
                 if (type.is_tile()) {
                     statements.push_back(_for_each(*type.index_space(), [&](const Indices &indices) {
                         return tvm::tirx::BufferStore{carries[i], tvm::tirx::BufferLoad{snapshots[i], indices}, indices};

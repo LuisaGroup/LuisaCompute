@@ -1442,8 +1442,8 @@ whole-tensor reduction.
 | Surface category | Meaning |
 |---|---|
 | `TensorView<T, R>` / subview | Addressable projection of external storage |
-| `Tile<T, R>` | Staged value variable, promoted to tile SSA |
-| `Memory<T, R>` | Explicit addressable temporary with stable identity |
+| `Tile<T>` | Staged value variable, promoted to tile SSA; rank is in its IndexSpace |
+| `Memory<T>` | Explicit addressable temporary with stable identity and an IndexSpace |
 
 Ordinary loads and operations return `Tile`. The compiler may realize a tile
 in registers, an on-chip allocation, tensor memory, a vector object, or no
@@ -1523,9 +1523,61 @@ This is why memory must not be encoded as execution children.
 
 The declaration gives `s` stable logical identity. Each write additionally
 defines a hidden `MemoryState<s>` token, and each read consumes the reaching
-state. The frontend builds those tokens with MemorySSA after structured capture.
+state. The frontend builds those tokens during structured capture and resolves
+their loop-carried definitions as each temporal region closes.
 A software pipeline may map simultaneously live states to several physical
 versions without changing the identity or alias class of `s`.
+
+#### Implemented explicit-Memory path
+
+The current dense-storage entry point is
+`memory<T>(shape, resource = mem::auto_)`. `Memory` is move-constructible but
+neither copyable nor assignable; helpers can borrow it by reference. Only
+`store(Tile<T>)` mutates it, and `load()` returns an immutable Tile SSA snapshot.
+Reading before a definite store is rejected, including the zero-iteration case
+where initialization only occurs inside a loop. There is no implicit zero fill.
+
+~~~text
+parallel instance (logical owner)
+  |-- Memory A ---- state A0 --store--> A1 --load--> Tile snapshot
+  |-- Memory B ---- state B0 --store--> B1
+  |
+  `-- pipeline / serial / reduce
+        state inputs A1, B1
+        store/load effects; state outputs A2, B2
+        (tokens are inferred; no user-written result()/state plumbing)
+
+Later A.store(...) changes A's state, not the already loaded snapshot.
+Child parallel instances can read visible ancestor resources. Whole-object
+ancestor writes from child parallel instances are not independent and fail.
+~~~
+
+Memory states use the existing structured-operation operands, block arguments,
+results, and yields. They are not castable data, allocations, or runtime
+counters. The verifier checks unique reaching states, memory identity through
+loop carries, definite initialization, and lexical dominance. Reusing an old
+state after a store or swapping same-typed states between resources is invalid.
+Fine-grained subviews and disjoint parallel writes need range-aware MemorySSA;
+they are not implemented by pretending each whole-Memory write is independent.
+
+Native TIRx export retains hard resource constraints on allocations. CPU worker
+memory currently uses local storage; Metal group memory uses shared storage and
+descendant-worker memory uses private storage. Unsupported constraints, such as
+group-owned private memory or worker-owned shared memory without a slicing
+plan, fail rather than silently changing the logical owner. Shared capacity
+includes manual and compiler-generated temporaries. Load snapshots are
+materialized conservatively, with cooperative copies and uniform barriers.
+MemoryState tokens themselves disappear only after verification into ordered
+TIRx effects. Pipeline execution is still serial; async versions, custom
+address layouts, and global/cluster/tensor allocations remain planning work.
+
+The manual GEMM spelling is compiled by both C++20 and C++23 capture tests:
+
+```{literalinclude} tile_programming_poc.cpp
+:language: cpp
+:start-at: // Explicit Memory is optional
+:end-before: }// namespace
+```
 
 ### 6.3 The execution-to-memory equation
 

@@ -159,6 +159,20 @@ private:
     }
 
 protected:
+    [[nodiscard]] tvm::tirx::Stmt VisitStmt_(const tvm::tirx::AllocBufferNode *allocation) final {
+        auto result = StmtMutator::VisitStmt_(allocation).as_or_throw<tvm::tirx::AllocBuffer>();
+        if (auto constraint = result->annotations.Get(memory_resource_annotation)) {
+            auto resource = constraint.value().as<tvm::ffi::String>();
+            if (!resource || resource.value() != "private") {
+                auto name = resource ? std::string{resource.value()} : std::string{"<invalid>"};
+                throw std::runtime_error{"Memory resource '" + name + "' on target '" + _target_name +
+                                         "' has no allocation plan in this execution scope"};
+            }
+            result.CopyOnWrite()->annotations.erase(memory_resource_annotation);
+        }
+        return result;
+    }
+
     [[nodiscard]] tvm::tirx::Stmt VisitStmt_(const tvm::tirx::ForNode *loop) final {
         if (!loop->annotations.count(logical_parallel_annotation)) {
             if (loop->annotations.count(execution_scope_annotation)) {

@@ -266,41 +266,52 @@ ValueHandle::ValueHandle(luisa::shared_ptr<ValueSlot> slot) noexcept
     : _slot{std::move(slot)} {}
 
 ValueHandle::ValueHandle(const ValueHandle &other) noexcept {
-    if (other._slot != nullptr) { _slot = other._slot->context->make_slot(other._slot->value); }
+    if (other._slot != nullptr) {
+        if (current_capture == nullptr || other._slot->context != current_capture) {
+            capture_error("value copy requires the active capture");
+        } else {
+            _slot = current_capture->make_slot(other._slot->value);
+        }
+    }
 }
 
 ValueHandle::ValueHandle(ValueHandle &&other) noexcept = default;
 
 ValueHandle &ValueHandle::operator=(const ValueHandle &other) noexcept {
+    if (other._slot != nullptr && other._slot->context != current_capture) {
+        capture_error("value assignment received a foreign or expired capture");
+        return *this;
+    }
     _assign(other.value());
     return *this;
 }
 
 ValueHandle &ValueHandle::operator=(ValueHandle &&other) noexcept {
-    _assign(other.value());
-    return *this;
+    return operator=(static_cast<const ValueHandle &>(other));
 }
 
 ValueHandle::~ValueHandle() noexcept = default;
 
 void ValueHandle::_assign(Value *value) noexcept {
+    if (current_capture == nullptr) { return; }
     if (_slot == nullptr) {
         if (value != nullptr && current_capture != nullptr) { _slot = current_capture->make_slot(value); }
         return;
     }
     if (value == nullptr || _slot->context != current_capture || !(value->type() == _slot->value->type())) {
-        _slot->context->error("value assignment requires a valid value of the same type and capture");
+        capture_error("value assignment requires a valid value of the same type and capture");
         return;
     }
     _slot->value = value;
 }
 
 ValueHandle::operator bool() const noexcept {
-    return _slot != nullptr && _slot->value != nullptr;
+    return current_capture != nullptr && _slot != nullptr &&
+           _slot->context == current_capture && _slot->value != nullptr;
 }
 
 Value *ValueHandle::value() const noexcept {
-    return _slot == nullptr ? nullptr : _slot->value;
+    return static_cast<bool>(*this) ? _slot->value : nullptr;
 }
 
 ValueHandle make_constant(ScalarType type, Attribute value) noexcept {
@@ -335,6 +346,57 @@ ValueHandle make_elementwise_operation(
 
 void capture_error(luisa::string_view message) noexcept {
     if (current_capture != nullptr) { current_capture->error(message); }
+}
+
+DeclaredMemory declare_memory(ScalarType type, const IndexSpace &space, mem::Resource resource) noexcept {
+    if (current_capture == nullptr) { return {}; }
+    luisa::string_view resource_name;
+    switch (resource) {
+        case mem::Resource::AUTOMATIC: break;
+        case mem::Resource::PRIVATE: resource_name = "private"; break;
+        case mem::Resource::SHARED: resource_name = "shared"; break;
+        case mem::Resource::CLUSTER: resource_name = "cluster"; break;
+        case mem::Resource::GLOBAL: resource_name = "global"; break;
+        case mem::Resource::TENSOR: resource_name = "tensor"; break;
+        default:
+            capture_error("unknown Memory resource constraint");
+            return {};
+    }
+    auto operation = current_capture->builder.create_memory_alloc(Type::memory(type, space), resource_name);
+    if (operation == nullptr) {
+        capture_error("failed to allocate Memory");
+        return {};
+    }
+    return {operation->result(0u), ValueHandle{current_capture->make_slot(operation->result(1u))}};
+}
+
+ValueHandle load_memory(Value *memory, const ValueHandle &state) noexcept {
+    if (current_capture == nullptr) { return {}; }
+    if (!state || state._slot->context != current_capture || memory == nullptr) {
+        capture_error("Memory load requires a live resource from the active capture");
+        return {};
+    }
+    auto operation = current_capture->builder.create_memory_load(memory, state.value());
+    if (operation == nullptr) {
+        capture_error("failed to load Memory");
+        return {};
+    }
+    return ValueHandle{current_capture->make_slot(operation->result(0u))};
+}
+
+void store_memory(Value *memory, ValueHandle &state, Value *tile) noexcept {
+    if (current_capture == nullptr) { return; }
+    if (!state || state._slot->context != current_capture || memory == nullptr || tile == nullptr ||
+        tile->type() != memory->type().tile_value_type()) {
+        capture_error("Memory store requires a live resource and an explicit Tile with the same element space and type");
+        return;
+    }
+    auto operation = current_capture->builder.create_memory_store(memory, state.value(), tile);
+    if (operation == nullptr) {
+        capture_error("failed to store Memory");
+        return;
+    }
+    state._assign(operation->result(0u));
 }
 
 ValueHandle make_tile_constant(ScalarType type, const IndexSpace &space, Attribute value) noexcept {
@@ -498,6 +560,12 @@ CaptureGuard::~CaptureGuard() noexcept {
     while (!current_capture->scopes.empty()) {
         current_capture->error("unterminated execution nest at end of kernel capture");
         exit_scope(*current_capture->scopes.back());
+    }
+    // Escaped C++ handles must not retain a dangling context pointer that a
+    // later capture could reuse at the same address. Their IR values still
+    // belong to the captured Module, but cannot participate in a new trace.
+    for (auto &&weak : current_capture->slots) {
+        if (auto slot = weak.lock()) { slot->context = nullptr; }
     }
     delete current_capture;
     current_capture = nullptr;

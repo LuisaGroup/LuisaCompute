@@ -76,6 +76,32 @@ parallel(output blocks)
   └─ C(origin, shape).store(acc)
 ~~~
 
+### 2.1 Optional explicit Memory
+
+The execution structure is unchanged. Two sibling resources are declared in
+the output program and reused by the pipeline. `store` consumes a Tile and
+`load` produces a snapshot; assigning a Tile never means storing to Memory.
+The frontend infers each resource's loop-carried MemoryState alongside `acc`.
+
+```{literalinclude} tile_programming_poc.cpp
+:language: cpp
+:start-at: // Explicit Memory is optional
+:end-before: }// namespace
+```
+
+For the current native reference mapper, choose `exec::Scope::GROUP` with
+`mem::shared` on Metal, or `exec::Scope::WORKER` with `mem::private_` on CPU.
+Leaving the resource unspecified lets the mapper choose it. A resource
+constraint does not change ownership; unsupported placements fail explicitly.
+This dense whole-object Memory path does not yet implement custom address
+layouts, range-aware parallel writes, or asynchronous pipeline versions.
+
+`test_tile_tirx_memory` runs ragged manual GEMMs, multiple independently updated
+resources, old-value snapshots, nested temporal regions, ancestor reads,
+worker-private state, and resource/capacity rejection on CPU and Metal. LLVM
+also tests vector-private state. The canonical example above is independently
+captured under both C++20 and C++23.
+
 ## 3. Elementwise bias + GELU + residual
 
 Two-dimensional blocks load once. The one-dimensional bias broadcasts by its

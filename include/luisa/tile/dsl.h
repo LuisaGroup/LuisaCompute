@@ -50,6 +50,27 @@ enum class Scope : uint8_t {
 
 }// namespace exec
 
+namespace mem {
+
+// Independent resource classes, not an ordering of memory levels.
+enum class Resource : uint8_t {
+    AUTOMATIC,
+    PRIVATE,
+    SHARED,
+    CLUSTER,
+    GLOBAL,
+    TENSOR
+};
+
+inline constexpr auto auto_ = Resource::AUTOMATIC;
+inline constexpr auto private_ = Resource::PRIVATE;
+inline constexpr auto shared = Resource::SHARED;
+inline constexpr auto cluster = Resource::CLUSTER;
+inline constexpr auto global = Resource::GLOBAL;
+inline constexpr auto tensor = Resource::TENSOR;
+
+}// namespace mem
+
 struct PipelinePolicy {
     uint32_t stages{0u};
     uint32_t initiation_interval{1u};
@@ -63,6 +84,7 @@ inline constexpr auto zero = BoundsMode::ZERO;
 namespace detail {
 
 struct ValueSlot;
+struct DeclaredMemory;
 struct KernelStorage;
 struct ScopeStorage;
 template<size_t Rank>
@@ -103,6 +125,9 @@ private:
     friend ValueHandle load_tile(Value *, luisa::span<Value *const>, const IndexSpace &, BoundsMode, Value *) noexcept;
     friend ValueHandle extract_tile(Value *, luisa::span<Value *const>) noexcept;
     friend ValueHandle capture_tile_map(const IndexSpace &, ScalarType, const std::function<Value *(const Nest &)> &) noexcept;
+    friend DeclaredMemory declare_memory(ScalarType, const IndexSpace &, mem::Resource) noexcept;
+    friend ValueHandle load_memory(Value *, const ValueHandle &) noexcept;
+    friend void store_memory(Value *, ValueHandle &, Value *) noexcept;
 
 public:
     ValueHandle() noexcept = default;
@@ -115,6 +140,15 @@ public:
     [[nodiscard]] explicit operator bool() const noexcept;
     [[nodiscard]] Value *value() const noexcept;
 };
+
+struct DeclaredMemory {
+    Value *memory{nullptr};
+    ValueHandle state;
+};
+
+[[nodiscard]] LUISA_TILE_API DeclaredMemory declare_memory(ScalarType type, const IndexSpace &space, mem::Resource resource) noexcept;
+[[nodiscard]] LUISA_TILE_API ValueHandle load_memory(Value *memory, const ValueHandle &state) noexcept;
+LUISA_TILE_API void store_memory(Value *memory, ValueHandle &state, Value *tile) noexcept;
 
 [[nodiscard]] LUISA_TILE_API ValueHandle make_constant(ScalarType type, Attribute value) noexcept;
 [[nodiscard]] LUISA_TILE_API ValueHandle make_elementwise_operation(

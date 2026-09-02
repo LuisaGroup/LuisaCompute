@@ -89,16 +89,112 @@ private:
     }
 
     [[nodiscard]] static const Value *_memory_owner_of_state(const Value *state) noexcept {
-        if (state == nullptr || state->type().kind() != TypeKind::MEMORY_STATE ||
-            state->origin() != Value::Origin::OPERATION_RESULT) { return nullptr; }
-        auto operation = state->defining_operation();
-        if (operation->kind() == OperationKind::MEMORY_ALLOC && state->index() == 1u && operation->result_count() >= 2u) {
-            return operation->result(0u);
-        }
-        if (operation->kind() == OperationKind::MEMORY_STORE && state->index() == 0u && operation->operand_count() >= 2u) {
-            return operation->operand(0u);
+        luisa::unordered_set<const Value *> visited;
+        while (state != nullptr && state->type().kind() == TypeKind::MEMORY_STATE && visited.emplace(state).second) {
+            const Operation *operation = nullptr;
+            if (state->origin() == Value::Origin::OPERATION_RESULT) {
+                operation = state->defining_operation();
+            } else {
+                auto block = state->argument_block();
+                if (block == nullptr || block->parent_region() == nullptr) { return nullptr; }
+                operation = block->parent_region()->parent_operation();
+            }
+            if (operation == nullptr) { return nullptr; }
+            if (operation->kind() == OperationKind::MEMORY_ALLOC && state->index() == 1u && operation->result_count() >= 2u) {
+                return operation->result(0u);
+            }
+            if (operation->kind() == OperationKind::MEMORY_STORE && state->index() == 0u && operation->operand_count() >= 2u) {
+                return operation->operand(0u);
+            }
+            if ((operation->kind() != OperationKind::SERIAL && operation->kind() != OperationKind::PIPELINE &&
+                 operation->kind() != OperationKind::REDUCE) ||
+                !operation->domain()) { return nullptr; }
+            auto index = state->index();
+            if (state->origin() == Value::Origin::BLOCK_ARGUMENT) {
+                if (index < operation->domain()->rank()) { return nullptr; }
+                index -= operation->domain()->rank();
+            }
+            if (index >= operation->operand_count()) { return nullptr; }
+            state = operation->operand(index);
         }
         return nullptr;
+    }
+
+    struct MemoryState {
+        const Value *value;
+        bool initialized;
+    };
+    using MemoryStates = luisa::unordered_map<const Value *, MemoryState>;
+
+    // Check reaching definitions, not just token types. A state cannot fork
+    // into two writes to one identity, nor can an old state authorize a read
+    // after that identity has been overwritten. Loaded Tile SSA snapshots are
+    // independent values and remain valid across those writes.
+    [[nodiscard]] MemoryStates _verify_memory_flow(const Block *block, MemoryStates states) noexcept {
+        for (auto operation : block->operations()) {
+            if (operation->kind() == OperationKind::MEMORY_ALLOC) {
+                states.emplace(operation->result(0u), MemoryState{operation->result(1u), false});
+            } else if (operation->kind() == OperationKind::MEMORY_LOAD || operation->kind() == OperationKind::MEMORY_STORE) {
+                auto memory = operation->operand(0u);
+                auto state = states.find(memory);
+                if (state == states.end() || state->second.value != operation->operand(1u)) {
+                    _error(operation, "Memory access must consume the reaching MemoryState, not a stale or unrelated state");
+                } else if (operation->kind() == OperationKind::MEMORY_LOAD) {
+                    if (!state->second.initialized) { _error(operation, "Memory load requires a definite preceding store"); }
+                } else {
+                    state->second = MemoryState{operation->result(0u), true};
+                }
+            } else if (operation->kind() == OperationKind::YIELD) {
+                for (auto i = 0u; i < operation->operand_count(); i++) {
+                    auto value = operation->operand(i);
+                    if (value->type().kind() != TypeKind::MEMORY_STATE) { continue; }
+                    auto owner = _memory_owner_of_state(value);
+                    auto state = states.find(owner);
+                    if (state == states.end() || state->second.value != value) {
+                        _error(operation, "MemoryState yield must forward the reaching state of its Memory");
+                    }
+                }
+            }
+
+            auto kind = operation->kind();
+            if (kind != OperationKind::PARALLEL && kind != OperationKind::SERIAL && kind != OperationKind::PIPELINE &&
+                kind != OperationKind::REDUCE && kind != OperationKind::TILE_MAP) { continue; }
+            for (auto &&region : operation->regions()) {
+                for (auto body : region->blocks()) {
+                    auto incoming = states;
+                    luisa::unordered_map<const Value *, const Value *> results;
+                    for (auto i = 0u; i < operation->operand_count(); i++) {
+                        auto value = operation->operand(i);
+                        if (value->type().kind() != TypeKind::MEMORY_STATE) { continue; }
+                        auto owner = _memory_owner_of_state(value);
+                        auto state = incoming.find(owner);
+                        if (state == incoming.end() || state->second.value != value || results.contains(owner)) {
+                            _error(operation, "structured MemoryState input must be the unique reaching state of its Memory");
+                            continue;
+                        }
+                        state->second.value = body->argument(operation->domain()->rank() + i);
+                        results.emplace(owner, operation->result(i));
+                    }
+                    auto outgoing = _verify_memory_flow(body, incoming);
+                    auto nonempty = operation->domain()->static_volume().value_or(0u) != 0u;
+                    for (auto &[owner, state] : states) {
+                        auto final = outgoing.at(owner);
+                        if (auto result = results.find(owner); result != results.end()) {
+                            auto index = result->second->index();
+                            auto terminator = body->operations().empty() ? nullptr : body->operations().back();
+                            if (terminator == nullptr || terminator->kind() != OperationKind::YIELD ||
+                                terminator->operand(index) != final.value) {
+                                _error(operation, "structured MemoryState result must yield the final state of the same Memory");
+                            }
+                            state = MemoryState{result->second, state.initialized || (nonempty && final.initialized)};
+                        } else if (incoming.at(owner).value != final.value) {
+                            _error(operation, "writes to ancestor Memory require temporal MemoryState carries; parallel whole-Memory writes are not independent");
+                        }
+                    }
+                }
+            }
+        }
+        return states;
     }
 
     [[nodiscard]] static bool _same_axis_extent(const IndexSpace &lhs, const IndexSpace &rhs, Dim dimension) noexcept {
@@ -714,6 +810,7 @@ private:
     }
 
     void _verify_function(const Function *function) noexcept {
+        auto diagnostic_count = _result.diagnostics().size();
         _function = function;
         _values.clear();
         _uses.clear();
@@ -723,6 +820,10 @@ private:
         if (function->name().empty()) { _error(nullptr, "function name must not be empty"); }
         _verify_region(&function->body(), nullptr, luisa::nullopt);
         _verify_use_lists();
+        // The flow walk assumes the structural/type invariants checked above.
+        if (_result.diagnostics().size() == diagnostic_count) {
+            for (auto block : function->body().blocks()) { static_cast<void>(_verify_memory_flow(block, {})); }
+        }
     }
 
 public:

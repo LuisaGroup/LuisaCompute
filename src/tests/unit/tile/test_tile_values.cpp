@@ -173,6 +173,9 @@ void test_documented_gemm() {
     auto definition = poc::make_gemm({.block_m = 3, .block_n = 5, .block_k = 7, .stages = 2});
     auto kernel = definition.capture(tensor_shape(7, 11), tensor_shape(11, 13), tensor_shape(7, 13));
     expect(kernel.valid());
+    auto manual = poc::make_manual_gemm({.block_m = 3, .block_n = 5, .block_k = 7, .stages = 2});
+    auto manual_kernel = manual.capture(tensor_shape(7, 11), tensor_shape(11, 13), tensor_shape(7, 13));
+    expect(manual_kernel.valid());
 }
 
 void test_ancestor_coordinates() {
