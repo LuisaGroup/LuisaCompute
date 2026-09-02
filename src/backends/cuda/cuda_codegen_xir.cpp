@@ -770,14 +770,6 @@ void CUDACodegenXIR::_emit_instructions(const xir::InstructionList &inst_list, i
             case xir::DerivedInstructionTag::AUTODIFF_SCOPE: LUISA_ERROR_WITH_LOCATION("Autodiff scope instructions should be eliminated before codegen.");
             case xir::DerivedInstructionTag::AUTODIFF_INTRINSIC: LUISA_ERROR_WITH_LOCATION("Autodiff intrinsic instructions should be eliminated before codegen.");
             case xir::DerivedInstructionTag::CALL: {
-                // Runtime tensor operators (plan.md §1.4) have no XIR
-                // representation: the AST->XIR translator rejects every
-                // `TENSOR_*` CallOp loudly (see ast2xir.cpp), so they never
-                // reach this codegen. They are implemented directly by the
-                // AST codegen path (cuda_codegen_ast.cpp) as `lc_tensor_*`
-                // device builtins. If an external/unknown function call ever
-                // surfaces here, `_emit_value_name` fails loudly on
-                // `DerivedFunctionTag::EXTERNAL` instead of miscompiling.
                 emit_result_value_eq();
                 auto call = static_cast<const xir::CallInst *>(inst);
                 _emit_value_name(call->callee());

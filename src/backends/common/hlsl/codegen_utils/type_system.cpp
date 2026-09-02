@@ -72,9 +72,7 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
             str << "uint64_t"sv;
             return;
         // FP8 has no standalone HLSL scalar type (only cooperative-vector
-        // component tags); represent it as uint8_t byte storage.  The
-        // tile_to_kernel lowering and the cooperative-vector metadata carry
-        // the encoding; arithmetic always widens to float/half first.
+        // component tags); represent it as uint8_t byte storage.
         case Type::Tag::FLOAT8_E4M3:
         case Type::Tag::FLOAT8_E5M2:
             opt->use_8bit = true;

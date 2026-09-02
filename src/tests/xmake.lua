@@ -213,13 +213,7 @@ test_proj("test_builtin_kernel", "unit/ast/test_builtin_kernel.cpp", false, func
     add_includedirs("$(projectdir)/src/runtime")
 end)
 test_proj("test_manual_ast", "unit/ast/test_manual_ast.cpp")
-test_proj("test_tensor_ast", "unit/ast/test_tensor_ast.cpp")
-test_proj("test_tile_function_builder", "unit/ast/test_tile_function_builder.cpp")
-test_proj("test_tile_kernel_dsl", "unit/ast/test_tile_kernel_dsl.cpp")
-test_proj("test_tile_to_kernel", "unit/ast/test_tile_to_kernel.cpp")
 test_proj("test_cooperative_vector", "unit/ast/test_cooperative_vector.cpp")
-test_proj("test_tensor", "unit/ast/test_tensor.cpp")
-test_proj("test_tensor_element_types", "unit/ast/test_tensor_element_types.cpp")
 test_proj("test_async_copy_ast", "unit/ast/test_async_copy_ast.cpp")
 test_proj("test_bindless_write_usage", "unit/ast/test_bindless_write_usage.cpp")
 
@@ -268,8 +262,6 @@ test_proj("test_printer_custom_callback", "unit/runtime/test_printer_custom_call
 test_proj("test_sampler", "unit/runtime/test_sampler.cpp")
 test_proj("test_shared_memory", "unit/runtime/test_shared_memory.cpp")
 test_proj("test_softmax", "unit/runtime/test_softmax.cpp")
--- test_tensor requires lc-tensor which is currently disabled
--- test_proj("test_tensor", "unit/runtime/test_tensor.cpp")
 test_proj("test_texture_compress", "unit/runtime/test_texture_compress.cpp")
 test_proj("test_pbrt_curve_parser", "unit/runtime/test_pbrt_curve_parser.cpp")
 test_proj("test_texture_io", "unit/runtime/test_texture_io.cpp")

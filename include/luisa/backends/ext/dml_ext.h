@@ -5,9 +5,7 @@
 #include <cstdint>
 namespace luisa::compute {
 
-// Fused activation descriptor for DirectML graph layers. This type used to
-// live in the tensor module (luisa/tensor/fused_activation.h), which has been
-// removed; it is now owned by the DirectML extension itself.
+// Fused activation descriptor owned by the DirectML extension.
 struct FusedActivation {
     enum class Type : uint32_t {
         NONE,

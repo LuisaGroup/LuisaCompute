@@ -532,7 +532,6 @@ luisa_compute_add_test(test_builtin_kernel  unit/ast/test_builtin_kernel.cpp)
 target_include_directories(test_builtin_kernel PRIVATE ${CMAKE_SOURCE_DIR}/src/runtime)
 luisa_compute_add_test(test_manual_ast      unit/ast/test_manual_ast.cpp)
   luisa_compute_add_test(test_cooperative_vector unit/ast/test_cooperative_vector.cpp)
-  luisa_compute_add_test(test_tensor unit/ast/test_tensor.cpp LABELS "unit;unit_ast")
 
 # --- unit/dsl: standalone tests (need backend, NOT auto-run via CTest) ---
 luisa_compute_add_test(test_binding_group          unit/dsl/test_binding_group.cpp)
@@ -600,9 +599,6 @@ if (TARGET luisa-compute-backend-fallback)
 endif ()
 luisa_compute_add_test(test_shared_memory       unit/runtime/test_shared_memory.cpp)
 luisa_compute_add_test(test_softmax             unit/runtime/test_softmax.cpp)
-if (LUISA_COMPUTE_ENABLE_TENSOR AND FALSE) # disabled: link errors against missing Tensor symbols
-    luisa_compute_add_test(test_tensor              unit/runtime/test_tensor.cpp)
-endif ()
 luisa_compute_add_test(test_texture_compress    unit/runtime/test_texture_compress.cpp)
 luisa_compute_add_test(test_pbrt_curve_parser  unit/runtime/test_pbrt_curve_parser.cpp LABELS "unit;unit_runtime")
 luisa_compute_add_test(test_texture_io          unit/runtime/test_texture_io.cpp)

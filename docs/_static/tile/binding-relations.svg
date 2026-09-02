@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="760" viewBox="0 0 1280 760" role="img" aria-labelledby="title desc">
+  <title id="title">Execution-scope containment and memory-resource access</title>
+  <desc id="desc">Nested logical execution levels bind into a target-scope containment partial order. Memory resources are independent capability classes checked through a general access relation rather than a memory hierarchy.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#64748b"/>
+    </marker>
+    <style>
+      text { font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif; fill: #0f172a; }
+      .title { font-size: 28px; font-weight: 700; }
+      .heading { font-size: 19px; font-weight: 700; }
+      .label { font-size: 14px; font-weight: 600; }
+      .small { font-size: 12px; fill: #475569; }
+      .code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; font-weight: 600; }
+      .solid { fill: none; stroke: #64748b; stroke-width: 2.2; marker-end: url(#arrow); }
+      .bind { fill: none; stroke: #2563eb; stroke-width: 2.2; stroke-dasharray: 7 5; marker-end: url(#arrow); }
+      .access { fill: none; stroke: #f97316; stroke-width: 2.2; stroke-dasharray: 6 5; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect x="10" y="10" width="1260" height="740" rx="18" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="640" y="50" text-anchor="middle" class="title">Execution scopes are ordered; memory resources are not</text>
+  <text x="640" y="76" text-anchor="middle" class="small">One verifier composes logical ancestry, target containment, resource topology, and operation-specific access</text>
+
+  <rect x="38" y="104" width="342" height="508" rx="16" fill="#eff6ff" stroke="#3b82f6" stroke-width="3"/>
+  <text x="209" y="138" text-anchor="middle" class="heading">Logical execution nest</text>
+  <text x="209" y="163" text-anchor="middle" class="small">open hierarchy + optional constraints</text>
+
+  <rect x="88" y="202" width="242" height="70" rx="12" fill="#ffffff" stroke="#60a5fa" stroke-width="2"/>
+  <text x="209" y="230" text-anchor="middle" class="label">E0 · root nest</text>
+  <text x="209" y="253" text-anchor="middle" class="code">exec::block</text>
+  <path d="M209 272 L209 316" class="solid"/>
+  <rect x="88" y="320" width="242" height="70" rx="12" fill="#ffffff" stroke="#60a5fa" stroke-width="2"/>
+  <text x="209" y="348" text-anchor="middle" class="label">E1 · subnest</text>
+  <text x="209" y="371" text-anchor="middle" class="code">exec::warp</text>
+  <path d="M209 390 L209 434" class="solid"/>
+  <rect x="88" y="438" width="242" height="70" rx="12" fill="#ffffff" stroke="#60a5fa" stroke-width="2"/>
+  <text x="209" y="466" text-anchor="middle" class="label">E2 · leaf</text>
+  <text x="209" y="489" text-anchor="middle" class="code">exec::thread</text>
+  <text x="209" y="556" text-anchor="middle" class="small">logical_parent(E2) = E1</text>
+  <text x="209" y="578" text-anchor="middle" class="small">logical_parent(E1) = E0</text>
+
+  <rect x="410" y="104" width="398" height="508" rx="16" fill="#f0fdf4" stroke="#10b981" stroke-width="3"/>
+  <text x="609" y="138" text-anchor="middle" class="heading">Target execution-scope poset</text>
+  <text x="609" y="163" text-anchor="middle" class="small">containment edges come from the target catalog</text>
+
+  <rect x="529" y="190" width="160" height="52" rx="11" fill="#ffffff" stroke="#34d399" stroke-width="2"/>
+  <text x="609" y="222" text-anchor="middle" class="label">device</text>
+  <path d="M609 242 L609 278" class="solid"/>
+  <rect x="529" y="282" width="160" height="52" rx="11" fill="#ffffff" stroke="#34d399" stroke-width="2"/>
+  <text x="609" y="314" text-anchor="middle" class="label">block</text>
+  <path d="M583 334 C565 362 531 368 505 392" class="solid"/>
+  <path d="M635 334 C653 362 687 368 713 392" class="solid"/>
+  <rect x="432" y="396" width="152" height="52" rx="11" fill="#ffffff" stroke="#34d399" stroke-width="2"/>
+  <text x="508" y="428" text-anchor="middle" class="label">subgroup</text>
+  <rect x="634" y="396" width="152" height="52" rx="11" fill="#ffffff" stroke="#34d399" stroke-width="2"/>
+  <text x="710" y="428" text-anchor="middle" class="label">matrix group</text>
+  <path d="M508 448 C522 478 556 482 574 504" class="solid"/>
+  <path d="M710 448 C696 478 662 482 644 504" class="solid"/>
+  <rect x="529" y="508" width="160" height="52" rx="11" fill="#ffffff" stroke="#34d399" stroke-width="2"/>
+  <text x="609" y="540" text-anchor="middle" class="label">thread / lane</text>
+  <text x="609" y="586" text-anchor="middle" class="small">subgroup and matrix group are incomparable</text>
+
+  <path d="M330 237 C416 237 446 300 529 306" class="bind"/>
+  <path d="M330 355 C398 355 408 414 432 420" class="bind"/>
+  <path d="M330 473 C424 473 452 534 529 534" class="bind"/>
+
+  <rect x="838" y="104" width="404" height="508" rx="16" fill="#fff7ed" stroke="#f97316" stroke-width="3"/>
+  <text x="1040" y="138" text-anchor="middle" class="heading">Memory resource classes</text>
+  <text x="1040" y="163" text-anchor="middle" class="small">no ordering arrows between resources</text>
+
+  <rect x="872" y="205" width="142" height="64" rx="12" fill="#ffffff" stroke="#fb923c" stroke-width="2"/>
+  <text x="943" y="233" text-anchor="middle" class="label">private</text>
+  <text x="943" y="253" text-anchor="middle" class="small">register-like</text>
+  <rect x="1064" y="205" width="142" height="64" rx="12" fill="#ffffff" stroke="#fb923c" stroke-width="2"/>
+  <text x="1135" y="233" text-anchor="middle" class="label">shared</text>
+  <text x="1135" y="253" text-anchor="middle" class="small">banked SRAM</text>
+  <rect x="872" y="322" width="142" height="64" rx="12" fill="#ffffff" stroke="#fb923c" stroke-width="2"/>
+  <text x="943" y="350" text-anchor="middle" class="label">tensor memory</text>
+  <text x="943" y="370" text-anchor="middle" class="small">special operands</text>
+  <rect x="1064" y="322" width="142" height="64" rx="12" fill="#ffffff" stroke="#fb923c" stroke-width="2"/>
+  <text x="1135" y="350" text-anchor="middle" class="label">global</text>
+  <text x="1135" y="370" text-anchor="middle" class="small">device addressable</text>
+
+  <rect x="882" y="442" width="316" height="112" rx="12" fill="#ffffff" stroke="#fdba74" stroke-width="2"/>
+  <text x="1040" y="472" text-anchor="middle" class="code">can_access(exec, resource, op)</text>
+  <text x="1040" y="499" text-anchor="middle" class="small">instance topology · ports · capacity</text>
+  <text x="1040" y="522" text-anchor="middle" class="small">coherence · synchronization · lifetime</text>
+  <path d="M943 269 C943 392 974 408 1008 442" class="access"/>
+  <path d="M1135 269 C1135 392 1106 408 1072 442" class="access"/>
+  <path d="M943 386 C954 410 980 422 1008 442" class="access"/>
+  <path d="M1135 386 C1124 410 1100 422 1072 442" class="access"/>
+
+  <rect x="128" y="646" width="1024" height="74" rx="13" fill="#ffffff" stroke="#94a3b8" stroke-width="2"/>
+  <text x="640" y="675" text-anchor="middle" class="code">contains(bind(parent), bind(child))  ∧  projections commute</text>
+  <text x="640" y="701" text-anchor="middle" class="code">can_access(bind(user), resource(memory), operation)  ∧  owner/lifetime protocol is legal</text>
+</svg>

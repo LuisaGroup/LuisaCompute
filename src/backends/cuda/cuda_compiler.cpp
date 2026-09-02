@@ -187,7 +187,6 @@ CUDACompiler::CUDACompiler(const CUDADevice *device) noexcept
     process_builtin(_device_library, reinterpret_cast<const char *>(luisa_compute_cuda_device_math), luisa_compute_cuda_device_math_size);
     process_builtin(_device_library, reinterpret_cast<const char *>(luisa_compute_cuda_device_resource), luisa_compute_cuda_device_resource_size);
     process_builtin(_device_library, reinterpret_cast<const char *>(luisa_compute_cuda_device_coop), luisa_compute_cuda_device_coop_size);
-    process_builtin(_device_library, reinterpret_cast<const char *>(luisa_compute_cuda_device_tensor), luisa_compute_cuda_device_tensor_size);
 }
 
 void CUDACompiler::process_builtin(luisa::string &result, char const *data, size_t size) noexcept {

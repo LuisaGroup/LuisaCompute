@@ -415,7 +415,6 @@ LuisaCompute uses modern CMake (3.23+) with the following configuration options:
 | `LUISA_COMPUTE_ENABLE_HIP` | OFF | Enable HIP backend (WIP) |
 | `LUISA_COMPUTE_ENABLE_DSL` | ON | Enable C++ DSL |
 | `LUISA_COMPUTE_ENABLE_GUI` | ON | Enable GUI support |
-| `LUISA_COMPUTE_ENABLE_TENSOR` | OFF | Enable tensor extension |
 | `LUISA_COMPUTE_BUILD_TESTS` | ON | Build test suite |
 
 #### Build Commands

@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="590" viewBox="0 0 1200 590" role="img" aria-labelledby="title desc">
+  <title id="title">Operation anchor, frontier, and active participants</title>
+  <desc id="desc">One nest-anchored logical value is updated by an operation distributed through the subnest frontier. An active subset of subnests participates, while leaf detail remains beneath the frontier.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#64748b"/>
+    </marker>
+    <style>
+      text { font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif; fill: #0f172a; }
+      .title { font-size: 27px; font-weight: 700; }
+      .heading { font-size: 17px; font-weight: 700; }
+      .label { font-size: 14px; font-weight: 600; }
+      .small { font-size: 12px; fill: #475569; }
+      .link { fill: none; stroke: #64748b; stroke-width: 2.2; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect x="10" y="10" width="1180" height="570" rx="18" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="600" y="50" text-anchor="middle" class="title">Anchor says “how many values”; frontier says “how deep execution reaches”</text>
+
+  <rect x="28" y="230" width="150" height="72" rx="12" fill="#ecfdf5" stroke="#10b981" stroke-width="2"/>
+  <text x="103" y="258" text-anchor="middle" class="label">acc[nest]</text>
+  <text x="103" y="280" text-anchor="middle" class="small">one logical value</text>
+  <path d="M178 266 L224 266" class="link"/>
+
+  <rect x="225" y="92" width="720" height="390" rx="18" fill="#eff6ff" stroke="#2563eb" stroke-width="4"/>
+  <text x="250" y="124" class="heading" fill="#1d4ed8">anchor = nest</text>
+  <text x="250" y="146" class="small">one operation instance and one result identity per nest prefix</text>
+
+  <rect x="270" y="177" width="190" height="220" rx="14" fill="#f5f3ff" stroke="#8b5cf6" stroke-width="3"/>
+  <text x="365" y="207" text-anchor="middle" class="heading">subnest 0</text>
+  <text x="365" y="230" text-anchor="middle" class="small">active</text>
+  <circle cx="310" cy="278" r="16" fill="#c4b5fd" stroke="#7c3aed"/>
+  <circle cx="350" cy="278" r="16" fill="#c4b5fd" stroke="#7c3aed"/>
+  <circle cx="390" cy="278" r="16" fill="#c4b5fd" stroke="#7c3aed"/>
+  <circle cx="430" cy="278" r="16" fill="#c4b5fd" stroke="#7c3aed"/>
+  <text x="365" y="322" text-anchor="middle" class="small">leaves / atom-local slots</text>
+  <rect x="306" y="346" width="118" height="34" rx="8" fill="#ede9fe" stroke="#8b5cf6"/>
+  <text x="365" y="368" text-anchor="middle" class="label">MMA fragment</text>
+
+  <rect x="480" y="177" width="190" height="220" rx="14" fill="#ffffff" stroke="#94a3b8" stroke-width="2" stroke-dasharray="7 5"/>
+  <text x="575" y="207" text-anchor="middle" class="heading">subnest 1</text>
+  <text x="575" y="230" text-anchor="middle" class="small">inactive for this atom</text>
+  <circle cx="520" cy="278" r="16" fill="#e2e8f0" stroke="#94a3b8"/>
+  <circle cx="560" cy="278" r="16" fill="#e2e8f0" stroke="#94a3b8"/>
+  <circle cx="600" cy="278" r="16" fill="#e2e8f0" stroke="#94a3b8"/>
+  <circle cx="640" cy="278" r="16" fill="#e2e8f0" stroke="#94a3b8"/>
+  <text x="575" y="322" text-anchor="middle" class="small">not in Active(op)</text>
+
+  <rect x="690" y="177" width="190" height="220" rx="14" fill="#f5f3ff" stroke="#8b5cf6" stroke-width="3"/>
+  <text x="785" y="207" text-anchor="middle" class="heading">subnest 2</text>
+  <text x="785" y="230" text-anchor="middle" class="small">active</text>
+  <circle cx="730" cy="278" r="16" fill="#c4b5fd" stroke="#7c3aed"/>
+  <circle cx="770" cy="278" r="16" fill="#c4b5fd" stroke="#7c3aed"/>
+  <circle cx="810" cy="278" r="16" fill="#c4b5fd" stroke="#7c3aed"/>
+  <circle cx="850" cy="278" r="16" fill="#c4b5fd" stroke="#7c3aed"/>
+  <text x="785" y="322" text-anchor="middle" class="small">leaves / atom-local slots</text>
+  <rect x="726" y="346" width="118" height="34" rx="8" fill="#ede9fe" stroke="#8b5cf6"/>
+  <text x="785" y="368" text-anchor="middle" class="label">MMA fragment</text>
+
+  <path d="M365 397 L535 444" fill="none" stroke="#8b5cf6" stroke-width="2"/>
+  <path d="M785 397 L615 444" fill="none" stroke="#8b5cf6" stroke-width="2"/>
+  <rect x="508" y="430" width="134" height="38" rx="9" fill="#ede9fe" stroke="#7c3aed"/>
+  <text x="575" y="455" text-anchor="middle" class="label">frontier = subnest</text>
+
+  <path d="M945 266 L1000 266" class="link"/>
+  <rect x="1000" y="230" width="172" height="72" rx="12" fill="#ecfdf5" stroke="#10b981" stroke-width="2"/>
+  <text x="1086" y="258" text-anchor="middle" class="label">next acc[nest]</text>
+  <text x="1086" y="280" text-anchor="middle" class="small">still one logical value</text>
+
+  <text x="600" y="525" text-anchor="middle" class="heading">for (subnest : nest.parallel(...)) { acc = mma(a, b, acc); }</text>
+  <text x="600" y="550" text-anchor="middle" class="small">Lexical depth supplies the frontier; ancestor identity prevents one whole result per subnest.</text>
+</svg>
