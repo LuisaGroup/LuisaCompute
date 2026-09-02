@@ -2299,16 +2299,25 @@ outermost unbound region maps to LLVM `kParallel` or to a Metal/CUDA-style
 `blockIdx.x * threads + threadIdx.x` grid with a tail predicate. Empty logical
 domains become no-ops, not invalid zero-sized GPU launches.
 
-The currently implemented explicit subset is `exec::Scope::WORKER` at the
-outermost parallel level on LLVM/Metal, and `exec::Scope::VECTOR` as an LLVM
-vector root or a suffix below that worker. Unbound nested parallel regions
-remain serial. Nested worker or vector rebindings need a coordinate
-factorization that this reference planner does not yet implement, so they are
-rejected even through unbound/serial intermediate scopes. Device, group,
-subgroup, unknown scope names, and target-unavailable bindings also fail
-closed. Disabling vectorization cannot silently override an explicit vector
-constraint. This fallback is deliberately internal rather than a public
-`CPU_THREADS`/`GPU_GRID` compile option.
+The currently implemented explicit subset is:
+
+| Target | Constraint | Realization |
+|---|---|---|
+| LLVM | outer `exec::Scope::WORKER` | host parallel loop |
+| LLVM | `exec::Scope::VECTOR` root or worker suffix | vector loop with lane-private temporaries |
+| Metal | outer `exec::Scope::WORKER` | one logical instance per GPU thread |
+| Metal | outer `exec::Scope::GROUP` | one logical instance per threadgroup; independent elements or child workers cooperate |
+
+Outside a cooperative group, unbound nested parallel regions remain serial.
+Inside a group, the first child parallel or independent Tile-element domain
+uses the worker coordinate; deeper unbound regions remain serial per worker.
+Explicit nested worker/vector rebindings need a coordinate factorization that
+this reference planner does not yet implement, so they are rejected even
+through unbound/serial intermediate scopes. Device, subgroup, unknown scope
+names, CPU group bindings, and other unavailable bindings also fail closed.
+Disabling vectorization cannot silently override an explicit vector
+constraint. The default remains the reference worker mapping; these choices
+are not a public `CPU_THREADS`/`GPU_GRID` compile option.
 
 Vector binding includes a separate resource transformation. A compiler-local
 temporary declared inside a vector instance has one independent copy per
@@ -2327,6 +2336,47 @@ Parent Tiles, lane-local multidimensional Tiles, and simultaneous loop-carried
 updates have separate numerical regressions, alongside a generated LLVM
 vector-instruction check. Explicitly placed/laid-out resources are not
 rewritten by this compact-local-storage transformation.
+
+Metal group binding similarly includes a resource transformation, not just a
+loop tag. The structural exporter marks **independent element domains**;
+contraction axes and temporal loop iterations remain sequential.
+The group mapper partitions the flattened independent domain as
+`element = chunk * worker_count + worker`, with a tail predicate. Compact
+compiler temporaries allocated in the group context become shared memory;
+those allocated inside a distributed worker region stay private. Multiple
+resources can therefore share the same execution level, and descendants can
+read ancestor Tiles without recreating a private copy:
+
+~~~text
+parallel(..., GROUP)              one threadgroup per logical group
+  |
+  +-- load A -> temporary X -----+   group resource instance
+  +-- map X  -> temporary Y -----+   another resource, same exec level
+  |                             |
+  +-- parallel(..., WORKER) -----+-> read X and Y; private local state
+  |       each worker handles its own elements
+  |
+  +-- fence shared + device memory (all workers, including inactive tail)
+  +-- next Tile operation        may consume a neighbor's result
+~~~
+
+The first implementation synchronizes conservatively between distributed
+operations. A scalar group effect executes once and publishes its result.
+The fence orders both shared resources and global views **within that group**;
+it is not device-wide synchronization between groups. Pipeline iterations stay
+serial and the cuts do not yet imply asynchronous copy or overlap. MMA output
+elements are distributed, but each element's contraction remains serial; the
+mapping does not claim matrix-hardware use or parallel reduction trees.
+
+Shared-memory budgeting is currently the conservative sum of compact group
+allocations, checked against the target capacity; lifetime-based reuse and
+selective materialization remain planner work. Unsupported placed layouts,
+opaque buffer escapes, noncanonical distributed loop steps, and captures of
+host-local materialized storage are rejected. Unsupported descendant scopes
+are still diagnosed inside empty groups, which otherwise lower to no-ops.
+Regressions cover generated shared declarations and full fences, multiple
+resources, cross-worker and cross-phase communication, ragged shapes,
+softmax/GEMM numerics, resource exhaustion, and illegal scope mappings.
 
 ### 11.4 Pipeline and memory bridge
 
@@ -2361,7 +2411,9 @@ snapshot every carried value before updating any carry storage.
 
 Pure elementwise expressions can fuse into their consumer. The initial
 reference schedule materializes loaded Tiles, map results, and MMA results
-into compiler-owned local storage; MMA lowers to a checked contraction loop.
+into compiler-owned storage. Worker mapping keeps this private; explicit
+Metal group mapping shares group-level allocations as described above. MMA
+lowers to a checked contraction loop.
 This establishes semantics, not tensor-core performance or asynchronous
 pipeline execution. Explicit manual-memory bridge support, optimized
 execution/distribution plans, and target atom selection remain work in

@@ -38,6 +38,17 @@ class BenchmarkContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             MODULE.make_cases(["gemm", "unknown"])
 
+    def test_native_mapping_metadata_matches_the_request(self):
+        case = MODULE.Case("gemm", 7, 17, 37)
+        native = dict(backend="metal", operation="gemm", execution_scope="group", mma_operations=1)
+        MODULE.validate_native_metadata(native, case, "metal", "group")
+        for key, value in (("backend", "cpu"), ("operation", "add"), ("execution_scope", "worker"), ("mma_operations", 0)):
+            with self.subTest(key=key), self.assertRaises(RuntimeError):
+                MODULE.validate_native_metadata(native | {key: value}, case, "metal", "group")
+        del native["execution_scope"]
+        with self.assertRaisesRegex(RuntimeError, "execution-scope"):
+            MODULE.validate_native_metadata(native, case, "metal", "group")
+
 
 if __name__ == "__main__":
     unittest.main()

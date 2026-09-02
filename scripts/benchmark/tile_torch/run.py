@@ -130,6 +130,15 @@ def block_shape(case: Case, gemm_block: tuple[int, int, int]) -> tuple[int, int,
     return (1, 256 if case.operation == "add" else case.n, 1)
 
 
+def validate_native_metadata(native: dict[str, Any], case: Case, backend: str, execution_scope: str) -> None:
+    if native.get("backend") != backend or native.get("operation") != case.operation:
+        raise RuntimeError("native backend/operation metadata does not match the request")
+    if native.get("execution_scope") != execution_scope:
+        raise RuntimeError("native execution-scope metadata does not match the request")
+    if case.operation == "gemm" and native.get("mma_operations") != 1:
+        raise RuntimeError("GEMM must contain one semantic TileIR MMA, not a scalar-memory substitute")
+
+
 def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend: str, ordinal: int) -> dict[str, Any]:
     def inputs(rows: int, columns: int, seed: int) -> Any:
         indices = torch.arange(rows * columns, dtype=torch.int64)
@@ -153,7 +162,7 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
         with tempfile.TemporaryDirectory(prefix="luisa-tile-benchmark-") as temporary:
             output = Path(temporary) / "output.f32"
             command = [str(args.native), backend, case.operation, str(case.m), str(case.n), str(case.k),
-                       *(str(x) for x in result["block"]), str(args.samples), str(args.sample_ms), str(args.warmup_ms), str(output)]
+                       *(str(x) for x in result["block"]), str(args.samples), str(args.sample_ms), str(args.warmup_ms), str(output), args.execution_scope]
             process = subprocess.run(command, capture_output=True, text=True, check=False, timeout=args.timeout)
             if process.returncode:
                 raise RuntimeError(f"native benchmark failed ({process.returncode}):\n{process.stderr}\n{process.stdout}")
@@ -161,10 +170,7 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
             if len(lines) != 1:
                 raise RuntimeError("native executable did not emit exactly one JSON result")
             native = json.loads(lines[0])
-            if native["backend"] != backend or native["operation"] != case.operation:
-                raise RuntimeError("native backend/operation metadata does not match the request")
-            if case.operation == "gemm" and native["mma_operations"] != 1:
-                raise RuntimeError("GEMM must contain one semantic TileIR MMA, not a scalar-memory substitute")
+            validate_native_metadata(native, case, backend, args.execution_scope)
             array = np.fromfile(output, dtype="<f4")
             if array.size != reference.numel():
                 raise RuntimeError("native output byte count is incorrect")
@@ -218,6 +224,7 @@ def write_report(report: dict[str, Any], directory: Path) -> None:
     metadata = report["metadata"]
     lines = ["# TileIR/TVMx vs PyTorch", "", f"Generated: {metadata['timestamp']}", "",
              f"Hardware: {metadata['cpu']}; {metadata['platform']}. PyTorch {metadata['torch_version']}; FP32; {metadata['threads']} CPU threads.", "",
+             f"Native root execution request: `{metadata.get('execution_scope', 'auto')}`. Explicit scopes fail on unsupported targets; `auto` uses the reference worker mapping.", "",
              "Both sides use device-resident inputs and preallocated outputs. Warm timings include host dispatch/binding overhead, exclude transfers and compilation, and are NOT GPU hardware-event times. PyTorch is eager (no torch.compile).", "",
              "Native GEMM retains an MMA in TileIR, but the current TVMx schedule lowers it to loops: no tensor-core claim. Pipeline stage markers currently run serially. Sort is not included in this performance comparison.", "",
              "Ratio = native / PyTorch; greater than 1 means native is slower. P50 is per-call batched throughput; latency columns synchronize each individual call. All values are microseconds.", "",
@@ -246,6 +253,7 @@ def main() -> int:
     parser.add_argument("--backends", default="cpu,metal")
     parser.add_argument("--operations", default="gemm,add,sum,softmax")
     parser.add_argument("--gemm-block", default="8,8,16")
+    parser.add_argument("--execution-scope", choices=("auto", "worker", "group"), default="auto")
     parser.add_argument("--threads", type=int, default=8)
     parser.add_argument("--samples", type=int, default=9)
     parser.add_argument("--sample-ms", type=int, default=20)
@@ -283,6 +291,7 @@ def main() -> int:
         "git_revision": revision, "worktree_dirty": dirty,
         "native_binary": str(args.native), "native_sha256": hashlib.sha256(args.native.read_bytes()).hexdigest(),
         "samples": args.samples, "sample_ms": args.sample_ms, "warmup_ms": args.warmup_ms,
+        "execution_scope": args.execution_scope,
         "quick": args.quick, "timing": "synchronized device-resident host wall time including dispatch",
     }, "results": []}
     cases = make_cases(args.operations.split(","), args.quick)

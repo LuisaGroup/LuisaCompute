@@ -41,6 +41,7 @@ class ExecutionMapper final : public tvm::tirx::StmtMutator {
 private:
     RootParallelBinding _binding;
     uint32_t _gpu_threads_per_block;
+    uint64_t _shared_memory_limit;
     uint32_t _logical_parallel_depth{0u};
     uint32_t _vector_depth{0u};
     bool _vectorize;
@@ -163,7 +164,19 @@ protected:
             if (loop->annotations.count(execution_scope_annotation)) {
                 _scope_error(loop, "<orphaned>", "requires its logical parallel domain");
             }
-            return StmtMutator::VisitStmt_(loop);
+            auto result = StmtMutator::VisitStmt_(loop);
+            if (loop->annotations.count(independent_elements_annotation)) {
+                auto mapped = result.as_or_throw<tvm::tirx::For>();
+                mapped.CopyOnWrite()->annotations.erase(independent_elements_annotation);
+                return mapped;
+            }
+            return result;
+        }
+        if (auto scope = loop->annotations.Get(execution_scope_annotation);
+            scope && scope.value().as<tvm::ffi::String>() && scope.value().cast<tvm::ffi::String>() == "group") {
+            if (_target_name != "metal") { _scope_error(loop, "group", "is not supported by this target's execution mapper"); }
+            if (_logical_parallel_depth != 0u) { _scope_error(loop, "group", "requires a coordinate factorization for nested group bindings"); }
+            return map_metal_cooperative_group(tvm::ffi::GetRef<tvm::tirx::For>(loop), _gpu_threads_per_block, _shared_memory_limit);
         }
         // Resolve before mutating the body, including through unbound or
         // serial intermediate levels. Unsupported constraints are hard errors,
@@ -198,9 +211,9 @@ protected:
     }
 
 public:
-    ExecutionMapper(RootParallelBinding binding, uint32_t gpu_threads_per_block,
+    ExecutionMapper(RootParallelBinding binding, uint32_t gpu_threads_per_block, uint64_t shared_memory_limit,
                     bool vectorize, std::string target_name) noexcept
-        : _binding{binding}, _gpu_threads_per_block{gpu_threads_per_block},
+        : _binding{binding}, _gpu_threads_per_block{gpu_threads_per_block}, _shared_memory_limit{shared_memory_limit},
           _vectorize{vectorize}, _target_name{std::move(target_name)} {}
 
     using StmtMutator::operator();
@@ -232,12 +245,16 @@ public:
     bool vectorize) {
     auto binding = resolve_parallel_binding(target);
     auto threads = uint32_t{1u};
+    auto shared_memory_limit = uint64_t{0u};
     if (binding == RootParallelBinding::GPU_GRID) {
         threads = 256u;
         if (auto maximum = target->GetAttr<int64_t>("max_num_threads")) {
             threads = std::min<uint32_t>(
                 threads,
                 static_cast<uint32_t>(std::max<int64_t>(1, maximum.value())));
+        }
+        if (auto maximum = target->GetAttr<int64_t>("max_shared_memory_per_block")) {
+            shared_memory_limit = static_cast<uint64_t>(std::max<int64_t>(0, maximum.value()));
         }
     }
     FunctionMap functions;
@@ -247,7 +264,7 @@ public:
             throw std::runtime_error{"Tile TIRx execution mapping only accepts PrimFunc modules"};
         }
         auto mapped = function.value();
-        mapped.CopyOnWrite()->body = ExecutionMapper{binding, threads, vectorize, std::string{target->kind->name}}(mapped->body);
+        mapped.CopyOnWrite()->body = ExecutionMapper{binding, threads, shared_memory_limit, vectorize, std::string{target->kind->name}}(mapped->body);
         functions.Set(global, std::move(mapped));
     }
     return make_module(std::move(functions), module->attrs, module->global_infos);

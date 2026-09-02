@@ -25,6 +25,14 @@ published comparisons should include the full default matrix. `--gemm-block
 native variant. Record that setting, and do not silently select the best of a
 larger tuning search against an untuned baseline.
 
+Use `--backends metal --execution-scope group` for cooperative threadgroups,
+or `--execution-scope worker` for one logical instance per worker. Both use the
+same kernel source and block configuration; the requested mapping is recorded
+and checked in every native result. `auto` retains the reference worker
+mapping. CPU does not yet support `group` and rejects it explicitly. Run each
+variant separately into a new output directory; do not change the block shape
+when attributing a difference to execution mapping alone.
+
 Measurement contract:
 
 - Identical deterministic contiguous FP32 inputs; full outputs checked against
@@ -41,10 +49,12 @@ Measurement contract:
 - Warm measurements use a host clock around dispatch plus synchronization.
   They exclude transfers but include C++/Python binding and launch overhead;
   they are **not pure GPU-event kernel timings**. Do not run alongside builds.
-- The current native schedule is a reference realization. Semantic `mma`
-  lowers to loops; tensor-core atom selection, cooperative distribution,
-  asynchronous pipelining, and tuned reductions remain separate work. A
-  correctness pass must not be described as competitive performance.
+- The current native schedule is a reference realization. Explicit Metal
+  `group` partitions independent elements across workers and shares
+  group-owned compiler temporaries. Semantic `mma` still lowers to contraction
+  loops; matrix-atom selection, asynchronous pipelining, and parallel reduction
+  trees remain separate work. A correctness pass must not be described as
+  competitive performance.
 
 `results.json` contains raw samples, numerical errors, setup phases, compiler
 and hardware information, thread settings, the binary hash, and source
@@ -61,6 +71,6 @@ not a hardware limit or a best-of-tuning result.
 
 For FP32 1024³ GEMM, native/PyTorch warm batched times were **31.571/1.192 ms
 on CPU** and **14.876/0.353 ms on Metal**: native was about 26.5× and 42.1×
-slower, respectively. These measurements include host dispatch. The reference
-lowering is not yet competitive; cooperative value distribution, matrix-atom
-selection, and asynchronous pipeline scheduling remain implementation work.
+slower, respectively. These measurements include host dispatch and predate the
+explicit cooperative-group mapping. They are retained as a historical
+reference, not a measurement of the current cooperative implementation.

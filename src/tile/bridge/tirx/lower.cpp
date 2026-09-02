@@ -217,27 +217,43 @@ private:
     }
 
     [[nodiscard]] tvm::tirx::Stmt _for_each(const IndexSpace &space,
-                                            const std::function<tvm::tirx::Stmt(const Indices &)> &body) {
+                                            const std::function<tvm::tirx::Stmt(const Indices &)> &body,
+                                            bool independent = true) {
         Indices indices;
-        tvm::ffi::Array<tvm::tirx::PrimVar> variables;
         auto extents = _shape(space);
         if (extents.size() != space.rank()) {
             _fail("native Tile lowering requires JIT-specialized static extents");
             return {};
         }
-        for (auto i = 0u; i < space.rank(); i++) {
-            auto name = tvm::ffi::String{std::string{"tile_i_"} + std::to_string(_temporary_index++)};
-            auto variable = tvm::tirx::PrimVar{std::move(name), tvm::PrimType::Int(64)};
-            variables.push_back(variable);
-            indices.push_back(variable);
+        auto count = uint64_t{1u};
+        for (auto &&extent : extents) {
+            auto value = static_cast<uint64_t>(extent.as<tvm::IntImmNode>()->value);
+            if (value != 0u && count > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) / value) {
+                _fail("native Tile element domain exceeds int64 range");
+                return {};
+            }
+            count *= value;
+        }
+        auto name = tvm::ffi::String{std::string{"tile_i_"} + std::to_string(_temporary_index++)};
+        auto variable = tvm::tirx::PrimVar{std::move(name), tvm::PrimType::Int(64)};
+        auto trailing = count;
+        for (auto &&extent : extents) {
+            auto value = static_cast<uint64_t>(extent.as<tvm::IntImmNode>()->value);
+            if (count == 0u || value == 1u) {
+                indices.push_back(tvm::IntImm::Int64(0));
+            } else {
+                trailing /= value;
+                indices.push_back(tvm::floormod(tvm::floordiv(variable, tvm::IntImm::Int64(static_cast<int64_t>(trailing))), extent));
+            }
         }
         auto statement = body(indices);
         if (!statement.defined()) { return {}; }
-        for (auto i = space.rank(); i != 0u; i--) {
-            statement = tvm::tirx::For{variables[i - 1u], tvm::IntImm::Int64(0), extents[i - 1u],
-                                       tvm::tirx::ForKind::kSerial, std::move(statement)};
+        tvm::ffi::Map<tvm::ffi::String, tvm::ffi::Any> annotations;
+        if (independent) {
+            annotations.Set(independent_elements_annotation, tvm::IntImm::Int32(1));
         }
-        return statement;
+        return tvm::tirx::For{variable, tvm::IntImm::Int64(0), tvm::IntImm::Int64(static_cast<int64_t>(count)),
+                              tvm::tirx::ForKind::kSerial, std::move(statement), std::nullopt, std::move(annotations)};
     }
 
     [[nodiscard]] tvm::tirx::BufferVar _new_storage(const Type &type, Statements &statements) {
@@ -366,8 +382,7 @@ private:
                 for (auto &&index : contracted) { coordinates.push_back(index); }
                 auto product = tvm::cast(type, a(coordinates)) * tvm::cast(type, b(coordinates));
                 auto sum = tvm::tirx::BufferLoad{buffer, indices} + product;
-                return tvm::tirx::BufferStore{buffer, std::move(sum), indices};
-            }));
+                return tvm::tirx::BufferStore{buffer, std::move(sum), indices}; }, false));
             return tvm::tirx::SeqStmt::Flatten(body);
         }));
         _bind_storage(result, std::move(buffer));

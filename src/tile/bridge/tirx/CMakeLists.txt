@@ -45,6 +45,7 @@ endforeach ()
 
 set(LUISA_COMPUTE_TILE_TIRX_BRIDGE_SOURCES
         compiler.cpp
+        cooperative.cpp
         execution.cpp
         layout.cpp
         lower.cpp)

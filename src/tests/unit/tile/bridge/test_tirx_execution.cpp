@@ -57,6 +57,7 @@ void test_explicit_worker(Runtime &runtime) {
 void test_empty_parallel(Runtime &runtime) {
     check_copy(runtime, exec::Scope::AUTOMATIC, 0);
     check_copy(runtime, exec::Scope::WORKER, 0);
+    if (runtime.target() == "metal") { check_copy(runtime, exec::Scope::GROUP, 0); }
 }
 
 void test_scope_survives_export() {
@@ -85,6 +86,10 @@ void test_unsupported_scopes(Runtime &runtime) {
         std::pair{exec::Scope::GROUP, "group"},
         std::pair{exec::Scope::SUBGROUP, "subgroup"}};
     for (auto [scope, name] : cases) {
+        if (scope == exec::Scope::GROUP && runtime.target() == "metal") {
+            check_copy(runtime, scope, 7);
+            continue;
+        }
         auto executable = runtime.build(make_copy(scope, 7));
         expect(!executable.ok()) << "unsupported scope must not silently compile: " << name;
         expect(executable.error.find(name) != luisa::string::npos) << executable.error;

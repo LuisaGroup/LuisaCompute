@@ -39,7 +39,15 @@ struct Configuration {
     int64_t bm;
     int64_t bn;
     int64_t bk;
+    exec::Scope execution_scope{exec::Scope::AUTOMATIC};
 };
+
+[[nodiscard]] exec::Scope parse_execution_scope(std::string_view name) {
+    if (name == "auto") { return exec::Scope::AUTOMATIC; }
+    if (name == "worker") { return exec::Scope::WORKER; }
+    if (name == "group") { return exec::Scope::GROUP; }
+    throw std::invalid_argument{"execution scope must be auto, worker, or group"};
+}
 
 [[nodiscard]] int64_t positive_integer(const char *text) {
     auto input = std::string_view{text};
@@ -66,7 +74,7 @@ struct Configuration {
             auto m = axis("m", cfg.bm);
             auto n = axis("n", cfg.bn);
             auto k = axis("k", cfg.bk);
-            for (auto &nest : parallel(shape(gm, gn))) {
+            for (auto &nest : parallel(shape(gm, gn), cfg.execution_scope)) {
                 auto m0 = nest[gm] * cfg.bm;
                 auto n0 = nest[gn] * cfg.bn;
                 auto acc = zeros<float>(shape(m, n));
@@ -91,7 +99,7 @@ struct Configuration {
             auto gn = axis("block_n", (A.extent<1>() + cfg.bn - 1) / cfg.bn);
             auto m = axis("m", cfg.bm);
             auto n = axis("n", cfg.bn);
-            for (auto &nest : parallel(shape(gm, gn))) {
+            for (auto &nest : parallel(shape(gm, gn), cfg.execution_scope)) {
                 auto origin = coord(nest[gm] * cfg.bm, nest[gn] * cfg.bn);
                 C(origin, shape(m, n)).store(A[origin, shape(m, n)] + B[origin, shape(m, n)]);
             }
@@ -99,11 +107,11 @@ struct Configuration {
         return definition.capture(tensor_shape(cfg.m, cfg.n), tensor_shape(cfg.m, cfg.n), tensor_shape(cfg.m, cfg.n));
     }
     if (operation == "sum") {
-        auto definition = tile_kernel("benchmark_sum", [](TensorView<const float, 2> A, TensorView<float, 1> C) {
+        auto definition = tile_kernel("benchmark_sum", [=](TensorView<const float, 2> A, TensorView<float, 1> C) {
             auto rows = axis("rows", A.extent<0>());
             auto m = axis("m", 1);
             auto n = axis("n", A.extent<1>());
-            for (auto &nest : parallel(shape(rows))) {
+            for (auto &nest : parallel(shape(rows), cfg.execution_scope)) {
                 auto value = A[coord(nest.index(), 0), shape(m, n)];
                 C(coord(nest.index()), shape(m)).store(reduce(value, n, add));
             }
@@ -111,11 +119,11 @@ struct Configuration {
         return definition.capture(tensor_shape(cfg.m, cfg.n), tensor_shape(cfg.m));
     }
     if (operation == "softmax") {
-        auto definition = tile_kernel("benchmark_softmax", [](TensorView<const float, 2> A, TensorView<float, 2> C) {
+        auto definition = tile_kernel("benchmark_softmax", [=](TensorView<const float, 2> A, TensorView<float, 2> C) {
             auto rows = axis("rows", A.extent<0>());
             auto m = axis("m", 1);
             auto n = axis("n", A.extent<1>());
-            for (auto &nest : parallel(shape(rows))) {
+            for (auto &nest : parallel(shape(rows), cfg.execution_scope)) {
                 auto origin = coord(nest.index(), 0);
                 auto value = A[origin, shape(m, n)];
                 auto exponentials = exp(value - reduce(value, n, maximum));
@@ -155,8 +163,8 @@ void print_samples(std::string_view name, const std::vector<double> &samples) {
 }// namespace
 
 int main(int argc, char *argv[]) {
-    if (argc != 13) {
-        std::cerr << "Usage: benchmark_tile_tirx <cpu|metal> <gemm|add|sum|softmax> M N K BM BN BK samples sample-ms warmup-ms output.f32\n";
+    if (argc != 13 && argc != 14) {
+        std::cerr << "Usage: benchmark_tile_tirx <cpu|metal> <gemm|add|sum|softmax> M N K BM BN BK samples sample-ms warmup-ms output.f32 [auto|worker|group]\n";
         return 1;
     }
     try {
@@ -164,6 +172,8 @@ int main(int argc, char *argv[]) {
         auto operation = std::string_view{argv[2]};
         Configuration cfg{positive_integer(argv[3]), positive_integer(argv[4]), positive_integer(argv[5]),
                           positive_integer(argv[6]), positive_integer(argv[7]), positive_integer(argv[8])};
+        auto execution_scope = argc == 14 ? std::string_view{argv[13]} : std::string_view{"auto"};
+        cfg.execution_scope = parse_execution_scope(execution_scope);
         auto sample_count = positive_integer(argv[9]);
         auto target_ms = positive_integer(argv[10]);
         auto warmup_ms = positive_integer(argv[11]);
@@ -224,6 +234,7 @@ int main(int argc, char *argv[]) {
         if (!file) { throw std::runtime_error{"failed to write benchmark output"}; }
         std::cout << std::setprecision(12)
                   << "{\"backend\":" << std::quoted(backend) << ",\"operation\":" << std::quoted(operation)
+                  << ",\"execution_scope\":" << std::quoted(execution_scope)
                   << ",\"runtime_init_ms\":" << runtime_init_ms << ",\"capture_ms\":" << capture_ms
                   << ",\"compile_ms\":" << compile_ms << ",\"allocation_upload_ms\":" << allocation_upload_ms
                   << ",\"cold_call_ms\":" << cold_call_ms << ",\"warmup_ms\":" << actual_warmup_ms

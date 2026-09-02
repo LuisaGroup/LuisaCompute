@@ -563,6 +563,9 @@ if (LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE)
     luisa_compute_add_test(test_tile_tirx_execution
             unit/tile/bridge/test_tirx_execution.cpp LABELS "unit;unit_tile;unit_tile_tirx")
     target_link_libraries(test_tile_tirx_execution PRIVATE luisa::tile-tirx)
+    luisa_compute_add_test(test_tile_tirx_cooperative
+            unit/tile/bridge/test_tirx_cooperative.cpp LABELS "unit;unit_tile;unit_tile_tirx")
+    target_link_libraries(test_tile_tirx_cooperative PRIVATE luisa::tile-tirx)
     # Opt-in timing executable: never a noisy CTest performance threshold.
     luisa_compute_add_test(benchmark_tile_tirx benchmark/benchmark_tile_tirx.cpp)
     target_link_libraries(benchmark_tile_tirx PRIVATE luisa::tile-tirx)
@@ -588,7 +591,7 @@ if (LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE)
                 unit/tile/bridge/test_tirx_targets.cpp
                 LABELS "unit;unit_tile;unit_tile_tirx;unit_tile_targets")
         target_link_libraries(test_tile_tirx_targets PRIVATE luisa::tile-tirx)
-        foreach (_tile_poc IN ITEMS test_tile_tirx_poc test_tile_tirx_poc_neural test_tile_tirx_poc_algorithms test_tile_tirx_values test_tile_tirx_execution)
+        foreach (_tile_poc IN ITEMS test_tile_tirx_poc test_tile_tirx_poc_neural test_tile_tirx_poc_algorithms test_tile_tirx_values test_tile_tirx_execution test_tile_tirx_cooperative)
             add_test(NAME ${_tile_poc}_metal COMMAND ${_tile_poc} metal)
             set_tests_properties(${_tile_poc}_metal PROPERTIES
                     LABELS "unit;unit_tile;unit_tile_tirx;unit_tile_poc;unit_tile_targets")
