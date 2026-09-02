@@ -1049,7 +1049,7 @@ private:
         return false;
     }
 
-    [[nodiscard]] bool _int32(
+    [[nodiscard]] bool _decode_int32(
         yyjson_val *value, int32_t &result,
         luisa::string_view path) noexcept {
         if (yyjson_is_sint(value)) {
@@ -1657,7 +1657,7 @@ private:
             case Statement::Tag::SWITCH_CASE: {
                 if (!_check_keys(object, {"tag", "value", "body"}, path)) { return false; }
                 int32_t value{};
-                if (!_int32(
+                if (!_decode_int32(
                         _member(object, "value", path), value,
                         luisa::format("{}.value", path))) {
                     return false;
