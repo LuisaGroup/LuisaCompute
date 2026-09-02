@@ -50,3 +50,17 @@ Measurement contract:
 and hardware information, thread settings, the binary hash, and source
 revision. `results.md` is the readable comparison. Failed cases are retained
 and cause a nonzero exit code; no speed ratio is published for an invalid case.
+
+## Recorded reference baseline
+
+The [M1 Max baseline, 2026-09-03](results/m1-max-20260903-reference/results.md)
+contains all 40 CPU/Metal cases, with [raw samples and metadata](results/m1-max-20260903-reference/results.json).
+The implementation is commit `8591c599d`; all 40 pairs passed the shared
+numerical checks. This is one machine/run and one untuned native configuration,
+not a hardware limit or a best-of-tuning result.
+
+For FP32 1024³ GEMM, native/PyTorch warm batched times were **31.571/1.192 ms
+on CPU** and **14.876/0.353 ms on Metal**: native was about 26.5× and 42.1×
+slower, respectively. These measurements include host dispatch. The reference
+lowering is not yet competitive; cooperative value distribution, matrix-atom
+selection, and asynchronous pipeline scheduling remain implementation work.
