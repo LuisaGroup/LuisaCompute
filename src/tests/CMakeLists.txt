@@ -759,6 +759,13 @@ luisa_compute_add_test(test_xir_pass_mutation_safety unit/xir/test_xir_pass_muta
 luisa_compute_add_test(test_device_debugger         integration/runtime/test_device_debugger.cpp)
 luisa_compute_add_test(test_dstorage_decompression  integration/runtime/test_dstorage_decompression.cpp)
 luisa_compute_add_test(test_procedural_callable      integration/runtime/test_procedural_callable.cpp)
+if (TARGET luisa-compute-backend-metal4)
+    add_test(NAME test_metal4_procedural_callable
+            COMMAND test_procedural_callable metal4 --spp 4)
+    set_tests_properties(test_metal4_procedural_callable PROPERTIES
+            LABELS "integration;integration_metal4;integration_render"
+            TIMEOUT 300)
+endif ()
 luisa_compute_add_test(test_rtx                      integration/runtime/test_rtx.cpp)
 luisa_compute_add_test(test_aot                      integration/runtime/test_aot.cpp)
 luisa_compute_add_test(test_oso_parser               integration/runtime/test_oso_parser.cpp)

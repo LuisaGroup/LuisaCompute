@@ -165,7 +165,8 @@ void test_outlineable_triangle_state_machine(Device &device) {
         state_machine,
         ShaderOption{
             .enable_cache = false,
-            .enable_ray_query_pipeline = true});
+            .enable_ray_query_pipeline = true,
+            .force_ray_query_pipeline = true});
     auto stateful_shader = device.compile(
         state_machine,
         ShaderOption{
@@ -272,21 +273,20 @@ void test_retained_procedural_state_machine(Device &device) {
     auto accel = device.create_accel();
     accel.emplace_back(primitive);
 
-    Kernel1D state_machine = [](
-                                 AccelVar scene,
-                                 BufferUInt result,
-                                 BufferUInt scratch,
-                                 BufferFloat4 ray_data,
-                                 BufferFloat distances,
-                                 BufferUInt selection,
-                                 BindlessVar heap) noexcept {
+    Callable trace_procedural = [](
+                                    AccelVar scene,
+                                    BufferUInt scratch,
+                                    BufferFloat4 ray_data,
+                                    BufferFloat distances,
+                                    BufferUInt selection,
+                                    BindlessVar heap,
+                                    UInt &candidate_count,
+                                    UInt &checksum) noexcept {
         auto ray = make_ray(
             make_float3(0.0f, 0.0f, 1.0f),
             make_float3(0.0f, 0.0f, -1.0f),
             0.0f, 10.0f);
         auto query = scene.query(ray, {});
-        UInt candidate_count = 0u;
-        UInt checksum = 0u;
         $while (query.proceed()) {
             $if (query.is_procedural_candidate()) {
                 auto candidate = query.procedural_candidate();
@@ -330,7 +330,24 @@ void test_retained_procedural_state_machine(Device &device) {
                 // The test scene has no triangle geometry.
             };
         };
-        auto committed = query.committed_hit();
+        return query.committed_hit();
+    };
+    trace_procedural.function_builder()->set_name(
+        "metal4_retained_procedural_state_machine_callable");
+
+    Kernel1D state_machine = [&trace_procedural](
+                                 AccelVar scene,
+                                 BufferUInt result,
+                                 BufferUInt scratch,
+                                 BufferFloat4 ray_data,
+                                 BufferFloat distances,
+                                 BufferUInt selection,
+                                 BindlessVar heap) noexcept {
+        UInt candidate_count = 0u;
+        UInt checksum = 0u;
+        auto committed = trace_procedural(
+            scene, scratch, ray_data, distances, selection, heap,
+            candidate_count, checksum);
         result.write(0u, candidate_count);
         result.write(1u, committed.hit_type);
         result.write(2u, committed.prim);
@@ -341,7 +358,8 @@ void test_retained_procedural_state_machine(Device &device) {
         state_machine,
         ShaderOption{
             .enable_cache = false,
-            .enable_ray_query_pipeline = true});
+            .enable_ray_query_pipeline = true,
+            .force_ray_query_pipeline = true});
     auto explicitly_stateful_shader = device.compile(
         state_machine,
         ShaderOption{

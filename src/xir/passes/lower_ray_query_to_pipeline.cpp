@@ -27,14 +27,13 @@
 
 #include "helpers.h"
 #include "lower_ray_query_handler_graph.h"
-
+#include "lower_ray_query_to_pipeline_capture_cost.h"
 namespace luisa::compute::xir {
 
 // This result is returned by the established exported overloads. Growing it
 // changes the platform return convention (for example, register return to
 // sret on x86-64), so new optional outputs belong in the options overload.
-static_assert(sizeof(LowerRayQueryToPipelineInfo) ==
-              2u * sizeof(size_t));
+static_assert(sizeof(LowerRayQueryToPipelineInfo) == 2u * sizeof(size_t));
 
 namespace detail {
 
@@ -1337,6 +1336,7 @@ select_ray_query_loops(
         size_t handler_instruction_count;
         size_t input_capture_count;
         size_t output_capture_count;
+        size_t capture_cost;
         bool capture_filter_eligible;
         bool capture_eligible;
     };
@@ -1361,48 +1361,44 @@ select_ray_query_loops(
                 ++handler_instruction_count;
             }
         }
-        // Localization can affect selection only when the raw capture count
-        // exceeds the finite budget. If the raw count already fits (including
-        // the unbounded default), proving which inputs will later become
-        // handler-local is dead analysis: every possible proof result selects
-        // the same loop. The lowering phase still performs the complete proof
-        // exactly once before changing the callback ABI.
+        // Localization affects count selection only when the raw count exceeds
+        // its budget. Payload cost deliberately remains a conservative raw
+        // bound; lowering performs the complete proof once before ABI changes.
         auto input_capture_count = capture_list.in_values.size();
         auto output_capture_count = capture_list.out_values.size();
+        auto capture_cost = detail::ray_query_capture_cost(luisa::span{capture_list.in_values},
+                                                           luisa::span{capture_list.out_values}, options);
         auto capture_filter_eligible = true;
         if (options.captured_argument_filter != nullptr) {
             for (auto *value : capture_list.in_values) {
-                capture_filter_eligible &=
-                    options.captured_argument_filter(value, false);
+                capture_filter_eligible &= options.captured_argument_filter(value, false);
             }
             for (auto *value : capture_list.out_values) {
-                capture_filter_eligible &=
-                    options.captured_argument_filter(value, true);
+                capture_filter_eligible &= options.captured_argument_filter(value, true);
             }
         }
         auto capture_eligible =
             capture_filter_eligible &&
-            capture_count_within_limit(
-                input_capture_count, output_capture_count,
-                options.max_captured_argument_count);
+            capture_cost.total() <= options.max_captured_argument_cost &&
+            capture_count_within_limit(input_capture_count, output_capture_count,
+                                       options.max_captured_argument_count);
         // Output captures cannot be localized. If they alone exceed the
         // budget, no input-localization result can make the loop eligible.
         if (!capture_eligible && capture_filter_eligible &&
-            output_capture_count <=
-                options.max_captured_argument_count) {
+            capture_cost.total() <= options.max_captured_argument_cost &&
+            output_capture_count <= options.max_captured_argument_count) {
             ++info.selection_localization_analysis_count;
             auto localized_input_capture_count =
                 count_handler_localized_input_captures(
                     loop, capture_list, info);
-            LUISA_DEBUG_ASSERT(
-                localized_input_capture_count <= input_capture_count,
-                "Localized ray-query handler captures exceed input captures.");
+            LUISA_DEBUG_ASSERT(localized_input_capture_count <= input_capture_count,
+                               "Localized ray-query handler captures exceed input captures.");
             input_capture_count -= localized_input_capture_count;
             capture_eligible =
                 capture_filter_eligible &&
-                capture_count_within_limit(
-                    input_capture_count, output_capture_count,
-                    options.max_captured_argument_count);
+                capture_cost.total() <= options.max_captured_argument_cost &&
+                capture_count_within_limit(input_capture_count, output_capture_count,
+                                           options.max_captured_argument_count);
         }
         capture_eligible_loop_count += capture_eligible ? 1u : 0u;
         candidates.emplace_back(Candidate{
@@ -1411,6 +1407,7 @@ select_ray_query_loops(
             .handler_instruction_count = handler_instruction_count,
             .input_capture_count = input_capture_count,
             .output_capture_count = output_capture_count,
+            .capture_cost = capture_cost.total(),
             .capture_filter_eligible = capture_filter_eligible,
             .capture_eligible = capture_eligible});
     }
@@ -1424,21 +1421,24 @@ select_ray_query_loops(
                 options.min_small_handler_loop_count;
         if (candidate.capture_eligible && profitability_eligible) {
             LUISA_VERBOSE(
-                "lower_ray_query_to_pipeline: selecting loop with {} handler block(s), {} handler instruction(s), at most {} input and {} output captured argument(s).",
-                candidate.handler_block_count,
-                candidate.handler_instruction_count,
-                candidate.input_capture_count,
-                candidate.output_capture_count);
-            selected.emplace_back(candidate.loop);
-        } else {
-            LUISA_VERBOSE(
-                "lower_ray_query_to_pipeline: retaining loop with {} handler block(s), {} handler instruction(s), at most {} input and {} output captured argument(s) (capture_filter={}, capture_limit={}, min_handler_instructions={}, eligible_loop_count={}, small_handler_loop_threshold={}).",
+                "lower_ray_query_to_pipeline: selecting loop with {} handler block(s), {} handler instruction(s), at most {} input and {} output captured argument(s), costing {} payload byte(s).",
                 candidate.handler_block_count,
                 candidate.handler_instruction_count,
                 candidate.input_capture_count,
                 candidate.output_capture_count,
+                candidate.capture_cost);
+            selected.emplace_back(candidate.loop);
+        } else {
+            LUISA_VERBOSE(
+                "lower_ray_query_to_pipeline: retaining loop with {} handler block(s), {} handler instruction(s), at most {} input and {} output captured argument(s), costing {} payload byte(s) (capture_filter={}, capture_limit={}, capture_cost_limit={}, min_handler_instructions={}, eligible_loop_count={}, small_handler_loop_threshold={}).",
+                candidate.handler_block_count,
+                candidate.handler_instruction_count,
+                candidate.input_capture_count,
+                candidate.output_capture_count,
+                candidate.capture_cost,
                 candidate.capture_filter_eligible,
                 options.max_captured_argument_count,
+                options.max_captured_argument_cost,
                 options.min_handler_instruction_count,
                 capture_eligible_loop_count,
                 options.min_small_handler_loop_count);
