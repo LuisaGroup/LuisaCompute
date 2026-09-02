@@ -96,6 +96,18 @@ public:
         return true;
     }
 
+    [[nodiscard]] bool move_before(Operation *operation, Operation *position) noexcept {
+        if (operation == nullptr || position == nullptr || operation == position ||
+            !operation->is_linked() || !position->is_linked() ||
+            operation->is_sentinel() || position->is_sentinel() ||
+            operation->parent_function() != position->parent_function()) { return false; }
+        auto owned = operation->remove_self();
+        if (owned == nullptr) { return false; }
+        static_cast<void>(position->insert_before_self(std::move(owned)));
+        _invalidate();
+        return true;
+    }
+
     [[nodiscard]] bool replace(Operation *operation, luisa::span<Value *const> replacements) noexcept {
         if (operation == nullptr || operation->result_count() != replacements.size()) { return false; }
         for (auto i = 0u; i < replacements.size(); i++) {

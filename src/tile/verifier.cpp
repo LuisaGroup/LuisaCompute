@@ -42,8 +42,10 @@ private:
 
     [[nodiscard]] static luisa::optional<size_t> _operation_index(const Block *block, const Operation *operation) noexcept {
         auto &&operations = block->operations();
-        for (auto i = 0u; i < operations.size(); i++) {
-            if (operations[i].get() == operation) { return i; }
+        auto i = 0u;
+        for (auto candidate : operations) {
+            if (candidate == operation) { return i; }
+            i++;
         }
         return luisa::nullopt;
     }
@@ -196,6 +198,149 @@ private:
         }
     }
 
+    void _verify_view(const Operation *operation) noexcept {
+        auto is_index = [](const Value *value) noexcept {
+            return value != nullptr &&
+                   (value->type().kind() == TypeKind::INDEX ||
+                    (value->type().kind() == TypeKind::SCALAR &&
+                     (value->type().scalar_type() == ScalarType::INT32 ||
+                      value->type().scalar_type() == ScalarType::UINT32 ||
+                      value->type().scalar_type() == ScalarType::INT64 ||
+                      value->type().scalar_type() == ScalarType::UINT64)));
+        };
+        if (operation->operand_count() == 0u || operation->operand(0u) == nullptr ||
+            !operation->operand(0u)->type().is_view()) {
+            _error(operation, "view access requires a View as its first operand");
+            return;
+        }
+        auto &&view_type = operation->operand(0u)->type();
+        auto rank = view_type.index_space()->rank();
+        auto expected_operands = rank + (operation->kind() == OperationKind::VIEW_LOAD ? 1u : 2u);
+        if (operation->operand_count() != expected_operands) {
+            _error(operation, "view access index count must match the View rank");
+            return;
+        }
+        for (auto i = 0u; i < rank; i++) {
+            if (!is_index(operation->operand(i + 1u))) {
+                _error(operation, "view indices must have index or integer scalar type");
+            }
+        }
+        if (operation->kind() == OperationKind::VIEW_LOAD) {
+            if (operation->result_count() != 1u ||
+                !(operation->result(0u)->type() == Type::scalar(view_type.scalar_type()))) {
+                _error(operation, "view.load must produce one scalar matching the View element type");
+            }
+        } else {
+            auto value = operation->operand(rank + 1u);
+            if (operation->result_count() != 0u || value == nullptr ||
+                !(value->type() == Type::scalar(view_type.scalar_type()))) {
+                _error(operation, "view.store requires one matching scalar value and no result");
+            }
+        }
+    }
+
+    [[nodiscard]] static bool _is_element_value(const Type &type) noexcept {
+        return type.kind() == TypeKind::SCALAR || type.kind() == TypeKind::TILE;
+    }
+
+    [[nodiscard]] static bool _same_element_shape(const Type &lhs, const Type &rhs) noexcept {
+        if (lhs.kind() != rhs.kind()) { return false; }
+        if (lhs.kind() == TypeKind::SCALAR) { return true; }
+        return lhs.kind() == TypeKind::TILE && lhs.index_space() != nullptr && rhs.index_space() != nullptr &&
+               *lhs.index_space() == *rhs.index_space();
+    }
+
+    [[nodiscard]] static bool _is_floating(ScalarType type) noexcept {
+        return type == ScalarType::FLOAT8_E4M3 || type == ScalarType::FLOAT8_E5M2 ||
+               type == ScalarType::BFLOAT16 || type == ScalarType::FLOAT16 ||
+               type == ScalarType::FLOAT32 || type == ScalarType::FLOAT64;
+    }
+
+    [[nodiscard]] static bool _is_integer(ScalarType type) noexcept {
+        return type == ScalarType::INT8 || type == ScalarType::UINT8 ||
+               type == ScalarType::INT16 || type == ScalarType::UINT16 ||
+               type == ScalarType::INT32 || type == ScalarType::UINT32 ||
+               type == ScalarType::INT64 || type == ScalarType::UINT64;
+    }
+
+    void _verify_elementwise(const Operation *operation) noexcept {
+        auto op = operation->elementwise_op();
+        auto unary = op == ElementwiseOp::NEG || op == ElementwiseOp::CAST ||
+                     op == ElementwiseOp::EXP || op == ElementwiseOp::LOG ||
+                     op == ElementwiseOp::SQRT || op == ElementwiseOp::TANH ||
+                     op == ElementwiseOp::ABS;
+        auto binary = op == ElementwiseOp::ADD || op == ElementwiseOp::SUB ||
+                      op == ElementwiseOp::MUL || op == ElementwiseOp::DIV ||
+                      op == ElementwiseOp::MOD || op == ElementwiseOp::MIN ||
+                      op == ElementwiseOp::MAX || op == ElementwiseOp::EQ ||
+                      op == ElementwiseOp::NE || op == ElementwiseOp::LT ||
+                      op == ElementwiseOp::LE || op == ElementwiseOp::GT ||
+                      op == ElementwiseOp::GE;
+        auto arity = unary ? 1u : binary                  ? 2u :
+                              op == ElementwiseOp::SELECT ? 3u :
+                                                            0u;
+        if (op == ElementwiseOp::INVALID || operation->operand_count() != arity ||
+            operation->result_count() != 1u || operation->region_count() != 0u || operation->domain()) {
+            _error(operation, "elementwise operation has an invalid opcode, arity, result count, or region");
+            return;
+        }
+        auto &&result = operation->result(0u)->type();
+        if (!_is_element_value(result)) {
+            _error(operation, "elementwise result must be a scalar or Tile value");
+            return;
+        }
+        for (auto i = 0u; i < operation->operand_count(); i++) {
+            if (operation->operand(i) == nullptr || !_is_element_value(operation->operand(i)->type())) {
+                _error(operation, "elementwise operands must be scalar or Tile values");
+                return;
+            }
+        }
+        if (op == ElementwiseOp::CAST) {
+            if (!_same_element_shape(operation->operand(0u)->type(), result)) {
+                _error(operation, "elementwise cast must preserve scalar-versus-Tile shape");
+            }
+            return;
+        }
+        if (op == ElementwiseOp::SELECT) {
+            auto &&condition = operation->operand(0u)->type();
+            if (condition.scalar_type() != ScalarType::BOOL ||
+                !_same_element_shape(condition, result) ||
+                !(operation->operand(1u)->type() == result) ||
+                !(operation->operand(2u)->type() == result)) {
+                _error(operation, "elementwise select requires a shape-matched bool condition and matching values");
+            }
+            return;
+        }
+        auto comparison = op == ElementwiseOp::EQ || op == ElementwiseOp::NE ||
+                          op == ElementwiseOp::LT || op == ElementwiseOp::LE ||
+                          op == ElementwiseOp::GT || op == ElementwiseOp::GE;
+        if (comparison) {
+            auto &&lhs = operation->operand(0u)->type();
+            if (!(lhs == operation->operand(1u)->type()) || result.scalar_type() != ScalarType::BOOL ||
+                !_same_element_shape(lhs, result)) {
+                _error(operation, "elementwise comparison requires matching inputs and a shape-matched bool result");
+            }
+            return;
+        }
+        for (auto i = 0u; i < operation->operand_count(); i++) {
+            if (!(operation->operand(i)->type() == result)) {
+                _error(operation, "elementwise arithmetic requires operands and result to have identical types");
+                return;
+            }
+        }
+        if ((op == ElementwiseOp::EXP || op == ElementwiseOp::LOG ||
+             op == ElementwiseOp::SQRT || op == ElementwiseOp::TANH) &&
+            !_is_floating(result.scalar_type())) {
+            _error(operation, "transcendental elementwise operation requires a floating-point element type");
+        }
+        if (op == ElementwiseOp::MOD && !_is_integer(result.scalar_type())) {
+            _error(operation, "elementwise modulo requires an integer element type");
+        }
+        if (result.scalar_type() == ScalarType::BOOL) {
+            _error(operation, "elementwise arithmetic does not accept bool elements");
+        }
+    }
+
     void _verify_core_operation(const Operation *operation) noexcept {
         auto structured = operation->kind() == OperationKind::PARALLEL ||
                           operation->kind() == OperationKind::SERIAL ||
@@ -208,10 +353,16 @@ private:
             if (!operation->domain() || !_space_belongs_to_module(*operation->domain())) {
                 _error(operation, "structured operation requires a valid module-local IndexSpace");
             }
-            if (operation->kind() == OperationKind::PIPELINE) {
-                if (operation->region_count() == 0u) { _error(operation, "pipeline requires at least one stage region"); }
-            } else if (operation->region_count() != 1u) {
-                _error(operation, "parallel, serial, and reduce require exactly one body region");
+            if (operation->region_count() != 1u) {
+                _error(operation, "structured operation requires exactly one body region");
+            }
+            if (operation->kind() == OperationKind::PARALLEL &&
+                (operation->operand_count() != 0u || operation->result_count() != 0u)) {
+                _error(operation, "parallel cannot carry loop state; use memory effects for observable results");
+            }
+            if (operation->kind() != OperationKind::PARALLEL &&
+                operation->operand_count() != operation->result_count()) {
+                _error(operation, "serial, pipeline, and reduce require one initial operand per result");
             }
             if (operation->domain()) {
                 for (auto &&region : operation->regions()) {
@@ -219,14 +370,23 @@ private:
                         _error(operation, "structured region must contain at least one block");
                         continue;
                     }
-                    for (auto &&block : region->blocks()) {
-                        if (block->argument_count() < operation->domain()->rank()) {
-                            _error(operation, "structured region block is missing index arguments");
+                    for (auto block : region->blocks()) {
+                        auto expected_arguments = operation->domain()->rank() + operation->result_count();
+                        if (block->argument_count() != expected_arguments) {
+                            _error(operation, "structured region block arguments must be indices followed by carried state");
                             continue;
                         }
                         for (auto i = 0u; i < operation->domain()->rank(); i++) {
                             if (block->argument(i)->type().kind() != TypeKind::INDEX) {
                                 _error(operation, "structured region index arguments must have index type");
+                            }
+                        }
+                        for (auto i = 0u; i < operation->result_count(); i++) {
+                            auto argument = block->argument(operation->domain()->rank() + i);
+                            if (!(argument->type() == operation->result(i)->type()) ||
+                                operation->operand(i) == nullptr ||
+                                !(operation->operand(i)->type() == operation->result(i)->type())) {
+                                _error(operation, "structured carried-state types must agree");
                             }
                         }
                     }
@@ -239,7 +399,10 @@ private:
                     _error(operation, "constant requires no operands and at least one result");
                 }
                 break;
+            case OperationKind::ELEMENTWISE: _verify_elementwise(operation); break;
             case OperationKind::MMA: _verify_mma(operation); break;
+            case OperationKind::VIEW_LOAD:
+            case OperationKind::VIEW_STORE: _verify_view(operation); break;
             case OperationKind::MEMORY_ALLOC:
             case OperationKind::MEMORY_LOAD:
             case OperationKind::MEMORY_STORE: _verify_memory(operation); break;
@@ -261,7 +424,18 @@ private:
                     }
                 }
                 auto &&operations = operation->parent_block()->operations();
-                if (operations.empty() || operations.back().get() != operation) { _error(operation, "yield must be the last operation in its block"); }
+                if (operations.empty() || operations.back() != operation) { _error(operation, "yield must be the last operation in its block"); }
+                break;
+            }
+            case OperationKind::STAGE: {
+                if (operation->operand_count() != 0u || operation->result_count() != 0u ||
+                    operation->region_count() != 0u) {
+                    _error(operation, "stage marker cannot have operands, results, or regions");
+                }
+                auto parent = operation->parent_block()->parent_region()->parent_operation();
+                if (parent == nullptr || parent->kind() != OperationKind::PIPELINE) {
+                    _error(operation, "stage marker must appear directly in a pipeline body");
+                }
                 break;
             }
             default: break;
@@ -308,6 +482,8 @@ private:
             auto value = use->value();
             if (value == nullptr) {
                 _error(operation, "operand must not be null");
+            } else if (!value->use_list().contains(use)) {
+                _error(operation, "linked operand Use is absent from its defining Value use-list");
             } else if (!_definition_precedes_use(value, operation)) {
                 _error(operation, "operand definition does not lexically dominate this use");
             }
@@ -360,21 +536,22 @@ private:
                 _error(nullptr, "block argument value id is not unique within the function");
             }
         }
-        for (auto &&operation : block->operations()) { _verify_operation(operation.get(), block, active_scope); }
+        for (auto operation : block->operations()) { _verify_operation(operation, block, active_scope); }
     }
 
     void _verify_region(const Region *region, const Operation *expected_parent, luisa::optional<ExecutionScope> active_scope) noexcept {
         if (region->parent_function() != _function || region->parent_operation() != expected_parent) {
             _error(expected_parent, "region parent pointer is inconsistent");
         }
-        for (auto &&block : region->blocks()) { _verify_block(block.get(), region, active_scope); }
+        for (auto block : region->blocks()) { _verify_block(block, region, active_scope); }
     }
 
     void _verify_use_lists() noexcept {
         for (auto value : _values) {
             luisa::unordered_set<const Use *> listed;
-            for (auto use : value->uses()) {
-                if (use == nullptr || use->value() != value || !_uses.contains(use) || !listed.emplace(use).second) {
+            for (auto use : value->use_list()) {
+                if (use == nullptr || !value->use_list().contains(use) ||
+                    use->value() != value || !_uses.contains(use) || !listed.emplace(use).second) {
                     _error(use == nullptr ? nullptr : use->user(), "Value use-list is inconsistent with operation operands");
                 }
             }
@@ -410,16 +587,16 @@ public:
     [[nodiscard]] VerificationResult run() noexcept {
         luisa::unordered_set<uint64_t> function_ids;
         luisa::unordered_set<luisa::string_view> function_names;
-        for (auto &&function : _module.functions()) {
+        for (auto function : _module.functions()) {
             if (!function_ids.emplace(function->id()).second) {
-                _function = function.get();
+                _function = function;
                 _error(nullptr, "function id is not unique within the module");
             }
             if (!function_names.emplace(function->name()).second) {
-                _function = function.get();
+                _function = function;
                 _error(nullptr, "function name is not unique within the module");
             }
-            _verify_function(function.get());
+            _verify_function(function);
         }
         return std::move(_result);
     }

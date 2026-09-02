@@ -1,5 +1,4 @@
-#include <algorithm>
-
+#include <luisa/core/logging.h>
 #include <luisa/tile/ir.h>
 
 namespace luisa::compute::tile {
@@ -15,6 +14,10 @@ Type Type::scalar(ScalarType scalar) noexcept {
 
 Type Type::tile(ScalarType scalar, const IndexSpace &space) noexcept {
     return Type{TypeKind::TILE, scalar, space};
+}
+
+Type Type::view(ScalarType scalar, const IndexSpace &space) noexcept {
+    return Type{TypeKind::VIEW, scalar, space};
 }
 
 Type Type::memory(ScalarType scalar, const IndexSpace &space) noexcept {
@@ -34,6 +37,7 @@ bool Type::is_valid() const noexcept {
         case TypeKind::MEMORY_STATE: return true;
         case TypeKind::SCALAR: return _scalar != ScalarType::INVALID;
         case TypeKind::TILE:
+        case TypeKind::VIEW:
         case TypeKind::MEMORY: return _scalar != ScalarType::INVALID && _space != nullptr && _space->is_valid();
         case TypeKind::OPAQUE: return !_opaque_name.empty();
     }
@@ -55,6 +59,7 @@ luisa::string_view to_string(OperationKind kind) noexcept {
     switch (kind) {
         case OperationKind::CUSTOM: return "custom"sv;
         case OperationKind::CONSTANT: return "tile.constant"sv;
+        case OperationKind::ELEMENTWISE: return "tile.elementwise"sv;
         case OperationKind::TILE_MAP: return "tile.map"sv;
         case OperationKind::MMA: return "tile.mma"sv;
         case OperationKind::VIEW_LOAD: return "tile.view.load"sv;
@@ -65,10 +70,40 @@ luisa::string_view to_string(OperationKind kind) noexcept {
         case OperationKind::PARALLEL: return "tile.parallel"sv;
         case OperationKind::SERIAL: return "tile.serial"sv;
         case OperationKind::PIPELINE: return "tile.pipeline"sv;
+        case OperationKind::STAGE: return "tile.stage"sv;
         case OperationKind::REDUCE: return "tile.reduce"sv;
         case OperationKind::YIELD: return "tile.yield"sv;
     }
     return "tile.unknown"sv;
+}
+
+luisa::string_view to_string(ElementwiseOp op) noexcept {
+    using namespace std::string_view_literals;
+    switch (op) {
+        case ElementwiseOp::INVALID: return "invalid"sv;
+        case ElementwiseOp::ADD: return "add"sv;
+        case ElementwiseOp::SUB: return "sub"sv;
+        case ElementwiseOp::MUL: return "mul"sv;
+        case ElementwiseOp::DIV: return "div"sv;
+        case ElementwiseOp::MOD: return "mod"sv;
+        case ElementwiseOp::NEG: return "neg"sv;
+        case ElementwiseOp::MIN: return "min"sv;
+        case ElementwiseOp::MAX: return "max"sv;
+        case ElementwiseOp::CAST: return "cast"sv;
+        case ElementwiseOp::SELECT: return "select"sv;
+        case ElementwiseOp::EQ: return "eq"sv;
+        case ElementwiseOp::NE: return "ne"sv;
+        case ElementwiseOp::LT: return "lt"sv;
+        case ElementwiseOp::LE: return "le"sv;
+        case ElementwiseOp::GT: return "gt"sv;
+        case ElementwiseOp::GE: return "ge"sv;
+        case ElementwiseOp::EXP: return "exp"sv;
+        case ElementwiseOp::LOG: return "log"sv;
+        case ElementwiseOp::SQRT: return "sqrt"sv;
+        case ElementwiseOp::TANH: return "tanh"sv;
+        case ElementwiseOp::ABS: return "abs"sv;
+    }
+    return "invalid"sv;
 }
 
 Value::Value(uint64_t id, Type type, Block *block, size_t index) noexcept
@@ -77,55 +112,95 @@ Value::Value(uint64_t id, Type type, Block *block, size_t index) noexcept
 Value::Value(uint64_t id, Type type, Operation *operation, size_t index) noexcept
     : _id{id}, _type{std::move(type)}, _origin{Origin::OPERATION_RESULT}, _operation{operation}, _index{index} {}
 
-void Value::_add_use(Use *use) noexcept {
-    if (use != nullptr && std::find(_uses.begin(), _uses.end(), use) == _uses.end()) { _uses.emplace_back(use); }
-}
-
-void Value::_remove_use(Use *use) noexcept {
-    if (auto iter = std::find(_uses.begin(), _uses.end(), use); iter != _uses.end()) { _uses.erase(iter); }
-}
-
-Value::~Value() noexcept {
-    while (!_uses.empty()) {
-        auto use = _uses.back();
-        _uses.pop_back();
-        use->_value = nullptr;
-    }
-}
-
-bool Value::replace_all_uses_with(Value *replacement) noexcept {
-    if (replacement == nullptr || replacement == this || !(replacement->type() == type())) { return false; }
-    while (!_uses.empty()) { _uses.back()->set(replacement); }
-    return true;
-}
-
-Use::Use(Operation *user, size_t index, Value *value) noexcept
+Use::Use(Operation *user, size_t index) noexcept
     : _user{user}, _index{index} {
-    set(value);
+    LUISA_DEBUG_ASSERT(user != nullptr, "Use requires a non-null user.");
 }
 
-Use::~Use() noexcept {
-    set(nullptr);
+Use *UseList::push_front(luisa::ManagedPtr<Use> use) noexcept {
+    LUISA_DEBUG_ASSERT(use != nullptr && use->_list_owner == nullptr && !use->is_linked(),
+                       "Use is already linked to an owner list.");
+    auto node = _nodes.push_front(std::move(use));
+    node->_list_owner = this;
+    return node;
+}
+
+luisa::ManagedPtr<Use> Use::remove_self() noexcept {
+    auto was_linked = is_linked();
+    LUISA_DEBUG_ASSERT(was_linked == (_list_owner != nullptr),
+                       "Use linkage and owner-list identity disagree.");
+    auto self = Super::remove_self();
+    if (self != nullptr) {
+        LUISA_DEBUG_ASSERT(was_linked && self.get() == this,
+                           "Removed Use ownership is inconsistent.");
+        _list_owner = nullptr;
+    }
+    return self;
 }
 
 void Use::set(Value *value) noexcept {
     if (_value == value) { return; }
-    if (_value != nullptr) { _value->_remove_use(this); }
+    auto owned = is_linked() ? remove_self() : lock();
     _value = value;
-    if (_value != nullptr) { _value->_add_use(this); }
+    if (_value != nullptr && _user->is_linked()) {
+        _value->use_list().push_front(std::move(owned));
+    }
+}
+
+Value::~Value() noexcept {
+    while (!_use_list.empty()) { _use_list.front()->set(nullptr); }
+}
+
+bool Value::replace_all_uses_with(Value *replacement) noexcept {
+    if (replacement == nullptr || replacement == this || !(replacement->type() == type())) { return false; }
+    while (!_use_list.empty()) { _use_list.front()->set(replacement); }
+    return true;
+}
+
+void Operation::_remove_self_from_operand_use_lists() noexcept {
+    for (auto &&use : _operands) {
+        if (use->is_linked()) { static_cast<void>(use->remove_self()); }
+    }
+}
+
+void Operation::_add_self_to_operand_use_lists() noexcept {
+    LUISA_DEBUG_ASSERT(is_linked(), "Cannot attach operands for a detached Operation.");
+    for (auto &&use : _operands) {
+        LUISA_DEBUG_ASSERT(!use->is_linked(), "Operand Use is already linked.");
+        if (auto value = use->value()) { value->use_list().push_front(use->lock()); }
+    }
 }
 
 Operation::Operation(uint64_t id, Block *parent, OperationKind kind, luisa::string_view custom_name) noexcept
     : _id{id}, _parent{parent}, _kind{kind}, _custom_name{custom_name.data(), custom_name.size()} {}
 
 Operation::~Operation() noexcept {
+    _remove_self_from_operand_use_lists();
     _regions.clear();
     _operands.clear();
     _results.clear();
 }
 
+luisa::ManagedPtr<Operation> Operation::remove_self() noexcept {
+    if (!is_linked()) { return nullptr; }
+    _remove_self_from_operand_use_lists();
+    return Super::remove_self();
+}
+
+Operation *Operation::insert_before_self(luisa::ManagedPtr<Operation> operation) noexcept {
+    auto inserted = Super::insert_before_self(std::move(operation));
+    inserted->_parent = _parent;
+    inserted->_add_self_to_operand_use_lists();
+    return inserted;
+}
+
+SentinelOperation::SentinelOperation(Block *parent) noexcept
+    : Operation{~0ull, parent, OperationKind::CUSTOM} {}
+
 luisa::string_view Operation::name() const noexcept {
-    return _kind == OperationKind::CUSTOM ? luisa::string_view{_custom_name} : to_string(_kind);
+    if (_kind == OperationKind::CUSTOM) { return _custom_name; }
+    if (_kind == OperationKind::ELEMENTWISE) { return to_string(_elementwise_op); }
+    return to_string(_kind);
 }
 
 Function *Operation::parent_function() noexcept {
@@ -149,7 +224,10 @@ MemoryEffect Operation::memory_effect() const noexcept {
 }
 
 void Operation::add_operand(Value *value) noexcept {
-    _operands.emplace_back(luisa::make_unique<Use>(this, _operands.size(), value));
+    auto use = luisa::make_managed<Use>(this, _operands.size());
+    auto ptr = use.get();
+    _operands.emplace_back(std::move(use));
+    ptr->set(value);
 }
 
 void Operation::set_operand(size_t index, Value *value) noexcept {
@@ -199,10 +277,23 @@ const Attribute *Operation::attribute(luisa::string_view name) const noexcept {
     return nullptr;
 }
 
-Block::~Block() noexcept {
-    _operations.clear();
-    _arguments.clear();
+Block::Block(Region *parent) noexcept
+    : _parent{parent}, _operations{this} {}
+
+Block::~Block() noexcept = default;
+
+luisa::ManagedPtr<Block> Block::remove_self() noexcept {
+    return Super::remove_self();
 }
+
+Block *Block::insert_before_self(luisa::ManagedPtr<Block> block) noexcept {
+    auto inserted = Super::insert_before_self(std::move(block));
+    inserted->_parent = _parent;
+    return inserted;
+}
+
+SentinelBlock::SentinelBlock(Region *parent) noexcept
+    : Block{parent} {}
 
 Function *Block::parent_function() noexcept {
     return _parent == nullptr ? nullptr : _parent->parent_function();
@@ -212,11 +303,12 @@ const Function *Block::parent_function() const noexcept {
     return _parent == nullptr ? nullptr : _parent->parent_function();
 }
 
-Value *Block::add_argument(Type type) noexcept {
+Value *Block::add_argument(Type type, luisa::string_view name) noexcept {
     auto function = parent_function();
     if (function == nullptr) { return nullptr; }
     auto argument = luisa::unique_ptr<Value>{new Value{function->_allocate_value_id(), std::move(type), this, _arguments.size()}};
     auto result = argument.get();
+    result->set_name(name);
     _arguments.emplace_back(std::move(argument));
     return result;
 }
@@ -224,32 +316,62 @@ Value *Block::add_argument(Type type) noexcept {
 Operation *Block::append_operation(OperationKind kind, luisa::string_view custom_name) noexcept {
     auto function = parent_function();
     if (function == nullptr) { return nullptr; }
-    auto operation = luisa::unique_ptr<Operation>{new Operation{function->_allocate_operation_id(), this, kind, custom_name}};
-    auto result = operation.get();
-    _operations.emplace_back(std::move(operation));
-    return result;
+    auto operation = luisa::make_managed<Operation>(
+        function->_allocate_operation_id(), this, kind, custom_name);
+    return _operations.push_back(std::move(operation));
+}
+
+Operation *Block::insert_operation_before(
+    Operation *position,
+    OperationKind kind,
+    luisa::string_view custom_name) noexcept {
+    auto function = parent_function();
+    if (function == nullptr || position == nullptr || position->parent_block() != this ||
+        !position->is_linked()) { return nullptr; }
+    auto operation = luisa::make_managed<Operation>(
+        function->_allocate_operation_id(), this, kind, custom_name);
+    return position->insert_before_self(std::move(operation));
 }
 
 bool Block::erase(Operation *operation) noexcept {
-    auto iter = std::find_if(_operations.begin(), _operations.end(), [operation](auto &&item) noexcept { return item.get() == operation; });
-    if (iter == _operations.end()) { return false; }
+    if (operation == nullptr || operation->parent_block() != this || !operation->is_linked() || operation->is_sentinel()) { return false; }
     for (auto i = 0u; i < operation->result_count(); i++) {
         if (operation->result(i)->use_count() != 0u) { return false; }
     }
-    _operations.erase(iter);
-    return true;
+    return operation->remove_self() != nullptr;
+}
+
+Operation *Block::operation(size_t index) noexcept {
+    auto i = 0u;
+    for (auto operation : _operations) {
+        if (i++ == index) { return operation; }
+    }
+    return nullptr;
+}
+
+const Operation *Block::operation(size_t index) const noexcept {
+    return const_cast<Block *>(this)->operation(index);
 }
 
 Region::Region(Function *function, Operation *parent, luisa::string_view label) noexcept
-    : _function{function}, _parent{parent}, _label{label.data(), label.size()} {}
+    : _function{function}, _parent{parent}, _label{label.data(), label.size()}, _blocks{this} {}
 
 Region::~Region() noexcept = default;
 
 Block *Region::append_block() noexcept {
-    auto block = luisa::unique_ptr<Block>{new Block{this}};
-    auto result = block.get();
-    _blocks.emplace_back(std::move(block));
-    return result;
+    return _blocks.push_back(luisa::make_managed<Block>(this));
+}
+
+Block *Region::block(size_t index) noexcept {
+    auto i = 0u;
+    for (auto block : _blocks) {
+        if (i++ == index) { return block; }
+    }
+    return nullptr;
+}
+
+const Block *Region::block(size_t index) const noexcept {
+    return const_cast<Region *>(this)->block(index);
 }
 
 Function::Function(Module *parent, uint64_t id, luisa::string_view name, IRForm form) noexcept
@@ -257,13 +379,38 @@ Function::Function(Module *parent, uint64_t id, luisa::string_view name, IRForm 
 
 Function::~Function() noexcept = default;
 
+luisa::ManagedPtr<Function> Function::remove_self() noexcept {
+    return Super::remove_self();
+}
+
+Function *Function::insert_before_self(luisa::ManagedPtr<Function> function) noexcept {
+    auto inserted = Super::insert_before_self(std::move(function));
+    inserted->_parent = _parent;
+    return inserted;
+}
+
+SentinelFunction::SentinelFunction(Module *parent) noexcept
+    : Function{parent, ~0ull, {}, IRForm::CANDIDATE} {}
+
+Module::Module() noexcept
+    : _functions{this} {}
+
 Module::~Module() noexcept = default;
 
 Function *Module::create_function(luisa::string_view name, IRForm form) noexcept {
-    auto function = luisa::unique_ptr<Function>{new Function{this, _next_function_id++, name, form}};
-    auto result = function.get();
-    _functions.emplace_back(std::move(function));
-    return result;
+    return _functions.push_back(luisa::make_managed<Function>(this, _next_function_id++, name, form));
+}
+
+Function *Module::function(size_t index) noexcept {
+    auto i = 0u;
+    for (auto function : _functions) {
+        if (i++ == index) { return function; }
+    }
+    return nullptr;
+}
+
+const Function *Module::function(size_t index) const noexcept {
+    return const_cast<Module *>(this)->function(index);
 }
 
 Operation *IRBuilder::create(OperationKind kind,
@@ -271,7 +418,9 @@ Operation *IRBuilder::create(OperationKind kind,
                              luisa::span<const Type> result_types,
                              luisa::string_view custom_name) noexcept {
     if (_insertion_block == nullptr) { return nullptr; }
-    auto operation = _insertion_block->append_operation(kind, custom_name);
+    auto operation = _insertion_before == nullptr ?
+                         _insertion_block->append_operation(kind, custom_name) :
+                         _insertion_block->insert_operation_before(_insertion_before, kind, custom_name);
     for (auto operand : operands) { operation->add_operand(operand); }
     for (auto &&type : result_types) { static_cast<void>(operation->add_result(type)); }
     return operation;
@@ -279,19 +428,29 @@ Operation *IRBuilder::create(OperationKind kind,
 
 Operation *IRBuilder::create_structured(OperationKind kind,
                                         IndexSpace domain,
-                                        luisa::span<const luisa::string_view> region_labels,
+                                        luisa::span<Value *const> operands,
                                         luisa::span<const Type> result_types) noexcept {
     if (kind != OperationKind::PARALLEL && kind != OperationKind::SERIAL &&
         kind != OperationKind::PIPELINE && kind != OperationKind::REDUCE) { return nullptr; }
-    auto operation = create(kind, {}, result_types);
+    auto operation = create(kind, operands, result_types);
     if (operation == nullptr) { return nullptr; }
     operation->set_domain(std::move(domain));
-    auto region_count = region_labels.empty() ? 1u : region_labels.size();
-    for (auto i = 0u; i < region_count; i++) {
-        auto label = region_labels.empty() ? luisa::string_view{} : region_labels[i];
-        auto block = operation->add_region(label)->append_block();
-        for (auto j = 0u; j < operation->domain()->rank(); j++) { static_cast<void>(block->add_argument(Type::index())); }
+    auto block = operation->add_region("body")->append_block();
+    for (auto i = 0u; i < operation->domain()->rank(); i++) {
+        static_cast<void>(block->add_argument(Type::index()));
     }
+    for (auto &&type : result_types) { static_cast<void>(block->add_argument(type)); }
+    return operation;
+}
+
+Operation *IRBuilder::create_elementwise(
+    ElementwiseOp op,
+    luisa::span<Value *const> operands,
+    Type result_type) noexcept {
+    if (op == ElementwiseOp::INVALID || !result_type.is_valid()) { return nullptr; }
+    Type result_types[]{std::move(result_type)};
+    auto operation = create(OperationKind::ELEMENTWISE, operands, result_types);
+    if (operation != nullptr) { operation->_elementwise_op = op; }
     return operation;
 }
 
@@ -300,6 +459,26 @@ Operation *IRBuilder::create_mma(Value *a, Value *b, Value *accumulator) noexcep
     Value *operands[]{a, b, accumulator};
     Type results[]{accumulator->type()};
     return create(OperationKind::MMA, operands, results);
+}
+
+Operation *IRBuilder::create_view_load(Value *view, luisa::span<Value *const> indices) noexcept {
+    if (view == nullptr || !view->type().is_view()) { return nullptr; }
+    luisa::vector<Value *> operands;
+    operands.reserve(indices.size() + 1u);
+    operands.emplace_back(view);
+    operands.insert(operands.end(), indices.begin(), indices.end());
+    Type result_types[]{Type::scalar(view->type().scalar_type())};
+    return create(OperationKind::VIEW_LOAD, operands, result_types);
+}
+
+Operation *IRBuilder::create_view_store(Value *view, luisa::span<Value *const> indices, Value *value) noexcept {
+    if (view == nullptr || !view->type().is_view() || value == nullptr) { return nullptr; }
+    luisa::vector<Value *> operands;
+    operands.reserve(indices.size() + 2u);
+    operands.emplace_back(view);
+    operands.insert(operands.end(), indices.begin(), indices.end());
+    operands.emplace_back(value);
+    return create(OperationKind::VIEW_STORE, operands);
 }
 
 Operation *IRBuilder::create_memory_alloc(const Type &memory_type, luisa::string_view resource_class) noexcept {

@@ -1,5 +1,6 @@
 set(LUISA_COMPUTE_TILE_SOURCES
         dimension.cpp
+        dsl.cpp
         ir.cpp
         layout.cpp
         target.cpp

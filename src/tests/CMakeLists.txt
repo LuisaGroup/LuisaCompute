@@ -536,6 +536,7 @@ luisa_compute_add_test(test_manual_ast      unit/ast/test_manual_ast.cpp)
 # --- unit/tile: execution-first TileIR and layout algebra (CPU-only) ---
 luisa_compute_add_test(test_tile_layout unit/tile/test_tile_layout.cpp LABELS "unit;unit_tile")
 luisa_compute_add_test(test_tile_ir unit/tile/test_tile_ir.cpp LABELS "unit;unit_tile")
+luisa_compute_add_test(test_tile_dsl unit/tile/test_tile_dsl.cpp LABELS "unit;unit_tile")
 if (LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE)
     luisa_compute_add_test(test_tile_tirx
             unit/tile/bridge/test_tirx_layout.cpp

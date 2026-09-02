@@ -19,9 +19,9 @@ namespace {
 
 [[nodiscard]] size_t count_operations(const Region &region) noexcept {
     size_t count = 0u;
-    for (auto &&block : region.blocks()) {
+    for (auto block : region.blocks()) {
         count += block->operation_count();
-        for (auto &&operation : block->operations()) {
+        for (auto operation : block->operations()) {
             for (auto &&child : operation->regions()) { count += count_operations(*child); }
         }
     }
@@ -93,14 +93,12 @@ void test_valid_structured_mma() {
     auto group = module.dimensions().create_dimension("group");
     IndexSpace groups;
     expect(groups.add(group, 1u));
-    Type parallel_results[]{c->type()};
-    auto parallel = builder.create_structured(OperationKind::PARALLEL, groups, {}, parallel_results);
+    auto parallel = builder.create_structured(OperationKind::PARALLEL, groups);
     parallel->set_execution_scope_constraint("block");
     auto body = parallel->region(0u)->block(0u);
     builder.set_insertion_block(body);
     auto mma = builder.create_mma(a, b, c);
-    Value *yield_operands[]{mma->result(0u)};
-    static_cast<void>(builder.create(OperationKind::YIELD, yield_operands));
+    static_cast<void>(builder.create(OperationKind::YIELD));
 
     TargetModel target;
     auto block = target.add_execution_scope("block");
@@ -110,7 +108,7 @@ void test_valid_structured_mma() {
     expect(eq(a->use_count(), 1u));
     expect(eq(b->use_count(), 1u));
     expect(eq(c->use_count(), 1u));
-    expect(eq(mma->result(0u)->use_count(), 1u));
+    expect(eq(mma->result(0u)->use_count(), 0u));
 }
 
 void test_pipeline_regions_and_memory_effects() {
@@ -136,11 +134,14 @@ void test_pipeline_regions_and_memory_effects() {
     auto iteration = module.dimensions().create_dimension("iteration");
     IndexSpace iterations;
     expect(iterations.add(iteration, 4u));
-    luisa::string_view stages[]{"load", "compute"};
-    auto pipeline = builder.create_structured(OperationKind::PIPELINE, iterations, stages);
-    expect(eq(pipeline->region_count(), 2u));
-    expect(pipeline->region(0u)->label() == "load");
-    expect(pipeline->region(1u)->label() == "compute");
+    auto pipeline = builder.create_structured(OperationKind::PIPELINE, iterations);
+    expect(eq(pipeline->region_count(), 1u));
+    builder.set_insertion_block(pipeline->region(0u)->block(0u));
+    auto load_stage = builder.create(OperationKind::STAGE);
+    load_stage->set_attribute("name", Attribute{luisa::string_view{"load"}});
+    auto compute_stage = builder.create(OperationKind::STAGE);
+    compute_stage->set_attribute("name", Attribute{luisa::string_view{"compute"}});
+    expect(eq(pipeline->region(0u)->block(0u)->operation_count(), 2u));
 
     TargetModel permitted;
     auto permitted_block = permitted.add_execution_scope("block");
@@ -210,6 +211,7 @@ void test_ssa_rewriter_and_analysis_cache() {
     Value *operands[]{first};
     Type results[]{first->type()};
     auto consumer = builder.create(OperationKind::CUSTOM, operands, results, "test.identity");
+    expect(first->use_list().contains(consumer->operand_use(0u)));
     expect(eq(first->use_count(), 1u));
     expect(eq(second->use_count(), 0u));
 
@@ -223,14 +225,20 @@ void test_ssa_rewriter_and_analysis_cache() {
     expect(eq(OperationCountAnalysis::runs, 1u));
 
     IRRewriter rewriter{&analyses};
+    auto operand_use = consumer->operand_use(0u);
     expect(rewriter.replace_all_uses(first, second));
     expect(eq(first->use_count(), 0u));
     expect(eq(second->use_count(), 1u));
+    expect(consumer->operand_use(0u) == operand_use);
+    expect(second->use_list().contains(operand_use));
     expect(consumer->operand(0u) == second);
     auto count2 = analyses.get<OperationCountAnalysis>();
     expect(count2 != nullptr);
     expect(eq(*count2, 3u));
     expect(eq(OperationCountAnalysis::runs, 2u));
+    expect(verify(module).ok());
+    expect(rewriter.erase(consumer));
+    expect(eq(second->use_count(), 0u));
     expect(verify(module).ok());
 }
 
@@ -272,6 +280,55 @@ void test_invalid_region_escape_and_mma_contract() {
     expect(has_diagnostic(bad_mma, "accumulator dimension"));
 }
 
+void test_intrusive_instruction_mutation() {
+    Module module;
+    auto function = module.create_function("intrusive_mutation");
+    auto root = function->body().append_block();
+    IRBuilder builder{root};
+    auto first = make_constant(builder, Type::scalar(ScalarType::INT32));
+    auto second = make_constant(builder, Type::scalar(ScalarType::INT32));
+    Value *operands[]{first->result(0u)};
+    Type results[]{Type::scalar(ScalarType::INT32)};
+    auto consumer = builder.create(OperationKind::CUSTOM, operands, results, "test.identity");
+
+    builder.set_insertion_point(consumer);
+    auto inserted = make_constant(builder, Type::scalar(ScalarType::INT32));
+    expect(eq(root->operation_count(), 4u));
+    expect(root->operation(0u) == first);
+    expect(root->operation(1u) == second);
+    expect(root->operation(2u) == inserted);
+    expect(root->operation(3u) == consumer);
+
+    IRRewriter rewriter;
+    expect(rewriter.move_before(inserted, first));
+    expect(root->operation(0u) == inserted);
+    expect(root->operation(1u) == first);
+    expect(root->operation(2u) == second);
+    expect(root->operation(3u) == consumer);
+    expect(consumer->operand(0u) == first->result(0u));
+    expect(eq(first->result(0u)->use_count(), 1u));
+
+    auto detached = consumer->remove_self();
+    expect(detached.get() == consumer);
+    expect(eq(root->operation_count(), 3u));
+    expect(eq(first->result(0u)->use_count(), 0u));
+    expect(!consumer->operand_use(0u)->is_linked());
+    expect(consumer->operand(0u) == first->result(0u));
+    expect(verify(module).ok());
+
+    auto relinked = root->operations().push_back(std::move(detached));
+    expect(relinked == consumer);
+    expect(eq(root->operation_count(), 4u));
+    expect(eq(first->result(0u)->use_count(), 1u));
+    expect(first->result(0u)->use_list().contains(consumer->operand_use(0u)));
+    expect(rewriter.move_before(consumer, second));
+    expect(root->operation(2u) == consumer);
+    expect(root->operation(3u) == second);
+    expect(eq(first->result(0u)->use_count(), 1u));
+    expect(first->result(0u)->use_list().contains(consumer->operand_use(0u)));
+    expect(verify(module).ok());
+}
+
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     "tile_ir_valid_structured_mma"_test = test_valid_structured_mma;
@@ -279,4 +336,5 @@ int main(int argc, char *argv[]) {
     "tile_ir_execution_scope_partial_order"_test = test_execution_scope_partial_order;
     "tile_ir_ssa_rewriter_and_analysis"_test = test_ssa_rewriter_and_analysis_cache;
     "tile_ir_rejects_invalid_programs"_test = test_invalid_region_escape_and_mma_contract;
+    "tile_ir_intrusive_instruction_mutation"_test = test_intrusive_instruction_mutation;
 }

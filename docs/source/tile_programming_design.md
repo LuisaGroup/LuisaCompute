@@ -1,6 +1,6 @@
 # Luisa Tile DSL: A From-Scratch Design
 
-- Status: architecture proposal and syntax contract, revision 10
+- Status: architecture proposal and syntax contract, revision 11
 - Compatibility with the removed prototype: none
 - Primary workloads: GEMM, attention, convolution, normalization, quantized,
   sparse, grouped, and persistent neural-network kernels
@@ -2023,6 +2023,60 @@ without importing MLIR:
 
 Serialization is one consumer of this model. It is not the in-memory design
 and does not define transformability.
+
+#### Ownership and mutation contract
+
+The mutable spine follows Luisa XIR's managed intrusive-list model, adapted for
+multi-result operations:
+
+~~~text
+Module
+└─ FunctionList                         managed intrusive, ordered
+   └─ Function
+      └─ Region                        single owner
+         └─ BlockList                  managed intrusive, ordered
+            └─ Block
+               └─ OperationList        managed intrusive, ordered
+                  └─ Operation
+                     ├─ operand slots  vector<ManagedPtr<Use>>, ordered
+                     │                    │
+                     │                    └── intrusive link ──> Value::UseList
+                     ├─ result Values  single owner, stable address
+                     └─ child Regions  single owner
+~~~
+
+`Function`, `Block`, and `Operation` need stable identity plus constant-time
+detach, insertion, and movement, so their ordered parent sequences are doubly
+linked managed intrusive lists. `Use` needs stable identity and constant-time
+unlink but no semantic order in the defining value's user set, so it is a
+managed intrusive *forward* node. The ordered operand slots retain a managed
+reference to each `Use`; the defining `Value::UseList` retains another reference
+only while the user operation is linked into TileIR.
+
+This linkedness rule is part of IR semantics:
+
+- `Operation::remove_self()` first detaches all operand uses and returns a
+  managed ownership handle;
+- insertion restores the parent pointer and reattaches those same `Use`
+  identities;
+- `set_operand` moves one `Use` between value lists in constant time;
+- replace-all-uses walks only the old value's use list, never the module;
+- erasure is legal only when every result has no linked uses, then automatically
+  removes all incoming use-def edges;
+- a detached operation is outside the IR and therefore does not participate in
+  liveness, use counts, verification, or analyses until reinserted.
+
+The verifier checks both relations for every operand: its logical
+`Use::value()` and the physical identity of the `Value::UseList` that owns its
+intrusive link. It also checks ordered parent membership, parent pointers,
+result definitions, unique IDs, and lexical dominance. `IRRewriter` wraps these
+mutations and invalidates cached analyses.
+
+Not every object is intrusive. `Region` and result `Value` have exactly one
+structural owner and never need sibling splicing; immutable types, dimensions,
+layouts, and attributes are shared/interned values. Keeping those simple avoids
+turning TileIR into a general object graph while preserving the operations that
+real transformation passes need.
 
 ### 10.2 Minimal operations
 
