@@ -121,6 +121,8 @@ private:
     IndexSpace _codomain;
     luisa::vector<IndexExpr> _outputs;
 
+    [[nodiscard]] LayoutProof _prove_bit_linear() const noexcept;
+
 public:
     IndexMap() noexcept = default;
     IndexMap(IndexSpace domain, IndexSpace codomain, luisa::span<const IndexExpr> outputs) noexcept;
@@ -130,7 +132,7 @@ public:
     [[nodiscard]] luisa::span<const IndexExpr> outputs() const noexcept { return _outputs; }
     [[nodiscard]] bool verify() const noexcept;
     [[nodiscard]] luisa::optional<luisa::vector<int64_t>> apply(luisa::span<const int64_t> point) const noexcept;
-    // Conservative algebraic proofs, followed by bounded exhaustive fallback.
+    // Checked affine and GF(2) proofs, followed by bounded exhaustive fallback.
     // Passing zero disables enumeration; UNKNOWN is never a safety proof.
     [[nodiscard]] LayoutProof prove(uint64_t max_fallback_points = 1024u * 1024u) const noexcept;
     // Kept independent of prove() as an exact small-domain semantic oracle.

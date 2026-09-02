@@ -98,7 +98,9 @@ constraint does not change ownership; unsupported placements fail explicitly.
 Use `memory<T>(layout(shape, stride(...)), resource)` for ordinary strided
 storage, or pass a composed `IndexMap` for a custom address map. A whole-Tile
 Memory layout must be total, in bounds, and injective. `IndexMap::prove()`
-proves ordinary affine layouts without enumerating their elements. Remaining
+proves ordinary affine and structurally bit-linear layouts without enumerating
+their elements. Gray-code/XOR swizzles, bit transposes, constant masks, and
+power-of-two digit packing use exact GF(2) rank and image bounds. Remaining
 maps use an exhaustive fallback of up to 1,048,576 logical points; an unknown
 proof fails native realization, not structural representation. Range-aware
 parallel writes and asynchronous pipeline versions are not implemented yet.
@@ -112,6 +114,9 @@ domains. LLVM also tests vector-private state and 513-by-2047 Memory snapshots
 with identity, padded, and transposed layouts, above the enumeration budget.
 The same large layouts export on Metal but correctly exceed its threadgroup
 storage capacity; this is a resource constraint, not a failed layout proof.
+Gray-code and digit-transpose Memory POCs exercise both CPU and Metal for
+sizes 1, 31, 32, 257, and 1024, plus CPU execution at 2,097,152 elements. The
+large case again exports on Metal and rejects its infeasible shared allocation.
 Native index-expression tests compare compiled address calculations with the
 TileIR evaluator. The canonical example above is independently captured
 under both C++20 and C++23.

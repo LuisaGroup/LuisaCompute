@@ -1069,6 +1069,7 @@ independent exhaustive oracle; passing zero to `prove()` disables that fallback.
 ~~~text
 IndexExpr DAG
    |-- checked affine normalization --> exact range + injectivity conditions
+   |-- structural GF(2) normalization --> bit-image range + exact matrix rank
    |-- concrete invalid point / colliding pair --> disproof
    `-- unresolved --> exhaustive finite fallback, within its budget
                         |
@@ -1101,14 +1102,54 @@ is **unknown**, not a proof of aliasing. Pigeonhole arguments, zero columns,
 and evaluated GCD-derived colliding pairs provide disproofs. Known cardinality
 and injectivity determine surjectivity where possible.
 
+The second implemented normalizer uses the same bit-basis algebra described
+by [Triton's LinearLayout](https://github.com/triton-lang/triton/blob/main/include/triton/Tools/LinearLayout.h),
+extended with an XOR translation:
+
+~~~text
+f(x) = c XOR XOR(input_bit[i] * basis[i])
+
+typed expression DAG --> prove GF(2) structure --> exact binary matrix
+                                                   |-- rank --> injectivity
+                                                   `-- affine image --> bounds
+~~~
+
+It derives the basis structurally from XOR, constant masks, constant logical
+shifts, carry-free addition, nonnegative power-of-two division/modulo/multiplication
+(with overflow checks), and Boolean-times-constant expressions. Every original
+subtree must be safe before cancellation or masking. In particular, a
+bit-pattern shift may discard high bits, whereas integer multiplication must
+not overflow. Evaluating only zero and basis vectors cannot establish
+linearity: a nonlinear expression can agree at those points and still alias.
+The normal form is transient analysis state and introduces no Triton/MLIR
+dependency or new DSL entity.
+
+The matrix spans every input and output coordinate, including maps with more
+than 64 total bits. For a static prefix box, each input axis uses
+`ceil(log2(extent))` bits. The normalizer works on the enclosing power-of-two
+box; an exact XOR-basis maximum proves output bounds without assuming that all
+individually possible bits can occur together. An invalid origin or unit-bit
+point disproves safety on the actual domain. An invalid envelope point alone
+does not disprove a ragged domain and may leave its bounds unknown.
+
+After bounds are proved, full column rank is equivalent to injectivity even
+on ragged prefix boxes. For `[0,n)` with `b = ceil(log2(n))`, every b-bit delta
+is an XOR of two valid coordinates: use `(delta,0)` when `delta<n`; otherwise
+use `(2^(b-1), delta XOR 2^(b-1))`. Thus a nonzero matrix-kernel vector always
+gives an actual colliding pair. On full power-of-two domains the affine image
+has exactly `2^rank` points, which also decides surjectivity. On ragged domains,
+surjectivity uses conservative cardinality facts or the finite fallback.
+
 This is not the full mixed-radix complement/inversion algebra described by
-[CuTe](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/cute/02_layout_algebra.html),
-nor the planned GF(2) normal form for bit-linear maps. Those remain separate
-proof/normalization work. The finite fallback budget is 1,048,576 logical
-points, but proved affine layouts are not subject to that cap. Large
-non-affine or symbolic maps may remain unknown. Exhaustive small-box tests
-cross-check every affirmative or negative affine fact against the independent
-evaluator; none of the safety conditions rely on sampled success.
+[CuTe](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/cute/02_layout_algebra.html).
+General image/preimage construction, inverse APIs, mixed arithmetic/bitwise
+normal forms, and symbolic constraints remain separate work. The finite
+fallback budget is 1,048,576 logical points, but proved affine and bit-linear
+layouts are not subject to that cap. Unsupported nonlinear or symbolic maps
+may remain unknown. Exhaustive small-box tests cross-check every affirmative
+or negative fact against the independent evaluator, including all 3-by-3
+GF(2) matrices and XOR offsets over full/ragged domains; none of the safety
+conditions rely on sampled success.
 
 ## 5. Value distribution is a layout, not another algebra
 

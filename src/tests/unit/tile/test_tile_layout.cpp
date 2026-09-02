@@ -4,12 +4,14 @@
 // - strided, permuted, reshaped, and bitwise maps
 // - composition closure and finite injectivity/surjectivity analysis
 // - conservative affine proofs checked against exhaustive semantic oracles
+// - structural GF(2) normalization, rank, bounds, and ragged-domain proofs
 // - exact set-valued correspondences for replicated placement
 
 #include "ut/ut.hpp"
 
 #include <utility>
 #include <array>
+#include <bit>
 #include <limits>
 
 #include <luisa/tile/layout.h>
@@ -447,6 +449,186 @@ void test_affine_proof_finite_oracle() {
     expect(proven != 0u && disproven != 0u);
 }
 
+void test_bit_linear_proofs() {
+    DimensionContext dimensions;
+    auto m = dimensions.create_dimension("m");
+    auto n = dimensions.create_dimension("n");
+    auto s = dimensions.create_dimension("storage");
+    auto i = IndexExpr::coordinate(m);
+    auto j = IndexExpr::coordinate(n);
+    auto c = [](int64_t value) noexcept { return IndexExpr::constant(value); };
+    for (auto extent : std::array<uint64_t, 6u>{1u, 31u, 32u, 2097151u, 2097152u, uint64_t{1u} << 63u}) {
+        IndexSpace domain;
+        expect(domain.add(m, extent));
+        IndexSpace storage;
+        expect(storage.add(s, std::bit_ceil(extent)));
+        IndexExpr outputs[]{bit_xor(i, shift_right(i, c(1)))};
+        auto proof = IndexMap{domain, storage, outputs}.prove(0u);
+        expect(proof.is_storage_safe());
+        expect(!proof.enumerated);
+        expect(proof.surjective == (std::has_single_bit(extent) ? ProofStatus::PROVEN : ProofStatus::DISPROVEN));
+    }
+    IndexSpace domain;
+    expect(domain.add(m, 1024u));
+    expect(domain.add(n, 2048u));
+    IndexSpace physical;
+    expect(physical.add(s, 2097152u));
+    IndexExpr swizzled[]{i * c(2048) + bit_xor(j, bit_and(i, c(2047)))};
+    auto swizzle = IndexMap{domain, physical, swizzled};
+    auto proof = swizzle.prove(0u);
+    expect(proof.is_storage_safe() && proof.surjective == ProofStatus::PROVEN && !proof.enumerated);
+    auto address = IndexExpr::coordinate(s);
+    IndexExpr unswizzled[]{floor_div(address, c(2048)), bit_xor(modulo(address, c(2048)), floor_div(address, c(2048)))};
+    auto inverse = IndexMap{physical, domain, unswizzled};
+    expect(inverse.prove(0u).is_storage_safe());
+    auto roundtrip = IndexMap::compose(inverse, swizzle);
+    expect(roundtrip.has_value());
+    if (roundtrip) {
+        expect(roundtrip->prove(0u).is_storage_safe());
+        for (auto point : {std::array<int64_t, 2u>{0, 0}, {1023, 2047}, {17, 53}}) {
+            auto mapped = roundtrip->apply(point);
+            expect(mapped.has_value());
+            if (mapped) { expect(*mapped == luisa::vector<int64_t>{point.begin(), point.end()}); }
+        }
+    }
+    // Matrix rank and cardinality must not silently stop at 64 total bits.
+    IndexSpace huge;
+    expect(huge.add(m, uint64_t{1u} << 40u));
+    expect(huge.add(n, uint64_t{1u} << 40u));
+    IndexExpr coupled[]{bit_xor(i, j), j};
+    auto wide = IndexMap{huge, huge, coupled}.prove(0u);
+    expect(wide.is_storage_safe() && wide.surjective == ProofStatus::PROVEN && !wide.enumerated);
+    IndexExpr lost_bit[]{bit_xor(i, j), bit_and(j, c((int64_t{1} << 39u) - 1))};
+    auto deficient = IndexMap{huge, huge, lost_bit}.prove(0u);
+    expect(deficient.total == ProofStatus::PROVEN);
+    expect(deficient.injective == ProofStatus::DISPROVEN);
+    expect(deficient.surjective == ProofStatus::DISPROVEN);
+}
+
+void test_bit_linear_bounds_and_checked_arithmetic() {
+    DimensionContext dimensions;
+    auto m = dimensions.create_dimension("m");
+    auto s = dimensions.create_dimension("storage");
+    auto i = IndexExpr::coordinate(m);
+    auto c = [](int64_t value) noexcept { return IndexExpr::constant(value); };
+    IndexSpace domain;
+    expect(domain.add(m, 2097152u));
+    auto high = shift_left(i, c(43));
+    IndexExpr restored[]{shift_right(high, c(43))};
+    expect(IndexMap{domain, domain, restored}.prove(0u).is_storage_safe());
+    IndexExpr overflow[]{shift_right(i * c(int64_t{1} << 43u), c(43))};
+    expect(IndexMap{domain, domain, overflow}.prove(0u).total == ProofStatus::DISPROVEN);
+    IndexExpr complemented[]{bit_and(bit_xor(i, c(-1)), c(2097151))};
+    expect(IndexMap{domain, domain, complemented}.prove(0u).is_storage_safe());
+    IndexSpace shifted_storage;
+    expect(shifted_storage.add(s, 4194304u));
+    IndexExpr shifted[]{bit_xor(i, shift_right(i, c(1))) + c(2097152)};
+    auto translated = IndexMap{domain, shifted_storage, shifted}.prove(0u);
+    expect(translated.is_storage_safe());
+    expect(translated.surjective == ProofStatus::DISPROVEN);
+
+    IndexSpace four;
+    expect(four.add(m, 4u));
+    IndexSpace seven;
+    expect(seven.add(s, 7u));
+    // Image {0,3,5,6}: OR-ing all possible bits overestimates the maximum as 7.
+    auto correlated = bit_xor(bit_and(i, c(1)) * c(3), shift_right(i, c(1)) * c(5));
+    IndexExpr correlated_output[]{correlated};
+    auto correlated_proof = IndexMap{four, seven, correlated_output}.prove(0u);
+    expect(correlated_proof.is_storage_safe() && !correlated_proof.enumerated);
+    IndexSpace six;
+    expect(six.add(s, 6u));
+    expect(IndexMap{four, six, correlated_output}.prove(0u).is_storage_invalid());
+    IndexSpace three;
+    expect(three.add(m, 3u));
+    // The excluded fourth point alone is out of range. Envelope failure is
+    // UNKNOWN for this ragged domain, never a disproof of the actual map.
+    auto ragged = IndexMap{three, six, correlated_output};
+    expect(ragged.prove(0u).total == ProofStatus::UNKNOWN);
+    expect(ragged.prove(3u).is_storage_safe());
+
+    IndexSpace two;
+    expect(two.add(m, 2u));
+    auto sign = bit_and(i, c(1)) * c(std::numeric_limits<int64_t>::min());
+    IndexExpr sign_restore[]{shift_right(sign, c(63))};
+    expect(IndexMap{two, two, sign_restore}.prove(0u).is_storage_safe());
+    IndexExpr invalid_shift[]{bit_and(shift_left(i, c(64)), c(0))};
+    expect(IndexMap{two, two, invalid_shift}.prove(0u).is_storage_invalid());
+    IndexExpr invalid_division[]{bit_and(floor_div(i, c(0)), c(0))};
+    expect(IndexMap{two, two, invalid_division}.prove(0u).is_storage_invalid());
+
+    IndexSpace eight;
+    expect(eight.add(m, 8u));
+    auto nonlinear = bit_xor(i, shift_left(bit_and(i, shift_right(i, c(1))), c(1)));
+    IndexExpr nonlinear_output[]{nonlinear};
+    IndexMap nonlinear_map{eight, eight, nonlinear_output};
+    // It looks like identity at 0 and all basis vectors, but f(1)=f(3)=1.
+    // Sampling a basis without structurally proving linearity is unsound.
+    for (auto point : {0, 1, 2, 4}) {
+        int64_t coordinate[]{point};
+        auto mapped = nonlinear_map.apply(coordinate);
+        expect(mapped.has_value() && mapped->front() == point);
+    }
+    expect(!nonlinear_map.prove(0u).is_storage_safe());
+    expect(nonlinear_map.prove(8u).injective == ProofStatus::DISPROVEN);
+}
+
+void test_bit_linear_proof_finite_oracle() {
+    DimensionContext dimensions;
+    auto m = dimensions.create_dimension("m");
+    auto n = dimensions.create_dimension("n");
+    auto u = dimensions.create_dimension("u");
+    auto v = dimensions.create_dimension("v");
+    auto i = IndexExpr::coordinate(m);
+    auto j = IndexExpr::coordinate(n);
+    auto c = [](int64_t value) noexcept { return IndexExpr::constant(value); };
+    auto agrees = [](ProofStatus proof, bool oracle) noexcept {
+        return proof == ProofStatus::UNKNOWN || (proof == ProofStatus::PROVEN) == oracle;
+    };
+    auto cases = 0u;
+    for (auto extents : {std::array{2u, 4u}, std::array{2u, 3u}, std::array{1u, 4u}}) {
+        IndexSpace domain;
+        expect(domain.add(m, extents[0]));
+        expect(domain.add(n, extents[1]));
+        for (auto codomain_kind : {0, 1, 2}) {
+            IndexSpace codomain;
+            expect(codomain.add(u, codomain_kind == 0 ? 8u : codomain_kind == 1 ? 2u :
+                                                                                  6u));
+            if (codomain_kind == 1) { expect(codomain.add(v, 4u)); }
+            // Every 3x3 GF(2) matrix and XOR offset, not random samples.
+            for (auto matrix = 0u; matrix < 512u; matrix++) {
+                for (auto offset = 0u; offset < 8u; offset++) {
+                    auto packed = bit_xor(c(offset), bit_xor(i * c(matrix & 7u),
+                                                             bit_xor(bit_and(j, c(1)) * c((matrix >> 3u) & 7u),
+                                                                     shift_right(j, c(1)) * c((matrix >> 6u) & 7u))));
+                    luisa::vector<IndexExpr> outputs;
+                    if (codomain_kind == 1) {
+                        outputs = {bit_and(packed, c(1)), shift_right(packed, c(1))};
+                    } else {
+                        outputs = {packed};
+                    }
+                    IndexMap map{domain, codomain, outputs};
+                    auto proof = map.prove(0u);
+                    auto oracle = map.analyze_finite(8u);
+                    auto sound = oracle.enumerated && !proof.enumerated &&
+                                 agrees(proof.total, oracle.total) && agrees(proof.in_bounds, oracle.in_bounds) &&
+                                 agrees(proof.injective, oracle.injective) && agrees(proof.surjective, oracle.surjective);
+                    if (extents[1] == 4u && codomain_kind != 2) {
+                        sound &= proof.total != ProofStatus::UNKNOWN && proof.injective != ProofStatus::UNKNOWN && proof.surjective != ProofStatus::UNKNOWN;
+                    }
+                    if (!sound) {
+                        expect(sound) << "GF(2) proof disagrees with exhaustive oracle: " << extents[0] << "," << extents[1]
+                                      << " codomain=" << codomain_kind << " matrix=" << matrix << " offset=" << offset;
+                        return;
+                    }
+                    cases++;
+                }
+            }
+        }
+    }
+    expect(eq(cases, 36864u));
+}
+
 void test_layout_correspondence() {
     DimensionContext dimensions;
     auto logical_dimension = dimensions.create_dimension("logical");
@@ -508,5 +690,8 @@ int main(int argc, char *argv[]) {
     "tile_affine_proof_counterexamples"_test = test_affine_proof_counterexamples;
     "tile_layout_proof_cardinality_edges"_test = test_layout_proof_cardinality_edges;
     "tile_affine_proof_finite_oracle"_test = test_affine_proof_finite_oracle;
+    "tile_bit_linear_proofs"_test = test_bit_linear_proofs;
+    "tile_bit_linear_bounds_and_checked_arithmetic"_test = test_bit_linear_bounds_and_checked_arithmetic;
+    "tile_bit_linear_proof_finite_oracle"_test = test_bit_linear_proof_finite_oracle;
     "tile_layout_correspondence"_test = test_layout_correspondence;
 }

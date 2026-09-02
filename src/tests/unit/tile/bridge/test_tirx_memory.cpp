@@ -413,11 +413,12 @@ void test_memory_layouts(Runtime &runtime) {
 void test_unproved_layout(Runtime &runtime) {
     auto kernel = tile_kernel("manual_unproved_layout", [] {
                       for (auto &nest : parallel(shape(1), exec::Scope::WORKER)) {
-                          // This large Gray-code bijection is representable,
-                          // but outside the implemented affine proof rules.
+                          // Multiplication by an odd integer is a permutation
+                          // modulo 2^21, but is not generally GF(2)-linear.
+                          // This remains outside the analytic proof rules.
                           auto space = shape(2097152);
                           auto i = IndexExpr::coordinate(space.axis(0).dimension);
-                          IndexExpr address[]{bit_xor(i, shift_right(i, IndexExpr::constant(1)))};
+                          IndexExpr address[]{modulo(i * IndexExpr::constant(3), IndexExpr::constant(2097152))};
                           auto scratch = memory<float>(IndexMap{space, space, address});
                           scratch.store(zeros<float>(space));
                       }
@@ -426,6 +427,55 @@ void test_unproved_layout(Runtime &runtime) {
     auto executable = runtime.build(kernel);
     expect(!executable.ok());
     expect(executable.error.find("proof budget") != luisa::string::npos) << executable.error;
+}
+
+void test_bit_linear_memory_layouts(Runtime &runtime) {
+    for (auto count : {1, 31, 32, 257, 1024, 2097152}) {
+        for (auto kind : {0, 1}) {
+            auto padded = std::bit_ceil(static_cast<uint64_t>(count));
+            auto scope = root_scope(runtime);
+            auto resource = root_resource(runtime);
+            auto definition = tile_kernel("manual_bit_linear_memory", [=](TensorView<const float, 1> input,
+                                                                          TensorView<float, 1> output) {
+                for (auto &nest : parallel(shape(1), scope)) {
+                    auto space = shape(count);
+                    auto physical = shape(padded);
+                    auto i = IndexExpr::coordinate(space.axis(0).dimension);
+                    auto split = uint64_t{1u} << (std::bit_width(padded - 1u) / 2u);
+                    auto c = [](uint64_t value) noexcept { return IndexExpr::constant(static_cast<int64_t>(value)); };
+                    IndexExpr address[]{kind == 0 ? bit_xor(i, shift_right(i, c(1))) :
+                                                    modulo(i, c(split)) * c(padded / split) + floor_div(i, c(split))};
+                    auto map = IndexMap{space, physical, address};
+                    auto proof = map.prove(0u);
+                    expect(proof.is_storage_safe() && !proof.enumerated);
+                    auto scratch = memory<float>(map, resource);
+                    scratch.store(input(coord(0), space).load());
+                    auto old = scratch.load();
+                    scratch.store(old * 2.0f + 1.0f);
+                    output(coord(0), space).store(scratch.load() + old);
+                }
+            });
+            auto kernel = definition.capture(tensor_shape(count), tensor_shape(count));
+            expect(kernel.valid());
+            auto native = bridge::tirx::lower(kernel.function());
+            expect(native.ok()) << native.error;
+            if (!native) { continue; }
+            auto executable = runtime.build(kernel);
+            if (runtime.target() == "metal" && count == 2097152) {
+                expect(!executable.ok());
+                expect(executable.error.find("shared-memory capacity") != luisa::string::npos) << executable.error;
+                continue;
+            }
+            expect(executable.ok()) << executable.error;
+            if (!executable.ok()) { continue; }
+            auto input = values(count);
+            auto source = runtime.upload<float>({count}, input);
+            auto output = runtime.allocate<float>({count});
+            (*executable.entry)(source, output);
+            for (auto &value : input) { value = value * 3.0f + 1.0f; }
+            expect_near(runtime.download<float>(output, input.size()), input);
+        }
+    }
 }
 
 void test_large_proved_layouts(Runtime &runtime) {
@@ -588,6 +638,7 @@ int main(int argc, char *argv[]) {
     "tile_native_memory_live_empty_storage"_test = [&] { test_live_empty_storage(runtime); };
     "tile_native_memory_layouts"_test = [&] { test_memory_layouts(runtime); };
     "tile_native_memory_unproved_layout"_test = [&] { test_unproved_layout(runtime); };
+    "tile_native_memory_bit_linear_layouts"_test = [&] { test_bit_linear_memory_layouts(runtime); };
     "tile_native_memory_large_proved_layouts"_test = [&] { test_large_proved_layouts(runtime); };
     "tile_native_memory_address_overflow"_test = [&] { test_memory_address_overflow(runtime); };
     "tile_native_memory_capacity"_test = [&] { test_manual_capacity(runtime); };

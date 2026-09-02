@@ -1,4 +1,6 @@
 #include <algorithm>
+#include <array>
+#include <bit>
 #include <limits>
 #include <numeric>
 #include <utility>
@@ -92,6 +94,25 @@ struct IndexExprNode {
     return product ? checked_subtract(lhs, *product) : luisa::nullopt;
 }
 
+[[nodiscard]] luisa::optional<int64_t> evaluate_binary(IndexExprKind kind, int64_t lhs, int64_t rhs) noexcept {
+    switch (kind) {
+        case IndexExprKind::ADD: return checked_add(lhs, rhs);
+        case IndexExprKind::SUBTRACT: return checked_subtract(lhs, rhs);
+        case IndexExprKind::MULTIPLY: return checked_multiply(lhs, rhs);
+        case IndexExprKind::FLOOR_DIVIDE: return floor_quotient(lhs, rhs);
+        case IndexExprKind::MODULO: return floor_remainder(lhs, rhs);
+        case IndexExprKind::BIT_XOR: return lhs ^ rhs;
+        case IndexExprKind::BIT_AND: return lhs & rhs;
+        case IndexExprKind::SHIFT_LEFT:
+            if (rhs < 0 || rhs >= 64) { return luisa::nullopt; }
+            return static_cast<int64_t>(static_cast<uint64_t>(lhs) << static_cast<uint64_t>(rhs));
+        case IndexExprKind::SHIFT_RIGHT:
+            if (rhs < 0 || rhs >= 64) { return luisa::nullopt; }
+            return static_cast<int64_t>(static_cast<uint64_t>(lhs) >> static_cast<uint64_t>(rhs));
+        default: return luisa::nullopt;
+    }
+}
+
 [[nodiscard]] luisa::optional<int64_t> evaluate_expr(const IndexExprNode *node,
                                                      const IndexSpace &domain,
                                                      luisa::span<const int64_t> point) noexcept {
@@ -107,23 +128,7 @@ struct IndexExprNode {
     auto lhs = evaluate_expr(node->lhs.get(), domain, point);
     auto rhs = evaluate_expr(node->rhs.get(), domain, point);
     if (!lhs || !rhs) { return luisa::nullopt; }
-    switch (node->kind) {
-        case IndexExprKind::ADD: return checked_add(*lhs, *rhs);
-        case IndexExprKind::SUBTRACT: return checked_subtract(*lhs, *rhs);
-        case IndexExprKind::MULTIPLY: return checked_multiply(*lhs, *rhs);
-        case IndexExprKind::FLOOR_DIVIDE: return floor_quotient(*lhs, *rhs);
-        case IndexExprKind::MODULO: return floor_remainder(*lhs, *rhs);
-        case IndexExprKind::BIT_XOR: return *lhs ^ *rhs;
-        case IndexExprKind::BIT_AND: return *lhs & *rhs;
-        case IndexExprKind::SHIFT_LEFT:
-            if (*rhs < 0 || *rhs >= 64) { return luisa::nullopt; }
-            return static_cast<int64_t>(static_cast<uint64_t>(*lhs) << static_cast<uint64_t>(*rhs));
-        case IndexExprKind::SHIFT_RIGHT:
-            if (*rhs < 0 || *rhs >= 64) { return luisa::nullopt; }
-            return static_cast<int64_t>(static_cast<uint64_t>(*lhs) >> static_cast<uint64_t>(*rhs));
-        default: break;
-    }
-    return luisa::nullopt;
+    return evaluate_binary(node->kind, *lhs, *rhs);
 }
 
 [[nodiscard]] bool decode_point(uint64_t linear, const IndexSpace &space, luisa::vector<int64_t> &point) noexcept {
@@ -243,6 +248,184 @@ public:
         return result;
     }
 };
+
+// One 64-bit output word, affine over GF(2). Column i is the contribution
+// of input bit i; offset is XOR translation, never integer addition.
+// This is derived analysis state, not a second stored layout representation.
+struct BitLinearForm {
+    uint64_t offset{0u};
+    luisa::vector<uint64_t> columns;
+
+    [[nodiscard]] bool is_constant() const noexcept {
+        return std::all_of(columns.begin(), columns.end(), [](auto value) noexcept { return value == 0u; });
+    }
+
+    [[nodiscard]] uint64_t possible_bits() const noexcept {
+        auto bits = offset;
+        for (auto column : columns) { bits |= column; }
+        return bits;
+    }
+
+    [[nodiscard]] uint64_t maximum() const noexcept {
+        std::array<uint64_t, 64u> pivots{};
+        for (auto column : columns) {
+            while (column != 0u) {
+                auto pivot = std::bit_width(column) - 1u;
+                if (pivots[pivot] == 0u) {
+                    pivots[pivot] = column;
+                    break;
+                }
+                column ^= pivots[pivot];
+            }
+        }
+        // Greedy reduction in a highest-bit triangular XOR basis gives the
+        // exact unsigned maximum of this affine image, including correlations.
+        auto value = offset;
+        for (auto i = pivots.size(); i != 0u; i--) { value = std::max(value, value ^ pivots[i - 1u]); }
+        return value;
+    }
+};
+
+class BitLinearAnalyzer {
+
+private:
+    const IndexSpace &_domain;
+    luisa::vector<size_t> _bit_offsets;
+    luisa::unordered_map<const IndexExprNode *, luisa::optional<BitLinearForm>> _cache;
+
+    [[nodiscard]] BitLinearForm _constant(uint64_t value) const noexcept {
+        return {value, luisa::vector<uint64_t>(input_bits(), 0u)};
+    }
+
+    template<typename F>
+    [[nodiscard]] static BitLinearForm _transform(BitLinearForm form, F &&transform) noexcept {
+        form.offset = transform(form.offset);
+        for (auto &column : form.columns) { column = transform(column); }
+        return form;
+    }
+
+    [[nodiscard]] luisa::optional<BitLinearForm> _compute(const IndexExprNode *node) noexcept {
+        if (node == nullptr) { return luisa::nullopt; }
+        if (node->kind == IndexExprKind::CONSTANT) { return _constant(static_cast<uint64_t>(node->constant)); }
+        if (node->kind == IndexExprKind::COORDINATE) {
+            auto axis = _domain.axis_index(node->dimension);
+            if (!axis) { return luisa::nullopt; }
+            auto form = _constant(0u);
+            auto begin = _bit_offsets[*axis];
+            auto end = _bit_offsets[*axis + 1u];
+            for (auto i = begin; i < end; i++) { form.columns[i] = uint64_t{1u} << (i - begin); }
+            return form;
+        }
+        auto lhs = analyze(node->lhs.get());
+        auto rhs = analyze(node->rhs.get());
+        // Prove every original subtree safe. Masking, XOR cancellation, and
+        // multiplication by zero must not erase an undefined computation.
+        if (!lhs || !rhs) { return luisa::nullopt; }
+        if (lhs->is_constant() && rhs->is_constant()) {
+            auto value = evaluate_binary(node->kind, std::bit_cast<int64_t>(lhs->offset), std::bit_cast<int64_t>(rhs->offset));
+            return value ? luisa::optional<BitLinearForm>{_constant(static_cast<uint64_t>(*value))} : luisa::nullopt;
+        }
+        switch (node->kind) {
+            case IndexExprKind::ADD:
+                // Disjoint bit support rules out every carry, and hence both
+                // signed overflow and any difference between addition and XOR.
+                if ((lhs->possible_bits() & rhs->possible_bits()) != 0u) { return luisa::nullopt; }
+                [[fallthrough]];
+            case IndexExprKind::BIT_XOR:
+                lhs->offset ^= rhs->offset;
+                for (auto i = 0u; i < lhs->columns.size(); i++) { lhs->columns[i] ^= rhs->columns[i]; }
+                return lhs;
+            case IndexExprKind::BIT_AND:
+                if (!rhs->is_constant()) { std::swap(lhs, rhs); }
+                if (!rhs->is_constant()) { return luisa::nullopt; }
+                return _transform(std::move(*lhs), [mask = rhs->offset](auto value) noexcept { return value & mask; });
+            case IndexExprKind::SHIFT_LEFT:
+            case IndexExprKind::SHIFT_RIGHT: {
+                if (!rhs->is_constant() || rhs->offset >= 64u) { return luisa::nullopt; }
+                auto shift = rhs->offset;
+                return _transform(std::move(*lhs), [shift, kind = node->kind](auto value) noexcept {
+                    return kind == IndexExprKind::SHIFT_LEFT ? value << shift : value >> shift;
+                });
+            }
+            case IndexExprKind::MULTIPLY: {
+                if (!rhs->is_constant()) { std::swap(lhs, rhs); }
+                if (!rhs->is_constant()) { return luisa::nullopt; }
+                auto factor = rhs->offset;
+                if (factor == 0u) { return _constant(0u); }
+                // A Boolean times any signed constant is safe, and can
+                // duplicate one input bit into an arbitrary output bit basis.
+                if (lhs->possible_bits() <= 1u) {
+                    return _transform(std::move(*lhs), [factor](auto value) noexcept { return value == 0u ? 0u : factor; });
+                }
+                constexpr auto maximum = static_cast<uint64_t>(std::numeric_limits<int64_t>::max());
+                if (!std::has_single_bit(factor) || factor > maximum || lhs->maximum() > maximum / factor) { return luisa::nullopt; }
+                auto shift = std::countr_zero(factor);
+                return _transform(std::move(*lhs), [shift](auto value) noexcept { return value << shift; });
+            }
+            case IndexExprKind::FLOOR_DIVIDE:
+            case IndexExprKind::MODULO: {
+                if (!rhs->is_constant() || !std::has_single_bit(rhs->offset) ||
+                    rhs->offset > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) ||
+                    (lhs->possible_bits() >> 63u) != 0u) { return luisa::nullopt; }
+                auto divisor = rhs->offset;
+                auto shift = std::countr_zero(divisor);
+                return _transform(std::move(*lhs), [divisor, shift, kind = node->kind](auto value) noexcept {
+                    return kind == IndexExprKind::FLOOR_DIVIDE ? value >> shift : value & (divisor - 1u);
+                });
+            }
+            case IndexExprKind::SUBTRACT:
+                if (rhs->is_constant() && rhs->offset == 0u) { return lhs; }
+                if (lhs->offset == rhs->offset && lhs->columns == rhs->columns) { return _constant(0u); }
+                return luisa::nullopt;
+            default: return luisa::nullopt;
+        }
+    }
+
+public:
+    BitLinearAnalyzer(const IndexSpace &domain, luisa::span<const int64_t> limits) noexcept
+        : _domain{domain} {
+        _bit_offsets.reserve(limits.size() + 1u);
+        _bit_offsets.emplace_back(0u);
+        for (auto limit : limits) { _bit_offsets.emplace_back(_bit_offsets.back() + std::bit_width(static_cast<uint64_t>(limit))); }
+    }
+
+    [[nodiscard]] size_t input_bits() const noexcept { return _bit_offsets.back(); }
+
+    [[nodiscard]] luisa::optional<BitLinearForm> analyze(const IndexExprNode *node) noexcept {
+        if (auto iter = _cache.find(node); iter != _cache.end()) { return iter->second; }
+        auto result = _compute(node);
+        _cache.emplace(node, result);
+        return result;
+    }
+};
+
+[[nodiscard]] size_t bit_linear_rank(luisa::span<const BitLinearForm> forms, size_t input_bits) noexcept {
+    // Columns span all output coordinates, not just one uint64. Layouts with
+    // more than 64 input or output bits have the same exact rank semantics.
+    luisa::vector<luisa::vector<uint64_t>> pivots(forms.size() * 64u);
+    auto rank = size_t{0u};
+    for (auto i = 0u; i < input_bits; i++) {
+        luisa::vector<uint64_t> column;
+        column.reserve(forms.size());
+        for (auto &&form : forms) { column.emplace_back(form.columns[i]); }
+        for (auto word = column.size(); word != 0u; word--) {
+            auto inserted = false;
+            while (column[word - 1u] != 0u) {
+                auto bit = std::bit_width(column[word - 1u]) - 1u;
+                auto &pivot = pivots[(word - 1u) * 64u + bit];
+                if (pivot.empty()) {
+                    pivot = std::move(column);
+                    rank++;
+                    inserted = true;
+                    break;
+                }
+                for (auto j = 0u; j < word; j++) { column[j] ^= pivot[j]; }
+            }
+            if (inserted) { break; }
+        }
+    }
+    return rank;
+}
 
 [[nodiscard]] uint64_t magnitude(int64_t value) noexcept {
     return value < 0 ? uint64_t{0u} - static_cast<uint64_t>(value) : static_cast<uint64_t>(value);
@@ -547,13 +730,95 @@ LayoutProperties IndexMap::analyze_finite(uint64_t max_points) const noexcept {
     return properties;
 }
 
+LayoutProof IndexMap::_prove_bit_linear() const noexcept {
+    constexpr auto yes = ProofStatus::PROVEN;
+    constexpr auto no = ProofStatus::DISPROVEN;
+    constexpr auto unknown = ProofStatus::UNKNOWN;
+    luisa::vector<int64_t> limits;
+    limits.reserve(_domain.rank());
+    auto full_cube = true;
+    for (auto &&axis : _domain.axes()) {
+        if (!axis.extent.is_constant()) { return {}; }
+        auto extent = axis.extent.constant_value();
+        if (extent == 0u || extent - 1u > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) { return {}; }
+        limits.emplace_back(static_cast<int64_t>(extent - 1u));
+        full_cube &= std::has_single_bit(extent);
+    }
+    for (auto &&axis : _codomain.axes()) {
+        if (!axis.extent.is_constant()) { return {}; }
+    }
+    detail::BitLinearAnalyzer analyzer{_domain, limits};
+    luisa::vector<detail::BitLinearForm> forms;
+    forms.reserve(_outputs.size());
+    for (auto i = 0u; i < _outputs.size(); i++) {
+        auto form = analyzer.analyze(_outputs[i]._node.get());
+        if (!form) { return {}; }
+        // The basis lives on the smallest enclosing power-of-two box. Origin
+        // and every unit-bit point also belong to the original (possibly
+        // ragged) domain, so any invalid one is an actual counterexample.
+        auto extent = std::min(_codomain.axis(i).extent.constant_value(), uint64_t{1u} << 63u);
+        if (form->offset >= extent ||
+            std::any_of(form->columns.begin(), form->columns.end(), [&](auto column) noexcept { return (form->offset ^ column) >= extent; })) {
+            return {no, no, no, no};
+        }
+        if (form->maximum() >= extent) {
+            // An envelope counterexample need not be inside a ragged domain.
+            // Success at the basis points is never a proof of range safety.
+            return full_cube ? LayoutProof{no, no, no, no} : LayoutProof{};
+        }
+        forms.emplace_back(std::move(*form));
+    }
+    auto rank = detail::bit_linear_rank(forms, analyzer.input_bits());
+    // Rank deficiency also proves a collision on a ragged prefix box: for
+    // [0,n) with b=ceil(log2(n)), every b-bit delta is x XOR y for valid x,y.
+    // If delta<n use (delta,0); otherwise use (2^(b-1),delta XOR 2^(b-1)).
+    // Apply this per coordinate to any nonzero vector in the matrix kernel.
+    LayoutProof proof{yes, yes, rank == analyzer.input_bits() ? yes : no, unknown};
+    auto output_bits = size_t{0u};
+    auto power_of_two_output = true;
+    for (auto &&axis : _codomain.axes()) {
+        auto extent = axis.extent.constant_value();
+        power_of_two_output &= std::has_single_bit(extent);
+        output_bits += std::bit_width(extent - 1u);
+    }
+    if (full_cube) {
+        // A GF(2) affine image has exactly 2^rank points, even when the
+        // cardinality cannot be held in uint64. Translation preserves rank.
+        proof.surjective = power_of_two_output && rank == output_bits ? yes : no;
+    } else {
+        auto domain_volume = _domain.static_volume();
+        auto codomain_volume = _codomain.static_volume();
+        if (codomain_volume && *codomain_volume == 1u) {
+            proof.surjective = yes;
+        } else if ((domain_volume && (!codomain_volume || *domain_volume < *codomain_volume)) ||
+                   (power_of_two_output && rank < output_bits)) {
+            proof.surjective = no;
+        } else if (detail::equal_static_cardinality(_domain, _codomain)) {
+            proof.surjective = proof.injective;
+        }
+    }
+    return proof;
+}
+
 LayoutProof IndexMap::prove(uint64_t max_fallback_points) const noexcept {
     constexpr auto yes = ProofStatus::PROVEN;
     constexpr auto no = ProofStatus::DISPROVEN;
     constexpr auto unknown = ProofStatus::UNKNOWN;
     auto fallback = [&](LayoutProof proof) noexcept {
-        if (proof.total != unknown && proof.in_bounds != unknown &&
-            proof.injective != unknown && proof.surjective != unknown) { return proof; }
+        auto complete = [](const LayoutProof &candidate) noexcept {
+            return candidate.total != unknown && candidate.in_bounds != unknown &&
+                   candidate.injective != unknown && candidate.surjective != unknown;
+        };
+        if (complete(proof)) { return proof; }
+        auto bits = _prove_bit_linear();
+        auto merge = [](ProofStatus &fact, ProofStatus other) noexcept {
+            if (fact == unknown) { fact = other; }
+        };
+        merge(proof.total, bits.total);
+        merge(proof.in_bounds, bits.in_bounds);
+        merge(proof.injective, bits.injective);
+        merge(proof.surjective, bits.surjective);
+        if (complete(proof)) { return proof; }
         auto finite = analyze_finite(max_fallback_points);
         return finite.enumerated ? LayoutProof{finite.total ? yes : no, finite.in_bounds ? yes : no,
                                                finite.injective ? yes : no, finite.surjective ? yes : no, true} :
