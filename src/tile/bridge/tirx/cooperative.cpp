@@ -9,6 +9,7 @@
 #include <tvm/tirx/stmt_functor.h>
 
 #include <luisa/core/stl/unordered_map.h>
+#include <luisa/core/stl/vector.h>
 
 #include "execution.h"
 
@@ -30,6 +31,41 @@ void validate_domain(const tvm::tirx::ForNode *loop) {
         (loop->step && (step == nullptr || step->value != 1))) {
         throw std::runtime_error{"cooperative Tile execution requires serial unit-step domains before binding"};
     }
+}
+
+struct ElementDomain {
+    luisa::vector<const tvm::tirx::ForNode *> axes;
+    tvm::tirx::Stmt body;
+    uint64_t count{1u};
+};
+
+[[nodiscard]] ElementDomain element_domain(const tvm::tirx::ForNode *loop) {
+    auto rank = int64_t{1};
+    if (auto annotation = loop->annotations.Get(independent_elements_annotation)) {
+        auto value = annotation.value().as<tvm::IntImmNode>();
+        if (value == nullptr || value->value <= 0) {
+            throw std::runtime_error{"cooperative Tile element domain requires a positive static rank"};
+        }
+        rank = value->value;
+    }
+    ElementDomain result;
+    auto current = loop;
+    for (auto i = int64_t{0}; i < rank; i++) {
+        if (current == nullptr || (i != 0 && !current->annotations.empty()) ||
+            current->min.as<tvm::IntImmNode>() == nullptr) {
+            throw std::runtime_error{"cooperative Tile element domain requires a perfect static rectangular nest"};
+        }
+        validate_domain(current);
+        auto extent = static_extent(current->extent);
+        if (extent != 0u && result.count > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) / extent) {
+            throw std::runtime_error{"cooperative Tile element domain exceeds int64 range"};
+        }
+        result.count *= extent;
+        result.axes.emplace_back(current);
+        result.body = current->body;
+        current = current->body.as<tvm::tirx::ForNode>();
+    }
+    return result;
 }
 
 [[nodiscard]] tvm::tirx::Stmt metal_group_barrier() {
@@ -59,18 +95,29 @@ private:
     }
 
     [[nodiscard]] tvm::tirx::Stmt _distribute(const tvm::tirx::ForNode *loop) {
-        auto count = static_extent(loop->extent);
+        auto domain = element_domain(loop);
+        auto count = domain.count;
         _lane_depth++;
-        auto body = VisitStmt(loop->body);
+        auto body = VisitStmt(domain.body);
         _lane_depth--;
         if (count == 0u) { return tvm::tirx::Evaluate{tvm::IntImm::Int32(0)}; }
         auto chunks = (count + _threads - 1u) / _threads;
         auto chunk = tvm::tirx::PrimVar{loop->loop_var->name + "_chunk", tvm::PrimType::Int(64)};
         auto linear = chunk * tvm::IntImm::Int64(static_cast<int64_t>(_threads)) + _thread;
-        body = tvm::tirx::Substitute(std::move(body),
-                                     tvm::ffi::Map<tvm::tirx::Var, tvm::Expr>{{loop->loop_var, loop->min + linear}});
+        tvm::ffi::Map<tvm::tirx::Var, tvm::Expr> coordinates;
+        auto trailing = count;
+        for (auto axis : domain.axes) {
+            auto extent = static_extent(axis->extent);
+            trailing /= extent;
+            tvm::PrimExpr coordinate = linear;
+            if (domain.axes.size() != 1u) {
+                coordinate = tvm::floormod(tvm::floordiv(std::move(coordinate), tvm::IntImm::Int64(static_cast<int64_t>(trailing))), axis->extent);
+            }
+            coordinates.Set(axis->loop_var, axis->min + coordinate);
+        }
+        body = tvm::tirx::Substitute(std::move(body), coordinates);
         if (chunks * _threads != count) {
-            body = tvm::tirx::IfThenElse{linear < loop->extent, std::move(body)};
+            body = tvm::tirx::IfThenElse{linear < tvm::IntImm::Int64(static_cast<int64_t>(count)), std::move(body)};
         }
         auto distributed = tvm::tirx::For{
             chunk, tvm::IntImm::Int64(0), tvm::IntImm::Int64(static_cast<int64_t>(chunks)),
@@ -183,7 +230,7 @@ tvm::tirx::Stmt map_metal_cooperative_group(const tvm::tirx::For &loop, uint32_t
     tvm::tirx::PostOrderVisit(loop->body, [&](const tvm::ffi::ObjectRef &node) {
         if (auto child = node.as<tvm::tirx::ForNode>(); child != nullptr &&
                                                         (child->annotations.count(independent_elements_annotation) || child->annotations.count(logical_parallel_annotation))) {
-            grain = std::max(grain, static_extent(child->extent));
+            grain = std::max(grain, element_domain(child).count);
         }
     });
     auto threads = std::min<uint64_t>(grain, std::max<uint32_t>(max_threads, 1u));

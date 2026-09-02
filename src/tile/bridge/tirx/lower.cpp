@@ -220,6 +220,7 @@ private:
                                             const std::function<tvm::tirx::Stmt(const Indices &)> &body,
                                             bool independent = true) {
         Indices indices;
+        tvm::ffi::Array<tvm::tirx::PrimVar> variables;
         auto extents = _shape(space);
         if (extents.size() != space.rank()) {
             _fail("native Tile lowering requires JIT-specialized static extents");
@@ -234,26 +235,32 @@ private:
             }
             count *= value;
         }
-        auto name = tvm::ffi::String{std::string{"tile_i_"} + std::to_string(_temporary_index++)};
-        auto variable = tvm::tirx::PrimVar{std::move(name), tvm::PrimType::Int(64)};
-        auto trailing = count;
-        for (auto &&extent : extents) {
-            auto value = static_cast<uint64_t>(extent.as<tvm::IntImmNode>()->value);
-            if (count == 0u || value == 1u) {
-                indices.push_back(tvm::IntImm::Int64(0));
-            } else {
-                trailing /= value;
-                indices.push_back(tvm::floormod(tvm::floordiv(variable, tvm::IntImm::Int64(static_cast<int64_t>(trailing))), extent));
-            }
+        for (auto i = 0u; i < space.rank(); i++) {
+            auto name = tvm::ffi::String{std::string{"tile_i_"} + std::to_string(_temporary_index++)};
+            auto variable = tvm::tirx::PrimVar{std::move(name), tvm::PrimType::Int(64)};
+            variables.push_back(variable);
+            indices.push_back(std::move(variable));
         }
         auto statement = body(indices);
         if (!statement.defined()) { return {}; }
-        tvm::ffi::Map<tvm::ffi::String, tvm::ffi::Any> annotations;
-        if (independent) {
-            annotations.Set(independent_elements_annotation, tvm::IntImm::Int32(1));
+        if (variables.empty()) {
+            // Even a scalar map needs a region so its entire body executes
+            // once, with private temporaries, when distributed across a group.
+            auto name = tvm::ffi::String{std::string{"tile_i_"} + std::to_string(_temporary_index++)};
+            variables.push_back(tvm::tirx::PrimVar{std::move(name), tvm::PrimType::Int(64)});
+            extents.push_back(tvm::IntImm::Int64(1));
         }
-        return tvm::tirx::For{variable, tvm::IntImm::Int64(0), tvm::IntImm::Int64(static_cast<int64_t>(count)),
-                              tvm::tirx::ForKind::kSerial, std::move(statement), std::nullopt, std::move(annotations)};
+        // Preserve the rectangular loop nest for CPU optimization. Only a
+        // cooperative target binding should flatten it into worker chunks.
+        for (auto i = variables.size(); i != 0u; i--) {
+            tvm::ffi::Map<tvm::ffi::String, tvm::ffi::Any> annotations;
+            if (independent && i == 1u) {
+                annotations.Set(independent_elements_annotation, tvm::IntImm::Int64(static_cast<int64_t>(variables.size())));
+            }
+            statement = tvm::tirx::For{variables[i - 1u], tvm::IntImm::Int64(0), extents[i - 1u],
+                                       tvm::tirx::ForKind::kSerial, std::move(statement), std::nullopt, std::move(annotations)};
+        }
+        return statement;
     }
 
     [[nodiscard]] tvm::tirx::BufferVar _new_storage(const Type &type, Statements &statements) {

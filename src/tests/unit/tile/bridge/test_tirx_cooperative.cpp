@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <string_view>
+#include <utility>
 #include <tvm/tirx/stmt_functor.h>
 
 using namespace luisa::compute::tile;
@@ -165,16 +166,78 @@ void test_nested_scope_rejected(Runtime &runtime) {
     }
 }
 
+void test_rectangular_element_domain(Runtime &runtime) {
+    constexpr auto groups = 3;
+    constexpr auto group_elements = 5 * 7 * 11;
+    auto scope = root_scope(runtime);
+    auto definition = tile_kernel("cooperative_rectangular_domain", [scope](TensorView<const float, 3> input,
+                                                                            TensorView<float, 3> output) {
+        auto i = axis("i", 5);
+        auto j = axis("j", 7);
+        auto k = axis("k", 11);
+        for (auto &group : parallel(shape(groups), scope)) {
+            auto origin = coord(group.index() * 5, 0, 0);
+            auto x = input.tile(origin, shape(i, j, k)).load();
+            auto y = map<float>(shape(i, j, k), [&](const Nest &element) {
+                return x.at(coord(4 - element[i], 6 - element[j], 10 - element[k])) * 2.0f + 1.0f;
+            });
+            output(origin, shape(i, j, k)).store(y);
+        }
+    });
+    auto kernel = definition.capture(tensor_shape(groups * 5, 7, 11), tensor_shape(groups * 5, 7, 11));
+    auto native = luisa::compute::tile::bridge::tirx::lower(kernel.function());
+    expect(native.ok()) << native.error;
+    if (!native) { return; }
+    auto domains = 0u;
+    tvm::tirx::PostOrderVisit(native.value->body, [&](const tvm::ffi::ObjectRef &node) {
+        if (auto loop = node.as<tvm::tirx::ForNode>()) {
+            if (auto annotation = loop->annotations.Get("luisa.tile.independent_elements")) {
+                expect(eq(annotation.value().cast<tvm::IntImm>()->value, 3));
+                domains++;
+                for (auto extent : {5, 7, 11}) {
+                    expect(loop != nullptr);
+                    if (loop == nullptr) { break; }
+                    expect(eq(loop->extent.as<tvm::IntImmNode>()->value, extent));
+                    loop = loop->body.as<tvm::tirx::ForNode>();
+                }
+            }
+        }
+    });
+    expect(eq(domains, 3u));// load, pure map, and store keep their axes
+    auto executable = runtime.build(kernel);
+    expect(executable.ok()) << executable.error;
+    if (!executable.ok()) { return; }
+    auto input = values(groups * group_elements);
+    auto source = runtime.upload<float>({groups * 5, 7, 11}, input);
+    auto output = runtime.allocate<float>({groups * 5, 7, 11});
+    (*executable.entry)(source, output);
+    auto actual = runtime.download<float>(output, input.size());
+    luisa::vector<float> expected(input.size());
+    for (auto group = 0; group < groups; group++) {
+        for (auto element = 0; element < group_elements; element++) {
+            expected[group * group_elements + element] = input[group * group_elements + group_elements - 1 - element] * 2.0f + 1.0f;
+        }
+    }
+    expect_near(actual, expected);
+}
+
 class NonUnitDomain final : public tvm::tirx::StmtMutator {
 private:
     bool _elements;
+    bool _inner;
 
 protected:
     [[nodiscard]] tvm::tirx::Stmt VisitStmt_(const tvm::tirx::ForNode *loop) final {
         auto result = StmtMutator::VisitStmt_(loop).as_or_throw<tvm::tirx::For>();
         auto annotation = _elements ? "luisa.tile.independent_elements" : "luisa.tile.logical_parallel";
         if (loop->annotations.count(annotation)) {
-            result.CopyOnWrite()->step = tvm::IntImm::Int64(2);
+            if (_inner) {
+                auto child = result->body.as_or_throw<tvm::tirx::For>();
+                child.CopyOnWrite()->step = tvm::IntImm::Int64(2);
+                result.CopyOnWrite()->body = std::move(child);
+            } else {
+                result.CopyOnWrite()->step = tvm::IntImm::Int64(2);
+            }
             replacements++;
         }
         return result;
@@ -182,22 +245,22 @@ protected:
 
 public:
     uint32_t replacements{0u};
-    explicit NonUnitDomain(bool elements) : _elements{elements} {}
+    NonUnitDomain(bool elements, bool inner) : _elements{elements}, _inner{inner} {}
     using StmtMutator::operator();
 };
 
 void test_noncanonical_domain_rejected(Runtime &runtime) {
     using namespace luisa::compute::tile::bridge::tirx;
-    auto kernel = tile_kernel("cooperative_nonunit_domain", [](TensorView<float, 1> output) {
+    auto kernel = tile_kernel("cooperative_nonunit_domain", [](TensorView<float, 2> output) {
                       for (auto &group : parallel(shape(7), exec::Scope::GROUP)) {
-                          output(coord(group.index() * 3), shape(3)).store(zeros<float>(shape(3)));
+                          output(coord(group.index() * 3, 0), shape(3, 5)).store(zeros<float>(shape(3, 5)));
                       }
-                  }).capture(tensor_shape(21));
-    for (auto elements : {false, true}) {
+                  }).capture(tensor_shape(21, 5));
+    for (auto [elements, inner] : {std::pair{false, false}, std::pair{true, false}, std::pair{true, true}}) {
         auto native = lower(kernel.function());
         expect(native.ok()) << native.error;
         if (!native) { continue; }
-        NonUnitDomain transform{elements};
+        NonUnitDomain transform{elements, inner};
         native.value.CopyOnWrite()->body = transform(native.value->body);
         expect(transform.replacements > 0u);
         CompileOptions options;
@@ -301,5 +364,6 @@ int main(int argc, char *argv[]) {
     "tile_cooperative_resource_capacity"_test = [&] { test_resource_capacity(runtime); };
     "tile_cooperative_host_local_capture"_test = [&] { test_host_local_capture_rejected(runtime); };
     "tile_cooperative_nested_scope"_test = [&] { test_nested_scope_rejected(runtime); };
+    "tile_cooperative_rectangular_element_domain"_test = [&] { test_rectangular_element_domain(runtime); };
     "tile_cooperative_noncanonical_domain"_test = [&] { test_noncanonical_domain_rejected(runtime); };
 }

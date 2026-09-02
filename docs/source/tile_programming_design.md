@@ -2340,6 +2340,9 @@ rewritten by this compact-local-storage transformation.
 Metal group binding similarly includes a resource transformation, not just a
 loop tag. The structural exporter marks **independent element domains**;
 contraction axes and temporal loop iterations remain sequential.
+It retains each domain as a rectangular serial loop nest with a rank marker.
+Flattening is a cooperative-binding decision, not a shared-export decision;
+CPU worker/vector paths keep the individual axes available to their optimizer.
 The group mapper partitions the flattened independent domain as
 `element = chunk * worker_count + worker`, with a tail predicate. Compact
 compiler temporaries allocated in the group context become shared memory;

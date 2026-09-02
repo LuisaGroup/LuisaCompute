@@ -8,6 +8,8 @@ namespace luisa::compute::tile::bridge::tirx::detail {
 // The target mapper consumes these only after resolving a legal realization.
 inline constexpr auto logical_parallel_annotation = "luisa.tile.logical_parallel";
 inline constexpr auto execution_scope_annotation = "luisa.tile.execution_scope";
+// Positive rank of a perfect, rectangular serial element-loop nest. Keep its
+// axes intact until the selected target actually needs worker partitioning.
 inline constexpr auto independent_elements_annotation = "luisa.tile.independent_elements";
 
 // Give every logical vector lane its own compiler-local storage before TIRx
