@@ -40,6 +40,7 @@ struct Configuration {
     int64_t bn;
     int64_t bk;
     exec::Scope execution_scope{exec::Scope::AUTOMATIC};
+    uint32_t pipeline_window{2u};
 };
 
 [[nodiscard]] exec::Scope parse_execution_scope(std::string_view name) {
@@ -78,7 +79,7 @@ struct Configuration {
                 auto m0 = nest[gm] * cfg.bm;
                 auto n0 = nest[gn] * cfg.bn;
                 auto acc = zeros<float>(shape(m, n));
-                for (auto &step : nest.pipeline(shape(kt), {.stages = 2, .initiation_interval = 1})) {
+                for (auto &step : nest.pipeline(shape(kt), {.stages = cfg.pipeline_window, .initiation_interval = 1})) {
                     auto k0 = step.index() * cfg.bk;
                     step.stage("load");
                     auto a = A[coord(m0, k0), shape(m, k)];
@@ -163,8 +164,8 @@ void print_samples(std::string_view name, const std::vector<double> &samples) {
 }// namespace
 
 int main(int argc, char *argv[]) {
-    if (argc != 13 && argc != 14) {
-        std::cerr << "Usage: benchmark_tile_tirx <cpu|metal> <gemm|add|sum|softmax> M N K BM BN BK samples sample-ms warmup-ms output.f32 [auto|worker|group]\n";
+    if (argc < 13 || argc > 15) {
+        std::cerr << "Usage: benchmark_tile_tirx <cpu|metal> <gemm|add|sum|softmax> M N K BM BN BK samples sample-ms warmup-ms output.f32 [auto|worker|group] [pipeline-window:1|2]\n";
         return 1;
     }
     try {
@@ -172,8 +173,11 @@ int main(int argc, char *argv[]) {
         auto operation = std::string_view{argv[2]};
         Configuration cfg{positive_integer(argv[3]), positive_integer(argv[4]), positive_integer(argv[5]),
                           positive_integer(argv[6]), positive_integer(argv[7]), positive_integer(argv[8])};
-        auto execution_scope = argc == 14 ? std::string_view{argv[13]} : std::string_view{"auto"};
+        auto execution_scope = argc >= 14 ? std::string_view{argv[13]} : std::string_view{"auto"};
         cfg.execution_scope = parse_execution_scope(execution_scope);
+        auto pipeline_window = argc == 15 ? positive_integer(argv[14]) : 2;
+        if (pipeline_window > 2) { throw std::invalid_argument{"benchmark pipeline window must be 1 or 2"}; }
+        cfg.pipeline_window = static_cast<uint32_t>(pipeline_window);
         auto sample_count = positive_integer(argv[9]);
         auto target_ms = positive_integer(argv[10]);
         auto warmup_ms = positive_integer(argv[11]);
@@ -235,6 +239,7 @@ int main(int argc, char *argv[]) {
         std::cout << std::setprecision(12)
                   << "{\"backend\":" << std::quoted(backend) << ",\"operation\":" << std::quoted(operation)
                   << ",\"execution_scope\":" << std::quoted(execution_scope)
+                  << ",\"pipeline_window\":" << cfg.pipeline_window
                   << ",\"runtime_init_ms\":" << runtime_init_ms << ",\"capture_ms\":" << capture_ms
                   << ",\"compile_ms\":" << compile_ms << ",\"allocation_upload_ms\":" << allocation_upload_ms
                   << ",\"cold_call_ms\":" << cold_call_ms << ",\"warmup_ms\":" << actual_warmup_ms

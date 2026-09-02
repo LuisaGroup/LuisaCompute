@@ -40,7 +40,7 @@ class BenchmarkContractTests(unittest.TestCase):
 
     def test_native_mapping_metadata_matches_the_request(self):
         case = MODULE.Case("gemm", 7, 17, 37)
-        native = dict(backend="metal", operation="gemm", execution_scope="group", mma_operations=1)
+        native = dict(backend="metal", operation="gemm", execution_scope="group", pipeline_window=2, mma_operations=1)
         MODULE.validate_native_metadata(native, case, "metal", "group")
         for key, value in (("backend", "cpu"), ("operation", "add"), ("execution_scope", "worker"), ("mma_operations", 0)):
             with self.subTest(key=key), self.assertRaises(RuntimeError):
@@ -48,6 +48,16 @@ class BenchmarkContractTests(unittest.TestCase):
         del native["execution_scope"]
         with self.assertRaisesRegex(RuntimeError, "execution-scope"):
             MODULE.validate_native_metadata(native, case, "metal", "group")
+
+    def test_native_pipeline_window_matches_the_request(self):
+        case = MODULE.Case("gemm", 7, 17, 37)
+        native = dict(backend="metal", operation="gemm", execution_scope="worker", mma_operations=1)
+        for window in (1, 2):
+            MODULE.validate_native_metadata(native | {"pipeline_window": window}, case, "metal", "worker", window)
+            with self.assertRaisesRegex(RuntimeError, "pipeline-window"):
+                MODULE.validate_native_metadata(native | {"pipeline_window": 3 - window}, case, "metal", "worker", window)
+        with self.assertRaisesRegex(RuntimeError, "pipeline-window"):
+            MODULE.validate_native_metadata(native, case, "metal", "worker")
 
 
 if __name__ == "__main__":

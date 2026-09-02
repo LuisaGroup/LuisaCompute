@@ -33,6 +33,14 @@ mapping. CPU does not yet support `group` and rejects it explicitly. Run each
 variant separately into a new output directory; do not change the block shape
 when attributing a difference to execution mapping alone.
 
+Use `--pipeline-window 1` and `--pipeline-window 2` for a same-binary GEMM
+schedule comparison. Each ordinary host configuration captures/JITs a fresh
+candidate: window 1 keeps ordered execution, while window 2 permits the safe
+software-prefetch planner. The requested window is recorded in native output
+and verified by the driver. Keep execution scope, tile shape, inputs, and
+timing settings fixed, and run the two modes sequentially. This does not imply
+hardware-asynchronous copies; the flag has no effect on non-pipelined operators.
+
 Measurement contract:
 
 - Identical deterministic contiguous FP32 inputs; full outputs checked against
