@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  LLVM_VERSION: 21.1.8
+  LLVM_VERSION: 22.1.8
   IOS_DEPLOYMENT_TARGET: '26.0'
 
 jobs:
@@ -30,10 +30,10 @@ jobs:
           if [[ -d /Applications/Xcode_26.6.app ]]; then
             sudo xcode-select --switch /Applications/Xcode_26.6.app/Contents/Developer
           fi
-          brew install llvm@21 ninja
+          brew install llvm@22 ninja
           xcodebuild -version
           xcrun --sdk iphoneos --show-sdk-version
-          echo "host_llvm_prefix=$(brew --prefix llvm@21)" >> "$GITHUB_OUTPUT"
+          echo "host_llvm_prefix=$(brew --prefix llvm@22)" >> "$GITHUB_OUTPUT"
           echo "xcode_key=$(xcodebuild -version | shasum -a 256 | cut -c 1-16)" >> "$GITHUB_OUTPUT"
 
       - name: Cache static iPhoneOS LLVM
@@ -45,7 +45,7 @@ jobs:
             .ci/llvm-source
           key: ios-llvm-${{ runner.os }}-${{ runner.arch }}-${{ env.LLVM_VERSION }}-${{ env.IOS_DEPLOYMENT_TARGET }}-${{ steps.toolchain.outputs.xcode_key }}-${{ hashFiles('scripts/build_ios_llvm.sh') }}
 
-      - name: Build static arm64 iPhoneOS LLVM 21
+      - name: Build static arm64 iPhoneOS LLVM 22
         if: steps.cache-ios-llvm.outputs.cache-hit != 'true'
         env:
           GH_TOKEN: ${{ github.token }}

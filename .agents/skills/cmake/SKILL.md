@@ -68,7 +68,7 @@ Auto-finds `cmake` and `ninja` (PATH → `.deps/` → pip). Auto-prepares MSVC e
 | `LUISA_COMPUTE_ENABLE_DSL` | ON | C++ DSL |
 | `LUISA_COMPUTE_ENABLE_CUDA` | ON | CUDA backend |
 | `LUISA_COMPUTE_ENABLE_METAL` | ON | Metal backend (macOS only) |
-| `LUISA_COMPUTE_ENABLE_METAL4` | OFF | Independent Metal4 XIR→LLVM→AIR backend; requires LLVM 21 and Apple Metal 4 tools |
+| `LUISA_COMPUTE_ENABLE_METAL4` | OFF | Independent Metal4 XIR→LLVM→AIR backend; requires LLVM 22 and Apple Metal 4 tools |
 | `LUISA_COMPUTE_ENABLE_DX` | ON | DirectX backend (Windows only) |
 | `LUISA_COMPUTE_ENABLE_VULKAN` | ON | Vulkan backend |
 | `LUISA_COMPUTE_ENABLE_HIP` | OFF | HIP backend (work in progress) |
@@ -195,26 +195,26 @@ luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
 Key: output renamed to `luisa-backend-<name>`, installed to `bin/`, supports `luisa_embed_device_lib` for builtin device libs.
 
 On iOS, the same helper emits a static backend. A signed Metal4 AIR device app
-also requires static arm64 iPhoneOS LLVM 21 archives; an arm64 macOS LLVM build
+also requires static arm64 iPhoneOS LLVM 22 archives; an arm64 macOS LLVM build
 is not platform-compatible. Prefer the checked scripts so local and CI options
 remain identical:
 
 ```bash
 scripts/build_ios_llvm.sh \
-  --host-llvm-prefix "$(brew --prefix llvm@21)"
+  --host-llvm-prefix "$(brew --prefix llvm@22)"
 scripts/build_ios_metal4.sh \
-  --llvm-dir cmake-build-llvm21-ios/lib/cmake/llvm \
+  --llvm-dir cmake-build-llvm22-ios/lib/cmake/llvm \
   --team <team-id> --mode all
 
 # CI/link closure only; these bundles are not installable.
 scripts/build_ios_metal4.sh \
-  --llvm-dir cmake-build-llvm21-ios/lib/cmake/llvm \
+  --llvm-dir cmake-build-llvm22-ios/lib/cmake/llvm \
   --mode all --unsigned
 scripts/audit_ios_bundles.sh \
   --bin-dir cmake-build-ios-metal4-device-air-xcode/bin/Release
 ```
 
-`build_ios_llvm.sh` downloads the official LLVM 21.1.8 source when needed and
+`build_ios_llvm.sh` downloads the official LLVM 22.1.8 source when needed and
 uses CMake/Ninja with `arm64-apple-ios<deployment>` host/default triples. The
 application script uses CMake's Xcode generator only because provisioning and
 automatic signing are Xcode workflows. `--mode examples`, `tests`, or `all`

@@ -87,7 +87,7 @@ XIR support preflight
     +-- unsupported compute or raster: explicit shader-creation error
     |
     v
-LLVM 21 IR with AIR target, intrinsics, and metadata
+LLVM 22 IR with AIR target, intrinsics, and metadata
     |
     +-- LLVM verification
     +-- LLVM default O2 module pipeline
@@ -235,7 +235,7 @@ llvm::BitcodeWriter140::prepareModule(*module);
 llvm::WriteBitcode140ToFile(*module, stream);
 ~~~
 
-The downgrade code is compiled against the same LLVM 21 installation as the
+The downgrade code is compiled against the same LLVM 22 installation as the
 Metal backend. It rewrites/serializes the module in the LLVM 14 bitcode dialect
 accepted by the tested Apple Metal toolchain. The resulting bytes begin with
 the LLVM bitcode magic `42 43 c0 de`; the backend does not invoke the
@@ -250,11 +250,11 @@ directly. Section 14 documents the container records and validator.
 
 The submodule is [JuliaLLVM/llvm-downgrade](https://github.com/JuliaLLVM/llvm-downgrade),
 whose upstream base is pinned by this branch at
-`1e04ee99aff7c059606502ee86d03eb7d1c5d781`. Luisa builds only its LLVM 14
+`6ab0b538c9302bd44f1d2a02f8d064ba9c5f2efb`. Luisa builds only its LLVM 14
 writer and the required pointer/module rewriters, not its older 5.0 or 7.0
-writers. The submodule checkout remains pristine. LLVM 21 compatibility and
+writers. The submodule checkout remains pristine. LLVM 22 compatibility and
 the AIR typed-pointer recovery extensions described below live in the parent-
-owned `llvm-downgrade-llvm21-air.patch`, which CMake applies only to a build-
+owned `llvm-downgrade-llvm22-air.patch`, which CMake applies only to a build-
 tree mirror.
 
 CMake verifies the submodule commit and cleanliness when Git metadata is
@@ -272,7 +272,7 @@ LLVM-exception licensing.
 
 ### 2.3 Typed-pointer recovery directives
 
-LLVM 21 represents every pointer as opaque `ptr addrspace(N)`, but the LLVM 14
+LLVM 22 represents every pointer as opaque `ptr addrspace(N)`, but the LLVM 14
 bitcode consumed by the AIR loader still encodes pointee types. Those pointee
 types are semantically significant for textures, samplers, argument buffers,
 and resources nested inside structures. A remaining unannotated opaque pointer
@@ -298,7 +298,7 @@ declare !arg_eltypes !0 !ret_eltype !1
 
 During `prepareModule`, the pointer rewriter reconstructs a legacy typed
 function signature from both attachments and inserts no-op bitcasts around
-call operands and pointer results where the opaque LLVM 21 values meet that
+call operands and pointer results where the opaque LLVM 22 values meet that
 signature. The writer's pointer map then serializes the recovered typed uses.
 
 Opaque pointer fields nested in named structures use a separate module-level
@@ -554,7 +554,7 @@ type.
 
 ### 4.7 Textures and samplers
 
-A direct 2D or 3D texture is represented in LLVM 21 as an opaque pointer in
+A direct 2D or 3D texture is represented in LLVM 22 as an opaque pointer in
 address space 1. The root-argument structure field and every texture intrinsic
 parameter are additionally marked for downgrade to a pointer to the opaque
 named handle `%struct._texture_2d_t` or `%struct._texture_3d_t`. AIR reflection
@@ -595,7 +595,7 @@ packed & 0x0000ffffffffffff  = buffer byte size
 (packed >> 56) & 0xff       = 3D sampler code
 ~~~
 
-The LLVM 21 representation deliberately uses one-field texture wrappers for
+The LLVM 22 representation deliberately uses one-field texture wrappers for
 resources nested inside the slot:
 
 ~~~llvm
@@ -698,7 +698,7 @@ writing it stores only those twelve affine elements. Field 56 is named
 `intersection_function_offset` in Apple's reflected `LCInstance` layout and
 is also the field used by Luisa's instance-user-ID API.
 
-The LLVM 21 representation retains both wrapper storage and legacy AIR
+The LLVM 22 representation retains both wrapper storage and legacy AIR
 pointee identity:
 
 ~~~llvm
@@ -1787,7 +1787,7 @@ Metal API Validation.
 The native query pointee is the opaque type from Section 4.12. Each local XIR
 query object produces one `allocate` call, one `reset`, any number of
 `next`/getter/commit/abort calls, and one `deallocate` on each function exit.
-The declaration spellings and LLVM 21 signatures are:
+The declaration spellings and LLVM 22 signatures are:
 
 ~~~llvm
 declare ptr @air.allocate_intersection_query<query-suffix>()
@@ -2694,7 +2694,7 @@ argument metadata is exactly the entry index followed by `air.front_facing`,
 register ABI: the use of `i1` here does not change Luisa's byte-addressable
 memory ABI, where a scalar bool and each member of `{bool, bool, bool, bool}`
 occupy one byte. The convention was recovered with `xcrun metal -std=metal3.2
--S -emit-llvm -c` and then validated through Luisa's LLVM-21 emission,
+-S -emit-llvm -c` and then validated through Luisa's LLVM-22 emission,
 LLVM-14 downgrade, `metallib`, pipeline creation, and GPU execution.
 
 The selectable interpolation spellings were recovered from a single
@@ -2714,7 +2714,7 @@ The emitted argument-metadata pairs are respectively
 `air.sample + air.perspective`, `air.sample + air.no_perspective`, and the
 single `air.flat` token. Metadata order is significant: the location token
 precedes the correction token. These conventions were recovered with Apple
-metalfe 32023.883 and are strict-runtime tested after Luisa's LLVM-21 emission
+metalfe 32023.883 and are strict-runtime tested after Luisa's LLVM-22 emission
 and in-tree LLVM-14 downgrade.
 
 Fragment derivatives are ordinary AIR calls such as
@@ -3063,17 +3063,17 @@ compiled only when:
 APPLE
 CMAKE_CXX_COMPILER_ID matches Clang
 LUISA_COMPUTE_ENABLE_METAL4=ON
-LLVM_VERSION_MAJOR=21
+LLVM_VERSION_MAJOR=22
 ~~~
 
 The CMake option is experimental and defaults to OFF. Enabling the `metal4`
 module requires its complete XIR/LLVM/AIR generator, the pinned in-tree
-`llvm-downgrade` source, and LLVM 21; there is no partially built Metal4 module
+`llvm-downgrade` source, and LLVM 22; there is no partially built Metal4 module
 that contains only the archive loader. The original `metal` backend is selected
 independently with `LUISA_COMPUTE_ENABLE_METAL`.
 
 The Metal4 module is currently integrated through CMake/Ninja only. Its
-LLVM-21 discovery, pinned llvm-downgrade validation, disposable patched-source
+LLVM-22 discovery, pinned llvm-downgrade validation, disposable patched-source
 mirror, and backend link graph have no xmake equivalent yet; no placeholder
 xmake target is provided under `backends/metal4`.
 
@@ -3269,7 +3269,7 @@ I/O destination is available.
 ### 15.6 LLVM/AIR runtime-support library
 
 `MetalDevice` constructs one five-function runtime-support metallib for the
-current platform. Each function starts in a separate LLVM 21 module, receives
+current platform. Each function starts in a separate LLVM 22 module, receives
 the same AIR target triple, module flags, fast-math policy, pointer-element
 recovery metadata, and source-file convention as ordinary user shaders, then
 passes the following fail-closed sequence:
@@ -3311,14 +3311,14 @@ Metal to create a pipeline compiles GPU code through the system Metal service;
 it does not create CPU executable pages in the application.
 
 The current iOS device app implements dynamic on-device XIR-to-AIR without
-`MAP_JIT`. It cross-builds LLVM 21, the in-tree LLVM downgrade, AST, XIR,
+`MAP_JIT`. It cross-builds LLVM 22, the in-tree LLVM downgrade, AST, XIR,
 runtime, DSL, Metal4 AIR codegen, and the Metal4 backend as arm64 iOS static
 libraries. The signed app then performs this sequence inside the iPhone
 process:
 
 1. Build the conformance and path-tracing DSL/AST and translate/optimize it as
    XIR.
-2. Construct and optimize LLVM 21 IR for the running iOS target.
+2. Construct and optimize LLVM 22 IR for the running iOS target.
 3. Serialize LLVM 14-compatible AIR and assemble the deterministic iOS MTLB.
 4. Load the bytes with `MTLDevice::newLibrary(data)` and create the GPU
    pipeline through the system Metal service.
@@ -3352,11 +3352,23 @@ can build and sign the app.
 
 The patched JuliaLLVM tree retains its standalone FileCheck suite. Its
 `ret_eltype` and `struct_eltypes` regressions generate LLVM 14 bitcode with the
-LLVM 21-built downgrader, disassemble it with an actual LLVM 14 `llvm-dis`, and
+LLVM 22-built downgrader, disassemble it with an actual LLVM 14 `llvm-dis`, and
 verify the reconstructed return, argument, nested-structure pointer types, and
 removal of the private `llvm.struct_eltypes` directive. Both tests pass on the
 reference setup; tests for LLVM 5 or 7 remain independently skippable when
 those legacy disassemblers are unavailable.
+
+The LLVM 22 migration was revalidated on 2026-09-02 against upstream commit
+`6ab0b538c9302bd44f1d2a02f8d064ba9c5f2efb`. The complete standalone
+downgrader suite passed all 56 registered tests (42 executed and 14 skipped
+only because optional legacy LLVM 5/7/15/18 tools were absent), including real
+LLVM 14 disassembly and verification of the AIR `ret_eltype` and
+`struct_eltypes` extensions. A clean desktop build then compiled and executed
+`test_metal4_device_conformance` on an Apple M1 Max. Finally, the repository's
+CI-equivalent unsigned iPhoneOS path built official static arm64 LLVM 22.1.8,
+all 19 rendering examples, the path-tracing benchmark, and the physical-device
+test bundle; `scripts/audit_ios_bundles.sh` accepted all 21 bundles as arm64
+iPhoneOS binaries with only Apple system dylibs.
 
 ### 16.1 Runtime tests
 
@@ -4158,7 +4170,7 @@ correct atomic lowering requires an explicit AIR intrinsic/ABI convention.
 | MotionInstance capture and native motion-TLAS packing | [metal_motion_instance.cpp](../metal_motion_instance.cpp), [metal_accel_motion.cpp](../metal_accel_motion.cpp) |
 | Apple9 MTL4 versus Apple7/Apple8 compatibility AS build | [metal_acceleration_structure_build.cpp](../metal_acceleration_structure_build.cpp), [metal_stream.cpp](../metal_stream.cpp) |
 | JuliaLLVM wrapper | [llvm_downgrade.cpp](../../../ext/llvm_downgrade.cpp) |
-| Parent-owned LLVM 21/AIR downgrade overlay and regressions | [llvm-downgrade-llvm21-air.patch](../../../ext/llvm-downgrade-llvm21-air.patch) |
+| Parent-owned LLVM 22/AIR downgrade overlay and regressions | [llvm-downgrade-llvm22-air.patch](../../../ext/llvm-downgrade-llvm22-air.patch) |
 | Pinned upstream typed-pointer and LLVM 14 writer base | [PointerRewriter.cpp](../../../ext/llvm-downgrade/src/PointerRewriter.cpp), [ValueEnumerator140.cpp](../../../ext/llvm-downgrade/src/ValueEnumerator140.cpp), [BitcodeWriter140.cpp](../../../ext/llvm-downgrade/src/BitcodeWriter140.cpp) |
 | AIR-only shader creation | [metal_device.cpp](../metal_device.cpp) |
 | Build-time BC6H/BC7 metallib embedding and runtime binary loading | [metal_tex_compress.cpp](../metal_tex_compress.cpp), [CMakeLists.txt](../CMakeLists.txt) |

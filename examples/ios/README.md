@@ -38,22 +38,22 @@ cutout IFT/loop comparison documented in the AIR report.
 
 ## Reproducible build scripts
 
-The shortest complete setup uses two repository scripts. Homebrew LLVM 21 is
+The shortest complete setup uses two repository scripts. Homebrew LLVM 22 is
 only a host tool provider for `llvm-tblgen`; none of its macOS libraries are
 linked into the phone application:
 
 ~~~sh
-brew install llvm@21 ninja
+brew install llvm@22 ninja
 
-# Downloads the official llvm-project-21.1.8 source release when it is not
+# Downloads the official llvm-project-22.1.8 source release when it is not
 # already cached, then builds static arm64 iPhoneOS libraries with Ninja.
 scripts/build_ios_llvm.sh \
-  --host-llvm-prefix "$(brew --prefix llvm@21)"
+  --host-llvm-prefix "$(brew --prefix llvm@22)"
 
 # Configure all 19 examples, the matched Metal4 benchmark, and the independent
 # device-test mirror; sign the bundles through Xcode automatic signing.
 scripts/build_ios_metal4.sh \
-  --llvm-dir cmake-build-llvm21-ios/lib/cmake/llvm \
+  --llvm-dir cmake-build-llvm22-ios/lib/cmake/llvm \
   --team <apple-development-team> \
   --mode all
 ~~~
@@ -64,7 +64,7 @@ those bundles cannot be installed on a device:
 
 ~~~sh
 scripts/build_ios_metal4.sh \
-  --llvm-dir cmake-build-llvm21-ios/lib/cmake/llvm \
+  --llvm-dir cmake-build-llvm22-ios/lib/cmake/llvm \
   --mode all --unsigned
 
 scripts/audit_ios_bundles.sh \
@@ -74,11 +74,11 @@ scripts/audit_ios_bundles.sh \
 
 The LLVM script also accepts `--source <llvm-project>` to use an existing
 official source checkout/tarball, `--llvm-version`, `--source-cache`, and
-`--build-dir`. It rejects a non-LLVM-21 source or host `llvm-tblgen`, because
+`--build-dir`. It rejects a non-LLVM-22 source or host `llvm-tblgen`, because
 mixing LLVM majors would invalidate the AIR/downgrade integration.
 
 Xcode's system toolchain is sufficient for compiling ordinary iOS C++, but it
-does not expose the complete linkable LLVM 21 development archives needed by
+does not expose the complete linkable LLVM 22 development archives needed by
 runtime XIR-to-AIR generation. Official prebuilt arm64 macOS LLVM packages are
 also tagged for the macOS Mach-O platform, not iPhoneOS, and cannot replace the
 cross-built libraries. An AOT-only application could omit LLVM by shipping
@@ -102,7 +102,7 @@ normal builds:
   comparison under `examples/ios/benchmark`.
 
 The examples and device tests require an iOS toolchain, Metal4, GUI support,
-and an arm64 iPhoneOS LLVM 21 static build. The comparison selects exactly one
+and an arm64 iPhoneOS LLVM 22 static build. The comparison selects exactly one
 of `metal` or `metal4`; the generic benchmark build script configures those
 backend requirements without linking both into one app.
 
@@ -116,7 +116,7 @@ cmake -S . -B cmake-build-ios-metal4-device-air-xcode -G Xcode \
   -DCMAKE_OSX_SYSROOT=iphoneos \
   -DCMAKE_OSX_ARCHITECTURES=arm64 \
   -DCMAKE_OSX_DEPLOYMENT_TARGET=26.0 \
-  -DLLVM_DIR=<ios-llvm21>/lib/cmake/llvm \
+  -DLLVM_DIR=<ios-llvm22>/lib/cmake/llvm \
   -DLUISA_COMPUTE_BUILD_TESTS=OFF \
   -DLUISA_COMPUTE_BUILD_IOS_EXAMPLES=ON \
   -DLUISA_COMPUTE_BUILD_IOS_TESTS=ON \
@@ -174,7 +174,7 @@ rendering thread. Camera accumulation is reset when touch changes the view.
 ## Static application layout and LLVM
 
 Each bundle contains one arm64 Mach-O executable. Luisa runtime, DSL, XIR,
-Metal4, coroutine support when needed, llvm-downgrade, and LLVM 21 component
+Metal4, coroutine support when needed, llvm-downgrade, and LLVM 22 component
 archives are linked statically and dead-stripped. No Luisa or LLVM dynamic
 library is expected in `otool -L`; only Apple system frameworks and libraries
 should remain.
@@ -227,7 +227,7 @@ build, execution, cache interpretation, and A19 Pro measurements.
 ## Continuous integration boundary
 
 `.github/workflows/build-ios.yml` runs on GitHub's arm64 `macos-26` image with
-Xcode 26.6. It downloads/caches the same official LLVM 21.1.8 source, builds the
+Xcode 26.6. It downloads/caches the same official LLVM 22.1.8 source, builds the
 static iPhoneOS libraries, compiles all Metal4 example/test/benchmark bundles
 and a separate old-Metal benchmark without code signing, and runs
 `scripts/audit_ios_bundles.sh`. CI therefore enforces target count, arm64

@@ -1,12 +1,12 @@
-# LuisaCompute LLVM 21/AIR overlay for JuliaLLVM/llvm-downgrade.
-# Base commit: 1e04ee99aff7c059606502ee86d03eb7d1c5d781.
+# LuisaCompute LLVM 22/AIR overlay for JuliaLLVM/llvm-downgrade.
+# Base commit: 6ab0b538c9302bd44f1d2a02f8d064ba9c5f2efb.
 # CMake applies this patch only to a disposable build-tree mirror.
 
 diff --git a/src/BitcodeWriter140.cpp b/src/BitcodeWriter140.cpp
-index ba329b22f5b710aa54cae3241e5bd473eaf60319..a25e2d9641d01f91561484066b3e09a0cf9c52d0 100644
+index 047e09b529e208cb24c3cff6bfac8814bacddeca..7a591c9a8c399961a676784c156c2d6a863ac308 100644
 --- a/src/BitcodeWriter140.cpp
 +++ b/src/BitcodeWriter140.cpp
-@@ -154,6 +154,8 @@ protected:
+@@ -155,6 +155,8 @@ protected:
    /// The Module to write to bitcode.
    const Module &M;
  
@@ -15,22 +15,17 @@ index ba329b22f5b710aa54cae3241e5bd473eaf60319..a25e2d9641d01f91561484066b3e09a0
    /// Enumerates ids for all values in the module.
    ValueEnumerator140 VE;
  
-@@ -182,12 +184,12 @@ public:
+@@ -183,7 +185,8 @@ public:
                            bool ShouldPreserveUseListOrder,
                            const ModuleSummaryIndex *Index)
        : BitcodeWriterBase140(Stream, StrtabBuilder), M(M),
 -        VE(M, ShouldPreserveUseListOrder), Index(Index) {
 +        StructPointerMap(PointerRewriter::buildStructPointerTypeMap(M)),
 +        VE(M, ShouldPreserveUseListOrder, &StructPointerMap), Index(Index) {
-     // Enumerate typed pointers
+     // Enumerate typed pointers, in a deterministic module order so the emitted
+     // type table (and thus the whole bitcode) is reproducible across runs.
      PointerMap = PointerRewriter::buildPointerMap(M);
-     for (auto El : PointerMap)
-       VE.EnumerateType(El.second);
--
-     // Assign ValueIds to any callee values in the index that came from
-     // indirect call profiles and were recorded as a GUID not a Value*
-     // (which would have been assigned an ID by the ValueEnumerator140).
-@@ -1019,8 +1021,13 @@ void ModuleBitcodeWriter140::writeTypeTable() {
+@@ -1086,8 +1089,13 @@ void ModuleBitcodeWriter140::writeTypeTable() {
        // STRUCT: [ispacked, eltty x N]
        TypeVals.push_back(ST->isPacked());
        // Output all of the element types.
@@ -45,7 +40,7 @@ index ba329b22f5b710aa54cae3241e5bd473eaf60319..a25e2d9641d01f91561484066b3e09a0
  
        if (ST->isLiteral()) {
          Code = bitc::TYPE_CODE_STRUCT_ANON;
-@@ -2209,6 +2216,9 @@ void ModuleBitcodeWriter140::writeNamedMetadata(
+@@ -2267,6 +2275,9 @@ void ModuleBitcodeWriter140::writeNamedMetadata(
  
    unsigned Abbrev = createNamedMetadataAbbrev();
    for (const NamedMDNode &NMD : M.named_metadata()) {
@@ -55,7 +50,7 @@ index ba329b22f5b710aa54cae3241e5bd473eaf60319..a25e2d9641d01f91561484066b3e09a0
      // Write name.
      StringRef Str = NMD.getName();
      Record.append(Str.bytes_begin(), Str.bytes_end());
-@@ -2779,7 +2789,8 @@ void ModuleBitcodeWriter140::writeConstants(unsigned FirstVal, unsigned LastVal,
+@@ -2893,7 +2904,8 @@ void ModuleBitcodeWriter140::writeConstants(unsigned FirstVal, unsigned LastVal,
        Record.push_back(VE.getValueID(NC->getGlobalValue()));
      } else {
  #ifndef NDEBUG
@@ -66,10 +61,10 @@ index ba329b22f5b710aa54cae3241e5bd473eaf60319..a25e2d9641d01f91561484066b3e09a0
        llvm_unreachable("Unknown constant!");
      }
 diff --git a/src/BitcodeWriter50.cpp b/src/BitcodeWriter50.cpp
-index 7e710c32af64862cbe87fee8f72cf9fb12493b83..5bffa62d2702bf72fdd8eb8cc3256c77611b4d51 100644
+index a7b7d1fed8d2c546feba609ede256ae6389ec19c..ba6c684be7b30fb885e329ab86eb551d4d4e1ddb 100644
 --- a/src/BitcodeWriter50.cpp
 +++ b/src/BitcodeWriter50.cpp
-@@ -2477,7 +2477,8 @@ void ModuleBitcodeWriter50::writeConstants(unsigned FirstVal, unsigned LastVal,
+@@ -2625,7 +2625,8 @@ void ModuleBitcodeWriter50::writeConstants(unsigned FirstVal, unsigned LastVal,
        Record.push_back(VE.getGlobalBasicBlockID(BA->getBasicBlock()));
      } else {
  #ifndef NDEBUG
@@ -80,10 +75,10 @@ index 7e710c32af64862cbe87fee8f72cf9fb12493b83..5bffa62d2702bf72fdd8eb8cc3256c77
        llvm_unreachable("Unknown constant!");
      }
 diff --git a/src/BitcodeWriter70.cpp b/src/BitcodeWriter70.cpp
-index d7cc68708b6375b246117e390a2d033a66f22b23..6ac412cf5b2a26a0320ec00c4802f9d436ebeb5d 100644
+index 1c6dbe9c67d1a49ab7c193fe86bf45f3f00d4e32..c9e0d1a89b44e7fccad540934a90d2b614aa21d5 100644
 --- a/src/BitcodeWriter70.cpp
 +++ b/src/BitcodeWriter70.cpp
-@@ -2525,7 +2525,8 @@ void ModuleBitcodeWriter70::writeConstants(unsigned FirstVal, unsigned LastVal,
+@@ -2678,7 +2678,8 @@ void ModuleBitcodeWriter70::writeConstants(unsigned FirstVal, unsigned LastVal,
        Record.push_back(VE.getGlobalBasicBlockID(BA->getBasicBlock()));
      } else {
  #ifndef NDEBUG
@@ -94,48 +89,42 @@ index d7cc68708b6375b246117e390a2d033a66f22b23..6ac412cf5b2a26a0320ec00c4802f9d4
        llvm_unreachable("Unknown constant!");
      }
 diff --git a/src/PointerRewriter.cpp b/src/PointerRewriter.cpp
-index 0a604c3630beb02f81f6f62e5f486dcbd62422f6..06f91e5b09ff59ab3364a6f752fecfa667975f79 100644
+index 04d6773109acfd2a36f94a9ed87b4a0afe2dc482..d25008741b2db610d27ac5de2af148b8a5eea05b 100644
 --- a/src/PointerRewriter.cpp
 +++ b/src/PointerRewriter.cpp
-@@ -220,24 +220,35 @@ static FunctionType *getTypedFunctionType(const Function *F) {
+@@ -298,10 +298,13 @@ static FunctionType *getTypedFunctionType(const Function *F) {
      }
    }
  
--  // look at the !arg_eltypes metadata
--  MDNode *MD = F->getMetadata("arg_eltypes");
--  if (!MD)
--    return FTy;
--
 +  // Look at front-end pointer element metadata. `arg_eltypes` contains pairs
 +  // of parameter indices and undef values whose types are the pointee types.
 +  // `ret_eltype` contains one such undef value for a pointer return. The
 +  // latter is needed by AIR functions such as air.get_read_sampler().
    auto Args = FTy->params().vec();
--  for (unsigned i = 0; i < MD->getNumOperands(); i += 2) {
--    auto IdxConstant = cast<ConstantAsMetadata>(MD->getOperand(i))->getValue();
--    int Idx = cast<ConstantInt>(IdxConstant)->getZExtValue();
--    Type *ElTy =
--        cast<ValueAsMetadata>(MD->getOperand(i + 1))->getValue()->getType();
--
--    auto OpaquePtrTy = cast<PointerType>(Args[Idx]);
--    auto TypedPtrTy =
--        TypedPointerType::get(ElTy, OpaquePtrTy->getAddressSpace());
--    Args[Idx] = TypedPtrTy;
 +  auto *ReturnTy = FTy->getReturnType();
-+  auto Changed = false;
-+  if (MDNode *MD = F->getMetadata("arg_eltypes")) {
-+    for (unsigned i = 0; i < MD->getNumOperands(); i += 2) {
-+      auto IdxConstant = cast<ConstantAsMetadata>(MD->getOperand(i))->getValue();
-+      int Idx = cast<ConstantInt>(IdxConstant)->getZExtValue();
-+      Type *ElTy =
-+          cast<ValueAsMetadata>(MD->getOperand(i + 1))->getValue()->getType();
-+
-+      auto OpaquePtrTy = cast<PointerType>(Args[Idx]);
+   bool Changed = false;
+-
+-  // look at the !arg_eltypes metadata
+   if (MDNode *MD = F->getMetadata("arg_eltypes")) {
+     for (unsigned i = 0; i < MD->getNumOperands(); i += 2) {
+       auto IdxConstant = cast<ConstantAsMetadata>(MD->getOperand(i))->getValue();
+@@ -310,9 +313,8 @@ static FunctionType *getTypedFunctionType(const Function *F) {
+           cast<ValueAsMetadata>(MD->getOperand(i + 1))->getValue()->getType();
+ 
+       auto OpaquePtrTy = cast<PointerType>(Args[Idx]);
+-      auto TypedPtrTy =
 +      Args[Idx] =
-+          TypedPointerType::get(ElTy, OpaquePtrTy->getAddressSpace());
-+      Changed = true;
-+    }
+           TypedPointerType::get(ElTy, OpaquePtrTy->getAddressSpace());
+-      Args[Idx] = TypedPtrTy;
+       Changed = true;
+     }
    }
+@@ -340,9 +342,15 @@ static FunctionType *getTypedFunctionType(const Function *F) {
+     Changed = true;
+   }
+ 
+-  if (!Changed)
+-    return FTy;
 -  return FunctionType::get(FTy->getReturnType(), Args, FTy->isVarArg());
 +  if (MDNode *MD = F->getMetadata("ret_eltype")) {
 +    assert(MD->getNumOperands() == 1 && ReturnTy->isPointerTy() &&
@@ -149,7 +138,7 @@ index 0a604c3630beb02f81f6f62e5f486dcbd62422f6..06f91e5b09ff59ab3364a6f752fecfa6
  }
  
  static bool isNoopCast(const Value *V) {
-@@ -379,6 +390,7 @@ bool bitcastInstructionOperands(Module &M) {
+@@ -527,6 +535,7 @@ bool bitcastInstructionOperands(Module &M) {
  // bitcast operands to calls, whose type can be altered by metadata attached to
  // the function
  bool bitcastFunctionOperands(Module &M) {
@@ -157,16 +146,24 @@ index 0a604c3630beb02f81f6f62e5f486dcbd62422f6..06f91e5b09ff59ab3364a6f752fecfa6
    for (Function &F : M) {
      auto *FTy = F.getFunctionType();
      auto *NewFTy = getTypedFunctionType(&F);
-@@ -395,12 +407,17 @@ bool bitcastFunctionOperands(Module &M) {
+@@ -543,18 +552,22 @@ bool bitcastFunctionOperands(Module &M) {
              continue;
  
            prependBitcast(M, CI, Idx);
 +          Changed = true;
-+        }
-+        if (FTy->getReturnType() != NewFTy->getReturnType()) {
-+          appendBitcast(M, CI);
-+          Changed = true;
          }
+         // A retyped return reads back with its typed pointer type; wrap the
+         // call's uses so operands the reader type-checks against their
+-        // user's opaque type (phi incoming values) see the opaque type.
+-        if (NewFTy->getReturnType() != FTy->getReturnType() &&
+-            !CI->use_empty())
++        // user's opaque type (phi incoming values) see the opaque type. Keep
++        // the cast even for an otherwise unused call: buildPointerMap relies
++        // on it to attach the legacy typed-pointer return type.
++        if (NewFTy->getReturnType() != FTy->getReturnType()) {
+           appendBitcast(M, CI);
++          Changed = true;
++        }
        }
      }
    }
@@ -175,8 +172,8 @@ index 0a604c3630beb02f81f6f62e5f486dcbd62422f6..06f91e5b09ff59ab3364a6f752fecfa6
 +  return Changed;
  }
  
- // build a map of values to typed pointer types
-@@ -480,11 +497,60 @@ PointerTypeMap PointerRewriter::buildPointerMap(const Module &M) {
+ // The value type a global value is emitted with (the pointee of its typed
+@@ -725,6 +738,15 @@ PointerTypeMap PointerRewriter::buildPointerMap(const Module &M) {
          }
        }
      }
@@ -192,6 +189,8 @@ index 0a604c3630beb02f81f6f62e5f486dcbd62422f6..06f91e5b09ff59ab3364a6f752fecfa6
    }
  
    return PointerMap;
+@@ -982,6 +1004,46 @@ static bool bitcastBlockAddresses(Module &M) {
+   return !BAs.empty();
  }
  
 +// Build typed-pointer overrides for pointer fields embedded in structs. Opaque
@@ -235,20 +234,14 @@ index 0a604c3630beb02f81f6f62e5f486dcbd62422f6..06f91e5b09ff59ab3364a6f752fecfa6
 +}
 +
  bool PointerRewriter::run() {
-   // get rid of constant expressions so that we can more easily rewrite them
-   bool Changed = demotePointerConstexprs(M);
+   bool Changed = demotePointerConstants(M);
+ 
 diff --git a/src/PointerRewriter.h b/src/PointerRewriter.h
-index 450b49402c34d870a05a4b700442eea2cdc82443..21be09f687ec9f8eab3062c81667cfdd86bdcf5b 100644
+index c0532223fe7b7a0f1c094c743cc2316b39ebc7e4..50b0fbfd6b68a0495fbd57b8a74eef75199586f0 100644
 --- a/src/PointerRewriter.h
 +++ b/src/PointerRewriter.h
-@@ -15,14 +15,18 @@
- #define LLVM_LIB_BITCODE_LEGACYWRITER_POINTERREWRITER_H
- 
- #include "llvm/ADT/DenseMap.h"
-+#include "llvm/ADT/SmallVector.h"
- 
- namespace llvm {
- 
+@@ -22,9 +22,12 @@ namespace llvm {
+ class Constant;
  class Value;
  class Module;
 +class StructType;
@@ -260,19 +253,19 @@ index 450b49402c34d870a05a4b700442eea2cdc82443..21be09f687ec9f8eab3062c81667cfdd
  
  class PointerRewriter {
  public:
-@@ -31,6 +35,7 @@ public:
+@@ -33,6 +36,7 @@ public:
    bool run();
  
    static PointerTypeMap buildPointerMap(const Module &M);
 +  static StructPointerTypeMap buildStructPointerTypeMap(const Module &M);
+   static bool requiresPointerRewriting(const Constant *C);
  
- private:
-   Module &M;
+   // Lower intrinsics to their legacy form: drop lifetime markers (whose
 diff --git a/src/ValueEnumerator140.cpp b/src/ValueEnumerator140.cpp
-index fb0ba442d2ae64df9495d981df4762101e29ef3b..f1a93650a8138c4e56f87dcde0be09e33e9682e9 100644
+index 746330af92a98f061adf969d9c3bb760da184753..71da19baad82edeac6ae454d063f8e8d007078af 100644
 --- a/src/ValueEnumerator140.cpp
 +++ b/src/ValueEnumerator140.cpp
-@@ -30,6 +30,7 @@
+@@ -31,6 +31,7 @@
  #include "llvm/IR/Module.h"
  #include "llvm/IR/Operator.h"
  #include "llvm/IR/Type.h"
@@ -280,7 +273,7 @@ index fb0ba442d2ae64df9495d981df4762101e29ef3b..f1a93650a8138c4e56f87dcde0be09e3
  #include "llvm/IR/Use.h"
  #include "llvm/IR/User.h"
  #include "llvm/IR/Value.h"
-@@ -360,9 +361,11 @@ static bool isIntOrIntVectorValue(const std::pair<const Value*, unsigned> &V) {
+@@ -367,9 +368,11 @@ static bool isIntOrIntVectorValue(const std::pair<const Value*, unsigned> &V) {
    return V.first->getType()->isIntOrIntVectorTy();
  }
  
@@ -295,7 +288,7 @@ index fb0ba442d2ae64df9495d981df4762101e29ef3b..f1a93650a8138c4e56f87dcde0be09e3
    if (ShouldPreserveUseListOrder)
      UseListOrders = predictUseListOrder(M);
  
-@@ -978,10 +981,22 @@ void ValueEnumerator140::EnumerateType(Type *Ty) {
+@@ -1022,10 +1025,22 @@ void ValueEnumerator140::EnumerateType(Type *Ty) {
      if (!STy->isLiteral())
        *TypeID = ~0U;
  
@@ -322,7 +315,7 @@ index fb0ba442d2ae64df9495d981df4762101e29ef3b..f1a93650a8138c4e56f87dcde0be09e3
    // Refresh the TypeID pointer in case the table rehashed.
    TypeID = &TypeMap[Ty];
 diff --git a/src/ValueEnumerator140.h b/src/ValueEnumerator140.h
-index 08920b09e11b3c7452d916bffa31cb0266b01620..d7a1b9f88a335e0ba6bb1078edaf8beb612ee173 100644
+index de6f81c23e065ed9f6d8bd15833644553a46699b..8b26b3e16a957ad287151c3a3bedeb0e146e214a 100644
 --- a/src/ValueEnumerator140.h
 +++ b/src/ValueEnumerator140.h
 @@ -13,6 +13,7 @@
@@ -333,7 +326,7 @@ index 08920b09e11b3c7452d916bffa31cb0266b01620..d7a1b9f88a335e0ba6bb1078edaf8beb
  #include "llvm/ADT/ArrayRef.h"
  #include "llvm/ADT/DenseMap.h"
  #include "llvm/ADT/UniqueVector.h"
-@@ -104,6 +105,7 @@ private:
+@@ -115,6 +116,7 @@ private:
    SmallDenseMap<unsigned, MDRange, 1> FunctionMDInfo;
  
    bool ShouldPreserveUseListOrder;
@@ -341,7 +334,7 @@ index 08920b09e11b3c7452d916bffa31cb0266b01620..d7a1b9f88a335e0ba6bb1078edaf8beb
  
    using AttributeGroupMapType = DenseMap<IndexAndAttrSet, unsigned>;
    AttributeGroupMapType AttributeGroupMap;
-@@ -138,7 +140,8 @@ private:
+@@ -149,7 +151,8 @@ private:
    unsigned FirstInstID;
  
  public:
@@ -408,3 +401,4 @@ index 0000000000000000000000000000000000000000..d6db9495315496828de11e61e7d55198
 +; CHECK-DAG: %argument_buffer = type { i32, %resource_wrapper addrspace(2)* }
 +; CHECK: define void @consume_argument_buffer(%argument_buffer addrspace(2)*
 +; CHECK-NOT: !llvm.struct_eltypes
+

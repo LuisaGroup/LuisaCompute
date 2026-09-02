@@ -1,14 +1,14 @@
 # Metal4 AIR iOS Device Conformance and Path Tracing
 
 This application is the physical-device closure test for Luisa's Metal4 AIR
-backend. It links the real static `DeviceInterface`, DSL, XIR passes, LLVM 21
+backend. It links the real static `DeviceInterface`, DSL, XIR passes, LLVM 22
 AIR code generator, LLVM 14 downgrade, MTLB writer, and Metal4 runtime into one
 signed arm64 iOS application. No MSL code generator is linked or used.
 
 The iPhone performs the complete shader path at runtime:
 
 ~~~text
-DSL/AST -> XIR -> XIR optimization -> LLVM 21 IR -> LLVM O2
+DSL/AST -> XIR -> XIR optimization -> LLVM 22 IR -> LLVM O2
         -> LLVM 14 downgrade -> Apple AIR -> MTLB -> MTL4 compiler/runtime
 ~~~
 
@@ -45,7 +45,7 @@ physical-device provisioning and automatic signing are Xcode workflows.
 - Developer Mode enabled on the iPhone.
 - An Apple Development identity and development team. A Personal Team works;
   its provisioning profile expires after seven days.
-- LLVM 21 built as arm64 iOS static libraries. Configure the Luisa iOS build
+- LLVM 22 built as arm64 iOS static libraries. Configure the Luisa iOS build
   with its `lib/cmake/llvm` directory through `LLVM_DIR`.
 - The current metal-cpp headers under `src/backends/common/metal-cpp`.
 
@@ -58,9 +58,9 @@ The reproducible shortcut is:
 
 ~~~sh
 scripts/build_ios_llvm.sh \
-  --host-llvm-prefix "$(brew --prefix llvm@21)"
+  --host-llvm-prefix "$(brew --prefix llvm@22)"
 scripts/build_ios_metal4.sh \
-  --llvm-dir cmake-build-llvm21-ios/lib/cmake/llvm \
+  --llvm-dir cmake-build-llvm22-ios/lib/cmake/llvm \
   --team <apple-development-team> --mode all
 ~~~
 
@@ -73,7 +73,7 @@ cmake -S . -B cmake-build-ios-metal4-device-air-xcode -G Xcode \
   -DCMAKE_OSX_ARCHITECTURES=arm64 \
   -DCMAKE_OSX_DEPLOYMENT_TARGET=26.0 \
   -DCMAKE_BUILD_TYPE=Release \
-  -DLLVM_DIR=<ios-llvm21>/lib/cmake/llvm \
+  -DLLVM_DIR=<ios-llvm22>/lib/cmake/llvm \
   -DLUISA_COMPUTE_BUILD_TESTS=OFF \
   -DLUISA_COMPUTE_BUILD_IOS_TESTS=ON \
   -DLUISA_COMPUTE_BUILD_IOS_EXAMPLES=ON \
@@ -105,7 +105,7 @@ codesign --verify --deep --strict --verbose=2 \
 and repository path-tracing sources but a test-specific bundle identifier.
 
 The resulting executable is intentionally large because it contains the iOS
-LLVM 21 static libraries. That size is acceptable for this conformance runner;
+LLVM 22 static libraries. That size is acceptable for this conformance runner;
 shipping applications should normally cache or distribute precompiled MTLB
 artifacts while keeping this dynamic path available for development.
 
@@ -173,14 +173,14 @@ CMake/Ninja build registers it as `test_metal4_device_conformance`, so CodeGen,
 ABI, image, and runtime failures can be found before provisioning the phone:
 
 ~~~sh
-cmake --build cmake-build-metal-air-llvm21 \
+cmake --build cmake-build-metal-air-llvm22 \
   --target test_metal4_device_conformance -j 8
 
-ctest --test-dir cmake-build-metal-air-llvm21 \
+ctest --test-dir cmake-build-metal-air-llvm22 \
   -R '^test_metal4_device_conformance$' --output-on-failure -V
 
 LUISA_ENABLE_VALIDATION=1 MTL_DEBUG_LAYER=1 \
-ctest --test-dir cmake-build-metal-air-llvm21 \
+ctest --test-dir cmake-build-metal-air-llvm22 \
   -R '^test_metal4_device_conformance$' --output-on-failure -V
 ~~~
 
