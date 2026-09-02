@@ -61,6 +61,18 @@ and hardware information, thread settings, the binary hash, and source
 revision. `results.md` is the readable comparison. Failed cases are retained
 and cause a nonzero exit code; no speed ratio is published for an invalid case.
 
+## Cooperative execution measurements
+
+The [M1 Max execution comparison, 2026-09-03](results/m1-max-20260903-execution.md)
+records all final worker/group cases at `2f8f2a044`, plus the earlier
+experimental results and a CPU GEMM repeat. At identical 8×8×16 tile shape,
+1024³ Metal GEMM improved from 14.725 ms worker to 4.275 ms group (3.44×), but
+remained about 12× slower than PyTorch. The CPU loop-flattening regression was
+substantially reduced by retaining axes; the largest CPU case still measured
+48.226/38.508 ms in two runs, above the historical 31.571 ms observation.
+This remaining performance issue is not considered closed. All numerical
+checks passed, and no default mapping was changed based on these timings.
+
 ## Recorded reference baseline
 
 The [M1 Max baseline, 2026-09-03](results/m1-max-20260903-reference/results.md)
