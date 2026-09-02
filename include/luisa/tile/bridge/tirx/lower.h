@@ -18,10 +18,11 @@ struct NativeFunction {
     [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
 };
 
-// Lowers the portable scalar/control-flow subset of TileIR into a native
+// Lowers portable Scalar/Tile values and structured control flow to a native
 // TIRx PrimFunc. This is an in-memory C++ IR-to-IR bridge: neither Python nor
-// TVMScript is involved. Target-specific execution/resource binding remains a
-// later scheduling concern and is deliberately not guessed here.
+// TVMScript is involved. Logical parallel domains and execution constraints
+// survive as annotations for the later target mapper; structural export does
+// not guess or discard a user-requested hardware binding.
 [[nodiscard]] LUISA_TILE_TIRX_BRIDGE_API NativeFunction lower(
     const Function &function) noexcept;
 

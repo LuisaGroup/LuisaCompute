@@ -1868,6 +1868,25 @@ operand unless control-flow merging requires one.
 The frontend temporarily permits variable reads/writes. The first mandatory
 canonicalization pass promotes them to region arguments and SSA results.
 
+The current straight-line capture uses a temporary forwarding definition for
+each live C++ variable at temporal-region entry. At region exit, a mutated
+variable resolves to its own body argument; an unchanged variable resolves to
+its incoming definition. The forwarding definitions are then removed, so the
+stored TileIR remains SSA without an additional public operation kind:
+
+~~~text
+before loop:  a -> %initial, b -> %initial, snapshot -> %initial
+inside loop:  a -> %a_in,    b -> %b_in,    snapshot -> %initial
+~~~
+
+Sharing an initial definition does not merge variable identities. In
+particular, `auto old_a = a; ...; b = old_a;` yields `%a_in`, not `%initial`.
+The builder installs the yield before resolving forwarding definitions, and
+also rewrites live C++ handles before erasing them. The implementation
+conservatively carries every mutated incoming variable; later liveness and
+canonicalization can eliminate redundant state. CPU and Metal tests cover
+Scalar and Tile snapshots, zero/one/many iterations, and nested pipelines.
+
 The pipeline and nested collective update above become conceptually:
 
 ~~~text
@@ -2273,13 +2292,41 @@ Scheduled TileIR (physical scopes + index maps)
        target-specific TVM code generation
 ~~~
 
-The current reference schedule implements only the default root case. It leaves
-logical `parallel` as marked serial TIRx during structural export, then maps the
-outermost marked region to LLVM `kParallel` or to a Metal/CUDA-style
-`blockIdx.x * threads + threadIdx.x` grid with a tail predicate. Unbound nested
-parallel regions remain serial until a real per-nest `ExecBinding` plan is
-available. This fallback is deliberately internal rather than a public
+The reference schedule leaves logical `parallel` as marked serial TIRx during
+structural export, **including its optional execution-scope constraint**. The
+target mapper resolves each constraint before consuming its annotation. The
+outermost unbound region maps to LLVM `kParallel` or to a Metal/CUDA-style
+`blockIdx.x * threads + threadIdx.x` grid with a tail predicate. Empty logical
+domains become no-ops, not invalid zero-sized GPU launches.
+
+The currently implemented explicit subset is `exec::Scope::WORKER` at the
+outermost parallel level on LLVM/Metal, and `exec::Scope::VECTOR` as an LLVM
+vector root or a suffix below that worker. Unbound nested parallel regions
+remain serial. Nested worker or vector rebindings need a coordinate
+factorization that this reference planner does not yet implement, so they are
+rejected even through unbound/serial intermediate scopes. Device, group,
+subgroup, unknown scope names, and target-unavailable bindings also fail
+closed. Disabling vectorization cannot silently override an explicit vector
+constraint. This fallback is deliberately internal rather than a public
 `CPU_THREADS`/`GPU_GRID` compile option.
+
+Vector binding includes a separate resource transformation. A compiler-local
+temporary declared inside a vector instance has one independent copy per
+logical lane; a temporary in an ancestor scope does not. Before TIRx
+vectorization the bridge expands compact local storage by the address map:
+
+~~~text
+Address(local_coord, lane) = flatten(local_coord) * vector_width + lane
+~~~
+
+The allocation is hoisted immediately outside the vector loop, and all of its
+loads/stores retain the lane coordinate. This is necessary because the current
+upstream TIRx vectorizer does not privatize `AllocBuffer`; merely changing the
+loop kind can incorrectly broadcast the last lane's value to every lane.
+Parent Tiles, lane-local multidimensional Tiles, and simultaneous loop-carried
+updates have separate numerical regressions, alongside a generated LLVM
+vector-instruction check. Explicitly placed/laid-out resources are not
+rewritten by this compact-local-storage transformation.
 
 ### 11.4 Pipeline and memory bridge
 

@@ -24,6 +24,8 @@ struct CompileOptions {
     luisa::string target{"llvm"};
     luisa::string host{"llvm"};
     PipelineKind pipeline{PipelineKind::STANDARD};
+    // Disabling vectorization rejects an explicit vector execution constraint
+    // instead of silently replacing the requested mapping with a serial loop.
     bool vectorize{true};
     bool eliminate_common_subexpressions{true};
     // This is a caller contract, not something the bridge can infer from raw

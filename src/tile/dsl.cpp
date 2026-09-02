@@ -68,6 +68,8 @@ public:
 struct SlotSnapshot {
     luisa::weak_ptr<ValueSlot> slot;
     Value *value{nullptr};
+    Operation *forwarder{nullptr};
+    Value *replacement{nullptr};
 };
 
 struct ScopeStorage {
@@ -102,26 +104,6 @@ thread_local CaptureContext *current_capture = nullptr;
         case exec::Scope::VECTOR: return "vector"sv;
     }
     return {};
-}
-
-[[nodiscard]] bool operation_is_in_region(const Operation *operation, const Region *region) noexcept {
-    if (operation == nullptr || region == nullptr) { return false; }
-    auto current = operation->parent_block()->parent_region();
-    while (current != nullptr) {
-        if (current == region) { return true; }
-        auto parent = current->parent_operation();
-        current = parent == nullptr ? nullptr : parent->parent_block()->parent_region();
-    }
-    return false;
-}
-
-void rewrite_uses_in_region(Value *from, Value *to, const Region *region) noexcept {
-    luisa::vector<Use *> uses;
-    uses.reserve(from->use_count());
-    for (auto use : from->use_list()) { uses.emplace_back(use); }
-    for (auto use : uses) {
-        if (operation_is_in_region(use->user(), region)) { use->set(to); }
-    }
 }
 
 void enter_scope(ScopeStorage &scope) noexcept {
@@ -182,6 +164,25 @@ void enter_scope(ScopeStorage &scope) noexcept {
     }
     context->scopes.emplace_back(&scope);
     context->builder.set_insertion_block(scope.body);
+    if (scope.kind == OperationKind::SERIAL || scope.kind == OperationKind::PIPELINE || scope.kind == OperationKind::REDUCE) {
+        // Distinguish variable identities before tracing the body. Copies may
+        // share the same incoming SSA definition but diverge in later loop
+        // iterations. Replacing that shared definition after capture would
+        // incorrectly merge their recurrences (and immutable snapshots).
+        // Same-type casts are temporary forwarding definitions, all removed
+        // when the scope closes; they are not a new public IR primitive.
+        for (auto &entry : scope.snapshot) {
+            if (auto slot = entry.slot.lock(); slot != nullptr && entry.value != nullptr) {
+                Value *operands[]{entry.value};
+                entry.forwarder = context->builder.create_elementwise(ElementwiseOp::CAST, operands, entry.value->type());
+                if (entry.forwarder == nullptr) {
+                    context->error("failed to create a loop variable forwarding definition");
+                    continue;
+                }
+                slot->value = entry.forwarder->result(0u);
+            }
+        }
+    }
 }
 
 void exit_scope(ScopeStorage &scope) noexcept {
@@ -196,14 +197,18 @@ void exit_scope(ScopeStorage &scope) noexcept {
 
     struct Carry {
         luisa::shared_ptr<ValueSlot> slot;
-        Value *initial{nullptr};
         Value *final{nullptr};
         Value *result{nullptr};
     };
     luisa::vector<Carry> carries;
-    for (auto &&entry : scope.snapshot) {
+    for (auto &entry : scope.snapshot) {
+        entry.replacement = entry.value;
         auto slot = entry.slot.lock();
-        if (!slot || slot->value == entry.value) { continue; }
+        auto incoming = entry.forwarder == nullptr ? entry.value : entry.forwarder->result(0u);
+        if (!slot || slot->value == incoming) {
+            if (slot) { slot->value = entry.value; }
+            continue;
+        }
         if (scope.kind == OperationKind::PARALLEL || scope.kind == OperationKind::TILE_MAP) {
             context->error("parallel nests and tile.map cannot mutate an outer value");
             slot->value = entry.value;
@@ -219,8 +224,8 @@ void exit_scope(ScopeStorage &scope) noexcept {
         scope.operation->add_operand(entry.value);
         auto result = scope.operation->add_result(entry.value->type());
         auto argument = scope.body->add_argument(entry.value->type(), entry.value->name());
-        rewrite_uses_in_region(entry.value, argument, scope.operation->region(0u));
-        carries.emplace_back(Carry{std::move(slot), entry.value, final, result});
+        entry.replacement = argument;
+        carries.emplace_back(Carry{std::move(slot), final, result});
     }
 
     luisa::vector<Value *> yields;
@@ -228,6 +233,29 @@ void exit_scope(ScopeStorage &scope) noexcept {
     for (auto &&carry : carries) { yields.emplace_back(carry.final); }
     if (scope.kind == OperationKind::TILE_MAP) { yields.emplace_back(scope.element_result); }
     static_cast<void>(context->builder.create(OperationKind::YIELD, yields));
+    // Install the yield first: a direct assignment such as b = old_a may
+    // yield a forwarding definition itself, not an arithmetic use of it.
+    luisa::unordered_map<Value *, Value *> replacements;
+    for (auto &&entry : scope.snapshot) {
+        if (entry.forwarder == nullptr) { continue; }
+        auto forwarded = entry.forwarder->result(0u);
+        if (!forwarded->replace_all_uses_with(entry.replacement)) {
+            context->error("failed to resolve a loop variable forwarding definition");
+            continue;
+        }
+        replacements.emplace(forwarded, entry.replacement);
+    }
+    // Live local C++ copies can also point directly at a forwarding value.
+    // Rewrite all handles in one pass before deleting their IR definitions.
+    for (auto &&weak : context->slots) {
+        if (auto slot = weak.lock()) {
+            if (auto iter = replacements.find(slot->value); iter != replacements.end()) { slot->value = iter->second; }
+        }
+    }
+    for (auto &&entry : scope.snapshot) {
+        if (entry.forwarder == nullptr || !replacements.contains(entry.forwarder->result(0u))) { continue; }
+        if (!scope.body->erase(entry.forwarder)) { context->error("loop variable forwarding definition still has live uses"); }
+    }
     context->builder.set_insertion_block(scope.parent_block);
     context->coordinates.resize(scope.coordinate_base);
     context->scopes.pop_back();

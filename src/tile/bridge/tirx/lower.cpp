@@ -14,11 +14,11 @@
 #include <luisa/tile/bridge/tirx/lower.h>
 #include <luisa/tile/verifier.h>
 
+#include "execution.h"
+
 namespace luisa::compute::tile::bridge::tirx {
 
 namespace detail {
-
-constexpr auto logical_parallel_annotation = "luisa.tile.logical_parallel";
 
 class FunctionLowerer final {
 
@@ -480,6 +480,9 @@ private:
         if (is_parallel) {
             tvm::ffi::Map<tvm::ffi::String, tvm::ffi::Any> annotations{
                 {logical_parallel_annotation, tvm::IntImm::Int64(static_cast<int64_t>(operation.id()))}};
+            if (auto &&scope = operation.execution_scope_constraint()) {
+                annotations.Set(execution_scope_annotation, tvm::ffi::String{std::string{*scope}});
+            }
             loop_body = tvm::tirx::For{
                 parallel_variable,
                 tvm::IntImm::Int64(0),

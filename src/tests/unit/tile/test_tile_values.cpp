@@ -199,6 +199,87 @@ void test_ancestor_coordinates() {
     }
 }
 
+template<bool tiled>
+[[nodiscard]] auto make_state(float value) {
+    if constexpr (tiled) {
+        return full<float>(shape(1), value);
+    } else {
+        return Scalar<float>{value};
+    }
+}
+
+template<bool tiled>
+void test_loop_variable_identity() {
+    auto definition = tile_kernel("loop_variable_identity", [](TensorView<float, 1> out) {
+        auto a = make_state<tiled>(1.0f);
+        auto b = a;
+        auto snapshot = a;
+        for (auto &step : serial(shape(3))) {
+            static_cast<void>(step);
+            a += snapshot;
+            b += 2.0f;
+        }
+        if constexpr (tiled) {
+            out(coord(0), shape(1)).store(a + b);
+        } else {
+            out(coord(0), shape(1)).store(full<float>(shape(1), a + b));
+        }
+    });
+    auto kernel = definition.capture(tensor_shape(1));
+    expect(kernel.valid());
+    Operation *loop = nullptr;
+    for (auto operation : kernel.function().body().block(0)->operations()) {
+        if (operation->kind() == OperationKind::SERIAL) { loop = operation; }
+    }
+    expect(loop != nullptr);
+    if (loop == nullptr) { return; }
+    expect(eq(loop->result_count(), 2u));
+    auto body = loop->region(0)->block(0);
+    luisa::vector<Operation *> adds;
+    for (auto operation : body->operations()) {
+        if (operation->elementwise_op() == ElementwiseOp::ADD) { adds.emplace_back(operation); }
+    }
+    expect(eq(adds.size(), 2u));
+    if (adds.size() != 2u || loop->result_count() != 2u) { return; }
+    expect(loop->operand(0) == loop->operand(1));
+    expect(adds[0]->operand(0) == body->argument(1));
+    expect(adds[0]->operand(1) == loop->operand(0)); // immutable snapshot, not a's phi
+    expect(adds[1]->operand(0) == body->argument(2));// b has a separate variable identity
+}
+
+template<bool tiled>
+void test_direct_assignment_yield() {
+    auto definition = tile_kernel("direct_assignment_yield", [](TensorView<float, 1> out) {
+        auto a = make_state<tiled>(1.0f);
+        auto b = make_state<tiled>(2.0f);
+        for (auto &step : serial(shape(3))) {
+            static_cast<void>(step);
+            auto old_a = a;
+            a += b;
+            b = old_a;
+        }
+        if constexpr (tiled) {
+            out(coord(0), shape(1)).store(a + b);
+        } else {
+            out(coord(0), shape(1)).store(full<float>(shape(1), a + b));
+        }
+    });
+    auto kernel = definition.capture(tensor_shape(1));
+    expect(kernel.valid());
+    Operation *loop = nullptr;
+    for (auto operation : kernel.function().body().block(0)->operations()) {
+        if (operation->kind() == OperationKind::SERIAL) { loop = operation; }
+    }
+    expect(loop != nullptr);
+    if (loop == nullptr) { return; }
+    expect(eq(loop->result_count(), 2u));
+    if (loop->result_count() != 2u) { return; }
+    auto body = loop->region(0)->block(0);
+    auto yield = body->operations().back();
+    expect(yield->kind() == OperationKind::YIELD);
+    expect(yield->operand(1) == body->argument(1));// previous iteration, not initial a
+}
+
 #if defined(__clang__) && (!defined(__cpp_multidimensional_subscript) || __cpp_multidimensional_subscript < 202110L)
 #pragma clang diagnostic pop
 #endif
@@ -214,4 +295,8 @@ int main(int argc, char *argv[]) {
     "tile_map_rejects_memory_effects"_test = test_pure_map_rejects_memory;
     "tile_documented_gemm"_test = test_documented_gemm;
     "tile_ancestor_coordinates"_test = test_ancestor_coordinates;
+    "tile_loop_variable_identity"_test = test_loop_variable_identity<true>;
+    "scalar_loop_variable_identity"_test = test_loop_variable_identity<false>;
+    "tile_direct_assignment_yield"_test = test_direct_assignment_yield<true>;
+    "scalar_direct_assignment_yield"_test = test_direct_assignment_yield<false>;
 }

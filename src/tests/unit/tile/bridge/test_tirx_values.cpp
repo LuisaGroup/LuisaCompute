@@ -106,6 +106,91 @@ void test_tile_yield_is_simultaneous(Runtime &runtime) {
     }
 }
 
+template<bool tiled>
+void test_loop_variable_identity(Runtime &runtime) {
+    constexpr auto count = 37;
+    for (auto pipelined : {false, true}) {
+        for (auto iterations : {0, 1, 2, 5}) {
+            auto definition = tile_kernel("loop_variable_identity", [=](TensorView<const float, 1> input,
+                                                                        TensorView<float, 1> output) {
+                for (auto &nest : parallel(shape(count))) {
+                    auto loaded = input.tile(coord(nest.index()), shape(1)).load();
+                    auto a = [&] {
+                        if constexpr (tiled) {
+                            return loaded;
+                        } else {
+                            return loaded.at(coord(0));
+                        }
+                    }();
+                    // Three distinct C++ variables share one initial SSA
+                    // definition. Only a and b become loop-carried state.
+                    auto b = a;
+                    auto snapshot = a;
+                    auto range = pipelined ? nest.pipeline(shape(iterations)) : nest.serial(shape(iterations));
+                    for (auto &step : range) {
+                        if (pipelined) { step.stage("snapshot"); }
+                        auto old_a = a;
+                        if (pipelined) { step.stage("update"); }
+                        a += b + snapshot;
+                        b = old_a;
+                        if (pipelined) {
+                            step.stage("nested");
+                            for (auto &inner : step.serial(shape(2))) {
+                                static_cast<void>(inner);
+                                auto old_b = b;
+                                b += a;
+                                a = old_b;
+                            }
+                        }
+                    }
+                    auto store = [&](int64_t component, const auto &value) {
+                        auto ref = output(coord(nest.index() * 3 + component), shape(1));
+                        if constexpr (tiled) {
+                            ref.store(value);
+                        } else {
+                            ref.store(full<float>(shape(1), value));
+                        }
+                    };
+                    store(0, a);
+                    store(1, b);
+                    store(2, snapshot);
+                }
+            });
+            auto kernel = definition.capture(tensor_shape(count), tensor_shape(count * 3));
+            auto executable = runtime.build(kernel);
+            expect(executable.ok()) << executable.error;
+            if (!executable.ok()) { continue; }
+            luisa::vector<float> input(count);
+            for (auto i = 0u; i < input.size(); i++) { input[i] = static_cast<float>(static_cast<int32_t>(i % 13u) - 6) * 0.25f; }
+            auto source = runtime.upload<float>({count}, input);
+            auto output = runtime.allocate<float>({count * 3});
+            (*executable.entry)(source, output);
+            auto actual = runtime.download<float>(output, count * 3);
+            luisa::vector<float> expected(count * 3);
+            for (auto i = 0u; i < input.size(); i++) {
+                auto a = input[i];
+                auto b = a;
+                for (auto step = 0; step < iterations; step++) {
+                    auto old_a = a;
+                    a += b + input[i];
+                    b = old_a;
+                    if (pipelined) {
+                        for (auto inner = 0; inner < 2; inner++) {
+                            auto old_b = b;
+                            b += a;
+                            a = old_b;
+                        }
+                    }
+                }
+                expected[i * 3] = a;
+                expected[i * 3 + 1] = b;
+                expected[i * 3 + 2] = input[i];
+            }
+            expect(actual == expected) << "iterations=" << iterations << " pipeline=" << pipelined << " tiled=" << tiled;
+        }
+    }
+}
+
 void test_positional_broadcast(Runtime &runtime) {
     auto definition = tile_kernel("positional_broadcast", [](TensorView<const float, 2> a, TensorView<float, 2> out) {
         auto program = axis("program", 1);
@@ -161,6 +246,8 @@ int main(int argc, char *argv[]) {
     "tile_subtile_bounds_and_snapshot"_test = [&] { test_bounds_and_snapshot(runtime); };
     "tile_singleton_execution_coordinates"_test = [&] { test_singleton_execution_coordinates(runtime); };
     "tile_simultaneous_value_yield"_test = [&] { test_tile_yield_is_simultaneous(runtime); };
+    "tile_loop_variable_identity"_test = [&] { test_loop_variable_identity<true>(runtime); };
+    "scalar_loop_variable_identity"_test = [&] { test_loop_variable_identity<false>(runtime); };
     "tile_positional_broadcast"_test = [&] { test_positional_broadcast(runtime); };
     "tile_ancestor_coordinates"_test = [&] { test_ancestor_coordinates(runtime); };
 }

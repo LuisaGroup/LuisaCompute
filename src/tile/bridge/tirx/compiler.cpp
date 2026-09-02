@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <exception>
 #include <stdexcept>
 #include <string>
@@ -16,13 +17,13 @@
 #include <luisa/core/stl/vector.h>
 #include <luisa/tile/bridge/tirx/compiler.h>
 
+#include "execution.h"
+
 namespace luisa::compute::tile::bridge::tirx {
 
 namespace detail {
 
 using FunctionMap = tvm::ffi::Map<tvm::GlobalVar, tvm::BaseFunc>;
-
-constexpr auto logical_parallel_annotation = "luisa.tile.logical_parallel";
 
 enum class RootParallelBinding : uint8_t {
     SERIAL,
@@ -41,17 +42,61 @@ private:
     RootParallelBinding _binding;
     uint32_t _gpu_threads_per_block;
     uint32_t _logical_parallel_depth{0u};
+    uint32_t _vector_depth{0u};
+    bool _vectorize;
+    std::string _target_name;
 
 private:
-    [[nodiscard]] tvm::tirx::Stmt _serial(
+    [[noreturn]] void _scope_error(
         const tvm::tirx::ForNode *loop,
+        const std::string &scope,
+        const std::string &reason) const {
+        throw std::runtime_error{
+            "TileIR " + std::string{loop->loop_var->name} + ": execution scope '" + scope +
+            "' on target '" + _target_name + "' " + reason};
+    }
+
+    // This reference planner realizes a worker prefix and, on LLVM, a vector
+    // suffix. Hardware cooperation scopes require a distribution/resource
+    // plan, not just replacing an induction variable with a thread index.
+    [[nodiscard]] bool _resolve_vector(const tvm::tirx::ForNode *loop) const {
+        auto constraint = loop->annotations.Get(execution_scope_annotation);
+        if (!constraint) { return false; }
+        auto scope = constraint.value().as<tvm::ffi::String>();
+        if (!scope) { _scope_error(loop, "<invalid>", "must have a string scope constraint"); }
+        auto name = std::string{scope.value()};
+        if (name == "worker") {
+            if (_binding == RootParallelBinding::SERIAL) {
+                _scope_error(loop, name, "has no worker execution mapping");
+            }
+            if (_logical_parallel_depth != 0u) {
+                _scope_error(loop, name, "requires an explicit coordinate factorization for nested worker bindings");
+            }
+            return false;
+        }
+        if (name == "vector") {
+            if (_binding != RootParallelBinding::CPU_THREADS) {
+                _scope_error(loop, name, "is not supported by this target's execution mapper");
+            }
+            if (!_vectorize) { _scope_error(loop, name, "conflicts with disabled vectorization"); }
+            if (_vector_depth != 0u) {
+                _scope_error(loop, name, "requires an explicit coordinate factorization for nested vector bindings");
+            }
+            return true;
+        }
+        _scope_error(loop, name, "is not supported by the current execution mapper");
+    }
+
+    [[nodiscard]] tvm::tirx::Stmt _loop(
+        const tvm::tirx::ForNode *loop,
+        tvm::tirx::ForKind kind,
         tvm::tirx::Stmt body,
         tvm::ffi::Map<tvm::ffi::String, tvm::ffi::Any> annotations) const {
         return tvm::tirx::For{
             loop->loop_var,
             loop->min,
             loop->extent,
-            tvm::tirx::ForKind::kSerial,
+            kind,
             std::move(body),
             std::nullopt,
             std::move(annotations),
@@ -115,28 +160,36 @@ private:
 protected:
     [[nodiscard]] tvm::tirx::Stmt VisitStmt_(const tvm::tirx::ForNode *loop) final {
         if (!loop->annotations.count(logical_parallel_annotation)) {
+            if (loop->annotations.count(execution_scope_annotation)) {
+                _scope_error(loop, "<orphaned>", "requires its logical parallel domain");
+            }
             return StmtMutator::VisitStmt_(loop);
         }
+        // Resolve before mutating the body, including through unbound or
+        // serial intermediate levels. Unsupported constraints are hard errors,
+        // never optional hints that disappear during structural export.
+        auto is_vector = _resolve_vector(loop);
         auto annotations = loop->annotations;
         annotations.erase(logical_parallel_annotation);
+        annotations.erase(execution_scope_annotation);
         auto is_outermost = _logical_parallel_depth == 0u;
         _logical_parallel_depth++;
+        _vector_depth += is_vector;
         auto body = VisitStmt(loop->body);
+        _vector_depth -= is_vector;
         _logical_parallel_depth--;
+        if (auto extent = loop->extent.as<tvm::IntImmNode>(); extent != nullptr && extent->value == 0) {
+            return tvm::tirx::Evaluate{tvm::IntImm::Int32(0)};
+        }
+        if (is_vector) {
+            auto vector_loop = _loop(loop, tvm::tirx::ForKind::kVectorized, std::move(body), std::move(annotations));
+            return privatize_vector_storage(vector_loop.as_or_throw<tvm::tirx::For>());
+        }
         if (!is_outermost || _binding == RootParallelBinding::SERIAL) {
-            return _serial(loop, std::move(body), std::move(annotations));
+            return _loop(loop, tvm::tirx::ForKind::kSerial, std::move(body), std::move(annotations));
         }
         if (_binding == RootParallelBinding::CPU_THREADS) {
-            return tvm::tirx::For{
-                loop->loop_var,
-                loop->min,
-                loop->extent,
-                tvm::tirx::ForKind::kParallel,
-                std::move(body),
-                std::nullopt,
-                std::move(annotations),
-                loop->step,
-                loop->span};
+            return _loop(loop, tvm::tirx::ForKind::kParallel, std::move(body), std::move(annotations));
         }
         if (_binding == RootParallelBinding::GPU_GRID) {
             return _gpu_grid(loop, std::move(body));
@@ -145,8 +198,10 @@ protected:
     }
 
 public:
-    ExecutionMapper(RootParallelBinding binding, uint32_t gpu_threads_per_block) noexcept
-        : _binding{binding}, _gpu_threads_per_block{gpu_threads_per_block} {}
+    ExecutionMapper(RootParallelBinding binding, uint32_t gpu_threads_per_block,
+                    bool vectorize, std::string target_name) noexcept
+        : _binding{binding}, _gpu_threads_per_block{gpu_threads_per_block},
+          _vectorize{vectorize}, _target_name{std::move(target_name)} {}
 
     using StmtMutator::operator();
 };
@@ -173,7 +228,8 @@ public:
 
 [[nodiscard]] tvm::IRModule map_execution(
     tvm::IRModule module,
-    const tvm::Target &target) {
+    const tvm::Target &target,
+    bool vectorize) {
     auto binding = resolve_parallel_binding(target);
     auto threads = uint32_t{1u};
     if (binding == RootParallelBinding::GPU_GRID) {
@@ -191,7 +247,7 @@ public:
             throw std::runtime_error{"Tile TIRx execution mapping only accepts PrimFunc modules"};
         }
         auto mapped = function.value();
-        mapped.CopyOnWrite()->body = ExecutionMapper{binding, threads}(mapped->body);
+        mapped.CopyOnWrite()->body = ExecutionMapper{binding, threads, vectorize, std::string{target->kind->name}}(mapped->body);
         functions.Set(global, std::move(mapped));
     }
     return make_module(std::move(functions), module->attrs, module->global_infos);
@@ -280,7 +336,7 @@ CompilationResult compile(tvm::IRModule module, const CompileOptions &options) n
         tvm::Target device_target{tvm::ffi::String{options.target}};
         tvm::Target host_target{tvm::ffi::String{options.host}};
         tvm::Target bound_target{device_target, host_target};
-        module = detail::map_execution(std::move(module), device_target);
+        module = detail::map_execution(std::move(module), device_target, options.vectorize);
         detail::run_common_pipeline(module, options, bound_target);
 
         detail::FunctionMap host_functions;
