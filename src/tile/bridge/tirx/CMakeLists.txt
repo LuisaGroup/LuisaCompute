@@ -36,7 +36,8 @@ endforeach ()
 
 set(LUISA_COMPUTE_TILE_TIRX_BRIDGE_SOURCES
         compiler.cpp
-        layout.cpp)
+        layout.cpp
+        lower.cpp)
 
 add_library(luisa-compute-tile-bridge-tirx
         ${LUISA_COMPUTE_TILE_TIRX_BRIDGE_SOURCES})

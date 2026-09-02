@@ -5,8 +5,13 @@
 #include <limits>
 #include <utility>
 
+#include <tvm/runtime/tensor.h>
+#include <tvm/tirx/stmt_functor.h>
+
 #include <luisa/tile/bridge/tirx/compiler.h>
 #include <luisa/tile/bridge/tirx/layout.h>
+#include <luisa/tile/bridge/tirx/lower.h>
+#include <luisa/tile/dsl.h>
 
 using namespace luisa;
 using namespace luisa::compute::tile;
@@ -179,6 +184,153 @@ void test_native_compiler() {
     expect(eq(result, 3.75f));
 }
 
+void test_native_buffer_kernel() {
+    constexpr int64_t n = 17;
+    auto extent = tvm::IntImm::Int64(n);
+    auto input = tvm::tirx::decl_buffer({extent}, tvm::PrimType::Float(32), "input");
+    auto output = tvm::tirx::decl_buffer({extent}, tvm::PrimType::Float(32), "output");
+    tvm::tirx::PrimVar i{"i", tvm::PrimType::Int(64)};
+    auto value = tvm::tirx::BufferLoad{input, {i}} + tvm::FloatImm{tvm::PrimType::Float(32), 1.0};
+    auto body = tvm::tirx::For{
+        i,
+        tvm::IntImm::Int64(0),
+        extent,
+        tvm::tirx::ForKind::kSerial,
+        tvm::tirx::BufferStore{output, value, {i}}};
+    tvm::tirx::PrimFunc function{{input.var(), output.var()}, std::move(body)};
+    auto compilation = compile(std::move(function), "tile_tirx_add_one");
+    expect(compilation.ok()) << compilation.error();
+    if (!compilation) { return; }
+    auto entry = compilation.module().value()->GetFunction("tile_tirx_add_one", true);
+    expect(entry.has_value());
+    if (!entry) { return; }
+
+    tvm::Device cpu{kDLCPU, 0};
+    auto input_tensor = tvm::runtime::Tensor::Empty(
+        tvm::ffi::Shape{n}, DLDataType{kDLFloat, 32, 1}, cpu);
+    auto output_tensor = tvm::runtime::Tensor::Empty(
+        tvm::ffi::Shape{n}, DLDataType{kDLFloat, 32, 1}, cpu);
+    luisa::vector<float> input_values(n);
+    luisa::vector<float> output_values(n, 0.0f);
+    for (auto index = 0u; index < input_values.size(); index++) {
+        input_values[index] = static_cast<float>(index) * 0.25f - 1.0f;
+    }
+    input_tensor.CopyFromBytes(input_values.data(), input_values.size() * sizeof(float));
+    (*entry)(input_tensor, output_tensor);
+    output_tensor.CopyToBytes(output_values.data(), output_values.size() * sizeof(float));
+    for (auto index = 0u; index < output_values.size(); index++) {
+        expect(eq(output_values[index], input_values[index] + 1.0f));
+    }
+
+    // Aliasing is legal by default; noalias is an explicit CompileOptions
+    // contract rather than an assumption made by the bridge.
+    (*entry)(input_tensor, input_tensor);
+    input_tensor.CopyToBytes(output_values.data(), output_values.size() * sizeof(float));
+    for (auto index = 0u; index < output_values.size(); index++) {
+        expect(eq(output_values[index], input_values[index] + 1.0f));
+    }
+}
+
+void test_dsl_elementwise_end_to_end() {
+    constexpr int64_t n = 17;
+    auto kernel = define("tile_dsl_axpy", [] {
+        auto i = axis("i", n);
+        auto x = input<float>("x", shape(i));
+        auto y = input<float>("y", shape(i));
+        auto result = output<float>("result", shape(i));
+        for (auto &element : parallel(shape(i))) {
+            result[element] = x[element].load() + 2.0f * y[element].load();
+        }
+    });
+    expect(kernel.valid());
+    auto native = lower(kernel.function());
+    expect(native.ok()) << native.error;
+    if (!native) { return; }
+    auto compilation = compile(std::move(native.value), "tile_dsl_axpy");
+    expect(compilation.ok()) << compilation.error();
+    if (!compilation) { return; }
+    auto entry = compilation.module().value()->GetFunction("tile_dsl_axpy", true);
+    expect(entry.has_value());
+    if (!entry) { return; }
+
+    tvm::Device cpu{kDLCPU, 0};
+    auto x = tvm::runtime::Tensor::Empty(tvm::ffi::Shape{n}, DLDataType{kDLFloat, 32, 1}, cpu);
+    auto y = tvm::runtime::Tensor::Empty(tvm::ffi::Shape{n}, DLDataType{kDLFloat, 32, 1}, cpu);
+    auto result = tvm::runtime::Tensor::Empty(tvm::ffi::Shape{n}, DLDataType{kDLFloat, 32, 1}, cpu);
+    luisa::vector<float> x_values(n);
+    luisa::vector<float> y_values(n);
+    luisa::vector<float> result_values(n, 0.0f);
+    for (auto i = 0u; i < x_values.size(); i++) {
+        x_values[i] = static_cast<float>(i);
+        y_values[i] = static_cast<float>(3u * i + 1u);
+    }
+    x.CopyFromBytes(x_values.data(), x_values.size() * sizeof(float));
+    y.CopyFromBytes(y_values.data(), y_values.size() * sizeof(float));
+    (*entry)(x, y, result);
+    result.CopyToBytes(result_values.data(), result_values.size() * sizeof(float));
+    for (auto i = 0u; i < result_values.size(); i++) {
+        expect(eq(result_values[i], x_values[i] + 2.0f * y_values[i]));
+    }
+}
+
+void test_dsl_reduction_end_to_end() {
+    constexpr int64_t rows = 5;
+    constexpr int64_t columns = 7;
+    auto kernel = define("tile_dsl_row_sum", [] {
+        auto row = axis("row", rows);
+        auto column = axis("column", columns);
+        auto source = input<float>("input", shape(row, column));
+        auto result = output<float>("result", shape(row));
+        for (auto &row_nest : parallel(shape(row))) {
+            auto sum = Scalar<float>{0.0f};
+            for (auto &column_nest : row_nest.reduce(shape(column))) {
+                sum += source(row_nest[row], column_nest[column]).load();
+            }
+            result(row_nest[row]) = sum;
+        }
+    });
+    expect(kernel.valid());
+    auto native = lower(kernel.function());
+    expect(native.ok()) << native.error;
+    if (!native) { return; }
+    auto source_parameter = native.value->params[0u].as<tvm::tirx::BufferVar>();
+    expect(source_parameter.has_value());
+    tvm::tirx::PostOrderVisit(native.value->body, [&](const tvm::ffi::ObjectRef &node) {
+        if (auto load = node.as<tvm::tirx::BufferLoad>()) {
+            if (load.value()->buffer.name() == "input") {
+                expect(source_parameter.has_value() && load.value()->buffer.same_as(source_parameter.value()));
+            }
+        }
+    });
+    auto compilation = compile(std::move(native.value), "tile_dsl_row_sum");
+    expect(compilation.ok()) << compilation.error();
+    if (!compilation) { return; }
+    auto entry = compilation.module().value()->GetFunction("tile_dsl_row_sum", true);
+    expect(entry.has_value());
+    if (!entry) { return; }
+
+    tvm::Device cpu{kDLCPU, 0};
+    auto input = tvm::runtime::Tensor::Empty(
+        tvm::ffi::Shape{rows, columns}, DLDataType{kDLFloat, 32, 1}, cpu);
+    auto result = tvm::runtime::Tensor::Empty(
+        tvm::ffi::Shape{rows}, DLDataType{kDLFloat, 32, 1}, cpu);
+    luisa::vector<float> input_values(rows * columns);
+    luisa::vector<float> result_values(rows, 0.0f);
+    for (auto i = 0u; i < input_values.size(); i++) {
+        input_values[i] = static_cast<float>((i % 9u) + 1u);
+    }
+    input.CopyFromBytes(input_values.data(), input_values.size() * sizeof(float));
+    (*entry)(input, result);
+    result.CopyToBytes(result_values.data(), result_values.size() * sizeof(float));
+    for (auto row = 0u; row < static_cast<size_t>(rows); row++) {
+        auto expected = 0.0f;
+        for (auto column = 0u; column < static_cast<size_t>(columns); column++) {
+            expected += input_values[row * columns + column];
+        }
+        expect(eq(result_values[row], expected));
+    }
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -187,4 +339,7 @@ int main(int argc, char *argv[]) {
     "tile_tirx_coincident_replica_witnesses"_test = test_coincident_replica_witnesses;
     "tile_tirx_native_export"_test = test_native_export;
     "tile_tirx_native_compiler"_test = test_native_compiler;
+    "tile_tirx_native_buffer_kernel"_test = test_native_buffer_kernel;
+    "tile_tirx_dsl_elementwise_end_to_end"_test = test_dsl_elementwise_end_to_end;
+    "tile_tirx_dsl_reduction_end_to_end"_test = test_dsl_reduction_end_to_end;
 }

@@ -2244,6 +2244,17 @@ imports generated device modules into the host runtime module. A scalar
 `PrimFunc` compile-and-execute test is the minimum ABI smoke test; Python is not
 loaded even for pass orchestration.
 
+The bootstrap implementation already lowers static-JIT-specialized view
+arguments, scalar constants and typed elementwise opcodes, view loads/stores,
+and `parallel`/`serial`/`pipeline`/`reduce` regions with inferred scalar carried
+state. Unsupported Tile, MMA, and explicit-memory forms fail closed rather than
+falling through a name-based dispatch. The compiler distinguishes ordinary
+TIRx statements (`STANDARD`) from programs containing native TIRx
+`TilePrimitive` calls (`TILE`), because only the latter require the
+`LowerTIRx`/`LowerTIRxOpaque` pipeline. Buffer `noalias` is an explicit caller
+contract and defaults off until TileIR carries enough alias metadata to prove
+it.
+
 ### 11.5 Bootstrap lowering path
 
 ~~~text

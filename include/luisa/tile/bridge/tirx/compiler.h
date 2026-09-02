@@ -14,16 +14,22 @@
 namespace luisa::compute::tile::bridge::tirx {
 
 enum class PipelineKind : uint8_t {
-    DEFAULT,
-    TIRX
+    // Ordinary native TIRx statements and expressions.
+    STANDARD,
+    // Native TIRx TilePrimitive calls that require LowerTIRx.
+    TILE
 };
 
 struct CompileOptions {
     luisa::string target{"llvm"};
     luisa::string host{"llvm"};
-    PipelineKind pipeline{PipelineKind::TIRX};
+    PipelineKind pipeline{PipelineKind::STANDARD};
     bool vectorize{true};
     bool eliminate_common_subexpressions{true};
+    // This is a caller contract, not something the bridge can infer from raw
+    // PrimFunc parameters. Keep the conservative default when buffers may
+    // alias, including when compiling directly lowered TileIR today.
+    bool noalias{false};
 };
 
 class LUISA_TILE_TIRX_BRIDGE_API CompilationResult final {

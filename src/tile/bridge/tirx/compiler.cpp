@@ -42,14 +42,14 @@ void run_common_pipeline(tvm::IRModule &module, const CompileOptions &options, c
         module = run_pass(std::move(pass), std::move(module));
     };
     apply(tvm::tirx::transform::BindTarget(target));
-    if (options.pipeline == PipelineKind::TIRX) {
+    if (options.pipeline == PipelineKind::TILE) {
         apply(tvm::tirx::transform::LowerTIRx());
     } else {
         apply(tvm::s_tir::transform::LowerInitBlock());
     }
     apply(tvm::s_tir::transform::UnifyThreadBinding());
     apply(tvm::tirx::transform::StmtSimplify());
-    if (options.pipeline == PipelineKind::TIRX) {
+    if (options.pipeline == PipelineKind::TILE) {
         apply(tvm::tirx::transform::LowerTIRxOpaque());
     }
     apply(tvm::tirx::transform::FlattenBuffer());
@@ -161,7 +161,9 @@ CompilationResult compile(
     try {
         auto symbol = tvm::ffi::String{std::string{name}};
         function = tvm::WithAttr(std::move(function), tvm::attr::kGlobalSymbol, symbol);
-        function = tvm::WithAttr(std::move(function), "tirx.noalias", true);
+        if (options.noalias) {
+            function = tvm::WithAttr(std::move(function), "tirx.noalias", true);
+        }
         detail::FunctionMap functions{{tvm::GlobalVar{symbol}, function}};
         return compile(detail::make_module(std::move(functions)), options);
     } catch (const tvm::ffi::Error &error) {
