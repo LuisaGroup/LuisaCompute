@@ -3,7 +3,9 @@
 #include <luisa/luisa-compute.h>
 #include <luisa/dsl/sugar.h>
 #include "reference_image.h"
+#include <cstdlib>
 #include <iostream>
+#include <string_view>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -68,7 +70,24 @@ void test_procedural_callable(Device &device, int argc, char *argv[]) {
            << accel.build()
            << synchronize();
 
-    static constexpr auto spp = 1024u;
+    auto spp = 1024u;
+    for (auto i = 1; i < argc; i++) {
+        if (std::string_view{argv[i]} == "--spp") {
+            if (++i >= argc) {
+                expect(false) << "missing value for --spp";
+                return;
+            }
+            char *end = nullptr;
+            auto value = std::strtoul(argv[i], &end, 10);
+            if (end == argv[i] || *end != '\0' || value == 0u ||
+                value > 65536u) {
+                expect(false) << "invalid --spp value";
+                return;
+            }
+            spp = static_cast<uint>(value);
+        }
+    }
+    LUISA_INFO("Procedural callable rendering with {} spp.", spp);
 
     Callable tea = [](UInt v0, UInt v1) noexcept {
         auto s0 = def(0u);

@@ -154,6 +154,7 @@ malformed call sites into LLVM lowering.
    - `lower-ray-query-to-loop` for every retained query loop
    - `destructure_cfg`
    - `inline_all`
+   - hoist every remaining `AllocaInst` into the function-entry prefix
    - `mem2reg`
 6. Run `create_ssa_optimization_pipeline`.
 7. Run cleanup:
@@ -166,7 +167,13 @@ malformed call sites into LLVM lowering.
 The outlining pass is scheduled before retained ray-query-loop lowering and
 before CFG destructuring. Inlining is deliberately scheduled immediately after
 CFG destructuring in both normalization paths; no pass is inserted between
-`destructure_cfg` and `inline_all`. Multi-block inlining rejects structured
+`destructure_cfg` and `inline_all`. The main path then walks every function and
+moves every remaining alloca, not only ray-query storage, into its entry
+prefix while preserving instruction order. Ordinary locals are subsequently
+promoted by `mem2reg`; opaque stateful intersection-query locals remain
+entry-local for the AIR allocate/reset/deallocate lifetime contract. This
+canonicalization is required because multi-block callable inlining clones
+callee-local allocations into the cloned CFG region. Multi-block inlining rejects structured
 caller or callee CFG; for functions made plain by
 `destructure_cfg`, its block splitting and branch insertion preserve the
 unstructured form expected by LLVM lowering. Recursive callables and functions
@@ -1554,10 +1561,24 @@ air.intersect(..., non-null IFT, ray-data payload, payload size, ...)
                     +-- returns {accept_intersection, continue_search}
 ~~~
 
-This conversion is controlled by
-`ShaderOption::enable_ray_query_pipeline`, which defaults to true. Setting it
-to false is an explicit validation and performance-comparison mode; it retains
-the native stateful representation and is not an MSL fallback.
+This conversion is allowed by
+`ShaderOption::enable_ray_query_pipeline`, which defaults to true. The default
+is an automatic policy, not an unconditional outline request. Setting it to
+false explicitly retains the native stateful representation and is not an MSL
+fallback. `ShaderOption::force_ray_query_pipeline` bypasses profitability
+selection for matched experiments and strict tests, but cannot bypass any
+semantic or ABI rejection described below.
+
+The runtime derives the automatic policy before cache lookup and hashes that
+policy into the shader cache identity. A motion ray query is allowed an
+unbounded payload because the public stateful AIR form cannot express its
+motion AS and ray time. For static queries, Apple10 devices allow IFT outlining
+only when the conservative raw callback payload costs at most 128 bytes.
+Apple7, Apple8, and Apple9 currently retain the stateful path automatically;
+Apple7 is measured, while Apple8/9 remain conservative until matched physical-
+device evidence exists. The force option retains an unbounded budget on every
+device. None of these choices changes the semantic triangle/procedural/curve
+gate.
 
 **Selection and scheduling.** `outline-ray-query-pipelines` runs after the
 basic XIR optimizations, but before `lower-ray-query-to-loop`, CFG
@@ -1602,6 +1623,16 @@ element types are not payload captures. The acceleration structure used to
 construct the query remains an ordinary kernel-side operand; attempting to
 reference an independent `Accel` from inside the outlined callback is not
 silently converted to a pointer capture.
+
+The profitability budget is expressed in payload bytes rather than argument
+count. A Buffer costs 16 bytes (`{device pointer, uint64 size}`), a Bindless
+array costs 8 bytes, and ordinary scalar/vector/matrix/array/structure captures
+use `Type::size()`. This preserves Luisa storage rules: `bool4` and `byte4`
+each cost four bytes rather than the one byte that four packed LLVM `i1`
+values might suggest. Input and output payload fields are both charged with
+saturating arithmetic. Selection deliberately uses the raw pre-localization
+capture set as a conservative bound; proving handler-private allocas can reduce
+argument count, but cannot make an over-budget payload eligible.
 
 The payload is a natural-layout LLVM structure named
 `%LuisaRayQueryPayloadN`. Its fixed logical field order is:
@@ -3590,9 +3621,24 @@ run passes **36/36**, including all fifteen rendering examples and the
 extended-limits direct-trace regression.
 
 Apple GPU Shader Validation is a separate instrumenting tool and has narrower
-coverage than API Validation. The supported subset passes **33/33** with
-`MTL_SHADER_VALIDATION=1`, error reporting, and abort-on-fault enabled. The
-three deliberately separated registrations are:
+coverage than API Validation. On the current macOS/Xcode toolchain,
+`MTL_SHADER_VALIDATION_FAIL_MODE` accepts `allow` or `zerofill`, not the older
+`assert` spelling. With `MTL_SHADER_VALIDATION=1`, fail mode `allow`, Metal API
+Validation, and Luisa validation enabled, the selected non-RTX subset passes
+**19/19**. It covers typed bindless resources, raster and stencil JIT/AOT,
+timeline events, autodiff, native logging, buffer I/O, bindless buffers,
+native include, cooperative vectors, and six non-RTX renderers.
+
+The Apple7 M1 Max cannot execute a Metal4 ray-tracing workload after GPU Shader
+Validation instruments it: both a focused ray-query state-machine run and the
+RTX-containing device-conformance aggregate end with an
+`MTL4CommandQueueErrorDomain` command-queue failure. The same runtime paths
+pass ordinary execution and the full **39/39** Metal API Validation matrix, so
+this is kept as a device/tool instrumentation boundary rather than reported as
+a Metal4 runtime failure. All acceleration, motion, ray-query, procedural,
+path-tracing, and photon-mapping registrations are therefore outside the
+current GPU-Validation subset. Three additional non-RTX/aggregate exclusions
+remain:
 
 - `test_metal4_air_indirect`, because Luisa's GPU-written ICB stores its
   pipeline and two buffer bindings per command. Apple documents that Shader
@@ -3607,12 +3653,11 @@ three deliberately separated registrations are:
   contains both of the preceding ICB and bindless-sampler paths. Its full
   semantics pass ordinary execution and API Validation.
 
-This is not treated as three runtime failures or silently weakened into a
-passing GPU-Validation result. ICB and bindless sampling retain their strict
-executing tests, while GPU Shader Validation remains enabled for every path it
-can instrument without changing the program contract, including acceleration,
-motion, ray queries, raster JIT/AOT, stencil, logging, native include,
-cooperative vectors, and all fifteen renderers.
+These exclusions are not treated as runtime failures or silently weakened into
+a passing GPU-Validation result. RTX, ICB, and bindless-sampler paths retain
+their strict ordinary and API-Validation executing tests. GPU Shader
+Validation remains enabled only where this device/tool pair can instrument the
+program without changing its contract.
 
 MTL4 commit feedback publishes a submission's host-visible completion only
 after callbacks, resource release, profiling, and the in-flight decrement have
@@ -3790,10 +3835,12 @@ still execute their independent two-draw Replace/Equal stencil tests.
 ### 16.5 Loop-to-IFT closure and M1 Max A/B (2026-09-01)
 
 The loop-to-pipeline implementation was closed on the Apple M1 Max with a
-CMake/Ninja build. The full configured CTest matrix passes **167/167**. The
-Metal4 integration matrix passes **38/38** both normally and with
+CMake/Ninja build. After the captured-payload/callable follow-up in Section
+16.6, the latest full configured CTest matrix passes **168/168** in 73.56 seconds.
+The Metal4 integration matrix passes **39/39** both normally and with
 `MTL_DEBUG_LAYER=1` plus `LUISA_ENABLE_VALIDATION=1`; this includes all fifteen
-registered rendering examples. The explicit state-machine test covers the
+registered rendering examples. The strict run completes in 19.93 seconds.
+The explicit state-machine test covers the
 pipeline/stateful and direct/GPU-written-indirect Cartesian product for a
 triangle query, while its procedural-AABB query proves conservative stateful
 retention. The motion test covers dynamic ray time, `QueryAll`, `QueryAny`,
@@ -3838,7 +3885,103 @@ One reproducible warm pair is:
   --trace-mode cutout-query --ray-query-lowering loop
 ~~~
 
-### 16.6 Useful commands
+### 16.6 Captured-payload, callable, and Apple10 gate closure (2026-09-01)
+
+The cutout benchmark also accepts `--capture-float4s N`. Each requested
+`float4` is initialized from runtime ray data, mutated and read in both query
+callbacks, and contributes to the cutout decision, so the values cannot be
+removed as dead benchmark scaffolding. In the current mutable-state form each
+source `float4` produces an input and an output capture. Thus source counts
+4, 16, and 32 produced 8, 32, and 64 captured fields, with conservative costs
+128, 512, and 1,024 bytes per query respectively.
+
+Matched macOS runs used the Apple7 M1 Max, 1024 by 1024 pixels, 64 spp, five
+measured iterations, a 64-spp dispatch cap, deterministic cutout mode, and
+AB/BA order reversal. For each row, all four pipeline/stateful PNGs were byte-
+identical:
+
+| Source callback state | Pipeline/IFT | Stateful loop | IFT difference |
+|---:|---:|---:|---:|
+| 0 `float4` | 39.171 spp/s | 45.030 spp/s | **13.0% slower** |
+| 4 `float4` | 32.896 spp/s | 39.194 spp/s | **16.1% slower** |
+| 16 `float4` | 19.447 spp/s | 29.236 spp/s | **33.5% slower** |
+| 32 `float4` | 9.247 spp/s | 20.228 spp/s | **54.3% slower** |
+
+The same executable and settings were signed and run on the physical Apple10
+A19 Pro GPU in an iPhone 17 Pro Max. Each mode's repeated PNGs were byte-
+identical. Pipeline versus stateful differed at only 3 of 1,048,576 pixels,
+five channel components total, at most three 8-bit levels; PSNR was
+100.555290 dB for every row. Opposite-order pairwise ratios agree with the
+reported direction except in the separately investigated crossover region:
+
+| Source callback state | Pipeline/IFT | Stateful loop | IFT difference |
+|---:|---:|---:|---:|
+| 0 `float4` | 98.271 spp/s | 58.983 spp/s | **66.6% faster** |
+| 4 `float4` / 128-byte raw payload | 63.384 spp/s | 54.272 spp/s | **16.8% faster** |
+| 16 `float4` / 512-byte raw payload | 26.209 spp/s | 49.864 spp/s | **47.4% slower** |
+| 32 `float4` / 1,024-byte raw payload | 8.047 spp/s | 26.889 spp/s | **70.1% slower** |
+
+A threshold sweep found 192 bytes (six source `float4`) only 4.8% to 12.0%
+faster, 256 bytes (eight source `float4`) order/thermal sensitive with opposite
+signs, and 384 bytes (twelve source `float4`) 33.8% to 35.5% slower. The
+automatic Apple10 cap is therefore the last decisively positive measured point,
+128 bytes, rather than an interpolation through the unstable crossover. This
+is a device-family-and-payload result, not evidence that every newer ray-
+tracing implementation favors an IFT pipeline.
+
+A final signed-device gate audit launched the default automatic mode, rather
+than either benchmark override, on that iPhone. At zero source captures the
+runtime selected the Apple10 128-byte policy and outlined both query loops with
+zero payload bytes. At four source `float4` values it outlined both loops at
+the exact 128-byte boundary (eight raw input fields). At sixteen source values
+it rejected both loops at 512 bytes before handler-localization analysis and
+then lowered both through the stateful path. All three 1024 by 1024, one-spp
+finite renders reported `finished=1` with exit code zero. The same isolated
+checkout also completed an unsigned Release `ALL_BUILD` for all 49 Xcode
+targets, including all 19 rendering-example app bundles, before the cutout app
+was separately signed and installed.
+
+The direct state-machine regression now places its procedural query inside the
+named callable `metal4_retained_procedural_state_machine_callable`. That
+callable captures an acceleration structure, writable and read-only buffers,
+a bindless array, reference outputs, local mutable state, and executes nested
+conditionals and a direct `query.proceed()` software state machine with
+procedural candidate reads and commit. It is compiled with IFT force enabled
+to prove the semantic module gate still retains it, and with IFT disabled;
+both variants run direct and GPU-written indirect dispatch and match exact
+results. `test_procedural_callable metal4 --spp 4` is additionally registered
+as `test_metal4_procedural_callable`; it renders a mixed triangle/procedural
+scene whose ray query lives inside a high-level Callable and captures scene
+resources, a reference validity flag, and local normal state.
+
+These callable cases exposed that forced inlining alone was insufficient:
+multi-block inlining had correctly removed the call but left cloned query
+storage in a non-entry CFG block. The post-inline alloca canonicalization in
+Section 2.1 now hoists all allocas before `mem2reg`. The strict state-machine
+executable passes 50 assertions under Metal API Validation, and the registered
+procedural Callable render also passes. Its optimized XIR contains the native
+procedural state-machine read/write operations and no `RayQueryPipelineInst`,
+proving that success did not come from silently taking the triangle IFT path.
+The physical c0/c4 shaders each reported eleven moved allocas followed by 24
+successful `mem2reg` promotions; the retained c16 stateful shader reported the
+same eleven moves and 56 promotions. This confirms the pass is exercised by
+real callable/query control flow and is not a ray-query-object-only special
+case.
+
+Reproduce one captured pair with:
+
+~~~sh
+./bin/example_path_tracing_cutout metal4 --offline --spp 64 \
+  --iterations 5 --max-spp-per-dispatch 64 --trace-mode cutout-query \
+  --capture-float4s 4 --ray-query-lowering pipeline
+./bin/example_path_tracing_cutout metal4 --offline --spp 64 \
+  --iterations 5 --max-spp-per-dispatch 64 --trace-mode cutout-query \
+  --capture-float4s 4 --ray-query-lowering loop
+~~~
+
+Omit `--ray-query-lowering` to exercise the automatic device/payload gate.
+
+### 16.7 Useful commands
 
 Dump XIR and optimized LLVM:
 
@@ -3938,10 +4081,13 @@ correct atomic lowering requires an explicit AIR intrinsic/ABI convention.
   and numeric control operands are private Apple conventions and need
   differential revalidation on each toolchain/AIR-version update.
 - Apple GPU Shader Validation cannot instrument Luisa's non-inherited
-  GPU-written ICB without changing its per-command buffer ABI, and currently
-  changes private bindless sampler-table behavior without reporting a fault.
-  Keep full API Validation and exact executing regressions for those paths;
-  do not report them as GPU-Validation-passing or loosen their numeric checks.
+  GPU-written ICB without changing its per-command buffer ABI, currently
+  changes private bindless sampler-table behavior without reporting a fault,
+  and on the local Apple7 M1 Max fails MTL4 command-queue execution for RTX-
+  containing workloads. The verified non-RTX subset is 19/19; the complete
+  ordinary and Metal API Validation matrices remain 39/39. Keep full API
+  Validation and exact executing regressions for excluded paths; do not report
+  them as GPU-Validation-passing or loosen their numeric checks.
 - Direct compute textures, 32-bit atomics, volatile device-buffer access, the
   documented subgroup subset, the documented bindless buffer/texture subset,
   GPU-written indirect dispatch records, and the static instanced-triangle
@@ -3993,8 +4139,9 @@ correct atomic lowering requires an explicit AIR intrinsic/ABI convention.
 | Fail-closed support preflight | [metal_codegen_llvm_preflight.cpp](metal_codegen_llvm_preflight.cpp) |
 | Public codegen configuration/result | [metal_codegen_llvm.h](metal_codegen_llvm.h) |
 | LLVM-generated runtime builtin entries and ABI metadata | [metal_codegen_llvm_builtin.cpp](metal_codegen_llvm_builtin.cpp) |
-| AST-to-XIR orchestration | [metal_xir_pipeline.cpp](../metal_xir_pipeline.cpp) |
-| Transactional XIR query-loop outlining and capture analysis | [lower_ray_query_to_pipeline.cpp](../../../xir/passes/lower_ray_query_to_pipeline.cpp) |
+| AST-to-XIR orchestration and post-inline alloca canonicalization | [metal_xir_pipeline.cpp](../metal_xir_pipeline.cpp) |
+| Device/payload automatic ray-query policy | [metal_device.cpp](../metal_device.cpp) |
+| Transactional XIR query-loop outlining and capture-cost analysis | [lower_ray_query_to_pipeline.cpp](../../../xir/passes/lower_ray_query_to_pipeline.cpp), [lower_ray_query_to_pipeline_capture_cost.h](../../../xir/passes/lower_ray_query_to_pipeline_capture_cost.h) |
 | Shared XIR pipeline factories | [pass_pipeline.cpp](../../../xir/passes/pass_pipeline.cpp) |
 | LLVM O2, version selection, dual entries, packaging | [metal_air_pipeline.cpp](../metal_air_pipeline.cpp) |
 | Runtime builtin verification, downgrade, and five-entry packaging | [metal_builtin_air.cpp](../metal_builtin_air.cpp) |

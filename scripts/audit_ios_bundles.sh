@@ -11,12 +11,12 @@ usage() {
         '' \
         'Options:' \
         '  --bin-dir PATH       Directory containing the .app bundles.' \
-        '  --expected-count N   Required bundle count (default: 20).' \
+        '  --expected-count N   Required bundle count (default: 21 for --mode all).' \
         '  -h, --help           Show this help.'
 }
 
 bin_dir=
-expected_count=20
+expected_count=21
 while (($#)); do
     case "$1" in
         --bin-dir)

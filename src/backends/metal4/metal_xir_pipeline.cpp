@@ -16,6 +16,7 @@
 #include <luisa/xir/passes/restructure_cfg.h>
 #include <luisa/xir/passes/simplify_cfg.h>
 #include <luisa/xir/passes/unused_callable_removal.h>
+#include <luisa/xir/builder.h>
 #include <luisa/xir/instructions/ray_query.h>
 #include <luisa/xir/instructions/resource.h>
 #include <luisa/xir/metadata/curve_basis.h>
@@ -137,8 +138,27 @@ void verify_xir_or_error(
     return true;
 }
 
+[[nodiscard]] size_t metal_ray_payload_capture_cost(
+    const xir::Value *value, bool) noexcept {
+    LUISA_ASSERT(value != nullptr && value->type() != nullptr,
+                 "Invalid Metal ray-query payload capture.");
+    auto type = value->type();
+    switch (type->tag()) {
+        // AIR stores a buffer capture as {device pointer, uint64 size} and a
+        // bindless capture as its argument-buffer device pointer.
+        case Type::Tag::BUFFER: return 16u;
+        case Type::Tag::BINDLESS_ARRAY: return 8u;
+        default:
+            LUISA_ASSERT(!type->is_resource() && !type->is_custom(),
+                         "Unsupported Metal ray-query payload cost type '{}'.",
+                         type->description());
+            return type->size();
+    }
+}
+
 [[nodiscard]] bool outline_ray_query_pipelines(
-    xir::Module *module, xir::PassReport &report) noexcept {
+    xir::Module *module, xir::PassReport &report,
+    MetalRayQueryPipelinePolicy policy) noexcept {
     auto requires_stateful_lowering = false;
     for (auto function : module->function_list()) {
         if (auto definition = function->definition()) {
@@ -194,6 +214,10 @@ void verify_xir_or_error(
     xir::LowerRayQueryToPipelineOptions options;
     options.captured_argument_filter =
         metal_ray_payload_capture_supported;
+    options.captured_argument_cost =
+        metal_ray_payload_capture_cost;
+    options.max_captured_argument_cost =
+        policy.max_captured_payload_bytes;
     auto result = xir::lower_ray_query_to_pipeline_pass_run_on_module(
         module, &report, options);
     if (!result.succeeded()) {
@@ -222,8 +246,44 @@ void verify_xir_or_error(
     return result.inlined_call_count > 0u;
 }
 
+[[nodiscard]] bool hoist_allocas_after_inlining(
+    xir::Module *module, xir::PassReport &report) noexcept {
+    auto hoisted_count = 0u;
+    for (auto function : module->function_list()) {
+        auto definition = function->definition();
+        if (definition == nullptr || definition->body_block() == nullptr) {
+            continue;
+        }
+        luisa::vector<xir::AllocaInst *> allocas;
+        definition->traverse_instructions(
+            [&allocas](xir::Instruction *instruction) noexcept {
+                if (instruction->isa<xir::AllocaInst>()) {
+                    allocas.emplace_back(
+                        static_cast<xir::AllocaInst *>(instruction));
+                }
+            });
+        auto insertion_point =
+            definition->body_block()->instructions().head_sentinel();
+        xir::XIRBuilder builder;
+        builder.set_insertion_point(insertion_point);
+        for (auto alloca : allocas) {
+            if (alloca->parent_block() == definition->body_block() &&
+                alloca->prev() == insertion_point) {
+                insertion_point = alloca;
+                builder.set_insertion_point(insertion_point);
+                continue;
+            }
+            insertion_point = builder.append(alloca->remove_self());
+            hoisted_count++;
+        }
+    }
+    report.set("hoisted_alloca", hoisted_count);
+    return hoisted_count > 0u;
+}
+
 void optimize_xir_for_air(
-    xir::Module *module, const ShaderOption &option) noexcept {
+    xir::Module *module, const ShaderOption &option,
+    MetalRayQueryPipelinePolicy ray_query_policy) noexcept {
     verify_xir_or_error(module, "AST translation");
 
     auto optimization_options = xir::OptimizationPipelineOptions{
@@ -235,9 +295,12 @@ void optimize_xir_for_air(
 
     if (has_autodiff_scope(module)) {
         xir::PassPipeline pre_autodiff;
-        if (option.enable_ray_query_pipeline) {
+        if (option.enable_ray_query_pipeline && ray_query_policy.enabled) {
             pre_autodiff.add("outline-ray-query-pipelines",
-                             outline_ray_query_pipelines);
+                             [ray_query_policy](xir::Module *m, xir::PassReport &report) {
+                                 return outline_ray_query_pipelines(
+                                     m, report, ray_query_policy);
+                             });
         }
         pre_autodiff.add("lower-ray-query-to-loop", lower_ray_query_loops);
         pre_autodiff.add("destructure-cfg-before-inline", destructure_cfg);
@@ -295,15 +358,26 @@ void optimize_xir_for_air(
     }
 
     xir::PassPipeline lowering;
-    if (option.enable_ray_query_pipeline) {
+    if (option.enable_ray_query_pipeline && ray_query_policy.enabled) {
         lowering.add("outline-ray-query-pipelines",
-                     outline_ray_query_pipelines);
+                     [ray_query_policy](xir::Module *m, xir::PassReport &report) {
+                         return outline_ray_query_pipelines(
+                             m, report, ray_query_policy);
+                     });
     }
     lowering.add("lower-ray-query-to-loop", lower_ray_query_loops);
     lowering.add("destructure-cfg", destructure_cfg);
     lowering.add("inline-all", [](xir::Module *m, xir::PassReport &report) {
         return inline_all(m, report);
     });
+    // Multi-block callable inlining clones its function-local allocations into
+    // the cloned region. AIR stateful intersection-query storage has function
+    // lifetime and must be allocated/deallocated on every function exit, so
+    // canonicalize all local allocations into the entry prefix before
+    // mem2reg. This also keeps ordinary callable-local temporaries on the same
+    // lifetime model already used by reg2mem and the IFT outliner.
+    lowering.add("hoist-allocas-after-inline",
+                 hoist_allocas_after_inlining);
     lowering.add("mem2reg", [](xir::Module *m, xir::PassReport &report) {
         auto result = xir::mem2reg_pass_run_on_module(m, &report);
         return result.promoted_alloca_count > 0u;
@@ -338,7 +412,9 @@ void optimize_xir_for_air(
 }// namespace
 
 luisa::unique_ptr<xir::Module>
-metal_translate_ast_to_xir(Function kernel, const ShaderOption &option) noexcept {
+metal_translate_ast_to_xir(
+    Function kernel, const ShaderOption &option,
+    MetalRayQueryPipelinePolicy ray_query_policy) noexcept {
     Clock translate_clock;
     auto module = xir::ast_to_xir_translate(kernel, {});
     module->set_name(luisa::format("kernel_{:016x}", kernel.hash()));
@@ -349,7 +425,7 @@ metal_translate_ast_to_xir(Function kernel, const ShaderOption &option) noexcept
     if (dump_xir_enabled()) {
         dump_xir(module.get(), luisa::format("kernel.{:016x}.metal.xir", kernel.hash()));
     }
-    optimize_xir_for_air(module.get(), option);
+    optimize_xir_for_air(module.get(), option, ray_query_policy);
 
     if (dump_xir_enabled()) {
         dump_xir(module.get(), luisa::format("kernel.{:016x}.metal.opt.xir", kernel.hash()));
@@ -387,7 +463,7 @@ metal_translate_raster_ast_to_xir(
                 "raster.{}.{:016x}.metal.xir",
                 stage_name, stage_function.hash()));
     }
-    optimize_xir_for_air(module.get(), option);
+    optimize_xir_for_air(module.get(), option, {});
     if (dump_xir_enabled()) {
         dump_xir(
             module.get(),

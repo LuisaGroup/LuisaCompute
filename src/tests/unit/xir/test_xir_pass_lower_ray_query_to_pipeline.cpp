@@ -55,6 +55,11 @@ namespace {
     return value->type() != Type::of<int>();
 }
 
+[[nodiscard]] size_t natural_ray_query_capture_cost(
+    const Value *value, bool) noexcept {
+    return value->type()->size();
+}
+
 struct RayQueryFixture {
     KernelFunction *kernel;
     BasicBlock *body;
@@ -1190,6 +1195,45 @@ void register_tests() {
         expect(capture_free.body->terminator() == nullptr ||
                !capture_free.body->terminator()->isa<RayQueryLoopInst>());
         expect(captured.body->terminator() == captured.loop);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "capture_cost_selectively_retains_over_budget_payloads"_test = [] {
+        Module m;
+        auto small = make_fixture(m);
+        auto large = make_fixture(m);
+        XIRBuilder b;
+        auto add_mutable_capture = [&](RayQueryFixture fixture,
+                                       const Type *type) noexcept {
+            auto *value = fixture.kernel->create_value_argument(type);
+            b.set_insertion_point(fixture.body->instructions().front());
+            auto *state = b.alloca_local(type);
+            b.set_insertion_point(fixture.surface);
+            b.store(state, value);
+            b.br(fixture.dispatch);
+        };
+        add_mutable_capture(small, Type::of<int>());
+        add_mutable_capture(large, Type::of<float4>());
+
+        expect(xir_verify_module(&m).succeeded());
+        size_t skipped_loop_count = 0u;
+        PassReport report;
+        auto info = lower_ray_query_to_pipeline_pass_run_on_module(
+            &m, &report,
+            {.captured_argument_cost = natural_ray_query_capture_cost,
+             .max_captured_argument_cost = 8u,
+             .skipped_loop_count = &skipped_loop_count});
+
+        expect(info.succeeded());
+        expect(info.error_count == 0u);
+        expect(info.lowered_loop_count == 1u);
+        expect(skipped_loop_count == 1u);
+        expect(report_value(
+                   report,
+                   "selection_localization_analysis") == 0u);
+        expect(small.body->terminator() == nullptr ||
+               !small.body->terminator()->isa<RayQueryLoopInst>());
+        expect(large.body->terminator() == large.loop);
         expect(xir_verify_module(&m).succeeded());
     };
 

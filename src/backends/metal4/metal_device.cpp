@@ -47,7 +47,7 @@ namespace {
 // Bump this whenever a Metal AIR lowering or ABI change can alter generated
 // code without changing the source AST, ShaderOption, or target tuple.
 constexpr auto metal_air_compute_cache_revision =
-    0x4c55495341414908ull;
+    0x4c55495341414909ull;
 
 [[nodiscard]] uint64_t pack_air_version(
     MetalAIRVersion version) noexcept {
@@ -58,13 +58,62 @@ constexpr auto metal_air_compute_cache_revision =
 
 [[nodiscard]] uint64_t metal_air_compute_cache_key(
     Function kernel, const ShaderOption &option,
-    const MetalAIRTarget &target) noexcept {
+    const MetalAIRTarget &target,
+    MetalRayQueryPipelinePolicy ray_query_policy) noexcept {
     return luisa::hash_combine({kernel.hash(),
                                 luisa::hash_value(option),
                                 static_cast<uint64_t>(target.platform),
                                 pack_air_version(target.operating_system_version),
                                 pack_air_version(target.sdk_version),
+                                static_cast<uint64_t>(ray_query_policy.enabled),
+                                static_cast<uint64_t>(
+                                    ray_query_policy.max_captured_payload_bytes),
                                 metal_air_compute_cache_revision});
+}
+
+[[nodiscard]] MetalRayQueryPipelinePolicy
+metal_ray_query_pipeline_policy(
+    MTL::Device *device, Function kernel,
+    const ShaderOption &option) noexcept {
+    auto builtin_callables = kernel.propagated_builtin_callables();
+    auto uses_ray_query = builtin_callables.uses_ray_query();
+    auto uses_motion_ray_query =
+        builtin_callables.uses_ray_query_motion_blur();
+    MetalRayQueryPipelinePolicy policy{
+        .enabled = false,
+        .max_captured_payload_bytes = 0u};
+    if (uses_ray_query && option.enable_ray_query_pipeline) {
+        if (option.force_ray_query_pipeline || uses_motion_ray_query) {
+            policy = {};
+        } else if (device->supportsFamily(MTL::GPUFamilyApple10)) {
+            // Matched AB/BA measurements on Apple10 show that the IFT path is
+            // decisively faster through 128 bytes of callback payload, while
+            // larger payloads cross over or regress. Older measured Apple7
+            // hardware consistently favors the stateful loop; Apple8/9 stay
+            // conservative until matched device evidence is available.
+            policy.enabled = true;
+            policy.max_captured_payload_bytes = 128u;
+        }
+    }
+    if (uses_ray_query) {
+        auto payload_budget = luisa::string{"not applicable"};
+        if (policy.enabled) {
+            payload_budget =
+                policy.max_captured_payload_bytes ==
+                        std::numeric_limits<size_t>::max() ?
+                    luisa::string{"unlimited"} :
+                    luisa::format(
+                        "{} byte(s)", policy.max_captured_payload_bytes);
+        }
+        LUISA_VERBOSE(
+            "Metal4 ray-query lowering policy: {} (payload budget = {}, "
+            "forced = {}, motion-required = {}).",
+            policy.enabled ? "IFT enabled" : "stateful loop",
+            payload_budget,
+            option.force_ray_query_pipeline,
+            uses_motion_ray_query);
+    }
+    return policy;
 }
 
 class SampledTextureArgumentAnalysis {
@@ -561,8 +610,10 @@ ShaderCreationInfo MetalDevice::create_shader(const ShaderOption &option, Functi
         metadata.argument_sampled =
             SampledTextureArgumentAnalysis{}.analyze(kernel);
         auto air_target = metal_air_target_for_current_device();
+        auto ray_query_policy = metal_ray_query_pipeline_policy(
+            _handle, kernel, option);
         auto cache_key = metal_air_compute_cache_key(
-            kernel, option, air_target);
+            kernel, option, air_target, ray_query_policy);
         metadata.checksum = cache_key;
 
         MetalShaderHandle pipeline;
@@ -578,7 +629,8 @@ ShaderCreationInfo MetalDevice::create_shader(const ShaderOption &option, Functi
         }
         if (!pipeline.entry || !pipeline.indirect_entry) {
             Clock codegen_clock;
-            auto xir_module = metal_translate_ast_to_xir(kernel, option);
+            auto xir_module = metal_translate_ast_to_xir(
+                kernel, option, ray_query_policy);
             luisa::string unsupported_reason;
             if (!luisa_compute_metal_codegen_llvm_supported(
                     *xir_module, &unsupported_reason)) {

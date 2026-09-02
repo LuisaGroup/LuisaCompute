@@ -251,12 +251,20 @@ void reg_shader_option_hash() {
         native_include.native_include = "define i32 @external() { ret i32 1 }";
         auto register_limit = base;
         register_limit.max_registers = 32u;
+        auto retain_ray_query_loop = base;
+        retain_ray_query_loop.enable_ray_query_pipeline = false;
+        auto force_ray_query_pipeline = base;
+        force_ray_query_pipeline.force_ray_query_pipeline = true;
 
         auto base_hash = luisa::hash_value(base);
         expect(luisa::hash_value(native_include) != base_hash)
             << "native_include changes generated shader code";
         expect(luisa::hash_value(register_limit) != base_hash)
             << "max_registers changes backend compilation semantics";
+        expect(luisa::hash_value(retain_ray_query_loop) != base_hash)
+            << "ray-query lowering mode changes generated shader code";
+        expect(luisa::hash_value(force_ray_query_pipeline) != base_hash)
+            << "forced ray-query policy changes generated shader code";
     };
 }
 

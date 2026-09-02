@@ -27,12 +27,14 @@ Launching without additional arguments retains the normal interactive
 Window/Swapchain behavior.
 
 `example_ios_path_tracing_cutout` additionally accepts
-`--trace-mode direct|opaque-query|accept-query|cutout-query`. The `direct` and
-`opaque-query` modes use an all-opaque acceleration structure and produce the
-same image, making them a matched direct-intersector versus stateful-query
-measurement. They must not be described as an intersection-function pipeline
-measurement until the Metal4 backend binds a non-null intersection function
-table for `RayQueryPipelineInst`.
+`--trace-mode direct|opaque-query|accept-query|cutout-query`,
+`--ray-query-lowering pipeline|loop`, and `--capture-float4s N`. Omitting the
+lowering option exercises Metal4's automatic device/payload policy; `pipeline`
+forces every semantically eligible triangle query through a non-null
+intersection-function table, while `loop` forces the native stateful query.
+The direct and opaque-query modes remain useful as an all-opaque direct-
+intersector versus stateful-query pair, but they are separate from the matched
+cutout IFT/loop comparison documented in the AIR report.
 
 ## Reproducible build scripts
 
@@ -66,7 +68,8 @@ scripts/build_ios_metal4.sh \
   --mode all --unsigned
 
 scripts/audit_ios_bundles.sh \
-  --bin-dir cmake-build-ios-metal4-device-air-xcode/bin/Release
+  --bin-dir cmake-build-ios-metal4-device-air-xcode/bin/Release \
+  --expected-count 21
 ~~~
 
 The LLVM script also accepts `--source <llvm-project>` to use an existing
@@ -181,6 +184,15 @@ the Metal4 benchmark, and the separate device-test mirror. All 21 executables
 were arm64 and
 `otool -L` found only Apple system frameworks/libraries: LLVM,
 `llvm-downgrade`, Luisa, and the Metal4 backend were all inside each Mach-O.
+
+The 2026-09-01 follow-up also completed an examples-only generated Xcode
+project's unsigned Release `ALL_BUILD` with `CODE_SIGNING_ALLOWED=NO`: all 49
+targets built and linked, including the 19 rendering-example bundles. Its
+bundle audit passes with `--expected-count 19`. The cutout bundle was then
+separately signed and installed on the physical iPhone 17 Pro Max. Automatic
+ray-query lowering completed finite renders at zero, four, and sixteen mutable
+`float4` captures; device logs proved the 128-byte Apple10 gate selected IFT at
+zero and four, and retained the stateful loop at sixteen (512 bytes).
 
 The physical iPhone 17 Pro Max run separately executed four representative
 signed apps rather than inferring runtime support from that link audit:

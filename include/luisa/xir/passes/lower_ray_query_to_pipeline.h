@@ -68,6 +68,15 @@ struct LowerRayQueryToPipelineOptions {
     // remove are conservatively presented to this callback as well.
     bool (*captured_argument_filter)(const Value *, bool is_output) noexcept{
         nullptr};
+    // Optional backend payload-cost model and aggregate budget. The callback
+    // returns the stored payload bytes for one capture. Selection uses the raw
+    // pre-localization cost conservatively: handler-local allocation proofs
+    // may reduce argument count, but never turn an over-budget payload into an
+    // outlined pipeline. Defaults preserve unconditional lowering.
+    size_t (*captured_argument_cost)(const Value *, bool is_output) noexcept {
+        nullptr};
+    size_t max_captured_argument_cost{
+        std::numeric_limits<size_t>::max()};
     // Optional backend profitability filter. A capture-eligible loop is
     // selected when its two handler regions contain at least this many XIR
     // instructions, or when its function contains at least
