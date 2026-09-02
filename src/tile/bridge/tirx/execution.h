@@ -13,6 +13,16 @@ inline constexpr auto execution_scope_annotation = "luisa.tile.execution_scope";
 inline constexpr auto independent_elements_annotation = "luisa.tile.independent_elements";
 // Hard resource constraints survive structural export until target binding.
 inline constexpr auto memory_resource_annotation = "luisa.tile.memory_resource";
+inline constexpr auto logical_pipeline_annotation = "luisa.tile.pipeline";
+inline constexpr auto pipeline_window_annotation = "luisa.tile.pipeline_window";
+inline constexpr auto pipeline_interval_annotation = "luisa.tile.pipeline_interval";
+inline constexpr auto pipeline_stage_annotation = "luisa.tile.pipeline_stage";
+
+// Preserve stage cuts until dependence and storage planning. The current
+// planner uses TVMx's native software-pipeline pass for safe two-phase
+// prefetching, and leaves other pipelines ordered.
+[[nodiscard]] tvm::tirx::Stmt schedule_pipelines(
+    tvm::tirx::Stmt body, bool noalias, uint64_t shared_memory_limit);
 
 // Give every logical vector lane its own compiler-local storage before TIRx
 // vectorization. TIRx currently does not privatize AllocBuffer itself.

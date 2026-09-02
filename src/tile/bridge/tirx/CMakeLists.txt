@@ -48,7 +48,8 @@ set(LUISA_COMPUTE_TILE_TIRX_BRIDGE_SOURCES
         cooperative.cpp
         execution.cpp
         layout.cpp
-        lower.cpp)
+        lower.cpp
+        pipeline.cpp)
 
 add_library(luisa-compute-tile-bridge-tirx
         ${LUISA_COMPUTE_TILE_TIRX_BRIDGE_SOURCES})

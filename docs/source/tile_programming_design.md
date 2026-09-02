@@ -435,7 +435,7 @@ Execution ancestry has an order. Memory resources remain independent classes
 connected to execution by topology and operation-specific accessibility.
 ```
 
-`k.stage(optional_name)` is not a fourth nest or a standalone TileIR opcode. It
+`k.stage(optional_name)` is not another nest or a runtime operation. It
 advances the frontend capture cursor to a new logical phase in that `k`
 pipeline. The first call begins stage zero; each later call closes the preceding
 segment and begins the next. The resulting pipeline owns an ordered list of
@@ -1707,8 +1707,11 @@ plan, fail rather than silently changing the logical owner. Shared capacity
 includes manual and compiler-generated temporaries. Load snapshots are
 materialized conservatively, with cooperative copies and uniform barriers.
 MemoryState tokens themselves disappear only after verification into ordered
-TIRx effects. Pipeline execution is still serial; async versions, range-aware
-parallel writes, and global/cluster/tensor allocations remain planning work.
+TIRx effects. The native bridge now software-pipelines safe producer/consumer
+cuts with iteration-local buffer versions; recurrences through outer Memory
+remain ordered unless a legal cut can be proved. Hardware-asynchronous copy,
+range-aware parallel writes, and global/cluster/tensor allocations remain
+planning work. Section 7.3 states the implemented scheduling boundary.
 
 The manual GEMM spelling is compiled by both C++20 and C++23 capture tests:
 
@@ -1944,6 +1947,72 @@ edges do not acquire fictitious memory versions.
 The scheduler overlaps stage instances subject to dependence latency; storage
 version count follows liveness rather than source stage count.
 ```
+
+### 7.3 Implemented native software-prefetch path
+
+The current capture implementation retains cursor cuts as mutable `STAGE`
+boundary operations in its single pipeline body. Native export consumes those
+boundaries into labeled TIRx statement segments; it does not discard them or
+interpret a source ordinal as a hardware cycle. Ordered child regions remain
+the canonical TileIR representation planned above, not a claim that this
+capture representation has already been migrated.
+
+The CPU and Metal bridge currently chooses a safe cut into two scheduling
+phases. Several source segments can belong to one phase. For example, the
+`load / score / update` source stages of attention can become an early load
+phase and a late score/update phase without moving the recurrence forward.
+
+~~~text
+Source iterations                 Scheduled execution (two-phase example)
+
+i=0: load(0) -> compute(0)         prologue:  load(0)
+i=1: load(1) -> compute(1)         steady:    load(1) -> compute(0)
+i=2: load(2) -> compute(2)                    load(2) -> compute(1)
+                                  epilogue:               compute(2)
+
+cross-phase temporary: slot(i) = i % 2
+recurrence acc:         updated only by compute, in original iteration order
+~~~
+
+This is software prefetching, **not** a promise of an asynchronous DMA engine
+or warp-specialized execution. The bridge invokes TVMx's native C++
+`InjectSoftwarePipeline` pass through a temporary opaque-SBlock adapter, then
+restores ordinary TIRx `AllocBuffer`/`For`/`IfThenElse` statements before
+target execution mapping. The public bridge boundary remains native TIRx;
+there is no Python source, parser round-trip, or MLIR dependency.
+
+Legality is intentionally conservative:
+
+- Only iteration-local, statically sized, unplaced storage is versioned.
+  Allocation/resource annotations are never lost to a buffer-rebuilding pass.
+- Cross-phase access to an outer resource with any write prevents that cut.
+  This includes loop-carried Scalars/Tiles after materialization and explicit
+  Memory. Carries confined to the consumer phase preserve their original order.
+- External buffers may alias unless `CompileOptions::noalias` explicitly
+  promises otherwise. Read-only aliasing does not prevent prefetching, but
+  cross-phase read/write or write/write alias hazards do.
+- Buffer live ranges include writes as well as reads, so a late dead write
+  cannot overwrite a newer iteration's live slot. Yield snapshots still update
+  multiple carried values simultaneously.
+- Extra versions must fit a conservative shared-memory capacity bound before
+  Metal group mapping. If versioning would overflow it, the legal ordered
+  implementation is retained.
+
+`PipelinePolicy::stages` is the current C++ spelling of the scheduling-window
+bound (`0` lets the planner choose; `1` disables iteration overlap), not a
+source-stage count. This initial planner uses at most two in-flight iterations.
+It requires unit `initiation_interval`; other positive intervals retain ordered
+reference execution until a target latency/issue model is available. Zero
+intervals and invalid IR policy payloads are rejected. Pipelines without cuts,
+opaque effects, unsupported placement, or unproved dependencies likewise keep
+their ordered semantics. General modulo schedules, inferred cuts, and hardware
+async events are not implemented by this path.
+
+`test_tile_tirx_pipeline` checks zero/one/short loops, ragged shapes, multiaxis
+iteration order, multiple carries, aliasing, local/outer Memory, late writes,
+and capacity fallback on CPU and physical Metal. It also checks preserved
+native segments and actual doubled Metal storage, so numerically correct but
+still-serial lowering cannot satisfy the positive pipeline case.
 
 ## 8. Direct assignment and hidden SSA plumbing
 

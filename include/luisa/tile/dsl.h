@@ -72,6 +72,8 @@ inline constexpr auto tensor = Resource::TENSOR;
 }// namespace mem
 
 struct PipelinePolicy {
+    // Scheduling-window bound (zero lets the planner choose), not the
+    // number of source stage() cuts and not a depth for every allocation.
     uint32_t stages{0u};
     uint32_t initiation_interval{1u};
 };

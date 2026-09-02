@@ -105,6 +105,15 @@ maps use an exhaustive fallback of up to 1,048,576 logical points; an unknown
 proof fails native realization, not structural representation. Range-aware
 parallel writes and asynchronous pipeline versions are not implemented yet.
 
+The native bridge does implement synchronous software prefetching across safe
+stage cuts, with two versions for cross-phase iteration-local temporaries.
+An outer mutable Memory resource is not silently renamed into an independent
+per-iteration resource: cross-phase dependencies keep its execution ordered.
+`test_tile_tirx_pipeline` exercises real versioned CPU/Metal execution, short
+and ragged loops, multiple carried values, possible input/output aliasing,
+late stores, and shared-capacity fallback. Hardware-asynchronous transfers and
+warp specialization remain separate work; see design section 7.3.
+
 `test_tile_tirx_memory` runs ragged manual GEMMs, multiple independently updated
 resources, old-value snapshots, nested temporal regions, ancestor reads,
 worker-private state, and resource/capacity rejection on CPU and Metal. It also

@@ -256,7 +256,8 @@ public:
 [[nodiscard]] tvm::IRModule map_execution(
     tvm::IRModule module,
     const tvm::Target &target,
-    bool vectorize) {
+    bool vectorize,
+    bool noalias) {
     auto binding = resolve_parallel_binding(target);
     auto threads = uint32_t{1u};
     auto shared_memory_limit = uint64_t{0u};
@@ -278,6 +279,7 @@ public:
             throw std::runtime_error{"Tile TIRx execution mapping only accepts PrimFunc modules"};
         }
         auto mapped = function.value();
+        mapped.CopyOnWrite()->body = schedule_pipelines(mapped->body, noalias, shared_memory_limit);
         mapped.CopyOnWrite()->body = ExecutionMapper{binding, threads, shared_memory_limit, vectorize, std::string{target->kind->name}}(mapped->body);
         functions.Set(global, std::move(mapped));
     }
@@ -425,7 +427,7 @@ CompilationResult compile(tvm::IRModule module, const CompileOptions &options) n
         tvm::Target device_target{tvm::ffi::String{options.target}};
         tvm::Target host_target{tvm::ffi::String{options.host}};
         tvm::Target bound_target{device_target, host_target};
-        module = detail::map_execution(std::move(module), device_target, options.vectorize);
+        module = detail::map_execution(std::move(module), device_target, options.vectorize, options.noalias);
         detail::run_common_pipeline(module, options, bound_target);
 
         detail::FunctionMap host_functions;

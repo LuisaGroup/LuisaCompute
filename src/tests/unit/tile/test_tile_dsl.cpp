@@ -229,6 +229,32 @@ void test_logical_and_masked_view_capture() {
     expect(eq(logical_count, 4u));
 }
 
+void test_pipeline_policy() {
+    auto capture = [](PipelinePolicy policy) {
+        return tile_kernel("pipeline_policy", [=] {
+                   for (auto &step : pipeline(shape(3), policy)) {
+                       step.stage("producer");
+                       step.stage("consumer");
+                   }
+               })
+            .capture();
+    };
+    expect(capture({0u, 1u}).valid());
+    expect(capture({1u, 3u}).valid());
+    expect(!capture({2u, 0u}).valid());
+    auto kernel = capture({2u, 1u});
+    expect(kernel.valid());
+    auto pipeline = only_root_operation(kernel);
+    expect(pipeline != nullptr);
+    if (pipeline != nullptr) {
+        pipeline->set_attribute("stages", Attribute{int64_t{-1}});
+        expect(!verify(kernel.module()).ok());
+        pipeline->set_attribute("stages", Attribute{uint64_t{2u}});
+        pipeline->set_attribute("initiation_interval", Attribute{uint64_t{1u} << 32u});
+        expect(!verify(kernel.module()).ok());
+    }
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -238,4 +264,5 @@ int main(int argc, char *argv[]) {
     "tile_dsl_reduction_capture"_test = test_reduction_capture_and_implicit_carry;
     "tile_dsl_rejects_parallel_scalar_carry"_test = test_parallel_cannot_capture_scalar_carry;
     "tile_dsl_logical_and_masked_view_capture"_test = test_logical_and_masked_view_capture;
+    "tile_dsl_pipeline_policy_validation"_test = test_pipeline_policy;
 }

@@ -26,6 +26,10 @@ class FunctionLowerer final {
 private:
     using Indices = tvm::ffi::Array<tvm::PrimExpr>;
     using Statements = tvm::ffi::Array<tvm::tirx::Stmt>;
+    struct StageBoundary {
+        size_t position;
+        tvm::ffi::String name;
+    };
     using TileExpression = std::function<tvm::PrimExpr(const Indices &)>;
     const Function &_function;
     luisa::string _error;
@@ -515,6 +519,8 @@ private:
         auto &&domain = *operation.domain();
         auto body = operation.region(0u)->block(0u);
         auto is_parallel = operation.kind() == OperationKind::PARALLEL;
+        auto is_pipeline = operation.kind() == OperationKind::PIPELINE;
+        auto flatten_domain = is_parallel || is_pipeline;
         tvm::ffi::Array<tvm::tirx::PrimVar> loop_variables;
         tvm::ffi::Array<tvm::PrimExpr> loop_extents;
         luisa::vector<uint64_t> constant_extents;
@@ -535,21 +541,21 @@ private:
             loop_variables.push_back(variable);
             loop_extents.push_back(tvm::IntImm::Int64(static_cast<int64_t>(axis.extent.constant_value())));
             constant_extents.emplace_back(axis.extent.constant_value());
-            if (!is_parallel) { _bind_expression(body->argument(i), variable); }
+            if (!flatten_domain) { _bind_expression(body->argument(i), variable); }
         }
 
         tvm::tirx::PrimVar parallel_variable;
         uint64_t parallel_extent = 1u;
-        if (is_parallel) {
+        if (flatten_domain) {
             for (auto extent : constant_extents) {
                 if (extent != 0u && parallel_extent > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) / extent) {
-                    _fail("the flattened TIRx parallel domain exceeds int64 range");
+                    _fail("the flattened TIRx execution domain exceeds int64 range");
                     return {};
                 }
                 parallel_extent *= extent;
             }
             auto name = tvm::ffi::String{
-                std::string{"parallel_"} + std::to_string(operation.id())};
+                std::string{is_parallel ? "parallel_" : "pipeline_"} + std::to_string(operation.id())};
             parallel_variable = tvm::tirx::PrimVar{std::move(name), tvm::PrimType::Int(64)};
             auto trailing_extent = parallel_extent;
             for (auto i = 0u; i < domain.rank(); i++) {
@@ -591,11 +597,22 @@ private:
 
         auto loop_body = _lower_block(*body, carries, true);
         if (!loop_body.defined()) { return {}; }
-        if (is_parallel) {
-            tvm::ffi::Map<tvm::ffi::String, tvm::ffi::Any> annotations{
-                {logical_parallel_annotation, tvm::IntImm::Int64(static_cast<int64_t>(operation.id()))}};
-            if (auto &&scope = operation.execution_scope_constraint()) {
-                annotations.Set(execution_scope_annotation, tvm::ffi::String{std::string{*scope}});
+        if (flatten_domain) {
+            tvm::ffi::Map<tvm::ffi::String, tvm::ffi::Any> annotations;
+            if (is_parallel) {
+                annotations.Set(logical_parallel_annotation, tvm::IntImm::Int64(static_cast<int64_t>(operation.id())));
+                if (auto &&scope = operation.execution_scope_constraint()) {
+                    annotations.Set(execution_scope_annotation, tvm::ffi::String{std::string{*scope}});
+                }
+            } else {
+                annotations.Set(logical_pipeline_annotation, tvm::IntImm::Int64(static_cast<int64_t>(operation.id())));
+                auto unsigned_attribute = [&](luisa::string_view name, uint64_t fallback) {
+                    auto attribute = operation.attribute(name);
+                    auto value = attribute == nullptr ? nullptr : luisa::get_if<uint64_t>(&attribute->value());
+                    return tvm::IntImm::Int64(static_cast<int64_t>(value == nullptr ? fallback : *value));
+                };
+                annotations.Set(pipeline_window_annotation, unsigned_attribute("stages", 0u));
+                annotations.Set(pipeline_interval_annotation, unsigned_attribute("initiation_interval", 1u));
             }
             loop_body = tvm::tirx::For{
                 parallel_variable,
@@ -690,7 +707,7 @@ private:
                 break;
             }
             case OperationKind::STAGE:
-                // Stage markers are schedule boundaries, not runtime effects.
+                // The containing block consumes cuts into stage segments.
                 break;
             case OperationKind::YIELD:
                 _fail("yield must be consumed by its enclosing structured operation");
@@ -719,9 +736,19 @@ private:
         bool allow_yield,
         const Indices *element_indices = nullptr) {
         tvm::ffi::Array<tvm::tirx::Stmt> statements;
+        luisa::vector<StageBoundary> stages;
         bool saw_yield = false;
         for (auto operation_ptr : block.operations()) {
             auto &&operation = *operation_ptr;
+            if (operation.kind() == OperationKind::STAGE) {
+                auto attribute = operation.attribute("name");
+                auto name = attribute == nullptr ? nullptr : luisa::get_if<luisa::string>(&attribute->value());
+                // Pure prelude expressions may precede the first cursor cut.
+                // The first cut begins stage zero, not a second empty stage.
+                stages.push_back({stages.empty() ? 0u : statements.size(),
+                                  name == nullptr ? tvm::ffi::String{} : tvm::ffi::String{std::string{*name}}});
+                continue;
+            }
             if (operation.kind() != OperationKind::YIELD) {
                 _lower_operation(operation, statements);
                 if (!_error.empty()) { return {}; }
@@ -770,7 +797,33 @@ private:
             _fail("loop-carried TileIR region is missing a yield");
             return {};
         }
-        return tvm::tirx::SeqStmt::Flatten(statements);
+        if (stages.empty()) { return tvm::tirx::SeqStmt::Flatten(statements); }
+        Statements allocations;
+        Statements segments;
+        // A cut partitions execution, not lexical storage visibility. Keep
+        // immediate allocations in the iteration scope so an SSA load in one
+        // stage remains visible to later stages. Never lift through a child
+        // loop, conditional, or other execution region.
+        std::function<void(const tvm::tirx::Stmt &, Statements &)> partition =
+            [&](const tvm::tirx::Stmt &statement, Statements &body) {
+                if (auto sequence = statement.as<tvm::tirx::SeqStmtNode>()) {
+                    for (auto &&child : sequence->seq) { partition(child, body); }
+                } else if (statement.as<tvm::tirx::AllocBufferNode>() != nullptr) {
+                    allocations.push_back(statement);
+                } else {
+                    body.push_back(statement);
+                }
+            };
+        for (auto i = 0u; i < stages.size(); i++) {
+            Statements body;
+            auto end = i + 1u == stages.size() ? statements.size() : stages[i + 1u].position;
+            for (auto j = stages[i].position; j < end; j++) { partition(statements[j], body); }
+            segments.push_back(tvm::tirx::AttrStmt{
+                stages[i].name, pipeline_stage_annotation, tvm::IntImm::Int64(static_cast<int64_t>(i)),
+                tvm::tirx::SeqStmt::Flatten(body)});
+        }
+        for (auto &&segment : segments) { allocations.push_back(segment); }
+        return tvm::tirx::SeqStmt::Flatten(allocations);
     }
 
 public:
