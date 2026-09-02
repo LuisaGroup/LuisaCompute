@@ -2183,6 +2183,13 @@ Scheduled TileIR exports:
 The initial bridge is one-way. Round-trip import is not required and must not
 weaken TileIR invariants.
 
+The bridge's native compiler driver mirrors the TIRx pass pipeline in C++ and
+dispatches `target.build.<kind>` through TVM's C++ registry. It partitions host
+and device `PrimFunc`s by their bound target, finalizes each partition, and
+imports generated device modules into the host runtime module. A scalar
+`PrimFunc` compile-and-execute test is the minimum ABI smoke test; Python is not
+loaded even for pass orchestration.
+
 ### 11.5 Bootstrap lowering path
 
 ~~~text

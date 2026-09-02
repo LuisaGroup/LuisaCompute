@@ -5,6 +5,7 @@
 #include <limits>
 #include <utility>
 
+#include <luisa/tile/bridge/tirx/compiler.h>
 #include <luisa/tile/bridge/tirx/layout.h>
 
 using namespace luisa;
@@ -161,6 +162,23 @@ void test_native_export() {
     expect(!export_layout(fixture.layout, alias).ok());
 }
 
+void test_native_compiler() {
+    tvm::tirx::PrimVar lhs{"lhs", tvm::PrimType::Float(32)};
+    tvm::tirx::PrimVar rhs{"rhs", tvm::PrimType::Float(32)};
+    tvm::tirx::PrimFunc function{
+        {lhs, rhs},
+        tvm::tirx::Return{tvm::tirx::Add{lhs, rhs}},
+        tvm::PrimType::Float(32)};
+    auto compilation = compile(std::move(function), "tile_tirx_scalar_add");
+    expect(compilation.ok()) << compilation.error();
+    if (!compilation) { return; }
+    auto entry = compilation.module().value()->GetFunction("tile_tirx_scalar_add", true);
+    expect(entry.has_value());
+    if (!entry) { return; }
+    auto result = (*entry)(1.25f, 2.5f).cast<float>();
+    expect(eq(result, 3.75f));
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -168,4 +186,5 @@ int main(int argc, char *argv[]) {
     "tile_tirx_correspondence"_test = test_correspondence;
     "tile_tirx_coincident_replica_witnesses"_test = test_coincident_replica_witnesses;
     "tile_tirx_native_export"_test = test_native_export;
+    "tile_tirx_native_compiler"_test = test_native_compiler;
 }
