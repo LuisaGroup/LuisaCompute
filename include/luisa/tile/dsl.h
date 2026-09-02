@@ -69,7 +69,9 @@ private:
                                                   luisa::span<const ValueHandle> operands,
                                                   ScalarType result_type) noexcept;
     friend ValueHandle load_view(Value *view,
-                                 luisa::span<const ValueHandle> indices) noexcept;
+                                 luisa::span<const ValueHandle> indices,
+                                 const ValueHandle *predicate,
+                                 const ValueHandle *fallback) noexcept;
     friend luisa::vector<ValueHandle> nest_indices(
         const Nest &nest,
         const IndexSpace &space) noexcept;
@@ -98,7 +100,9 @@ public:
     ScalarType result_type) noexcept;
 [[nodiscard]] LUISA_TILE_API ValueHandle load_view(
     Value *view,
-    luisa::span<const ValueHandle> indices) noexcept;
+    luisa::span<const ValueHandle> indices,
+    const ValueHandle *predicate = nullptr,
+    const ValueHandle *fallback = nullptr) noexcept;
 LUISA_TILE_API void store_view(
     Value *view,
     luisa::span<const ValueHandle> indices,
@@ -167,6 +171,12 @@ template<typename T>
 concept scalar_cpp_type = requires { scalar_type<std::remove_cv_t<T>>::value; };
 
 template<typename T>
+concept arithmetic_scalar_cpp_type = scalar_cpp_type<T> && !std::same_as<std::remove_cv_t<T>, bool>;
+
+template<typename T>
+concept integral_scalar_cpp_type = std::integral<T> && !std::same_as<std::remove_cv_t<T>, bool>;
+
+template<typename T>
 class Scalar final {
 
     static_assert(scalar_cpp_type<T>);
@@ -217,13 +227,17 @@ public:
         return *this = Scalar{value};
     }
 
-    [[nodiscard]] explicit operator bool() const noexcept { return static_cast<bool>(_handle); }
+    [[nodiscard]] bool valid() const noexcept { return static_cast<bool>(_handle); }
     [[nodiscard]] Value *ir_value() const noexcept { return _handle.value(); }
 
-    Scalar &operator+=(const Scalar &rhs) noexcept;
-    Scalar &operator-=(const Scalar &rhs) noexcept;
-    Scalar &operator*=(const Scalar &rhs) noexcept;
-    Scalar &operator/=(const Scalar &rhs) noexcept;
+    Scalar &operator+=(const Scalar &rhs) noexcept
+        requires arithmetic_scalar_cpp_type<T>;
+    Scalar &operator-=(const Scalar &rhs) noexcept
+        requires arithmetic_scalar_cpp_type<T>;
+    Scalar &operator*=(const Scalar &rhs) noexcept
+        requires arithmetic_scalar_cpp_type<T>;
+    Scalar &operator/=(const Scalar &rhs) noexcept
+        requires arithmetic_scalar_cpp_type<T>;
 };
 
 template<scalar_cpp_type T>
@@ -251,39 +265,59 @@ template<scalar_cpp_type T>
 }
 
 #define LUISA_TILE_DEFINE_BINARY_OPERATOR(symbol, opcode)                                                 \
-    template<scalar_cpp_type T>                                                                           \
+    template<arithmetic_scalar_cpp_type T>                                                                \
     [[nodiscard]] inline Scalar<T> operator symbol(const Scalar<T> &lhs, const Scalar<T> &rhs) noexcept { \
         return detail_make_binary(ElementwiseOp::opcode, lhs, rhs);                                       \
     }                                                                                                     \
-    template<scalar_cpp_type T>                                                                           \
-    [[nodiscard]] inline Scalar<T> operator symbol(const Scalar<T> &lhs, T rhs) noexcept {                \
-        return lhs symbol Scalar<T>{rhs};                                                                 \
+    template<arithmetic_scalar_cpp_type T, typename U>                                                    \
+        requires std::convertible_to<U, T>                                                                \
+    [[nodiscard]] inline Scalar<T> operator symbol(const Scalar<T> &lhs, U rhs) noexcept {                \
+        return lhs symbol Scalar<T>{static_cast<T>(rhs)};                                                 \
     }                                                                                                     \
-    template<scalar_cpp_type T>                                                                           \
-    [[nodiscard]] inline Scalar<T> operator symbol(T lhs, const Scalar<T> &rhs) noexcept {                \
-        return Scalar<T>{lhs} symbol rhs;                                                                 \
+    template<typename U, arithmetic_scalar_cpp_type T>                                                    \
+        requires std::convertible_to<U, T>                                                                \
+    [[nodiscard]] inline Scalar<T> operator symbol(U lhs, const Scalar<T> &rhs) noexcept {                \
+        return Scalar<T>{static_cast<T>(lhs)} symbol rhs;                                                 \
     }
 
 LUISA_TILE_DEFINE_BINARY_OPERATOR(+, ADD)
 LUISA_TILE_DEFINE_BINARY_OPERATOR(-, SUB)
 LUISA_TILE_DEFINE_BINARY_OPERATOR(*, MUL)
 LUISA_TILE_DEFINE_BINARY_OPERATOR(/, DIV)
-LUISA_TILE_DEFINE_BINARY_OPERATOR(%, MOD)
 
 #undef LUISA_TILE_DEFINE_BINARY_OPERATOR
+
+template<integral_scalar_cpp_type T>
+[[nodiscard]] inline Scalar<T> operator%(const Scalar<T> &lhs, const Scalar<T> &rhs) noexcept {
+    return detail_make_binary(ElementwiseOp::MOD, lhs, rhs);
+}
+
+template<integral_scalar_cpp_type T, typename U>
+    requires std::convertible_to<U, T>
+[[nodiscard]] inline Scalar<T> operator%(const Scalar<T> &lhs, U rhs) noexcept {
+    return lhs % Scalar<T>{static_cast<T>(rhs)};
+}
+
+template<typename U, integral_scalar_cpp_type T>
+    requires std::convertible_to<U, T>
+[[nodiscard]] inline Scalar<T> operator%(U lhs, const Scalar<T> &rhs) noexcept {
+    return Scalar<T>{static_cast<T>(lhs)} % rhs;
+}
 
 #define LUISA_TILE_DEFINE_COMPARE_OPERATOR(symbol, opcode)                                                   \
     template<scalar_cpp_type T>                                                                              \
     [[nodiscard]] inline Scalar<bool> operator symbol(const Scalar<T> &lhs, const Scalar<T> &rhs) noexcept { \
         return detail_make_compare(ElementwiseOp::opcode, lhs, rhs);                                         \
     }                                                                                                        \
-    template<scalar_cpp_type T>                                                                              \
-    [[nodiscard]] inline Scalar<bool> operator symbol(const Scalar<T> &lhs, T rhs) noexcept {                \
-        return lhs symbol Scalar<T>{rhs};                                                                    \
+    template<scalar_cpp_type T, typename U>                                                                  \
+        requires std::convertible_to<U, T>                                                                   \
+    [[nodiscard]] inline Scalar<bool> operator symbol(const Scalar<T> &lhs, U rhs) noexcept {                \
+        return lhs symbol Scalar<T>{static_cast<T>(rhs)};                                                    \
     }                                                                                                        \
-    template<scalar_cpp_type T>                                                                              \
-    [[nodiscard]] inline Scalar<bool> operator symbol(T lhs, const Scalar<T> &rhs) noexcept {                \
-        return Scalar<T>{lhs} symbol rhs;                                                                    \
+    template<typename U, scalar_cpp_type T>                                                                  \
+        requires std::convertible_to<U, T>                                                                   \
+    [[nodiscard]] inline Scalar<bool> operator symbol(U lhs, const Scalar<T> &rhs) noexcept {                \
+        return Scalar<T>{static_cast<T>(lhs)} symbol rhs;                                                    \
     }
 
 LUISA_TILE_DEFINE_COMPARE_OPERATOR(==, EQ)
@@ -296,26 +330,34 @@ LUISA_TILE_DEFINE_COMPARE_OPERATOR(>=, GE)
 #undef LUISA_TILE_DEFINE_COMPARE_OPERATOR
 
 template<typename T>
-Scalar<T> &Scalar<T>::operator+=(const Scalar &rhs) noexcept {
+Scalar<T> &Scalar<T>::operator+=(const Scalar &rhs) noexcept
+    requires arithmetic_scalar_cpp_type<T>
+{
     return *this = *this + rhs;
 }
 
 template<typename T>
-Scalar<T> &Scalar<T>::operator-=(const Scalar &rhs) noexcept {
+Scalar<T> &Scalar<T>::operator-=(const Scalar &rhs) noexcept
+    requires arithmetic_scalar_cpp_type<T>
+{
     return *this = *this - rhs;
 }
 
 template<typename T>
-Scalar<T> &Scalar<T>::operator*=(const Scalar &rhs) noexcept {
+Scalar<T> &Scalar<T>::operator*=(const Scalar &rhs) noexcept
+    requires arithmetic_scalar_cpp_type<T>
+{
     return *this = *this * rhs;
 }
 
 template<typename T>
-Scalar<T> &Scalar<T>::operator/=(const Scalar &rhs) noexcept {
+Scalar<T> &Scalar<T>::operator/=(const Scalar &rhs) noexcept
+    requires arithmetic_scalar_cpp_type<T>
+{
     return *this = *this / rhs;
 }
 
-template<scalar_cpp_type T>
+template<arithmetic_scalar_cpp_type T>
 [[nodiscard]] inline Scalar<T> operator-(const Scalar<T> &value) noexcept {
     return detail_make_unary(ElementwiseOp::NEG, value);
 }
@@ -335,6 +377,42 @@ template<scalar_cpp_type T>
     return Scalar<T>{detail::make_elementwise_operation(ElementwiseOp::SELECT, operands, scalar_type_v<T>)};
 }
 
+template<scalar_cpp_type T>
+[[nodiscard]] Scalar<T> select(
+    const Scalar<bool> &condition,
+    const Scalar<T> &true_value,
+    T false_value) noexcept {
+    return select(condition, true_value, Scalar<T>{false_value});
+}
+
+template<scalar_cpp_type T>
+[[nodiscard]] Scalar<T> select(
+    const Scalar<bool> &condition,
+    T true_value,
+    const Scalar<T> &false_value) noexcept {
+    return select(condition, Scalar<T>{true_value}, false_value);
+}
+
+template<scalar_cpp_type T>
+[[nodiscard]] Scalar<T> select(
+    const Scalar<bool> &condition,
+    T true_value,
+    T false_value) noexcept {
+    return select(condition, Scalar<T>{true_value}, Scalar<T>{false_value});
+}
+
+[[nodiscard]] inline Scalar<bool> operator&&(const Scalar<bool> &lhs, const Scalar<bool> &rhs) noexcept {
+    return detail_make_binary(ElementwiseOp::LOGICAL_AND, lhs, rhs);
+}
+
+[[nodiscard]] inline Scalar<bool> operator||(const Scalar<bool> &lhs, const Scalar<bool> &rhs) noexcept {
+    return detail_make_binary(ElementwiseOp::LOGICAL_OR, lhs, rhs);
+}
+
+[[nodiscard]] inline Scalar<bool> operator!(const Scalar<bool> &value) noexcept {
+    return detail_make_unary(ElementwiseOp::LOGICAL_NOT, value);
+}
+
 template<std::floating_point T>
 [[nodiscard]] inline Scalar<T> exp(const Scalar<T> &value) noexcept { return detail_make_unary(ElementwiseOp::EXP, value); }
 template<std::floating_point T>
@@ -343,15 +421,36 @@ template<std::floating_point T>
 [[nodiscard]] inline Scalar<T> sqrt(const Scalar<T> &value) noexcept { return detail_make_unary(ElementwiseOp::SQRT, value); }
 template<std::floating_point T>
 [[nodiscard]] inline Scalar<T> tanh(const Scalar<T> &value) noexcept { return detail_make_unary(ElementwiseOp::TANH, value); }
-template<scalar_cpp_type T>
+template<typename T>
+    requires(std::signed_integral<T> || std::floating_point<T>)
 [[nodiscard]] inline Scalar<T> abs(const Scalar<T> &value) noexcept { return detail_make_unary(ElementwiseOp::ABS, value); }
-template<scalar_cpp_type T>
+template<arithmetic_scalar_cpp_type T>
 [[nodiscard]] inline Scalar<T> min(const Scalar<T> &lhs, const Scalar<T> &rhs) noexcept {
     return detail_make_binary(ElementwiseOp::MIN, lhs, rhs);
 }
-template<scalar_cpp_type T>
+template<arithmetic_scalar_cpp_type T, typename U>
+    requires std::convertible_to<U, T>
+[[nodiscard]] inline Scalar<T> min(const Scalar<T> &lhs, U rhs) noexcept {
+    return min(lhs, Scalar<T>{static_cast<T>(rhs)});
+}
+template<typename U, arithmetic_scalar_cpp_type T>
+    requires std::convertible_to<U, T>
+[[nodiscard]] inline Scalar<T> min(U lhs, const Scalar<T> &rhs) noexcept {
+    return min(Scalar<T>{static_cast<T>(lhs)}, rhs);
+}
+template<arithmetic_scalar_cpp_type T>
 [[nodiscard]] inline Scalar<T> max(const Scalar<T> &lhs, const Scalar<T> &rhs) noexcept {
     return detail_make_binary(ElementwiseOp::MAX, lhs, rhs);
+}
+template<arithmetic_scalar_cpp_type T, typename U>
+    requires std::convertible_to<U, T>
+[[nodiscard]] inline Scalar<T> max(const Scalar<T> &lhs, U rhs) noexcept {
+    return max(lhs, Scalar<T>{static_cast<T>(rhs)});
+}
+template<typename U, arithmetic_scalar_cpp_type T>
+    requires std::convertible_to<U, T>
+[[nodiscard]] inline Scalar<T> max(U lhs, const Scalar<T> &rhs) noexcept {
+    return max(Scalar<T>{static_cast<T>(lhs)}, rhs);
 }
 
 class LUISA_TILE_API Axis final {
@@ -520,6 +619,12 @@ public:
 
     [[nodiscard]] Scalar<T> load() const noexcept {
         return Scalar<T>{detail::load_view(_view, _indices)};
+    }
+    [[nodiscard]] Scalar<T> load(const Scalar<bool> &predicate, const Scalar<T> &fallback) const noexcept {
+        return Scalar<T>{detail::load_view(_view, _indices, &predicate._handle, &fallback._handle)};
+    }
+    [[nodiscard]] Scalar<T> load(const Scalar<bool> &predicate, T fallback = T{}) const noexcept {
+        return load(predicate, Scalar<T>{fallback});
     }
     void store(const Scalar<T> &value) const noexcept {
         detail::store_view(_view, _indices, value._handle);

@@ -17,6 +17,8 @@ namespace luisa::compute::tile::bridge::tirx {
 
 namespace detail {
 
+constexpr auto logical_parallel_annotation = "luisa.tile.logical_parallel";
+
 class FunctionLowerer final {
 
 private:
@@ -161,6 +163,9 @@ private:
             case ElementwiseOp::LE: return tvm::less_equal(operands[0u], operands[1u]);
             case ElementwiseOp::GT: return tvm::greater(operands[0u], operands[1u]);
             case ElementwiseOp::GE: return tvm::greater_equal(operands[0u], operands[1u]);
+            case ElementwiseOp::LOGICAL_AND: return tvm::logical_and(operands[0u], operands[1u]);
+            case ElementwiseOp::LOGICAL_OR: return tvm::logical_or(operands[0u], operands[1u]);
+            case ElementwiseOp::LOGICAL_NOT: return tvm::logical_not(operands[0u]);
             case ElementwiseOp::EXP: return tvm::exp(operands[0u]);
             case ElementwiseOp::LOG: return tvm::log(operands[0u]);
             case ElementwiseOp::SQRT: return tvm::sqrt(operands[0u]);
@@ -180,27 +185,36 @@ private:
         _expressions.insert_or_assign(value, std::move(expression));
     }
 
+    [[nodiscard]] tvm::PrimExpr _materialize_expression(
+        tvm::PrimExpr expression,
+        tvm::ffi::Array<tvm::tirx::Stmt> &statements) noexcept {
+        if (!expression.defined()) { return {}; }
+        auto name = tvm::ffi::String{std::string{"tile_value_"} + std::to_string(_temporary_index++)};
+        auto buffer = tvm::tirx::decl_buffer(
+            {tvm::IntImm::Int64(1)}, expression.ty(), std::move(name), "local");
+        statements.push_back(tvm::tirx::AllocBuffer{buffer});
+        statements.push_back(tvm::tirx::BufferStore{
+            buffer, std::move(expression), {tvm::IntImm::Int64(0)}});
+        return tvm::tirx::BufferLoad{buffer, {tvm::IntImm::Int64(0)}};
+    }
+
     void _materialize(
         const Value *value,
         tvm::PrimExpr expression,
         tvm::ffi::Array<tvm::tirx::Stmt> &statements) noexcept {
-        if (!expression.defined()) { return; }
-        auto name = tvm::ffi::String{std::string{"tile_value_"} + std::to_string(_temporary_index++)};
-        auto buffer = tvm::tirx::decl_buffer(
-            {tvm::IntImm::Int64(1)}, expression.ty(), std::move(name));
-        statements.push_back(tvm::tirx::AllocBuffer{buffer});
-        statements.push_back(tvm::tirx::BufferStore{
-            buffer, std::move(expression), {tvm::IntImm::Int64(0)}});
-        _bind_expression(value, tvm::tirx::BufferLoad{buffer, {tvm::IntImm::Int64(0)}});
+        _bind_expression(value, _materialize_expression(std::move(expression), statements));
     }
 
     [[nodiscard]] tvm::tirx::Stmt _lower_structured(const Operation &operation) noexcept {
         auto &&domain = *operation.domain();
         auto body = operation.region(0u)->block(0u);
+        auto is_parallel = operation.kind() == OperationKind::PARALLEL;
         tvm::ffi::Array<tvm::tirx::PrimVar> loop_variables;
         tvm::ffi::Array<tvm::PrimExpr> loop_extents;
+        luisa::vector<uint64_t> constant_extents;
         loop_variables.reserve(domain.rank());
         loop_extents.reserve(domain.rank());
+        constant_extents.reserve(domain.rank());
         for (auto i = 0u; i < domain.rank(); i++) {
             auto &&axis = domain.axis(i);
             if (!axis.extent.is_constant() ||
@@ -214,7 +228,45 @@ private:
             tvm::tirx::PrimVar variable{tvm::ffi::String{name}, tvm::PrimType::Int(64)};
             loop_variables.push_back(variable);
             loop_extents.push_back(tvm::IntImm::Int64(static_cast<int64_t>(axis.extent.constant_value())));
-            _bind_expression(body->argument(i), variable);
+            constant_extents.emplace_back(axis.extent.constant_value());
+            if (!is_parallel) { _bind_expression(body->argument(i), variable); }
+        }
+
+        tvm::tirx::PrimVar parallel_variable;
+        uint64_t parallel_extent = 1u;
+        if (is_parallel) {
+            for (auto extent : constant_extents) {
+                if (extent != 0u && parallel_extent > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) / extent) {
+                    _fail("the flattened TIRx parallel domain exceeds int64 range");
+                    return {};
+                }
+                parallel_extent *= extent;
+            }
+            auto name = tvm::ffi::String{
+                std::string{"parallel_"} + std::to_string(operation.id())};
+            parallel_variable = tvm::tirx::PrimVar{std::move(name), tvm::PrimType::Int(64)};
+            auto trailing_extent = parallel_extent;
+            for (auto i = 0u; i < domain.rank(); i++) {
+                auto extent = constant_extents[i];
+                tvm::PrimExpr coordinate;
+                if (parallel_extent == 0u) {
+                    coordinate = tvm::IntImm::Int64(0);
+                } else {
+                    trailing_extent /= extent;
+                    coordinate = parallel_variable;
+                    if (trailing_extent != 1u) {
+                        coordinate = tvm::floordiv(
+                            std::move(coordinate),
+                            tvm::IntImm::Int64(static_cast<int64_t>(trailing_extent)));
+                    }
+                    if (extent != 1u) {
+                        coordinate = tvm::floormod(
+                            std::move(coordinate),
+                            tvm::IntImm::Int64(static_cast<int64_t>(extent)));
+                    }
+                }
+                _bind_expression(body->argument(i), std::move(coordinate));
+            }
         }
 
         tvm::ffi::Array<tvm::tirx::BufferVar> carries;
@@ -228,7 +280,8 @@ private:
             }
             auto name = tvm::ffi::String{
                 std::string{"tile_carry_"} + std::to_string(operation.id()) + "_" + std::to_string(i)};
-            auto buffer = tvm::tirx::decl_buffer({tvm::IntImm::Int64(1)}, type, std::move(name));
+            auto buffer = tvm::tirx::decl_buffer(
+                {tvm::IntImm::Int64(1)}, type, std::move(name), "local");
             carries.push_back(buffer);
             prefix.push_back(tvm::tirx::AllocBuffer{buffer});
             auto initial = _expression(operation.operand(i));
@@ -242,16 +295,26 @@ private:
 
         auto loop_body = _lower_block(*body, carries, true);
         if (!loop_body.defined()) { return {}; }
-        auto loop_kind = operation.kind() == OperationKind::PARALLEL ?
-                             tvm::tirx::ForKind::kParallel :
-                             tvm::tirx::ForKind::kSerial;
-        for (auto i = domain.rank(); i != 0u; i--) {
+        if (is_parallel) {
+            tvm::ffi::Map<tvm::ffi::String, tvm::ffi::Any> annotations{
+                {logical_parallel_annotation, tvm::IntImm::Int64(static_cast<int64_t>(operation.id()))}};
             loop_body = tvm::tirx::For{
-                loop_variables[i - 1u],
+                parallel_variable,
                 tvm::IntImm::Int64(0),
-                loop_extents[i - 1u],
-                loop_kind,
-                std::move(loop_body)};
+                tvm::IntImm::Int64(static_cast<int64_t>(parallel_extent)),
+                tvm::tirx::ForKind::kSerial,
+                std::move(loop_body),
+                std::nullopt,
+                std::move(annotations)};
+        } else {
+            for (auto i = domain.rank(); i != 0u; i--) {
+                loop_body = tvm::tirx::For{
+                    loop_variables[i - 1u],
+                    tvm::IntImm::Int64(0),
+                    loop_extents[i - 1u],
+                    tvm::tirx::ForKind::kSerial,
+                    std::move(loop_body)};
+            }
         }
         prefix.push_back(std::move(loop_body));
         for (auto i = 0u; i < operation.result_count(); i++) {
@@ -282,7 +345,15 @@ private:
                 // A TileIR load is an SSA value at this program point. Keep it
                 // stable across later writes by materializing it; TIRx passes
                 // can scalarize/eliminate the one-element buffer afterwards.
-                _materialize(operation.result(0u), tvm::tirx::BufferLoad{view, indices}, statements);
+                tvm::PrimExpr value = tvm::tirx::BufferLoad{view, indices};
+                if (operation.operand_count() == rank + 3u) {
+                    auto predicate = _expression(operation.operand(rank + 1u));
+                    auto fallback = _expression(operation.operand(rank + 2u));
+                    if (!predicate.defined() || !fallback.defined()) { return; }
+                    value = tvm::if_then_else(
+                        std::move(predicate), std::move(value), std::move(fallback));
+                }
+                _materialize(operation.result(0u), std::move(value), statements);
                 break;
             }
             case OperationKind::VIEW_STORE: {
@@ -338,11 +409,20 @@ private:
                 return {};
             }
             saw_yield = true;
+            luisa::vector<tvm::PrimExpr> snapshots;
+            snapshots.reserve(carries.size());
             for (auto i = 0u; i < carries.size(); i++) {
                 auto value = _expression(operation.operand(i));
                 if (!value.defined()) { return {}; }
+                snapshots.emplace_back(
+                    _materialize_expression(std::move(value), statements));
+            }
+            // A structured yield updates every carried value simultaneously.
+            // Snapshot all SSA expressions before writing any carry buffer so
+            // one update cannot change the expression of a later update.
+            for (auto i = 0u; i < carries.size(); i++) {
                 statements.push_back(tvm::tirx::BufferStore{
-                    carries[i], std::move(value), {tvm::IntImm::Int64(0)}});
+                    carries[i], std::move(snapshots[i]), {tvm::IntImm::Int64(0)}});
             }
         }
         if (!carries.empty() && !saw_yield) {

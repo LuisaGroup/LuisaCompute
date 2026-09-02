@@ -293,7 +293,11 @@ ValueHandle make_elementwise_operation(
     return operation == nullptr ? ValueHandle{} : ValueHandle{current_capture->make_slot(operation->result(0u))};
 }
 
-ValueHandle load_view(Value *view, luisa::span<const ValueHandle> indices) noexcept {
+ValueHandle load_view(
+    Value *view,
+    luisa::span<const ValueHandle> indices,
+    const ValueHandle *predicate,
+    const ValueHandle *fallback) noexcept {
     if (current_capture == nullptr || view == nullptr || !view->type().is_view()) { return {}; }
     luisa::vector<Value *> values;
     values.reserve(indices.size());
@@ -304,7 +308,16 @@ ValueHandle load_view(Value *view, luisa::span<const ValueHandle> indices) noexc
         }
         values.emplace_back(index.value());
     }
-    auto operation = current_capture->builder.create_view_load(view, values);
+    if ((predicate == nullptr) != (fallback == nullptr) ||
+        (predicate != nullptr && (!*predicate || !*fallback))) {
+        current_capture->error("masked view load requires a valid predicate and fallback");
+        return {};
+    }
+    auto operation = current_capture->builder.create_view_load(
+        view,
+        values,
+        predicate == nullptr ? nullptr : predicate->value(),
+        fallback == nullptr ? nullptr : fallback->value());
     return operation == nullptr ? ValueHandle{} : ValueHandle{current_capture->make_slot(operation->result(0u))};
 }
 

@@ -533,7 +533,7 @@ target_include_directories(test_builtin_kernel PRIVATE ${CMAKE_SOURCE_DIR}/src/r
 luisa_compute_add_test(test_manual_ast      unit/ast/test_manual_ast.cpp)
   luisa_compute_add_test(test_cooperative_vector unit/ast/test_cooperative_vector.cpp)
 
-# --- unit/tile: execution-first TileIR and layout algebra (CPU-only) ---
+# --- unit/tile: execution-first TileIR and layout algebra ---
 luisa_compute_add_test(test_tile_layout unit/tile/test_tile_layout.cpp LABELS "unit;unit_tile")
 luisa_compute_add_test(test_tile_ir unit/tile/test_tile_ir.cpp LABELS "unit;unit_tile")
 luisa_compute_add_test(test_tile_dsl unit/tile/test_tile_dsl.cpp LABELS "unit;unit_tile")
@@ -542,6 +542,24 @@ if (LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE)
             unit/tile/bridge/test_tirx_layout.cpp
             LABELS "unit;unit_tile;unit_tile_tirx")
     target_link_libraries(test_tile_tirx PRIVATE luisa::tile-tirx)
+    luisa_compute_add_test(test_tile_tirx_poc
+            unit/tile/bridge/test_tirx_poc.cpp
+            LABELS "unit;unit_tile;unit_tile_tirx;unit_tile_poc")
+    target_link_libraries(test_tile_tirx_poc PRIVATE luisa::tile-tirx)
+    luisa_compute_add_test(test_tile_tirx_poc_neural
+            unit/tile/bridge/test_tirx_poc_neural.cpp
+            LABELS "unit;unit_tile;unit_tile_tirx;unit_tile_poc")
+    target_link_libraries(test_tile_tirx_poc_neural PRIVATE luisa::tile-tirx)
+    luisa_compute_add_test(test_tile_tirx_poc_algorithms
+            unit/tile/bridge/test_tirx_poc_algorithms.cpp
+            LABELS "unit;unit_tile;unit_tile_tirx;unit_tile_poc")
+    target_link_libraries(test_tile_tirx_poc_algorithms PRIVATE luisa::tile-tirx)
+    if (APPLE AND LUISA_TILE_TVM_METAL_RUNTIME_LIBRARY)
+        luisa_compute_add_test(test_tile_tirx_targets
+                unit/tile/bridge/test_tirx_targets.cpp
+                LABELS "unit;unit_tile;unit_tile_tirx;unit_tile_targets")
+        target_link_libraries(test_tile_tirx_targets PRIVATE luisa::tile-tirx)
+    endif ()
 endif ()
 
 # --- unit/dsl: standalone tests (need backend, NOT auto-run via CTest) ---

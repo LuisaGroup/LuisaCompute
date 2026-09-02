@@ -215,8 +215,10 @@ private:
         }
         auto &&view_type = operation->operand(0u)->type();
         auto rank = view_type.index_space()->rank();
-        auto expected_operands = rank + (operation->kind() == OperationKind::VIEW_LOAD ? 1u : 2u);
-        if (operation->operand_count() != expected_operands) {
+        auto ordinary_operands = rank + (operation->kind() == OperationKind::VIEW_LOAD ? 1u : 2u);
+        auto masked_load = operation->kind() == OperationKind::VIEW_LOAD &&
+                           operation->operand_count() == rank + 3u;
+        if (operation->operand_count() != ordinary_operands && !masked_load) {
             _error(operation, "view access index count must match the View rank");
             return;
         }
@@ -230,6 +232,14 @@ private:
                 !(operation->result(0u)->type() == Type::scalar(view_type.scalar_type()))) {
                 _error(operation, "view.load must produce one scalar matching the View element type");
             }
+            if (masked_load) {
+                auto predicate = operation->operand(rank + 1u);
+                auto fallback = operation->operand(rank + 2u);
+                if (predicate == nullptr || predicate->type() != Type::scalar(ScalarType::BOOL) ||
+                    fallback == nullptr || fallback->type() != Type::scalar(view_type.scalar_type())) {
+                    _error(operation, "masked view.load requires a bool predicate and matching scalar fallback");
+                }
+            }
         } else {
             auto value = operation->operand(rank + 1u);
             if (operation->result_count() != 0u || value == nullptr ||
@@ -240,14 +250,24 @@ private:
     }
 
     [[nodiscard]] static bool _is_element_value(const Type &type) noexcept {
-        return type.kind() == TypeKind::SCALAR || type.kind() == TypeKind::TILE;
+        return type.kind() == TypeKind::INDEX || type.kind() == TypeKind::SCALAR || type.kind() == TypeKind::TILE;
     }
 
     [[nodiscard]] static bool _same_element_shape(const Type &lhs, const Type &rhs) noexcept {
+        auto lhs_scalar = lhs.kind() == TypeKind::INDEX || lhs.kind() == TypeKind::SCALAR;
+        auto rhs_scalar = rhs.kind() == TypeKind::INDEX || rhs.kind() == TypeKind::SCALAR;
+        if (lhs_scalar || rhs_scalar) { return lhs_scalar && rhs_scalar; }
         if (lhs.kind() != rhs.kind()) { return false; }
-        if (lhs.kind() == TypeKind::SCALAR) { return true; }
         return lhs.kind() == TypeKind::TILE && lhs.index_space() != nullptr && rhs.index_space() != nullptr &&
                *lhs.index_space() == *rhs.index_space();
+    }
+
+    [[nodiscard]] static ScalarType _element_scalar_type(const Type &type) noexcept {
+        return type.kind() == TypeKind::INDEX ? ScalarType::INT64 : type.scalar_type();
+    }
+
+    [[nodiscard]] static bool _same_element_type(const Type &lhs, const Type &rhs) noexcept {
+        return _same_element_shape(lhs, rhs) && _element_scalar_type(lhs) == _element_scalar_type(rhs);
     }
 
     [[nodiscard]] static bool _is_floating(ScalarType type) noexcept {
@@ -266,6 +286,7 @@ private:
     void _verify_elementwise(const Operation *operation) noexcept {
         auto op = operation->elementwise_op();
         auto unary = op == ElementwiseOp::NEG || op == ElementwiseOp::CAST ||
+                     op == ElementwiseOp::LOGICAL_NOT ||
                      op == ElementwiseOp::EXP || op == ElementwiseOp::LOG ||
                      op == ElementwiseOp::SQRT || op == ElementwiseOp::TANH ||
                      op == ElementwiseOp::ABS;
@@ -275,7 +296,8 @@ private:
                       op == ElementwiseOp::MAX || op == ElementwiseOp::EQ ||
                       op == ElementwiseOp::NE || op == ElementwiseOp::LT ||
                       op == ElementwiseOp::LE || op == ElementwiseOp::GT ||
-                      op == ElementwiseOp::GE;
+                      op == ElementwiseOp::GE || op == ElementwiseOp::LOGICAL_AND ||
+                      op == ElementwiseOp::LOGICAL_OR;
         auto arity = unary ? 1u : binary                  ? 2u :
                               op == ElementwiseOp::SELECT ? 3u :
                                                             0u;
@@ -305,9 +327,25 @@ private:
             auto &&condition = operation->operand(0u)->type();
             if (condition.scalar_type() != ScalarType::BOOL ||
                 !_same_element_shape(condition, result) ||
-                !(operation->operand(1u)->type() == result) ||
-                !(operation->operand(2u)->type() == result)) {
+                !_same_element_type(operation->operand(1u)->type(), result) ||
+                !_same_element_type(operation->operand(2u)->type(), result)) {
                 _error(operation, "elementwise select requires a shape-matched bool condition and matching values");
+            }
+            return;
+        }
+        auto logical = op == ElementwiseOp::LOGICAL_AND ||
+                       op == ElementwiseOp::LOGICAL_OR ||
+                       op == ElementwiseOp::LOGICAL_NOT;
+        if (logical) {
+            if (result.scalar_type() != ScalarType::BOOL) {
+                _error(operation, "logical elementwise operation requires bool operands and result");
+                return;
+            }
+            for (auto i = 0u; i < operation->operand_count(); i++) {
+                if (!(operation->operand(i)->type() == result)) {
+                    _error(operation, "logical elementwise operation requires bool operands and result");
+                    return;
+                }
             }
             return;
         }
@@ -316,14 +354,14 @@ private:
                           op == ElementwiseOp::GT || op == ElementwiseOp::GE;
         if (comparison) {
             auto &&lhs = operation->operand(0u)->type();
-            if (!(lhs == operation->operand(1u)->type()) || result.scalar_type() != ScalarType::BOOL ||
+            if (!_same_element_type(lhs, operation->operand(1u)->type()) || result.scalar_type() != ScalarType::BOOL ||
                 !_same_element_shape(lhs, result)) {
                 _error(operation, "elementwise comparison requires matching inputs and a shape-matched bool result");
             }
             return;
         }
         for (auto i = 0u; i < operation->operand_count(); i++) {
-            if (!(operation->operand(i)->type() == result)) {
+            if (!_same_element_type(operation->operand(i)->type(), result)) {
                 _error(operation, "elementwise arithmetic requires operands and result to have identical types");
                 return;
             }

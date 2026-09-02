@@ -4,6 +4,8 @@
 
 #include <luisa/tile.h>
 
+#include <concepts>
+
 using namespace luisa;
 using namespace luisa::compute::tile;
 using namespace boost::ut;
@@ -114,6 +116,45 @@ void test_parallel_cannot_capture_scalar_carry() {
     expect(!kernel.diagnostics().empty());
 }
 
+void test_logical_and_masked_view_capture() {
+    static_assert(!std::convertible_to<Scalar<bool>, bool>);
+    auto kernel = define("masked_stencil", [] {
+        auto i = axis("i", 8u);
+        auto source = input<float>("source", shape(i));
+        auto result = output<float>("result", shape(i));
+        for (auto &element : parallel(shape(i))) {
+            auto index = element[i];
+            auto source_index = index - 1;
+            auto in_bounds = (source_index >= 0) && (source_index < 8);
+            auto use_fallback = !in_bounds || (index < 0);
+            result[element] = source(source_index).load(!use_fallback, 0.0f);
+        }
+    });
+    expect(kernel.valid());
+    auto loop = only_root_operation(kernel);
+    expect(loop != nullptr);
+    if (loop == nullptr) { return; }
+    auto body = loop->region(0u)->block(0u);
+    Operation *load = nullptr;
+    size_t logical_count = 0u;
+    for (auto operation : body->operations()) {
+        if (operation->kind() == OperationKind::VIEW_LOAD) { load = operation; }
+        if (operation->kind() == OperationKind::ELEMENTWISE &&
+            (operation->elementwise_op() == ElementwiseOp::LOGICAL_AND ||
+             operation->elementwise_op() == ElementwiseOp::LOGICAL_OR ||
+             operation->elementwise_op() == ElementwiseOp::LOGICAL_NOT)) {
+            logical_count++;
+        }
+    }
+    expect(load != nullptr);
+    if (load != nullptr) {
+        expect(eq(load->operand_count(), 4u));
+        expect(load->operand(2u)->type() == Type::scalar(ScalarType::BOOL));
+        expect(load->operand(3u)->type() == Type::scalar(ScalarType::FLOAT32));
+    }
+    expect(eq(logical_count, 4u));
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -121,4 +162,5 @@ int main(int argc, char *argv[]) {
     "tile_dsl_elementwise_capture"_test = test_elementwise_capture;
     "tile_dsl_reduction_capture"_test = test_reduction_capture_and_implicit_carry;
     "tile_dsl_rejects_parallel_scalar_carry"_test = test_parallel_cannot_capture_scalar_carry;
+    "tile_dsl_logical_and_masked_view_capture"_test = test_logical_and_masked_view_capture;
 }

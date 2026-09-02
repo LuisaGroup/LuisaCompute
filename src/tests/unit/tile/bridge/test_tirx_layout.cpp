@@ -2,6 +2,7 @@
 
 #include "ut/ut.hpp"
 
+#include <cmath>
 #include <limits>
 #include <utility>
 
@@ -331,6 +332,56 @@ void test_dsl_reduction_end_to_end() {
     }
 }
 
+void test_dsl_masked_stencil_end_to_end() {
+    constexpr int64_t n = 19;
+    auto kernel = define("tile_dsl_masked_stencil", [] {
+        auto i = axis("i", n);
+        auto source = input<float>("source", shape(i));
+        auto result = output<float>("result", shape(i));
+        for (auto &element : parallel(shape(i))) {
+            auto index = element[i];
+            auto left_index = index - 1;
+            auto right_index = index + 1;
+            auto left_valid = (left_index >= 0) && (left_index < n);
+            auto right_valid = (right_index >= 0) && (right_index < n);
+            auto left = source(left_index).load(left_valid, 0.0f);
+            auto center = source(index).load();
+            auto right = source(right_index).load(right_valid, 0.0f);
+            result(element[i]) = left + 2.0f * center + right;
+        }
+    });
+    expect(kernel.valid());
+    auto native = lower(kernel.function());
+    expect(native.ok()) << native.error;
+    if (!native) { return; }
+    auto compilation = compile(std::move(native.value), "tile_dsl_masked_stencil");
+    expect(compilation.ok()) << compilation.error();
+    if (!compilation) { return; }
+    auto entry = compilation.module().value()->GetFunction("tile_dsl_masked_stencil", true);
+    expect(entry.has_value());
+    if (!entry) { return; }
+
+    tvm::Device cpu{kDLCPU, 0};
+    auto source = tvm::runtime::Tensor::Empty(
+        tvm::ffi::Shape{n}, DLDataType{kDLFloat, 32, 1}, cpu);
+    auto result = tvm::runtime::Tensor::Empty(
+        tvm::ffi::Shape{n}, DLDataType{kDLFloat, 32, 1}, cpu);
+    luisa::vector<float> source_values(n);
+    luisa::vector<float> result_values(n, 0.0f);
+    for (auto i = 0u; i < source_values.size(); i++) {
+        source_values[i] = static_cast<float>(i + 1u);
+    }
+    source.CopyFromBytes(source_values.data(), source_values.size() * sizeof(float));
+    (*entry)(source, result);
+    result.CopyToBytes(result_values.data(), result_values.size() * sizeof(float));
+    for (auto i = 0u; i < result_values.size(); i++) {
+        auto expected = 2.0f * source_values[i];
+        if (i != 0u) { expected += source_values[i - 1u]; }
+        if (i + 1u != source_values.size()) { expected += source_values[i + 1u]; }
+        expect(std::abs(result_values[i] - expected) < 1e-6f);
+    }
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -342,4 +393,5 @@ int main(int argc, char *argv[]) {
     "tile_tirx_native_buffer_kernel"_test = test_native_buffer_kernel;
     "tile_tirx_dsl_elementwise_end_to_end"_test = test_dsl_elementwise_end_to_end;
     "tile_tirx_dsl_reduction_end_to_end"_test = test_dsl_reduction_end_to_end;
+    "tile_tirx_dsl_masked_stencil_end_to_end"_test = test_dsl_masked_stencil_end_to_end;
 }

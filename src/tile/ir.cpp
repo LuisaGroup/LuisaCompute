@@ -97,6 +97,9 @@ luisa::string_view to_string(ElementwiseOp op) noexcept {
         case ElementwiseOp::LE: return "le"sv;
         case ElementwiseOp::GT: return "gt"sv;
         case ElementwiseOp::GE: return "ge"sv;
+        case ElementwiseOp::LOGICAL_AND: return "logical_and"sv;
+        case ElementwiseOp::LOGICAL_OR: return "logical_or"sv;
+        case ElementwiseOp::LOGICAL_NOT: return "logical_not"sv;
         case ElementwiseOp::EXP: return "exp"sv;
         case ElementwiseOp::LOG: return "log"sv;
         case ElementwiseOp::SQRT: return "sqrt"sv;
@@ -461,12 +464,21 @@ Operation *IRBuilder::create_mma(Value *a, Value *b, Value *accumulator) noexcep
     return create(OperationKind::MMA, operands, results);
 }
 
-Operation *IRBuilder::create_view_load(Value *view, luisa::span<Value *const> indices) noexcept {
+Operation *IRBuilder::create_view_load(
+    Value *view,
+    luisa::span<Value *const> indices,
+    Value *predicate,
+    Value *fallback) noexcept {
     if (view == nullptr || !view->type().is_view()) { return nullptr; }
+    if ((predicate == nullptr) != (fallback == nullptr)) { return nullptr; }
     luisa::vector<Value *> operands;
-    operands.reserve(indices.size() + 1u);
+    operands.reserve(indices.size() + (predicate == nullptr ? 1u : 3u));
     operands.emplace_back(view);
     operands.insert(operands.end(), indices.begin(), indices.end());
+    if (predicate != nullptr) {
+        operands.emplace_back(predicate);
+        operands.emplace_back(fallback);
+    }
     Type result_types[]{Type::scalar(view->type().scalar_type())};
     return create(OperationKind::VIEW_LOAD, operands, result_types);
 }

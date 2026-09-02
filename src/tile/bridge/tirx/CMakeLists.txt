@@ -18,6 +18,15 @@ find_library(LUISA_TILE_TVM_FFI_LIBRARY
         NAMES tvm_ffi
         HINTS "${LUISA_COMPUTE_TVM_FFI_LIBRARY_DIR}"
         NO_DEFAULT_PATH)
+if (APPLE)
+    # TVMx packages keep device runtimes as registration plugins. Linking the
+    # optional Metal plugin makes native C++ clients capable of allocating,
+    # launching, and synchronizing Metal tensors without importing Python.
+    find_library(LUISA_TILE_TVM_METAL_RUNTIME_LIBRARY
+            NAMES tvm_runtime_metal
+            HINTS "${LUISA_COMPUTE_TVM_LIBRARY_DIR}"
+            NO_DEFAULT_PATH)
+endif ()
 
 foreach (_dependency
         LUISA_TILE_TVM_INCLUDE_PATH
@@ -53,6 +62,10 @@ target_link_libraries(luisa-compute-tile-bridge-tirx
         "${LUISA_TILE_TVM_COMPILER_LIBRARY}"
         "${LUISA_TILE_TVM_RUNTIME_LIBRARY}"
         "${LUISA_TILE_TVM_FFI_LIBRARY}")
+if (LUISA_TILE_TVM_METAL_RUNTIME_LIBRARY)
+    target_link_libraries(luisa-compute-tile-bridge-tirx
+            PUBLIC "${LUISA_TILE_TVM_METAL_RUNTIME_LIBRARY}")
+endif ()
 if (UNIX)
     target_link_options(luisa-compute-tile-bridge-tirx PUBLIC
             "LINKER:-rpath,${LUISA_COMPUTE_TVM_LIBRARY_DIR}"

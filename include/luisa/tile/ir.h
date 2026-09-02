@@ -148,6 +148,9 @@ enum class ElementwiseOp : uint8_t {
     LE,
     GT,
     GE,
+    LOGICAL_AND,
+    LOGICAL_OR,
+    LOGICAL_NOT,
     EXP,
     LOG,
     SQRT,
@@ -554,7 +557,10 @@ public:
                                                 luisa::span<Value *const> operands,
                                                 Type result_type) noexcept;
     [[nodiscard]] Operation *create_mma(Value *a, Value *b, Value *accumulator) noexcept;
-    [[nodiscard]] Operation *create_view_load(Value *view, luisa::span<Value *const> indices) noexcept;
+    [[nodiscard]] Operation *create_view_load(Value *view,
+                                              luisa::span<Value *const> indices,
+                                              Value *predicate = nullptr,
+                                              Value *fallback = nullptr) noexcept;
     [[nodiscard]] Operation *create_view_store(Value *view, luisa::span<Value *const> indices, Value *value) noexcept;
     [[nodiscard]] Operation *create_memory_alloc(const Type &memory_type, luisa::string_view resource_class = {}) noexcept;
     [[nodiscard]] Operation *create_memory_load(Value *memory, Value *state) noexcept;

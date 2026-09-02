@@ -1,4 +1,5 @@
 #include <exception>
+#include <stdexcept>
 #include <string>
 #include <utility>
 
@@ -8,6 +9,7 @@
 #include <tvm/s_tir/transform.h>
 #include <tvm/target/target.h>
 #include <tvm/tirx/analysis.h>
+#include <tvm/tirx/stmt_functor.h>
 #include <tvm/tirx/transform.h>
 
 #include <luisa/core/stl/unordered_map.h>
@@ -19,6 +21,181 @@ namespace luisa::compute::tile::bridge::tirx {
 namespace detail {
 
 using FunctionMap = tvm::ffi::Map<tvm::GlobalVar, tvm::BaseFunc>;
+
+constexpr auto logical_parallel_annotation = "luisa.tile.logical_parallel";
+
+enum class RootParallelBinding : uint8_t {
+    SERIAL,
+    CPU_THREADS,
+    GPU_GRID
+};
+
+[[nodiscard]] tvm::IRModule make_module(
+    FunctionMap functions,
+    tvm::DictAttrs attributes,
+    tvm::ffi::Map<tvm::ffi::String, tvm::ffi::Array<tvm::GlobalInfo>> global_infos);
+
+class ExecutionMapper final : public tvm::tirx::StmtMutator {
+
+private:
+    RootParallelBinding _binding;
+    uint32_t _gpu_threads_per_block;
+    uint32_t _logical_parallel_depth{0u};
+
+private:
+    [[nodiscard]] tvm::tirx::Stmt _serial(
+        const tvm::tirx::ForNode *loop,
+        tvm::tirx::Stmt body,
+        tvm::ffi::Map<tvm::ffi::String, tvm::ffi::Any> annotations) const {
+        return tvm::tirx::For{
+            loop->loop_var,
+            loop->min,
+            loop->extent,
+            tvm::tirx::ForKind::kSerial,
+            std::move(body),
+            std::nullopt,
+            std::move(annotations),
+            loop->step,
+            loop->span};
+    }
+
+    [[nodiscard]] tvm::tirx::Stmt _gpu_grid(
+        const tvm::tirx::ForNode *loop,
+        tvm::tirx::Stmt body) const {
+        auto extent_constant = loop->extent.as<tvm::IntImmNode>();
+        if (extent_constant == nullptr || extent_constant->value <= 0) {
+            throw std::runtime_error{
+                "GPU execution binding currently requires a positive static logical parallel extent"};
+        }
+        auto extent = static_cast<uint64_t>(extent_constant->value);
+        auto thread_count = std::min<uint64_t>(extent, _gpu_threads_per_block);
+        auto block_count = (extent + thread_count - 1u) / thread_count;
+        auto type = loop->loop_var.ty();
+        auto zero = tvm::IntImm{type, 0};
+        auto threads = tvm::IntImm{type, static_cast<int64_t>(thread_count)};
+        auto blocks = tvm::IntImm{type, static_cast<int64_t>(block_count)};
+        auto block = tvm::tirx::PrimVar{
+            tvm::ffi::String{std::string{loop->loop_var->name} + "_block"}, type};
+        auto thread = tvm::tirx::PrimVar{
+            tvm::ffi::String{std::string{loop->loop_var->name} + "_thread"}, type};
+        tvm::PrimExpr linear = block * threads + thread;
+        tvm::PrimExpr logical = loop->min + linear;
+        body = tvm::tirx::Substitute(
+            std::move(body),
+            tvm::ffi::Map<tvm::tirx::Var, tvm::Expr>{{loop->loop_var, logical}});
+        if (block_count * thread_count != extent) {
+            body = tvm::tirx::IfThenElse{linear < loop->extent, std::move(body)};
+        }
+        auto thread_axis = tvm::tirx::IterVar{
+            tvm::Range::FromMinExtent(zero, threads),
+            thread,
+            tvm::tirx::IterVarType::kThreadIndex,
+            "threadIdx.x"};
+        body = tvm::tirx::For{
+            thread,
+            zero,
+            threads,
+            tvm::tirx::ForKind::kThreadBinding,
+            std::move(body),
+            std::move(thread_axis)};
+        auto block_axis = tvm::tirx::IterVar{
+            tvm::Range::FromMinExtent(zero, blocks),
+            block,
+            tvm::tirx::IterVarType::kThreadIndex,
+            "blockIdx.x"};
+        return tvm::tirx::For{
+            block,
+            zero,
+            blocks,
+            tvm::tirx::ForKind::kThreadBinding,
+            std::move(body),
+            std::move(block_axis)};
+    }
+
+protected:
+    [[nodiscard]] tvm::tirx::Stmt VisitStmt_(const tvm::tirx::ForNode *loop) final {
+        if (!loop->annotations.count(logical_parallel_annotation)) {
+            return StmtMutator::VisitStmt_(loop);
+        }
+        auto annotations = loop->annotations;
+        annotations.erase(logical_parallel_annotation);
+        auto is_outermost = _logical_parallel_depth == 0u;
+        _logical_parallel_depth++;
+        auto body = VisitStmt(loop->body);
+        _logical_parallel_depth--;
+        if (!is_outermost || _binding == RootParallelBinding::SERIAL) {
+            return _serial(loop, std::move(body), std::move(annotations));
+        }
+        if (_binding == RootParallelBinding::CPU_THREADS) {
+            return tvm::tirx::For{
+                loop->loop_var,
+                loop->min,
+                loop->extent,
+                tvm::tirx::ForKind::kParallel,
+                std::move(body),
+                std::nullopt,
+                std::move(annotations),
+                loop->step,
+                loop->span};
+        }
+        if (_binding == RootParallelBinding::GPU_GRID) {
+            return _gpu_grid(loop, std::move(body));
+        }
+        throw std::runtime_error{"unresolved TileIR logical parallel binding"};
+    }
+
+public:
+    ExecutionMapper(RootParallelBinding binding, uint32_t gpu_threads_per_block) noexcept
+        : _binding{binding}, _gpu_threads_per_block{gpu_threads_per_block} {}
+
+    using StmtMutator::operator();
+};
+
+[[nodiscard]] bool is_gpu_target(const tvm::Target &target) noexcept {
+    switch (target->GetTargetDeviceType()) {
+        case kDLCUDA:
+        case kDLMetal:
+        case kDLROCM:
+        case kDLVulkan:
+        case kDLOpenCL:
+        case kDLWebGPU: return true;
+        default: return false;
+    }
+}
+
+[[nodiscard]] RootParallelBinding resolve_parallel_binding(
+    const tvm::Target &target) noexcept {
+    if (is_gpu_target(target)) { return RootParallelBinding::GPU_GRID; }
+    return target->kind->name == "llvm" ?
+               RootParallelBinding::CPU_THREADS :
+               RootParallelBinding::SERIAL;
+}
+
+[[nodiscard]] tvm::IRModule map_execution(
+    tvm::IRModule module,
+    const tvm::Target &target) {
+    auto binding = resolve_parallel_binding(target);
+    auto threads = uint32_t{1u};
+    if (binding == RootParallelBinding::GPU_GRID) {
+        threads = 256u;
+        if (auto maximum = target->GetAttr<int64_t>("max_num_threads")) {
+            threads = std::min<uint32_t>(
+                threads,
+                static_cast<uint32_t>(std::max<int64_t>(1, maximum.value())));
+        }
+    }
+    FunctionMap functions;
+    for (auto &&[global, base_function] : module->functions) {
+        auto function = base_function.as<tvm::tirx::PrimFunc>();
+        if (!function) {
+            throw std::runtime_error{"Tile TIRx execution mapping only accepts PrimFunc modules"};
+        }
+        auto mapped = function.value();
+        mapped.CopyOnWrite()->body = ExecutionMapper{binding, threads}(mapped->body);
+        functions.Set(global, std::move(mapped));
+    }
+    return make_module(std::move(functions), module->attrs, module->global_infos);
+}
 
 [[nodiscard]] tvm::IRModule make_module(
     FunctionMap functions,
@@ -49,9 +226,10 @@ void run_common_pipeline(tvm::IRModule &module, const CompileOptions &options, c
     }
     apply(tvm::s_tir::transform::UnifyThreadBinding());
     apply(tvm::tirx::transform::StmtSimplify());
-    if (options.pipeline == PipelineKind::TILE) {
-        apply(tvm::tirx::transform::LowerTIRxOpaque());
-    }
+    // Logical GPU bindings are ordinary TIRx thread-binding loops at this
+    // point. Lower them to thread_extent regions before host/device splitting,
+    // regardless of whether the function also contains TilePrimitive calls.
+    apply(tvm::tirx::transform::LowerTIRxOpaque());
     apply(tvm::tirx::transform::FlattenBuffer());
     apply(tvm::tirx::transform::BF16ComputeLegalize());
     apply(tvm::tirx::transform::NarrowDataType(32));
@@ -102,6 +280,7 @@ CompilationResult compile(tvm::IRModule module, const CompileOptions &options) n
         tvm::Target device_target{tvm::ffi::String{options.target}};
         tvm::Target host_target{tvm::ffi::String{options.host}};
         tvm::Target bound_target{device_target, host_target};
+        module = detail::map_execution(std::move(module), device_target);
         detail::run_common_pipeline(module, options, bound_target);
 
         detail::FunctionMap host_functions;
