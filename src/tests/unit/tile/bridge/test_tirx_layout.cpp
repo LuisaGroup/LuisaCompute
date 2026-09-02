@@ -234,15 +234,18 @@ void test_native_buffer_kernel() {
 
 void test_dsl_elementwise_end_to_end() {
     constexpr int64_t n = 17;
-    auto kernel = define("tile_dsl_axpy", [] {
-        auto i = axis("i", n);
-        auto x = input<float>("x", shape(i));
-        auto y = input<float>("y", shape(i));
-        auto result = output<float>("result", shape(i));
-        for (auto &element : parallel(shape(i))) {
-            result[element] = x[element].load() + 2.0f * y[element].load();
-        }
-    });
+    auto definition = tile_kernel(
+        "tile_dsl_axpy", [](TensorView<const float, 1> x,
+                            TensorView<const float, 1> y,
+                            TensorView<float, 1> result) {
+            auto i = axis("i", result.extent<0>());
+            for (auto &element : parallel(shape(i))) {
+                auto index = element.index();
+                result(index) = x(index).load() + 2.0f * y(index).load();
+            }
+        });
+    auto kernel = definition.capture(
+        tensor_shape("x", n), tensor_shape("y", n), tensor_shape("result", n));
     expect(kernel.valid());
     auto native = lower(kernel.function());
     expect(native.ok()) << native.error;
@@ -277,19 +280,20 @@ void test_dsl_elementwise_end_to_end() {
 void test_dsl_reduction_end_to_end() {
     constexpr int64_t rows = 5;
     constexpr int64_t columns = 7;
-    auto kernel = define("tile_dsl_row_sum", [] {
-        auto row = axis("row", rows);
-        auto column = axis("column", columns);
-        auto source = input<float>("input", shape(row, column));
-        auto result = output<float>("result", shape(row));
-        for (auto &row_nest : parallel(shape(row))) {
-            auto sum = Scalar<float>{0.0f};
-            for (auto &column_nest : row_nest.reduce(shape(column))) {
-                sum += source(row_nest[row], column_nest[column]).load();
+    auto definition = tile_kernel(
+        "tile_dsl_row_sum", [](TensorView<const float, 2> source, TensorView<float, 1> result) {
+            auto row = axis("row", source.extent<0>());
+            auto column = axis("column", source.extent<1>());
+            for (auto &row_nest : parallel(shape(row))) {
+                auto sum = Scalar<float>{0.0f};
+                for (auto &column_nest : row_nest.reduce(shape(column))) {
+                    sum += source(row_nest[row], column_nest[column]).load();
+                }
+                result(row_nest[row]) = sum;
             }
-            result(row_nest[row]) = sum;
-        }
-    });
+        });
+    auto kernel = definition.capture(
+        tensor_shape("input", rows, columns), tensor_shape("result", rows));
     expect(kernel.valid());
     auto native = lower(kernel.function());
     expect(native.ok()) << native.error;
@@ -334,22 +338,22 @@ void test_dsl_reduction_end_to_end() {
 
 void test_dsl_masked_stencil_end_to_end() {
     constexpr int64_t n = 19;
-    auto kernel = define("tile_dsl_masked_stencil", [] {
-        auto i = axis("i", n);
-        auto source = input<float>("source", shape(i));
-        auto result = output<float>("result", shape(i));
-        for (auto &element : parallel(shape(i))) {
-            auto index = element[i];
-            auto left_index = index - 1;
-            auto right_index = index + 1;
-            auto left_valid = (left_index >= 0) && (left_index < n);
-            auto right_valid = (right_index >= 0) && (right_index < n);
-            auto left = source(left_index).load(left_valid, 0.0f);
-            auto center = source(index).load();
-            auto right = source(right_index).load(right_valid, 0.0f);
-            result(element[i]) = left + 2.0f * center + right;
-        }
-    });
+    auto definition = tile_kernel(
+        "tile_dsl_masked_stencil", [](TensorView<const float, 1> source, TensorView<float, 1> result) {
+            auto i = axis("i", source.extent<0>());
+            for (auto &element : parallel(shape(i))) {
+                auto index = element[i];
+                auto left_index = index - 1;
+                auto right_index = index + 1;
+                auto left_valid = (left_index >= 0) && (left_index < source.extent<0>());
+                auto right_valid = (right_index >= 0) && (right_index < source.extent<0>());
+                auto left = source(left_index).load(left_valid, 0.0f);
+                auto center = source(index).load();
+                auto right = source(right_index).load(right_valid, 0.0f);
+                result(element[i]) = left + 2.0f * center + right;
+            }
+        });
+    auto kernel = definition.capture(tensor_shape("source", n), tensor_shape("result", n));
     expect(kernel.valid());
     auto native = lower(kernel.function());
     expect(native.ok()) << native.error;

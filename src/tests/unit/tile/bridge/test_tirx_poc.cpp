@@ -112,61 +112,70 @@ void test_row_statistics_and_losses() {
     constexpr int64_t columns = 5;
     constexpr float huber_delta = 0.75f;
     constexpr float epsilon = 1e-4f;
-    auto kernel = define("tile_poc_statistics_losses", [] {
-        auto row = axis("row", rows);
-        auto column = axis("column", columns);
-        auto x = input<float>("x", shape(row, column));
-        auto target = input<float>("target", shape(row, column));
-        auto probability = input<float>("probability", shape(row, column));
-        auto sum_out = output<float>("sum", shape(row));
-        auto mean_out = output<float>("mean", shape(row));
-        auto peak_out = output<float>("peak", shape(row));
-        auto argmax_out = output<int64_t>("argmax", shape(row));
-        auto mse_out = output<float>("mse", shape(row));
-        auto mae_out = output<float>("mae", shape(row));
-        auto huber_out = output<float>("huber", shape(row));
-        auto bce_out = output<float>("bce", shape(row));
+    auto definition = tile_kernel(
+        "tile_poc_statistics_losses",
+        [](TensorView<const float, 2> x,
+           TensorView<const float, 2> target,
+           TensorView<const float, 2> probability,
+           TensorView<float, 1> sum_out,
+           TensorView<float, 1> mean_out,
+           TensorView<float, 1> peak_out,
+           TensorView<int64_t, 1> argmax_out,
+           TensorView<float, 1> mse_out,
+           TensorView<float, 1> mae_out,
+           TensorView<float, 1> huber_out,
+           TensorView<float, 1> bce_out) {
+            auto row = axis("row", x.extent<0>());
+            auto column = axis("column", x.extent<1>());
 
-        for (auto &row_nest : parallel(shape(row))) {
-            auto sum = Scalar<float>{0.0f};
-            auto peak = Scalar<float>{-1e30f};
-            auto best_index = Scalar<int64_t>{0};
-            auto mse = Scalar<float>{0.0f};
-            auto mae = Scalar<float>{0.0f};
-            auto huber = Scalar<float>{0.0f};
-            auto bce = Scalar<float>{0.0f};
-            for (auto &item : row_nest.reduce(shape(column))) {
-                auto index = item[column];
-                auto value = x(row_nest[row], index).load();
-                auto expected = target(row_nest[row], index).load();
-                auto p = probability(row_nest[row], index).load();
-                auto difference = value - expected;
-                auto magnitude = abs(difference);
-                auto better = (value > peak) || ((value == peak) && (index < best_index));
-                sum += value;
-                peak = select(better, value, peak);
-                best_index = select(better, index, best_index);
-                mse += difference * difference;
-                mae += magnitude;
-                huber += select(
-                    magnitude <= huber_delta,
-                    0.5f * difference * difference,
-                    huber_delta * (magnitude - 0.5f * huber_delta));
-                auto clamped = min(max(p, epsilon), 1.0f - epsilon);
-                bce -= expected * luisa::compute::tile::log(clamped) +
-                       (1.0f - expected) * luisa::compute::tile::log(1.0f - clamped);
+            for (auto &row_nest : parallel(shape(row))) {
+                auto sum = Scalar<float>{0.0f};
+                auto peak = Scalar<float>{-1e30f};
+                auto best_index = Scalar<int64_t>{0};
+                auto mse = Scalar<float>{0.0f};
+                auto mae = Scalar<float>{0.0f};
+                auto huber = Scalar<float>{0.0f};
+                auto bce = Scalar<float>{0.0f};
+                for (auto &item : row_nest.reduce(shape(column))) {
+                    auto index = item[column];
+                    auto value = x(row_nest[row], index).load();
+                    auto expected = target(row_nest[row], index).load();
+                    auto p = probability(row_nest[row], index).load();
+                    auto difference = value - expected;
+                    auto magnitude = abs(difference);
+                    auto better = (value > peak) || ((value == peak) && (index < best_index));
+                    sum += value;
+                    peak = select(better, value, peak);
+                    best_index = select(better, index, best_index);
+                    mse += difference * difference;
+                    mae += magnitude;
+                    huber += select(
+                        magnitude <= huber_delta,
+                        0.5f * difference * difference,
+                        huber_delta * (magnitude - 0.5f * huber_delta));
+                    auto clamped = min(max(p, epsilon), 1.0f - epsilon);
+                    bce -= expected * luisa::compute::tile::log(clamped) +
+                           (1.0f - expected) * luisa::compute::tile::log(1.0f - clamped);
+                }
+                auto denominator = static_cast<float>(x.extent<1>());
+                sum_out(row_nest[row]) = sum;
+                mean_out(row_nest[row]) = sum / denominator;
+                peak_out(row_nest[row]) = peak;
+                argmax_out(row_nest[row]) = best_index;
+                mse_out(row_nest[row]) = mse / denominator;
+                mae_out(row_nest[row]) = mae / denominator;
+                huber_out(row_nest[row]) = huber / denominator;
+                bce_out(row_nest[row]) = bce / denominator;
             }
-            auto denominator = static_cast<float>(columns);
-            sum_out(row_nest[row]) = sum;
-            mean_out(row_nest[row]) = sum / denominator;
-            peak_out(row_nest[row]) = peak;
-            argmax_out(row_nest[row]) = best_index;
-            mse_out(row_nest[row]) = mse / denominator;
-            mae_out(row_nest[row]) = mae / denominator;
-            huber_out(row_nest[row]) = huber / denominator;
-            bce_out(row_nest[row]) = bce / denominator;
-        }
-    });
+        });
+    auto kernel = definition.capture(
+        tensor_shape("x", rows, columns),
+        tensor_shape("target", rows, columns),
+        tensor_shape("probability", rows, columns),
+        tensor_shape("sum", rows), tensor_shape("mean", rows),
+        tensor_shape("peak", rows), tensor_shape("argmax", rows),
+        tensor_shape("mse", rows), tensor_shape("mae", rows),
+        tensor_shape("huber", rows), tensor_shape("bce", rows));
     auto executable = build(kernel);
     expect(executable.ok()) << executable.error;
     if (!executable.ok()) { return; }
@@ -248,40 +257,44 @@ void test_softmax_layernorm_rmsnorm() {
     constexpr int64_t rows = 4;
     constexpr int64_t columns = 7;
     constexpr float epsilon = 1e-5f;
-    auto kernel = define("tile_poc_softmax_norm", [] {
-        auto row = axis("row", rows);
-        auto column = axis("column", columns);
-        auto x = input<float>("x", shape(row, column));
-        auto softmax_out = output<float>("softmax", shape(row, column));
-        auto layernorm_out = output<float>("layernorm", shape(row, column));
-        auto rmsnorm_out = output<float>("rmsnorm", shape(row, column));
-        for (auto &row_nest : parallel(shape(row))) {
-            auto peak = Scalar<float>{-1e30f};
-            for (auto &item : row_nest.reduce(shape(column))) {
-                peak = max(peak, x(row_nest[row], item[column]).load());
+    auto definition = tile_kernel(
+        "tile_poc_softmax_norm",
+        [](TensorView<const float, 2> x,
+           TensorView<float, 2> softmax_out,
+           TensorView<float, 2> layernorm_out,
+           TensorView<float, 2> rmsnorm_out) {
+            auto row = axis("row", x.extent<0>());
+            auto column = axis("column", x.extent<1>());
+            for (auto &row_nest : parallel(shape(row))) {
+                auto peak = Scalar<float>{-1e30f};
+                for (auto &item : row_nest.reduce(shape(column))) {
+                    peak = max(peak, x(row_nest[row], item[column]).load());
+                }
+                auto exponential_sum = Scalar<float>{0.0f};
+                auto sum = Scalar<float>{0.0f};
+                auto square_sum = Scalar<float>{0.0f};
+                for (auto &item : row_nest.reduce(shape(column))) {
+                    auto value = x(row_nest[row], item[column]).load();
+                    exponential_sum += exp(value - peak);
+                    sum += value;
+                    square_sum += value * value;
+                }
+                auto denominator = static_cast<float>(x.extent<1>());
+                auto mean = sum / denominator;
+                auto variance = max(square_sum / denominator - mean * mean, 0.0f);
+                auto inverse_stddev = 1.0f / sqrt(variance + epsilon);
+                auto inverse_rms = 1.0f / sqrt(square_sum / denominator + epsilon);
+                for (auto &item : row_nest.parallel(shape(column))) {
+                    auto value = x(row_nest[row], item[column]).load();
+                    softmax_out(row_nest[row], item[column]) = exp(value - peak) / exponential_sum;
+                    layernorm_out(row_nest[row], item[column]) = (value - mean) * inverse_stddev;
+                    rmsnorm_out(row_nest[row], item[column]) = value * inverse_rms;
+                }
             }
-            auto exponential_sum = Scalar<float>{0.0f};
-            auto sum = Scalar<float>{0.0f};
-            auto square_sum = Scalar<float>{0.0f};
-            for (auto &item : row_nest.reduce(shape(column))) {
-                auto value = x(row_nest[row], item[column]).load();
-                exponential_sum += exp(value - peak);
-                sum += value;
-                square_sum += value * value;
-            }
-            auto denominator = static_cast<float>(columns);
-            auto mean = sum / denominator;
-            auto variance = max(square_sum / denominator - mean * mean, 0.0f);
-            auto inverse_stddev = 1.0f / sqrt(variance + epsilon);
-            auto inverse_rms = 1.0f / sqrt(square_sum / denominator + epsilon);
-            for (auto &item : row_nest.parallel(shape(column))) {
-                auto value = x(row_nest[row], item[column]).load();
-                softmax_out(row_nest[row], item[column]) = exp(value - peak) / exponential_sum;
-                layernorm_out(row_nest[row], item[column]) = (value - mean) * inverse_stddev;
-                rmsnorm_out(row_nest[row], item[column]) = value * inverse_rms;
-            }
-        }
-    });
+        });
+    auto kernel = definition.capture(
+        tensor_shape("x", rows, columns), tensor_shape("softmax", rows, columns),
+        tensor_shape("layernorm", rows, columns), tensor_shape("rmsnorm", rows, columns));
     auto executable = build(kernel);
     expect(executable.ok()) << executable.error;
     if (!executable.ok()) { return; }
@@ -331,26 +344,30 @@ void test_pipelined_gemm() {
     constexpr int64_t m_size = 5;
     constexpr int64_t n_size = 4;
     constexpr int64_t k_size = 7;
-    auto kernel = define("tile_poc_pipelined_gemm", [] {
-        auto m = axis("m", m_size);
-        auto n = axis("n", n_size);
-        auto k = axis("k", k_size);
-        auto a = input<float>("a", shape(m, k));
-        auto b = input<float>("b", shape(k, n));
-        auto c = output<float>("c", shape(m, n));
-        for (auto &output : parallel(shape(m, n))) {
-            auto accumulator = Scalar<float>{0.0f};
-            for (auto &step : output.pipeline(
-                     shape(k), PipelinePolicy{.stages = 2u, .initiation_interval = 1u})) {
-                step.stage("load");
-                auto lhs = a(output[m], step[k]).load();
-                auto rhs = b(step[k], output[n]).load();
-                step.stage("compute");
-                accumulator += lhs * rhs;
+    auto definition = tile_kernel(
+        "tile_poc_pipelined_gemm",
+        [](TensorView<const float, 2> a,
+           TensorView<const float, 2> b,
+           TensorView<float, 2> c) {
+            auto m = axis("m", a.extent<0>());
+            auto n = axis("n", b.extent<1>());
+            auto k = axis("k", a.extent<1>());
+            for (auto &output : parallel(shape(m, n))) {
+                auto accumulator = Scalar<float>{0.0f};
+                for (auto &step : output.pipeline(
+                         shape(k), PipelinePolicy{.stages = 2u, .initiation_interval = 1u})) {
+                    step.stage("load");
+                    auto lhs = a(output[m], step[k]).load();
+                    auto rhs = b(step[k], output[n]).load();
+                    step.stage("compute");
+                    accumulator += lhs * rhs;
+                }
+                c(output[m], output[n]) = accumulator;
             }
-            c(output[m], output[n]) = accumulator;
-        }
-    });
+        });
+    auto kernel = definition.capture(
+        tensor_shape("a", m_size, k_size), tensor_shape("b", k_size, n_size),
+        tensor_shape("c", m_size, n_size));
     auto executable = build(kernel);
     expect(executable.ok()) << executable.error;
     if (!executable.ok()) { return; }
@@ -389,35 +406,39 @@ void test_padded_strided_conv2d() {
     constexpr int64_t padding = 1;
     constexpr int64_t output_height = 3;
     constexpr int64_t output_width = 3;
-    auto kernel = define("tile_poc_conv2d", [] {
-        auto batch = axis("batch", batch_size);
-        auto input_y = axis("input_y", input_height);
-        auto input_x = axis("input_x", input_width);
-        auto input_channel = axis("input_channel", input_channels);
-        auto filter_y = axis("filter_y", filter_height);
-        auto filter_x = axis("filter_x", filter_width);
-        auto output_y = axis("output_y", output_height);
-        auto output_x = axis("output_x", output_width);
-        auto output_channel = axis("output_channel", output_channels);
-        auto x = input<float>("x", shape(batch, input_y, input_x, input_channel));
-        auto weights = input<float>("weights", shape(filter_y, filter_x, input_channel, output_channel));
-        auto bias = input<float>("bias", shape(output_channel));
-        auto y = output<float>("y", shape(batch, output_y, output_x, output_channel));
-        for (auto &output : parallel(shape(batch, output_y, output_x, output_channel))) {
-            auto accumulator = Scalar<float>{0.0f};
-            for (auto &tap : output.reduce(shape(filter_y, filter_x, input_channel))) {
-                auto source_y = output[output_y] * stride + tap[filter_y] * dilation - padding;
-                auto source_x = output[output_x] * stride + tap[filter_x] * dilation - padding;
-                auto valid = (source_y >= 0) && (source_y < input_height) &&
-                             (source_x >= 0) && (source_x < input_width);
-                auto source = x(output[batch], source_y, source_x, tap[input_channel]).load(valid, 0.0f);
-                auto weight = weights(tap[filter_y], tap[filter_x], tap[input_channel], output[output_channel]).load();
-                accumulator += source * weight;
+    auto definition = tile_kernel(
+        "tile_poc_conv2d",
+        [](TensorView<const float, 4> x,
+           TensorView<const float, 4> weights,
+           TensorView<const float, 1> bias,
+           TensorView<float, 4> y) {
+            auto batch = axis("batch", y.extent<0>());
+            auto input_channel = axis("input_channel", x.extent<3>());
+            auto filter_y = axis("filter_y", weights.extent<0>());
+            auto filter_x = axis("filter_x", weights.extent<1>());
+            auto output_y = axis("output_y", y.extent<1>());
+            auto output_x = axis("output_x", y.extent<2>());
+            auto output_channel = axis("output_channel", y.extent<3>());
+            for (auto &output : parallel(shape(batch, output_y, output_x, output_channel))) {
+                auto accumulator = Scalar<float>{0.0f};
+                for (auto &tap : output.reduce(shape(filter_y, filter_x, input_channel))) {
+                    auto source_y = output[output_y] * stride + tap[filter_y] * dilation - padding;
+                    auto source_x = output[output_x] * stride + tap[filter_x] * dilation - padding;
+                    auto valid = (source_y >= 0) && (source_y < x.extent<1>()) &&
+                                 (source_x >= 0) && (source_x < x.extent<2>());
+                    auto source = x(output[batch], source_y, source_x, tap[input_channel]).load(valid, 0.0f);
+                    auto weight = weights(tap[filter_y], tap[filter_x], tap[input_channel], output[output_channel]).load();
+                    accumulator += source * weight;
+                }
+                auto value = accumulator + bias(output[output_channel]).load();
+                y(output[batch], output[output_y], output[output_x], output[output_channel]) = max(value, 0.0f);
             }
-            auto value = accumulator + bias(output[output_channel]).load();
-            y(output[batch], output[output_y], output[output_x], output[output_channel]) = max(value, 0.0f);
-        }
-    });
+        });
+    auto kernel = definition.capture(
+        tensor_shape("x", batch_size, input_height, input_width, input_channels),
+        tensor_shape("weights", filter_height, filter_width, input_channels, output_channels),
+        tensor_shape("bias", output_channels),
+        tensor_shape("y", batch_size, output_height, output_width, output_channels));
     auto executable = build(kernel);
     expect(executable.ok()) << executable.error;
     if (!executable.ok()) { return; }

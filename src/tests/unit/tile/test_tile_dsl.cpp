@@ -18,17 +18,78 @@ namespace {
     return root->operation_count() == 1u ? root->operations().front() : nullptr;
 }
 
-void test_elementwise_capture() {
-    auto kernel = define("vector_add", [] {
-        auto i = axis("i", 17u);
-        auto a = input<float>("a", shape(i));
-        auto b = input<float>("b", shape(i));
-        auto c = output<float>("c", shape(i));
+template<typename T>
+concept writable_element = requires(T element, Scalar<float> value) {
+    element.store(value);
+};
 
-        for (auto &element : parallel(shape(i))) {
-            c[element] = a[element].load() + b[element].load();
-        }
-    });
+void test_lambda_signature_capture() {
+    static_assert(!writable_element<ElementRef<const float>>);
+    static_assert(writable_element<ElementRef<float>>);
+    static_assert(std::same_as<decltype(std::declval<ElementRef<const float>>().load()), Scalar<float>>);
+
+    auto captures = 0u;
+    auto definition = tile_kernel(
+        "signature_vector_add",
+        [&](TensorView<const float, 1> a,
+            TensorView<const float, 1> b,
+            TensorView<float, 1> result) noexcept {
+            captures++;
+            auto i = axis("i", result.extent<0>());
+            for (auto &element : parallel(shape(i))) {
+                auto index = element.index();
+                result(index) = a(index).load() + b(index).load();
+            }
+        });
+    expect(eq(captures, 0u));
+
+    auto first = definition.capture(
+        tensor_shape("a", 17u), tensor_shape("b", 17u), tensor_shape("result", 17u));
+    auto second = definition.capture(tensor_shape(31u), tensor_shape(31u), tensor_shape(31u));
+    expect(eq(captures, 2u));
+    expect(first.valid());
+    expect(second.valid());
+    auto first_root = first.function().body().block(0u);
+    auto second_root = second.function().body().block(0u);
+    expect(eq(first_root->argument_count(), 3u));
+    expect(eq(second_root->argument_count(), 3u));
+    expect(first_root->argument(0u)->name() == "a");
+    expect(first_root->argument(1u)->name() == "b");
+    expect(first_root->argument(2u)->name() == "result");
+    expect(second_root->argument(0u)->name() == "arg0");
+    expect(second_root->argument(1u)->name() == "arg1");
+    expect(second_root->argument(2u)->name() == "arg2");
+    expect(eq(first_root->argument(0u)->type().index_space()->axis(0u).extent.constant_value(), 17u));
+    expect(eq(second_root->argument(0u)->type().index_space()->axis(0u).extent.constant_value(), 31u));
+
+    auto first_loop = only_root_operation(first);
+    auto second_loop = only_root_operation(second);
+    expect(first_loop != nullptr);
+    expect(second_loop != nullptr);
+    if (first_loop == nullptr || second_loop == nullptr) { return; }
+    expect(eq(first_loop->domain()->axis(0u).extent.constant_value(), 17u));
+    expect(eq(second_loop->domain()->axis(0u).extent.constant_value(), 31u));
+    auto body = first_loop->region(0u)->block(0u);
+    auto add = body->operation(2u);
+    expect(add->operand(0u)->defining_operation()->operand(0u) == first_root->argument(0u));
+    expect(add->operand(1u)->defining_operation()->operand(0u) == first_root->argument(1u));
+    expect(body->operation(3u)->operand(0u) == first_root->argument(2u));
+}
+
+void test_elementwise_capture() {
+    auto definition = tile_kernel(
+        "vector_add", [](TensorView<const float, 1> a,
+                         TensorView<const float, 1> b,
+                         TensorView<float, 1> c) {
+            auto i = axis("i", c.extent<0>());
+
+            for (auto &element : parallel(shape(i))) {
+                auto index = element.index();
+                c(index) = a(index).load() + b(index).load();
+            }
+        });
+    auto kernel = definition.capture(
+        tensor_shape("a", 17u), tensor_shape("b", 17u), tensor_shape("c", 17u));
 
     expect(kernel.valid());
     auto root = kernel.function().body().block(0u);
@@ -57,20 +118,20 @@ void test_elementwise_capture() {
 }
 
 void test_reduction_capture_and_implicit_carry() {
-    auto kernel = define("row_sum", [] {
-        auto row = axis("row", 5u);
-        auto column = axis("column", 7u);
-        auto a = input<float>("a", shape(row, column));
-        auto result = output<float>("result", shape(row));
+    auto definition = tile_kernel(
+        "row_sum", [](TensorView<const float, 2> a, TensorView<float, 1> result) {
+            auto row = axis("row", a.extent<0>());
+            auto column = axis("column", a.extent<1>());
 
-        for (auto &row_nest : parallel(shape(row))) {
-            auto sum = Scalar<float>{0.0f};
-            for (auto &column_nest : row_nest.reduce(shape(column))) {
-                sum += a(row_nest[row], column_nest[column]).load();
+            for (auto &row_nest : parallel(shape(row))) {
+                auto sum = Scalar<float>{0.0f};
+                for (auto &column_nest : row_nest.reduce(shape(column))) {
+                    sum += a(row_nest[row], column_nest[column]).load();
+                }
+                result(row_nest[row]) = sum;
             }
-            result(row_nest[row]) = sum;
-        }
-    });
+        });
+    auto kernel = definition.capture(tensor_shape("a", 5u, 7u), tensor_shape("result", 5u));
 
     expect(kernel.valid());
     auto outer = only_root_operation(kernel);
@@ -105,31 +166,32 @@ void test_reduction_capture_and_implicit_carry() {
 }
 
 void test_parallel_cannot_capture_scalar_carry() {
-    auto kernel = define("invalid_parallel_carry", [] {
+    auto definition = tile_kernel("invalid_parallel_carry", [] {
         auto i = axis("i", 4u);
         auto value = Scalar<int32_t>{0};
         for (auto &element : parallel(shape(i))) {
             value += cast<int32_t>(element[i]);
         }
     });
+    auto kernel = definition.capture();
     expect(!kernel.valid());
     expect(!kernel.diagnostics().empty());
 }
 
 void test_logical_and_masked_view_capture() {
     static_assert(!std::convertible_to<Scalar<bool>, bool>);
-    auto kernel = define("masked_stencil", [] {
-        auto i = axis("i", 8u);
-        auto source = input<float>("source", shape(i));
-        auto result = output<float>("result", shape(i));
-        for (auto &element : parallel(shape(i))) {
-            auto index = element[i];
-            auto source_index = index - 1;
-            auto in_bounds = (source_index >= 0) && (source_index < 8);
-            auto use_fallback = !in_bounds || (index < 0);
-            result[element] = source(source_index).load(!use_fallback, 0.0f);
-        }
-    });
+    auto definition = tile_kernel(
+        "masked_stencil", [](TensorView<const float, 1> source, TensorView<float, 1> result) {
+            auto i = axis("i", source.extent<0>());
+            for (auto &element : parallel(shape(i))) {
+                auto index = element[i];
+                auto source_index = index - 1;
+                auto in_bounds = (source_index >= 0) && (source_index < source.extent<0>());
+                auto use_fallback = !in_bounds || (index < 0);
+                result(index) = source(source_index).load(!use_fallback, 0.0f);
+            }
+        });
+    auto kernel = definition.capture(tensor_shape("source", 8u), tensor_shape("result", 8u));
     expect(kernel.valid());
     auto loop = only_root_operation(kernel);
     expect(loop != nullptr);
@@ -159,6 +221,7 @@ void test_logical_and_masked_view_capture() {
 
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
+    "tile_dsl_lambda_signature_and_fresh_specializations"_test = test_lambda_signature_capture;
     "tile_dsl_elementwise_capture"_test = test_elementwise_capture;
     "tile_dsl_reduction_capture"_test = test_reduction_capture_and_implicit_carry;
     "tile_dsl_rejects_parallel_scalar_carry"_test = test_parallel_cannot_capture_scalar_carry;

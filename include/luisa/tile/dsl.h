@@ -1,9 +1,12 @@
 #pragma once
 
+#include <array>
 #include <concepts>
 #include <cstdint>
+#include <functional>
 #include <initializer_list>
 #include <iterator>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 
@@ -23,14 +26,12 @@ template<typename T>
 class Scalar;
 template<typename T>
 class ElementRef;
-template<typename T>
-class Buffer;
-
-enum class BufferAccess : uint8_t {
-    READ,
-    WRITE,
-    READ_WRITE
-};
+template<typename T, size_t Rank>
+class TensorView;
+template<size_t Rank>
+class TensorShape;
+template<typename Signature, typename F>
+class KernelDefinition;
 
 namespace exec {
 
@@ -56,6 +57,11 @@ struct ValueSlot;
 struct KernelStorage;
 struct ScopeStorage;
 
+struct DeclaredTensorView {
+    Value *value{nullptr};
+    IndexSpace space;
+};
+
 class LUISA_TILE_API ValueHandle final {
 
 private:
@@ -76,8 +82,6 @@ private:
         const Nest &nest,
         const IndexSpace &space) noexcept;
     friend class ::luisa::compute::tile::Nest;
-    template<typename T>
-    friend class ::luisa::compute::tile::Buffer;
     template<typename T>
     friend class ::luisa::compute::tile::Scalar;
 
@@ -124,11 +128,11 @@ public:
 
 [[nodiscard]] LUISA_TILE_API Axis create_axis(luisa::string_view name, Extent extent) noexcept;
 [[nodiscard]] LUISA_TILE_API IndexSpace make_shape(luisa::span<const Axis> axes) noexcept;
-[[nodiscard]] LUISA_TILE_API Value *declare_view(
+[[nodiscard]] LUISA_TILE_API DeclaredTensorView declare_tensor_view(
+    size_t argument_index,
     luisa::string_view name,
     ScalarType element_type,
-    const IndexSpace &space,
-    BufferAccess access) noexcept;
+    luisa::span<const uint64_t> extents) noexcept;
 [[nodiscard]] LUISA_TILE_API luisa::vector<ValueHandle> nest_indices(
     const Nest &nest,
     const IndexSpace &space) noexcept;
@@ -190,8 +194,8 @@ private:
     friend class Nest;
     template<typename U>
     friend class ElementRef;
-    template<typename U>
-    friend class Buffer;
+    template<typename U, size_t Rank>
+    friend class TensorView;
     template<scalar_cpp_type U>
     friend Scalar<U> detail_make_unary(ElementwiseOp, const Scalar<U> &) noexcept;
     template<scalar_cpp_type U>
@@ -492,6 +496,18 @@ private:
 
     explicit Kernel(luisa::string_view name) noexcept;
     friend class detail::CaptureGuard;
+    template<typename Signature, typename F>
+    friend class KernelDefinition;
+
+    template<typename F>
+    [[nodiscard]] static Kernel _capture(luisa::string_view name, F &&body) noexcept {
+        Kernel kernel{name};
+        {
+            detail::CaptureGuard guard{kernel};
+            std::forward<F>(body)();
+        }
+        return kernel;
+    }
 
 public:
     Kernel(Kernel &&) noexcept;
@@ -506,22 +522,7 @@ public:
     [[nodiscard]] const Function &function() const noexcept;
     [[nodiscard]] bool valid() const noexcept;
     [[nodiscard]] luisa::span<const luisa::string> diagnostics() const noexcept;
-
-    template<typename F>
-    [[nodiscard]] static Kernel define(luisa::string_view name, F &&body) noexcept {
-        Kernel kernel{name};
-        {
-            detail::CaptureGuard guard{kernel};
-            std::forward<F>(body)();
-        }
-        return kernel;
-    }
 };
-
-template<typename F>
-[[nodiscard]] Kernel define(luisa::string_view name, F &&body) noexcept {
-    return Kernel::define(name, std::forward<F>(body));
-}
 
 class LUISA_TILE_API Nest final {
 
@@ -608,6 +609,7 @@ template<typename T>
 class ElementRef final {
 
     static_assert(scalar_cpp_type<T>);
+    using ValueType = std::remove_cv_t<T>;
 
 private:
     Value *_view{nullptr};
@@ -617,86 +619,213 @@ public:
     ElementRef(Value *view, luisa::vector<detail::ValueHandle> indices) noexcept
         : _view{view}, _indices{std::move(indices)} {}
 
-    [[nodiscard]] Scalar<T> load() const noexcept {
-        return Scalar<T>{detail::load_view(_view, _indices)};
+    [[nodiscard]] Scalar<ValueType> load() const noexcept {
+        return Scalar<ValueType>{detail::load_view(_view, _indices)};
     }
-    [[nodiscard]] Scalar<T> load(const Scalar<bool> &predicate, const Scalar<T> &fallback) const noexcept {
-        return Scalar<T>{detail::load_view(_view, _indices, &predicate._handle, &fallback._handle)};
+    [[nodiscard]] Scalar<ValueType> load(const Scalar<bool> &predicate, const Scalar<ValueType> &fallback) const noexcept {
+        return Scalar<ValueType>{detail::load_view(_view, _indices, &predicate._handle, &fallback._handle)};
     }
-    [[nodiscard]] Scalar<T> load(const Scalar<bool> &predicate, T fallback = T{}) const noexcept {
-        return load(predicate, Scalar<T>{fallback});
+    [[nodiscard]] Scalar<ValueType> load(const Scalar<bool> &predicate, ValueType fallback = ValueType{}) const noexcept {
+        return load(predicate, Scalar<ValueType>{fallback});
     }
-    void store(const Scalar<T> &value) const noexcept {
+    void store(const Scalar<ValueType> &value) const noexcept
+        requires(!std::is_const_v<T>)
+    {
         detail::store_view(_view, _indices, value._handle);
     }
-    void store(T value) const noexcept { store(Scalar<T>{value}); }
+    void store(ValueType value) const noexcept
+        requires(!std::is_const_v<T>)
+    { store(Scalar<ValueType>{value}); }
 
-    operator Scalar<T>() const noexcept {// NOLINT(google-explicit-constructor)
+    operator Scalar<ValueType>() const noexcept {// NOLINT(google-explicit-constructor)
         return load();
     }
-    ElementRef &operator=(const Scalar<T> &value) noexcept {
+    ElementRef &operator=(const Scalar<ValueType> &value) noexcept
+        requires(!std::is_const_v<T>)
+    {
         store(value);
         return *this;
     }
-    ElementRef &operator=(T value) noexcept {
+    ElementRef &operator=(ValueType value) noexcept
+        requires(!std::is_const_v<T>)
+    {
         store(value);
         return *this;
     }
 };
 
-template<typename T>
-class Buffer final {
+// Concrete, host-side metadata used by capture/JIT. The current bridge accepts
+// dense tensors; arbitrary strides will be represented by explicit View maps.
+// This descriptor does not create an IR parameter or require an active capture.
+template<size_t Rank>
+class TensorShape final {
 
-    static_assert(scalar_cpp_type<T>);
+    static_assert(Rank > 0u);
+
+private:
+    luisa::string _name;
+    std::array<uint64_t, Rank> _extents;
+
+public:
+    static constexpr auto rank = Rank;
+
+    TensorShape(luisa::string_view name, std::array<uint64_t, Rank> extents) noexcept
+        : _name{name}, _extents{extents} {}
+
+    [[nodiscard]] luisa::string_view name() const noexcept { return _name; }
+    [[nodiscard]] const auto &extents() const noexcept { return _extents; }
+};
+
+template<std::integral... E>
+    requires(sizeof...(E) > 0u)
+[[nodiscard]] auto tensor_shape(luisa::string_view name, E... extents) noexcept {
+    return TensorShape<sizeof...(E)>{name, {static_cast<uint64_t>(extents)...}};
+}
+
+template<std::integral... E>
+    requires(sizeof...(E) > 0u)
+[[nodiscard]] auto tensor_shape(E... extents) noexcept {
+    return tensor_shape({}, extents...);
+}
+
+// A kernel parameter is a typed projection of an external resource. Const on
+// the element type forbids writes; mutable parameters are not labelled output
+// or inout, because their actual effects follow from the captured uses.
+template<typename T, size_t Rank>
+class TensorView final {
+
+    static_assert(scalar_cpp_type<T> && Rank > 0u);
 
 private:
     Value *_view{nullptr};
     IndexSpace _space;
-    BufferAccess _access{BufferAccess::READ_WRITE};
+    std::array<uint64_t, Rank> _extents{};
 
-    Buffer(Value *view, IndexSpace space, BufferAccess access) noexcept
-        : _view{view}, _space{std::move(space)}, _access{access} {}
-    template<scalar_cpp_type U>
-    friend Buffer<U> input(luisa::string_view, IndexSpace) noexcept;
-    template<scalar_cpp_type U>
-    friend Buffer<U> output(luisa::string_view, IndexSpace) noexcept;
-    template<scalar_cpp_type U>
-    friend Buffer<U> inout(luisa::string_view, IndexSpace) noexcept;
+    explicit TensorView(size_t argument_index, const TensorShape<Rank> &shape) noexcept
+        : _extents{shape.extents()} {
+        auto declared = detail::declare_tensor_view(
+            argument_index, shape.name(), scalar_type_v<T>, _extents);
+        _view = declared.value;
+        _space = std::move(declared.space);
+    }
+
+    template<typename Signature, typename F>
+    friend class KernelDefinition;
 
 public:
-    Buffer() noexcept = default;
-    [[nodiscard]] const IndexSpace &space() const noexcept { return _space; }
-    [[nodiscard]] BufferAccess access() const noexcept { return _access; }
+    using value_type = std::remove_cv_t<T>;
+    static constexpr auto rank = Rank;
+    static constexpr auto writable = !std::is_const_v<T>;
+
+    TensorView() noexcept = default;
+
     [[nodiscard]] Value *ir_value() const noexcept { return _view; }
+    [[nodiscard]] const IndexSpace &space() const noexcept { return _space; }
+    [[nodiscard]] uint64_t extent(size_t dimension) const noexcept { return _extents[dimension]; }
+
+    template<size_t Dimension>
+        requires(Dimension < Rank)
+    [[nodiscard]] uint64_t extent() const noexcept { return _extents[Dimension]; }
 
     [[nodiscard]] ElementRef<T> operator[](const Nest &nest) const noexcept {
         return ElementRef<T>{_view, detail::nest_indices(nest, _space)};
     }
 
     template<typename... I>
-        requires(sizeof...(I) > 0u && (std::same_as<std::remove_cvref_t<I>, Scalar<int64_t>> && ...))
+        requires(sizeof...(I) == Rank && (std::same_as<std::remove_cvref_t<I>, Scalar<int64_t>> && ...))
     [[nodiscard]] ElementRef<T> operator()(I &&...indices) const noexcept {
         detail::ValueHandle values[]{indices._handle...};
         return ElementRef<T>{_view, {std::begin(values), std::end(values)}};
     }
 };
 
-template<scalar_cpp_type T>
-[[nodiscard]] Buffer<T> input(luisa::string_view name, IndexSpace space) noexcept {
-    auto view = detail::declare_view(name, scalar_type_v<T>, space, BufferAccess::READ);
-    return Buffer<T>{view, std::move(space), BufferAccess::READ};
+namespace detail {
+
+template<typename T>
+struct kernel_signature : kernel_signature<decltype(&T::operator())> {};
+
+template<typename R, typename... Args>
+struct kernel_signature<R(Args...)> {
+    using type = R(Args...);
+};
+
+template<typename R, typename... Args>
+struct kernel_signature<R (*)(Args...)> : kernel_signature<R(Args...)> {};
+
+template<typename R, typename... Args>
+struct kernel_signature<R (*)(Args...) noexcept> : kernel_signature<R(Args...)> {};
+
+#define LUISA_TILE_KERNEL_SIGNATURE(qualifiers)           \
+    template<typename R, typename C, typename... Args>    \
+    struct kernel_signature<R (C::*)(Args...) qualifiers> \
+        : kernel_signature<R(Args...)> {}
+
+LUISA_TILE_KERNEL_SIGNATURE();
+LUISA_TILE_KERNEL_SIGNATURE(const);
+LUISA_TILE_KERNEL_SIGNATURE(noexcept);
+LUISA_TILE_KERNEL_SIGNATURE(const noexcept);
+
+#undef LUISA_TILE_KERNEL_SIGNATURE
+
+template<typename T>
+inline constexpr bool is_tensor_view_v = false;
+
+template<typename T, size_t Rank>
+inline constexpr bool is_tensor_view_v<TensorView<T, Rank>> = true;
+
+}// namespace detail
+
+// Like Luisa's Kernel lambda signature, but deferred until concrete argument
+// metadata is available. Each capture creates a fresh TileIR specialization;
+// ordinary host configuration remains an ordinary C++ lambda capture.
+template<typename F, typename... Args>
+class KernelDefinition<void(Args...), F> final {
+
+    static_assert((detail::is_tensor_view_v<Args> && ...),
+                  "Tile kernel parameters must be typed TensorView values.");
+
+private:
+    luisa::string _name;
+    F _body;
+
+    template<size_t... Ranks, size_t... I>
+    [[nodiscard]] Kernel _capture(
+        const std::tuple<TensorShape<Ranks>...> &shapes,
+        std::index_sequence<I...>) noexcept {
+        return Kernel::_capture(_name, [&] {
+            std::tuple<Args...> arguments;
+            // Comma-fold sequencing is intentional: ABI parameter order must
+            // not depend on C++ function-argument evaluation order.
+            ((std::get<I>(arguments) = Args{I, std::get<I>(shapes)}), ...);
+            std::apply(_body, std::move(arguments));
+        });
+    }
+
+public:
+    KernelDefinition(luisa::string_view name, F body) noexcept
+        : _name{name}, _body{std::move(body)} {}
+
+    // Low-level entry for IR tooling and compiler bridges. A device JIT entry
+    // derives these descriptors from the concrete runtime argument views.
+    template<size_t... Ranks>
+        requires(sizeof...(Ranks) == sizeof...(Args))
+    [[nodiscard]] Kernel capture(TensorShape<Ranks>... shapes) noexcept {
+        static_assert(((Args::rank == Ranks) && ...),
+                      "Tensor argument rank does not match the kernel signature.");
+        return _capture(std::tuple{std::move(shapes)...}, std::index_sequence_for<Args...>{});
+    }
+};
+
+template<typename F>
+[[nodiscard]] auto tile_kernel(luisa::string_view name, F &&body) noexcept {
+    using Definition = std::decay_t<F>;
+    using Signature = typename detail::kernel_signature<Definition>::type;
+    return KernelDefinition<Signature, Definition>{name, std::forward<F>(body)};
 }
 
-template<scalar_cpp_type T>
-[[nodiscard]] Buffer<T> output(luisa::string_view name, IndexSpace space) noexcept {
-    auto view = detail::declare_view(name, scalar_type_v<T>, space, BufferAccess::WRITE);
-    return Buffer<T>{view, std::move(space), BufferAccess::WRITE};
-}
-
-template<scalar_cpp_type T>
-[[nodiscard]] Buffer<T> inout(luisa::string_view name, IndexSpace space) noexcept {
-    auto view = detail::declare_view(name, scalar_type_v<T>, space, BufferAccess::READ_WRITE);
-    return Buffer<T>{view, std::move(space), BufferAccess::READ_WRITE};
+template<typename F>
+[[nodiscard]] auto tile_kernel(F &&body) noexcept {
+    return tile_kernel("tile_kernel", std::forward<F>(body));
 }
 
 }// namespace luisa::compute::tile

@@ -1,6 +1,6 @@
 # Luisa Tile DSL: A From-Scratch Design
 
-- Status: architecture proposal and syntax contract, revision 12
+- Status: architecture proposal and syntax contract, revision 13
 - Compatibility with the removed prototype: none
 - Primary workloads: GEMM, attention, convolution, normalization, quantized,
   sparse, grouped, and persistent neural-network kernels
@@ -37,8 +37,8 @@ The canonical C++ shape is:
 
 ~~~cpp
 auto make_gemm(GemmConfig cfg) {
-    return tile_kernel([=](TensorView<bf16, 2> A,
-                           TensorView<bf16, 2> B,
+    return tile_kernel([=](TensorView<const bf16, 2> A,
+                           TensorView<const bf16, 2> B,
                            TensorView<bf16, 2> C) {
         auto [m, n, reduction] = dims("m", "n", "reduction");
         auto A_mk = A.with_dims(m, reduction);
@@ -129,16 +129,28 @@ Important properties of this surface:
 - Ordinary host configuration values create ordinary JIT variants. A symbolic
   staging language is not required for autotuning.
 
-The bootstrap implementation temporarily uses
-`define(name, [] { input(...); output(...); ... })` in low-level capture tests.
-That spelling is builder scaffolding, not the public syntax contract: it mixes
-function-signature construction into the function body and cannot express the
-same resource/view separation as Luisa's SIMT DSL. The intended public surface
-is the lambda signature above. `tile_kernel` creates raw external parameters
-from the lambda argument types; `TensorView` shape/stride metadata comes from
-the concrete JIT specialization, and `with_dims` gives positional dimensions
-kernel-local semantic identities. The scaffolding helpers should disappear
-from user examples when that signature adapter lands.
+Kernel arguments belong in the lambda signature, exactly as they do in Luisa's
+SIMT DSL. `tile_kernel(lambda)` retains the C++ definition; it does **not** invoke
+it before concrete argument metadata is available. On a JIT specialization,
+the frontend creates parameters in signature order, attaches the concrete
+shape/stride metadata to their proxies, and invokes the lambda to build one
+candidate TileIR. `with_dims` gives positional dimensions kernel-local semantic
+identities. No `input`, `output`, `GemmSpec`, or symbolic integer language is
+needed in the body.
+
+`TensorView<const T, R>` optionally prohibits writes through that parameter.
+`TensorView<T, R>` permits reads and writes; it does not promise that the
+parameter is an output. Actual read/write effects come from IR uses, not a
+second direction declaration. Constness does not imply non-aliasing.
+
+The signature adapter is implemented for dense `TensorView` parameters. Its
+low-level `definition.capture(tensor_shape(...), ...)` entry lets IR tests and
+compiler bridges provide metadata without a runtime device adapter. It runs
+the definition afresh for each call. Every executable Tile DSL test and POC
+uses this signature entry; the former `define`/`input`/`output`/`inout` helpers
+and their `Buffer` proxy have been removed, with no compatibility surface.
+The runtime `device.jit` adapter, arbitrary strided views, and scalar signature
+parameters remain separate implementation work.
 
 ## 2. Non-negotiable separations
 
@@ -1955,10 +1967,26 @@ stay simple without preventing zero-intermediate-buffer lowering.
 
 ### 9.1 One scoped builder, no builder prefixes
 
-`tile_kernel(lambda)` installs a thread-local scoped builder, invokes the
-lambda once to construct TileIR, verifies stack discipline, and restores the
+`tile_kernel(lambda)` retains a typed C++ definition. The JIT/capture entry,
+not the wrapper's construction, installs a thread-local scoped builder,
+creates the lambda parameters in ABI order, invokes the lambda once for the
+current concrete specialization, verifies stack discipline, and restores the
 previous builder. Free operations find the builder from their operands or the
-current scope.
+current scope. Constructing the wrapper emits no IR and reads no tensor data.
+
+~~~text
+typed lambda + ordinary C++ configuration captures
+                     |
+concrete argument metadata + target
+                     |
+           create signature parameters
+                     |
+            execute lambda on the host
+                     |
+          one concrete candidate TileIR
+                     |
+                 lower / JIT
+~~~
 
 The scoped builder is construction machinery, not the IR. TileIR owns all
 regions and values after construction.
@@ -1969,23 +1997,33 @@ Configuration is ordinary host C++:
 
 ~~~cpp
 for (auto cfg : candidates) {
-    auto executable = device.jit(make_gemm(cfg));
+    auto executable = device.jit(make_gemm(cfg), A, B, C);
     benchmark(executable, A, B, C);
 }
 ~~~
 
-Each call constructs a concrete candidate TileIR and JITs it. The cache key
-contains:
+The runtime arguments provide resource metadata, not tensor contents to be
+captured as constants. Each uncached candidate executes the C++ definition and
+JITs its resulting TileIR; users need not introduce a staged template type or
+manually invoke a specialization API. The cache key contains:
 
-- canonical captured configuration bytes;
 - target and feature set;
-- kernel IR hash;
+- canonical candidate TileIR hash, including the effects of host configuration;
 - explicit argument specialization guards;
 - compiler and ABI revision.
 
-Dynamic tensor extents come from `TensorView::extent`; they are ordinary
-staged integer values. An extent becomes static only when the user or tuner
-captures it as host configuration or adds a specialization guard.
+The object representation of an arbitrary C++ lambda is never a cache key:
+padding, pointer captures, and object identity are not stable program semantics.
+The baseline can simply recapture each candidate and reuse code generation
+after hashing its canonical IR. Avoiding that frontend work is an optional
+optimization requiring an explicit stable definition/configuration identity.
+
+For this concrete-specialization path, `TensorView::extent` returns ordinary
+host integer metadata during capture. Shape/stride changes select a different
+guarded variant; input data values do not. There is no `SymInt` type or
+requirement to first capture a universal symbolic kernel. A future explicitly
+runtime-varying extent path must use ordinary scalar parameters and preserve
+the same signature/ABI separation.
 
 A future symbolic family representation may avoid repeated frontend work for
 very large searches, but it must lower to the same concrete candidate IR. It

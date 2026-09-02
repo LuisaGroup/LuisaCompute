@@ -107,32 +107,38 @@ void test_depthwise_convolution_and_max_pool() {
     constexpr int64_t channels = 3;
     constexpr int64_t filter_size = 3;
     constexpr int64_t padding = 1;
-    auto kernel = define("tile_poc_depthwise_pool", [] {
-        auto y = axis("y", height);
-        auto x = axis("x", width);
-        auto channel = axis("channel", channels);
-        auto filter_y = axis("filter_y", filter_size);
-        auto filter_x = axis("filter_x", filter_size);
-        auto source = input<float>("input", shape(y, x, channel));
-        auto weights = input<float>("weights", shape(filter_y, filter_x, channel));
-        auto convolution = output<float>("convolution", shape(y, x, channel));
-        auto pool = output<float>("pool", shape(y, x, channel));
-        for (auto &element : parallel(shape(y, x, channel))) {
-            auto convolution_sum = Scalar<float>{0.0f};
-            auto pool_maximum = Scalar<float>{-1e30f};
-            for (auto &tap : element.reduce(shape(filter_y, filter_x))) {
-                auto source_y = element[y] + tap[filter_y] - padding;
-                auto source_x = element[x] + tap[filter_x] - padding;
-                auto valid = (source_y >= 0) && (source_y < height) &&
-                             (source_x >= 0) && (source_x < width);
-                auto value = source(source_y, source_x, element[channel]).load(valid, 0.0f);
-                convolution_sum += value * weights(tap[filter_y], tap[filter_x], element[channel]).load();
-                pool_maximum = max(pool_maximum, value);
+    auto definition = tile_kernel(
+        "tile_poc_depthwise_pool",
+        [](TensorView<const float, 3> source,
+           TensorView<const float, 3> weights,
+           TensorView<float, 3> convolution,
+           TensorView<float, 3> pool) {
+            auto y = axis("y", source.extent<0>());
+            auto x = axis("x", source.extent<1>());
+            auto channel = axis("channel", source.extent<2>());
+            auto filter_y = axis("filter_y", weights.extent<0>());
+            auto filter_x = axis("filter_x", weights.extent<1>());
+            for (auto &element : parallel(shape(y, x, channel))) {
+                auto convolution_sum = Scalar<float>{0.0f};
+                auto pool_maximum = Scalar<float>{-1e30f};
+                for (auto &tap : element.reduce(shape(filter_y, filter_x))) {
+                    auto source_y = element[y] + tap[filter_y] - padding;
+                    auto source_x = element[x] + tap[filter_x] - padding;
+                    auto valid = (source_y >= 0) && (source_y < source.extent<0>()) &&
+                                 (source_x >= 0) && (source_x < source.extent<1>());
+                    auto value = source(source_y, source_x, element[channel]).load(valid, 0.0f);
+                    convolution_sum += value * weights(tap[filter_y], tap[filter_x], element[channel]).load();
+                    pool_maximum = max(pool_maximum, value);
+                }
+                convolution(element[y], element[x], element[channel]) = convolution_sum;
+                pool(element[y], element[x], element[channel]) = pool_maximum;
             }
-            convolution[element] = convolution_sum;
-            pool[element] = pool_maximum;
-        }
-    });
+        });
+    auto kernel = definition.capture(
+        tensor_shape("input", height, width, channels),
+        tensor_shape("weights", filter_size, filter_size, channels),
+        tensor_shape("convolution", height, width, channels),
+        tensor_shape("pool", height, width, channels));
     auto executable = build(kernel);
     expect(executable.ok()) << executable.error;
     if (!executable.ok()) { return; }
@@ -186,63 +192,67 @@ void test_sobel_and_ordered_median() {
     constexpr int64_t height = 6;
     constexpr int64_t width = 7;
     constexpr int64_t tap_count = 9;
-    auto kernel = define("tile_poc_sobel_median", [] {
-        auto y = axis("y", height);
-        auto x = axis("x", width);
-        auto tap = axis("tap", tap_count);
-        auto candidate = axis("candidate", tap_count);
-        auto other = axis("other", tap_count);
-        auto source = input<float>("input", shape(y, x));
-        auto gradient_x = output<float>("gradient_x", shape(y, x));
-        auto gradient_y = output<float>("gradient_y", shape(y, x));
-        auto median = output<float>("median", shape(y, x));
-        for (auto &element : parallel(shape(y, x))) {
-            auto gx = Scalar<float>{0.0f};
-            auto gy = Scalar<float>{0.0f};
-            for (auto &sample : element.reduce(shape(tap))) {
-                auto dy = sample[tap] / 3 - 1;
-                auto dx = sample[tap] % 3 - 1;
-                auto source_y = element[y] + dy;
-                auto source_x = element[x] + dx;
-                auto valid = (source_y >= 0) && (source_y < height) &&
-                             (source_x >= 0) && (source_x < width);
-                auto value = source(source_y, source_x).load(valid, 0.0f);
-                auto weight_x = dx * select(dy == 0, int64_t{2}, int64_t{1});
-                auto weight_y = dy * select(dx == 0, int64_t{2}, int64_t{1});
-                gx += value * cast<float>(weight_x);
-                gy += value * cast<float>(weight_y);
-            }
-
-            auto middle = Scalar<float>{0.0f};
-            for (auto &candidate_nest : element.serial(shape(candidate))) {
-                auto candidate_dy = candidate_nest[candidate] / 3 - 1;
-                auto candidate_dx = candidate_nest[candidate] % 3 - 1;
-                auto candidate_y = element[y] + candidate_dy;
-                auto candidate_x = element[x] + candidate_dx;
-                auto candidate_valid = (candidate_y >= 0) && (candidate_y < height) &&
-                                       (candidate_x >= 0) && (candidate_x < width);
-                auto candidate_value = source(candidate_y, candidate_x).load(candidate_valid, 0.0f);
-                auto rank = Scalar<int64_t>{0};
-                for (auto &other_nest : candidate_nest.reduce(shape(other))) {
-                    auto other_dy = other_nest[other] / 3 - 1;
-                    auto other_dx = other_nest[other] % 3 - 1;
-                    auto other_y = element[y] + other_dy;
-                    auto other_x = element[x] + other_dx;
-                    auto other_valid = (other_y >= 0) && (other_y < height) &&
-                                       (other_x >= 0) && (other_x < width);
-                    auto other_value = source(other_y, other_x).load(other_valid, 0.0f);
-                    auto before = (other_value < candidate_value) ||
-                                  ((other_value == candidate_value) &&
-                                   (other_nest[other] < candidate_nest[candidate]));
-                    rank += cast<int64_t>(before);
+    auto definition = tile_kernel(
+        "tile_poc_sobel_median",
+        [](TensorView<const float, 2> source,
+           TensorView<float, 2> gradient_x,
+           TensorView<float, 2> gradient_y,
+           TensorView<float, 2> median) {
+            auto y = axis("y", source.extent<0>());
+            auto x = axis("x", source.extent<1>());
+            auto tap = axis("tap", tap_count);
+            auto candidate = axis("candidate", tap_count);
+            auto other = axis("other", tap_count);
+            for (auto &element : parallel(shape(y, x))) {
+                auto gx = Scalar<float>{0.0f};
+                auto gy = Scalar<float>{0.0f};
+                for (auto &sample : element.reduce(shape(tap))) {
+                    auto dy = sample[tap] / 3 - 1;
+                    auto dx = sample[tap] % 3 - 1;
+                    auto source_y = element[y] + dy;
+                    auto source_x = element[x] + dx;
+                    auto valid = (source_y >= 0) && (source_y < source.extent<0>()) &&
+                                 (source_x >= 0) && (source_x < source.extent<1>());
+                    auto value = source(source_y, source_x).load(valid, 0.0f);
+                    auto weight_x = dx * select(dy == 0, int64_t{2}, int64_t{1});
+                    auto weight_y = dy * select(dx == 0, int64_t{2}, int64_t{1});
+                    gx += value * cast<float>(weight_x);
+                    gy += value * cast<float>(weight_y);
                 }
-                middle = select(rank == 4, candidate_value, middle);
+
+                auto middle = Scalar<float>{0.0f};
+                for (auto &candidate_nest : element.serial(shape(candidate))) {
+                    auto candidate_dy = candidate_nest[candidate] / 3 - 1;
+                    auto candidate_dx = candidate_nest[candidate] % 3 - 1;
+                    auto candidate_y = element[y] + candidate_dy;
+                    auto candidate_x = element[x] + candidate_dx;
+                    auto candidate_valid = (candidate_y >= 0) && (candidate_y < source.extent<0>()) &&
+                                           (candidate_x >= 0) && (candidate_x < source.extent<1>());
+                    auto candidate_value = source(candidate_y, candidate_x).load(candidate_valid, 0.0f);
+                    auto rank = Scalar<int64_t>{0};
+                    for (auto &other_nest : candidate_nest.reduce(shape(other))) {
+                        auto other_dy = other_nest[other] / 3 - 1;
+                        auto other_dx = other_nest[other] % 3 - 1;
+                        auto other_y = element[y] + other_dy;
+                        auto other_x = element[x] + other_dx;
+                        auto other_valid = (other_y >= 0) && (other_y < source.extent<0>()) &&
+                                           (other_x >= 0) && (other_x < source.extent<1>());
+                        auto other_value = source(other_y, other_x).load(other_valid, 0.0f);
+                        auto before = (other_value < candidate_value) ||
+                                      ((other_value == candidate_value) &&
+                                       (other_nest[other] < candidate_nest[candidate]));
+                        rank += cast<int64_t>(before);
+                    }
+                    middle = select(rank == 4, candidate_value, middle);
+                }
+                gradient_x(element[y], element[x]) = gx;
+                gradient_y(element[y], element[x]) = gy;
+                median(element[y], element[x]) = middle;
             }
-            gradient_x[element] = gx;
-            gradient_y[element] = gy;
-            median[element] = middle;
-        }
-    });
+        });
+    auto kernel = definition.capture(
+        tensor_shape("input", height, width), tensor_shape("gradient_x", height, width),
+        tensor_shape("gradient_y", height, width), tensor_shape("median", height, width));
     auto executable = build(kernel);
     expect(executable.ok()) << executable.error;
     if (!executable.ok()) { return; }
@@ -294,38 +304,41 @@ void test_stable_sort_and_topk() {
     constexpr int64_t rows = 3;
     constexpr int64_t columns = 8;
     constexpr int64_t top_k = 3;
-    auto kernel = define("tile_poc_stable_sort", [] {
-        auto row = axis("row", rows);
-        auto column = axis("column", columns);
-        auto output_rank = axis("output_rank", columns);
-        auto candidate = axis("candidate", columns);
-        auto other = axis("other", columns);
-        auto source = input<float>("input", shape(row, column));
-        auto sorted_value = output<float>("sorted_value", shape(row, output_rank));
-        auto sorted_index = output<int64_t>("sorted_index", shape(row, output_rank));
-        for (auto &output_element : parallel(shape(row, output_rank))) {
-            auto selected_value = Scalar<float>{-1e30f};
-            auto selected_index = Scalar<int64_t>{-1};
-            for (auto &candidate_nest : output_element.serial(shape(candidate))) {
-                auto candidate_index = candidate_nest[candidate];
-                auto candidate_value = source(output_element[row], candidate_index).load();
-                auto rank = Scalar<int64_t>{0};
-                for (auto &other_nest : candidate_nest.reduce(shape(other))) {
-                    auto other_index = other_nest[other];
-                    auto other_value = source(output_element[row], other_index).load();
-                    auto before = (other_value > candidate_value) ||
-                                  ((other_value == candidate_value) &&
-                                   (other_index < candidate_index));
-                    rank += cast<int64_t>(before);
+    auto definition = tile_kernel(
+        "tile_poc_stable_sort",
+        [](TensorView<const float, 2> source,
+           TensorView<float, 2> sorted_value,
+           TensorView<int64_t, 2> sorted_index) {
+            auto row = axis("row", sorted_value.extent<0>());
+            auto output_rank = axis("output_rank", sorted_value.extent<1>());
+            auto candidate = axis("candidate", source.extent<1>());
+            auto other = axis("other", source.extent<1>());
+            for (auto &output_element : parallel(shape(row, output_rank))) {
+                auto selected_value = Scalar<float>{-1e30f};
+                auto selected_index = Scalar<int64_t>{-1};
+                for (auto &candidate_nest : output_element.serial(shape(candidate))) {
+                    auto candidate_index = candidate_nest[candidate];
+                    auto candidate_value = source(output_element[row], candidate_index).load();
+                    auto rank = Scalar<int64_t>{0};
+                    for (auto &other_nest : candidate_nest.reduce(shape(other))) {
+                        auto other_index = other_nest[other];
+                        auto other_value = source(output_element[row], other_index).load();
+                        auto before = (other_value > candidate_value) ||
+                                      ((other_value == candidate_value) &&
+                                       (other_index < candidate_index));
+                        rank += cast<int64_t>(before);
+                    }
+                    auto matches = rank == output_element[output_rank];
+                    selected_value = select(matches, candidate_value, selected_value);
+                    selected_index = select(matches, candidate_index, selected_index);
                 }
-                auto matches = rank == output_element[output_rank];
-                selected_value = select(matches, candidate_value, selected_value);
-                selected_index = select(matches, candidate_index, selected_index);
+                sorted_value(output_element[row], output_element[output_rank]) = selected_value;
+                sorted_index(output_element[row], output_element[output_rank]) = selected_index;
             }
-            sorted_value[output_element] = selected_value;
-            sorted_index[output_element] = selected_index;
-        }
-    });
+        });
+    auto kernel = definition.capture(
+        tensor_shape("input", rows, columns), tensor_shape("sorted_value", rows, columns),
+        tensor_shape("sorted_index", rows, columns));
     auto executable = build(kernel);
     expect(executable.ok()) << executable.error;
     if (!executable.ok()) { return; }
@@ -365,25 +378,29 @@ void test_stable_sort_and_topk() {
 void test_segmented_accumulation() {
     constexpr int64_t item_count = 13;
     constexpr int64_t bucket_count = 5;
-    auto kernel = define("tile_poc_segmented_accumulation", [] {
-        auto item = axis("item", item_count);
-        auto bucket = axis("bucket", bucket_count);
-        auto ids = input<int64_t>("ids", shape(item));
-        auto values = input<float>("values", shape(item));
-        auto sums = output<float>("sums", shape(bucket));
-        auto counts = output<int64_t>("counts", shape(bucket));
-        for (auto &segment : parallel(shape(bucket))) {
-            auto sum = Scalar<float>{0.0f};
-            auto count = Scalar<int64_t>{0};
-            for (auto &source : segment.reduce(shape(item))) {
-                auto matches = ids(source[item]).load() == segment[bucket];
-                sum += select(matches, values(source[item]).load(), 0.0f);
-                count += cast<int64_t>(matches);
+    auto definition = tile_kernel(
+        "tile_poc_segmented_accumulation",
+        [](TensorView<const int64_t, 1> ids,
+           TensorView<const float, 1> values,
+           TensorView<float, 1> sums,
+           TensorView<int64_t, 1> counts) {
+            auto item = axis("item", ids.extent<0>());
+            auto bucket = axis("bucket", sums.extent<0>());
+            for (auto &segment : parallel(shape(bucket))) {
+                auto sum = Scalar<float>{0.0f};
+                auto count = Scalar<int64_t>{0};
+                for (auto &source : segment.reduce(shape(item))) {
+                    auto matches = ids(source[item]).load() == segment[bucket];
+                    sum += select(matches, values(source[item]).load(), 0.0f);
+                    count += cast<int64_t>(matches);
+                }
+                sums(segment[bucket]) = sum;
+                counts(segment[bucket]) = count;
             }
-            sums[segment] = sum;
-            counts[segment] = count;
-        }
-    });
+        });
+    auto kernel = definition.capture(
+        tensor_shape("ids", item_count), tensor_shape("values", item_count),
+        tensor_shape("sums", bucket_count), tensor_shape("counts", bucket_count));
     auto executable = build(kernel);
     expect(executable.ok()) << executable.error;
     if (!executable.ok()) { return; }
@@ -417,28 +434,30 @@ void test_all_structured_regions() {
     constexpr int64_t phases = 2;
     constexpr int64_t steps = 3;
     constexpr int64_t lanes = 4;
-    auto kernel = define("tile_poc_all_structured_regions", [] {
-        auto row = axis("row", rows);
-        auto phase = axis("phase", phases);
-        auto step = axis("step", steps);
-        auto lane = axis("lane", lanes);
-        auto source = input<float>("input", shape(row, phase, step, lane));
-        auto result = output<float>("result", shape(row));
-        for (auto &row_nest : parallel(shape(row))) {
-            auto sum = Scalar<float>{0.0f};
-            for (auto &phase_nest : row_nest.serial(shape(phase))) {
-                for (auto &step_nest : phase_nest.pipeline(
-                         shape(step), PipelinePolicy{.stages = 2u, .initiation_interval = 1u})) {
-                    step_nest.stage("load");
-                    for (auto &lane_nest : step_nest.reduce(shape(lane))) {
-                        sum += source(row_nest[row], phase_nest[phase], step_nest[step], lane_nest[lane]).load();
+    auto definition = tile_kernel(
+        "tile_poc_all_structured_regions",
+        [](TensorView<const float, 4> source, TensorView<float, 1> result) {
+            auto row = axis("row", source.extent<0>());
+            auto phase = axis("phase", source.extent<1>());
+            auto step = axis("step", source.extent<2>());
+            auto lane = axis("lane", source.extent<3>());
+            for (auto &row_nest : parallel(shape(row))) {
+                auto sum = Scalar<float>{0.0f};
+                for (auto &phase_nest : row_nest.serial(shape(phase))) {
+                    for (auto &step_nest : phase_nest.pipeline(
+                             shape(step), PipelinePolicy{.stages = 2u, .initiation_interval = 1u})) {
+                        step_nest.stage("load");
+                        for (auto &lane_nest : step_nest.reduce(shape(lane))) {
+                            sum += source(row_nest[row], phase_nest[phase], step_nest[step], lane_nest[lane]).load();
+                        }
+                        step_nest.stage("consume");
                     }
-                    step_nest.stage("consume");
                 }
+                result(row_nest[row]) = sum;
             }
-            result(row_nest[row]) = sum;
-        }
-    });
+        });
+    auto kernel = definition.capture(
+        tensor_shape("input", rows, phases, steps, lanes), tensor_shape("result", rows));
     auto executable = build(kernel);
     expect(executable.ok()) << executable.error;
     if (!executable.ok()) { return; }

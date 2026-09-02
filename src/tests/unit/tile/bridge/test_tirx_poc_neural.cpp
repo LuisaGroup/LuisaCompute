@@ -106,21 +106,25 @@ void test_bias_gelu_residual() {
     constexpr int64_t columns = 8;
     constexpr float gelu_scale = 0.7978845608028654f;
     constexpr float gelu_cubic = 0.044715f;
-    auto kernel = define("tile_poc_bias_gelu_residual", [] {
-        auto row = axis("row", rows);
-        auto column = axis("column", columns);
-        auto x = input<float>("x", shape(row, column));
-        auto bias = input<float>("bias", shape(column));
-        auto residual = input<float>("residual", shape(row, column));
-        auto y = output<float>("y", shape(row, column));
-        for (auto &element : parallel(shape(row, column))) {
-            auto value = x[element].load() + bias(element[column]).load();
-            auto cubic = value * value * value;
-            auto gelu = 0.5f * value *
-                        (1.0f + tanh(gelu_scale * (value + gelu_cubic * cubic)));
-            y[element] = gelu + residual[element].load();
-        }
-    });
+    auto definition = tile_kernel(
+        "tile_poc_bias_gelu_residual",
+        [](TensorView<const float, 2> x,
+           TensorView<const float, 1> bias,
+           TensorView<const float, 2> residual,
+           TensorView<float, 2> y) {
+            auto row = axis("row", x.extent<0>());
+            auto column = axis("column", x.extent<1>());
+            for (auto &element : parallel(shape(row, column))) {
+                auto value = x(element[row], element[column]).load() + bias(element[column]).load();
+                auto cubic = value * value * value;
+                auto gelu = 0.5f * value *
+                            (1.0f + tanh(gelu_scale * (value + gelu_cubic * cubic)));
+                y(element[row], element[column]) = gelu + residual(element[row], element[column]).load();
+            }
+        });
+    auto kernel = definition.capture(
+        tensor_shape("x", rows, columns), tensor_shape("bias", columns),
+        tensor_shape("residual", rows, columns), tensor_shape("y", rows, columns));
     auto executable = build(kernel);
     expect(executable.ok()) << executable.error;
     if (!executable.ok()) { return; }
@@ -157,28 +161,31 @@ void test_bias_gelu_residual() {
 void test_whole_tensor_reduction() {
     constexpr int64_t rows = 5;
     constexpr int64_t columns = 7;
-    auto kernel = define("tile_poc_whole_tensor_reduction", [] {
-        auto row = axis("row", rows);
-        auto column = axis("column", columns);
-        auto result = axis("result", 1);
-        auto x = input<float>("x", shape(row, column));
-        auto sum_out = output<float>("sum", shape(result));
-        auto square_sum_out = output<float>("square_sum", shape(result));
-        auto maximum_out = output<float>("maximum", shape(result));
-        auto sum = Scalar<float>{0.0f};
-        auto square_sum = Scalar<float>{0.0f};
-        auto maximum = Scalar<float>{-1e30f};
-        for (auto &element : reduce(shape(row, column))) {
-            auto value = x[element].load();
-            sum += value;
-            square_sum += value * value;
-            maximum = max(maximum, value);
-        }
-        auto zero = Scalar<int64_t>{0};
-        sum_out(zero) = sum;
-        square_sum_out(zero) = square_sum;
-        maximum_out(zero) = maximum;
-    });
+    auto definition = tile_kernel(
+        "tile_poc_whole_tensor_reduction",
+        [](TensorView<const float, 2> x,
+           TensorView<float, 1> sum_out,
+           TensorView<float, 1> square_sum_out,
+           TensorView<float, 1> maximum_out) {
+            auto row = axis("row", x.extent<0>());
+            auto column = axis("column", x.extent<1>());
+            auto sum = Scalar<float>{0.0f};
+            auto square_sum = Scalar<float>{0.0f};
+            auto maximum = Scalar<float>{-1e30f};
+            for (auto &element : reduce(shape(row, column))) {
+                auto value = x(element[row], element[column]).load();
+                sum += value;
+                square_sum += value * value;
+                maximum = max(maximum, value);
+            }
+            auto zero = Scalar<int64_t>{0};
+            sum_out(zero) = sum;
+            square_sum_out(zero) = square_sum;
+            maximum_out(zero) = maximum;
+        });
+    auto kernel = definition.capture(
+        tensor_shape("x", rows, columns), tensor_shape("sum", 1u),
+        tensor_shape("square_sum", 1u), tensor_shape("maximum", 1u));
     auto executable = build(kernel);
     expect(executable.ok()) << executable.error;
     if (!executable.ok()) { return; }
@@ -209,33 +216,37 @@ void test_whole_tensor_reduction() {
 void test_sparse_softmax_cross_entropy() {
     constexpr int64_t rows = 4;
     constexpr int64_t classes = 6;
-    auto kernel = define("tile_poc_sparse_softmax_cross_entropy", [] {
-        auto row = axis("row", rows);
-        auto klass = axis("class", classes);
-        auto logits = input<float>("logits", shape(row, klass));
-        auto labels = input<int64_t>("labels", shape(row));
-        auto losses = output<float>("losses", shape(row));
-        auto gradient = output<float>("gradient", shape(row, klass));
-        for (auto &sample : parallel(shape(row))) {
-            auto label = labels(sample[row]).load();
-            auto peak = Scalar<float>{-1e30f};
-            for (auto &item : sample.reduce(shape(klass))) {
-                peak = max(peak, logits(sample[row], item[klass]).load());
+    auto definition = tile_kernel(
+        "tile_poc_sparse_softmax_cross_entropy",
+        [](TensorView<const float, 2> logits,
+           TensorView<const int64_t, 1> labels,
+           TensorView<float, 1> losses,
+           TensorView<float, 2> gradient) {
+            auto row = axis("row", logits.extent<0>());
+            auto klass = axis("class", logits.extent<1>());
+            for (auto &sample : parallel(shape(row))) {
+                auto label = labels(sample[row]).load();
+                auto peak = Scalar<float>{-1e30f};
+                for (auto &item : sample.reduce(shape(klass))) {
+                    peak = max(peak, logits(sample[row], item[klass]).load());
+                }
+                auto exponential_sum = Scalar<float>{0.0f};
+                for (auto &item : sample.reduce(shape(klass))) {
+                    exponential_sum += exp(logits(sample[row], item[klass]).load() - peak);
+                }
+                auto selected = logits(sample[row], label).load();
+                losses(sample[row]) = luisa::compute::tile::log(exponential_sum) + peak - selected;
+                for (auto &item : sample.parallel(shape(klass))) {
+                    auto probability = exp(logits(sample[row], item[klass]).load() - peak) /
+                                       exponential_sum;
+                    gradient(sample[row], item[klass]) =
+                        probability - select(item[klass] == label, 1.0f, 0.0f);
+                }
             }
-            auto exponential_sum = Scalar<float>{0.0f};
-            for (auto &item : sample.reduce(shape(klass))) {
-                exponential_sum += exp(logits(sample[row], item[klass]).load() - peak);
-            }
-            auto selected = logits(sample[row], label).load();
-            losses(sample[row]) = luisa::compute::tile::log(exponential_sum) + peak - selected;
-            for (auto &item : sample.parallel(shape(klass))) {
-                auto probability = exp(logits(sample[row], item[klass]).load() - peak) /
-                                   exponential_sum;
-                gradient(sample[row], item[klass]) =
-                    probability - select(item[klass] == label, 1.0f, 0.0f);
-            }
-        }
-    });
+        });
+    auto kernel = definition.capture(
+        tensor_shape("logits", rows, classes), tensor_shape("labels", rows),
+        tensor_shape("losses", rows), tensor_shape("gradient", rows, classes));
     auto executable = build(kernel);
     expect(executable.ok()) << executable.error;
     if (!executable.ok()) { return; }
@@ -282,44 +293,50 @@ void test_flash_attention_online_softmax() {
     constexpr int64_t channels = 4;
     constexpr int64_t value_channels = 3;
     constexpr float scale = 0.5f;
-    auto kernel = define("tile_poc_flash_attention", [] {
-        auto batch = axis("batch", batches);
-        auto head = axis("head", heads);
-        auto query = axis("query", queries);
-        auto key = axis("key", keys);
-        auto channel = axis("channel", channels);
-        auto value_channel = axis("value_channel", value_channels);
-        auto q = input<float>("q", shape(batch, head, query, channel));
-        auto k = input<float>("k", shape(batch, head, key, channel));
-        auto v = input<float>("v", shape(batch, head, key, value_channel));
-        auto result = output<float>("output", shape(batch, head, query, value_channel));
-        for (auto &element : parallel(shape(batch, head, query, value_channel))) {
-            auto row_max = Scalar<float>{-1e30f};
-            auto row_sum = Scalar<float>{0.0f};
-            auto accumulator = Scalar<float>{0.0f};
-            for (auto &key_step : element.pipeline(
-                     shape(key), PipelinePolicy{.stages = 2u, .initiation_interval = 1u})) {
-                key_step.stage("score");
-                auto score = Scalar<float>{0.0f};
-                for (auto &dot : key_step.reduce(shape(channel))) {
-                    score += q(element[batch], element[head], element[query], dot[channel]).load() *
-                             k(element[batch], element[head], key_step[key], dot[channel]).load();
-                }
-                score *= scale;
-                score = select(key_step[key] <= element[query], score, -1e30f);
+    auto definition = tile_kernel(
+        "tile_poc_flash_attention",
+        [](TensorView<const float, 4> q,
+           TensorView<const float, 4> k,
+           TensorView<const float, 4> v,
+           TensorView<float, 4> result) {
+            auto batch = axis("batch", result.extent<0>());
+            auto head = axis("head", result.extent<1>());
+            auto query = axis("query", result.extent<2>());
+            auto key = axis("key", k.extent<2>());
+            auto channel = axis("channel", q.extent<3>());
+            auto value_channel = axis("value_channel", result.extent<3>());
+            for (auto &element : parallel(shape(batch, head, query, value_channel))) {
+                auto row_max = Scalar<float>{-1e30f};
+                auto row_sum = Scalar<float>{0.0f};
+                auto accumulator = Scalar<float>{0.0f};
+                for (auto &key_step : element.pipeline(
+                         shape(key), PipelinePolicy{.stages = 2u, .initiation_interval = 1u})) {
+                    key_step.stage("score");
+                    auto score = Scalar<float>{0.0f};
+                    for (auto &dot : key_step.reduce(shape(channel))) {
+                        score += q(element[batch], element[head], element[query], dot[channel]).load() *
+                                 k(element[batch], element[head], key_step[key], dot[channel]).load();
+                    }
+                    score *= scale;
+                    score = select(key_step[key] <= element[query], score, -1e30f);
 
-                key_step.stage("update");
-                auto next_max = max(row_max, score);
-                auto old_scale = exp(row_max - next_max);
-                auto probability = exp(score - next_max);
-                row_sum = row_sum * old_scale + probability;
-                accumulator = accumulator * old_scale +
-                              probability * v(element[batch], element[head], key_step[key], element[value_channel]).load();
-                row_max = next_max;
+                    key_step.stage("update");
+                    auto next_max = max(row_max, score);
+                    auto old_scale = exp(row_max - next_max);
+                    auto probability = exp(score - next_max);
+                    row_sum = row_sum * old_scale + probability;
+                    accumulator = accumulator * old_scale +
+                                  probability * v(element[batch], element[head], key_step[key], element[value_channel]).load();
+                    row_max = next_max;
+                }
+                result(element[batch], element[head], element[query], element[value_channel]) = accumulator / row_sum;
             }
-            result[element] = accumulator / row_sum;
-        }
-    });
+        });
+    auto kernel = definition.capture(
+        tensor_shape("q", batches, heads, queries, channels),
+        tensor_shape("k", batches, heads, keys, channels),
+        tensor_shape("v", batches, heads, keys, value_channels),
+        tensor_shape("output", batches, heads, queries, value_channels));
     auto executable = build(kernel);
     expect(executable.ok()) << executable.error;
     if (!executable.ok()) { return; }

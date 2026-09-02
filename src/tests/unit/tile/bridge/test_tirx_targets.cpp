@@ -86,15 +86,19 @@ struct Executable {
 
 void test_same_axpy_on_cpu_and_metal() {
     constexpr int64_t n = 1003;
-    auto kernel = define("tile_tirx_dual_axpy", [] {
-        auto element = axis("element", n);
-        auto x = input<float>("x", shape(element));
-        auto y = input<float>("y", shape(element));
-        auto result = output<float>("result", shape(element));
-        for (auto &item : parallel(shape(element))) {
-            result[item] = 1.25f * x[item].load() - 0.75f * y[item].load() + 0.5f;
-        }
-    });
+    auto definition = tile_kernel(
+        "tile_tirx_dual_axpy",
+        [](TensorView<const float, 1> x,
+           TensorView<const float, 1> y,
+           TensorView<float, 1> result) {
+            auto element = axis("element", result.extent<0>());
+            for (auto &item : parallel(shape(element))) {
+                auto index = item.index();
+                result(index) = 1.25f * x(index).load() - 0.75f * y(index).load() + 0.5f;
+            }
+        });
+    auto kernel = definition.capture(
+        tensor_shape("x", n), tensor_shape("y", n), tensor_shape("result", n));
     expect(kernel.valid());
     auto native = lower(kernel.function());
     expect(native.ok()) << native.error;
@@ -144,19 +148,22 @@ void test_same_axpy_on_cpu_and_metal() {
 void test_same_reduction_on_cpu_and_metal() {
     constexpr int64_t rows = 37;
     constexpr int64_t columns = 19;
-    auto kernel = define("tile_tirx_dual_row_sum", [] {
-        auto row = axis("row", rows);
-        auto column = axis("column", columns);
-        auto x = input<float>("x", shape(row, column));
-        auto result = output<float>("result", shape(row));
-        for (auto &row_nest : parallel(shape(row))) {
-            auto sum = Scalar<float>{0.0f};
-            for (auto &item : row_nest.reduce(shape(column))) {
-                sum += x(row_nest[row], item[column]).load();
+    auto definition = tile_kernel(
+        "tile_tirx_dual_row_sum",
+        [](TensorView<const float, 2> x,
+           TensorView<float, 1> result) {
+            auto row = axis("row", x.extent<0>());
+            auto column = axis("column", x.extent<1>());
+            for (auto &row_nest : parallel(shape(row))) {
+                auto sum = Scalar<float>{0.0f};
+                for (auto &item : row_nest.reduce(shape(column))) {
+                    sum += x(row_nest[row], item[column]).load();
+                }
+                result(row_nest[row]) = sum;
             }
-            result(row_nest[row]) = sum;
-        }
-    });
+        });
+    auto kernel = definition.capture(
+        tensor_shape("x", rows, columns), tensor_shape("result", rows));
     expect(kernel.valid());
     auto native = lower(kernel.function());
     expect(native.ok()) << native.error;

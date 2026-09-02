@@ -1,6 +1,6 @@
-#include <algorithm>
 #include <utility>
 
+#include <luisa/core/stl/format.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/tile/dsl.h>
 #include <luisa/tile/verifier.h>
@@ -375,23 +375,36 @@ IndexSpace make_shape(luisa::span<const Axis> axes) noexcept {
     return result;
 }
 
-Value *declare_view(
+DeclaredTensorView declare_tensor_view(
+    size_t argument_index,
     luisa::string_view name,
     ScalarType element_type,
-    const IndexSpace &space,
-    BufferAccess) noexcept {
-    if (current_capture == nullptr || name.empty() || !space.is_valid() || space.empty()) { return nullptr; }
-    if (current_capture->builder.insertion_block() != current_capture->kernel->root) {
-        current_capture->error("kernel View parameters must be declared at the root capture scope");
-        return nullptr;
+    luisa::span<const uint64_t> extents) noexcept {
+    if (current_capture == nullptr || extents.empty()) { return {}; }
+    auto root = current_capture->kernel->root;
+    if (current_capture->builder.insertion_block() != root ||
+        root->argument_count() != argument_index) {
+        current_capture->error("kernel parameters must be created in signature order before the body");
+        return {};
     }
-    for (auto &&argument : current_capture->kernel->root->arguments()) {
-        if (argument->name() == name) {
+    auto argument_name = name.empty() ?
+                             luisa::format("arg{}", argument_index) :
+                             luisa::string{name};
+    for (auto &&argument : root->arguments()) {
+        if (argument->name() == argument_name) {
             current_capture->error("kernel parameter names must be unique");
-            return nullptr;
+            return {};
         }
     }
-    return current_capture->kernel->root->add_argument(Type::view(element_type, space), name);
+    luisa::vector<Axis> axes;
+    axes.reserve(extents.size());
+    for (auto i = 0u; i < extents.size(); i++) {
+        axes.emplace_back(create_axis(
+            luisa::format("{}.{}", argument_name, i), Extent::constant(extents[i])));
+    }
+    auto space = make_shape(axes);
+    auto view = root->add_argument(Type::view(element_type, space), argument_name);
+    return DeclaredTensorView{view, std::move(space)};
 }
 
 luisa::vector<ValueHandle> nest_indices(const Nest &nest, const IndexSpace &space) noexcept {
