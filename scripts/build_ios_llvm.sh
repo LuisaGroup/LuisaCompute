@@ -10,19 +10,19 @@ usage() {
     }' "$0"
 }
 
-# Build a static arm64 iPhoneOS LLVM 21 tree for Luisa's Metal4 AIR backend.
+# Build a static arm64 iPhoneOS LLVM 22 tree for Luisa's Metal4 AIR backend.
 #
 # Usage:
-#   scripts/build_ios_llvm.sh --source /path/to/llvm-project-21.1.8.src
+#   scripts/build_ios_llvm.sh --source /path/to/llvm-project-22.1.8.src
 #
 # Options:
 #   --source PATH             llvm-project root or its llvm/ directory.
 #   --llvm-version VERSION    Official source release to download when
-#                             --source is omitted (default: 21.1.8).
+#                             --source is omitted (default: 22.1.8).
 #   --source-cache PATH       Download/extraction directory.
 #   --verify-attestation      Verify the downloaded release with GitHub CLI.
-#   --build-dir PATH          Output directory (default: cmake-build-llvm21-ios).
-#   --host-llvm-prefix PATH   Host LLVM 21 prefix containing llvm-tblgen.
+#   --build-dir PATH          Output directory (default: cmake-build-llvm22-ios).
+#   --host-llvm-prefix PATH   Host LLVM 22 prefix containing llvm-tblgen.
 #   --deployment-target VER   iOS deployment target (default: 26.0).
 #   --configuration NAME      CMake configuration (default: Release).
 #   --jobs N                  Parallel build jobs (default: logical CPU count).
@@ -33,9 +33,9 @@ script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 repo_dir=$(cd -- "$script_dir/.." && pwd -P)
 
 llvm_source=${LUISA_IOS_LLVM_SOURCE:-}
-llvm_version=${LUISA_IOS_LLVM_VERSION:-21.1.8}
-llvm_source_cache=${LUISA_IOS_LLVM_SOURCE_CACHE:-"$repo_dir/cmake-build-llvm21-ios-source"}
-llvm_build_dir=${LUISA_IOS_LLVM_BUILD_DIR:-"$repo_dir/cmake-build-llvm21-ios"}
+llvm_version=${LUISA_IOS_LLVM_VERSION:-22.1.8}
+llvm_source_cache=${LUISA_IOS_LLVM_SOURCE_CACHE:-"$repo_dir/cmake-build-llvm22-ios-source"}
+llvm_build_dir=${LUISA_IOS_LLVM_BUILD_DIR:-"$repo_dir/cmake-build-llvm22-ios"}
 host_llvm_prefix=${LUISA_HOST_LLVM_PREFIX:-}
 deployment_target=26.0
 configuration=Release
@@ -151,8 +151,8 @@ llvm_version_file="$llvm_source/../cmake/Modules/LLVMVersion.cmake"
 llvm_source_major=$(sed -n \
     's/^[[:space:]]*set(LLVM_VERSION_MAJOR \([0-9][0-9]*\)).*/\1/p' \
     "$llvm_version_file" 2>/dev/null | head -n 1)
-if [[ "$llvm_source_major" != 21 ]]; then
-    printf 'Luisa Metal4 AIR requires LLVM 21 source, found major %s.\n' \
+if [[ "$llvm_source_major" != 22 ]]; then
+    printf 'Luisa Metal4 AIR requires LLVM 22 source, found major %s.\n' \
         "${llvm_source_major:-unknown}" >&2
     exit 1
 fi
@@ -160,24 +160,24 @@ mkdir -p "$llvm_build_dir"
 llvm_build_dir=$(cd -- "$llvm_build_dir" && pwd -P)
 
 if [[ -z "$host_llvm_prefix" ]] && command -v brew >/dev/null 2>&1; then
-    host_llvm_prefix=$(brew --prefix llvm@21 2>/dev/null || true)
+    host_llvm_prefix=$(brew --prefix llvm@22 2>/dev/null || true)
 fi
 if [[ -z "$host_llvm_prefix" ]]; then
     printf '%s\n' \
-        'Pass --host-llvm-prefix or install host LLVM 21 with Homebrew.' >&2
+        'Pass --host-llvm-prefix or install host LLVM 22 with Homebrew.' >&2
     exit 1
 fi
 host_tblgen="$host_llvm_prefix/bin/llvm-tblgen"
 host_llvm_config="$host_llvm_prefix/bin/llvm-config"
 if [[ ! -x "$host_tblgen" || ! -x "$host_llvm_config" ]]; then
-    printf 'Host LLVM 21 tools not found under: %s\n' "$host_llvm_prefix" >&2
+    printf 'Host LLVM 22 tools not found under: %s\n' "$host_llvm_prefix" >&2
     exit 1
 fi
 host_llvm_version=$($host_llvm_config --version)
 case "$host_llvm_version" in
-    21.*) ;;
+    22.*) ;;
     *)
-        printf 'Host llvm-tblgen must be LLVM 21, found %s.\n' \
+        printf 'Host llvm-tblgen must be LLVM 22, found %s.\n' \
             "$host_llvm_version" >&2
         exit 1
         ;;
