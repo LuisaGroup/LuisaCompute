@@ -1,13 +1,15 @@
-// Tests for the exact Tile layout correspondence -> TVM TIRx bridge.
+// Tests for the exact Tile layout correspondence -> native TVM TIRx bridge.
 
 #include "ut/ut.hpp"
 
-#include <iostream>
+#include <limits>
+#include <utility>
 
-#include <luisa/tile/tirx.h>
+#include <luisa/tile/bridge/tirx/layout.h>
 
 using namespace luisa;
 using namespace luisa::compute::tile;
+using namespace luisa::compute::tile::bridge::tirx;
 using namespace boost::ut;
 using namespace boost::ut::literals;
 
@@ -22,7 +24,7 @@ struct TiledReplicaFixture {
     Dim warp = dimensions.create_dimension("physical warp");
     Dim slot = dimensions.create_dimension("physical slot");
     IndexSpace logical;
-    TirxLayoutSpec layout;
+    LayoutSpec layout;
 
     TiledReplicaFixture() noexcept
         : layout{[&] {
@@ -41,7 +43,7 @@ struct TiledReplicaFixture {
         static_cast<void>(layout.add_offset(warp, 5));
     }
 
-    [[nodiscard]] luisa::vector<TirxAxisBinding> bindings() const noexcept {
+    [[nodiscard]] luisa::vector<AxisBinding> bindings() const noexcept {
         return {{lane, "laneid"}, {warp, "warpid"}, {slot, "m"}};
     }
 };
@@ -56,7 +58,7 @@ struct TiledReplicaFixture {
     return false;
 }
 
-void test_tirx_correspondence() {
+void test_correspondence() {
     TiledReplicaFixture fixture;
     expect(fixture.layout.verify());
     auto correspondence = fixture.layout.correspondence();
@@ -85,11 +87,6 @@ void test_tirx_correspondence() {
     expect(eq(last_placements->size(), 2u));
     expect(contains_point(*last_placements, {31, 6, 1}));
     expect(contains_point(*last_placements, {31, 10, 1}));
-
-    auto converse = correspondence->converse();
-    expect(converse.verify());
-    expect(converse.logical_space() == correspondence->physical_space());
-    expect(converse.physical_space() == correspondence->logical_space());
 }
 
 void test_coincident_replica_witnesses() {
@@ -99,7 +96,7 @@ void test_coincident_replica_witnesses() {
     auto physical_dimension = dimensions.create_dimension("physical");
     IndexSpace logical;
     expect(logical.add(logical_dimension, 4u));
-    TirxLayoutSpec layout{logical};
+    LayoutSpec layout{logical};
     expect(layout.add_shard(4u, 1, physical_dimension));
     expect(layout.add_replica(replica_dimension, 3u, 0, physical_dimension));
     auto correspondence = layout.correspondence();
@@ -111,59 +108,64 @@ void test_coincident_replica_witnesses() {
     expect(eq(properties.maximum_replication, 1u));
 }
 
-void test_tirx_export() {
+[[gnu::noinline]] bool verify_native_layout(const tvm::tirx::Layout &layout) {
+    return layout->VerifyWellFormed();
+}
+
+[[gnu::noinline]] tvm::ffi::Map<tvm::ffi::String, tvm::PrimExpr> apply_native_layout(
+    const tvm::tirx::Layout &layout,
+    tvm::ffi::Array<tvm::PrimExpr> coordinate,
+    tvm::ffi::Array<tvm::PrimExpr> shape) {
+    return layout->Apply(std::move(coordinate), std::move(shape));
+}
+
+[[nodiscard]] int64_t native_coordinate(
+    const tvm::ffi::Map<tvm::ffi::String, tvm::PrimExpr> &placement,
+    const char *axis) {
+    auto value = placement.Get(tvm::ffi::String{axis});
+    if (!value) { return std::numeric_limits<int64_t>::min(); }
+    auto constant = value->as<tvm::IntImmNode>();
+    return constant == nullptr ? std::numeric_limits<int64_t>::min() : constant->value;
+}
+
+void test_native_export() {
     TiledReplicaFixture fixture;
     auto bindings = fixture.bindings();
-    auto exported = export_tirx_layout(fixture.layout, bindings);
+    auto exported = export_layout(fixture.layout, bindings);
     expect(exported.ok());
-    expect(exported.preamble.find("tvm.script import tirx") != luisa::string::npos);
-    expect(exported.expression.find("T.TileLayout") != luisa::string::npos);
-    expect(exported.expression.find("T.S[(8, 2, 4, 2)") != luisa::string::npos);
-    expect(exported.expression.find("T.R[(2,)") != luisa::string::npos);
-    expect(exported.expression.find("_TileAxis.get(\"laneid\")") != luisa::string::npos);
-    expect(exported.expression.find("_TileAxis.get(\"warpid\")") != luisa::string::npos);
+    tvm::tirx::Layout native = exported.value;
+    expect(verify_native_layout(native));
+    auto first = apply_native_layout(
+        native,
+        {tvm::IntImm::Int64(0), tvm::IntImm::Int64(0)},
+        {tvm::IntImm::Int64(8), tvm::IntImm::Int64(16)});
+    expect(eq(native_coordinate(first, "m"), int64_t{0}));
+    expect(eq(native_coordinate(first, "warpid"), int64_t{5}));
+    expect(eq(native_coordinate(first, "laneid"), int64_t{0}));
+    auto last = apply_native_layout(
+        native,
+        {tvm::IntImm::Int64(7), tvm::IntImm::Int64(15)},
+        {tvm::IntImm::Int64(8), tvm::IntImm::Int64(16)});
+    expect(eq(native_coordinate(last, "m"), int64_t{1}));
+    expect(eq(native_coordinate(last, "warpid"), int64_t{6}));
+    expect(eq(native_coordinate(last, "laneid"), int64_t{31}));
 
     auto missing = bindings;
     missing.pop_back();
-    expect(!export_tirx_layout(fixture.layout, missing).ok());
+    expect(!export_layout(fixture.layout, missing).ok());
     auto duplicate = bindings;
-    duplicate.emplace_back(TirxAxisBinding{fixture.lane, "another_lane"});
-    expect(!export_tirx_layout(fixture.layout, duplicate).ok());
+    duplicate.emplace_back(AxisBinding{fixture.lane, "another_lane"});
+    expect(!export_layout(fixture.layout, duplicate).ok());
     auto alias = bindings;
     alias[2].name = "laneid";
-    expect(!export_tirx_layout(fixture.layout, alias).ok());
-}
-
-void emit_python_probe() {
-    TiledReplicaFixture fixture;
-    auto bindings = fixture.bindings();
-    auto exported = export_tirx_layout(fixture.layout, bindings);
-    if (!exported) {
-        std::cerr << exported.error << '\n';
-        return;
-    }
-    std::cout << exported.preamble
-              << "layout = " << exported.expression << '\n'
-              << "assert layout.verify_well_formed()\n"
-              << "assert {str(k): int(v) for k, v in layout.apply(0, 0, shape=[8, 16]).items()} == "
-                 "{'m': 0, 'warpid': 5, 'laneid': 0}\n"
-              << "assert {str(k): int(v) for k, v in layout.apply(7, 15, shape=[8, 16]).items()} == "
-                 "{'m': 1, 'warpid': 6, 'laneid': 31}\n"
-              << "assert len(layout.replica) == 1\n"
-              << "print('TIRx layout bridge OK:', layout)\n";
+    expect(!export_layout(fixture.layout, alias).ok());
 }
 
 }// namespace
 
 int main(int argc, char *argv[]) {
-    if (argc == 2) {
-        if (argv[1] != nullptr && luisa::string_view{argv[1]} == "--emit-python") {
-            emit_python_probe();
-            return 0;
-        }
-    }
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
-    "tile_tirx_correspondence"_test = test_tirx_correspondence;
+    "tile_tirx_correspondence"_test = test_correspondence;
     "tile_tirx_coincident_replica_witnesses"_test = test_coincident_replica_witnesses;
-    "tile_tirx_export"_test = test_tirx_export;
+    "tile_tirx_native_export"_test = test_native_export;
 }

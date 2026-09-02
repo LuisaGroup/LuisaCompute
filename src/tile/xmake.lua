@@ -7,5 +7,5 @@ _config_project({
 add_deps("lc-core")
 add_defines("LUISA_TILE_EXPORT_DLL")
 add_headerfiles("../../include/luisa/tile/**.h", "../../include/luisa/tile.h")
-add_files("**.cpp")
+add_files("*.cpp")
 target_end()

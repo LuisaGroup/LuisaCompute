@@ -1,4 +1,6 @@
+#include <algorithm>
 #include <limits>
+#include <utility>
 
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/tile/layout.h>
@@ -391,6 +393,86 @@ luisa::optional<IndexMap> IndexMap::strided(const IndexSpace &domain, Dim storag
     if (!codomain.add(storage_dimension, storage_extent)) { return luisa::nullopt; }
     IndexExpr outputs[]{std::move(offset)};
     return IndexMap{domain, std::move(codomain), outputs};
+}
+
+bool LayoutCorrespondence::verify() const noexcept {
+    return _left.verify() && _right.verify() && _left.domain() == _right.domain();
+}
+
+luisa::optional<luisa::vector<luisa::vector<int64_t>>> LayoutCorrespondence::placements(
+    luisa::span<const int64_t> logical_point,
+    uint64_t max_fiber_points) const noexcept {
+    auto fiber_volume = fiber_space().static_volume();
+    if (!verify() || !fiber_volume || *fiber_volume > max_fiber_points ||
+        !detail::encode_point(logical_point, logical_space())) { return luisa::nullopt; }
+    luisa::vector<luisa::vector<int64_t>> result;
+    luisa::vector<int64_t> fiber_point;
+    for (uint64_t linear = 0u; linear < *fiber_volume; linear++) {
+        if (!detail::decode_point(linear, fiber_space(), fiber_point)) { return luisa::nullopt; }
+        auto logical = _left.apply(fiber_point);
+        if (!logical) { return luisa::nullopt; }
+        if (logical->size() == logical_point.size() &&
+            std::equal(logical->begin(), logical->end(), logical_point.begin())) {
+            auto physical = _right.apply(fiber_point);
+            if (!physical) { return luisa::nullopt; }
+            if (std::find(result.begin(), result.end(), *physical) == result.end()) {
+                result.emplace_back(std::move(*physical));
+            }
+        }
+    }
+    return result;
+}
+
+LayoutCorrespondenceProperties LayoutCorrespondence::analyze_finite(uint64_t max_fiber_points) const noexcept {
+    LayoutCorrespondenceProperties properties;
+    auto fiber_volume = fiber_space().static_volume();
+    auto logical_volume = logical_space().static_volume();
+    auto physical_volume = physical_space().static_volume();
+    if (!verify() || !fiber_volume || !logical_volume || !physical_volume || *fiber_volume > max_fiber_points) {
+        return properties;
+    }
+    properties.enumerated = true;
+    properties.total = true;
+    properties.fiber_points = *fiber_volume;
+    properties.logical_points = *logical_volume;
+    properties.physical_points = *physical_volume;
+    luisa::vector<std::pair<uint64_t, uint64_t>> placements;
+    placements.reserve(*fiber_volume);
+    luisa::vector<int64_t> fiber_point;
+    for (uint64_t linear = 0u; linear < *fiber_volume; linear++) {
+        if (!detail::decode_point(linear, fiber_space(), fiber_point)) {
+            properties.total = false;
+            break;
+        }
+        auto logical = _left.apply(fiber_point);
+        auto physical = _right.apply(fiber_point);
+        if (!logical || !physical) {
+            properties.total = false;
+            break;
+        }
+        auto logical_linear = detail::encode_point(*logical, logical_space());
+        auto physical_linear = detail::encode_point(*physical, physical_space());
+        if (!logical_linear || !physical_linear) {
+            properties.total = false;
+            break;
+        }
+        placements.emplace_back(*logical_linear, *physical_linear);
+    }
+    if (properties.total) {
+        std::sort(placements.begin(), placements.end());
+        placements.erase(std::unique(placements.begin(), placements.end()), placements.end());
+        luisa::vector<uint64_t> multiplicity(*logical_volume, 0u);
+        for (auto &&placement : placements) { multiplicity[placement.first]++; }
+        properties.covers_logical_space = true;
+        properties.minimum_replication = std::numeric_limits<uint64_t>::max();
+        for (auto count : multiplicity) {
+            properties.covers_logical_space &= count != 0u;
+            properties.minimum_replication = std::min(properties.minimum_replication, count);
+            properties.maximum_replication = std::max(properties.maximum_replication, count);
+        }
+        if (multiplicity.empty()) { properties.minimum_replication = 0u; }
+    }
+    return properties;
 }
 
 }// namespace luisa::compute::tile

@@ -78,6 +78,20 @@ endif ()
 # runtime shell reaches parity with the selected fallback core suite.
 option(LUISA_COMPUTE_ENABLE_SIMD "Enable experimental SIMD CPU backend" OFF)
 
+# TVMx is an optional external compiler bridge rather than a Luisa hardware
+# backend. Keep its headers and libraries out of the TileIR core unless the
+# bridge is explicitly requested.
+option(LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE
+        "Enable the native C++ TileIR to TVM TIRx bridge" OFF)
+set(LUISA_COMPUTE_TVM_INCLUDE_DIR "" CACHE PATH
+        "TVM development include directory containing tvm/tirx")
+set(LUISA_COMPUTE_TVM_FFI_INCLUDE_DIR "" CACHE PATH
+        "TVM FFI include directory containing tvm/ffi")
+set(LUISA_COMPUTE_TVM_LIBRARY_DIR "" CACHE PATH
+        "Directory containing the TVM compiler/runtime libraries")
+set(LUISA_COMPUTE_TVM_FFI_LIBRARY_DIR "" CACHE PATH
+        "Directory containing the TVM FFI library")
+
 # iOS device tests are signed application bundles rather than host executables.
 # Keep them separate from the ordinary test suite so cross-compiling the runtime
 # does not implicitly pull test applications, provisioning, or UIKit into a

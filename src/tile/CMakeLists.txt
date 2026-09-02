@@ -3,7 +3,6 @@ set(LUISA_COMPUTE_TILE_SOURCES
         ir.cpp
         layout.cpp
         target.cpp
-        tirx.cpp
         verifier.cpp)
 
 add_library(luisa-compute-tile ${LUISA_COMPUTE_TILE_SOURCES})
@@ -15,3 +14,7 @@ set_target_properties(luisa-compute-tile PROPERTIES
         OUTPUT_NAME luisa-tile)
 
 luisa_compute_install(tile SOURCES ${LUISA_COMPUTE_TILE_SOURCES})
+
+if (LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE)
+    add_subdirectory(bridge/tirx)
+endif ()

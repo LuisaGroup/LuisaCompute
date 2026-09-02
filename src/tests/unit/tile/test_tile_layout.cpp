@@ -3,8 +3,11 @@
 // - function-local dimension identity and dynamic extents
 // - strided, permuted, reshaped, and bitwise maps
 // - composition closure and finite injectivity/surjectivity analysis
+// - exact set-valued correspondences for replicated placement
 
 #include "ut/ut.hpp"
+
+#include <utility>
 
 #include <luisa/tile/layout.h>
 
@@ -151,6 +154,54 @@ void test_dynamic_layout_is_structural() {
     expect(eq((*mapped)[0], 17));
 }
 
+void test_layout_correspondence() {
+    DimensionContext dimensions;
+    auto logical_dimension = dimensions.create_dimension("logical");
+    auto replica_dimension = dimensions.create_dimension("replica");
+    auto physical_dimension = dimensions.create_dimension("physical");
+    IndexSpace logical;
+    IndexSpace fiber;
+    IndexSpace coincident_physical;
+    IndexSpace replicated_physical;
+    expect(logical.add(logical_dimension, 4u));
+    expect(fiber.add(logical_dimension, 4u));
+    expect(fiber.add(replica_dimension, 3u));
+    expect(coincident_physical.add(physical_dimension, 4u));
+    expect(replicated_physical.add(physical_dimension, 12u));
+
+    IndexExpr left_outputs[]{IndexExpr::coordinate(logical_dimension)};
+    IndexExpr coincident_outputs[]{IndexExpr::coordinate(logical_dimension)};
+    IndexExpr replicated_outputs[]{
+        IndexExpr::coordinate(logical_dimension) * IndexExpr::constant(3) +
+        IndexExpr::coordinate(replica_dimension)};
+    IndexMap left{fiber, logical, left_outputs};
+    LayoutCorrespondence coincident{
+        left,
+        IndexMap{fiber, coincident_physical, coincident_outputs}};
+    LayoutCorrespondence replicated{
+        std::move(left),
+        IndexMap{fiber, replicated_physical, replicated_outputs}};
+
+    auto coincident_properties = coincident.analyze_finite();
+    expect(coincident_properties.covers_logical_space);
+    expect(eq(coincident_properties.fiber_points, 12u));
+    expect(eq(coincident_properties.minimum_replication, 1u));
+    expect(eq(coincident_properties.maximum_replication, 1u));
+
+    auto replicated_properties = replicated.analyze_finite();
+    expect(replicated_properties.covers_logical_space);
+    expect(eq(replicated_properties.minimum_replication, 3u));
+    expect(eq(replicated_properties.maximum_replication, 3u));
+    int64_t logical_point[]{2};
+    auto placements = replicated.placements(logical_point);
+    expect(placements.has_value());
+    expect(eq(placements->size(), 3u));
+    expect((*placements)[0] == luisa::vector<int64_t>{6});
+    expect((*placements)[1] == luisa::vector<int64_t>{7});
+    expect((*placements)[2] == luisa::vector<int64_t>{8});
+    expect(replicated.converse().verify());
+}
+
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     "tile_dimension_identity"_test = test_dimension_identity;
@@ -158,4 +209,5 @@ int main(int argc, char *argv[]) {
     "tile_layout_composition_and_reshape"_test = test_composition_and_reshape;
     "tile_layout_bitwise_swizzle"_test = test_bitwise_swizzle;
     "tile_dynamic_layout_is_structural"_test = test_dynamic_layout_is_structural;
+    "tile_layout_correspondence"_test = test_layout_correspondence;
 }

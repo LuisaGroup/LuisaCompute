@@ -2104,13 +2104,27 @@ Forms are verifier states, not three unrelated object models.
 Analyses live in side tables keyed by stable IR identities. Transform passes do
 not stuff transient conclusions into serialization fields.
 
-## 11. TVM/TIRx compatibility
+## 11. Compiler bridges and native backends
 
 ### 11.1 Boundary
 
-TileIR is the source of truth. TVM is an optional lowering backend used to
+TileIR is the source of truth. TVM is an optional lowering bridge used to
 bootstrap scheduling, legalization, and code generation. TVM types never
 appear in the C++ DSL API, TileIR core headers, cache ABI, or runtime ABI.
+
+Interoperability code lives below `luisa/tile/bridge/`: `bridge/tirx` owns the
+TVM dependency and a future `bridge/xir` owns TileIR-to-Luisa-XIR translation.
+The TIRx bridge constructs `tvm::tirx::PrimFunc`, layouts, expressions, and
+statements directly through TVM's public C++ API. TVMScript text is useful for
+debug printing and differential tests, but source generation or Python parsing
+is not a compiler boundary.
+
+Native hardware lowering is not another bridge. A backend such as Metal or
+CUDA implements a common Tile compiler `DeviceExtension` alongside its other
+backend services. The portable runtime asks the active device for that
+extension; unsupported devices may instead select an installed compiler bridge.
+This keeps external compiler interop, native backend code generation, and
+hardware target identity as three distinct concepts.
 
 ### 11.2 Layout bridge
 
@@ -2139,7 +2153,7 @@ two legs when an exporter needs logical-to-physical placement. No unique
 inverse is assumed. Export to a TIRx `TileLayout` is structural when the
 reoriented correspondence factors as shard plus replica plus offset. Registered
 swizzles export as `ComposeLayout` when supported. Other layouts lower to
-explicit TIR index computation or a legal materialization; they are never
+explicit TIRx index computation or a legal materialization; they are never
 silently approximated.
 
 ### 11.3 Execution bridge
@@ -2150,7 +2164,7 @@ name a fixed set of GPU-like scopes, so they cannot be the canonical model for
 an open hierarchy.
 
 After `ExecBinding` is concrete, the exporter maps target axes to TIRx scopes
-or ordinary TIR loops/thread bindings. Serial and vector axes remain explicit.
+or TIRx loop/thread-binding constructs. Serial and vector axes remain explicit.
 
 ### 11.4 Pipeline and memory bridge
 
@@ -2160,11 +2174,11 @@ Scheduled TileIR exports:
 |---|---|
 | memory declaration | `alloc_buffer` or target memory object |
 | logical/physical correspondence | TIRx `TileLayout` when factorizable |
-| view/address map | buffer layout or explicit TIR index map |
-| execution binding | TIRx scope IDs or TIR thread/loop bindings |
+| view/address map | buffer layout or explicit TIRx index map |
+| execution binding | TIRx scope IDs or TIRx thread/loop bindings |
 | pipeline schedule | software-pipeline annotations or explicit staged loops |
 | async copy/token | target-supported async operation and dependence |
-| semantic tile op | TIRx tile op when available, otherwise decomposed TIR |
+| semantic tile op | TIRx tile op when available, otherwise decomposed scalar/vector TIRx |
 
 The initial bridge is one-way. Round-trip import is not required and must not
 weaken TileIR invariants.
@@ -2179,7 +2193,7 @@ C++ capture
   -> execution binding and guarded variant selection
   -> pipeline/resource planning
   -> Scheduled TileIR
-  -> TVM TIRx/TIR
+  -> native C++ TVM TIRx
   -> existing TVM target lowering
 ~~~
 
@@ -2296,7 +2310,7 @@ Before backend export, at minimum verify:
 
 ### Phase D: TVM bootstrap
 
-- Scheduled TileIR to TIRx/TIR layout and execution export;
+- Scheduled TileIR to native TIRx layout and execution export;
 - GEMM, convolution, softmax, attention, loss reduction, Top-K, sort,
   elementwise, stencil, and copy coverage;
 - differential layout/address tests against the TileIR interpreter;

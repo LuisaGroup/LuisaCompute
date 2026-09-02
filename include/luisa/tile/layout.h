@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <utility>
 
 #include <luisa/core/dll_export.h>
 #include <luisa/core/stl/memory.h>
@@ -91,6 +92,54 @@ public:
     [[nodiscard]] static luisa::optional<IndexMap> permute(const IndexSpace &domain, luisa::span<const Dim> order) noexcept;
     [[nodiscard]] static luisa::optional<IndexMap> reshape(const IndexSpace &domain, const IndexSpace &codomain) noexcept;
     [[nodiscard]] static luisa::optional<IndexMap> strided(const IndexSpace &domain, Dim storage_dimension, luisa::span<const uint64_t> strides) noexcept;
+};
+
+// A layout correspondence is represented by a span F and two ordinary maps:
+//
+//   left  : F -> logical coordinates
+//   right : F -> physical coordinates
+//
+// Unlike an inverse layout map, this representation is exact for replication,
+// broadcast, and non-bijective placement. The fiber witnesses in F are an IR
+// construction detail; placements() returns a set and removes duplicate
+// witnesses.
+struct LayoutCorrespondenceProperties {
+    bool enumerated{false};
+    bool total{false};
+    bool covers_logical_space{false};
+    uint64_t fiber_points{0u};
+    uint64_t logical_points{0u};
+    uint64_t physical_points{0u};
+    // Number of distinct physical placements per logical point. Duplicate
+    // fiber witnesses do not count as extra replicas.
+    uint64_t minimum_replication{0u};
+    uint64_t maximum_replication{0u};
+};
+
+class LUISA_TILE_API LayoutCorrespondence final {
+
+private:
+    IndexMap _left;
+    IndexMap _right;
+
+public:
+    LayoutCorrespondence() noexcept = default;
+    LayoutCorrespondence(IndexMap left, IndexMap right) noexcept
+        : _left{std::move(left)}, _right{std::move(right)} {}
+
+    [[nodiscard]] const IndexSpace &fiber_space() const noexcept { return _left.domain(); }
+    [[nodiscard]] const IndexSpace &logical_space() const noexcept { return _left.codomain(); }
+    [[nodiscard]] const IndexSpace &physical_space() const noexcept { return _right.codomain(); }
+    [[nodiscard]] const IndexMap &left_leg() const noexcept { return _left; }
+    [[nodiscard]] const IndexMap &right_leg() const noexcept { return _right; }
+
+    [[nodiscard]] bool verify() const noexcept;
+    [[nodiscard]] LayoutCorrespondence converse() const noexcept { return LayoutCorrespondence{_right, _left}; }
+    [[nodiscard]] luisa::optional<luisa::vector<luisa::vector<int64_t>>> placements(
+        luisa::span<const int64_t> logical_point,
+        uint64_t max_fiber_points = 1024u * 1024u) const noexcept;
+    [[nodiscard]] LayoutCorrespondenceProperties analyze_finite(
+        uint64_t max_fiber_points = 1024u * 1024u) const noexcept;
 };
 
 }// namespace luisa::compute::tile

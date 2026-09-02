@@ -224,10 +224,6 @@ end)
 test_proj("test_tile_ir", "unit/tile/test_tile_ir.cpp", false, function()
     add_deps("lc-tile")
 end)
-test_proj("test_tile_tirx", "unit/tile/test_tile_tirx.cpp", false, function()
-    add_deps("lc-tile")
-end)
-
 -- unit/dsl
 test_proj("test_binding_group", "unit/dsl/test_binding_group.cpp")
 test_proj("test_binding_group_template", "unit/dsl/test_binding_group_template.cpp")
