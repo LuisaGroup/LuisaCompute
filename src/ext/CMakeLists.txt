@@ -2,10 +2,10 @@ add_library(luisa-compute-ext INTERFACE)
 
 if (APPLE AND LUISA_COMPUTE_ENABLE_METAL4)
     find_package(LLVM CONFIG REQUIRED)
-    if (NOT LLVM_VERSION_MAJOR EQUAL 21)
+    if (NOT LLVM_VERSION_MAJOR EQUAL 22)
         message(FATAL_ERROR
-                "The in-tree llvm-downgrade sources currently require LLVM 21, "
-                "but LLVM ${LLVM_PACKAGE_VERSION} was found. Point LLVM_DIR at LLVM 21.")
+                "The in-tree llvm-downgrade sources currently require LLVM 22, "
+                "but LLVM ${LLVM_PACKAGE_VERSION} was found. Point LLVM_DIR at LLVM 22.")
     endif ()
     # LLVM may have been configured on a generic Unix host while targeting
     # iOS, in which case its exported LLVMSupport target carries a standalone
@@ -26,11 +26,11 @@ if (APPLE AND LUISA_COMPUTE_ENABLE_METAL4)
 
     set(LUISA_LLVM_DOWNGRADE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/llvm-downgrade")
     set(LUISA_LLVM_DOWNGRADE_PATCH
-            "${CMAKE_CURRENT_SOURCE_DIR}/llvm-downgrade-llvm21-air.patch")
+            "${CMAKE_CURRENT_SOURCE_DIR}/llvm-downgrade-llvm22-air.patch")
     set(LUISA_LLVM_DOWNGRADE_EXPECTED_COMMIT
-            "1e04ee99aff7c059606502ee86d03eb7d1c5d781")
+            "6ab0b538c9302bd44f1d2a02f8d064ba9c5f2efb")
     set(LUISA_LLVM_DOWNGRADE_EXPECTED_SOURCE_FINGERPRINT
-            "7679006d0b2b529998de888e03a812ff311632f58f5d8e4a3c07fca3519c02b6")
+            "52b685b225f004e0b776ec784d3a4eda0afde4bbc21a150fc95b33f9eee2cbea")
     if (NOT EXISTS "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/src/BitcodeWriter140.cpp")
         message(FATAL_ERROR
                 "The llvm-downgrade submodule is missing. Run "
@@ -126,12 +126,12 @@ if (APPLE AND LUISA_COMPUTE_ENABLE_METAL4)
     string(SHA256 LUISA_LLVM_DOWNGRADE_FINGERPRINT
             "${LUISA_LLVM_DOWNGRADE_FINGERPRINT_INPUT}")
 
-    # Keep the pinned third-party checkout pristine. The LLVM 21 and AIR typed-
+    # Keep the pinned third-party checkout pristine. The LLVM 22 and AIR typed-
     # pointer extensions live in the parent repository as a reviewable patch,
     # which is applied to a disposable copy in the build tree. Reuse a matching
     # mirror so ordinary reconfiguration does not invalidate its object files.
     set(LUISA_LLVM_DOWNGRADE_DIR
-            "${CMAKE_CURRENT_BINARY_DIR}/llvm-downgrade-llvm21-air")
+            "${CMAKE_CURRENT_BINARY_DIR}/llvm-downgrade-llvm22-air")
     set(LUISA_LLVM_DOWNGRADE_FINGERPRINT_FILE
             "${LUISA_LLVM_DOWNGRADE_DIR}/.luisa-source-fingerprint")
     set(LUISA_LLVM_DOWNGRADE_REFRESH_MIRROR ON)

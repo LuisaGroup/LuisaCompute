@@ -22,9 +22,9 @@ For the supported configure/build flags, use:
 
 ~~~sh
 scripts/build_ios_llvm.sh \
-  --host-llvm-prefix "$(brew --prefix llvm@21)"
+  --host-llvm-prefix "$(brew --prefix llvm@22)"
 scripts/build_ios_metal4.sh \
-  --llvm-dir cmake-build-llvm21-ios/lib/cmake/llvm \
+  --llvm-dir cmake-build-llvm22-ios/lib/cmake/llvm \
   --team <apple-development-team> --mode tests
 ~~~
 

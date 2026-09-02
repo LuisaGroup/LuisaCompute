@@ -21,7 +21,7 @@ usage() {
 #       --unsigned --mode all
 #
 # Options:
-#   --llvm-dir PATH           arm64 iOS LLVM 21 lib/cmake/llvm directory.
+#   --llvm-dir PATH           arm64 iOS LLVM 22 lib/cmake/llvm directory.
 #   --build-dir PATH          Output directory (default shown below).
 #   --team ID                 Apple Development team for automatic signing.
 #   --mode MODE               all, examples, tests, or benchmark (default: all).
@@ -137,7 +137,7 @@ for required_tool in cmake xcodebuild xcrun; do
 done
 
 if [[ -z "$llvm_dir" ]]; then
-    default_llvm_dir="$repo_dir/cmake-build-llvm21-ios/lib/cmake/llvm"
+    default_llvm_dir="$repo_dir/cmake-build-llvm22-ios/lib/cmake/llvm"
     if [[ -f "$default_llvm_dir/LLVMConfig.cmake" ]]; then
         llvm_dir=$default_llvm_dir
     else

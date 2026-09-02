@@ -372,7 +372,7 @@ Preserve these ABI rules when changing lowering or adding types:
   `t_max`, guard procedural commit to the inclusive
   `[ray_min_distance, committed_distance]` interval, and lower terminate to
   native abort.
-- Keep LLVM 21 query pointers opaque in the IR but attach downgrade metadata:
+- Keep LLVM 22 query pointers opaque in the IR but attach downgrade metadata:
   allocate has `ret_eltype = %struct._intersection_query_t`, every query
   argument zero has the matching `arg_eltypes` entry, and reset argument five
   has `%struct._instance_acceleration_structure_t`. Native getters are
@@ -578,7 +578,7 @@ LUISA_ENABLE_VALIDATION=1 MTL_DEBUG_LAYER=1 \
 ~~~
 
 For physical-device iOS validation, configure the project with the Xcode
-generator, `iphoneos`, LLVM 21 iOS static libraries, Metal4 enabled, and the
+generator, `iphoneos`, LLVM 22 iOS static libraries, Metal4 enabled, and the
 signing team, then build the
 `luisa-metal4-ios-device-air-path-tracer` application target. Verify the final
 link contains `libluisa-backend-metal4.a` and the static create/destroy symbols,

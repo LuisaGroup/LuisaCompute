@@ -20,9 +20,9 @@ and their common Window/Swapchain presentation remain under `examples/ios`.
 Build the iPhoneOS LLVM archives once for Metal4:
 
 ~~~sh
-brew install llvm@21 ninja
+brew install llvm@22 ninja
 scripts/build_ios_llvm.sh \
-  --host-llvm-prefix "$(brew --prefix llvm@21)"
+  --host-llvm-prefix "$(brew --prefix llvm@22)"
 ~~~
 
 Then configure two independent static application builds. Distinct bundle
@@ -35,7 +35,7 @@ scripts/build_ios_backend_benchmark.sh \
 
 scripts/build_ios_backend_benchmark.sh \
   --backend metal4 \
-  --llvm-dir cmake-build-llvm21-ios/lib/cmake/llvm \
+  --llvm-dir cmake-build-llvm22-ios/lib/cmake/llvm \
   --team <apple-development-team>
 ~~~
 
@@ -58,7 +58,7 @@ then signs the complete app:
 ~~~sh
 scripts/build_ios_backend_benchmark.sh \
   --backend metal4 \
-  --llvm-dir cmake-build-llvm21-ios/lib/cmake/llvm \
+  --llvm-dir cmake-build-llvm22-ios/lib/cmake/llvm \
   --profile ~/Library/Developer/Xcode/UserData/Provisioning\ Profiles/<id>.mobileprovision \
   --identity <codesign-identity-sha1>
 ~~~
