@@ -3,6 +3,7 @@ set(LUISA_COMPUTE_TILE_SOURCES
         ir.cpp
         layout.cpp
         target.cpp
+        tirx.cpp
         verifier.cpp)
 
 add_library(luisa-compute-tile ${LUISA_COMPUTE_TILE_SOURCES})

@@ -5,4 +5,5 @@
 #include <luisa/tile/ir.h>
 #include <luisa/tile/layout.h>
 #include <luisa/tile/target.h>
+#include <luisa/tile/tirx.h>
 #include <luisa/tile/verifier.h>
