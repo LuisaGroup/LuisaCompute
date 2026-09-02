@@ -79,6 +79,11 @@ endif ()
 # runtime shell reaches parity with the selected fallback core suite.
 option(LUISA_COMPUTE_ENABLE_SIMD "Enable experimental SIMD CPU backend" OFF)
 
+# The C++ remote backend is opt-in while its protocol and backend coverage are
+# being brought to parity with the native backends. It has no dependency on
+# the removed legacy Rust workspace.
+option(LUISA_COMPUTE_ENABLE_REMOTE "Enable experimental C++ remote backend" OFF)
+
 # iOS device tests are signed application bundles rather than host executables.
 # Keep them separate from the ordinary test suite so cross-compiling the runtime
 # does not implicitly pull test applications, provisioning, or UIKit into a
