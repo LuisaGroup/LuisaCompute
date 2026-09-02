@@ -533,6 +533,10 @@ target_include_directories(test_builtin_kernel PRIVATE ${CMAKE_SOURCE_DIR}/src/r
 luisa_compute_add_test(test_manual_ast      unit/ast/test_manual_ast.cpp)
   luisa_compute_add_test(test_cooperative_vector unit/ast/test_cooperative_vector.cpp)
 
+# --- unit/tile: execution-first TileIR and layout algebra (CPU-only) ---
+luisa_compute_add_test(test_tile_layout unit/tile/test_tile_layout.cpp LABELS "unit;unit_tile")
+luisa_compute_add_test(test_tile_ir unit/tile/test_tile_ir.cpp LABELS "unit;unit_tile")
+
 # --- unit/dsl: standalone tests (need backend, NOT auto-run via CTest) ---
 luisa_compute_add_test(test_binding_group          unit/dsl/test_binding_group.cpp)
 luisa_compute_add_test(test_binding_group_template unit/dsl/test_binding_group_template.cpp)

@@ -217,6 +217,14 @@ test_proj("test_cooperative_vector", "unit/ast/test_cooperative_vector.cpp")
 test_proj("test_async_copy_ast", "unit/ast/test_async_copy_ast.cpp")
 test_proj("test_bindless_write_usage", "unit/ast/test_bindless_write_usage.cpp")
 
+-- unit/tile
+test_proj("test_tile_layout", "unit/tile/test_tile_layout.cpp", false, function()
+    add_deps("lc-tile")
+end)
+test_proj("test_tile_ir", "unit/tile/test_tile_ir.cpp", false, function()
+    add_deps("lc-tile")
+end)
+
 -- unit/dsl
 test_proj("test_binding_group", "unit/dsl/test_binding_group.cpp")
 test_proj("test_binding_group_template", "unit/dsl/test_binding_group_template.cpp")
