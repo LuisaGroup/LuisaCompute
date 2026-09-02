@@ -258,6 +258,16 @@ private:
                     !operation->result(0u)->type().is_memory() ||
                     operation->result(1u)->type().kind() != TypeKind::MEMORY_STATE) {
                     _error(operation, "memory.alloc must produce one Memory and its initial MemoryState");
+                } else if (auto &&layout = operation->memory_layout()) {
+                    if (!layout->verify() || layout->domain() != *operation->result(0u)->type().index_space() ||
+                        !_space_belongs_to_module(layout->codomain())) {
+                        _error(operation, "Memory layout must map its logical element space to a valid module-local storage space");
+                    } else {
+                        auto properties = layout->analyze_finite();
+                        if (properties.enumerated && (!properties.total || !properties.in_bounds || !properties.injective)) {
+                            _error(operation, "Memory layout must be total, in bounds, and injective for whole-Tile load/store");
+                        }
+                    }
                 }
                 break;
             case OperationKind::MEMORY_LOAD:
@@ -676,6 +686,9 @@ private:
         }
         if (operation->resource_class_constraint() && operation->kind() != OperationKind::MEMORY_ALLOC) {
             _error(operation, "only memory.alloc carries a resource-class constraint");
+        }
+        if (operation->memory_layout() && operation->kind() != OperationKind::MEMORY_ALLOC) {
+            _error(operation, "only memory.alloc carries an allocation-local Memory layout");
         }
     }
 

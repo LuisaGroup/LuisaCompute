@@ -348,7 +348,7 @@ void capture_error(luisa::string_view message) noexcept {
     if (current_capture != nullptr) { current_capture->error(message); }
 }
 
-DeclaredMemory declare_memory(ScalarType type, const IndexSpace &space, mem::Resource resource) noexcept {
+DeclaredMemory declare_memory(ScalarType type, const IndexSpace &space, mem::Resource resource, const IndexMap *layout) noexcept {
     if (current_capture == nullptr) { return {}; }
     luisa::string_view resource_name;
     switch (resource) {
@@ -362,12 +362,25 @@ DeclaredMemory declare_memory(ScalarType type, const IndexSpace &space, mem::Res
             capture_error("unknown Memory resource constraint");
             return {};
     }
-    auto operation = current_capture->builder.create_memory_alloc(Type::memory(type, space), resource_name);
+    auto operation = layout == nullptr ?
+                         current_capture->builder.create_memory_alloc(Type::memory(type, space), resource_name) :
+                         current_capture->builder.create_memory_alloc(Type::memory(type, space), *layout, resource_name);
     if (operation == nullptr) {
         capture_error("failed to allocate Memory");
         return {};
     }
     return {operation->result(0u), ValueHandle{current_capture->make_slot(operation->result(1u))}};
+}
+
+IndexMap make_strided_layout(const IndexSpace &space, luisa::span<const uint64_t> strides) noexcept {
+    if (current_capture == nullptr) { return {}; }
+    auto storage = current_capture->kernel->module->dimensions().create_dimension("storage");
+    auto result = IndexMap::strided(space, storage, strides);
+    if (!result) {
+        capture_error("layout requires static extents and one nonnegative element stride per logical axis");
+        return {};
+    }
+    return std::move(*result);
 }
 
 ValueHandle load_memory(Value *memory, const ValueHandle &state) noexcept {

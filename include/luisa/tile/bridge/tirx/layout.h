@@ -71,6 +71,22 @@ struct NativeLayout {
     [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
 };
 
+struct NativeIndices {
+    tvm::ffi::Array<tvm::PrimExpr> value;
+    luisa::string error;
+
+    [[nodiscard]] bool ok() const noexcept { return error.empty(); }
+    [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
+};
+
+// Lower a general IndexMap as native signed-64-bit coordinate arithmetic.
+// This does not assert injectivity or pretend that XOR maps are IterSumExprs
+// accepted by TIRx IndexMap inverse analysis. Memory realization separately
+// requires a total, in-bounds, injective address map on its logical domain.
+[[nodiscard]] LUISA_TILE_TIRX_BRIDGE_API NativeIndices lower_index_map(
+    const IndexMap &map,
+    const tvm::ffi::Array<tvm::PrimExpr> &coordinates) noexcept;
+
 // Constructs a native tvm::tirx::TileLayout directly through TVM's public C++
 // API. Axis bindings are intentionally external: Dim labels never acquire
 // hardware meaning merely because they happen to be named "lane" or "m".

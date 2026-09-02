@@ -555,6 +555,12 @@ Operation *IRBuilder::create_memory_alloc(const Type &memory_type, luisa::string
     return operation;
 }
 
+Operation *IRBuilder::create_memory_alloc(const Type &memory_type, IndexMap layout, luisa::string_view resource_class) noexcept {
+    auto operation = create_memory_alloc(memory_type, resource_class);
+    if (operation != nullptr) { operation->set_memory_layout(std::move(layout)); }
+    return operation;
+}
+
 Operation *IRBuilder::create_memory_load(Value *memory, Value *state) noexcept {
     if (memory == nullptr || state == nullptr || !memory->type().is_memory()) { return nullptr; }
     Value *operands[]{memory, state};

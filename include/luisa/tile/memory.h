@@ -1,8 +1,25 @@
 #pragma once
 
+#include <array>
+#include <concepts>
+
 #include <luisa/tile/value.h>
 
 namespace luisa::compute::tile {
+
+template<std::integral... S>
+[[nodiscard]] auto stride(S... strides) noexcept {
+    if (((strides < 0) || ...)) {
+        detail::capture_error("layout strides cannot be negative");
+        return std::array<uint64_t, sizeof...(S)>{};
+    }
+    return std::array<uint64_t, sizeof...(S)>{static_cast<uint64_t>(strides)...};
+}
+
+// Element strides describe allocation-local addresses, not execution binding.
+[[nodiscard]] inline IndexMap layout(const IndexSpace &space, luisa::span<const uint64_t> strides) noexcept {
+    return detail::make_strided_layout(space, strides);
+}
 
 // An explicit addressable resource, independent of the execution hierarchy.
 // Its declaration site owns the allocation; the state handle participates in
@@ -44,6 +61,11 @@ public:
 template<scalar_cpp_type T>
 [[nodiscard]] Memory<T> memory(const IndexSpace &space, mem::Resource resource = mem::auto_) noexcept {
     return Memory<T>{detail::declare_memory(scalar_type_v<T>, space, resource)};
+}
+
+template<scalar_cpp_type T>
+[[nodiscard]] Memory<T> memory(const IndexMap &layout, mem::Resource resource = mem::auto_) noexcept {
+    return Memory<T>{detail::declare_memory(scalar_type_v<T>, layout.domain(), resource, &layout)};
 }
 
 }// namespace luisa::compute::tile

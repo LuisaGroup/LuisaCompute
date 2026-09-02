@@ -301,6 +301,60 @@ public:
     return run(std::move(pass), std::move(module)).cast<tvm::IRModule>();
 }
 
+class BufferUseCollector final : public tvm::tirx::StmtExprVisitor {
+
+public:
+    luisa::unordered_set<const tvm::tirx::VarNode *> used;
+
+protected:
+    void VisitBufferUse(const tvm::tirx::BufferVar &buffer) final { used.emplace(buffer.get()); }
+    void VisitExpr_(const tvm::tirx::VarNode *variable) final { used.emplace(variable); }
+};
+
+class EmptyAllocationPruner final : public tvm::tirx::StmtMutator {
+
+private:
+    const luisa::unordered_set<const tvm::tirx::VarNode *> &_used;
+
+protected:
+    [[nodiscard]] tvm::tirx::Stmt VisitStmt_(const tvm::tirx::AllocBufferNode *allocation) final {
+        auto empty = false;
+        for (auto &&dimension : allocation->buffer->shape) {
+            auto extent = dimension.as<tvm::IntImmNode>();
+            if (extent == nullptr || extent->value < 0) { return StmtMutator::VisitStmt_(allocation); }
+            empty |= extent->value == 0;
+        }
+        if (!empty || !allocation->annotations.empty()) { return StmtMutator::VisitStmt_(allocation); }
+        auto offset = allocation->buffer->elem_offset.as<tvm::IntImmNode>();
+        if (!allocation->buffer->strides.empty() || allocation->buffer->layout.has_value() ||
+            !allocation->buffer->allocated_addr.empty() || offset == nullptr || offset->value != 0) {
+            // Only erase plain storage. Unknown layout/address expressions
+            // can carry additional constraints or observable effects.
+            return StmtMutator::VisitStmt_(allocation);
+        }
+        if (_used.contains(allocation->buffer.get())) {
+            throw std::runtime_error{"zero-sized Tile storage still has live buffer uses after simplification"};
+        }
+        return tvm::tirx::Evaluate{tvm::IntImm::Int32(0)};
+    }
+
+public:
+    explicit EmptyAllocationPruner(const luisa::unordered_set<const tvm::tirx::VarNode *> &used) noexcept
+        : _used{used} {}
+};
+
+void remove_empty_allocations(tvm::IRModule &module) {
+    FunctionMap functions;
+    for (auto &&[global, base_function] : module->functions) {
+        auto function = base_function.as_or_throw<tvm::tirx::PrimFunc>();
+        BufferUseCollector uses;
+        uses(function->body);
+        function.CopyOnWrite()->body = EmptyAllocationPruner{uses.used}(function->body);
+        functions.Set(global, std::move(function));
+    }
+    module = make_module(std::move(functions), module->attrs, module->global_infos);
+}
+
 void run_common_pipeline(tvm::IRModule &module, const CompileOptions &options, const tvm::Target &target) {
     auto apply = [&module](tvm::transform::Pass pass) {
         module = run_pass(std::move(pass), std::move(module));
@@ -313,6 +367,10 @@ void run_common_pipeline(tvm::IRModule &module, const CompileOptions &options, c
     }
     apply(tvm::s_tir::transform::UnifyThreadBinding());
     apply(tvm::tirx::transform::StmtSimplify());
+    // Resource/execution constraints have already been validated. Zero-trip
+    // effects are gone, so an unused empty buffer needs no physical storage.
+    // TVMx's host and Metal code generators reject zero-sized allocations.
+    remove_empty_allocations(module);
     // Logical GPU bindings are ordinary TIRx thread-binding loops at this
     // point. Lower them to thread_extent regions before host/device splitting,
     // regardless of whether the function also contains TilePrimitive calls.

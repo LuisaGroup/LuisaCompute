@@ -11,6 +11,7 @@
 #include <luisa/core/stl/format.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/vector.h>
+#include <luisa/tile/bridge/tirx/layout.h>
 #include <luisa/tile/bridge/tirx/lower.h>
 #include <luisa/tile/verifier.h>
 
@@ -370,8 +371,17 @@ private:
     void _lower_memory_alloc(const Operation &operation, Statements &statements) {
         auto memory = operation.result(0u);
         auto &&type = memory->type();
-        auto shape = _shape(*type.index_space());
-        if (shape.size() != type.index_space()->rank()) {
+        auto &&layout = operation.memory_layout();
+        if (layout) {
+            auto proof = layout->analyze_finite();
+            if (!proof.enumerated || !proof.total || !proof.in_bounds || !proof.injective) {
+                _fail("native Memory layout requires a proved total, in-bounds, injective map; the current finite proof budget is 1048576 logical points");
+                return;
+            }
+        }
+        auto &&storage_space = layout ? layout->codomain() : *type.index_space();
+        auto shape = _shape(storage_space);
+        if (shape.size() != storage_space.rank()) {
             _fail("native Memory allocation requires JIT-specialized static extents");
             return;
         }
@@ -391,14 +401,46 @@ private:
             _fail("native Memory access requires a lexically visible allocation");
             return;
         }
+        auto volume = operation.operand(0u)->type().index_space()->static_volume();
+        if (volume && *volume == 0u) {
+            // The map is total vacuously: there are no address events. Keep
+            // allocation/resource validation, but do not evaluate the map's
+            // unreachable arithmetic while constructing a zero-trip loop.
+            if (operation.kind() == OperationKind::MEMORY_LOAD) {
+                auto result = operation.result(0u);
+                _bind_storage(result, _new_storage(result->type(), statements));
+            }
+            return;
+        }
+        auto &&layout = operation.operand(0u)->defining_operation()->memory_layout();
+        auto physical_indices = [&](const Indices &indices) {
+            return layout ? lower_index_map(*layout, indices) : NativeIndices{indices, {}};
+        };
         if (operation.kind() == OperationKind::MEMORY_STORE) {
-            statements.push_back(_copy_to_storage(operation.operand(2u), memory->second));
+            auto tile = operation.operand(2u);
+            auto element = _tile(tile);
+            if (!element) { return; }
+            auto statement = _for_each(*tile->type().index_space(), [&](const Indices &indices) -> tvm::tirx::Stmt {
+                auto mapped = physical_indices(indices);
+                if (!mapped) {
+                    _fail(std::move(mapped.error));
+                    return {};
+                }
+                return tvm::tirx::BufferStore{memory->second, element(indices), std::move(mapped.value)};
+            });
+            if (statement.defined()) { statements.push_back(std::move(statement)); }
         } else {
             auto result = operation.result(0u);
             auto snapshot = _new_storage(result->type(), statements);
-            statements.push_back(_for_each(*result->type().index_space(), [&](const Indices &indices) {
-                return tvm::tirx::BufferStore{snapshot, tvm::tirx::BufferLoad{memory->second, indices}, indices};
-            }));
+            auto statement = _for_each(*result->type().index_space(), [&](const Indices &indices) -> tvm::tirx::Stmt {
+                auto mapped = physical_indices(indices);
+                if (!mapped) {
+                    _fail(std::move(mapped.error));
+                    return {};
+                }
+                return tvm::tirx::BufferStore{snapshot, tvm::tirx::BufferLoad{memory->second, std::move(mapped.value)}, indices};
+            });
+            if (statement.defined()) { statements.push_back(std::move(statement)); }
             _bind_storage(result, std::move(snapshot));
         }
         // MemoryState is an ordering token, not a runtime payload. The

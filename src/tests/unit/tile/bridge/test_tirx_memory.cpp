@@ -1,7 +1,7 @@
 // Run manual Memory POCs through native TVMx on CPU and physical Metal.
 // Covers multiple resources, explicit placement, immutable load snapshots,
-// mixed Tile/MemoryState carries, ancestor reads, ragged GEMM, and rejection
-// of unsupported resource/owner combinations before device compilation.
+// mixed Tile/MemoryState carries, ancestor reads, ragged GEMM, local address
+// maps, empty domains, and resource/owner rejection before device compilation.
 #include "ut/ut.hpp"
 #include "tile_tirx_test_utils.h"
 
@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <string_view>
 #include <tvm/tirx/stmt_functor.h>
@@ -115,7 +116,7 @@ void test_snapshots_and_carries(Runtime &runtime) {
     }
 }
 
-void test_ancestor_resources(Runtime &runtime) {
+void test_ancestor_resources(Runtime &runtime, bool mapped) {
     constexpr auto rows = 3;
     constexpr auto columns = 7;
     auto scope = root_scope(runtime);
@@ -124,10 +125,13 @@ void test_ancestor_resources(Runtime &runtime) {
     auto definition = tile_kernel("manual_memory_ancestor", [=](TensorView<const float, 2> input,
                                                                 TensorView<float, 2> output) {
         for (auto &nest : parallel(shape(rows), scope)) {
-            auto shared = memory<float>(shape(1, columns), resource);
+            auto shared = mapped ? memory<float>(layout(shape(1, columns), stride(columns * 2, 2)), resource) :
+                                   memory<float>(shape(1, columns), resource);
             shared.store(input.tile(coord(nest.index(), 0), shape(1, columns)).load());
             for (auto &worker : nest.parallel(shape(columns), child_scope)) {
-                auto private_memory = memory<float>(shape(1, 1), mem::private_);
+                IndexExpr address[]{IndexExpr::constant(2)};
+                auto private_memory = mapped ? memory<float>(IndexMap{shape(1, 1), shape(3), address}, mem::private_) :
+                                               memory<float>(shape(1, 1), mem::private_);
                 auto value = shared.load().at(coord(0, columns - 1 - worker.index()));
                 private_memory.store(full<float>(shape(1, 1), value));
                 for (auto &phase : worker.pipeline(shape(3))) {
@@ -190,8 +194,8 @@ void test_manual_gemm(Runtime &runtime) {
             for (auto &nest : parallel(shape(gm, gn), scope)) {
                 auto m0 = nest[gm] * 8;
                 auto n0 = nest[gn] * 8;
-                auto as = memory<float>(shape(m, k), resource);
-                auto bs = memory<float>(shape(k, n), resource);
+                auto as = memory<float>(layout(shape(m, k), stride(9, 1)), resource);
+                auto bs = memory<float>(layout(shape(k, n), stride(1, 10)), resource);
                 auto acc = zeros<float>(shape(m, n));
                 for (auto &step : nest.pipeline(shape((inner + 7) / 8))) {
                     step.stage("load");
@@ -250,63 +254,215 @@ void test_worker_private_memory(Runtime &runtime) {
 
 void test_vector_private_memory(Runtime &runtime) {
     if (runtime.target() != "llvm") { return; }
-    auto definition = tile_kernel("manual_vector_memory", [](TensorView<const float, 2> input, TensorView<float, 2> output) {
-        for (auto &worker : parallel(shape(3), exec::Scope::WORKER)) {
-            for (auto &lane : worker.parallel(shape(7), exec::Scope::VECTOR)) {
-                auto origin = coord(worker.index(), lane.index());
-                auto scratch = memory<float>(shape(1, 1), mem::private_);
-                scratch.store(input.tile(origin, shape(1, 1)).load());
-                auto old = scratch.load();
-                for (auto &step : lane.serial(shape(3))) { scratch.store(scratch.load() + 1.0f); }
-                output(origin, shape(1, 1)).store(scratch.load() + old * 2.0f);
+    for (auto mapped : {false, true}) {
+        auto definition = tile_kernel("manual_vector_memory", [mapped](TensorView<const float, 2> input, TensorView<float, 2> output) {
+            for (auto &worker : parallel(shape(3), exec::Scope::WORKER)) {
+                for (auto &lane : worker.parallel(shape(7), exec::Scope::VECTOR)) {
+                    auto origin = coord(worker.index(), lane.index());
+                    IndexExpr address[]{IndexExpr::constant(2)};
+                    auto scratch = mapped ? memory<float>(IndexMap{shape(1, 1), shape(3), address}, mem::private_) :
+                                            memory<float>(shape(1, 1), mem::private_);
+                    scratch.store(input.tile(origin, shape(1, 1)).load());
+                    auto old = scratch.load();
+                    for (auto &step : lane.serial(shape(3))) { scratch.store(scratch.load() + 1.0f); }
+                    output(origin, shape(1, 1)).store(scratch.load() + old * 2.0f);
+                }
             }
-        }
-    });
-    auto executable = runtime.build(definition.capture(tensor_shape(3, 7), tensor_shape(3, 7)));
+        });
+        auto executable = runtime.build(definition.capture(tensor_shape(3, 7), tensor_shape(3, 7)));
+        expect(executable.ok()) << executable.error;
+        if (!executable.ok()) { return; }
+        auto input = values(21);
+        auto source = runtime.upload<float>({3, 7}, input);
+        auto output = runtime.allocate<float>({3, 7});
+        (*executable.entry)(source, output);
+        for (auto &value : input) { value = value * 3.0f + 3.0f; }
+        expect_near(runtime.download<float>(output, input.size()), input);
+    }
+}
+
+void test_empty_memory_layout(Runtime &runtime) {
+    auto scope = root_scope(runtime);
+    auto kernel = tile_kernel("manual_empty_memory_layout", [scope] {
+                      for (auto &nest : parallel(shape(1), scope)) {
+                          auto space = shape(0);
+                          // Totality is vacuous on an empty domain. No address
+                          // arithmetic or physical load/store may be evaluated.
+                          IndexExpr address[]{floor_div(IndexExpr::coordinate(space.axis(0).dimension), IndexExpr::constant(0))};
+                          auto scratch = memory<float>(IndexMap{space, space, address});
+                          scratch.store(zeros<float>(space));
+                          static_cast<void>(scratch.load());
+                      }
+                  }).capture();
+    expect(kernel.valid());
+    auto executable = runtime.build(kernel);
     expect(executable.ok()) << executable.error;
-    if (!executable.ok()) { return; }
-    auto input = values(21);
-    auto source = runtime.upload<float>({3, 7}, input);
-    auto output = runtime.allocate<float>({3, 7});
-    (*executable.entry)(source, output);
-    for (auto &value : input) { value = value * 3.0f + 3.0f; }
-    expect_near(runtime.download<float>(output, input.size()), input);
+    if (executable.ok()) { (*executable.entry)(); }
+}
+
+void test_live_empty_storage(Runtime &runtime) {
+    // A transform must never erase an allocation while leaving an actual
+    // load/store dangling. Feed malformed native IR directly to this guard.
+    for (auto read : {false, true}) {
+        auto zero = tvm::IntImm::Int64(0);
+        auto buffer = tvm::tirx::decl_buffer({zero}, tvm::PrimType::Float(32), "empty_live");
+        tvm::tirx::Stmt use = read ? tvm::tirx::Stmt{tvm::tirx::Return{tvm::tirx::BufferLoad{buffer, {zero}}}} :
+                                     tvm::tirx::Stmt{tvm::tirx::BufferStore{buffer, tvm::FloatImm{tvm::PrimType::Float(32), 1.0}, {zero}}};
+        tvm::tirx::PrimFunc function{
+            {}, tvm::tirx::SeqStmt{{tvm::tirx::AllocBuffer{buffer}, use}}, read ? tvm::Type{tvm::PrimType::Float(32)} : tvm::VoidType()};
+        bridge::tirx::CompileOptions options;
+        options.target = runtime.target();
+        auto compilation = bridge::tirx::compile(std::move(function), "live_empty_storage", options);
+        expect(!compilation.ok());
+        expect(compilation.error().find("zero-sized Tile storage still has live buffer uses") != luisa::string_view::npos)
+            << compilation.error();
+    }
+}
+
+void test_memory_layouts(Runtime &runtime) {
+    constexpr auto programs = 3;
+    constexpr auto rows = 3;
+    for (auto columns : {1, 7, 37, 65, 257}) {
+        for (auto kind : {0, 1, 2, 3}) {
+            auto scope = root_scope(runtime);
+            auto resource = root_resource(runtime);
+            auto padded = std::bit_ceil(static_cast<uint64_t>(columns));
+            auto definition = tile_kernel("manual_memory_layout", [=](TensorView<const float, 2> input,
+                                                                      TensorView<float, 2> output) {
+                auto m = axis("m", rows);
+                auto n = axis("n", columns);
+                auto space = shape(m, n);
+                IndexMap address;
+                if (kind == 0) {
+                    address = layout(space, stride(columns + 3, 1));
+                } else if (kind == 1) {
+                    Dim order[]{n.dimension(), m.dimension()};
+                    auto transposed = IndexMap::permute(space, order);
+                    expect(transposed.has_value());
+                    if (!transposed) { return; }
+                    address = *transposed;
+                } else {
+                    auto physical = shape(rows, padded);
+                    auto row = IndexExpr::coordinate(m.dimension());
+                    auto column = IndexExpr::coordinate(n.dimension());
+                    auto width = std::bit_width(padded - 1u);
+                    auto shift = IndexExpr::constant(width == 0u ? 0 : static_cast<int64_t>(64u - width));
+                    auto transformed = kind == 2 ?
+                                           bit_xor(column, bit_and(row, IndexExpr::constant(static_cast<int64_t>(padded - 1u)))) :
+                                           shift_right(shift_left(column, shift), shift);
+                    IndexExpr outputs[]{row, std::move(transformed)};
+                    auto composed = IndexMap::compose(layout(physical, stride(padded + 2u, 1u)), IndexMap{space, physical, outputs});
+                    expect(composed.has_value());
+                    if (!composed) { return; }
+                    address = *composed;
+                }
+                for (auto &nest : parallel(shape(programs), scope)) {
+                    auto origin = coord(nest.index() * rows, 0);
+                    auto scratch = memory<float>(address, resource);
+                    scratch.store(input.tile(origin, space).load());
+                    auto old = scratch.load();
+                    for (auto &step : nest.pipeline(shape(3))) {
+                        scratch.store(scratch.load() + cast<float>(step.index()));
+                    }
+                    output(origin, space).store(old + scratch.load() * 2.0f);
+                }
+            });
+            auto kernel = definition.capture(tensor_shape(programs * rows, columns), tensor_shape(programs * rows, columns));
+            expect(kernel.valid());
+            auto native = bridge::tirx::lower(kernel.function());
+            expect(native.ok()) << native.error;
+            if (!native) { continue; }
+            luisa::vector<int64_t> expected_shape;
+            if (kind == 0) {
+                expected_shape = {rows * columns + (rows - 1) * 3};
+            } else if (kind == 1) {
+                expected_shape = {columns, rows};
+            } else {
+                expected_shape = {static_cast<int64_t>(rows * padded + (rows - 1) * 2u)};
+            }
+            auto allocations = 0u;
+            tvm::tirx::PostOrderVisit(native.value->body, [&](const tvm::ffi::ObjectRef &node) {
+                if (auto allocation = node.as<tvm::tirx::AllocBufferNode>()) {
+                    auto name = allocation->buffer.name();
+                    if (!std::string_view{name.data(), name.size()}.starts_with("tile_memory_")) { return; }
+                    allocations++;
+                    luisa::vector<int64_t> actual_shape;
+                    for (auto &&extent : allocation->buffer->shape) {
+                        auto value = extent.as<tvm::IntImmNode>();
+                        actual_shape.emplace_back(value == nullptr ? -1 : value->value);
+                    }
+                    expect(actual_shape == expected_shape) << "storage shape must follow the explicit map";
+                }
+            });
+            expect(eq(allocations, 1u));
+            auto executable = runtime.build(kernel);
+            expect(executable.ok()) << executable.error;
+            if (!executable.ok()) { continue; }
+            auto input = values(programs * rows * columns);
+            auto source = runtime.upload<float>({programs * rows, columns}, input);
+            auto output = runtime.allocate<float>({programs * rows, columns});
+            (*executable.entry)(source, output);
+            for (auto &value : input) { value = value * 3.0f + 6.0f; }
+            expect_near(runtime.download<float>(output, input.size()), input);
+        }
+    }
+}
+
+void test_unproved_layout(Runtime &runtime) {
+    auto kernel = tile_kernel("manual_unproved_layout", [] {
+                      for (auto &nest : parallel(shape(1), exec::Scope::WORKER)) {
+                          auto space = shape(1048577);
+                          auto scratch = memory<float>(IndexMap::identity(space));
+                          scratch.store(zeros<float>(space));
+                      }
+                  }).capture();
+    expect(kernel.valid()) << "the representation is not limited to the current proof budget";
+    auto executable = runtime.build(kernel);
+    expect(!executable.ok());
+    expect(executable.error.find("proof budget") != luisa::string::npos) << executable.error;
 }
 
 void test_manual_capacity(Runtime &runtime) {
     if (runtime.target() != "metal") { return; }
-    auto kernel = tile_kernel("manual_capacity", [](TensorView<float, 1> output) {
-                      for (auto &group : parallel(shape(1), exec::Scope::GROUP)) {
-                          auto scratch = memory<float>(shape(37), mem::shared);
-                          scratch.store(zeros<float>(shape(37)));
-                          output(coord(group.index()), shape(37)).store(scratch.load());
-                      }
-                  }).capture(tensor_shape(37));
-    auto native = bridge::tirx::lower(kernel.function());
-    expect(native.ok()) << native.error;
-    if (!native) { return; }
-    bridge::tirx::CompileOptions options;
-    options.target = R"({"kind":"metal","max_shared_memory_per_block":128})";
-    auto compilation = bridge::tirx::compile(native.value, kernel.function().name(), options);
-    expect(!compilation.ok());
-    expect(compilation.error().find("shared-memory capacity") != luisa::string_view::npos) << compilation.error();
+    for (auto padded : {false, true}) {
+        auto count = padded ? 3 : 37;
+        auto kernel = tile_kernel("manual_capacity", [=](TensorView<float, 1> output) {
+                          for (auto &group : parallel(shape(1), exec::Scope::GROUP)) {
+                              auto space = shape(count);
+                              auto scratch = padded ? memory<float>(layout(space, stride(20)), mem::shared) :
+                                                      memory<float>(space, mem::shared);
+                              scratch.store(zeros<float>(space));
+                              output(coord(group.index()), space).store(scratch.load());
+                          }
+                      }).capture(tensor_shape(count));
+        auto native = bridge::tirx::lower(kernel.function());
+        expect(native.ok()) << native.error;
+        if (!native) { return; }
+        bridge::tirx::CompileOptions options;
+        options.target = R"({"kind":"metal","max_shared_memory_per_block":128})";
+        auto compilation = bridge::tirx::compile(native.value, kernel.function().name(), options);
+        expect(!compilation.ok());
+        expect(compilation.error().find("shared-memory capacity") != luisa::string_view::npos) << compilation.error();
+    }
 }
 
 void test_unsupported_resources(Runtime &runtime) {
     for (auto count : {0, 1}) {
-        for (auto resource : {mem::global, mem::cluster, mem::tensor}) {
-            auto scope = root_scope(runtime);
-            auto kernel = tile_kernel("manual_unsupported_resource", [=](TensorView<float, 1> output) {
-                              for (auto &nest : parallel(shape(count), scope)) {
-                                  auto scratch = memory<float>(shape(7), resource);
-                                  scratch.store(zeros<float>(shape(7)));
-                                  output(coord(nest.index()), shape(7)).store(scratch.load());
-                              }
-                          }).capture(tensor_shape(7));
-            expect(kernel.valid());
-            auto executable = runtime.build(kernel);
-            expect(!executable.ok());
-            expect(executable.error.find("Memory resource") != luisa::string::npos) << executable.error;
+        for (auto elements : {0, 7}) {
+            for (auto resource : {mem::global, mem::cluster, mem::tensor}) {
+                auto scope = root_scope(runtime);
+                auto kernel = tile_kernel("manual_unsupported_resource", [=](TensorView<float, 1> output) {
+                                  for (auto &nest : parallel(shape(count), scope)) {
+                                      auto scratch = memory<float>(shape(elements), resource);
+                                      scratch.store(zeros<float>(shape(elements)));
+                                      output(coord(nest.index()), shape(elements)).store(scratch.load());
+                                  }
+                              }).capture(tensor_shape(7));
+                expect(kernel.valid());
+                auto executable = runtime.build(kernel);
+                expect(!executable.ok());
+                expect(executable.error.find("Memory resource") != luisa::string::npos) << executable.error;
+            }
         }
     }
     auto scope = root_scope(runtime);
@@ -344,10 +500,16 @@ int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc > 1 ? argc - 1 : argc,
                                                     const_cast<const char **>(argc > 1 ? argv + 1 : argv));
     "tile_native_memory_snapshots_and_carries"_test = [&] { test_snapshots_and_carries(runtime); };
-    "tile_native_memory_ancestor_resources"_test = [&] { test_ancestor_resources(runtime); };
+    "tile_native_memory_ancestor_resources"_test = [&] {
+        for (auto mapped : {false, true}) { test_ancestor_resources(runtime, mapped); }
+    };
     "tile_native_memory_gemm"_test = [&] { test_manual_gemm(runtime); };
     "tile_native_memory_worker_private"_test = [&] { test_worker_private_memory(runtime); };
     "tile_native_memory_vector_private"_test = [&] { test_vector_private_memory(runtime); };
+    "tile_native_memory_empty_layout"_test = [&] { test_empty_memory_layout(runtime); };
+    "tile_native_memory_live_empty_storage"_test = [&] { test_live_empty_storage(runtime); };
+    "tile_native_memory_layouts"_test = [&] { test_memory_layouts(runtime); };
+    "tile_native_memory_unproved_layout"_test = [&] { test_unproved_layout(runtime); };
     "tile_native_memory_capacity"_test = [&] { test_manual_capacity(runtime); };
     "tile_native_memory_resource_constraints"_test = [&] { test_unsupported_resources(runtime); };
 }

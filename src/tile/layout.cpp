@@ -9,20 +9,6 @@ namespace luisa::compute::tile {
 
 namespace detail {
 
-enum class IndexExprKind : uint8_t {
-    CONSTANT,
-    COORDINATE,
-    ADD,
-    SUBTRACT,
-    MULTIPLY,
-    FLOOR_DIVIDE,
-    MODULO,
-    BIT_XOR,
-    BIT_AND,
-    SHIFT_LEFT,
-    SHIFT_RIGHT
-};
-
 struct IndexExprNode {
     IndexExprKind kind{IndexExprKind::CONSTANT};
     int64_t constant{0};
@@ -177,6 +163,26 @@ IndexExpr IndexExpr::coordinate(Dim dimension) noexcept {
     return dimension ? IndexExpr{detail::make_coordinate(dimension)} : IndexExpr{};
 }
 
+IndexExprKind IndexExpr::kind() const noexcept {
+    return _node == nullptr ? IndexExprKind::INVALID : _node->kind;
+}
+
+luisa::optional<int64_t> IndexExpr::constant_value() const noexcept {
+    return kind() == IndexExprKind::CONSTANT ? luisa::optional<int64_t>{_node->constant} : luisa::nullopt;
+}
+
+Dim IndexExpr::dimension() const noexcept {
+    return kind() == IndexExprKind::COORDINATE ? _node->dimension : Dim{};
+}
+
+IndexExpr IndexExpr::lhs() const noexcept {
+    return _node == nullptr ? IndexExpr{} : IndexExpr{_node->lhs};
+}
+
+IndexExpr IndexExpr::rhs() const noexcept {
+    return _node == nullptr ? IndexExpr{} : IndexExpr{_node->rhs};
+}
+
 bool IndexExpr::verify(const IndexSpace &domain) const noexcept {
     return domain.is_valid() && detail::verify_expr(_node.get(), domain);
 }
@@ -195,8 +201,8 @@ luisa::shared_ptr<const detail::IndexExprNode> IndexExpr::_substitute_node(
     luisa::span<const IndexExpr> replacements) noexcept {
     if (node == nullptr) { return nullptr; }
     switch (node->kind) {
-        case detail::IndexExprKind::CONSTANT: return detail::make_constant(node->constant);
-        case detail::IndexExprKind::COORDINATE: {
+        case IndexExprKind::CONSTANT: return detail::make_constant(node->constant);
+        case IndexExprKind::COORDINATE: {
             auto index = variables.axis_index(node->dimension);
             return index && *index < replacements.size() ? replacements[*index]._node : nullptr;
         }
@@ -209,39 +215,39 @@ luisa::shared_ptr<const detail::IndexExprNode> IndexExpr::_substitute_node(
 }
 
 IndexExpr operator+(IndexExpr lhs, IndexExpr rhs) noexcept {
-    return IndexExpr{detail::make_binary(detail::IndexExprKind::ADD, std::move(lhs._node), std::move(rhs._node))};
+    return IndexExpr{detail::make_binary(IndexExprKind::ADD, std::move(lhs._node), std::move(rhs._node))};
 }
 
 IndexExpr operator-(IndexExpr lhs, IndexExpr rhs) noexcept {
-    return IndexExpr{detail::make_binary(detail::IndexExprKind::SUBTRACT, std::move(lhs._node), std::move(rhs._node))};
+    return IndexExpr{detail::make_binary(IndexExprKind::SUBTRACT, std::move(lhs._node), std::move(rhs._node))};
 }
 
 IndexExpr operator*(IndexExpr lhs, IndexExpr rhs) noexcept {
-    return IndexExpr{detail::make_binary(detail::IndexExprKind::MULTIPLY, std::move(lhs._node), std::move(rhs._node))};
+    return IndexExpr{detail::make_binary(IndexExprKind::MULTIPLY, std::move(lhs._node), std::move(rhs._node))};
 }
 
 IndexExpr floor_div(IndexExpr lhs, IndexExpr rhs) noexcept {
-    return IndexExpr{detail::make_binary(detail::IndexExprKind::FLOOR_DIVIDE, std::move(lhs._node), std::move(rhs._node))};
+    return IndexExpr{detail::make_binary(IndexExprKind::FLOOR_DIVIDE, std::move(lhs._node), std::move(rhs._node))};
 }
 
 IndexExpr modulo(IndexExpr lhs, IndexExpr rhs) noexcept {
-    return IndexExpr{detail::make_binary(detail::IndexExprKind::MODULO, std::move(lhs._node), std::move(rhs._node))};
+    return IndexExpr{detail::make_binary(IndexExprKind::MODULO, std::move(lhs._node), std::move(rhs._node))};
 }
 
 IndexExpr bit_xor(IndexExpr lhs, IndexExpr rhs) noexcept {
-    return IndexExpr{detail::make_binary(detail::IndexExprKind::BIT_XOR, std::move(lhs._node), std::move(rhs._node))};
+    return IndexExpr{detail::make_binary(IndexExprKind::BIT_XOR, std::move(lhs._node), std::move(rhs._node))};
 }
 
 IndexExpr bit_and(IndexExpr lhs, IndexExpr rhs) noexcept {
-    return IndexExpr{detail::make_binary(detail::IndexExprKind::BIT_AND, std::move(lhs._node), std::move(rhs._node))};
+    return IndexExpr{detail::make_binary(IndexExprKind::BIT_AND, std::move(lhs._node), std::move(rhs._node))};
 }
 
 IndexExpr shift_left(IndexExpr lhs, IndexExpr rhs) noexcept {
-    return IndexExpr{detail::make_binary(detail::IndexExprKind::SHIFT_LEFT, std::move(lhs._node), std::move(rhs._node))};
+    return IndexExpr{detail::make_binary(IndexExprKind::SHIFT_LEFT, std::move(lhs._node), std::move(rhs._node))};
 }
 
 IndexExpr shift_right(IndexExpr lhs, IndexExpr rhs) noexcept {
-    return IndexExpr{detail::make_binary(detail::IndexExprKind::SHIFT_RIGHT, std::move(lhs._node), std::move(rhs._node))};
+    return IndexExpr{detail::make_binary(IndexExprKind::SHIFT_RIGHT, std::move(lhs._node), std::move(rhs._node))};
 }
 
 IndexMap::IndexMap(IndexSpace domain, IndexSpace codomain, luisa::span<const IndexExpr> outputs) noexcept

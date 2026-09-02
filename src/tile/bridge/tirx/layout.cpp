@@ -1,6 +1,10 @@
 #include <algorithm>
 #include <exception>
 #include <limits>
+#include <stdexcept>
+
+#include <tvm/ffi/error.h>
+#include <tvm/tirx/op.h>
 
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/tile/bridge/tirx/layout.h>
@@ -21,7 +25,68 @@ namespace detail {
     return true;
 }
 
+[[nodiscard]] tvm::PrimExpr lower_index_expression(
+    const IndexExpr &expression,
+    const IndexSpace &domain,
+    const tvm::ffi::Array<tvm::PrimExpr> &coordinates) {
+    switch (expression.kind()) {
+        case IndexExprKind::CONSTANT: return tvm::IntImm::Int64(*expression.constant_value());
+        case IndexExprKind::COORDINATE: return coordinates[*domain.axis_index(expression.dimension())];
+        case IndexExprKind::INVALID: throw std::runtime_error{"invalid Tile index expression"};
+        default: break;
+    }
+    auto lhs = lower_index_expression(expression.lhs(), domain, coordinates);
+    auto rhs = lower_index_expression(expression.rhs(), domain, coordinates);
+    switch (expression.kind()) {
+        case IndexExprKind::ADD: return tvm::add(lhs, rhs);
+        case IndexExprKind::SUBTRACT: return tvm::sub(lhs, rhs);
+        case IndexExprKind::MULTIPLY: return tvm::mul(lhs, rhs);
+        case IndexExprKind::FLOOR_DIVIDE: return tvm::floordiv(lhs, rhs);
+        case IndexExprKind::MODULO: return tvm::floormod(lhs, rhs);
+        case IndexExprKind::BIT_XOR: return tvm::bitwise_xor(lhs, rhs);
+        case IndexExprKind::BIT_AND: return tvm::bitwise_and(lhs, rhs);
+        case IndexExprKind::SHIFT_LEFT:
+        case IndexExprKind::SHIFT_RIGHT: {
+            // IndexExpr shifts operate on unsigned bit patterns even when
+            // the high bit is set. A signed TIRx right shift is not equivalent.
+            auto bits = tvm::cast(tvm::PrimType::UInt(64), lhs);
+            auto count = tvm::cast(tvm::PrimType::UInt(64), rhs);
+            auto shifted = expression.kind() == IndexExprKind::SHIFT_LEFT ?
+                               tvm::left_shift(bits, count) :
+                               tvm::right_shift(bits, count);
+            return tvm::cast(tvm::PrimType::Int(64), std::move(shifted));
+        }
+        default: throw std::runtime_error{"unsupported Tile index expression opcode"};
+    }
+}
+
 }// namespace detail
+
+NativeIndices lower_index_map(const IndexMap &map, const tvm::ffi::Array<tvm::PrimExpr> &coordinates) noexcept {
+    NativeIndices result;
+    if (!map.verify() || coordinates.size() != map.domain().rank()) {
+        result.error = "native index-map lowering requires a valid map and one coordinate per logical axis";
+        return result;
+    }
+    for (auto &&coordinate : coordinates) {
+        if (!coordinate.defined() || coordinate.ty() != tvm::PrimType::Int(64)) {
+            result.error = "native index-map coordinates must be scalar signed 64-bit integers";
+            return result;
+        }
+    }
+    try {
+        for (auto &&expression : map.outputs()) {
+            result.value.push_back(detail::lower_index_expression(expression, map.domain(), coordinates));
+        }
+    } catch (const tvm::ffi::Error &error) {
+        result.error = error.what();
+    } catch (const std::exception &error) {
+        result.error = error.what();
+    } catch (...) {
+        result.error = "TVM TIRx rejected the native index expression";
+    }
+    return result;
+}
 
 bool LayoutSpec::add_shard(uint64_t extent, int64_t stride, Dim physical_axis) noexcept {
     if (extent == 0u || stride < 0 || !physical_axis) { return false; }

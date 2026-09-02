@@ -72,8 +72,10 @@ auto make_manual_gemm(GemmConfig cfg, exec::Scope scope = exec::Scope::AUTOMATIC
         for (auto &nest : parallel(shape(gm, gn), scope)) {
             auto m0 = nest[gm] * cfg.block_m;
             auto n0 = nest[gn] * cfg.block_n;
-            auto As = memory<float>(shape(m, k), resource);
-            auto Bs = memory<float>(shape(k, n), resource);
+            // Distinct local address maps; the logical operand shapes and
+            // their common execution owner do not change.
+            auto As = memory<float>(layout(shape(m, k), stride(cfg.block_k + 1, 1)), resource);
+            auto Bs = memory<float>(layout(shape(k, n), stride(1, cfg.block_k)), resource);
             auto acc = zeros<float>(shape(m, n));
 
             for (auto &step : nest.pipeline(shape(kt), {.stages = cfg.stages,

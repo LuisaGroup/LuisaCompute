@@ -4,6 +4,7 @@
 
 #include <cmath>
 #include <limits>
+#include <string>
 #include <utility>
 
 #include <tvm/runtime/tensor.h>
@@ -183,6 +184,60 @@ void test_native_compiler() {
     if (!entry) { return; }
     auto result = (*entry)(1.25f, 2.5f).cast<float>();
     expect(eq(result, 3.75f));
+}
+
+void test_native_index_expressions() {
+    DimensionContext dimensions;
+    auto axis = dimensions.create_dimension("logical index");
+    auto output = dimensions.create_dimension("address");
+    IndexSpace logical;
+    IndexSpace storage;
+    expect(logical.add(axis, 16u));
+    expect(storage.add(output, 128u));
+    auto i = IndexExpr::coordinate(axis);
+    auto c = [](int64_t value) { return IndexExpr::constant(value); };
+    IndexExpr expressions[]{
+        i * c(3) + c(1),
+        floor_div(i - c(11), c(3)) + c(4),
+        modulo(i - c(11), c(3)),
+        floor_div(i - c(11), c(-3)) + c(3),
+        modulo(i + c(15), c(-3)) + c(2),
+        bit_xor(i, shift_right(i, c(1))),
+        bit_and(i, c(7)),
+        shift_right(shift_left(i, c(60)), c(60)),
+        shift_right(i - c(16), c(60)),
+        shift_left(c(1), bit_and(i, c(3)))};
+    auto serial = 0u;
+    for (auto &&expression : expressions) {
+        IndexExpr outputs[]{expression};
+        IndexMap map{logical, storage, outputs};
+        auto properties = map.analyze_finite();
+        expect(properties.total && properties.in_bounds);
+        // General index arithmetic need not be injective. Only use as a
+        // writable Memory layout imposes the stronger storage proof.
+        tvm::tirx::PrimVar parameter{"index", tvm::PrimType::Int(64)};
+        auto native = lower_index_map(map, {parameter});
+        expect(native.ok()) << native.error;
+        if (!native || native.value.size() != 1u) { continue; }
+        tvm::tirx::PrimFunc function{{parameter}, tvm::tirx::Return{native.value[0]}, tvm::PrimType::Int(64)};
+        auto name = std::string{"tile_index_expression_"} + std::to_string(serial++);
+        auto compilation = compile(std::move(function), name);
+        expect(compilation.ok()) << compilation.error();
+        if (!compilation) { continue; }
+        auto entry = compilation.module().value()->GetFunction(tvm::ffi::String{name}, true);
+        expect(entry.has_value());
+        if (!entry) { continue; }
+        auto correct = true;
+        for (auto index = int64_t{0}; index < 16; index++) {
+            int64_t point[]{index};
+            auto expected = map.apply(point);
+            auto actual = (*entry)(index).cast<int64_t>();
+            correct &= expected.has_value() && actual == expected->front();
+        }
+        expect(correct) << name;
+        expect(!lower_index_map(map, {}).ok());
+        expect(!lower_index_map(map, {tvm::IntImm{tvm::PrimType::Int(32), 0}}).ok());
+    }
 }
 
 void test_native_buffer_kernel() {
@@ -394,6 +449,7 @@ int main(int argc, char *argv[]) {
     "tile_tirx_coincident_replica_witnesses"_test = test_coincident_replica_witnesses;
     "tile_tirx_native_export"_test = test_native_export;
     "tile_tirx_native_compiler"_test = test_native_compiler;
+    "tile_tirx_native_index_expressions"_test = test_native_index_expressions;
     "tile_tirx_native_buffer_kernel"_test = test_native_buffer_kernel;
     "tile_tirx_dsl_elementwise_end_to_end"_test = test_dsl_elementwise_end_to_end;
     "tile_tirx_dsl_reduction_end_to_end"_test = test_dsl_reduction_end_to_end;

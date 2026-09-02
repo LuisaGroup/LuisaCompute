@@ -243,6 +243,99 @@ void test_capture_lifetime() {
     expect(has_diagnostic(expired, "live resource from the active capture"));
 }
 
+void test_memory_layouts() {
+    auto kernel = tile_kernel("memory_layouts", [] {
+                      for (auto &nest : parallel(shape(3))) {
+                          auto space = shape(3, 7);
+                          auto a = memory<float>(layout(space, stride(11, 1)), mem::private_);
+                          Dim order[]{space.axis(1).dimension, space.axis(0).dimension};
+                          auto transposed = IndexMap::permute(space, order);
+                          expect(transposed.has_value());
+                          if (!transposed) { return; }
+                          auto b = memory<float>(*transposed);
+                          a.store(zeros<float>(space));
+                          b.store(a.load());
+                          expect(a.space() == space);
+                          expect(b.space() == space);
+                      }
+                  }).capture();
+    expect(kernel.valid());
+    auto allocations = operations(kernel.function().body(), OperationKind::MEMORY_ALLOC);
+    expect(eq(allocations.size(), 2u));
+    if (allocations.size() != 2u) { return; }
+    auto allocation = allocations.front();
+    expect(allocation->memory_layout().has_value());
+    if (!allocation->memory_layout()) { return; }
+    auto original = *allocation->memory_layout();
+    expect(eq(original.domain().static_volume().value_or(0u), 21u));
+    expect(eq(original.codomain().static_volume().value_or(0u), 29u));
+    expect(eq(allocations[1]->memory_layout()->codomain().axis(0).extent.constant_value(), 7u));
+    auto memory_type = allocation->result(0)->type();
+    auto use_count = allocation->result(0)->use_count();
+    // A storage remap is a mutable allocation property; logical types, SSA
+    // users, memory identity, and the execution owner stay unchanged.
+    allocation->set_memory_layout(*allocations[1]->memory_layout());
+    expect(kernel.valid());
+    expect(allocation->result(0)->type() == memory_type);
+    expect(eq(allocation->result(0)->use_count(), use_count));
+    allocation->set_memory_layout(IndexMap::identity(original.codomain()));
+    expect(!kernel.valid());
+    allocation->clear_memory_layout();
+    expect(kernel.valid());
+    allocation->set_memory_layout(original);
+    expect(kernel.valid());
+    auto store = operations(kernel.function().body(), OperationKind::MEMORY_STORE).front();
+    store->set_memory_layout(original);
+    expect(!kernel.valid());
+    store->clear_memory_layout();
+    expect(kernel.valid());
+}
+
+void test_invalid_memory_layouts() {
+    auto aliased = tile_kernel("memory_layout_alias", [] {
+                       auto a = memory<float>(layout(shape(3, 7), stride(0, 1)));
+                       a.store(zeros<float>(shape(3, 7)));
+                   }).capture();
+    expect(!aliased.valid());
+    expect(has_diagnostic(aliased, "injective"));
+    auto invalid = tile_kernel("memory_layout_bounds", [] {
+                       auto space = shape(7);
+                       IndexExpr outputs[]{IndexExpr::coordinate(space.axis(0).dimension) + IndexExpr::constant(1)};
+                       auto a = memory<float>(IndexMap{space, space, outputs});
+                       a.store(zeros<float>(space));
+                   }).capture();
+    expect(!invalid.valid());
+    expect(has_diagnostic(invalid, "in bounds"));
+    auto partial = tile_kernel("memory_layout_partial", [] {
+                       auto space = shape(7);
+                       IndexExpr outputs[]{floor_div(IndexExpr::coordinate(space.axis(0).dimension), IndexExpr::constant(0))};
+                       static_cast<void>(memory<float>(IndexMap{space, space, outputs}));
+                   }).capture();
+    expect(!partial.valid());
+    expect(has_diagnostic(partial, "total"));
+    auto negative = tile_kernel("memory_layout_negative_stride", [] {
+                        static_cast<void>(memory<float>(layout(shape(7), stride(-1))));
+                    }).capture();
+    expect(!negative.valid());
+    expect(has_diagnostic(negative, "strides cannot be negative"));
+    auto rank = tile_kernel("memory_layout_stride_rank", [] {
+                    static_cast<void>(memory<float>(layout(shape(3, 7), stride(1))));
+                }).capture();
+    expect(!rank.valid());
+    expect(has_diagnostic(rank, "one nonnegative element stride"));
+
+    DimensionContext foreign;
+    IndexSpace storage;
+    expect(storage.add(foreign.create_dimension("storage"), 7u));
+    auto foreign_map = tile_kernel("memory_foreign_layout", [&] {
+                           auto space = shape(7);
+                           IndexExpr outputs[]{IndexExpr::coordinate(space.axis(0).dimension)};
+                           static_cast<void>(memory<float>(IndexMap{space, storage, outputs}));
+                       }).capture();
+    expect(!foreign_map.valid());
+    expect(has_diagnostic(foreign_map, "module-local storage space"));
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -252,4 +345,6 @@ int main(int argc, char *argv[]) {
     "tile_memory_initialization_and_stale_state"_test = test_initialization_and_stale_states;
     "tile_memory_lexical_ownership"_test = test_lexical_ownership;
     "tile_memory_capture_lifetime"_test = test_capture_lifetime;
+    "tile_memory_layouts"_test = test_memory_layouts;
+    "tile_memory_invalid_layouts"_test = test_invalid_memory_layouts;
 }

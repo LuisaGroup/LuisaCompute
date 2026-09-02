@@ -125,7 +125,7 @@ private:
     friend ValueHandle load_tile(Value *, luisa::span<Value *const>, const IndexSpace &, BoundsMode, Value *) noexcept;
     friend ValueHandle extract_tile(Value *, luisa::span<Value *const>) noexcept;
     friend ValueHandle capture_tile_map(const IndexSpace &, ScalarType, const std::function<Value *(const Nest &)> &) noexcept;
-    friend DeclaredMemory declare_memory(ScalarType, const IndexSpace &, mem::Resource) noexcept;
+    friend DeclaredMemory declare_memory(ScalarType, const IndexSpace &, mem::Resource, const IndexMap *) noexcept;
     friend ValueHandle load_memory(Value *, const ValueHandle &) noexcept;
     friend void store_memory(Value *, ValueHandle &, Value *) noexcept;
 
@@ -146,7 +146,8 @@ struct DeclaredMemory {
     ValueHandle state;
 };
 
-[[nodiscard]] LUISA_TILE_API DeclaredMemory declare_memory(ScalarType type, const IndexSpace &space, mem::Resource resource) noexcept;
+[[nodiscard]] LUISA_TILE_API DeclaredMemory declare_memory(ScalarType type, const IndexSpace &space, mem::Resource resource, const IndexMap *layout = nullptr) noexcept;
+[[nodiscard]] LUISA_TILE_API IndexMap make_strided_layout(const IndexSpace &space, luisa::span<const uint64_t> strides) noexcept;
 [[nodiscard]] LUISA_TILE_API ValueHandle load_memory(Value *memory, const ValueHandle &state) noexcept;
 LUISA_TILE_API void store_memory(Value *memory, ValueHandle &state, Value *tile) noexcept;
 

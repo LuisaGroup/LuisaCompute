@@ -19,6 +19,21 @@ struct IndexExprNode;
 
 class IndexMap;
 
+enum class IndexExprKind : uint8_t {
+    INVALID,
+    CONSTANT,
+    COORDINATE,
+    ADD,
+    SUBTRACT,
+    MULTIPLY,
+    FLOOR_DIVIDE,
+    MODULO,
+    BIT_XOR,
+    BIT_AND,
+    SHIFT_LEFT,
+    SHIFT_RIGHT
+};
+
 class LUISA_TILE_API IndexExpr final {
 
 private:
@@ -45,6 +60,13 @@ public:
     [[nodiscard]] static IndexExpr coordinate(Dim dimension) noexcept;
 
     [[nodiscard]] explicit operator bool() const noexcept { return _node != nullptr; }
+    // Immutable DAG inspection for analyses and native bridges. These expose
+    // typed operations, not a serialization or an opaque user callback.
+    [[nodiscard]] IndexExprKind kind() const noexcept;
+    [[nodiscard]] luisa::optional<int64_t> constant_value() const noexcept;
+    [[nodiscard]] Dim dimension() const noexcept;
+    [[nodiscard]] IndexExpr lhs() const noexcept;
+    [[nodiscard]] IndexExpr rhs() const noexcept;
     [[nodiscard]] bool verify(const IndexSpace &domain) const noexcept;
     [[nodiscard]] luisa::optional<int64_t> evaluate(const IndexSpace &domain, luisa::span<const int64_t> point) const noexcept;
 

@@ -11,7 +11,7 @@
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/variant.h>
 #include <luisa/core/stl/vector.h>
-#include <luisa/tile/dimension.h>
+#include <luisa/tile/layout.h>
 
 namespace luisa::compute::tile {
 
@@ -313,6 +313,7 @@ private:
     luisa::optional<IndexSpace> _domain;
     luisa::optional<luisa::string> _execution_scope_constraint;
     luisa::optional<luisa::string> _resource_class_constraint;
+    luisa::optional<IndexMap> _memory_layout;
 
     void _remove_self_from_operand_use_lists() noexcept;
     void _add_self_to_operand_use_lists() noexcept;
@@ -364,6 +365,11 @@ public:
     void set_resource_class_constraint(luisa::string_view resource) noexcept;
     [[nodiscard]] const luisa::optional<luisa::string> &execution_scope_constraint() const noexcept { return _execution_scope_constraint; }
     [[nodiscard]] const luisa::optional<luisa::string> &resource_class_constraint() const noexcept { return _resource_class_constraint; }
+    // Logical element coordinates -> allocation-local storage coordinates.
+    // Layout is an allocation property, not part of the Memory/Tile type.
+    void set_memory_layout(IndexMap layout) noexcept { _memory_layout = std::move(layout); }
+    void clear_memory_layout() noexcept { _memory_layout.reset(); }
+    [[nodiscard]] const luisa::optional<IndexMap> &memory_layout() const noexcept { return _memory_layout; }
 
     void set_attribute(luisa::string_view name, Attribute value) noexcept;
     [[nodiscard]] const Attribute *attribute(luisa::string_view name) const noexcept;
@@ -578,6 +584,7 @@ public:
     [[nodiscard]] Operation *create_tile_store(Value *view, luisa::span<Value *const> origin,
                                                const IndexSpace &space, Value *tile, BoundsMode bounds) noexcept;
     [[nodiscard]] Operation *create_memory_alloc(const Type &memory_type, luisa::string_view resource_class = {}) noexcept;
+    [[nodiscard]] Operation *create_memory_alloc(const Type &memory_type, IndexMap layout, luisa::string_view resource_class = {}) noexcept;
     [[nodiscard]] Operation *create_memory_load(Value *memory, Value *state) noexcept;
     [[nodiscard]] Operation *create_memory_store(Value *memory, Value *state, Value *tile) noexcept;
 };

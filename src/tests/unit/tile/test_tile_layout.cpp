@@ -139,6 +139,40 @@ void test_bitwise_swizzle() {
     expect(eq((*mapped)[0], 4));
 }
 
+void test_index_expression_inspection() {
+    DimensionContext dimensions;
+    auto axis = dimensions.create_dimension("index");
+    auto coordinate = IndexExpr::coordinate(axis);
+    auto constant = IndexExpr::constant(3);
+    auto expression = coordinate + constant;
+    expect(IndexExpr{}.kind() == IndexExprKind::INVALID);
+    expect(!IndexExpr{}.constant_value());
+    expect(!IndexExpr{}.dimension());
+    expect(!IndexExpr{}.lhs());
+    expect(!IndexExpr{}.rhs());
+    expect(expression.kind() == IndexExprKind::ADD);
+    expect(expression.lhs().kind() == IndexExprKind::COORDINATE);
+    expect(expression.lhs().dimension() == axis);
+    expect(expression.rhs().kind() == IndexExprKind::CONSTANT);
+    expect(eq(expression.rhs().constant_value().value_or(-1), 3));
+    expect(!expression.constant_value());
+    expect(!constant.dimension());
+    expect(!coordinate.lhs());
+
+    IndexSpace space;
+    expect(space.add(axis, 16u));
+    IndexExpr outputs[]{shift_right(shift_left(coordinate, IndexExpr::constant(60)), IndexExpr::constant(60))};
+    IndexMap high_bit{space, space, outputs};
+    auto properties = high_bit.analyze_finite();
+    expect(properties.total && properties.in_bounds && properties.injective && properties.surjective);
+    for (auto i = int64_t{0}; i < 16; i++) {
+        int64_t point[]{i};
+        auto value = high_bit.apply(point);
+        expect(value.has_value());
+        if (value) { expect(eq(value->front(), i)); }
+    }
+}
+
 void test_dynamic_layout_is_structural() {
     DimensionContext dimensions;
     auto element = dimensions.create_dimension("element");
@@ -208,6 +242,7 @@ int main(int argc, char *argv[]) {
     "tile_strided_layout"_test = test_strided_layout;
     "tile_layout_composition_and_reshape"_test = test_composition_and_reshape;
     "tile_layout_bitwise_swizzle"_test = test_bitwise_swizzle;
+    "tile_layout_index_expression_inspection"_test = test_index_expression_inspection;
     "tile_dynamic_layout_is_structural"_test = test_dynamic_layout_is_structural;
     "tile_layout_correspondence"_test = test_layout_correspondence;
 }

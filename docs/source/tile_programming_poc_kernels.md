@@ -82,6 +82,8 @@ The execution structure is unchanged. Two sibling resources are declared in
 the output program and reused by the pipeline. `store` consumes a Tile and
 `load` produces a snapshot; assigning a Tile never means storing to Memory.
 The frontend infers each resource's loop-carried MemoryState alongside `acc`.
+The example uses padded rows for As and column-major local storage for Bs;
+their logical MMA operand shapes remain unchanged.
 
 ```{literalinclude} tile_programming_poc.cpp
 :language: cpp
@@ -93,14 +95,21 @@ For the current native reference mapper, choose `exec::Scope::GROUP` with
 `mem::shared` on Metal, or `exec::Scope::WORKER` with `mem::private_` on CPU.
 Leaving the resource unspecified lets the mapper choose it. A resource
 constraint does not change ownership; unsupported placements fail explicitly.
-This dense whole-object Memory path does not yet implement custom address
-layouts, range-aware parallel writes, or asynchronous pipeline versions.
+Use `memory<T>(layout(shape, stride(...)), resource)` for ordinary strided
+storage, or pass a composed `IndexMap` for a custom address map. A whole-Tile
+Memory layout must be total, in bounds, and injective. The current finite
+proof fallback covers up to 1,048,576 logical points; unknown proofs fail
+native realization, not structural representation. Range-aware parallel
+writes and asynchronous pipeline versions are not implemented yet.
 
 `test_tile_tirx_memory` runs ragged manual GEMMs, multiple independently updated
 resources, old-value snapshots, nested temporal regions, ancestor reads,
-worker-private state, and resource/capacity rejection on CPU and Metal. LLVM
-also tests vector-private state. The canonical example above is independently
-captured under both C++20 and C++23.
+worker-private state, and resource/capacity rejection on CPU and Metal. It also
+checks padded/transposed/composed-XOR layouts and logical shifts through the
+sign bit, including physical allocation shapes, padding capacity, and empty
+domains. LLVM also tests vector-private state. Native index-expression tests compare
+compiled address calculations with the TileIR evaluator. The canonical
+example above is independently captured under both C++20 and C++23.
 
 ## 3. Elementwise bias + GELU + residual
 

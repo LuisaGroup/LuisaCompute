@@ -1049,6 +1049,24 @@ For a static domain these are exhaustive. For a symbolic domain they are
 proved under emitted shape/extent guards and supplemented with randomized
 differential tests.
 
+The implemented expression DAG currently contains constant/coordinate leaves,
+integer add/subtract/multiply, floor division/modulo, XOR/AND, and logical
+bit-pattern shifts. Typed inspection is available to analyses and bridges;
+composition substitutes DAG nodes and does not serialize a callback. Native
+TIRx export lowers these operations directly as 64-bit index arithmetic.
+In particular, a logical right shift uses an unsigned bit pattern, not a
+signed arithmetic shift. These expressions are not mislabeled as TIRx
+`IndexMap`/`IterSumExpr` nodes when they fall outside that class's inverse
+analysis contract. The factored shard/replica subset separately uses native
+`TileLayout` as described above.
+
+For explicit Memory, small static maps have an exhaustive totality, bounds,
+and injectivity proof. The current fallback budget is 1,048,576 logical points.
+Larger or symbolic maps remain structurally representable, but native Memory
+realization rejects an unknown proof. This budget is a current proof-engine
+limit, not a claim about algebraic expressibility. Symbolic normal forms and
+proof procedures for the full grammar above are still implementation work.
+
 ## 5. Value distribution is a layout, not another algebra
 
 Let a tile SSA value `v` be produced by an operation anchored at `a`, with a
@@ -1530,12 +1548,45 @@ versions without changing the identity or alias class of `s`.
 
 #### Implemented explicit-Memory path
 
-The current dense-storage entry point is
-`memory<T>(shape, resource = mem::auto_)`. `Memory` is move-constructible but
+The entry points are `memory<T>(shape, resource = mem::auto_)` for planned dense
+storage and `memory<T>(index_map, resource = mem::auto_)` for an explicit local
+address layout. Common strided layouts use `layout(shape, stride(...))`, with
+strides in elements. `Memory` is move-constructible but
 neither copyable nor assignable; helpers can borrow it by reference. Only
 `store(Tile<T>)` mutates it, and `load()` returns an immutable Tile SSA snapshot.
 Reading before a definite store is rejected, including the zero-iteration case
 where initialization only occurs inside a loop. There is no implicit zero fill.
+
+An explicit layout maps the logical Tile element space to the allocation's
+local storage space. Padding may leave unused storage; transposes and composed
+XOR swizzles may reorder it. Neither changes the logical Tile shape, the
+allocation identity, the MemorySSA chain, or the declaration's owner:
+
+~~~text
+owner coordinate p ---- execution/resource binding ---- instance + base(p)
+logical element u ---- local IndexMap L --------------- storage indices L(u)
+
+address(p, u) = base(p) + sizeof(T) * linearize_codomain(L(u))
+
+same nest
+  |-- As : [m,k] -- padded row strides --> one allocation
+  `-- Bs : [k,n] -- column strides ------> another allocation
+~~~
+
+TileIR stores this map as a typed, replaceable property of `memory.alloc`, not
+as a different Memory type or an opaque string attribute. A pass can replace
+the map while retaining all logical users and state tokens. Whole-Tile
+storage requires an injective map: a broadcast/non-injective map is valid
+general layout algebra, but cannot realize arbitrary independent Memory
+elements. Padding is included in physical capacity accounting. A load copies
+the mapped elements back into a dense logical Tile snapshot; unused padding
+is neither read nor treated as initialized data.
+
+An empty logical domain has no address events, so unreachable map arithmetic
+is not evaluated. After checking execution/resource constraints, native
+lowering removes unused zero-sized plain allocations. It rejects a zero-sized
+allocation with surviving load/store uses rather than leaving a dangling
+buffer. An empty allocation never bypasses an explicit resource constraint.
 
 ~~~text
 parallel instance (logical owner)
@@ -1568,8 +1619,8 @@ plan, fail rather than silently changing the logical owner. Shared capacity
 includes manual and compiler-generated temporaries. Load snapshots are
 materialized conservatively, with cooperative copies and uniform barriers.
 MemoryState tokens themselves disappear only after verification into ordered
-TIRx effects. Pipeline execution is still serial; async versions, custom
-address layouts, and global/cluster/tensor allocations remain planning work.
+TIRx effects. Pipeline execution is still serial; async versions, range-aware
+parallel writes, and global/cluster/tensor allocations remain planning work.
 
 The manual GEMM spelling is compiled by both C++20 and C++23 capture tests:
 
