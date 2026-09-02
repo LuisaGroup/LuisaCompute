@@ -1,6 +1,6 @@
 # Luisa Tile DSL: A From-Scratch Design
 
-- Status: architecture proposal and syntax contract, revision 11
+- Status: architecture proposal and syntax contract, revision 12
 - Compatibility with the removed prototype: none
 - Primary workloads: GEMM, attention, convolution, normalization, quantized,
   sparse, grouped, and persistent neural-network kernels
@@ -128,6 +128,17 @@ Important properties of this surface:
   the intended schedule.
 - Ordinary host configuration values create ordinary JIT variants. A symbolic
   staging language is not required for autotuning.
+
+The bootstrap implementation temporarily uses
+`define(name, [] { input(...); output(...); ... })` in low-level capture tests.
+That spelling is builder scaffolding, not the public syntax contract: it mixes
+function-signature construction into the function body and cannot express the
+same resource/view separation as Luisa's SIMT DSL. The intended public surface
+is the lambda signature above. `tile_kernel` creates raw external parameters
+from the lambda argument types; `TensorView` shape/stride metadata comes from
+the concrete JIT specialization, and `with_dims` gives positional dimensions
+kernel-local semantic identities. The scaffolding helpers should disappear
+from user examples when that signature adapter lands.
 
 ## 2. Non-negotiable separations
 
@@ -2220,6 +2231,33 @@ an open hierarchy.
 After `ExecBinding` is concrete, the exporter maps target axes to TIRx scopes
 or TIRx loop/thread-binding constructs. Serial and vector axes remain explicit.
 
+There is one shared structural exporter, not a complete lowerer per backend.
+The changing component is the execution schedule: a CPU plan may map a logical
+parallel prefix to a task loop and SIMD suffix, while a GPU plan may map the
+same prefix through an affine split to grid, threadgroup, subgroup, and worker
+coordinates. Target-specific resource selection and intrinsic dispatch happen
+after this binding. Schematically:
+
+~~~text
+Candidate TileIR (logical execution tree)
+                 |
+          target/autotuned ExecBinding
+                 v
+Scheduled TileIR (physical scopes + index maps)
+                 |
+       shared structural TIRx exporter
+                 v
+       target-specific TVM code generation
+~~~
+
+The current scalar bootstrap implements only the default root case. It leaves
+logical `parallel` as marked serial TIRx during structural export, then maps the
+outermost marked region to LLVM `kParallel` or to a Metal/CUDA-style
+`blockIdx.x * threads + threadIdx.x` grid with a tail predicate. Unbound nested
+parallel regions remain serial until a real per-nest `ExecBinding` plan is
+available. This fallback is deliberately internal rather than a public
+`CPU_THREADS`/`GPU_GRID` compile option.
+
 ### 11.4 Pipeline and memory bridge
 
 Scheduled TileIR exports:
@@ -2250,10 +2288,10 @@ and `parallel`/`serial`/`pipeline`/`reduce` regions with inferred scalar carried
 state. Unsupported Tile, MMA, and explicit-memory forms fail closed rather than
 falling through a name-based dispatch. The compiler distinguishes ordinary
 TIRx statements (`STANDARD`) from programs containing native TIRx
-`TilePrimitive` calls (`TILE`), because only the latter require the
-`LowerTIRx`/`LowerTIRxOpaque` pipeline. Buffer `noalias` is an explicit caller
-contract and defaults off until TileIR carries enough alias metadata to prove
-it.
+`TilePrimitive` calls (`TILE`), because only the latter require `LowerTIRx`.
+Both paths run `LowerTIRxOpaque` before host/device splitting so thread-binding
+loops become device regions. Buffer `noalias` is an explicit caller contract
+and defaults off until TileIR carries enough alias metadata to prove it.
 
 ### 11.5 Bootstrap lowering path
 
