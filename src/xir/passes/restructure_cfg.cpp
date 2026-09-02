@@ -6108,13 +6108,18 @@ public:
                         anchor = nearest_common_dominator(
                             dom, anchor, predecessor_anchor);
                     });
-                LUISA_DEBUG_ASSERT(
-                    anchor != nullptr && dom.contains(anchor),
-                    "Transparent selection merge must have a reachable "
-                    "dominance anchor.");
+                // If every arm exits through an enclosing structured boundary
+                // (for example, one Break and one Continue), the declarative
+                // selection merge has no executable predecessor. It is still
+                // a valid unreachable continuation; anchor its transparent
+                // quotient node at the selection header.
                 if (anchor == nullptr) {
                     anchor = found_header;
                 }
+                LUISA_DEBUG_ASSERT(
+                    dom.contains(anchor),
+                    "Transparent selection merge must have a valid "
+                    "dominance anchor.");
                 overlay_dominance_anchors.emplace(
                     structural_merge, anchor);
             }
