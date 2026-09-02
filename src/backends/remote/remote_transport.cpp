@@ -32,7 +32,7 @@ private:
     std::thread::id _reader_thread_id{};
     mutable std::mutex _state_mutex;
     std::mutex _write_mutex;
-    std::mutex _close_mutex;
+    std::mutex _socket_mutex;
     std::mutex _join_mutex;
     std::unordered_map<uint64_t, std::shared_ptr<Pending>> _pending;
     NotificationHandler _notification_handler;
@@ -82,7 +82,7 @@ private:
             .payload_checksum = payload_checksum(payload)});
         asio::error_code ec;
         {
-            std::scoped_lock lock{_write_mutex};
+            std::scoped_lock lock{_socket_mutex, _write_mutex};
             std::array<asio::const_buffer, 2u> buffers{
                 asio::buffer(static_cast<const void *>(header.data()), header.size()),
                 asio::buffer(payload.data(), payload.size())};
@@ -103,12 +103,15 @@ private:
             return true;
         }
         auto completed = false;
-        asio::async_read(
-            _socket, asio::buffer(data, size),
-            [&](const asio::error_code &read_error, size_t) noexcept {
-                error = read_error;
-                completed = true;
-            });
+        {
+            std::scoped_lock lock{_socket_mutex};
+            asio::async_read(
+                _socket, asio::buffer(data, size),
+                [&](const asio::error_code &read_error, size_t) noexcept {
+                    error = read_error;
+                    completed = true;
+                });
+        }
         _io.run();
         _io.restart();
         return completed && !error;
@@ -136,6 +139,7 @@ private:
             luisa::string decode_error;
             if (!decode_frame_header(header_bytes, header, decode_error, _limits)) {
                 _set_closed(std::move(decode_error));
+                std::scoped_lock lock{_socket_mutex};
                 asio::error_code ignored;
                 _socket.close(ignored);
                 return;
@@ -151,6 +155,7 @@ private:
             }
             if (payload_checksum(payload) != header.payload_checksum) {
                 _set_closed("Remote protocol payload checksum mismatch.");
+                std::scoped_lock lock{_socket_mutex};
                 asio::error_code ignored;
                 _socket.close(ignored);
                 return;
@@ -224,7 +229,7 @@ public:
             return false;
         }
         {
-            std::scoped_lock close_lock{_close_mutex};
+            std::scoped_lock socket_lock{_socket_mutex};
             {
                 std::scoped_lock lock{_state_mutex};
                 if (_connected) {
@@ -241,7 +246,7 @@ public:
             std::scoped_lock join_lock{_join_mutex};
             if (_reader.joinable()) { _reader.join(); }
         }
-        std::scoped_lock close_lock{_close_mutex};
+        std::scoped_lock socket_lock{_socket_mutex};
         {
             std::scoped_lock lock{_state_mutex};
             if (_connected) {
@@ -367,7 +372,7 @@ public:
         auto initiate_close = false;
         std::thread::id reader_thread_id;
         {
-            std::scoped_lock close_lock{_close_mutex};
+            std::scoped_lock socket_lock{_socket_mutex};
             {
                 std::scoped_lock lock{_state_mutex};
                 initiate_close = !_closing;

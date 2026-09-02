@@ -132,6 +132,7 @@ private:
     luisa::shared_ptr<BlobCache> _blob_cache;
     const ServerOptions &_options;
     bool _device_selection_enabled{};
+    std::mutex _socket_mutex;
     std::mutex _write_mutex;
     std::mutex _pending_mutex;
     std::unordered_set<uint64_t> _pending_submissions;
@@ -1515,9 +1516,10 @@ public:
     void stop() noexcept {
         _alive.store(false, std::memory_order_release);
         asio::error_code ignored;
-        _socket.cancel(ignored);
+        std::scoped_lock lock{_socket_mutex};
+        // Asio permits shutdown concurrently with synchronous reads and writes,
+        // but close must remain on the session thread after they unblock.
         _socket.shutdown(Tcp::socket::shutdown_both, ignored);
-        _socket.close(ignored);
     }
 
     void run() noexcept {
@@ -1533,8 +1535,11 @@ public:
         }
         _alive.store(false, std::memory_order_release);
         asio::error_code ignored;
-        _socket.shutdown(Tcp::socket::shutdown_both, ignored);
-        _socket.close(ignored);
+        {
+            std::scoped_lock lock{_socket_mutex, _write_mutex};
+            _socket.shutdown(Tcp::socket::shutdown_both, ignored);
+            _socket.close(ignored);
+        }
         _cleanup();
         _native.reset();
     }
