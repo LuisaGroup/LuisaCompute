@@ -475,6 +475,312 @@ void test_observed_accumulator_stays_visible(Runtime &runtime) {
     }
 }
 
+class AdjustAccumulatorTest final : public tvm::tirx::StmtMutator {
+private:
+    tvm::tirx::BufferVar _output, _initial;
+    bool _transpose, _pin;
+
+protected:
+    [[nodiscard]] tvm::tirx::Stmt VisitStmt_(const tvm::tirx::AllocBufferNode *allocation) final {
+        auto result = StmtMutator::VisitStmt_(allocation).as_or_throw<tvm::tirx::AllocBuffer>();
+        if (_pin && result->buffer.same_as(_initial)) {
+            result.CopyOnWrite()->annotations.Set("luisa.tile.memory_resource", tvm::ffi::String{"shared"});
+        }
+        return result;
+    }
+    [[nodiscard]] tvm::tirx::Stmt VisitStmt_(const tvm::tirx::BufferStoreNode *store) final {
+        auto result = StmtMutator::VisitStmt_(store).as_or_throw<tvm::tirx::BufferStore>();
+        if (_transpose && result->buffer.same_as(_output)) {
+            auto indices = result->indices;
+            expect(eq(indices.size(), size_t{2u}));
+            if (indices.size() == 2u) { result.CopyOnWrite()->indices = {indices[1], indices[0]}; }
+        }
+        return result;
+    }
+
+public:
+    AdjustAccumulatorTest(const tvm::tirx::PrimFunc &function, bool transpose, bool pin)
+        : _output{function->params[2].as_or_throw<tvm::tirx::BufferVar>()}, _transpose{transpose}, _pin{pin} {
+        tvm::tirx::PostOrderVisit(function->body, [&](const tvm::ffi::ObjectRef &node) {
+            if (auto store = node.as<tvm::tirx::BufferStoreNode>(); store != nullptr && store->value.as<tvm::FloatImmNode>() != nullptr) { _initial = store->buffer; }
+        });
+        expect(_initial.defined());
+    }
+    using StmtMutator::operator();
+};
+
+void test_direct_accumulator_output(Runtime &runtime) {
+    struct Case {
+        Shape shape;
+        int64_t row_offset{0}, column_offset{0};
+        int64_t row_padding{0}, column_padding{0};
+        bool transpose_output{false};
+        bool observe_accumulator{false};
+        bool observe_old_output{false};
+        bool pin_initial{false};
+    };
+    Case cases[]{
+        {{8, 16, 8, 8, 16, 8}}, {{16, 32, 24, 8, 16, 8}}, {{32, 64, 29, 16, 32, 16}}, {{37, 71, 45, 32, 64, 16}}, {{16, 24, 0, 8, 24, 8}}, {{16, 16, 8, 8, 8, 8}, 1, 3, 2, 6}, {{16, 16, 8, 8, 8, 8}, -1, -2}, {{32, 32, 24, 16, 16, 8}, 0, 0, 0, 0, true}, {{32, 48, 24, 16, 24, 8}, 0, 0, 0, 0, false, true}, {{32, 48, 24, 16, 24, 8}, 0, 0, 0, 0, false, false, true}, {{32, 48, 24, 16, 24, 8}, 0, 0, 0, 0, false, false, false, true}};
+    for (auto test : cases) {
+        auto cfg = test.shape;
+        auto rows = cfg.m + test.row_padding;
+        auto columns = cfg.n + test.column_padding;
+        auto input_k = std::max(int64_t{1}, cfg.k);
+        auto scope = runtime.target() == "metal" ? exec::Scope::GROUP : exec::Scope::WORKER;
+        auto kernel = tile_kernel("matrix_direct_output", [=](TensorView<const float, 2> A, TensorView<const float, 2> B,
+                                                              TensorView<float, 2> D, TensorView<float, 2> H) {
+                          auto gm = axis("gm", (cfg.m + cfg.bm - 1) / cfg.bm);
+                          auto gn = axis("gn", (cfg.n + cfg.bn - 1) / cfg.bn);
+                          auto m = axis("m", cfg.bm);
+                          auto n = axis("n", cfg.bn);
+                          auto k = axis("k", cfg.bk);
+                          for (auto &nest : parallel(shape(gm, gn), scope)) {
+                              auto m0 = nest.index(gm) * cfg.bm;
+                              auto n0 = nest.index(gn) * cfg.bn;
+                              auto acc = full<float>(shape(m, n), 0.375f);
+                              for (auto &step : nest.pipeline(shape((cfg.k + cfg.bk - 1) / cfg.bk), {.stages = 1u})) {
+                                  step.stage("load");
+                                  auto a = A[coord(m0, step.index() * cfg.bk), shape(m, k)];
+                                  auto b = B[coord(step.index() * cfg.bk, n0), shape(k, n)];
+                                  step.stage("compute");
+                                  acc = mma(a, b, acc);
+                              }
+                              auto origin = coord(m0 + test.row_offset, n0 + test.column_offset);
+                              if (test.observe_old_output) { H(origin, shape(m, n)).store(D[origin, shape(m, n)]); }
+                              D(origin, shape(m, n)).store(acc);
+                              if (test.observe_accumulator) { H(origin, shape(m, n)).store(acc); }
+                          }
+                      }).capture(tensor_shape(cfg.m, input_k), tensor_shape(input_k, cfg.n), tensor_shape(rows, columns), tensor_shape(rows, columns));
+        expect(kernel.valid());
+        for (auto enabled : {false, true}) {
+            auto native = bridge::tirx::lower(kernel.function());
+            expect(native.ok()) << native.error;
+            if (!native) { continue; }
+            // A square global projection exercises a transposed *destination*,
+            // not an extra materialized transpose tile. Pinning C simulates the
+            // hard allocation annotation the manual-memory API preserves.
+            AdjustAccumulatorTest adjust{native.value, test.transpose_output, test.pin_initial && runtime.target() == "metal"};
+            native.value.CopyOnWrite()->body = adjust(native.value->body);
+            bridge::tirx::PlannerOptions planner;
+            planner.direct_accumulator_store = enabled;
+            auto executable = compile_native(runtime, kernel, std::move(native.value), 32u, 256u, planner);
+            expect(executable.ok()) << executable.error;
+            if (!executable.ok()) { continue; }
+            if (runtime.target() == "metal") {
+                auto expected = enabled && cfg.k > 0 && cfg.m % cfg.bm == 0 && cfg.n % cfg.bn == 0 &&
+                                test.row_offset >= 0 && test.column_offset >= 0 && !test.observe_accumulator && !test.pin_initial;
+                auto direct = false;
+                for (auto &plan : executable.plans) {
+                    for (auto &matrix : plan.matrices) { direct |= matrix.direct_accumulator_store; }
+                }
+                expect(eq(direct, expected)) << cfg.m << "x" << cfg.n << "x" << cfg.k << " offset=" << test.row_offset << "," << test.column_offset;
+                if (direct) {
+                    auto source = metal_source(executable.module.value());
+                    auto code = std::string_view{source.data(), source.size()};
+                    auto store = code.rfind("simdgroup_store(");
+                    expect(store != std::string_view::npos) << code;
+                    if (store != std::string_view::npos) { expect(code.substr(store, code.find('\n', store) - store).find("_shared") == std::string_view::npos) << code; }
+                    expect(executable.plans[0].cost.direct_fragment_stores > 0.0);
+                }
+            }
+            for (auto repeat = 0u; repeat < 2u; repeat++) {
+                auto a = values(cfg.m * input_k, 0.13f + static_cast<float>(repeat) * 0.27f);
+                auto b = values(input_k * cfg.n, 0.47f - static_cast<float>(repeat) * 0.33f);
+                vector<float> sentinel(rows * columns, -17.25f);
+                auto left = runtime.upload<float>({cfg.m, input_k}, a);
+                auto right = runtime.upload<float>({input_k, cfg.n}, b);
+                auto destination = runtime.upload<float>({rows, columns}, sentinel);
+                auto history = runtime.upload<float>({rows, columns}, sentinel);
+                (*executable.entry)(left, right, destination, history);
+                auto actual = runtime.download<float>(destination, rows * columns);
+                auto observed = runtime.download<float>(history, rows * columns);
+                auto valid = true;
+                for (auto row = int64_t{0}; row < rows; row++) {
+                    for (auto column = int64_t{0}; column < columns; column++) {
+                        auto m = (test.transpose_output ? column : row) - test.row_offset;
+                        auto n = (test.transpose_output ? row : column) - test.column_offset;
+                        auto written = m >= 0 && m < (cfg.m + cfg.bm - 1) / cfg.bm * cfg.bm && n >= 0 && n < (cfg.n + cfg.bn - 1) / cfg.bn * cfg.bn;
+                        auto expected = written ? 0.375 : -17.25;
+                        if (written && m < cfg.m && n < cfg.n) {
+                            for (auto k = int64_t{0}; k < cfg.k; k++) { expected += static_cast<double>(a[m * input_k + k]) * b[k * cfg.n + n]; }
+                        }
+                        auto index = row * columns + column;
+                        valid &= std::isfinite(actual[index]) && std::abs(static_cast<double>(actual[index]) - expected) <= 1e-4 + 2e-5 * std::abs(expected);
+                        auto history_value = test.observe_accumulator ? expected : -17.25;
+                        valid &= std::isfinite(observed[index]) && std::abs(static_cast<double>(observed[index]) - history_value) <= 1e-4 + 2e-5 * std::abs(history_value);
+                    }
+                }
+                expect(valid) << "direct output, bounds, padding, initializer, and original sink order must be preserved";
+            }
+        }
+    }
+}
+
+class AliasMatrixOperandToCarry final : public tvm::tirx::StmtMutator {
+private:
+    bool _left;
+    tvm::tirx::BufferVar _carry;
+
+protected:
+    [[nodiscard]] tvm::tirx::Stmt VisitStmt_(const tvm::tirx::ForNode *loop) final {
+        auto previous = _carry;
+        if (loop->annotations.count("luisa.tile.mma")) {
+            auto column = loop->body.as<tvm::tirx::ForNode>();
+            auto sequence = column->body.as<tvm::tirx::SeqStmtNode>();
+            auto initial = sequence->seq[0].as<tvm::tirx::BufferStoreNode>();
+            _carry = initial->value.as<tvm::tirx::BufferLoadNode>()->buffer;
+        }
+        auto result = StmtMutator::VisitStmt_(loop);
+        _carry = previous;
+        return result;
+    }
+    [[nodiscard]] tvm::tirx::Stmt VisitStmt_(const tvm::tirx::BufferStoreNode *store) final {
+        auto result = StmtMutator::VisitStmt_(store).as_or_throw<tvm::tirx::BufferStore>();
+        auto sum = result->value.as<tvm::tirx::AddNode>();
+        if (_carry.defined() && sum != nullptr) {
+            auto product = sum->b.as<tvm::tirx::MulNode>();
+            if (product != nullptr) {
+                auto source = (_left ? product->a : product->b).as<tvm::tirx::BufferLoadNode>();
+                auto alias = tvm::tirx::BufferLoad{_carry, source->indices};
+                result.CopyOnWrite()->value = sum->a + (_left ? alias * product->b : product->a * alias);
+                replacements++;
+            }
+        }
+        return result;
+    }
+
+public:
+    uint32_t replacements{0u};
+    explicit AliasMatrixOperandToCarry(bool left) noexcept : _left{left} {}
+    using StmtMutator::operator();
+};
+
+void test_accumulator_as_multiplicand(Runtime &runtime) {
+    auto scope = runtime.target() == "metal" ? exec::Scope::GROUP : exec::Scope::WORKER;
+    for (auto self_left : {false, true}) {
+        auto kernel = tile_kernel("matrix_carry_operand_alias", [=](TensorView<const float, 2> X, TensorView<float, 2> D) {
+                          auto m = axis("m", 8);
+                          auto n = axis("n", 8);
+                          for (auto &nest : parallel(shape(1), scope)) {
+                              auto acc = full<float>(shape(m, n), 0.25f);
+                              for (auto &step : nest.pipeline(shape(3), {.stages = 1u})) {
+                                  step.stage("load");
+                                  auto x = X[coord(step.index() * 8, 0), shape(m, n)];
+                                  step.stage("compute");
+                                  acc = mma(x, x, acc);
+                              }
+                              D(coord(0, 0), shape(m, n)).store(acc);
+                          }
+                      }).capture(tensor_shape(24, 8), tensor_shape(8, 8));
+        for (auto [retain, direct] : {std::pair{false, false}, std::pair{true, false}, std::pair{true, true}}) {
+            bridge::tirx::PlannerOptions planner;
+            planner.retain_accumulators = retain;
+            planner.direct_accumulator_store = direct;
+            auto native = bridge::tirx::lower(kernel.function());
+            expect(native.ok()) << native.error;
+            if (!native) { continue; }
+            // Frontend value snapshots can introduce an extra operand copy.
+            // Construct the legal alias directly, as a later native transform
+            // may do, so no incidental copy protects an insufficient proof.
+            AliasMatrixOperandToCarry alias{self_left};
+            native.value.CopyOnWrite()->body = alias(native.value->body);
+            expect(eq(alias.replacements, 1u));
+            auto executable = compile_native(runtime, kernel, std::move(native.value), 32u, 256u, planner);
+            expect(executable.ok()) << executable.error;
+            if (!executable.ok()) { continue; }
+            for (auto &plan : executable.plans) {
+                for (auto &matrix : plan.matrices) { expect(!matrix.persistent_accumulator && !matrix.direct_accumulator_store); }
+            }
+            for (auto value : {0.0625f, 0.125f}) {
+                auto x = runtime.upload<float>({24, 8}, vector<float>(24u * 8u, value));
+                auto d = runtime.allocate<float>({8, 8});
+                (*executable.entry)(x, d);
+                auto actual = runtime.download<float>(d, 64u);
+                auto expected = 0.25f * std::pow(1.0f + 8.0f * value, 3.0f);
+                expect(std::all_of(actual.begin(), actual.end(), [=](float v) { return std::isfinite(v) && std::abs(v - expected) < 1e-5f; }))
+                    << "a multiplicand must observe the new accumulator on every iteration";
+            }
+        }
+    }
+}
+
+class InterruptMatrixYield final : public tvm::tirx::StmtMutator {
+private:
+    bool _break;
+    tvm::tirx::PrimVar _iteration;
+
+protected:
+    [[nodiscard]] tvm::tirx::Stmt VisitStmt_(const tvm::tirx::ForNode *loop) final {
+        auto previous = _iteration;
+        if (loop->annotations.count("luisa.tile.pipeline")) { _iteration = loop->loop_var; }
+        auto result = StmtMutator::VisitStmt_(loop);
+        if (_iteration.defined() && loop->annotations.count("luisa.tile.mma")) {
+            tvm::tirx::Stmt control = _break ? tvm::tirx::Stmt{tvm::tirx::Break{tvm::Span{}}} : tvm::tirx::Stmt{tvm::tirx::Continue{tvm::Span{}}};
+            result = tvm::tirx::SeqStmt::Flatten(tvm::ffi::Array<tvm::tirx::Stmt>{result, tvm::tirx::IfThenElse{tvm::equal(_iteration, tvm::IntImm::Int64(1)), control}});
+            replacements++;
+        }
+        _iteration = previous;
+        return result;
+    }
+
+public:
+    uint32_t replacements{0u};
+    explicit InterruptMatrixYield(bool do_break) noexcept : _break{do_break} {}
+    using StmtMutator::operator();
+};
+
+void test_interrupted_accumulator_update(Runtime &runtime) {
+    auto scope = runtime.target() == "metal" ? exec::Scope::GROUP : exec::Scope::WORKER;
+    auto kernel = tile_kernel("matrix_interrupted_yield", [=](TensorView<const float, 2> X, TensorView<float, 2> D) {
+                      auto m = axis("m", 8);
+                      auto n = axis("n", 8);
+                      for (auto &nest : parallel(shape(1), scope)) {
+                          auto acc = full<float>(shape(m, n), 0.25f);
+                          for (auto &step : nest.pipeline(shape(3), {.stages = 1u})) {
+                              step.stage("load");
+                              auto x = X[coord(step.index() * 8, 0), shape(m, n)];
+                              step.stage("compute");
+                              acc = mma(x, x, acc);
+                          }
+                          D(coord(0, 0), shape(m, n)).store(acc);
+                      }
+                  }).capture(tensor_shape(24, 8), tensor_shape(8, 8));
+    for (auto do_break : {false, true}) {
+        for (auto retain : {false, true}) {
+            auto native = bridge::tirx::lower(kernel.function());
+            expect(native.ok()) << native.error;
+            if (!native) { continue; }
+            InterruptMatrixYield interrupt{do_break};
+            native.value.CopyOnWrite()->body = interrupt(native.value->body);
+            expect(eq(interrupt.replacements, 1u));
+            bridge::tirx::PlannerOptions planner;
+            planner.retain_accumulators = retain;
+            auto executable = compile_native(runtime, kernel, std::move(native.value), 32u, 256u, planner);
+            if (runtime.target() == "llvm" && !executable.ok()) {
+                // The pinned TVMx LLVM emitter has no Break/Continue visitors.
+                // Check that known rejection, not a blanket compile-failure
+                // exemption. If upstream adds support, exercise the numerical
+                // oracle below on CPU too.
+                auto unsupported = do_break ? "Do not have a default for tirx.Break" : "Do not have a default for tirx.Continue";
+                expect(executable.error.find(unsupported) != std::string::npos) << executable.error;
+                continue;
+            }
+            expect(executable.ok()) << executable.error;
+            if (!executable.ok()) { continue; }
+            for (auto &plan : executable.plans) {
+                for (auto &matrix : plan.matrices) { expect(!matrix.persistent_accumulator && !matrix.direct_accumulator_store); }
+            }
+            auto x = runtime.upload<float>({24, 8}, vector<float>(24u * 8u, 0.125f));
+            auto d = runtime.allocate<float>({8, 8});
+            (*executable.entry)(x, d);
+            auto actual = runtime.download<float>(d, 64u);
+            auto expected = do_break ? 0.375f : 0.5f;
+            expect(std::all_of(actual.begin(), actual.end(), [=](float v) { return std::isfinite(v) && std::abs(v - expected) < 1e-5f; }))
+                << "MMA result discarded by break/continue must not update the carry";
+        }
+    }
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -492,4 +798,7 @@ int main(int argc, char *argv[]) {
     "tile_cpu_matrix_preserves_k_order"_test = [&] { test_cpu_matrix_preserves_k_order(runtime); };
     "tile_matrix_planner_emits_reused_fragments"_test = [&] { test_planned_fragment_reuse(runtime); };
     "tile_matrix_observed_carry_cannot_be_promoted"_test = [&] { test_observed_accumulator_stays_visible(runtime); };
+    "tile_matrix_direct_output_and_observation_guards"_test = [&] { test_direct_accumulator_output(runtime); };
+    "tile_matrix_carry_operand_alias_must_not_be_promoted"_test = [&] { test_accumulator_as_multiplicand(runtime); };
+    "tile_matrix_interrupted_yield_must_not_update_carry"_test = [&] { test_interrupted_accumulator_update(runtime); };
 }

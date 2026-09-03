@@ -80,13 +80,15 @@ void print_plans(luisa::span<const bridge::tirx::GroupPlan> plans) {
                   << ",\"normalized_cost\":" << plan.cost.score
                   << ",\"matrix_issues\":" << plan.cost.matrix_issues
                   << ",\"shared_fragment_transfers\":" << plan.cost.shared_fragment_transfers
+                  << ",\"direct_fragment_stores\":" << plan.cost.direct_fragment_stores
                   << ",\"fragment_scalars_per_lane\":" << plan.cost.fragment_scalars_per_lane
                   << ",\"matrices\":[";
         auto matrix_separator = "";
         for (auto &matrix : plan.matrices) {
             std::cout << matrix_separator << "{\"subgroups_m\":" << matrix.subgroups_m << ",\"subgroups_n\":" << matrix.subgroups_n
                       << ",\"atom_rows\":" << matrix.atom_rows << ",\"atom_columns\":" << matrix.atom_columns
-                      << ",\"persistent_accumulator\":" << (matrix.persistent_accumulator ? "true" : "false") << '}';
+                      << ",\"persistent_accumulator\":" << (matrix.persistent_accumulator ? "true" : "false")
+                      << ",\"direct_accumulator_store\":" << (matrix.direct_accumulator_store ? "true" : "false") << '}';
             matrix_separator = ",";
         }
         std::cout << "]}";

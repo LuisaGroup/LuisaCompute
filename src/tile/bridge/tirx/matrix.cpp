@@ -4,9 +4,12 @@
 #include <stdexcept>
 
 #include <tvm/ffi/extra/structural_equal.h>
+#include <tvm/ffi/function.h>
+#include <tvm/tirx/analysis.h>
 #include <tvm/tirx/builtin.h>
 #include <tvm/tirx/op.h>
 #include <tvm/tirx/stmt_functor.h>
+#include <tvm/tirx/transform.h>
 
 #include <luisa/tile/bridge/tirx/layout.h>
 
@@ -96,23 +99,19 @@ struct MatrixView {
     tvm::tirx::BufferVar source;
 };
 
-[[nodiscard]] std::optional<MatrixView> matrix_view(
-    const tvm::tirx::BufferLoadNode *load, const Axes &axes,
+[[nodiscard]] std::optional<MatrixView> matrix_projection(
+    tvm::tirx::BufferVar buffer, const tvm::ffi::Array<tvm::PrimExpr> &indices, const Axes &axes,
     uint32_t row_axis, uint32_t column_axis, uint64_t rows, uint64_t columns,
-    const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer) {
-    if (load == nullptr || load->predicate || load->buffer->dtype != tvm::PrimType::Float(32)) { return {}; }
-    auto buffer = map_buffer(load->buffer);
-    if (!buffer.defined()) { return {}; }
+    tvm::tirx::BufferVar source) {
+    if (!buffer.defined() || buffer->dtype != tvm::PrimType::Float(32)) { return {}; }
     auto offset = buffer->elem_offset.as<tvm::IntImmNode>();
-    // Compiler-owned shared allocations cannot alias one another. Do not
-    // extend that assumption to external views or opaque placed allocations.
-    if (buffer.scope() != "shared" || !buffer->strides.empty() || buffer->layout ||
+    if (!buffer->strides.empty() || buffer->layout ||
         !buffer->allocated_addr.empty() || offset == nullptr || offset->value != 0 ||
-        buffer->shape.size() != load->indices.size()) { return {}; }
+        buffer->shape.size() != indices.size()) { return {}; }
     AffineIndex linear;
-    for (auto i = 0u; i < load->indices.size(); i++) {
+    for (auto i = 0u; i < indices.size(); i++) {
         auto extent = buffer->shape[i].as<tvm::IntImmNode>();
-        auto index = affine_index(load->indices[i], axes);
+        auto index = affine_index(indices[i], axes);
         if (extent == nullptr || extent->value <= 0 || !index) { return {}; }
         linear.base = linear.base * buffer->shape[i] + index->base;
         for (auto j = 0u; j < axes.size(); j++) {
@@ -127,12 +126,66 @@ struct MatrixView {
     auto row_stride = linear.strides[row_axis];
     auto column_stride = linear.strides[column_axis];
     if (column_stride == 1u && row_stride >= columns) {
-        return MatrixView{std::move(buffer), load->indices, row_stride, false, load->buffer};
+        return MatrixView{std::move(buffer), indices, row_stride, false, std::move(source)};
     }
     if (row_stride == 1u && column_stride >= rows) {
-        return MatrixView{std::move(buffer), load->indices, column_stride, true, load->buffer};
+        return MatrixView{std::move(buffer), indices, column_stride, true, std::move(source)};
     }
     return {};
+}
+
+[[nodiscard]] std::optional<MatrixView> matrix_view(
+    const tvm::tirx::BufferLoadNode *load, const Axes &axes,
+    uint32_t row_axis, uint32_t column_axis, uint64_t rows, uint64_t columns,
+    const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer) {
+    if (load == nullptr || load->predicate || load->buffer->dtype != tvm::PrimType::Float(32)) { return {}; }
+    auto buffer = map_buffer(load->buffer);
+    // Only the caller's compiler-owned allocations confer non-aliasing. The
+    // general address projection below does not confer ownership on globals.
+    if (!buffer.defined() || buffer.scope() != "shared") { return {}; }
+    return matrix_projection(std::move(buffer), load->indices, axes, row_axis, column_axis, rows, columns, load->buffer);
+}
+
+[[nodiscard]] bool prove_in_domain(tvm::PrimExpr predicate, luisa::span<const tvm::tirx::ForNode *const> domain) {
+    auto pure = true;
+    tvm::tirx::PostOrderVisit(predicate, [&](const tvm::ffi::ObjectRef &node) {
+        pure &= node.as<tvm::tirx::BufferLoadNode>() == nullptr && node.as<tvm::CallNode>() == nullptr;
+    });
+    if (!pure) { return false; }
+    // Use TVMx's public native simplifier as a proof query. This borrowed
+    // function never executes and never rewrites the actual program/markers.
+    // An observable Boolean store prevents a discarded pure expression from
+    // being mistaken for a proof. Every surviving store must be literal true.
+    auto result = tvm::tirx::decl_buffer({tvm::IntImm::Int64(1)}, tvm::PrimType::Bool(), "bounds_proof", "global");
+    tvm::tirx::Stmt body = tvm::tirx::BufferStore{result, std::move(predicate), {tvm::IntImm::Int64(0)}};
+    for (auto i = domain.size(); i != 0u; i--) {
+        auto loop = domain[i - 1u];
+        auto extent = loop->extent.as<tvm::IntImmNode>();
+        auto step = loop->step ? loop->step.value().as<tvm::IntImmNode>() : nullptr;
+        if (extent == nullptr || extent->value <= 0 || loop->kind != tvm::tirx::ForKind::kSerial || loop->thread_binding ||
+            (loop->step && (step == nullptr || step->value != 1))) { return false; }
+        body = tvm::tirx::For{loop->loop_var, loop->min, loop->extent, tvm::tirx::ForKind::kSerial, std::move(body)};
+    }
+    auto function = tvm::tirx::PrimFunc{tvm::tirx::UndefinedVars(body, {}), body};
+    auto global = tvm::GlobalVar{"tile_bounds_proof"};
+    tvm::ffi::Map<tvm::GlobalVar, tvm::BaseFunc> functions{{global, std::move(function)}};
+    static auto make_module = tvm::ffi::Function::GetGlobalRequired("ir.IRModule");
+    static auto run_pass = tvm::ffi::Function::GetGlobalRequired("transform.RunPass");
+    auto module = make_module(std::move(functions), tvm::DictAttrs{},
+                              tvm::ffi::Map<tvm::ffi::String, tvm::ffi::Array<tvm::GlobalInfo>>{})
+                      .cast<tvm::IRModule>();
+    module = run_pass(tvm::tirx::transform::StmtSimplify(), std::move(module)).cast<tvm::IRModule>();
+    auto simplified = module->functions.at(global).as<tvm::tirx::PrimFunc>().value();
+    auto stores = 0u;
+    auto proven = true;
+    tvm::tirx::PostOrderVisit(simplified->body, [&](const tvm::ffi::ObjectRef &node) {
+        if (auto store = node.as<tvm::tirx::BufferStoreNode>()) {
+            auto literal = store->value.as<tvm::IntImmNode>();
+            proven &= store->buffer.same_as(result) && !store->predicate && literal != nullptr && literal->value == 1;
+            stores++;
+        }
+    });
+    return proven && stores != 0u;
 }
 
 [[nodiscard]] tvm::Expr matrix_address(const MatrixView &view, const Coordinates &coordinates) {
@@ -249,13 +302,15 @@ struct MatchedMatrix {
     tvm::ffi::Array<tvm::tirx::Stmt> statements{tvm::tirx::AllocBuffer{af}, tvm::tirx::AllocBuffer{bf}};
     tvm::ffi::Array<tvm::tirx::Stmt> final;
     static const auto fill_op = tvm::Op::Get("tirx.make_filled_simdgroup_matrix");
+    auto direct = loop_emission != nullptr && loop_emission->output.has_value();
     for (auto i = int64_t{0}; i < rows; i++) {
         for (auto j = int64_t{0}; j < columns; j++) {
             auto index = fragment_index(i, j);
-            if (matrix.c) {
+            if (matrix.c && !direct) {
                 initial.push_back(matrix_transfer(cf, *matrix.c, coordinates(i, j), false, index));
             } else {
-                initial.push_back(tvm::tirx::Evaluate{tvm::Call{tvm::PrimType::Void(), fill_op, {cf, tvm::IntImm::Int32(index), matrix.initial, tvm::IntImm::Int32(8), tvm::IntImm::Int32(8)}}});
+                auto value = direct ? loop_emission->initial : matrix.initial;
+                initial.push_back(tvm::tirx::Evaluate{tvm::Call{tvm::PrimType::Void(), fill_op, {cf, tvm::IntImm::Int32(index), value, tvm::IntImm::Int32(8), tvm::IntImm::Int32(8)}}});
             }
         }
     }
@@ -273,9 +328,14 @@ struct MatchedMatrix {
     }
     statements.push_back(tvm::tirx::For{reduction, tvm::IntImm::Int64(0), tvm::IntImm::Int64(matrix.k / 8),
                                         tvm::tirx::ForKind::kSerial, tvm::tirx::SeqStmt::Flatten(step)});
+    auto destination = loop_emission == nullptr ? matrix.d : *matrix.c;
+    if (direct) {
+        auto &output = *loop_emission->output;
+        auto indices = tvm::tirx::Substitute(output.indices, Coordinates{{output.row, matrix.axes[0]}, {output.column, matrix.axes[1]}});
+        destination = MatrixView{output.buffer, std::move(indices), output.stride, output.transpose, output.buffer};
+    }
     for (auto i = int64_t{0}; i < rows; i++) {
         for (auto j = int64_t{0}; j < columns; j++) {
-            auto &destination = loop_emission == nullptr ? matrix.d : *matrix.c;
             final.push_back(matrix_transfer(cf, destination, coordinates(i, j), true, fragment_index(i, j)));
         }
     }
@@ -305,6 +365,10 @@ std::optional<MatrixCarry> metal_matrix_carry(
     const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer) {
     auto matrix = match_metal_matrix(loop, map_buffer);
     if (!matrix || !matrix->c) { return {}; }
+    // A valid MMA may use C as A or B. Such a recurrence needs its newly
+    // produced elements visible to the next multiply, not only to CF. Keeping
+    // CF resident while leaving a stale shared C would silently change it.
+    if (matrix->c->buffer.same_as(matrix->a.buffer) || matrix->c->buffer.same_as(matrix->b.buffer)) { return {}; }
     for (auto view : {&*matrix->c, &matrix->d}) {
         if (view->transpose || view->stride != static_cast<uint64_t>(matrix->n) || view->indices.size() != 2u ||
             view->source->shape.size() != 2u || !view->indices[0].same_as(matrix->axes[0]) || !view->indices[1].same_as(matrix->axes[1])) { return {}; }
@@ -313,6 +377,40 @@ std::optional<MatrixCarry> metal_matrix_carry(
         if (m == nullptr || n == nullptr || m->value != matrix->m || n->value != matrix->n) { return {}; }
     }
     return MatrixCarry{matrix->c->source, matrix->d.source, static_cast<uint64_t>(matrix->m), static_cast<uint64_t>(matrix->n)};
+}
+
+std::optional<MatrixLoopEmission::Output> metal_matrix_output(
+    const tvm::tirx::For &loop, const MatrixCarry &carry, luisa::span<const tvm::tirx::ForNode *const> ancestors) {
+    auto independent = loop->annotations.Get(independent_elements_annotation);
+    auto rank = independent ? independent.value().as<tvm::IntImmNode>() : nullptr;
+    if (rank == nullptr || rank->value != 2 || loop->annotations.size() != 1u) { return {}; }
+    auto column = loop->body.as<tvm::tirx::ForNode>();
+    if (matrix_extent(loop.get()) != static_cast<int64_t>(carry.rows) || matrix_extent(column) != static_cast<int64_t>(carry.columns) ||
+        !column->annotations.empty()) { return {}; }
+    auto body = column->body;
+    tvm::PrimExpr valid = tvm::IntImm::Bool(true);
+    while (auto guard = body.as<tvm::tirx::IfThenElseNode>()) {
+        if (guard->else_case) { return {}; }
+        valid = valid && guard->condition;
+        body = guard->then_case;
+    }
+    auto store = body.as<tvm::tirx::BufferStoreNode>();
+    if (store == nullptr || store->buffer.scope() != "global") { return {}; }
+    auto load = store->value.as<tvm::tirx::BufferLoadNode>();
+    if (load == nullptr || load->predicate || !load->buffer.same_as(carry.initial) || load->indices.size() != 2u ||
+        !load->indices[0].same_as(loop->loop_var) || !load->indices[1].same_as(column->loop_var)) { return {}; }
+    Axes axes{loop->loop_var, column->loop_var, tvm::tirx::PrimVar{"unused_k", tvm::PrimType::Int(64)}};
+    auto view = matrix_projection(store->buffer, store->indices, axes, 0u, 1u, carry.rows, carry.columns, store->buffer);
+    if (!view) { return {}; }
+    if (store->predicate) { valid = valid && store->predicate.value(); }
+    for (auto i = 0u; i < store->indices.size(); i++) {
+        valid = valid && store->indices[i] >= tvm::IntImm::Int64(0) && store->indices[i] < store->buffer->shape[i];
+    }
+    luisa::vector<const tvm::tirx::ForNode *> domain{ancestors.begin(), ancestors.end()};
+    domain.emplace_back(loop.get());
+    domain.emplace_back(column);
+    if (!prove_in_domain(std::move(valid), domain)) { return {}; }
+    return MatrixLoopEmission::Output{store->buffer, store->indices, loop->loop_var, column->loop_var, view->stride, view->transpose};
 }
 
 tvm::tirx::Stmt try_metal_matrix(
@@ -329,9 +427,13 @@ tvm::tirx::Stmt try_metal_matrix(
     if (distribution.rectangular()) {
         MatrixWorkload workload{static_cast<uint64_t>(m), static_cast<uint64_t>(n), static_cast<uint64_t>(k)};
         workload.accumulator_iterations = loop_emission == nullptr ? 0u : 1u;
+        workload.has_direct_output = loop_emission != nullptr && loop_emission->output.has_value();
         if (threads > std::numeric_limits<uint32_t>::max() ||
             !verify_matrix_distribution(workload, distribution, static_cast<uint32_t>(threads), 32u)) { return {}; }
         if (loop_emission != nullptr && (!distribution.persistent_accumulator || !metal_matrix_carry(loop, map_buffer))) { return {}; }
+        if (distribution.direct_accumulator_store &&
+            (loop_emission == nullptr || !loop_emission->output || loop_emission->initial.as<tvm::FloatImmNode>() == nullptr ||
+             loop_emission->initial.ty() != tvm::PrimType::Float(32))) { return {}; }
         return rectangular_matrix(*matched, distribution, thread, loop_emission);
     }
 

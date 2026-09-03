@@ -12,6 +12,7 @@ namespace {
     return workload.rows != 0u && workload.columns != 0u && workload.contraction != 0u &&
            workload.rows % 8u == 0u && workload.columns % 8u == 0u && workload.contraction % 8u == 0u &&
            workload.rows / 8u <= std::numeric_limits<uint64_t>::max() / (workload.columns / 8u) &&
+           (!workload.has_direct_output || workload.accumulator_iterations != 0u) &&
            (workload.accumulator_iterations == 0u || workload.executions % workload.accumulator_iterations == 0u);
 }
 
@@ -29,7 +30,14 @@ namespace {
     auto accumulator_executions = distribution.persistent_accumulator ?
                                       static_cast<double>(workload.executions) / static_cast<double>(workload.accumulator_iterations) :
                                       static_cast<double>(workload.executions);
-    result.shared_fragment_transfers = inputs * steps * static_cast<double>(workload.executions) + 2.0 * atoms * accumulator_executions;
+    result.shared_fragment_transfers = inputs * steps * static_cast<double>(workload.executions);
+    if (distribution.direct_accumulator_store) {
+        // The global output still exists. Its logical element work remains in
+        // GroupWorkload::independent_elements; do not call the transfer free.
+        result.direct_fragment_stores = atoms * accumulator_executions;
+    } else {
+        result.shared_fragment_transfers += 2.0 * atoms * accumulator_executions;
+    }
     result.fragment_scalars_per_lane = distribution.rectangular() ?
                                            (64u / limits.subgroup_size) * (distribution.atom_rows * distribution.atom_columns + distribution.atom_rows + distribution.atom_columns) :
                                            3u * (64u / limits.subgroup_size);
@@ -85,6 +93,7 @@ bool verify_matrix_distribution(const MatrixWorkload &workload, const MatrixDist
                                 uint32_t threads, uint32_t subgroup_size) noexcept {
     if (!valid_matrix(workload) || subgroup_size != 32u || threads < subgroup_size || threads % subgroup_size != 0u) { return false; }
     if (distribution.persistent_accumulator && (!distribution.rectangular() || workload.accumulator_iterations == 0u)) { return false; }
+    if (distribution.direct_accumulator_store && (!distribution.persistent_accumulator || !workload.has_direct_output)) { return false; }
     if (!distribution.rectangular()) {
         return distribution.subgroups_m == 0u && distribution.subgroups_n == 0u &&
                distribution.atom_rows == 1u && distribution.atom_columns == 1u;
@@ -161,6 +170,7 @@ PlanningResult plan_group(const GroupWorkload &workload, const ExecutionLimits &
                 plan.candidates_considered++;
                 MatrixDistribution candidate{gm, gn, matrix.rows / 8u / gm, matrix.columns / 8u / gn};
                 candidate.persistent_accumulator = options.retain_accumulators && matrix.accumulator_iterations != 0u;
+                candidate.direct_accumulator_store = candidate.persistent_accumulator && options.direct_accumulator_store && matrix.has_direct_output;
                 if (!verify_matrix_distribution(matrix, candidate, threads, limits.subgroup_size)) {
                     plan.candidates_rejected++;
                     continue;
@@ -175,11 +185,12 @@ PlanningResult plan_group(const GroupWorkload &workload, const ExecutionLimits &
                 auto estimate = matrix_cost(matrix, candidate, threads, limits, options);
                 auto released = uint64_t{0u};
                 if (candidate.persistent_accumulator) {
-                    if (matrix.rows > std::numeric_limits<uint64_t>::max() / matrix.columns / 4u) {
+                    auto bytes_per_element = candidate.direct_accumulator_store ? 8u : 4u;
+                    if (matrix.rows > std::numeric_limits<uint64_t>::max() / matrix.columns / bytes_per_element) {
                         result.error = "accumulator storage size overflow";
                         return result;
                     }
-                    released = matrix.rows * matrix.columns * 4u;
+                    released = matrix.rows * matrix.columns * bytes_per_element;
                 }
                 alternatives.emplace_back(Alternative{candidate, estimate, released});
             }
@@ -196,6 +207,7 @@ PlanningResult plan_group(const GroupWorkload &workload, const ExecutionLimits &
                     candidate.matrices.emplace_back(alternative.distribution);
                     candidate.cost.matrix_issues += alternative.cost.matrix_issues;
                     candidate.cost.shared_fragment_transfers += alternative.cost.shared_fragment_transfers;
+                    candidate.cost.direct_fragment_stores += alternative.cost.direct_fragment_stores;
                     candidate.cost.fragment_scalars_per_lane = std::max(candidate.cost.fragment_scalars_per_lane, alternative.cost.fragment_scalars_per_lane);
                     candidate.cost.score += alternative.cost.score;
                     insert_frontier(next, std::move(candidate));

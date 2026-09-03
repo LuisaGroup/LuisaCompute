@@ -86,6 +86,13 @@ struct AccumulatorLoop {
     const tvm::tirx::ForNode *update;
     MatrixCarry carry;
     size_t matrix_index;
+    struct DirectOutput {
+        const tvm::tirx::ForNode *initial;
+        const tvm::tirx::ForNode *store;
+        tvm::PrimExpr value;
+        MatrixLoopEmission::Output destination;
+    };
+    std::optional<DirectOutput> direct;
 };
 
 using AccumulatorLoops = luisa::unordered_map<const tvm::tirx::ForNode *, AccumulatorLoop>;
@@ -110,6 +117,31 @@ using AccumulatorLoops = luisa::unordered_map<const tvm::tirx::ForNode *, Accumu
     return b != 0u && a > std::numeric_limits<uint64_t>::max() / b ? std::numeric_limits<uint64_t>::max() : a * b;
 }
 
+[[nodiscard]] bool observes_buffer(const tvm::tirx::Stmt &statement, const tvm::tirx::BufferVar &buffer) {
+    auto observed = false;
+    tvm::tirx::PostOrderVisit(statement, [&](const tvm::ffi::ObjectRef &node) {
+        observed |= node.same_as(buffer);
+        if (auto load = node.as<tvm::tirx::BufferLoadNode>()) { observed |= load->buffer.same_as(buffer); }
+        if (auto store = node.as<tvm::tirx::BufferStoreNode>()) { observed |= store->buffer.same_as(buffer); }
+        if (auto allocation = node.as<tvm::tirx::AllocBufferNode>()) { observed |= allocation->buffer.same_as(buffer); }
+    });
+    return observed;
+}
+
+[[nodiscard]] tvm::PrimExpr literal_initial(const tvm::tirx::ForNode *loop, const MatrixCarry &carry) {
+    if (loop->annotations.size() != 1u || !loop->annotations.count(independent_elements_annotation)) { return {}; }
+    auto domain = element_domain(loop);
+    if (domain.axes.size() != 2u || static_extent(domain.axes[0]->extent) != carry.rows || static_extent(domain.axes[1]->extent) != carry.columns) { return {}; }
+    auto store = domain.body.as<tvm::tirx::BufferStoreNode>();
+    if (store == nullptr || store->predicate || !store->buffer.same_as(carry.initial) || store->indices.size() != 2u ||
+        store->value.as<tvm::FloatImmNode>() == nullptr || store->value.ty() != tvm::PrimType::Float(32)) { return {}; }
+    for (auto i = 0u; i < 2u; i++) {
+        auto minimum = domain.axes[i]->min.as<tvm::IntImmNode>();
+        if (minimum == nullptr || minimum->value != 0 || !store->indices[i].same_as(domain.axes[i]->loop_var)) { return {}; }
+    }
+    return store->value;
+}
+
 // Collect facts before binding workers. Temporary shared BufferVars are only
 // proof objects for the common MMA matcher; actual resource placement remains
 // in the emitter and is checked there again. No source names drive semantics.
@@ -118,7 +150,64 @@ private:
     bool _matrix;
     uint32_t _lane_depth{0u};
     uint64_t _executions{1u};
+    const tvm::tirx::ForNode *_root;
+    luisa::vector<const tvm::tirx::ForNode *> _ancestors;
     luisa::unordered_map<const tvm::tirx::VarNode *, tvm::tirx::BufferVar> _buffers;
+
+    [[nodiscard]] std::optional<AccumulatorLoop::DirectOutput> _find_direct_output(
+        const tvm::tirx::SeqStmtNode *sequence, const tvm::tirx::ForNode *recurrence, const MatrixCarry &carry) const {
+        auto seen_loop = false;
+        auto allocated = false;
+        const tvm::tirx::AllocBufferNode *initial_allocation = nullptr;
+        const tvm::tirx::ForNode *initial = nullptr;
+        std::optional<AccumulatorLoop::DirectOutput> result;
+        tvm::PrimExpr value;
+        for (auto &&statement : sequence->seq) {
+            if (statement.get() == recurrence) {
+                if (!allocated || initial == nullptr) { return {}; }
+                seen_loop = true;
+                continue;
+            }
+            if (auto allocation = statement.as<tvm::tirx::AllocBufferNode>(); allocation != nullptr && allocation->buffer.same_as(carry.initial)) {
+                if (allocated || seen_loop || !allocation->annotations.empty()) { return {}; }
+                allocated = true;
+                initial_allocation = allocation;
+                continue;
+            }
+            if (auto loop = statement.as<tvm::tirx::ForNode>()) {
+                if (auto fill = literal_initial(loop, carry); fill.defined()) {
+                    if (!allocated || initial != nullptr || seen_loop) { return {}; }
+                    initial = loop;
+                    value = fill;
+                    continue;
+                }
+                if (seen_loop) {
+                    if (auto output = metal_matrix_output(tvm::ffi::GetRef<tvm::tirx::For>(loop), carry, _ancestors)) {
+                        if (result) { return {}; }
+                        result = AccumulatorLoop::DirectOutput{initial, loop, value, *output};
+                        continue;
+                    }
+                }
+            }
+            // This also catches opaque pointer escape, a second consumer, and
+            // nested/conditional uses. Manual memory annotations above prevent
+            // storage removal even if the current consumers happen to match.
+            if (observes_buffer(statement, carry.initial)) { return {}; }
+        }
+        if (!seen_loop || !result) { return {}; }
+        // SeqStmt is a grouping node, not an authority to hide uses in another
+        // sequence. Audit the whole group, pruning only the four proved pieces.
+        auto closed = true;
+        tvm::tirx::PreOrderVisit(_root->body, [&](const tvm::ffi::ObjectRef &node) {
+            if (node.get() == initial_allocation || node.get() == initial || node.get() == recurrence || node.get() == result->store) { return false; }
+            closed &= !node.same_as(carry.initial);
+            if (auto load = node.as<tvm::tirx::BufferLoadNode>()) { closed &= !load->buffer.same_as(carry.initial); }
+            if (auto store = node.as<tvm::tirx::BufferStoreNode>()) { closed &= !store->buffer.same_as(carry.initial); }
+            if (auto allocation = node.as<tvm::tirx::AllocBufferNode>()) { closed &= !allocation->buffer.same_as(carry.initial); }
+            return closed;
+        });
+        return closed ? result : std::nullopt;
+    }
 
     void _find_accumulator_loop(const tvm::tirx::ForNode *loop) {
         auto extent = loop->extent.as<tvm::IntImmNode>();
@@ -160,6 +249,9 @@ private:
             }
             auto observes_carry = false;
             tvm::tirx::PostOrderVisit(statement, [&](const tvm::ffi::ObjectRef &node) {
+                // An exit between MMA and yield can discard the new D. CF
+                // residency must not turn that discarded update into live C.
+                observes_carry |= node.as<tvm::tirx::BreakNode>() != nullptr || node.as<tvm::tirx::ContinueNode>() != nullptr || node.as<tvm::tirx::ReturnNode>() != nullptr;
                 observes_carry |= node.same_as(carry->initial) || node.same_as(carry->result);
                 if (auto load = node.as<tvm::tirx::BufferLoadNode>()) {
                     observes_carry |= load->buffer.same_as(carry->initial) || load->buffer.same_as(carry->result);
@@ -182,6 +274,20 @@ private:
     }
 
 protected:
+    void VisitStmt_(const tvm::tirx::SeqStmtNode *sequence) final {
+        StmtVisitor::VisitStmt_(sequence);
+        if (_lane_depth != 0u || !_matrix) { return; }
+        for (auto &&statement : sequence->seq) {
+            auto loop = statement.as<tvm::tirx::ForNode>();
+            if (auto iter = accumulators.find(loop); iter != accumulators.end()) {
+                if (auto direct = _find_direct_output(sequence, loop, iter->second.carry)) {
+                    iter->second.direct = std::move(direct);
+                    workload.matrices[iter->second.matrix_index].has_direct_output = true;
+                }
+            }
+        }
+    }
+
     void VisitStmt_(const tvm::tirx::AllocBufferNode *allocation) final {
         if (_lane_depth != 0u) { return; }
         auto buffer = allocation->buffer;
@@ -223,7 +329,9 @@ protected:
             if (auto extent = loop->extent.as<tvm::IntImmNode>(); extent != nullptr && extent->value >= 0) {
                 _executions = saturating_multiply(_executions, static_cast<uint64_t>(extent->value));
             }
+            _ancestors.emplace_back(loop);
             StmtVisitor::VisitStmt_(loop);
+            _ancestors.pop_back();
             if (_lane_depth == 0u && _matrix) { _find_accumulator_loop(loop); }
             _executions = previous;
         }
@@ -233,7 +341,7 @@ public:
     GroupWorkload workload;
     MatrixPlanIndices matrices;
     AccumulatorLoops accumulators;
-    explicit GroupWorkloadAnalysis(bool matrix) noexcept : _matrix{matrix} {}
+    GroupWorkloadAnalysis(bool matrix, const tvm::tirx::ForNode *root) : _matrix{matrix}, _root{root}, _ancestors{root} {}
 };
 
 class CooperativeGroupMapper final : public tvm::tirx::StmtExprMutator {
@@ -251,6 +359,9 @@ private:
     const AccumulatorLoop *_active_accumulator{nullptr};
     MatrixLoopEmission *_loop_emission{nullptr};
     luisa::unordered_map<const tvm::tirx::VarNode *, tvm::tirx::BufferVar> _buffers;
+    luisa::unordered_set<const tvm::tirx::VarNode *> _elided_buffers;
+    luisa::unordered_set<const tvm::tirx::ForNode *> _elided_initializers;
+    luisa::unordered_map<const tvm::tirx::ForNode *, tvm::tirx::Stmt> _direct_stores;
 
 private:
     [[nodiscard]] tvm::tirx::Stmt _synchronize(tvm::tirx::Stmt statement) const {
@@ -364,6 +475,12 @@ private:
 
 protected:
     [[nodiscard]] tvm::tirx::Stmt VisitStmt_(const tvm::tirx::ForNode *loop) final {
+        if (_elided_initializers.contains(loop)) { return tvm::tirx::Evaluate{tvm::IntImm::Int32(0)}; }
+        if (auto iter = _direct_stores.find(loop); iter != _direct_stores.end()) {
+            auto store = std::move(iter->second);
+            _direct_stores.erase(iter);
+            return _synchronize(std::move(store));
+        }
         if (_active_accumulator != nullptr && loop == _active_accumulator->update) { return tvm::tirx::Evaluate{tvm::IntImm::Int32(0)}; }
         if (auto iter = _accumulators.find(loop); iter != _accumulators.end() &&
                                                   _plan.matrices[iter->second.matrix_index].persistent_accumulator) {
@@ -373,6 +490,11 @@ protected:
             auto previous = _active_accumulator;
             auto previous_emission = _loop_emission;
             MatrixLoopEmission emission;
+            auto direct = _plan.matrices[iter->second.matrix_index].direct_accumulator_store;
+            if (direct) {
+                emission.initial = iter->second.direct->value;
+                emission.output = iter->second.direct->destination;
+            }
             _active_accumulator = &iter->second;
             _loop_emission = &emission;
             auto body = StmtExprMutator::VisitStmt_(loop);
@@ -380,6 +502,12 @@ protected:
             _loop_emission = previous_emission;
             if (!emission.before.defined() || !emission.after.defined()) {
                 throw std::runtime_error{"planned accumulator recurrence was not emitted"};
+            }
+            if (direct) {
+                // Keep the global write at the original sink, including any
+                // intervening reads of that output. Only C storage disappears.
+                _direct_stores.emplace(iter->second.direct->store, emission.after);
+                return tvm::tirx::SeqStmt::Flatten(tvm::ffi::Array<tvm::tirx::Stmt>{emission.before, std::move(body)});
             }
             return tvm::tirx::SeqStmt::Flatten(tvm::ffi::Array<tvm::tirx::Stmt>{emission.before, std::move(body), _synchronize(emission.after)});
         }
@@ -417,7 +545,7 @@ protected:
 
     [[nodiscard]] tvm::tirx::Stmt VisitStmt_(const tvm::tirx::AllocBufferNode *allocation) final {
         auto buffer = allocation->buffer;
-        if (_active_accumulator != nullptr && buffer.same_as(_active_accumulator->carry.result)) {
+        if (_elided_buffers.contains(buffer.get()) || (_active_accumulator != nullptr && buffer.same_as(_active_accumulator->carry.result))) {
             // Retain a proof-only buffer identity for the matrix matcher. The
             // emitted recurrence has no D accesses and needs no D allocation.
             auto type = tvm::tirx::BufferType{"shared", buffer->dtype, buffer->shape, {}, buffer->elem_offset, buffer->data_alignment, buffer->offset_factor};
@@ -496,7 +624,15 @@ public:
     CooperativeGroupMapper(tvm::tirx::PrimVar thread, uint64_t threads, uint64_t shared_memory_limit, bool cooperative_matrix,
                            const MatrixPlanIndices &matrix_indices, GroupPlan &plan, const AccumulatorLoops &accumulators)
         : _thread{std::move(thread)}, _threads{threads}, _shared_memory_limit{shared_memory_limit}, _cooperative_matrix{cooperative_matrix},
-          _matrix_indices{matrix_indices}, _plan{plan}, _accumulators{accumulators} {}
+          _matrix_indices{matrix_indices}, _plan{plan}, _accumulators{accumulators} {
+        for (auto &&[loop, accumulator] : _accumulators) {
+            if (_plan.matrices[accumulator.matrix_index].direct_accumulator_store) {
+                if (!accumulator.direct) { throw std::runtime_error{"direct matrix store lacks a proved initializer and sink"}; }
+                _elided_buffers.emplace(accumulator.carry.initial.get());
+                _elided_initializers.emplace(accumulator.direct->initial);
+            }
+        }
+    }
 
     using StmtExprMutator::operator();
 };
@@ -507,7 +643,7 @@ tvm::tirx::Stmt map_metal_cooperative_group(const tvm::tirx::For &loop, uint32_t
                                             bool cooperative_matrix, const PlannerOptions &options, luisa::vector<GroupPlan> &plans) {
     validate_domain(loop.get());
     auto groups = static_extent(loop->extent);
-    GroupWorkloadAnalysis analysis{cooperative_matrix};
+    GroupWorkloadAnalysis analysis{cooperative_matrix, loop.get()};
     analysis.workload.programs = groups;
     analysis(loop->body);
     auto planned = plan_group(analysis.workload, ExecutionLimits{max_threads, 32u, shared_memory_limit}, options);

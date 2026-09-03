@@ -6,6 +6,7 @@
 #include <tvm/tirx/stmt.h>
 
 #include <luisa/tile/bridge/tirx/planner.h>
+#include <luisa/core/stl/memory.h>
 
 namespace luisa::compute::tile::bridge::tirx::detail {
 
@@ -67,7 +68,23 @@ struct MatrixCarry {
 struct MatrixLoopEmission {
     tvm::tirx::Stmt before;
     tvm::tirx::Stmt after;
+    tvm::PrimExpr initial;
+    struct Output {
+        tvm::tirx::BufferVar buffer;
+        tvm::ffi::Array<tvm::PrimExpr> indices;
+        tvm::tirx::PrimVar row, column;
+        uint64_t stride;
+        bool transpose;
+    };
+    std::optional<Output> output;
 };
+
+// Match a canonical C-tile copy and prove every destination element/guard
+// in bounds under the enclosing loop domains. Unknown is not permission to
+// issue an unguarded cooperative store.
+[[nodiscard]] std::optional<MatrixLoopEmission::Output> metal_matrix_output(
+    const tvm::tirx::For &loop, const MatrixCarry &carry,
+    luisa::span<const tvm::tirx::ForNode *const> ancestors);
 
 // Select a native 8x8 FP32 matrix atom only for a proved reference MMA body.
 // Undefined means the ordinary independent-element realization must be used.

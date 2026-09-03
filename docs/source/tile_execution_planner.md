@@ -306,14 +306,52 @@ Promotion requires one directly recognized MMA and its full `D -> C` carry
 update, one local D allocation, and no other observation of C or D in that
 loop body. Reading the old accumulator into another carry, an explicit memory
 effect that observes it, or an unsupported annotated/control-flow body prevents
-promotion. Literal initialization, zero-iteration behavior, transposes, tails,
-and the nonresident fallback have numerical regressions. The eliminated D
-buffer reduces the shared-memory budget; the initial/final C storage remains.
+promotion. In particular, C must not also be an A/B multiplicand: the next
+iteration would otherwise read stale shared C while the updated value exists
+only in native fragments. A `break`, `continue`, or `return` between the MMA
+and its carry update also prevents promotion. Literal initialization,
+zero-iteration behavior, transposes, tails, and the nonresident fallback have
+regressions. This baseline eliminates D but retains initial/final C storage.
 
 This recognition currently applies to closed flat serial loops, including the
 window-1 lowering. Window-2 software-pipeline prologue/steady/drain structure
 generally retains the reference storage behavior. Joint pipeline/residency
 planning is future work, not a promise made by this transformation.
+
+### Direct accumulator output
+
+The resource plan can also remove C when its complete lifetime is recognized:
+
+~~~text
+source:    fill C; [load A/B -> MMA -> yield C]*; ...; store output <- C
+realized:  fill CF; [load A/B -> update CF]*;     ...; matrix-store output <- CF
+~~~
+
+Here CF is native fragment state, not a new DSL value kind. The global write
+stays at the original output statement, including when intervening code reads
+the old output. The transformation does not infer that different external
+buffers cannot alias, nor does it move a global write across another effect.
+
+Eligibility requires an unannotated compiler-owned C allocation, one complete
+FP32 literal fill, the closed recurrence, and exactly one complete C-to-global
+copy. A whole-group use audit rejects any other observation or pointer escape;
+`SeqStmt` grouping is not treated as a lifetime boundary. An explicit manual
+resource annotation prevents allocation removal. The output must have a
+positive compact affine row/column-major projection. Every output guard and
+every destination coordinate must be proved valid over the ancestor execution
+domains and the local matrix domain. The query uses TVMx's native C++
+`StmtSimplify` pass; unknown bounds keep the shared/guarded reference path.
+
+`PlannerOptions::direct_accumulator_store` independently disables this choice.
+`MatrixWorkload::has_direct_output` is an analysis fact, not a profitability
+hint. The selected `MatrixDistribution` reports whether it uses that proof.
+Both C and D can then be removed from the shared budget. Padded/offset and
+transposed destinations, ragged output fallback, an extra accumulator consumer,
+and a read of old output before the sink have full-output numerical tests.
+MMA-operand aliasing and interrupted carry updates are native-IR counterexamples,
+so incidental frontend value copies cannot conceal an unsafe residency proof.
+The pinned TVMx LLVM emitter rejects native `Break`/`Continue`; CPU tests check
+that specific rejection, while Metal executes those two control-flow oracles.
 
 ## 5. Implemented relative-work model
 
@@ -328,6 +366,9 @@ input transfers = G * (rm + rn) * Q * E       [rectangle]
 
 accumulator transfers = 2 * U * V * E        [nonresident]
                       = 2 * U * V * E / L    [proved resident]
+                      = 0                    [proved direct output]
+
+direct global stores  = U * V * E / L        [proved direct output]
 
 live fragment scalars/lane R = 2 * (rm*rn + rm + rn)
                             = 6              [reference]
@@ -342,6 +383,10 @@ score    = sum(work * pressure * parallel)
 
 Transfers count subgroup fragment operations, not unique DRAM bytes. Fragment
 scalar counts are live logical state, not compiler register allocations.
+Direct global stores are reported separately. They are not free: the original
+logical independent-element work still prices the output conservatively. It
+also still includes an elided literal fill; this bootstrap does not yet assign
+calibrated prices to different output protocols.
 Ordinary independent-element work is recorded but constant across this first
 mapping family; it does not yet predict the effect of thread count on copy
 throughput. The group count is recorded as a workload fact but is not yet used
@@ -351,15 +396,17 @@ repartition, launch, and pipeline-overlap models are not implemented here.
 
 For a 32x64 output tile, K tile 32, and 32 temporal iterations, one legal
 128-thread plan uses a 1x4 subgroup grid and 4x2 local fragments. It changes the
-accounting as follows (these are derived work counts, not timing claims):
+accounting as follows (these are derived work counts, not timing claims). The
+last column additionally requires the literal-fill/full-output proof above:
 
-| Quantity | One-atom reference | 4x2 resident fragments |
-|---|---:|---:|
-| Matrix atom issues | 4096 | 4096 |
-| A/B fragment transfers | 8192 | 3072 |
-| C/D fragment transfers | 2048 | 64 |
-| Live fragment scalars/lane | 6 | 28 |
-| Compact shared allocation | 28 KiB | 20 KiB |
+| Quantity | One-atom reference | 4x2 resident, shared output | 4x2 resident, direct output |
+|---|---:|---:|---:|
+| Matrix atom issues | 4096 | 4096 | 4096 |
+| A/B fragment transfers | 8192 | 3072 | 3072 |
+| C/D shared fragment transfers | 2048 | 64 | 0 |
+| Direct global fragment stores | 0 | 0 | 32 |
+| Live fragment scalars/lane | 6 | 28 | 28 |
+| Compact shared allocation | 28 KiB | 20 KiB | 12 KiB |
 
 The tradeoff is explicit: fewer repeated transfers and less shared storage,
 but more live per-subgroup state. A model must eventually price both using
@@ -395,7 +442,10 @@ thread count (or honor one exact requested count). For each MMA enumerate
 integer subgroup factorizations, derive local factors by division, and reject
 nonexact coverage or excess compiler fragment/code-size budget before scoring.
 The one-atom reference is always included. Eligible rectangular candidates use
-accumulator residency unless that optimization is disabled.
+accumulator residency unless that optimization is disabled. When the additional
+direct-output proof is present and enabled, they also eliminate C and its shared
+transfers. The current model prefers this choice; independent measurements must
+still validate its real runtime effect.
 
 Several operations share one group's resource limit, so independent greedy
 selection is insufficient. At a fixed thread count, dynamic programming keeps

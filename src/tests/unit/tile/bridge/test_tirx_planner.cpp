@@ -233,6 +233,45 @@ void test_capacity_requires_slower_resident_choice() {
     }
 }
 
+void test_direct_output_requires_proof_and_releases_both_buffers() {
+    auto work = workload(64u, 64u, 32u);
+    auto &matrix = work.matrices[0];
+    matrix.accumulator_iterations = 7u;
+    matrix.has_direct_output = true;
+    ExecutionLimits limits{256u, 32u, 16384u};
+    PlannerOptions options;
+    options.threads_per_group = 256u;
+    auto direct = plan_group(work, limits, options);
+    expect(direct.ok()) << direct.error;
+    if (direct) {
+        expect(direct.plan.matrices[0].persistent_accumulator && direct.plan.matrices[0].direct_accumulator_store);
+        expect(eq(direct.plan.shared_memory_bytes, 16384ull));
+        expect(eq(direct.plan.cost.direct_fragment_stores, 64.0));
+        check_coverage(matrix, direct.plan.matrices[0], 256u);
+        check_native_correspondence(matrix, direct.plan.matrices[0]);
+        auto unproved = matrix;
+        unproved.has_direct_output = false;
+        expect(!verify_matrix_distribution(unproved, direct.plan.matrices[0], 256u, 32u));
+        auto not_resident = direct.plan.matrices[0];
+        not_resident.persistent_accumulator = false;
+        expect(!verify_matrix_distribution(matrix, not_resident, 256u, 32u));
+    }
+    options.direct_accumulator_store = false;
+    expect(!plan_group(work, limits, options).ok());
+    limits.shared_memory_bytes = 32768u;
+    auto shared = plan_group(work, limits, options);
+    expect(shared.ok()) << shared.error;
+    if (shared) {
+        expect(!shared.plan.matrices[0].direct_accumulator_store);
+        expect(eq(shared.plan.shared_memory_bytes, 32768ull));
+        expect(eq(shared.plan.cost.direct_fragment_stores, 0.0));
+        expect(shared.plan.cost.shared_fragment_transfers > direct.plan.cost.shared_fragment_transfers);
+    }
+    options.direct_accumulator_store = true;
+    matrix.accumulator_iterations = 0u;
+    expect(!plan_group(work, limits, options).ok());
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -241,4 +280,5 @@ int main(int argc, char *argv[]) {
     "tile_planner_constraints_and_reference"_test = [] { test_constraints_and_reference(); };
     "tile_planner_multiple_contracts_and_model_separation"_test = [] { test_multiple_contracts_and_model_separation(); };
     "tile_planner_pareto_capacity_beats_local_greedy_choice"_test = [] { test_capacity_requires_slower_resident_choice(); };
+    "tile_planner_direct_output_proof_and_storage_accounting"_test = [] { test_direct_output_requires_proof_and_releases_both_buffers(); };
 }

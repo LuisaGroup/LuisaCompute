@@ -24,6 +24,9 @@ struct ExecutionCostModel {
 struct PlannerOptions {
     bool enabled{true};
     bool retain_accumulators{true};
+    // Elide the initial/final shared accumulator only when its literal fill
+    // and sole, fully in-bounds global store have been proved by analysis.
+    bool direct_accumulator_store{true};
     // Zero lets the solver choose. A nonzero value is an exact tuning
     // constraint, checked against the target before any code is generated.
     uint32_t threads_per_group{0u};
@@ -54,6 +57,7 @@ struct MatrixWorkload {
     // A proved closed recurrence: C -> MMA -> D -> yield C, with no other
     // observation of C/D inside this many loop iterations. Zero disables it.
     uint64_t accumulator_iterations{0u};
+    bool has_direct_output{false};
 };
 
 struct GroupWorkload {
@@ -73,6 +77,7 @@ struct MatrixDistribution {
     uint64_t atom_rows{1u};
     uint64_t atom_columns{1u};
     bool persistent_accumulator{false};
+    bool direct_accumulator_store{false};
 
     [[nodiscard]] bool rectangular() const noexcept { return subgroups_m != 0u && subgroups_n != 0u; }
 };
@@ -80,6 +85,7 @@ struct MatrixDistribution {
 struct PlanCost {
     double matrix_issues{0.0};
     double shared_fragment_transfers{0.0};
+    double direct_fragment_stores{0.0};
     uint64_t fragment_scalars_per_lane{0u};
     double score{0.0};
 };

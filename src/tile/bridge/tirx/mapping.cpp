@@ -12,8 +12,9 @@ namespace {
     if (!distribution.rectangular() || groups > std::numeric_limits<uint32_t>::max() / 32u ||
         workload.rows > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) ||
         workload.columns > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) { return false; }
-    // Time residency does not change the spatial relation.
+    // Time residency and the final destination do not change the spatial relation.
     distribution.persistent_accumulator = false;
+    distribution.direct_accumulator_store = false;
     return verify_matrix_distribution(workload, distribution, static_cast<uint32_t>(groups * 32u), 32u);
 }
 
