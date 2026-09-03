@@ -45,7 +45,7 @@ class BenchmarkContractTests(unittest.TestCase):
     def test_native_mapping_metadata_matches_the_request(self):
         case = MODULE.Case("gemm", 7, 17, 37)
         native = dict(backend="metal", operation="gemm", execution_scope="group", pipeline_window=2, mma_operations=1,
-                      cooperative_matrix=False, matrix_intrinsics=0, vectorize=True)
+                      cooperative_matrix=False, matrix_intrinsics=0, vectorize=True, auto_vectorize=False)
         MODULE.validate_native_metadata(native, case, "metal", "group")
         for key, value in (("backend", "cpu"), ("operation", "add"), ("execution_scope", "worker"), ("mma_operations", 0)):
             with self.subTest(key=key), self.assertRaises(RuntimeError):
@@ -57,7 +57,7 @@ class BenchmarkContractTests(unittest.TestCase):
     def test_native_pipeline_window_matches_the_request(self):
         case = MODULE.Case("gemm", 7, 17, 37)
         native = dict(backend="metal", operation="gemm", execution_scope="worker", mma_operations=1,
-                      cooperative_matrix=False, matrix_intrinsics=0, vectorize=True)
+                      cooperative_matrix=False, matrix_intrinsics=0, vectorize=True, auto_vectorize=False)
         for window in (1, 2):
             MODULE.validate_native_metadata(native | {"pipeline_window": window}, case, "metal", "worker", window)
             with self.assertRaisesRegex(RuntimeError, "pipeline-window"):
@@ -74,7 +74,7 @@ class BenchmarkContractTests(unittest.TestCase):
                                           ("metal", "group", (8, 8, 16))):
                 calls = int(enabled and backend == "metal" and scope == "group" and block == (8, 8, 16))
                 native = dict(backend=backend, operation="gemm", execution_scope=scope, pipeline_window=2,
-                              mma_operations=1, cooperative_matrix=enabled, matrix_intrinsics=calls, vectorize=True)
+                              mma_operations=1, cooperative_matrix=enabled, matrix_intrinsics=calls, vectorize=True, auto_vectorize=False)
                 arguments = (case, backend, scope, 2, enabled, block)
                 with self.subTest(enabled=enabled, backend=backend, scope=scope, block=block):
                     MODULE.validate_native_metadata(native, *arguments)
@@ -89,12 +89,22 @@ class BenchmarkContractTests(unittest.TestCase):
     def test_native_vectorization_metadata_matches_the_request(self):
         case = MODULE.Case("gemm", 7, 17, 37)
         native = dict(backend="cpu", operation="gemm", execution_scope="worker", pipeline_window=2,
-                      cooperative_matrix=False, matrix_intrinsics=0, mma_operations=1)
+                      cooperative_matrix=False, matrix_intrinsics=0, mma_operations=1, auto_vectorize=False)
         for enabled in (False, True):
             MODULE.validate_native_metadata(native | {"vectorize": enabled}, case, "cpu", "worker", vectorize=enabled)
             for invalid in (None, int(enabled), not enabled):
                 with self.subTest(enabled=enabled, invalid=invalid), self.assertRaisesRegex(RuntimeError, "vectorization"):
                     MODULE.validate_native_metadata(native | {"vectorize": invalid}, case, "cpu", "worker", vectorize=enabled)
+
+    def test_automatic_vectorization_is_a_separate_explicit_option(self):
+        case = MODULE.Case("gemm", 7, 17, 37)
+        native = dict(backend="cpu", operation="gemm", execution_scope="worker", pipeline_window=2,
+                      cooperative_matrix=False, matrix_intrinsics=0, mma_operations=1, vectorize=True)
+        for enabled in (False, True):
+            MODULE.validate_native_metadata(native | {"auto_vectorize": enabled}, case, "cpu", "worker", auto_vectorize=enabled)
+            for invalid in (None, int(enabled), not enabled):
+                with self.subTest(enabled=enabled, invalid=invalid), self.assertRaisesRegex(RuntimeError, "automatic-vectorization"):
+                    MODULE.validate_native_metadata(native | {"auto_vectorize": invalid}, case, "cpu", "worker", auto_vectorize=enabled)
 
     def test_jit_candidates_are_explicit_and_deduplicated(self):
         self.assertEqual(MODULE.tuning_candidates((8, 8, 16), 2, None, None), [])

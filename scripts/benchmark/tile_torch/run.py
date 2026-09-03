@@ -150,7 +150,8 @@ def tuning_candidates(block: tuple[int, int, int], window: int, blocks: str | No
 
 def validate_native_metadata(native: dict[str, Any], case: Case, backend: str, execution_scope: str,
                              pipeline_window: int = 2, cooperative_matrix: bool = False,
-                             gemm_block: tuple[int, int, int] = (8, 8, 16), vectorize: bool = True) -> None:
+                             gemm_block: tuple[int, int, int] = (8, 8, 16), vectorize: bool = True,
+                             auto_vectorize: bool = False) -> None:
     if native.get("backend") != backend or native.get("operation") != case.operation:
         raise RuntimeError("native backend/operation metadata does not match the request")
     if native.get("execution_scope") != execution_scope:
@@ -163,6 +164,8 @@ def validate_native_metadata(native: dict[str, Any], case: Case, backend: str, e
         raise RuntimeError("native cooperative-matrix metadata does not match the request")
     if native.get("vectorize") is not vectorize:
         raise RuntimeError("native vectorization metadata does not match the request")
+    if native.get("auto_vectorize") is not auto_vectorize:
+        raise RuntimeError("native automatic-vectorization metadata does not match the request")
     calls = native.get("matrix_intrinsics")
     if type(calls) is not int or calls < 0:
         raise RuntimeError("native matrix-intrinsic count must be a nonnegative integer")
@@ -197,7 +200,7 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
             command = [str(args.native), backend, case.operation, str(case.m), str(case.n), str(case.k),
                        *(str(x) for x in result["block"]), str(args.samples), str(args.sample_ms), str(args.warmup_ms), str(output),
                        args.execution_scope, str(args.pipeline_window), "matrix" if args.cooperative_matrix else "scalar",
-                       "no-vectorize" if args.no_vectorize else "vectorize"]
+                       "auto-vectorize" if args.auto_vectorize else "no-vectorize" if args.no_vectorize else "vectorize"]
             process = subprocess.run(command, capture_output=True, text=True, check=False, timeout=args.timeout)
             if process.returncode:
                 raise RuntimeError(f"native benchmark failed ({process.returncode}):\n{process.stderr}\n{process.stdout}")
@@ -206,7 +209,7 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
                 raise RuntimeError("native executable did not emit exactly one JSON result")
             native = json.loads(lines[0])
             validate_native_metadata(native, case, backend, args.execution_scope, args.pipeline_window,
-                                     args.cooperative_matrix, args.gemm_block, not args.no_vectorize)
+                                     args.cooperative_matrix, args.gemm_block, not args.no_vectorize, args.auto_vectorize)
             array = np.fromfile(output, dtype="<f4")
             if array.size != reference.numel():
                 raise RuntimeError("native output byte count is incorrect")
@@ -313,7 +316,7 @@ def write_report(report: dict[str, Any], directory: Path) -> None:
     lines = ["# TileIR/TVMx vs PyTorch", "", f"Generated: {metadata['timestamp']}", "",
              f"Hardware: {metadata['cpu']}; {metadata['platform']}. PyTorch {metadata['torch_version']}; FP32; {metadata['threads']} CPU threads.", "",
              f"Native root execution request: `{metadata.get('execution_scope', 'auto')}`. Explicit scopes fail on unsupported targets; `auto` uses the reference worker mapping.", "",
-             f"Native TIRx vectorization: `{metadata.get('vectorize', 'unrecorded')}`. When enabled, CPU independent-element domains are packed into SIMD without changing inner serial/reduction order. Disabling this does not disable LLVM's own optimizations.", "",
+             f"Native TIRx vectorization: `{metadata.get('vectorize', 'unrecorded')}`; experimental automatic CPU packing: `{metadata.get('auto_vectorize', 'unrecorded')}`. Automatic packing is opt-in and preserves inner serial/reduction order. Disabling TIRx vectorization does not disable LLVM's own optimizations.", "",
              "Both sides use device-resident inputs and preallocated outputs. Warm timings include host dispatch/binding overhead, exclude transfers and compilation, and are NOT GPU hardware-event times. PyTorch is eager (no torch.compile).", "",
              f"Native GEMM retains an MMA in TileIR. Cooperative-matrix capability requested: `{metadata.get('cooperative_matrix', False)}`. Eligible Metal group MMA can use native FP32 SIMD-group matrices; other cases retain contraction loops. The matrix-calls column counts static call sites in generated Metal source, not dynamic instruction executions. Base pipeline window: `{metadata.get('pipeline_window', 'unspecified')}`; tuned choices appear per row. Window 1 retains ordered execution, 2 permits safe software prefetching. Neither mode claims hardware-asynchronous transfers. Sort is not included in this performance comparison.", "",
              "Ratio = native / PyTorch; greater than 1 means native is slower. P50 is per-call batched throughput; latency columns synchronize each individual call. All values are microseconds.", "",
@@ -359,7 +362,9 @@ def main() -> int:
                         help="GEMM scheduling window: 1 is ordered, 2 permits software prefetching")
     parser.add_argument("--cooperative-matrix", action="store_true",
                         help="assert native FP32 matrix capability (Metal requires Apple GPU family 7+); default off")
-    parser.add_argument("--no-vectorize", action="store_true", help="disable TIRx vectorization, including CPU independent-element packing")
+    vectorization = parser.add_mutually_exclusive_group()
+    vectorization.add_argument("--no-vectorize", action="store_true", help="disable TIRx vectorization")
+    vectorization.add_argument("--auto-vectorize", action="store_true", help="opt in to experimental CPU independent-element SIMD packing; default off")
     parser.add_argument("--threads", type=int, default=8)
     parser.add_argument("--samples", type=int, default=9)
     parser.add_argument("--sample-ms", type=int, default=20)
@@ -413,6 +418,7 @@ def main() -> int:
         "pipeline_window": args.pipeline_window,
         "cooperative_matrix": args.cooperative_matrix,
         "vectorize": not args.no_vectorize,
+        "auto_vectorize": args.auto_vectorize,
         "gemm_tuning_candidates": [{"block": block, "pipeline_window": window} for block, window in args.tuning_candidates],
         "quick": args.quick, "timing": "synchronized device-resident host wall time including dispatch",
     }, "results": []}

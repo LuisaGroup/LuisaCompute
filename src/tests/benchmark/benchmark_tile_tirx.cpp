@@ -179,7 +179,7 @@ void print_samples(std::string_view name, const std::vector<double> &samples) {
 
 int main(int argc, char *argv[]) {
     if (argc < 13 || argc > 17) {
-        std::cerr << "Usage: benchmark_tile_tirx <cpu|metal> <gemm|add|sum|softmax> M N K BM BN BK samples sample-ms warmup-ms output.f32 [auto|worker|group] [pipeline-window:1|2] [scalar|matrix] [vectorize|no-vectorize]\n";
+        std::cerr << "Usage: benchmark_tile_tirx <cpu|metal> <gemm|add|sum|softmax> M N K BM BN BK samples sample-ms warmup-ms output.f32 [auto|worker|group] [pipeline-window:1|2] [scalar|matrix] [vectorize|no-vectorize|auto-vectorize]\n";
         return 1;
     }
     try {
@@ -196,8 +196,9 @@ int main(int argc, char *argv[]) {
         if (matrix_mode != "scalar" && matrix_mode != "matrix") { throw std::invalid_argument{"matrix mode must be scalar or matrix"}; }
         auto cooperative_matrix = matrix_mode == "matrix";
         auto vector_mode = argc == 17 ? std::string_view{argv[16]} : std::string_view{"vectorize"};
-        if (vector_mode != "vectorize" && vector_mode != "no-vectorize") { throw std::invalid_argument{"vector mode must be vectorize or no-vectorize"}; }
-        auto vectorize = vector_mode == "vectorize";
+        if (vector_mode != "vectorize" && vector_mode != "no-vectorize" && vector_mode != "auto-vectorize") { throw std::invalid_argument{"vector mode must be vectorize, no-vectorize, or auto-vectorize"}; }
+        auto vectorize = vector_mode != "no-vectorize";
+        auto auto_vectorize = vector_mode == "auto-vectorize";
         auto sample_count = positive_integer(argv[9]);
         auto target_ms = positive_integer(argv[10]);
         auto warmup_ms = positive_integer(argv[11]);
@@ -212,7 +213,7 @@ int main(int argc, char *argv[]) {
         auto kernel = capture(operation, cfg);
         auto capture_ms = milliseconds(start);
         start = Clock::now();
-        auto executable = runtime.build(kernel, true, cooperative_matrix, vectorize);
+        auto executable = runtime.build(kernel, true, cooperative_matrix, vectorize, auto_vectorize);
         auto compile_ms = milliseconds(start);
         if (!executable.ok()) { throw std::runtime_error{executable.error.c_str()}; }
         auto matrix_calls = matrix_intrinsics(executable.module.value());
@@ -263,6 +264,7 @@ int main(int argc, char *argv[]) {
                   << ",\"pipeline_window\":" << cfg.pipeline_window
                   << ",\"cooperative_matrix\":" << (cooperative_matrix ? "true" : "false")
                   << ",\"vectorize\":" << (vectorize ? "true" : "false")
+                  << ",\"auto_vectorize\":" << (auto_vectorize ? "true" : "false")
                   << ",\"matrix_intrinsics\":" << matrix_calls
                   << ",\"runtime_init_ms\":" << runtime_init_ms << ",\"capture_ms\":" << capture_ms
                   << ",\"compile_ms\":" << compile_ms << ",\"allocation_upload_ms\":" << allocation_upload_ms

@@ -314,7 +314,7 @@ void test_cpu_matrix_vectors_and_tails(Runtime &runtime) {
         for (auto window : {1u, 2u}) {
             auto kernel = gemm(runtime, cfg, window);
             for (auto vectorize : {false, true}) {
-                auto executable = runtime.build(kernel, true, false, vectorize);
+                auto executable = runtime.build(kernel, true, false, vectorize, vectorize);
                 expect(executable.ok()) << executable.error;
                 if (!executable.ok()) { continue; }
                 check_gemm(runtime, executable, cfg);
@@ -351,13 +351,17 @@ void test_cpu_matrix_preserves_k_order(Runtime &runtime) {
                           D(coord(0, 0), shape(m, n)).store(mma(a, b, zeros<float>(shape(m, n)), {.allow_reassociation = false}));
                       }
                   }).capture(tensor_shape(3, 4), tensor_shape(4, 5), tensor_shape(3, 5));
+    expect(!bridge::tirx::CompileOptions{}.auto_vectorize);
+    auto invalid = runtime.build(kernel, true, false, false, true);
+    expect(!invalid.ok());
+    expect(invalid.error.find("requires vectorization") != luisa::string::npos);
     vector<float> inputs;
     for (auto i = 0u; i < 3u; i++) { inputs.insert(inputs.end(), {16777216.0f, 1.0f, -16777216.0f, 0.5f}); }
     auto a = runtime.upload<float>({3, 4}, inputs);
     auto b = runtime.upload<float>({4, 5}, vector<float>(20, 1.0f));
     auto d = runtime.allocate<float>({3, 5});
     for (auto vectorize : {false, true}) {
-        auto executable = runtime.build(kernel, true, false, vectorize);
+        auto executable = runtime.build(kernel, true, false, vectorize, vectorize);
         expect(executable.ok()) << executable.error;
         if (!executable.ok()) { continue; }
         (*executable.entry)(a, b, d);

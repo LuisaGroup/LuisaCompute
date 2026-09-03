@@ -26,9 +26,11 @@ struct CompileOptions {
     PipelineKind pipeline{PipelineKind::STANDARD};
     // Disabling vectorization rejects an explicit vector execution constraint
     // instead of silently replacing the requested mapping with a serial loop.
-    // Also enables CPU independent-element packing; inner serial/reduction
-    // order remains unchanged. Independence comes from the domain semantics.
     bool vectorize{true};
+    // Opt-in CPU packing of inferred independent-element domains. It preserves
+    // inner serial/reduction order, but is not uniformly profitable yet.
+    // Explicit vector execution bindings only require vectorize, not this.
+    bool auto_vectorize{false};
     bool eliminate_common_subexpressions{true};
     // This is a caller contract, not something the bridge can infer from raw
     // PrimFunc parameters. Keep the conservative default when buffers may

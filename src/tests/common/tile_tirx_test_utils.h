@@ -97,7 +97,7 @@ public:
     [[nodiscard]] tvm::Device device() const noexcept { return _device; }
     [[nodiscard]] luisa::string_view target() const noexcept { return _target; }
 
-    [[nodiscard]] Executable build(const compute::tile::Kernel &kernel, bool noalias = false, bool cooperative_matrix = false, bool vectorize = true) const {
+    [[nodiscard]] Executable build(const compute::tile::Kernel &kernel, bool noalias = false, bool cooperative_matrix = false, bool vectorize = true, bool auto_vectorize = false) const {
         using namespace compute::tile::bridge::tirx;
         Executable result;
         if (!kernel.valid()) {
@@ -132,6 +132,7 @@ public:
         options.noalias = noalias;
         options.cooperative_matrix = cooperative_matrix;
         options.vectorize = vectorize;
+        options.auto_vectorize = auto_vectorize;
         auto compilation = compile(std::move(native.value), kernel.function().name(), options);
         if (!compilation) {
             result.error = luisa::string{compilation.error()};

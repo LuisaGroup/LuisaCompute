@@ -45,6 +45,7 @@ private:
     uint32_t _logical_parallel_depth{0u};
     uint32_t _vector_depth{0u};
     bool _vectorize;
+    bool _auto_vectorize;
     bool _cooperative_matrix;
     std::string _target_name;
 
@@ -182,7 +183,7 @@ protected:
             auto result = StmtMutator::VisitStmt_(loop);
             if (loop->annotations.count(independent_elements_annotation)) {
                 auto mapped = result.as_or_throw<tvm::tirx::For>();
-                if (_binding == RootParallelBinding::CPU_THREADS && _vectorize && _vector_depth == 0u) {
+                if (_binding == RootParallelBinding::CPU_THREADS && _auto_vectorize && _vector_depth == 0u) {
                     auto packed = vectorize_independent_elements(mapped);
                     if (packed.defined()) { return packed; }
                 }
@@ -232,9 +233,9 @@ protected:
 
 public:
     ExecutionMapper(RootParallelBinding binding, uint32_t gpu_threads_per_block, uint64_t shared_memory_limit,
-                    bool vectorize, bool cooperative_matrix, std::string target_name) noexcept
+                    bool vectorize, bool auto_vectorize, bool cooperative_matrix, std::string target_name) noexcept
         : _binding{binding}, _gpu_threads_per_block{gpu_threads_per_block}, _shared_memory_limit{shared_memory_limit},
-          _vectorize{vectorize}, _cooperative_matrix{cooperative_matrix}, _target_name{std::move(target_name)} {}
+          _vectorize{vectorize}, _auto_vectorize{auto_vectorize}, _cooperative_matrix{cooperative_matrix}, _target_name{std::move(target_name)} {}
 
     using StmtMutator::operator();
 };
@@ -262,9 +263,7 @@ public:
 [[nodiscard]] tvm::IRModule map_execution(
     tvm::IRModule module,
     const tvm::Target &target,
-    bool vectorize,
-    bool noalias,
-    bool cooperative_matrix) {
+    const CompileOptions &options) {
     auto binding = resolve_parallel_binding(target);
     auto threads = uint32_t{1u};
     auto shared_memory_limit = uint64_t{0u};
@@ -279,7 +278,7 @@ public:
             shared_memory_limit = static_cast<uint64_t>(std::max<int64_t>(0, maximum.value()));
         }
     }
-    cooperative_matrix &= target->kind->name == "metal" && target->GetAttr<int64_t>("thread_warp_size").value_or(0) == 32;
+    auto cooperative_matrix = options.cooperative_matrix && target->kind->name == "metal" && target->GetAttr<int64_t>("thread_warp_size").value_or(0) == 32;
     FunctionMap functions;
     for (auto &&[global, base_function] : module->functions) {
         auto function = base_function.as<tvm::tirx::PrimFunc>();
@@ -287,8 +286,8 @@ public:
             throw std::runtime_error{"Tile TIRx execution mapping only accepts PrimFunc modules"};
         }
         auto mapped = function.value();
-        mapped.CopyOnWrite()->body = schedule_pipelines(mapped->body, noalias, shared_memory_limit);
-        mapped.CopyOnWrite()->body = ExecutionMapper{binding, threads, shared_memory_limit, vectorize, cooperative_matrix, std::string{target->kind->name}}(mapped->body);
+        mapped.CopyOnWrite()->body = schedule_pipelines(mapped->body, options.noalias, shared_memory_limit);
+        mapped.CopyOnWrite()->body = ExecutionMapper{binding, threads, shared_memory_limit, options.vectorize, options.auto_vectorize, cooperative_matrix, std::string{target->kind->name}}(mapped->body);
         functions.Set(global, std::move(mapped));
     }
     return make_module(std::move(functions), module->attrs, module->global_infos);
@@ -435,11 +434,12 @@ CompilationResult compile(tvm::IRModule module, const CompileOptions &options) n
     if (!module.defined()) { return CompilationResult{luisa::string{"cannot compile an undefined TIRx module"}}; }
     if (options.target.empty()) { return CompilationResult{luisa::string{"TIRx target must not be empty"}}; }
     if (options.host.empty()) { return CompilationResult{luisa::string{"TIRx host target must not be empty"}}; }
+    if (options.auto_vectorize && !options.vectorize) { return CompilationResult{luisa::string{"automatic vectorization requires vectorization to be enabled"}}; }
     try {
         tvm::Target device_target{tvm::ffi::String{options.target}};
         tvm::Target host_target{tvm::ffi::String{options.host}};
         tvm::Target bound_target{device_target, host_target};
-        module = detail::map_execution(std::move(module), device_target, options.vectorize, options.noalias, options.cooperative_matrix);
+        module = detail::map_execution(std::move(module), device_target, options);
         detail::run_common_pipeline(module, options, bound_target);
 
         detail::FunctionMap host_functions;

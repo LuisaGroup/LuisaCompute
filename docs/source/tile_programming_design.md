@@ -2632,7 +2632,7 @@ updates have separate numerical regressions, alongside a generated LLVM
 vector-instruction check. Explicitly placed/laid-out resources are not
 rewritten by this compact-local-storage transformation.
 
-CPU automatic vectorization also consumes the independent-element domain
+Opt-in CPU automatic vectorization consumes the independent-element domain
 contract, without matching a particular operator or re-proving independence.
 For a supported rectangular domain it factors the innermost element axis as
 `i = min + pack * width + lane`, emits power-of-two vector packs of 4--16
@@ -2646,8 +2646,11 @@ independent accumulator chains without changing temporal order. There is no
 new per-MMA scratch allocation or DSL entity.
 Bodies containing allocations, while loops, or nested nonserial execution
 keep their reference mapping until the corresponding vectorization/storage
-support exists. `CompileOptions::vectorize = false` disables this optional
-packing; it still rejects explicitly requested vector execution. Tests cover
+support exists. `CompileOptions::auto_vectorize` defaults to false: measurements
+show both wins and substantial regressions, so this is a tunable candidate,
+not the default realization. Enabling it requires `vectorize = true`.
+Explicit vector execution bindings remain independent of this opt-in; disabling
+`vectorize` still rejects those explicit bindings. Tests cover
 scalar tails, transposes, ordered cancellation, and generated vector products.
 
 Metal group binding similarly includes a resource transformation, not just a

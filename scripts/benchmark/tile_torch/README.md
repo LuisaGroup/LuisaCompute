@@ -49,10 +49,13 @@ an earlier favorable trial. Search cost (including validation/framework timing)
 is separate from warm execution cost. This does not autotune PyTorch or
 establish a globally optimal configuration.
 
-On CPU, `--no-vectorize` disables TIRx independent-element SIMD packing for a
-same-binary comparison. It does not disable LLVM's own optimizations. Packing
-uses the domain's semantic independence and preserves inner serial/reduction
-order; it does not infer a new reduction permission or narrow input precision.
+On CPU, `--auto-vectorize` opts in to experimental independent-element SIMD
+packing. It is off by default: the current heuristic has both wins and
+substantial regressions. Packing uses semantic independence and preserves
+inner serial/reduction order; it does not infer a new reduction permission or
+narrow input precision. Explicit vector execution scopes still work without
+this option. `--no-vectorize` disables TIRx vectorization altogether; it does
+not disable LLVM's own optimizations. The two flags are mutually exclusive.
 Reports record the executable hash and adjacent Tile/bridge shared-library
 hashes separately, because rebuilding a dynamic bridge need not change the
 executable itself. These hashes are not a complete runtime dependency trace.
