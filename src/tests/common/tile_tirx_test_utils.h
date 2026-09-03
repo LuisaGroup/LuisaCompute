@@ -52,6 +52,7 @@ struct Executable {
     tvm::ffi::Optional<tvm::ffi::Module> module;
     tvm::ffi::Optional<tvm::ffi::Function> entry;
     luisa::string error;
+    luisa::vector<compute::tile::bridge::tirx::GroupPlan> plans;
 
     [[nodiscard]] bool ok() const noexcept {
         return error.empty() && module.has_value() && entry.has_value();
@@ -97,7 +98,8 @@ public:
     [[nodiscard]] tvm::Device device() const noexcept { return _device; }
     [[nodiscard]] luisa::string_view target() const noexcept { return _target; }
 
-    [[nodiscard]] Executable build(const compute::tile::Kernel &kernel, bool noalias = false, bool cooperative_matrix = false, bool vectorize = true, bool auto_vectorize = false) const {
+    [[nodiscard]] Executable build(const compute::tile::Kernel &kernel, bool noalias = false, bool cooperative_matrix = false, bool vectorize = true, bool auto_vectorize = false,
+                                   const compute::tile::bridge::tirx::PlannerOptions &planner = {}) const {
         using namespace compute::tile::bridge::tirx;
         Executable result;
         if (!kernel.valid()) {
@@ -133,12 +135,14 @@ public:
         options.cooperative_matrix = cooperative_matrix;
         options.vectorize = vectorize;
         options.auto_vectorize = auto_vectorize;
+        options.planner = planner;
         auto compilation = compile(std::move(native.value), kernel.function().name(), options);
         if (!compilation) {
             result.error = luisa::string{compilation.error()};
             return result;
         }
         result.module = compilation.module();
+        result.plans.assign(compilation.plans().begin(), compilation.plans().end());
         auto name = kernel.function().name();
         result.entry = result.module.value()->GetFunction(
             tvm::ffi::String{name.data(), name.size()}, true);

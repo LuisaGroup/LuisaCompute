@@ -14,6 +14,7 @@
 #include <functional>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string_view>
 #include <vector>
@@ -63,6 +64,33 @@ struct Configuration {
 
 [[nodiscard]] double milliseconds(Clock::time_point start) {
     return std::chrono::duration<double, std::milli>{Clock::now() - start}.count();
+}
+
+void print_plans(luisa::span<const bridge::tirx::GroupPlan> plans) {
+    std::cout << "\"execution_plans\":[";
+    auto separator = "";
+    for (auto &plan : plans) {
+        std::cout << separator << "{\"threads\":" << plan.threads
+                  << ",\"shared_memory_bytes\":" << plan.shared_memory_bytes
+                  << ",\"optimized\":" << (plan.optimized ? "true" : "false")
+                  << ",\"candidates_considered\":" << plan.candidates_considered
+                  << ",\"candidates_rejected\":" << plan.candidates_rejected
+                  << ",\"normalized_cost\":" << plan.cost.score
+                  << ",\"matrix_issues\":" << plan.cost.matrix_issues
+                  << ",\"shared_fragment_transfers\":" << plan.cost.shared_fragment_transfers
+                  << ",\"fragment_scalars_per_lane\":" << plan.cost.fragment_scalars_per_lane
+                  << ",\"matrices\":[";
+        auto matrix_separator = "";
+        for (auto &matrix : plan.matrices) {
+            std::cout << matrix_separator << "{\"subgroups_m\":" << matrix.subgroups_m << ",\"subgroups_n\":" << matrix.subgroups_n
+                      << ",\"atom_rows\":" << matrix.atom_rows << ",\"atom_columns\":" << matrix.atom_columns
+                      << ",\"persistent_accumulator\":" << (matrix.persistent_accumulator ? "true" : "false") << '}';
+            matrix_separator = ",";
+        }
+        std::cout << "]}";
+        separator = ",";
+    }
+    std::cout << ']';
 }
 
 // Count actual static call sites in the generated Metal source, not merely
@@ -192,8 +220,8 @@ void print_samples(std::string_view name, const std::vector<double> &samples) {
 }// namespace
 
 int main(int argc, char *argv[]) {
-    if (argc < 13 || argc > 17) {
-        std::cerr << "Usage: benchmark_tile_tirx <cpu|metal> <gemm|add|sum|softmax> M N K BM BN BK samples sample-ms warmup-ms output.f32 [auto|worker|group] [pipeline-window:1|2] [scalar|matrix] [vectorize|no-vectorize|auto-vectorize]\n";
+    if (argc < 13 || argc > 18) {
+        std::cerr << "Usage: benchmark_tile_tirx <cpu|metal> <gemm|add|sum|softmax> M N K BM BN BK samples sample-ms warmup-ms output.f32 [auto|worker|group] [pipeline-window:1|2] [scalar|matrix] [vectorize|no-vectorize|auto-vectorize] [group-threads:auto|N]\n";
         return 1;
     }
     try {
@@ -209,10 +237,18 @@ int main(int argc, char *argv[]) {
         auto matrix_mode = argc >= 16 ? std::string_view{argv[15]} : std::string_view{"scalar"};
         if (matrix_mode != "scalar" && matrix_mode != "matrix") { throw std::invalid_argument{"matrix mode must be scalar or matrix"}; }
         auto cooperative_matrix = matrix_mode == "matrix";
-        auto vector_mode = argc == 17 ? std::string_view{argv[16]} : std::string_view{"vectorize"};
+        auto vector_mode = argc >= 17 ? std::string_view{argv[16]} : std::string_view{"vectorize"};
         if (vector_mode != "vectorize" && vector_mode != "no-vectorize" && vector_mode != "auto-vectorize") { throw std::invalid_argument{"vector mode must be vectorize, no-vectorize, or auto-vectorize"}; }
         auto vectorize = vector_mode != "no-vectorize";
         auto auto_vectorize = vector_mode == "auto-vectorize";
+        bridge::tirx::PlannerOptions planner;
+        if (argc == 18 && std::string_view{argv[17]} != "auto") {
+            auto requested = positive_integer(argv[17]);
+            if (requested > std::numeric_limits<uint32_t>::max() || backend != "metal" || cfg.execution_scope != exec::Scope::GROUP) {
+                throw std::invalid_argument{"explicit group threads require a uint32 count and Metal group execution"};
+            }
+            planner.threads_per_group = static_cast<uint32_t>(requested);
+        }
         auto sample_count = positive_integer(argv[9]);
         auto target_ms = positive_integer(argv[10]);
         auto warmup_ms = positive_integer(argv[11]);
@@ -227,7 +263,7 @@ int main(int argc, char *argv[]) {
         auto kernel = capture(operation, cfg);
         auto capture_ms = milliseconds(start);
         start = Clock::now();
-        auto executable = runtime.build(kernel, true, cooperative_matrix, vectorize, auto_vectorize);
+        auto executable = runtime.build(kernel, true, cooperative_matrix, vectorize, auto_vectorize, planner);
         auto compile_ms = milliseconds(start);
         if (!executable.ok()) { throw std::runtime_error{executable.error.c_str()}; }
         auto matrix_calls = matrix_intrinsics(executable.module.value());
@@ -283,6 +319,7 @@ int main(int argc, char *argv[]) {
                   << ",\"cooperative_matrix\":" << (cooperative_matrix ? "true" : "false")
                   << ",\"vectorize\":" << (vectorize ? "true" : "false")
                   << ",\"auto_vectorize\":" << (auto_vectorize ? "true" : "false")
+                  << ",\"planner_threads\":" << planner.threads_per_group
                   << ",\"matrix_intrinsics\":" << matrix_calls
                   << ",\"runtime_init_ms\":" << runtime_init_ms << ",\"capture_ms\":" << capture_ms
                   << ",\"compile_ms\":" << compile_ms << ",\"allocation_upload_ms\":" << allocation_upload_ms
@@ -294,6 +331,8 @@ int main(int argc, char *argv[]) {
         print_samples("throughput_us", throughput_us);
         std::cout << ',';
         print_samples("latency_us", latency_us);
+        std::cout << ',';
+        print_plans(executable.plans);
         std::cout << "}\n";
     } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';

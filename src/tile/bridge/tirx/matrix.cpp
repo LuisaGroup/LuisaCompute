@@ -1,11 +1,14 @@
 #include <array>
 #include <limits>
 #include <optional>
+#include <stdexcept>
 
 #include <tvm/ffi/extra/structural_equal.h>
 #include <tvm/tirx/builtin.h>
 #include <tvm/tirx/op.h>
 #include <tvm/tirx/stmt_functor.h>
+
+#include <luisa/tile/bridge/tirx/layout.h>
 
 #include "execution.h"
 
@@ -90,6 +93,7 @@ struct MatrixView {
     tvm::ffi::Array<tvm::PrimExpr> indices;
     uint64_t stride;
     bool transpose;
+    tvm::tirx::BufferVar source;
 };
 
 [[nodiscard]] std::optional<MatrixView> matrix_view(
@@ -123,10 +127,10 @@ struct MatrixView {
     auto row_stride = linear.strides[row_axis];
     auto column_stride = linear.strides[column_axis];
     if (column_stride == 1u && row_stride >= columns) {
-        return MatrixView{std::move(buffer), load->indices, row_stride, false};
+        return MatrixView{std::move(buffer), load->indices, row_stride, false, load->buffer};
     }
     if (row_stride == 1u && column_stride >= rows) {
-        return MatrixView{std::move(buffer), load->indices, column_stride, true};
+        return MatrixView{std::move(buffer), load->indices, column_stride, true, load->buffer};
     }
     return {};
 }
@@ -138,10 +142,10 @@ struct MatrixView {
 
 [[nodiscard]] tvm::tirx::Stmt matrix_transfer(
     const tvm::tirx::BufferVar &fragment, const MatrixView &view,
-    const Coordinates &coordinates, bool store) {
+    const Coordinates &coordinates, bool store, int32_t fragment_index = 0) {
     static const auto load_op = tvm::Op::Get("tirx.simdgroup_load");
     static const auto store_op = tvm::Op::Get("tirx.simdgroup_store");
-    return tvm::tirx::Evaluate{tvm::Call{tvm::PrimType::Void(), store ? store_op : load_op, {fragment, tvm::IntImm::Int32(0), matrix_address(view, coordinates), tvm::IntImm::Int64(static_cast<int64_t>(view.stride)), tvm::IntImm::Int32(8), tvm::IntImm::Int32(8), tvm::IntImm::Bool(view.transpose)}}};
+    return tvm::tirx::Evaluate{tvm::Call{tvm::PrimType::Void(), store ? store_op : load_op, {fragment, tvm::IntImm::Int32(fragment_index), matrix_address(view, coordinates), tvm::IntImm::Int64(static_cast<int64_t>(view.stride)), tvm::IntImm::Int32(8), tvm::IntImm::Int32(8), tvm::IntImm::Bool(view.transpose)}}};
 }
 
 [[nodiscard]] int64_t matrix_extent(const tvm::tirx::ForNode *loop) {
@@ -156,14 +160,31 @@ struct MatrixView {
     return extent->value;
 }
 
-}// namespace
+struct MatchedMatrix {
+    Axes axes;
+    MatrixView a, b, d;
+    std::optional<MatrixView> c;
+    tvm::PrimExpr initial;
+    int64_t m, n, k;
+};
 
-tvm::tirx::Stmt try_metal_matrix(
-    const tvm::tirx::For &loop, const tvm::tirx::PrimVar &thread, uint64_t threads,
+[[gnu::noinline]] int32_t native_fragment_index(const tvm::tirx::Layout &layout,
+                                                const tvm::ffi::Array<tvm::PrimExpr> &shape, int64_t row, int64_t column) {
+    auto placement = layout->Apply({tvm::IntImm::Int64(row), tvm::IntImm::Int64(column)}, shape);
+    auto index = placement.Get("m");
+    auto constant = index ? index->as<tvm::IntImmNode>() : nullptr;
+    if (constant == nullptr || constant->value < 0 || constant->value > std::numeric_limits<int32_t>::max()) {
+        throw std::runtime_error{"native matrix distribution did not resolve a static fragment ordinal"};
+    }
+    return static_cast<int32_t>(constant->value);
+}
+
+[[nodiscard]] std::optional<MatchedMatrix> match_metal_matrix(
+    const tvm::tirx::For &loop,
     const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer) {
     auto permission = loop->annotations.Get(mma_annotation);
     auto independent = loop->annotations.Get(independent_elements_annotation);
-    if (!permission || !independent || threads < 32u || threads % 32u != 0u || loop->annotations.size() != 2u) { return {}; }
+    if (!permission || !independent || loop->annotations.size() != 2u) { return {}; }
     auto reassociate = permission.value().as<tvm::IntImmNode>();
     auto rank = independent.value().as<tvm::IntImmNode>();
     if (reassociate == nullptr || reassociate->value != 1 || rank == nullptr || rank->value != 2) { return {}; }
@@ -198,6 +219,121 @@ tvm::tirx::Stmt try_metal_matrix(
     auto c = matrix_view(init->value.as<tvm::tirx::BufferLoadNode>(), axes, 0u, 1u, m, n, map_buffer);
     if ((fill == nullptr || init->value.ty() != tvm::PrimType::Float(32)) && !c) { return {}; }
     if (c && d->buffer.same_as(c->buffer)) { return {}; }
+    return MatchedMatrix{axes, *a, *b, *d, c, init->value, m, n, k};
+}
+
+[[nodiscard]] tvm::tirx::Stmt rectangular_matrix(
+    const MatchedMatrix &matrix, const MatrixDistribution &distribution,
+    const tvm::tirx::PrimVar &thread, MatrixLoopEmission *loop_emission) {
+    auto suffix = matrix.axes[0]->name;
+    auto rows = static_cast<int64_t>(distribution.atom_rows);
+    auto columns = static_cast<int64_t>(distribution.atom_columns);
+    auto subgroup = tvm::floordiv(thread, tvm::IntImm::Int64(32));
+    MatrixWorkload workload{static_cast<uint64_t>(matrix.m), static_cast<uint64_t>(matrix.n), static_cast<uint64_t>(matrix.k)};
+    auto layout = matrix_distribution_layout(workload, distribution);
+    if (!layout) { throw std::runtime_error{layout.error.c_str()}; }
+    tvm::ffi::Array<tvm::PrimExpr> atom_shape{tvm::IntImm::Int64(matrix.m / 8), tvm::IntImm::Int64(matrix.n / 8)};
+    auto fragment_index = [&](int64_t i, int64_t j) { return native_fragment_index(layout.value, atom_shape, i, j); };
+    auto af = tvm::tirx::decl_buffer({tvm::IntImm::Int64(rows * 64)}, tvm::PrimType::Float(32), suffix + "_mma_a", "metal.simdgroup");
+    auto bf = tvm::tirx::decl_buffer({tvm::IntImm::Int64(columns * 64)}, tvm::PrimType::Float(32), suffix + "_mma_b", "metal.simdgroup");
+    auto cf = tvm::tirx::decl_buffer({tvm::IntImm::Int64(rows * columns * 64)}, tvm::PrimType::Float(32), suffix + "_mma_c", "metal.simdgroup");
+    auto reduction = tvm::tirx::PrimVar{suffix + "_mma_k", tvm::PrimType::Int(64)};
+    auto coordinates = [&](int64_t i, int64_t j) {
+        auto mapped = matrix_atom_coordinates(workload, distribution, subgroup, tvm::IntImm::Int64(i * columns + j));
+        if (!mapped) { throw std::runtime_error{mapped.error.c_str()}; }
+        return Coordinates{{matrix.axes[0], mapped.value[0] * tvm::IntImm::Int64(8)},
+                           {matrix.axes[1], mapped.value[1] * tvm::IntImm::Int64(8)},
+                           {matrix.axes[2], reduction * tvm::IntImm::Int64(8)}};
+    };
+    tvm::ffi::Array<tvm::tirx::Stmt> initial{tvm::tirx::AllocBuffer{cf}};
+    tvm::ffi::Array<tvm::tirx::Stmt> statements{tvm::tirx::AllocBuffer{af}, tvm::tirx::AllocBuffer{bf}};
+    tvm::ffi::Array<tvm::tirx::Stmt> final;
+    static const auto fill_op = tvm::Op::Get("tirx.make_filled_simdgroup_matrix");
+    for (auto i = int64_t{0}; i < rows; i++) {
+        for (auto j = int64_t{0}; j < columns; j++) {
+            auto index = fragment_index(i, j);
+            if (matrix.c) {
+                initial.push_back(matrix_transfer(cf, *matrix.c, coordinates(i, j), false, index));
+            } else {
+                initial.push_back(tvm::tirx::Evaluate{tvm::Call{tvm::PrimType::Void(), fill_op, {cf, tvm::IntImm::Int32(index), matrix.initial, tvm::IntImm::Int32(8), tvm::IntImm::Int32(8)}}});
+            }
+        }
+    }
+    // The contraction is outside the local output-fragment grid. Each A/B
+    // fragment is loaded once and reused by all applicable accumulators.
+    tvm::ffi::Array<tvm::tirx::Stmt> step;
+    for (auto i = int64_t{0}; i < rows; i++) { step.push_back(matrix_transfer(af, matrix.a, coordinates(i, 0), false, static_cast<int32_t>(i))); }
+    for (auto j = int64_t{0}; j < columns; j++) { step.push_back(matrix_transfer(bf, matrix.b, coordinates(0, j), false, static_cast<int32_t>(j))); }
+    static const auto mma_op = tvm::Op::Get("tirx.simdgroup_multiply_accumulate");
+    for (auto i = int64_t{0}; i < rows; i++) {
+        for (auto j = int64_t{0}; j < columns; j++) {
+            auto index = tvm::IntImm::Int32(fragment_index(i, j));
+            step.push_back(tvm::tirx::Evaluate{tvm::Call{tvm::PrimType::Void(), mma_op, {cf, index, af, tvm::IntImm::Int32(static_cast<int32_t>(i)), bf, tvm::IntImm::Int32(static_cast<int32_t>(j)), cf, index}}});
+        }
+    }
+    statements.push_back(tvm::tirx::For{reduction, tvm::IntImm::Int64(0), tvm::IntImm::Int64(matrix.k / 8),
+                                        tvm::tirx::ForKind::kSerial, tvm::tirx::SeqStmt::Flatten(step)});
+    for (auto i = int64_t{0}; i < rows; i++) {
+        for (auto j = int64_t{0}; j < columns; j++) {
+            auto &destination = loop_emission == nullptr ? matrix.d : *matrix.c;
+            final.push_back(matrix_transfer(cf, destination, coordinates(i, j), true, fragment_index(i, j)));
+        }
+    }
+    if (loop_emission != nullptr) {
+        loop_emission->before = tvm::tirx::SeqStmt::Flatten(initial);
+        loop_emission->after = tvm::tirx::SeqStmt::Flatten(final);
+        return tvm::tirx::SeqStmt::Flatten(statements);
+    }
+    initial.push_back(tvm::tirx::SeqStmt::Flatten(statements));
+    initial.push_back(tvm::tirx::SeqStmt::Flatten(final));
+    return tvm::tirx::SeqStmt::Flatten(initial);
+}
+
+}// namespace
+
+std::optional<MatrixWorkload> metal_matrix_workload(
+    const tvm::tirx::For &loop,
+    const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer) {
+    if (auto matched = match_metal_matrix(loop, map_buffer)) {
+        return MatrixWorkload{static_cast<uint64_t>(matched->m), static_cast<uint64_t>(matched->n), static_cast<uint64_t>(matched->k)};
+    }
+    return {};
+}
+
+std::optional<MatrixCarry> metal_matrix_carry(
+    const tvm::tirx::For &loop,
+    const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer) {
+    auto matrix = match_metal_matrix(loop, map_buffer);
+    if (!matrix || !matrix->c) { return {}; }
+    for (auto view : {&*matrix->c, &matrix->d}) {
+        if (view->transpose || view->stride != static_cast<uint64_t>(matrix->n) || view->indices.size() != 2u ||
+            view->source->shape.size() != 2u || !view->indices[0].same_as(matrix->axes[0]) || !view->indices[1].same_as(matrix->axes[1])) { return {}; }
+        auto m = view->source->shape[0].as<tvm::IntImmNode>();
+        auto n = view->source->shape[1].as<tvm::IntImmNode>();
+        if (m == nullptr || n == nullptr || m->value != matrix->m || n->value != matrix->n) { return {}; }
+    }
+    return MatrixCarry{matrix->c->source, matrix->d.source, static_cast<uint64_t>(matrix->m), static_cast<uint64_t>(matrix->n)};
+}
+
+tvm::tirx::Stmt try_metal_matrix(
+    const tvm::tirx::For &loop, const tvm::tirx::PrimVar &thread, uint64_t threads,
+    const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer,
+    const MatrixDistribution &distribution, MatrixLoopEmission *loop_emission) {
+    if (threads < 32u || threads % 32u != 0u) { return {}; }
+    auto matched = match_metal_matrix(loop, map_buffer);
+    if (!matched) { return {}; }
+    auto &[axes, a_view, b_view, d_view, c, initial, m, n, k] = *matched;
+    auto a = &a_view;
+    auto b = &b_view;
+    auto d = &d_view;
+    if (distribution.rectangular()) {
+        MatrixWorkload workload{static_cast<uint64_t>(m), static_cast<uint64_t>(n), static_cast<uint64_t>(k)};
+        workload.accumulator_iterations = loop_emission == nullptr ? 0u : 1u;
+        if (threads > std::numeric_limits<uint32_t>::max() ||
+            !verify_matrix_distribution(workload, distribution, static_cast<uint32_t>(threads), 32u)) { return {}; }
+        if (loop_emission != nullptr && (!distribution.persistent_accumulator || !metal_matrix_carry(loop, map_buffer))) { return {}; }
+        return rectangular_matrix(*matched, distribution, thread, loop_emission);
+    }
 
     auto suffix = loop->loop_var->name;
     auto af = tvm::tirx::decl_buffer({tvm::IntImm::Int64(64)}, tvm::PrimType::Float(32), suffix + "_mma_a", "metal.simdgroup");
@@ -218,7 +354,7 @@ tvm::tirx::Stmt try_metal_matrix(
         statements.push_back(matrix_transfer(cf, *c, coordinates, false));
     } else {
         static const auto fill_op = tvm::Op::Get("tirx.make_filled_simdgroup_matrix");
-        statements.push_back(tvm::tirx::Evaluate{tvm::Call{tvm::PrimType::Void(), fill_op, {cf, tvm::IntImm::Int32(0), init->value, tvm::IntImm::Int32(8), tvm::IntImm::Int32(8)}}});
+        statements.push_back(tvm::tirx::Evaluate{tvm::Call{tvm::PrimType::Void(), fill_op, {cf, tvm::IntImm::Int32(0), initial, tvm::IntImm::Int32(8), tvm::IntImm::Int32(8)}}});
     }
     static const auto mma_op = tvm::Op::Get("tirx.simdgroup_multiply_accumulate");
     auto multiply = tvm::tirx::Evaluate{tvm::Call{tvm::PrimType::Void(), mma_op, {cf, tvm::IntImm::Int32(0), af, tvm::IntImm::Int32(0), bf, tvm::IntImm::Int32(0), cf, tvm::IntImm::Int32(0)}}};

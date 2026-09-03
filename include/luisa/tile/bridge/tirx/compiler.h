@@ -10,6 +10,7 @@
 
 #include <luisa/core/dll_export.h>
 #include <luisa/core/stl/string.h>
+#include <luisa/tile/bridge/tirx/planner.h>
 
 namespace luisa::compute::tile::bridge::tirx {
 
@@ -42,6 +43,7 @@ struct CompileOptions {
     // to infer this feature. Ineligible shapes, scopes, or MMA policies keep
     // the reference realization; no input precision is reduced.
     bool cooperative_matrix{false};
+    PlannerOptions planner;
 };
 
 class LUISA_TILE_TIRX_BRIDGE_API CompilationResult final {
@@ -49,11 +51,12 @@ class LUISA_TILE_TIRX_BRIDGE_API CompilationResult final {
 private:
     tvm::ffi::Optional<tvm::ffi::Module> _module;
     luisa::string _error;
+    luisa::vector<GroupPlan> _plans;
 
 public:
     CompilationResult() noexcept = default;
-    explicit CompilationResult(tvm::ffi::Module module) noexcept
-        : _module{std::move(module)} {}
+    explicit CompilationResult(tvm::ffi::Module module, luisa::vector<GroupPlan> plans = {}) noexcept
+        : _module{std::move(module)}, _plans{std::move(plans)} {}
     explicit CompilationResult(luisa::string error) noexcept
         : _error{std::move(error)} {}
 
@@ -61,6 +64,7 @@ public:
     [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
     [[nodiscard]] const tvm::ffi::Optional<tvm::ffi::Module> &module() const noexcept { return _module; }
     [[nodiscard]] luisa::string_view error() const noexcept { return _error; }
+    [[nodiscard]] luisa::span<const GroupPlan> plans() const noexcept { return _plans; }
 };
 
 // Compiles a native TIRx module through the C++ pass and target registries.

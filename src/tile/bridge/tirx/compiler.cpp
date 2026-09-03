@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <exception>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -41,6 +42,7 @@ class ExecutionMapper final : public tvm::tirx::StmtMutator {
 private:
     RootParallelBinding _binding;
     uint32_t _gpu_threads_per_block;
+    uint32_t _gpu_group_thread_limit;
     uint64_t _shared_memory_limit;
     uint32_t _logical_parallel_depth{0u};
     uint32_t _vector_depth{0u};
@@ -48,6 +50,8 @@ private:
     bool _auto_vectorize;
     bool _cooperative_matrix;
     std::string _target_name;
+    const PlannerOptions &_planner;
+    luisa::vector<GroupPlan> &_plans;
 
 private:
     [[noreturn]] void _scope_error(
@@ -197,7 +201,7 @@ protected:
             scope && scope.value().as<tvm::ffi::String>() && scope.value().cast<tvm::ffi::String>() == "group") {
             if (_target_name != "metal") { _scope_error(loop, "group", "is not supported by this target's execution mapper"); }
             if (_logical_parallel_depth != 0u) { _scope_error(loop, "group", "requires a coordinate factorization for nested group bindings"); }
-            return map_metal_cooperative_group(tvm::ffi::GetRef<tvm::tirx::For>(loop), _gpu_threads_per_block, _shared_memory_limit, _cooperative_matrix);
+            return map_metal_cooperative_group(tvm::ffi::GetRef<tvm::tirx::For>(loop), _gpu_group_thread_limit, _shared_memory_limit, _cooperative_matrix, _planner, _plans);
         }
         // Resolve before mutating the body, including through unbound or
         // serial intermediate levels. Unsupported constraints are hard errors,
@@ -232,10 +236,12 @@ protected:
     }
 
 public:
-    ExecutionMapper(RootParallelBinding binding, uint32_t gpu_threads_per_block, uint64_t shared_memory_limit,
-                    bool vectorize, bool auto_vectorize, bool cooperative_matrix, std::string target_name) noexcept
-        : _binding{binding}, _gpu_threads_per_block{gpu_threads_per_block}, _shared_memory_limit{shared_memory_limit},
-          _vectorize{vectorize}, _auto_vectorize{auto_vectorize}, _cooperative_matrix{cooperative_matrix}, _target_name{std::move(target_name)} {}
+    ExecutionMapper(RootParallelBinding binding, uint32_t gpu_threads_per_block, uint32_t gpu_group_thread_limit, uint64_t shared_memory_limit,
+                    bool vectorize, bool auto_vectorize, bool cooperative_matrix, std::string target_name,
+                    const PlannerOptions &planner, luisa::vector<GroupPlan> &plans) noexcept
+        : _binding{binding}, _gpu_threads_per_block{gpu_threads_per_block}, _gpu_group_thread_limit{gpu_group_thread_limit}, _shared_memory_limit{shared_memory_limit},
+          _vectorize{vectorize}, _auto_vectorize{auto_vectorize}, _cooperative_matrix{cooperative_matrix}, _target_name{std::move(target_name)},
+          _planner{planner}, _plans{plans} {}
 
     using StmtMutator::operator();
 };
@@ -263,16 +269,22 @@ public:
 [[nodiscard]] tvm::IRModule map_execution(
     tvm::IRModule module,
     const tvm::Target &target,
-    const CompileOptions &options) {
+    const CompileOptions &options, luisa::vector<GroupPlan> &plans) {
     auto binding = resolve_parallel_binding(target);
     auto threads = uint32_t{1u};
+    auto group_thread_limit = uint32_t{1u};
     auto shared_memory_limit = uint64_t{0u};
     if (binding == RootParallelBinding::GPU_GRID) {
         threads = 256u;
+        group_thread_limit = threads;
         if (auto maximum = target->GetAttr<int64_t>("max_num_threads")) {
-            threads = std::min<uint32_t>(
-                threads,
-                static_cast<uint32_t>(std::max<int64_t>(1, maximum.value())));
+            if (maximum.value() <= 0 || maximum.value() > std::numeric_limits<uint32_t>::max()) {
+                throw std::runtime_error{"target thread capacity must be a positive uint32 value"};
+            }
+            group_thread_limit = static_cast<uint32_t>(maximum.value());
+            // The reference worker launch width is a scheduling choice, not a
+            // hardware limit imposed on cooperative group plans.
+            threads = std::min(threads, group_thread_limit);
         }
         if (auto maximum = target->GetAttr<int64_t>("max_shared_memory_per_block")) {
             shared_memory_limit = static_cast<uint64_t>(std::max<int64_t>(0, maximum.value()));
@@ -287,7 +299,7 @@ public:
         }
         auto mapped = function.value();
         mapped.CopyOnWrite()->body = schedule_pipelines(mapped->body, options.noalias, shared_memory_limit);
-        mapped.CopyOnWrite()->body = ExecutionMapper{binding, threads, shared_memory_limit, options.vectorize, options.auto_vectorize, cooperative_matrix, std::string{target->kind->name}}(mapped->body);
+        mapped.CopyOnWrite()->body = ExecutionMapper{binding, threads, group_thread_limit, shared_memory_limit, options.vectorize, options.auto_vectorize, cooperative_matrix, std::string{target->kind->name}, options.planner, plans}(mapped->body);
         functions.Set(global, std::move(mapped));
     }
     return make_module(std::move(functions), module->attrs, module->global_infos);
@@ -439,7 +451,8 @@ CompilationResult compile(tvm::IRModule module, const CompileOptions &options) n
         tvm::Target device_target{tvm::ffi::String{options.target}};
         tvm::Target host_target{tvm::ffi::String{options.host}};
         tvm::Target bound_target{device_target, host_target};
-        module = detail::map_execution(std::move(module), device_target, options);
+        luisa::vector<GroupPlan> plans;
+        module = detail::map_execution(std::move(module), device_target, options, plans);
         detail::run_common_pipeline(module, options, bound_target);
 
         detail::FunctionMap host_functions;
@@ -480,7 +493,7 @@ CompilationResult compile(tvm::IRModule module, const CompileOptions &options) n
             detail::finalize_device(device_module);
             runtime_module->ImportModule(detail::codegen(std::move(device_module), partition.target));
         }
-        return CompilationResult{std::move(runtime_module)};
+        return CompilationResult{std::move(runtime_module), std::move(plans)};
     } catch (const tvm::ffi::Error &error) {
         return CompilationResult{luisa::string{error.what()}};
     } catch (const std::exception &error) {

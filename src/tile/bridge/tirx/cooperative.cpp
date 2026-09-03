@@ -79,6 +79,163 @@ struct ElementDomain {
         tvm::PrimType::Void(), tvm::tirx::builtin::call_extern(), {tvm::tirx::StringImm{"metal::threadgroup_barrier"}, std::move(flags)}}};
 }
 
+using MatrixPlanIndices = luisa::unordered_map<const tvm::tirx::ForNode *, size_t>;
+
+struct AccumulatorLoop {
+    const tvm::tirx::ForNode *matrix;
+    const tvm::tirx::ForNode *update;
+    MatrixCarry carry;
+    size_t matrix_index;
+};
+
+using AccumulatorLoops = luisa::unordered_map<const tvm::tirx::ForNode *, AccumulatorLoop>;
+
+[[nodiscard]] bool is_carry_update(const tvm::tirx::ForNode *loop, const MatrixCarry &carry) {
+    if (loop->annotations.size() != 1u || !loop->annotations.count(independent_elements_annotation)) { return false; }
+    auto domain = element_domain(loop);
+    if (domain.axes.size() != 2u || static_extent(domain.axes[0]->extent) != carry.rows || static_extent(domain.axes[1]->extent) != carry.columns) { return false; }
+    auto store = domain.body.as<tvm::tirx::BufferStoreNode>();
+    if (store == nullptr || store->predicate || !store->buffer.same_as(carry.initial) || store->indices.size() != 2u) { return false; }
+    auto load = store->value.as<tvm::tirx::BufferLoadNode>();
+    if (load == nullptr || load->predicate || !load->buffer.same_as(carry.result) || load->indices.size() != 2u) { return false; }
+    for (auto i = 0u; i < 2u; i++) {
+        auto minimum = domain.axes[i]->min.as<tvm::IntImmNode>();
+        if (minimum == nullptr || minimum->value != 0 || !store->indices[i].same_as(domain.axes[i]->loop_var) ||
+            !load->indices[i].same_as(domain.axes[i]->loop_var)) { return false; }
+    }
+    return true;
+}
+
+[[nodiscard]] uint64_t saturating_multiply(uint64_t a, uint64_t b) noexcept {
+    return b != 0u && a > std::numeric_limits<uint64_t>::max() / b ? std::numeric_limits<uint64_t>::max() : a * b;
+}
+
+// Collect facts before binding workers. Temporary shared BufferVars are only
+// proof objects for the common MMA matcher; actual resource placement remains
+// in the emitter and is checked there again. No source names drive semantics.
+class GroupWorkloadAnalysis final : public tvm::tirx::StmtVisitor {
+private:
+    bool _matrix;
+    uint32_t _lane_depth{0u};
+    uint64_t _executions{1u};
+    luisa::unordered_map<const tvm::tirx::VarNode *, tvm::tirx::BufferVar> _buffers;
+
+    void _find_accumulator_loop(const tvm::tirx::ForNode *loop) {
+        auto extent = loop->extent.as<tvm::IntImmNode>();
+        auto sequence = loop->body.as<tvm::tirx::SeqStmtNode>();
+        auto step = loop->step ? loop->step.value().as<tvm::IntImmNode>() : nullptr;
+        if (loop->kind != tvm::tirx::ForKind::kSerial || loop->thread_binding || !loop->annotations.empty() || extent == nullptr || extent->value <= 0 ||
+            (loop->step && (step == nullptr || step->value != 1)) || sequence == nullptr) { return; }
+        const tvm::tirx::ForNode *matrix = nullptr;
+        for (auto &&statement : sequence->seq) {
+            auto candidate = statement.as<tvm::tirx::ForNode>();
+            if (candidate != nullptr && matrices.contains(candidate)) {
+                if (matrix != nullptr) { return; }
+                matrix = candidate;
+            }
+        }
+        if (matrix == nullptr) { return; }
+        auto carry = metal_matrix_carry(tvm::ffi::GetRef<tvm::tirx::For>(matrix), [this](tvm::tirx::BufferVar buffer) {
+            auto iter = _buffers.find(buffer.get());
+            return iter == _buffers.end() ? tvm::tirx::BufferVar{} : iter->second;
+        });
+        if (!carry) { return; }
+        const tvm::tirx::ForNode *update = nullptr;
+        auto result_allocations = 0u;
+        auto seen_matrix = false;
+        for (auto &&statement : sequence->seq) {
+            if (statement.get() == matrix) {
+                seen_matrix = true;
+                continue;
+            }
+            if (auto allocation = statement.as<tvm::tirx::AllocBufferNode>(); allocation != nullptr && allocation->buffer.same_as(carry->result)) {
+                if (!allocation->annotations.empty()) { return; }
+                result_allocations++;
+                continue;
+            }
+            if (auto copy = statement.as<tvm::tirx::ForNode>(); copy != nullptr && is_carry_update(copy, *carry)) {
+                if (!seen_matrix || update != nullptr) { return; }
+                update = copy;
+                continue;
+            }
+            auto observes_carry = false;
+            tvm::tirx::PostOrderVisit(statement, [&](const tvm::ffi::ObjectRef &node) {
+                observes_carry |= node.same_as(carry->initial) || node.same_as(carry->result);
+                if (auto load = node.as<tvm::tirx::BufferLoadNode>()) {
+                    observes_carry |= load->buffer.same_as(carry->initial) || load->buffer.same_as(carry->result);
+                }
+                if (auto store = node.as<tvm::tirx::BufferStoreNode>()) {
+                    observes_carry |= store->buffer.same_as(carry->initial) || store->buffer.same_as(carry->result);
+                }
+                if (auto allocation = node.as<tvm::tirx::AllocBufferNode>()) {
+                    observes_carry |= allocation->buffer.same_as(carry->initial) || allocation->buffer.same_as(carry->result);
+                }
+            });
+            // An intermediate observation (including another yielded state)
+            // invalidates residency. Never drop it to recognize a GEMM shape.
+            if (observes_carry) { return; }
+        }
+        if (result_allocations != 1u || update == nullptr) { return; }
+        auto index = matrices.at(matrix);
+        workload.matrices[index].accumulator_iterations = static_cast<uint64_t>(extent->value);
+        accumulators.emplace(loop, AccumulatorLoop{matrix, update, *carry, index});
+    }
+
+protected:
+    void VisitStmt_(const tvm::tirx::AllocBufferNode *allocation) final {
+        if (_lane_depth != 0u) { return; }
+        auto buffer = allocation->buffer;
+        auto bytes = static_cast<uint64_t>((buffer->dtype.bits() * buffer->dtype.lanes() + 7) / 8);
+        for (auto &&dimension : buffer->shape) { bytes = saturating_multiply(bytes, static_extent(dimension)); }
+        workload.shared_memory_bytes += std::min(bytes, std::numeric_limits<uint64_t>::max() - workload.shared_memory_bytes);
+        auto offset = buffer->elem_offset.as<tvm::IntImmNode>();
+        if (!_matrix || buffer.scope() != "local" || !buffer->strides.empty() || buffer->layout || !buffer->allocated_addr.empty() ||
+            offset == nullptr || offset->value != 0) { return; }
+        auto type = tvm::tirx::BufferType{"shared", buffer->dtype, buffer->shape, {}, buffer->elem_offset, buffer->data_alignment, buffer->offset_factor};
+        _buffers.emplace(buffer.get(), tvm::tirx::BufferVar{buffer.name() + "_planned", std::move(type), buffer.span()});
+    }
+
+    void VisitStmt_(const tvm::tirx::ForNode *loop) final {
+        auto independent = loop->annotations.count(independent_elements_annotation) || loop->annotations.count(logical_parallel_annotation);
+        if (independent) {
+            auto domain = element_domain(loop);
+            workload.max_independent_elements = std::max(workload.max_independent_elements, domain.count);
+            if (_lane_depth == 0u) {
+                auto matrix = _matrix ? metal_matrix_workload(tvm::ffi::GetRef<tvm::tirx::For>(loop), [this](tvm::tirx::BufferVar buffer) {
+                    auto iter = _buffers.find(buffer.get());
+                    return iter == _buffers.end() ? tvm::tirx::BufferVar{} : iter->second;
+                }) :
+                                        std::nullopt;
+                if (matrix) {
+                    matrix->executions = _executions;
+                    matrices.emplace(loop, workload.matrices.size());
+                    workload.matrices.emplace_back(*matrix);
+                } else {
+                    auto work = saturating_multiply(domain.count, _executions);
+                    workload.independent_elements += std::min(work, std::numeric_limits<uint64_t>::max() - workload.independent_elements);
+                }
+            }
+            _lane_depth++;
+            VisitStmt(domain.body);
+            _lane_depth--;
+        } else {
+            auto previous = _executions;
+            if (auto extent = loop->extent.as<tvm::IntImmNode>(); extent != nullptr && extent->value >= 0) {
+                _executions = saturating_multiply(_executions, static_cast<uint64_t>(extent->value));
+            }
+            StmtVisitor::VisitStmt_(loop);
+            if (_lane_depth == 0u && _matrix) { _find_accumulator_loop(loop); }
+            _executions = previous;
+        }
+    }
+
+public:
+    GroupWorkload workload;
+    MatrixPlanIndices matrices;
+    AccumulatorLoops accumulators;
+    explicit GroupWorkloadAnalysis(bool matrix) noexcept : _matrix{matrix} {}
+};
+
 class CooperativeGroupMapper final : public tvm::tirx::StmtExprMutator {
 
 private:
@@ -88,6 +245,11 @@ private:
     uint64_t _shared_memory_used{0u};
     uint32_t _lane_depth{0u};
     bool _cooperative_matrix;
+    const MatrixPlanIndices &_matrix_indices;
+    const GroupPlan &_plan;
+    const AccumulatorLoops &_accumulators;
+    const AccumulatorLoop *_active_accumulator{nullptr};
+    MatrixLoopEmission *_loop_emission{nullptr};
     luisa::unordered_map<const tvm::tirx::VarNode *, tvm::tirx::BufferVar> _buffers;
 
 private:
@@ -142,6 +304,25 @@ private:
 
 protected:
     [[nodiscard]] tvm::tirx::Stmt VisitStmt_(const tvm::tirx::ForNode *loop) final {
+        if (_active_accumulator != nullptr && loop == _active_accumulator->update) { return tvm::tirx::Evaluate{tvm::IntImm::Int32(0)}; }
+        if (auto iter = _accumulators.find(loop); iter != _accumulators.end() &&
+                                                  _plan.matrices[iter->second.matrix_index].persistent_accumulator) {
+            if (_lane_depth != 0u || !_buffers.contains(iter->second.carry.initial.get())) {
+                throw std::runtime_error{"planned accumulator must have group-owned storage outside its recurrence"};
+            }
+            auto previous = _active_accumulator;
+            auto previous_emission = _loop_emission;
+            MatrixLoopEmission emission;
+            _active_accumulator = &iter->second;
+            _loop_emission = &emission;
+            auto body = StmtExprMutator::VisitStmt_(loop);
+            _active_accumulator = previous;
+            _loop_emission = previous_emission;
+            if (!emission.before.defined() || !emission.after.defined()) {
+                throw std::runtime_error{"planned accumulator recurrence was not emitted"};
+            }
+            return tvm::tirx::SeqStmt::Flatten(tvm::ffi::Array<tvm::tirx::Stmt>{emission.before, std::move(body), _synchronize(emission.after)});
+        }
         auto logical = loop->annotations.count(logical_parallel_annotation) != 0u;
         auto elements = loop->annotations.count(independent_elements_annotation) != 0u;
         if (logical || elements) { validate_domain(loop); }
@@ -153,13 +334,15 @@ protected:
             }
         }
         if (elements && _lane_depth == 0u && _cooperative_matrix) {
-            auto matrix = try_metal_matrix(tvm::ffi::GetRef<tvm::tirx::For>(loop), _thread, _threads,
-                                           [this](tvm::tirx::BufferVar buffer) {
+            MatrixDistribution distribution;
+            if (auto iter = _matrix_indices.find(loop); iter != _matrix_indices.end()) { distribution = _plan.matrices.at(iter->second); }
+            auto emission = _active_accumulator != nullptr && _active_accumulator->matrix == loop ? _loop_emission : nullptr;
+            auto matrix = try_metal_matrix(tvm::ffi::GetRef<tvm::tirx::For>(loop), _thread, _threads, [this](tvm::tirx::BufferVar buffer) {
                                                // Atom alias proofs apply only to allocations seen by
                                                // this mapper, never an external buffer's scope label.
                                                if (auto iter = _buffers.find(buffer.get()); iter != _buffers.end()) { return iter->second; }
-                                               return tvm::tirx::BufferVar{};
-                                           });
+                                               return tvm::tirx::BufferVar{}; }, distribution, emission);
+            if (emission != nullptr && !matrix.defined()) { throw std::runtime_error{"planned matrix recurrence failed emission verification"}; }
             if (matrix.defined()) { return _synchronize(std::move(matrix)); }
         }
         if ((logical || elements) && _lane_depth == 0u) { return _distribute(loop); }
@@ -174,6 +357,13 @@ protected:
 
     [[nodiscard]] tvm::tirx::Stmt VisitStmt_(const tvm::tirx::AllocBufferNode *allocation) final {
         auto buffer = allocation->buffer;
+        if (_active_accumulator != nullptr && buffer.same_as(_active_accumulator->carry.result)) {
+            // Retain a proof-only buffer identity for the matrix matcher. The
+            // emitted recurrence has no D accesses and needs no D allocation.
+            auto type = tvm::tirx::BufferType{"shared", buffer->dtype, buffer->shape, {}, buffer->elem_offset, buffer->data_alignment, buffer->offset_factor};
+            _buffers.emplace(buffer.get(), tvm::tirx::BufferVar{buffer.name() + "_elided", std::move(type), buffer.span()});
+            return tvm::tirx::Evaluate{tvm::IntImm::Int32(0)};
+        }
         auto annotations = allocation->annotations;
         if (auto constraint = annotations.Get(memory_resource_annotation)) {
             auto resource = constraint.value().as<tvm::ffi::String>();
@@ -243,36 +433,32 @@ protected:
     }
 
 public:
-    CooperativeGroupMapper(tvm::tirx::PrimVar thread, uint64_t threads, uint64_t shared_memory_limit, bool cooperative_matrix)
-        : _thread{std::move(thread)}, _threads{threads}, _shared_memory_limit{shared_memory_limit}, _cooperative_matrix{cooperative_matrix} {}
+    CooperativeGroupMapper(tvm::tirx::PrimVar thread, uint64_t threads, uint64_t shared_memory_limit, bool cooperative_matrix,
+                           const MatrixPlanIndices &matrix_indices, const GroupPlan &plan, const AccumulatorLoops &accumulators)
+        : _thread{std::move(thread)}, _threads{threads}, _shared_memory_limit{shared_memory_limit}, _cooperative_matrix{cooperative_matrix},
+          _matrix_indices{matrix_indices}, _plan{plan}, _accumulators{accumulators} {}
 
     using StmtExprMutator::operator();
 };
 
 }// namespace
 
-tvm::tirx::Stmt map_metal_cooperative_group(const tvm::tirx::For &loop, uint32_t max_threads, uint64_t shared_memory_limit, bool cooperative_matrix) {
+tvm::tirx::Stmt map_metal_cooperative_group(const tvm::tirx::For &loop, uint32_t max_threads, uint64_t shared_memory_limit,
+                                            bool cooperative_matrix, const PlannerOptions &options, luisa::vector<GroupPlan> &plans) {
     validate_domain(loop.get());
     auto groups = static_extent(loop->extent);
-    auto grain = uint64_t{1u};
-    auto has_matrix = false;
-    tvm::tirx::PostOrderVisit(loop->body, [&](const tvm::ffi::ObjectRef &node) {
-        if (auto child = node.as<tvm::tirx::ForNode>(); child != nullptr &&
-                                                        (child->annotations.count(independent_elements_annotation) || child->annotations.count(logical_parallel_annotation))) {
-            grain = std::max(grain, element_domain(child).count);
-            if (auto policy = child->annotations.Get(mma_annotation)) {
-                auto value = policy.value().as<tvm::IntImmNode>();
-                has_matrix |= value != nullptr && value->value == 1;
-            }
-        }
-    });
-    auto threads = std::min<uint64_t>(grain, std::max<uint32_t>(max_threads, 1u));
-    if (has_matrix && cooperative_matrix && max_threads >= 32u) {
-        threads = std::min<uint64_t>(grain / 32u + (grain % 32u != 0u), max_threads / 32u) * 32u;
-    }
+    GroupWorkloadAnalysis analysis{cooperative_matrix};
+    analysis.workload.programs = groups;
+    analysis(loop->body);
+    auto planned = plan_group(analysis.workload, ExecutionLimits{max_threads, 32u, shared_memory_limit}, options);
+    if (!planned) { throw std::runtime_error{planned.error.c_str()}; }
+    auto &plan = planned.plan;
+    plan.name = std::string{loop->loop_var->name};
+    auto threads = plan.threads;
     auto thread = tvm::tirx::PrimVar{loop->loop_var->name + "_worker", tvm::PrimType::Int(64)};
     auto group = tvm::tirx::PrimVar{loop->loop_var->name + "_group", tvm::PrimType::Int(64)};
-    auto body = CooperativeGroupMapper{thread, threads, shared_memory_limit, cooperative_matrix}(loop->body);
+    auto body = CooperativeGroupMapper{thread, threads, shared_memory_limit, cooperative_matrix, analysis.matrices, plan, analysis.accumulators}(loop->body);
+    plans.emplace_back(std::move(plan));
     // Empty domains are no-ops, but must not hide unsupported descendants.
     if (groups == 0u) { return tvm::tirx::Evaluate{tvm::IntImm::Int32(0)}; }
     body = tvm::tirx::Substitute(std::move(body),

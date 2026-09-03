@@ -576,6 +576,9 @@ if (LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE)
     luisa_compute_add_test(test_tile_tirx_matrix
             unit/tile/bridge/test_tirx_matrix.cpp LABELS "unit;unit_tile;unit_tile_tirx")
     target_link_libraries(test_tile_tirx_matrix PRIVATE luisa::tile-tirx)
+    luisa_compute_add_test(test_tile_tirx_planner
+            unit/tile/bridge/test_tirx_planner.cpp LABELS "unit;unit_tile;unit_tile_tirx")
+    target_link_libraries(test_tile_tirx_planner PRIVATE luisa::tile-tirx)
     # Opt-in timing executable: never a noisy CTest performance threshold.
     luisa_compute_add_test(benchmark_tile_tirx benchmark/benchmark_tile_tirx.cpp)
     target_link_libraries(benchmark_tile_tirx PRIVATE luisa::tile-tirx)

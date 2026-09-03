@@ -110,7 +110,7 @@ void check_gemm(Runtime &runtime, const Executable &executable, Shape cfg, doubl
 
 void test_matrix_cases(Runtime &runtime) {
     Shape cases[]{
-        {8, 8, 8, 8, 8, 8}, {16, 24, 32, 16, 24, 16}, {37, 29, 21, 16, 16, 8}, {19, 35, 25, 8, 24, 16}, {17, 23, 31, 16, 24, 16, true, false}, {17, 23, 31, 16, 24, 16, false, true}, {17, 23, 31, 16, 24, 16, true, true}, {7, 9, 5, 3, 5, 7}};
+        {8, 8, 8, 8, 8, 8}, {16, 24, 32, 16, 24, 16}, {37, 29, 21, 16, 16, 8}, {19, 35, 25, 8, 24, 16}, {17, 23, 31, 16, 24, 16, true, false}, {17, 23, 31, 16, 24, 16, false, true}, {17, 23, 31, 16, 24, 16, true, true}, {7, 9, 5, 3, 5, 7}, {37, 71, 45, 32, 64, 16}, {37, 71, 45, 32, 64, 16, true, false}, {37, 71, 45, 32, 64, 16, false, true}};
     for (auto cfg : cases) {
         for (auto window : {1u, 2u}) {
             auto kernel = gemm(runtime, cfg, window);
@@ -140,23 +140,49 @@ void test_matrix_cases(Runtime &runtime) {
 }
 
 [[nodiscard]] Executable compile_native(Runtime &runtime, const Kernel &kernel, tvm::tirx::PrimFunc native,
-                                        uint32_t width = 32u, uint32_t threads = 256u) {
+                                        uint32_t width = 32u, uint32_t threads = 256u,
+                                        const bridge::tirx::PlannerOptions &planner = {}) {
     using namespace luisa::compute::tile::bridge::tirx;
     CompileOptions options;
     options.target = runtime.target() == "metal" ?
                          luisa::format(R"({{"kind":"metal","thread_warp_size":{},"max_num_threads":{}}})", width, threads) :
                          luisa::string{runtime.target()};
     options.cooperative_matrix = true;
+    options.planner = planner;
     auto compilation = compile(std::move(native), kernel.function().name(), options);
     Executable executable;
     if (!compilation) {
         executable.error = compilation.error();
     } else {
         executable.module = compilation.module();
+        executable.plans.assign(compilation.plans().begin(), compilation.plans().end());
         auto name = kernel.function().name();
         executable.entry = executable.module.value()->GetFunction(tvm::ffi::String{name.data(), name.size()}, true);
     }
     return executable;
+}
+
+void test_explicit_threads_use_target_capacity(Runtime &runtime) {
+    if (runtime.target() != "metal") { return; }
+    Shape cfg{17, 23, 29, 16, 24, 16};
+    auto kernel = gemm(runtime, cfg, 1u);
+    bridge::tirx::PlannerOptions planner;
+    planner.threads_per_group = 512u;
+    for (auto capacity : {256u, 512u}) {
+        auto native = bridge::tirx::lower(kernel.function());
+        expect(native.ok()) << native.error;
+        if (!native) { continue; }
+        // Cross-compile only: a target capability assertion is not inferred
+        // from whichever physical GPU happens to run this unit test.
+        auto executable = compile_native(runtime, kernel, std::move(native.value), 32u, capacity, planner);
+        expect(eq(executable.ok(), capacity == 512u)) << executable.error;
+        if (executable.ok()) {
+            expect(eq(executable.plans.size(), size_t{1u}));
+            if (!executable.plans.empty()) { expect(eq(executable.plans[0].threads, 512u)); }
+        } else {
+            expect(executable.error.find("capacity") != luisa::string::npos) << executable.error;
+        }
+    }
 }
 
 void test_matrix_policy_and_participants(Runtime &runtime) {
@@ -371,6 +397,84 @@ void test_cpu_matrix_preserves_k_order(Runtime &runtime) {
     }
 }
 
+void test_planned_fragment_reuse(Runtime &runtime) {
+    if (runtime.target() != "metal") { return; }
+    Shape cfg{37, 71, 45, 32, 64, 16};
+    auto kernel = gemm(runtime, cfg, 1u);
+    for (auto enabled : {false, true}) {
+        bridge::tirx::PlannerOptions planner;
+        planner.enabled = enabled;
+        auto executable = runtime.build(kernel, false, true, true, false, planner);
+        expect(executable.ok()) << executable.error;
+        if (!executable.ok()) { continue; }
+        expect(eq(executable.plans.size(), size_t{1u}));
+        if (executable.plans.size() != 1u) { continue; }
+        auto &plan = executable.plans[0];
+        expect(eq(plan.optimized, enabled));
+        auto source = metal_source(executable.module.value());
+        auto code = std::string_view{source.data(), source.size()};
+        if (enabled) {
+            expect(eq(plan.threads, 128u));
+            expect(eq(plan.cost.fragment_scalars_per_lane, 28ull));
+            expect(code.find("_mma_c[8]") != std::string_view::npos) << code;
+            expect(code.find("_mma_wave") == std::string_view::npos) << code;
+            expect(plan.matrices[0].persistent_accumulator);
+            expect(code.find("_mma_c[8]") < code.find("for (int pipeline_")) << code;
+            expect(code.rfind("simdgroup_store(") > code.find("for (int pipeline_")) << code;
+        } else {
+            expect(eq(plan.threads, 256u));
+            expect(code.find("_mma_c[1]") != std::string_view::npos) << code;
+            expect(code.find("_mma_wave") != std::string_view::npos) << code;
+        }
+        check_gemm(runtime, executable, cfg);
+    }
+}
+
+void test_observed_accumulator_stays_visible(Runtime &runtime) {
+    if (runtime.target() != "metal") { return; }
+    for (auto iterations : {0, 1, 5}) {
+        for (auto window : {1u, 2u}) {
+            auto kernel = tile_kernel("observed_accumulator", [=](TensorView<const float, 2> A, TensorView<const float, 2> B,
+                                                                  TensorView<float, 2> D, TensorView<float, 2> H) {
+                              auto m = axis("m", 8);
+                              auto n = axis("n", 16);
+                              auto k = axis("k", 8);
+                              for (auto &nest : parallel(shape(1), exec::Scope::GROUP)) {
+                                  auto acc = full<float>(shape(m, n), 0.5f);
+                                  auto history = zeros<float>(shape(m, n));
+                                  for (auto &step : nest.pipeline(shape(iterations), {.stages = window})) {
+                                      step.stage("load");
+                                      auto a = A[coord(0, step.index() * 8), shape(m, k)];
+                                      auto b = B[coord(step.index() * 8, 0), shape(k, n)];
+                                      step.stage("compute");
+                                      history = history + acc;
+                                      acc = mma(a, b, acc);
+                                  }
+                                  D(coord(0, 0), shape(m, n)).store(acc);
+                                  H(coord(0, 0), shape(m, n)).store(history);
+                              }
+                          }).capture(tensor_shape(8, 40), tensor_shape(40, 16), tensor_shape(8, 16), tensor_shape(8, 16));
+            auto executable = runtime.build(kernel, true, true);
+            expect(executable.ok()) << executable.error;
+            if (!executable.ok()) { continue; }
+            for (auto &plan : executable.plans) {
+                for (auto &matrix : plan.matrices) { expect(!matrix.persistent_accumulator); }
+            }
+            auto a = runtime.upload<float>({8, 40}, vector<float>(8u * 40u, 0.25f));
+            auto b = runtime.upload<float>({40, 16}, vector<float>(40u * 16u, 0.5f));
+            auto d = runtime.allocate<float>({8, 16});
+            auto h = runtime.allocate<float>({8, 16});
+            (*executable.entry)(a, b, d, h);
+            auto actual = runtime.download<float>(d, 128u);
+            auto history = runtime.download<float>(h, 128u);
+            auto expected = 0.5f + static_cast<float>(iterations);
+            auto expected_history = 0.5f * static_cast<float>(iterations * iterations);
+            expect(std::all_of(actual.begin(), actual.end(), [=](float value) { return std::isfinite(value) && std::abs(value - expected) < 1e-6f; }));
+            expect(std::all_of(history.begin(), history.end(), [=](float value) { return std::isfinite(value) && std::abs(value - expected_history) < 1e-6f; }));
+        }
+    }
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -379,10 +483,13 @@ int main(int argc, char *argv[]) {
                                                     const_cast<const char **>(argc > 1 ? argv + 1 : argv));
     "tile_matrix_shapes_transposes_and_pipeline_versions"_test = [&] { test_matrix_cases(runtime); };
     "tile_matrix_math_policy_and_participant_gates"_test = [&] { test_matrix_policy_and_participants(runtime); };
+    "tile_matrix_exact_threads_use_actual_target_limit"_test = [&] { test_explicit_threads_use_target_capacity(runtime); };
     "tile_matrix_stale_marker_does_not_tensorize"_test = [&] { test_stale_matrix_marker(runtime); };
     "tile_matrix_literal_initial_and_zero_contraction"_test = [&] { test_literal_initial_and_zero_contraction(runtime); };
     "tile_matrix_worker_local_is_not_a_collective"_test = [&] { test_worker_local_matrix_fallback(runtime); };
     "tile_matrix_mixed_conversion_keeps_reference_types"_test = [&] { test_mixed_input_matrix_fallback(runtime); };
     "tile_cpu_matrix_vectors_and_scalar_tails"_test = [&] { test_cpu_matrix_vectors_and_tails(runtime); };
     "tile_cpu_matrix_preserves_k_order"_test = [&] { test_cpu_matrix_preserves_k_order(runtime); };
+    "tile_matrix_planner_emits_reused_fragments"_test = [&] { test_planned_fragment_reuse(runtime); };
+    "tile_matrix_observed_carry_cannot_be_promoted"_test = [&] { test_observed_accumulator_stays_visible(runtime); };
 }

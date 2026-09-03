@@ -1,8 +1,11 @@
 #pragma once
 
 #include <functional>
+#include <optional>
 #include <tvm/tirx/buffer.h>
 #include <tvm/tirx/stmt.h>
+
+#include <luisa/tile/bridge/tirx/planner.h>
 
 namespace luisa::compute::tile::bridge::tirx::detail {
 
@@ -43,12 +46,34 @@ inline constexpr auto pipeline_stage_annotation = "luisa.tile.pipeline_stage";
 // domains and child workers share group-owned compiler temporaries.
 [[nodiscard]] tvm::tirx::Stmt map_metal_cooperative_group(
     const tvm::tirx::For &loop, uint32_t max_threads, uint64_t shared_memory_limit,
-    bool cooperative_matrix);
+    bool cooperative_matrix, const PlannerOptions &options, luisa::vector<GroupPlan> &plans);
+
+// The planner and emitter use the same semantic contract matcher. A diagnostic
+// annotation or coincidentally named buffer alone cannot authorize an MMA.
+[[nodiscard]] std::optional<MatrixWorkload> metal_matrix_workload(
+    const tvm::tirx::For &loop,
+    const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer);
+
+struct MatrixCarry {
+    tvm::tirx::BufferVar initial;
+    tvm::tirx::BufferVar result;
+    uint64_t rows, columns;
+};
+
+[[nodiscard]] std::optional<MatrixCarry> metal_matrix_carry(
+    const tvm::tirx::For &loop,
+    const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer);
+
+struct MatrixLoopEmission {
+    tvm::tirx::Stmt before;
+    tvm::tirx::Stmt after;
+};
 
 // Select a native 8x8 FP32 matrix atom only for a proved reference MMA body.
 // Undefined means the ordinary independent-element realization must be used.
 [[nodiscard]] tvm::tirx::Stmt try_metal_matrix(
     const tvm::tirx::For &loop, const tvm::tirx::PrimVar &thread, uint64_t threads,
-    const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer);
+    const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer,
+    const MatrixDistribution &distribution = {}, MatrixLoopEmission *loop_emission = nullptr);
 
 }// namespace luisa::compute::tile::bridge::tirx::detail

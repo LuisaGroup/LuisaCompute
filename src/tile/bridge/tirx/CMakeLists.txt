@@ -49,7 +49,9 @@ set(LUISA_COMPUTE_TILE_TIRX_BRIDGE_SOURCES
         execution.cpp
         layout.cpp
         lower.cpp
+        mapping.cpp
         matrix.cpp
+        planner.cpp
         pipeline.cpp)
 
 add_library(luisa-compute-tile-bridge-tirx

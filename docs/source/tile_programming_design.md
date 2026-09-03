@@ -1,6 +1,6 @@
 # Luisa Tile DSL: A From-Scratch Design
 
-- Status: architecture proposal and executable core syntax contract, revision 15
+- Status: architecture proposal and executable core syntax contract, revision 16
 - Compatibility with the removed prototype: none
 - Primary workloads: GEMM, attention, convolution, normalization, quantized,
   sparse, grouped, and persistent neural-network kernels
@@ -2735,9 +2735,26 @@ legality decision, not a profitability claim or a change to default mapping.
 on CPU and physical Metal, including transposes, ragged shapes, pipeline
 versions, numerical/capability fallbacks, stale markers, and zero contraction.
 
-Shared-memory budgeting is currently the conservative sum of compact group
-allocations, checked against the target capacity; lifetime-based reuse and
-selective materialization remain planner work. Unsupported placed layouts,
+The Metal matrix path now has a bounded-family execution planner: it searches
+complete-subgroup thread counts and exact two-dimensional subgroup/fragment
+factorizations. A subgroup can retain several output fragments and reuse A/B
+fragments between them. A proved closed accumulator recurrence can also stay
+in native fragments across temporal iterations. Other observers of the carried
+state prevent that promotion. The plan is a side-table result, not another
+frontend hierarchy or a serialized program.
+
+The cost model ranks legal plans by relative issue work and fragment pressure;
+its initial coefficients are priors, not measured nanoseconds or hardware
+occupancy. Pareto dynamic programming preserves shared-memory/cost tradeoffs
+between multiple matrix operations. The exact solver is exact only for this
+implemented finite family and this model, not for all GPU programs. The
+[execution planner design](tile_execution_planner.md) specifies the constraints,
+layout correspondence, objective, solver, calibration, and extension boundary.
+
+Shared-memory budgeting remains the conservative sum of compact group
+allocations minus the eliminated result buffers of proved resident recurrences,
+checked against target capacity. General lifetime-based reuse and selective
+materialization remain planner work. Unsupported placed layouts,
 opaque buffer escapes, noncanonical distributed loop steps, and captures of
 host-local materialized storage are rejected. Unsupported descendant scopes
 are still diagnosed inside empty groups, which otherwise lower to no-ops.

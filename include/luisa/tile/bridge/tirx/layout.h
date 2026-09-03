@@ -10,6 +10,7 @@
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/tile/layout.h>
+#include <luisa/tile/bridge/tirx/planner.h>
 
 namespace luisa::compute::tile::bridge::tirx {
 
@@ -93,5 +94,17 @@ struct NativeIndices {
 [[nodiscard]] LUISA_TILE_TIRX_BRIDGE_API NativeLayout export_layout(
     const LayoutSpec &layout,
     luisa::span<const AxisBinding> axes) noexcept;
+
+// The execution map at matrix-atom granularity. Logical (atom_m, atom_n)
+// maps to native TIRx (warpid, m), where m is a local fragment ordinal, NOT a
+// global byte address. An atom's internal lane layout stays a hardware contract.
+[[nodiscard]] LUISA_TILE_TIRX_BRIDGE_API NativeLayout matrix_distribution_layout(
+    const MatrixWorkload &workload, const MatrixDistribution &distribution) noexcept;
+
+// Inverse of that exact rectangular map, emitted through the core IndexMap
+// algebra. This is used by matrix code generation, not just a compatibility test.
+[[nodiscard]] LUISA_TILE_TIRX_BRIDGE_API NativeIndices matrix_atom_coordinates(
+    const MatrixWorkload &workload, const MatrixDistribution &distribution,
+    tvm::PrimExpr subgroup, tvm::PrimExpr fragment) noexcept;
 
 }// namespace luisa::compute::tile::bridge::tirx

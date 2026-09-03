@@ -47,6 +47,19 @@ class RepeatContractTests(unittest.TestCase):
         self.assertEqual(config["gemm_block"], (16, 32, 32))
         self.assertEqual(config["pipeline_window"], 1)
         self.assertNotIn("throughput_us_p50", config)
+        self.assertEqual(config["group_threads"], 0)
+
+    def test_replay_preserves_exact_group_thread_constraint(self):
+        row = self.row()
+        row["native"]["planner_threads"] = 128
+        with patch.object(Path, "read_text", return_value=json.dumps({"results": [row]})):
+            config = REPEAT.load_plan(Path("unused.json"), {"gemm"})["metal", "gemm_17x19x13"]
+        self.assertEqual(config["group_threads"], 128)
+        for invalid in (True, -1, 0x100000000, None):
+            row["native"]["planner_threads"] = invalid
+            with patch.object(Path, "read_text", return_value=json.dumps({"results": [row]})):
+                with self.assertRaisesRegex(ValueError, "group-thread"):
+                    REPEAT.load_plan(Path("unused.json"), {"gemm"})
 
     def test_plan_does_not_guess_historical_vectorization_semantics(self):
         row = self.row()
@@ -112,6 +125,20 @@ class BenchmarkContractTests(unittest.TestCase):
                 MODULE.validate_native_metadata(native | {"pipeline_window": 3 - window}, case, "metal", "worker", window)
         with self.assertRaisesRegex(RuntimeError, "pipeline-window"):
             MODULE.validate_native_metadata(native, case, "metal", "worker")
+
+    def test_group_thread_constraint_and_realization_are_both_checked(self):
+        case = MODULE.Case("gemm", 17, 19, 13)
+        for threads in (31, 48, 64, 128, 256):
+            native = dict(backend="metal", operation="gemm", execution_scope="group", pipeline_window=2,
+                          cooperative_matrix=True, matrix_intrinsics=int(threads % 32 == 0), mma_operations=1,
+                          vectorize=True, auto_vectorize=False, planner_threads=threads, execution_plans=[{"threads": threads}])
+            arguments = dict(cooperative_matrix=True, group_threads=threads)
+            MODULE.validate_native_metadata(native, case, "metal", "group", **arguments)
+            with self.assertRaisesRegex(RuntimeError, "group-thread"):
+                MODULE.validate_native_metadata(native | {"planner_threads": threads + 1}, case, "metal", "group", **arguments)
+            for plans in ([], None, [{"threads": threads + 1}]):
+                with self.assertRaisesRegex(RuntimeError, "realized group threads"):
+                    MODULE.validate_native_metadata(native | {"execution_plans": plans}, case, "metal", "group", **arguments)
 
     def test_matrix_capability_is_not_confused_with_emitted_instructions(self):
         case = MODULE.Case("gemm", 7, 17, 37)

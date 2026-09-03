@@ -36,6 +36,9 @@ def load_plan(path: Path, operations: set[str]) -> dict[tuple[str, str], dict[st
         for flag in ("cooperative_matrix", "vectorize", "auto_vectorize"):
             if type(native.get(flag)) is not bool:
                 raise ValueError(f"{case.name} has no explicit {flag} policy")
+        group_threads = native.get("planner_threads", 0)
+        if type(group_threads) is not int or not 0 <= group_threads <= 0xffffffff:
+            raise ValueError(f"{case.name} has an invalid group-thread constraint")
         key = row["backend"], case.name
         if key in plan:
             raise ValueError(f"duplicate case {key}")
@@ -46,6 +49,7 @@ def load_plan(path: Path, operations: set[str]) -> dict[tuple[str, str], dict[st
             "cooperative_matrix": native["cooperative_matrix"],
             "no_vectorize": not native["vectorize"],
             "auto_vectorize": native["auto_vectorize"],
+            "group_threads": group_threads,
         }
     if not plan:
         raise ValueError("the report contains no requested cases")
