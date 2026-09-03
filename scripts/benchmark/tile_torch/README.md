@@ -120,6 +120,48 @@ and hardware information, thread settings, the binary hash, and source
 revision. `results.md` is the readable comparison. Failed cases are retained
 and cause a nonzero exit code; no speed ratio is published for an invalid case.
 
+## Repeat and profile
+
+Freeze schedules from two reports and repeat them without selecting new winners:
+
+```sh
+uv run --no-project --python 3.13 --with torch --with numpy python \
+  scripts/benchmark/tile_torch/repeat.py \
+  --native cmake-build-tirx/bin/benchmark_tile_tirx \
+  --reference /path/to/reference/results.json \
+  --candidate /path/to/selected/results.json \
+  --output /tmp/tile-schedule-repeats --rounds 4
+```
+
+Each case keeps the recorded block, pipeline, mapping, and matrix/vectorization
+policies. The even number of rounds balances schedule order and framework order
+separately, rotates shape order, and validates every fresh capture/JIT result.
+Reports missing the explicit `auto_vectorize` policy cannot be replayed because
+the old implicit behavior is ambiguous. `--candidate-vector-mode auto-vectorize`
+can isolate packing against the same report passed as both inputs. Use
+`--operations gemm,add,sum,softmax` when both reports contain those cases.
+The paired min–max ratios are observed ranges, **not confidence intervals**.
+
+`profile_torch.py` provides a long, checked, preallocated eager GEMM workload
+for an external profiler. `--backend cpu` uses the actual installed CPU build;
+`--backend metal --signposts` enables MPS signposts without per-dispatch waiting.
+`--mps-path metal` explicitly selects PyTorch's alternative Metal implementation;
+it is not the default-MPS baseline. `--metal-capture /tmp/name.gputrace` captures
+one warmed invocation for launch/resource inspection. Profiler timings are not
+mixed into uninstrumented benchmark results. Record the exact PyTorch version
+and build commit before studying its dispatch heuristics.
+
+For the native executable, set `LUISA_TILE_BENCH_DUMP_SOURCE` to a **new file**
+to inspect generated LLVM IR (CPU) or MSL (Metal). Dumping is outside all timed
+phases, and never substitutes an LLVM host wrapper for Metal device code. The
+normal positional arguments are unchanged. External profilers can launch the
+same executable with longer `sample-ms` / `warmup-ms` arguments. Complete the
+full build first, and do not profile while compiling or running other tests.
+Filter exported trace rows to the target process: system GPU tracks can include
+other applications even for a process-targeted recording. Do not publish those
+unfiltered traces with benchmark reports. Encoder intervals may contain many
+dispatches; they are not automatically per-kernel GPU durations.
+
 ## Native matrix measurements
 
 The [M1 Max matrix comparison, 2026-09-03](results/m1-max-20260903-matrix.md)

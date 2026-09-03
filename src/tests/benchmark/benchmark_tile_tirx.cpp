@@ -9,6 +9,7 @@
 #include <charconv>
 #include <chrono>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <iomanip>
@@ -76,6 +77,19 @@ struct Configuration {
     }
     for (auto &&child : module->imports()) { count += matrix_intrinsics(child.cast<tvm::ffi::Module>()); }
     return count;
+}
+
+// Explicit opt-in diagnostics, outside all timed phases. For Metal inspect
+// the device module, not the LLVM host launch wrapper.
+void dump_source(const tvm::ffi::Module &module, std::string_view kind, const char *path) {
+    if (std::string_view{module->kind()} == kind) {
+        if (std::filesystem::exists(path)) { throw std::runtime_error{"source dump path already exists"}; }
+        auto source = module->InspectSource(kind == "metal" ? "metal" : "ll");
+        std::ofstream file{path};
+        file.write(source.data(), static_cast<std::streamsize>(source.size()));
+        if (!file) { throw std::runtime_error{"failed to write generated source"}; }
+    }
+    for (auto &&child : module->imports()) { dump_source(child.cast<tvm::ffi::Module>(), kind, path); }
 }
 
 [[nodiscard]] Kernel capture(std::string_view operation, Configuration cfg) {
@@ -217,6 +231,10 @@ int main(int argc, char *argv[]) {
         auto compile_ms = milliseconds(start);
         if (!executable.ok()) { throw std::runtime_error{executable.error.c_str()}; }
         auto matrix_calls = matrix_intrinsics(executable.module.value());
+        if (auto path = std::getenv("LUISA_TILE_BENCH_DUMP_SOURCE")) {
+            dump_source(executable.module.value(), backend == "metal" ? "metal" : "llvm", path);
+            if (!std::filesystem::exists(path)) { throw std::runtime_error{"requested generated source is unavailable"}; }
+        }
         auto columns_a = operation == "gemm" ? cfg.k : cfg.n;
         auto rows_b = operation == "gemm" ? cfg.k : cfg.m;
         auto binary = operation == "gemm" || operation == "add";

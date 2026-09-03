@@ -2,6 +2,7 @@ import argparse
 import contextlib
 import importlib.util
 import io
+import json
 from pathlib import Path
 import sys
 import unittest
@@ -12,6 +13,53 @@ SPEC = importlib.util.spec_from_file_location("tile_torch_benchmark", Path(__fil
 MODULE = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = MODULE
 SPEC.loader.exec_module(MODULE)
+
+REPEAT_SPEC = importlib.util.spec_from_file_location("tile_torch_repeat", Path(__file__).with_name("repeat.py"))
+REPEAT = importlib.util.module_from_spec(REPEAT_SPEC)
+with patch.dict(sys.modules, {"run": MODULE}):
+    REPEAT_SPEC.loader.exec_module(REPEAT)
+
+
+class RepeatContractTests(unittest.TestCase):
+    def test_variant_and_framework_orders_are_both_balanced(self):
+        keys = [("metal", str(i)) for i in range(8)]
+        rounds = [list(REPEAT.order_for_round(keys, i)) for i in range(4)]
+        for key in keys:
+            first_variants = [next(v for k, v, _ in r if k == key) for r in rounds]
+            self.assertEqual(first_variants.count("candidate"), 2)
+            for variant in ("reference", "candidate"):
+                orders = [order for r in rounds for k, v, order in r if (k, v) == (key, variant)]
+                self.assertEqual(sorted(orders), [0, 0, 1, 1])
+        self.assertEqual([r[0][0] for r in rounds], keys[:4])
+
+    @staticmethod
+    def row():
+        return {"case": {"operation": "gemm", "m": 17, "n": 19, "k": 13}, "backend": "metal",
+                "valid": True, "block": [16, 32, 32], "native": {
+                    "execution_scope": "group", "pipeline_window": 1, "cooperative_matrix": True,
+                    "vectorize": True, "auto_vectorize": False, "throughput_us_p50": 1.0}}
+
+    def test_plan_uses_recorded_configuration_but_not_recorded_score(self):
+        row = self.row()
+        with patch.object(Path, "read_text", return_value=json.dumps({"results": [row]})):
+            plan = REPEAT.load_plan(Path("unused.json"), {"gemm"})
+        config = plan["metal", "gemm_17x19x13"]
+        self.assertEqual(config["gemm_block"], (16, 32, 32))
+        self.assertEqual(config["pipeline_window"], 1)
+        self.assertNotIn("throughput_us_p50", config)
+
+    def test_plan_does_not_guess_historical_vectorization_semantics(self):
+        row = self.row()
+        del row["native"]["auto_vectorize"]
+        with patch.object(Path, "read_text", return_value=json.dumps({"results": [row]})):
+            with self.assertRaisesRegex(ValueError, "auto_vectorize"):
+                REPEAT.load_plan(Path("unused.json"), {"gemm"})
+
+    def test_plan_rejects_invalid_duplicate_and_empty_selections(self):
+        for rows in ([self.row(), self.row()], [self.row() | {"valid": False}], []):
+            with self.subTest(rows=rows), patch.object(Path, "read_text", return_value=json.dumps({"results": rows})):
+                with self.assertRaises(ValueError):
+                    REPEAT.load_plan(Path("unused.json"), {"gemm"})
 
 
 class BenchmarkContractTests(unittest.TestCase):
