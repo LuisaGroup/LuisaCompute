@@ -424,7 +424,7 @@ ValueHandle make_tile_constant(ScalarType type, const IndexSpace &space, Attribu
 ValueHandle make_tile_elementwise(ElementwiseOp op, luisa::span<Value *const> operands, ScalarType type) noexcept {
     if (current_capture == nullptr) { return {}; }
     IndexSpace space;
-    // Preserve the most informative operand's dimension order. For select,
+    // Preserve the most informative operand's dimension order. For ite,
     // value operands take precedence over the boolean mask when ranks tie.
     auto first = op == ElementwiseOp::SELECT ? 1u : 0u;
     for (auto i = first; i < operands.size() + first; i++) {

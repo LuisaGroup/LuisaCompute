@@ -52,11 +52,11 @@ void test_depthwise_convolution_and_max_pool(Runtime &runtime) {
             auto oy = axis("local_y", 1);
             auto ox = axis("local_x", 1);
             for (auto &nest : parallel(shape(y, x))) {
-                auto window = source[coord(nest[y] - padding, nest[x] - padding, 0), shape(fy, fx, c)];
+                auto window = source[coord(nest.index(y) - padding, nest.index(x) - padding, 0), shape(fy, fx, c)];
                 auto filter = weights[coord(0, 0, 0), shape(fy, fx, c)];
                 auto conv = reduce(window * filter, shape(fy, fx), add);
                 auto pooled = reduce(window, shape(fy, fx), maximum);
-                auto destination = coord(nest[y], nest[x], 0);
+                auto destination = coord(nest.index(y), nest.index(x), 0);
                 convolution(destination, shape(oy, ox, c)).store(reshape(conv, shape(oy, ox, c)));
                 pool(destination, shape(oy, ox, c)).store(reshape(pooled, shape(oy, ox, c)));
             }
@@ -133,16 +133,16 @@ void test_sobel_and_ordered_median(Runtime &runtime) {
             auto oy = axis("local_y", 1);
             auto ox = axis("local_x", 1);
             for (auto &nest : parallel(shape(y, x))) {
-                auto window = source[coord(nest[y] - 1, nest[x] - 1), shape(fy, fx)];
+                auto window = source[coord(nest.index(y) - 1, nest.index(x) - 1), shape(fy, fx)];
                 auto dy = iota(fy) - 1;
                 auto dx = iota(fx) - 1;
-                auto weight_x = cast<float>(dx * select(dy == 0, int64_t{2}, int64_t{1}));
-                auto weight_y = cast<float>(dy * select(dx == 0, int64_t{2}, int64_t{1}));
+                auto weight_x = cast<float>(dx * ite(dy == 0, int64_t{2}, int64_t{1}));
+                auto weight_y = cast<float>(dy * ite(dx == 0, int64_t{2}, int64_t{1}));
                 auto gx = reduce(window * weight_x, shape(fy, fx), add);
                 auto gy = reduce(window * weight_y, shape(fy, fx), add);
                 auto ordered = sort(reshape(window, shape(tap)), tap);
                 auto middle = gather(ordered.values, full<int64_t>(IndexSpace{}, 4), tap);
-                auto destination = coord(nest[y], nest[x]);
+                auto destination = coord(nest.index(y), nest.index(x));
                 gradient_x(destination, shape(oy, ox)).store(gx);
                 gradient_y(destination, shape(oy, ox)).store(gy);
                 median(destination, shape(oy, ox)).store(middle);
@@ -286,7 +286,7 @@ void test_segmented_accumulation(Runtime &runtime) {
                 auto id = ids[coord(0), shape(item)];
                 auto value = values[coord(0), shape(item)];
                 auto matches = id == nest.index();
-                auto sum = reduce(select(matches, value, 0.0f), item, add);
+                auto sum = reduce(ite(matches, value, 0.0f), item, add);
                 auto count = reduce(cast<int64_t>(matches), item, add);
                 sums(coord(nest.index()), shape(output)).store(sum);
                 counts(coord(nest.index()), shape(output)).store(count);
@@ -343,12 +343,12 @@ void test_all_structured_regions(Runtime &runtime) {
                 for (auto &phase_nest : nest.serial(shape(phase))) {
                     for (auto &step_nest : phase_nest.pipeline(shape(step), {.stages = 2, .initiation_interval = 1})) {
                         step_nest.stage("load");
-                        auto value = source[coord(nest[row], phase_nest[phase], step_nest[step], 0), shape(r, p, s, lane)];
+                        auto value = source[coord(nest.index(row), phase_nest.index(phase), step_nest.index(step), 0), shape(r, p, s, lane)];
                         step_nest.stage("consume");
                         sum += reshape(reduce(value, lane, add), shape(r));
                     }
                 }
-                result(coord(nest[row]), shape(r)).store(sum);
+                result(coord(nest.index(row)), shape(r)).store(sum);
             }
         });
     auto kernel = definition.capture(

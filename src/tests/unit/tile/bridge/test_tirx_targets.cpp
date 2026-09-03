@@ -157,9 +157,9 @@ void test_same_reduction_on_cpu_and_metal() {
             for (auto &row_nest : parallel(shape(row))) {
                 auto sum = Scalar<float>{0.0f};
                 for (auto &item : row_nest.reduce(shape(column))) {
-                    sum += x(row_nest[row], item[column]).load();
+                    sum += x(row_nest.index(row), item.index(column)).load();
                 }
-                result(row_nest[row]).store(sum);
+                result(row_nest.index(row)).store(sum);
             }
         });
     auto kernel = definition.capture(

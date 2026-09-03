@@ -25,6 +25,38 @@ published comparisons should include the full default matrix. `--gemm-block
 native variant. Record that setting, and do not silently select the best of a
 larger tuning search against an untuned baseline.
 
+An explicit search can recapture/JIT ordinary host configurations per shape:
+
+```sh
+uv run --no-project --python 3.13 --with torch --with numpy python \
+  scripts/benchmark/tile_torch/run.py \
+  --native cmake-build-tirx/bin/benchmark_tile_tirx \
+  --output /tmp/tile-metal-jit-search \
+  --backends metal --operations gemm --execution-scope group \
+  --cooperative-matrix \
+  --tune-gemm-blocks '8,8,16;16,32,32;32,32,32' \
+  --tune-pipeline-windows '1,2'
+```
+
+The candidate set is the product of those explicit block/window lists, with
+duplicates removed. With just one tuning flag, the other setting remains at
+`--gemm-block` / `--pipeline-window`. No tuning happens by default. Every trial
+uses the full FP64 correctness check; rejected candidates remain in JSON and
+cannot win. Candidate order rotates across shapes. After selection, the driver
+recaptures/JITs and measures the winner again: the published table is that
+fresh result, not the search minimum. Failed revalidation is never replaced by
+an earlier favorable trial. Search cost (including validation/framework timing)
+is separate from warm execution cost. This does not autotune PyTorch or
+establish a globally optimal configuration.
+
+On CPU, `--no-vectorize` disables TIRx independent-element SIMD packing for a
+same-binary comparison. It does not disable LLVM's own optimizations. Packing
+uses the domain's semantic independence and preserves inner serial/reduction
+order; it does not infer a new reduction permission or narrow input precision.
+Reports record the executable hash and adjacent Tile/bridge shared-library
+hashes separately, because rebuilding a dynamic bridge need not change the
+executable itself. These hashes are not a complete runtime dependency trace.
+
 Use `--backends metal --execution-scope group` for cooperative threadgroups,
 or `--execution-scope worker` for one logical instance per worker. Both use the
 same kernel source and block configuration; the requested mapping is recorded

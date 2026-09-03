@@ -79,7 +79,7 @@ void test_prefetch(Runtime &runtime, int32_t iterations, int32_t columns,
             auto acc = full<float>(shape(m, n), 0.75f);
             auto other = full<float>(shape(m, n), 1.25f);
             for (auto &step : nest.pipeline(shape(u, v), policy)) {
-                auto index = step[u] * (multi_axis ? iterations / 2 : iterations) + step[v];
+                auto index = step.index(u) * (multi_axis ? iterations / 2 : iterations) + step.index(v);
                 step.stage("load");
                 auto x = input.tile(coord(nest.index() * iterations + index, 0), shape(m, n)).load();
                 step.stage("compute");

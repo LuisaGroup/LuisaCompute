@@ -138,9 +138,9 @@ void test_reduction_capture_and_implicit_carry() {
             for (auto &row_nest : parallel(shape(row))) {
                 auto sum = Scalar<float>{0.0f};
                 for (auto &column_nest : row_nest.reduce(shape(column))) {
-                    sum += a(row_nest[row], column_nest[column]).load();
+                    sum += a(row_nest.index(row), column_nest.index(column)).load();
                 }
-                result(row_nest[row]).store(sum);
+                result(row_nest.index(row)).store(sum);
             }
         });
     auto kernel = definition.capture(tensor_shape("a", 5u, 7u), tensor_shape("result", 5u));
@@ -182,7 +182,7 @@ void test_parallel_cannot_capture_scalar_carry() {
         auto i = axis("i", 4u);
         auto value = Scalar<int32_t>{0};
         for (auto &element : parallel(shape(i))) {
-            value += cast<int32_t>(element[i]);
+            value += cast<int32_t>(element.index(i));
         }
     });
     auto kernel = definition.capture();
@@ -196,7 +196,7 @@ void test_logical_and_masked_view_capture() {
         "masked_stencil", [](TensorView<const float, 1> source, TensorView<float, 1> result) {
             auto i = axis("i", source.extent<0>());
             for (auto &element : parallel(shape(i))) {
-                auto index = element[i];
+                auto index = element.index(i);
                 auto source_index = index - 1;
                 auto in_bounds = (source_index >= 0) && (source_index < source.extent<0>());
                 auto use_fallback = !in_bounds || (index < 0);

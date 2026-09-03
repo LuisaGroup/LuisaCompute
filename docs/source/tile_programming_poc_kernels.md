@@ -61,6 +61,13 @@ state without `loop.result()`.
 An explicit `outer.index(...)` resolves within that Nest and its ancestors,
 even when written inside a child. Reusing positional axes in a nested shape
 does not make the child silently replace the parent's coordinate.
+Use `nest.index(axis)` for a named logical coordinate, or `nest.index()` for a
+rank-one domain. `Nest` has no subscript overload; `A[origin, shape]` is only
+the Tile-load syntax for tensor views.
+
+Value selection uses `ite(condition, true_value, false_value)`, matching the
+SIMT DSL's `ite`. Both Scalar and Tile operands use this order; the Tile DSL
+does not expose the differently ordered `select` name.
 
 ```{literalinclude} tile_programming_poc.cpp
 :language: cpp

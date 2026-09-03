@@ -276,7 +276,7 @@ private:
     template<scalar_cpp_type To, scalar_cpp_type From>
     friend Scalar<To> cast(const Scalar<From> &) noexcept;
     template<scalar_cpp_type U>
-    friend Scalar<U> select(const Scalar<bool> &, const Scalar<U> &, const Scalar<U> &) noexcept;
+    friend Scalar<U> ite(const Scalar<bool> &, const Scalar<U> &, const Scalar<U> &) noexcept;
 
 public:
     using value_type = T;
@@ -443,8 +443,10 @@ template<scalar_cpp_type To, scalar_cpp_type From>
     return Scalar<To>{detail::make_elementwise_operation(ElementwiseOp::CAST, operands, scalar_type_v<To>)};
 }
 
+// If condition then true_value else false_value, matching the SIMT DSL's ite.
+// This selects values; it does not make either operand a lazy control-flow arm.
 template<scalar_cpp_type T>
-[[nodiscard]] Scalar<T> select(
+[[nodiscard]] Scalar<T> ite(
     const Scalar<bool> &condition,
     const Scalar<T> &true_value,
     const Scalar<T> &false_value) noexcept {
@@ -453,27 +455,27 @@ template<scalar_cpp_type T>
 }
 
 template<scalar_cpp_type T>
-[[nodiscard]] Scalar<T> select(
+[[nodiscard]] Scalar<T> ite(
     const Scalar<bool> &condition,
     const Scalar<T> &true_value,
     T false_value) noexcept {
-    return select(condition, true_value, Scalar<T>{false_value});
+    return ite(condition, true_value, Scalar<T>{false_value});
 }
 
 template<scalar_cpp_type T>
-[[nodiscard]] Scalar<T> select(
+[[nodiscard]] Scalar<T> ite(
     const Scalar<bool> &condition,
     T true_value,
     const Scalar<T> &false_value) noexcept {
-    return select(condition, Scalar<T>{true_value}, false_value);
+    return ite(condition, Scalar<T>{true_value}, false_value);
 }
 
 template<scalar_cpp_type T>
-[[nodiscard]] Scalar<T> select(
+[[nodiscard]] Scalar<T> ite(
     const Scalar<bool> &condition,
     T true_value,
     T false_value) noexcept {
-    return select(condition, Scalar<T>{true_value}, Scalar<T>{false_value});
+    return ite(condition, Scalar<T>{true_value}, Scalar<T>{false_value});
 }
 
 [[nodiscard]] inline Scalar<bool> operator&&(const Scalar<bool> &lhs, const Scalar<bool> &rhs) noexcept {
@@ -620,7 +622,6 @@ public:
     [[nodiscard]] Scalar<int64_t> index(const Axis &axis) const noexcept;
     [[nodiscard]] Scalar<int64_t> index(Dim dimension) const noexcept;
     [[nodiscard]] Scalar<int64_t> index() const noexcept;
-    [[nodiscard]] Scalar<int64_t> operator[](const Axis &axis) const noexcept { return index(axis); }
 
     [[nodiscard]] NestRange parallel(IndexSpace domain, exec::Scope scope = exec::Scope::AUTOMATIC) const noexcept;
     [[nodiscard]] NestRange serial(IndexSpace domain) const noexcept;

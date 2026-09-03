@@ -182,6 +182,10 @@ protected:
             auto result = StmtMutator::VisitStmt_(loop);
             if (loop->annotations.count(independent_elements_annotation)) {
                 auto mapped = result.as_or_throw<tvm::tirx::For>();
+                if (_binding == RootParallelBinding::CPU_THREADS && _vectorize && _vector_depth == 0u) {
+                    auto packed = vectorize_independent_elements(mapped);
+                    if (packed.defined()) { return packed; }
+                }
                 mapped.CopyOnWrite()->annotations.erase(independent_elements_annotation);
                 mapped.CopyOnWrite()->annotations.erase(mma_annotation);
                 return mapped;
@@ -366,6 +370,9 @@ void run_common_pipeline(tvm::IRModule &module, const CompileOptions &options, c
         module = run_pass(std::move(pass), std::move(module));
     };
     apply(tvm::tirx::transform::BindTarget(target));
+    // Full/tail factoring can copy bodies containing loop-local definitions.
+    // Let the native pass renew those definitions before subsequent analyses.
+    apply(tvm::tirx::transform::ConvertSSA());
     if (options.pipeline == PipelineKind::TILE) {
         apply(tvm::tirx::transform::LowerTIRx());
     } else {

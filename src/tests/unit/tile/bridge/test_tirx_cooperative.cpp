@@ -65,7 +65,7 @@ void test_shared_tiles_and_global_order(Runtime &runtime) {
                 // Two resources at the same execution level; y is produced
                 // by a different lane than the one later consuming it.
                 auto y = map<float>(shape(m, n), [&](const Nest &element) {
-                    return x.at(coord(0, columns - 1 - element[n])) * 3.0f + 2.0f;
+                    return x.at(coord(0, columns - 1 - element.index(n))) * 3.0f + 2.0f;
                 });
                 for (auto &phase : nest.pipeline(shape(3))) {
                     phase.stage("publish");
@@ -79,7 +79,7 @@ void test_shared_tiles_and_global_order(Runtime &runtime) {
                     phase.stage("consume");
                     auto published = scratch.tile(origin, shape(m, n)).load();
                     auto reversed = map<float>(shape(m, n), [&](const Nest &element) {
-                        return published.at(coord(0, columns - 1 - element[n]));
+                        return published.at(coord(0, columns - 1 - element.index(n)));
                     });
                     output(origin, shape(m, n)).store(reversed);
                 }
@@ -179,7 +179,7 @@ void test_rectangular_element_domain(Runtime &runtime) {
             auto origin = coord(group.index() * 5, 0, 0);
             auto x = input.tile(origin, shape(i, j, k)).load();
             auto y = map<float>(shape(i, j, k), [&](const Nest &element) {
-                return x.at(coord(4 - element[i], 6 - element[j], 10 - element[k])) * 2.0f + 1.0f;
+                return x.at(coord(4 - element.index(i), 6 - element.index(j), 10 - element.index(k))) * 2.0f + 1.0f;
             });
             output(origin, shape(i, j, k)).store(y);
         }
@@ -319,8 +319,8 @@ void test_gemm(Runtime &runtime) {
             auto n = axis("n", 8);
             auto k = axis("k", 8);
             for (auto &nest : parallel(shape(gm, gn), scope)) {
-                auto m0 = nest[gm] * 8;
-                auto n0 = nest[gn] * 8;
+                auto m0 = nest.index(gm) * 8;
+                auto n0 = nest.index(gn) * 8;
                 auto acc = zeros<float>(shape(m, n));
                 for (auto &step : nest.pipeline(shape((inner + 7) / 8))) {
                     step.stage("load");

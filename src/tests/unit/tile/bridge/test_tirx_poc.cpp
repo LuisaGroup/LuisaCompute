@@ -66,9 +66,9 @@ void test_row_statistics_and_losses(Runtime &runtime) {
                 auto difference = value - expected;
                 auto magnitude = abs(difference);
                 auto p = min(max(probability_tile, epsilon), 1.0f - epsilon);
-                auto huber = select(magnitude <= huber_delta,
-                                    0.5f * difference * difference,
-                                    huber_delta * (magnitude - 0.5f * huber_delta));
+                auto huber = ite(magnitude <= huber_delta,
+                                 0.5f * difference * difference,
+                                 huber_delta * (magnitude - 0.5f * huber_delta));
                 auto bce = -(expected * luisa::compute::tile::log(p) + (1.0f - expected) * luisa::compute::tile::log(1.0f - p));
                 auto sum = reduce(value, c, add);
                 auto denominator = static_cast<float>(x.extent<1>());
@@ -259,8 +259,8 @@ void test_pipelined_gemm(Runtime &runtime) {
             auto n = axis("n", bn);
             auto k = axis("k", bk);
             for (auto &nest : parallel(shape(gm, gn))) {
-                auto m0 = nest[gm] * bm;
-                auto n0 = nest[gn] * bn;
+                auto m0 = nest.index(gm) * bm;
+                auto n0 = nest.index(gn) * bn;
                 auto acc = zeros<float>(shape(m, n));
                 for (auto &step : nest.pipeline(shape(kt), {.stages = 2, .initiation_interval = 1})) {
                     step.stage("load");
@@ -337,12 +337,12 @@ void test_padded_strided_conv2d(Runtime &runtime) {
             auto wy = axis("window_y", (weights.extent<0>() - 1) * dilation + 1);
             auto wx = axis("window_x", (weights.extent<1>() - 1) * dilation + 1);
             for (auto &nest : parallel(shape(batch, output_y, output_x))) {
-                auto n0 = nest[batch];
-                auto y0 = nest[output_y];
-                auto x0 = nest[output_x];
+                auto n0 = nest.index(batch);
+                auto y0 = nest.index(output_y);
+                auto x0 = nest.index(output_x);
                 auto window = x[coord(n0, y0 * stride - padding, x0 * stride - padding, 0), shape(b, wy, wx, ic)];
                 auto taps = reindex(window, shape(b, fy, fx, ic), [&](const Nest &element) {
-                    return coord(element[b], element[fy] * dilation, element[fx] * dilation, element[ic]);
+                    return coord(element.index(b), element.index(fy) * dilation, element.index(fx) * dilation, element.index(ic));
                 });
                 auto filter = weights[coord(0, 0, 0, 0), shape(fy, fx, ic, oc)];
                 auto bias_tile = bias[coord(0), shape(oc)];

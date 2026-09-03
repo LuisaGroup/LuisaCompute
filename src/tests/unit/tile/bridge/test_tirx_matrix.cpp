@@ -1,6 +1,7 @@
 // Test semantic MMA selection through native TVMx, including real Metal.
 // Covers matrix atoms, transposed operands, ragged global tiles, pipeline
-// versions, ordered math, capability gates, and stale tensorization markers.
+// versions, ordered math, capability gates, stale tensorization markers, and
+// CPU column SIMD with scalar tails and cancellation-sensitive K ordering.
 #include "ut/ut.hpp"
 #include "tile_tirx_test_utils.h"
 
@@ -48,8 +49,8 @@ struct Shape {
         auto n = axis("n", cfg.bn);
         auto k = axis("k", cfg.bk);
         for (auto &nest : parallel(shape(gm, gn), scope)) {
-            auto m0 = nest[gm] * cfg.bm;
-            auto n0 = nest[gn] * cfg.bn;
+            auto m0 = nest.index(gm) * cfg.bm;
+            auto n0 = nest.index(gn) * cfg.bn;
             auto acc = C.tile(coord(m0, n0), shape(m, n)).load();
             for (auto &step : nest.pipeline(shape((cfg.k + cfg.bk - 1) / cfg.bk), {.stages = window})) {
                 step.stage("load");
@@ -304,6 +305,68 @@ void test_mixed_input_matrix_fallback(Runtime &runtime) {
     expect(std::all_of(output.begin(), output.end(), [](float value) { return std::isfinite(value) && std::abs(value - 1048584.25f) < 1e-5f; }));
 }
 
+void test_cpu_matrix_vectors_and_tails(Runtime &runtime) {
+    if (runtime.target() != "llvm") { return; }
+    Shape cases[]{
+        {9, 13, 29, 3, 5, 7}, {17, 23, 31, 4, 7, 16}, {16, 32, 32, 4, 16, 16}, {17, 23, 31, 4, 7, 16, true, false}, {17, 23, 31, 4, 7, 16, false, true}};
+    for (auto cfg : cases) {
+        cfg.math.allow_reassociation = false;
+        for (auto window : {1u, 2u}) {
+            auto kernel = gemm(runtime, cfg, window);
+            for (auto vectorize : {false, true}) {
+                auto executable = runtime.build(kernel, true, false, vectorize);
+                expect(executable.ok()) << executable.error;
+                if (!executable.ok()) { continue; }
+                check_gemm(runtime, executable, cfg);
+                if (vectorize && !cfg.transpose_b && cfg.bn == 16) {
+                    auto source = executable.module.value()->InspectSource("ll");
+                    auto code = std::string_view{source.data(), source.size()};
+                    auto vector_product = false;
+                    for (auto lanes : {4, 8, 16}) {
+                        vector_product |= code.find(luisa::format("llvm.fmuladd.v{}f32", lanes)) != std::string_view::npos ||
+                                          code.find(luisa::format("llvm.fma.v{}f32", lanes)) != std::string_view::npos;
+                        for (auto start = code.find("fmul "); start != std::string_view::npos; start = code.find("fmul ", start + 5u)) {
+                            auto end = code.find('\n', start);
+                            vector_product |= code.substr(start, end - start).find(luisa::format("<{} x float>", lanes)) != std::string_view::npos;
+                        }
+                    }
+                    expect(vector_product) << "ordered CPU MMA must contain vector products\n"
+                                           << code;
+                }
+            }
+        }
+    }
+}
+
+void test_cpu_matrix_preserves_k_order(Runtime &runtime) {
+    if (runtime.target() != "llvm") { return; }
+    auto kernel = tile_kernel("matrix_ordered_cancellation", [](TensorView<const float, 2> A,
+                                                                TensorView<const float, 2> B, TensorView<float, 2> D) {
+                      auto m = axis("m", 3);
+                      auto n = axis("n", 5);
+                      auto k = axis("k", 4);
+                      for (auto &nest : parallel(shape(1), exec::Scope::WORKER)) {
+                          auto a = A[coord(nest.index(), 0), shape(m, k)];
+                          auto b = B[coord(0, 0), shape(k, n)];
+                          D(coord(0, 0), shape(m, n)).store(mma(a, b, zeros<float>(shape(m, n)), {.allow_reassociation = false}));
+                      }
+                  }).capture(tensor_shape(3, 4), tensor_shape(4, 5), tensor_shape(3, 5));
+    vector<float> inputs;
+    for (auto i = 0u; i < 3u; i++) { inputs.insert(inputs.end(), {16777216.0f, 1.0f, -16777216.0f, 0.5f}); }
+    auto a = runtime.upload<float>({3, 4}, inputs);
+    auto b = runtime.upload<float>({4, 5}, vector<float>(20, 1.0f));
+    auto d = runtime.allocate<float>({3, 5});
+    for (auto vectorize : {false, true}) {
+        auto executable = runtime.build(kernel, true, false, vectorize);
+        expect(executable.ok()) << executable.error;
+        if (!executable.ok()) { continue; }
+        (*executable.entry)(a, b, d);
+        auto output = runtime.download<float>(d, 15);
+        // Sequential FP32 is 0.5; regrouping cancellation can produce 1.5.
+        expect(std::all_of(output.begin(), output.end(), [](float value) { return std::isfinite(value) && std::abs(value - 0.5f) < 1e-7f; }));
+    }
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -316,4 +379,6 @@ int main(int argc, char *argv[]) {
     "tile_matrix_literal_initial_and_zero_contraction"_test = [&] { test_literal_initial_and_zero_contraction(runtime); };
     "tile_matrix_worker_local_is_not_a_collective"_test = [&] { test_worker_local_matrix_fallback(runtime); };
     "tile_matrix_mixed_conversion_keeps_reference_types"_test = [&] { test_mixed_input_matrix_fallback(runtime); };
+    "tile_cpu_matrix_vectors_and_scalar_tails"_test = [&] { test_cpu_matrix_vectors_and_tails(runtime); };
+    "tile_cpu_matrix_preserves_k_order"_test = [&] { test_cpu_matrix_preserves_k_order(runtime); };
 }

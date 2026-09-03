@@ -90,8 +90,8 @@ struct Configuration {
             auto n = axis("n", cfg.bn);
             auto k = axis("k", cfg.bk);
             for (auto &nest : parallel(shape(gm, gn), cfg.execution_scope)) {
-                auto m0 = nest[gm] * cfg.bm;
-                auto n0 = nest[gn] * cfg.bn;
+                auto m0 = nest.index(gm) * cfg.bm;
+                auto n0 = nest.index(gn) * cfg.bn;
                 auto acc = zeros<float>(shape(m, n));
                 for (auto &step : nest.pipeline(shape(kt), {.stages = cfg.pipeline_window, .initiation_interval = 1})) {
                     auto k0 = step.index() * cfg.bk;
@@ -115,7 +115,7 @@ struct Configuration {
             auto m = axis("m", cfg.bm);
             auto n = axis("n", cfg.bn);
             for (auto &nest : parallel(shape(gm, gn), cfg.execution_scope)) {
-                auto origin = coord(nest[gm] * cfg.bm, nest[gn] * cfg.bn);
+                auto origin = coord(nest.index(gm) * cfg.bm, nest.index(gn) * cfg.bn);
                 C(origin, shape(m, n)).store(A[origin, shape(m, n)] + B[origin, shape(m, n)]);
             }
         });
@@ -178,8 +178,8 @@ void print_samples(std::string_view name, const std::vector<double> &samples) {
 }// namespace
 
 int main(int argc, char *argv[]) {
-    if (argc < 13 || argc > 16) {
-        std::cerr << "Usage: benchmark_tile_tirx <cpu|metal> <gemm|add|sum|softmax> M N K BM BN BK samples sample-ms warmup-ms output.f32 [auto|worker|group] [pipeline-window:1|2] [scalar|matrix]\n";
+    if (argc < 13 || argc > 17) {
+        std::cerr << "Usage: benchmark_tile_tirx <cpu|metal> <gemm|add|sum|softmax> M N K BM BN BK samples sample-ms warmup-ms output.f32 [auto|worker|group] [pipeline-window:1|2] [scalar|matrix] [vectorize|no-vectorize]\n";
         return 1;
     }
     try {
@@ -192,9 +192,12 @@ int main(int argc, char *argv[]) {
         auto pipeline_window = argc >= 15 ? positive_integer(argv[14]) : 2;
         if (pipeline_window > 2) { throw std::invalid_argument{"benchmark pipeline window must be 1 or 2"}; }
         cfg.pipeline_window = static_cast<uint32_t>(pipeline_window);
-        auto matrix_mode = argc == 16 ? std::string_view{argv[15]} : std::string_view{"scalar"};
+        auto matrix_mode = argc >= 16 ? std::string_view{argv[15]} : std::string_view{"scalar"};
         if (matrix_mode != "scalar" && matrix_mode != "matrix") { throw std::invalid_argument{"matrix mode must be scalar or matrix"}; }
         auto cooperative_matrix = matrix_mode == "matrix";
+        auto vector_mode = argc == 17 ? std::string_view{argv[16]} : std::string_view{"vectorize"};
+        if (vector_mode != "vectorize" && vector_mode != "no-vectorize") { throw std::invalid_argument{"vector mode must be vectorize or no-vectorize"}; }
+        auto vectorize = vector_mode == "vectorize";
         auto sample_count = positive_integer(argv[9]);
         auto target_ms = positive_integer(argv[10]);
         auto warmup_ms = positive_integer(argv[11]);
@@ -209,7 +212,7 @@ int main(int argc, char *argv[]) {
         auto kernel = capture(operation, cfg);
         auto capture_ms = milliseconds(start);
         start = Clock::now();
-        auto executable = runtime.build(kernel, true, cooperative_matrix);
+        auto executable = runtime.build(kernel, true, cooperative_matrix, vectorize);
         auto compile_ms = milliseconds(start);
         if (!executable.ok()) { throw std::runtime_error{executable.error.c_str()}; }
         auto matrix_calls = matrix_intrinsics(executable.module.value());
@@ -259,6 +262,7 @@ int main(int argc, char *argv[]) {
                   << ",\"execution_scope\":" << std::quoted(execution_scope)
                   << ",\"pipeline_window\":" << cfg.pipeline_window
                   << ",\"cooperative_matrix\":" << (cooperative_matrix ? "true" : "false")
+                  << ",\"vectorize\":" << (vectorize ? "true" : "false")
                   << ",\"matrix_intrinsics\":" << matrix_calls
                   << ",\"runtime_init_ms\":" << runtime_init_ms << ",\"capture_ms\":" << capture_ms
                   << ",\"compile_ms\":" << compile_ms << ",\"allocation_upload_ms\":" << allocation_upload_ms

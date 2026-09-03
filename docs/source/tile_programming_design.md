@@ -185,7 +185,7 @@ The initial reference library has explicit desugarings:
 
 | Library surface | Core expansion |
 |---|---|
-| lifted `+`, `exp`, `select`, GELU | generic scalar SSA region over a dimension-identity join |
+| lifted `+`, `exp`, `ite`, GELU | generic scalar SSA region over a dimension-identity join |
 | `reduce(x, dimensions, r)` | captured reduce region with generated state update |
 | `matmul(a, b)` | infer conventional trailing matrix dimensions, create a zero result, then `mma(a, b, zero)` |
 | general `einsum` | reindex/broadcast, elementwise multiply, reduce; a schedule may retile it into `mma` |
@@ -194,7 +194,7 @@ The initial reference library has explicit desugarings:
 | `scatter` | value-computed index plus store or atomic effect |
 | `copy` | load/store edge, optionally recognized as a transfer atom |
 | `topk<K>` | indexed Tile plus bounded merge-and-truncate reducer |
-| `sort` / `merge_sorted` | compare/select/reindex networks or structured radix/merge library |
+| `sort` / `merge_sorted` | compare/ite/reindex networks or structured radix/merge library |
 | `scan` / histogram | parallel/serial/reduce regions plus indexed effects |
 
 This table is a test obligation: the target-independent expansion must run in
@@ -374,12 +374,28 @@ names for non-copyable scope handles, not predefined hardware roles. The
 canonical examples deliberately reserve `tile` for data `Tile<T, R>` and tiled
 tensor views, so an execution node cannot be mistaken for a memory level.
 
+Execution coordinates are explicit: `nest.index(axis)` projects a named logical
+axis, and `nest.index()` is available when that nest's own domain has rank one.
+These are logical iteration coordinates, not memory accesses or hardware thread
+IDs. `Nest` has no `operator[]`; the `A[origin, shape]` syntax is reserved for
+loading a Tile from a tensor view.
+
 | Constructor | Structural meaning | Ordering guarantee | Changes spatial participant prefix? |
 |---|---|---|---|
 | `parallel(domain, exec_policy?)` | Independent logical child instances; policy may constrain its logical map or target scope | No order between distinct active children | Yes |
 | `serial(domain, order?)` | Repeated temporal child region | Total order | No |
 | `pipeline(domain, policy)` | Repeated producer/consumer stage graph | Dependence partial order; iterations may overlap | No |
 | `reduce(domain, contract?, policy?)` | Algebraic fold region whose outer Tile states are inferred from body updates | Reducer order; may become a tree, loop, or hybrid | No |
+
+Independence is a **semantic contract**, not a hint asking the compiler to
+rediscover it through alias or dependence analysis. `parallel` instances may
+be serialized, interleaved, or packed into SIMD lanes without imposing a
+relative order. Required coordination must be explicit in the program's
+operations/contracts; choosing a fortunate serial order cannot supply it.
+The same principle applies to independent element domains of Tile operations.
+What lowering must check is its own realization: coordinate coverage, layout
+and resource constraints, storage reuse, and target capabilities. It must not
+reinterpret an inner `serial`/reduction recurrence as another independent axis.
 
 ```{figure} ../_static/tile/nest-calculus.svg
 :alt: Parallel extends space, serial and pipeline extend time, and reduce introduces an algebraic fold domain.
@@ -1200,8 +1216,15 @@ ordinary expressions:
 ~~~cpp
 auto y = gelu(x + bias) + residual;
 auto p = exp(scores - row_max);
-auto finite = select(mask, p, 0.0f);
+auto finite = ite(mask, p, 0.0f);
 ~~~
+
+`ite(condition, true_value, false_value)` means if-then-else, using the same name
+and argument order as Luisa's SIMT DSL. It supports Scalar and Tile values,
+including broadcast conditions and operands. There is no Tile DSL `select`
+alias: Luisa's existing `select(false_value, true_value, condition)` uses a
+different order. `ite` selects already-computed values; it is not lazy control
+flow and does not by itself guard an unsafe load in either operand.
 
 For scalar function `f` and named logical output coordinate `q`:
 
@@ -1503,7 +1526,7 @@ auto sorted = sort(x,
 ~~~
 
 It returns values and, when requested, the logical source permutation. Its
-reference expansion uses core compare/select, reindex, reduction, and structured
+reference expansion uses core comparison/ite, reindex, reduction, and structured
 regions; no core SortOp is required. The meaning does not mention a sorting
 network, radix digit, lane exchange, shared memory, or merge pass. Distribution
 analysis may keep the axis local, repartition it, or reject a requested
@@ -2608,6 +2631,24 @@ Parent Tiles, lane-local multidimensional Tiles, and simultaneous loop-carried
 updates have separate numerical regressions, alongside a generated LLVM
 vector-instruction check. Explicitly placed/laid-out resources are not
 rewritten by this compact-local-storage transformation.
+
+CPU automatic vectorization also consumes the independent-element domain
+contract, without matching a particular operator or re-proving independence.
+For a supported rectangular domain it factors the innermost element axis as
+`i = min + pack * width + lane`, emits power-of-two vector packs of 4--16
+logical lanes plus a scalar tail,
+and preserves the entire per-element body. In particular, an MMA's K loop
+remains serial inside each output instance; no horizontal reduction or
+floating-point reassociation is introduced. Native TIRx `ConvertSSA` renews
+definitions copied into the full/tail bodies, and `VectorizeLoop`/LLVM perform
+SIMD legalization. A logical pack can become several native vectors, exposing
+independent accumulator chains without changing temporal order. There is no
+new per-MMA scratch allocation or DSL entity.
+Bodies containing allocations, while loops, or nested nonserial execution
+keep their reference mapping until the corresponding vectorization/storage
+support exists. `CompileOptions::vectorize = false` disables this optional
+packing; it still rejects explicitly requested vector execution. Tests cover
+scalar tails, transposes, ordered cancellation, and generated vector products.
 
 Metal group binding similarly includes a resource transformation, not just a
 loop tag. The structural exporter marks **independent element domains**;

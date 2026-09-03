@@ -10,6 +10,68 @@ using luisa::test::tile_tirx::Runtime;
 
 namespace {
 
+template<bool tiled>
+void test_ite_argument_order(Runtime &runtime) {
+    constexpr auto count = 17;
+    constexpr auto programs = 2;
+    constexpr auto cases = 5;
+    auto definition = tile_kernel("ite_argument_order", [=](TensorView<const float, 1> input,
+                                                            TensorView<float, 1> output) {
+        auto lane = axis("lane", count);
+        for (auto &program : parallel(shape(programs))) {
+            auto index = program.index();
+            auto x = input[coord(index * count), shape(lane)];
+            for (auto test = 0; test < cases - 1; test++) {
+                auto choose = [=](const auto &value) {
+                    auto condition = value > 0.0f;
+                    switch (test) {
+                        case 0: return ite(condition, value + 10.0f, value - 20.0f);
+                        case 1: return ite(condition, value, -7.0f);
+                        case 2: return ite(condition, 13.0f, value);
+                        default: return ite(condition, 3.0f, -5.0f);
+                    }
+                };
+                auto selected = [&] {
+                    if constexpr (tiled) {
+                        return choose(x);
+                    } else {
+                        return map<float>(shape(lane), [&](const Nest &element) {
+                            return choose(x.at(coord(element.index(lane))));
+                        });
+                    }
+                }();
+                output(coord((index * cases + test) * count), shape(lane)).store(selected);
+            }
+            // A scalar predicate broadcasts over both Tile arms. Both its
+            // true and false paths execute in distinct logical programs.
+            output(coord((index * cases + cases - 1) * count), shape(lane))
+                .store(ite(index == 0, x + 31.0f, x - 37.0f));
+        }
+    });
+    auto executable = runtime.build(definition.capture(tensor_shape(programs * count), tensor_shape(programs * cases * count)));
+    expect(executable.ok()) << executable.error;
+    if (!executable.ok()) { return; }
+    luisa::vector<float> values(programs * count);
+    for (auto i = 0u; i < values.size(); i++) { values[i] = static_cast<float>(static_cast<int32_t>(i % 9u) - 4); }
+    auto input = runtime.upload<float>({programs * count}, values);
+    auto output = runtime.allocate<float>({programs * cases * count});
+    (*executable.entry)(input, output);
+    auto actual = runtime.download<float>(output, programs * cases * count);
+    for (auto program = 0; program < programs; program++) {
+        for (auto lane = 0; lane < count; lane++) {
+            auto value = values[program * count + lane];
+            float expected[]{value > 0.0f ? value + 10.0f : value - 20.0f,
+                             value > 0.0f ? value : -7.0f,
+                             value > 0.0f ? 13.0f : value,
+                             value > 0.0f ? 3.0f : -5.0f,
+                             program == 0 ? value + 31.0f : value - 37.0f};
+            for (auto test = 0; test < cases; test++) {
+                expect(eq(actual[(program * cases + test) * count + lane], expected[test]));
+            }
+        }
+    }
+}
+
 void test_bounds_and_snapshot(Runtime &runtime) {
     auto definition = tile_kernel("tile_snapshot", [](TensorView<float, 2> a, TensorView<float, 2> out) {
         auto program = axis("program", 1);
@@ -52,8 +114,8 @@ void test_singleton_execution_coordinates(Runtime &runtime) {
         auto c = axis("c", 3);
         auto d = axis("d", 1);
         for (auto &nest : parallel(shape(a, b, c, d))) {
-            auto value = full<float>(shape(1, 1, 1, 1), cast<float>(1000 * nest[a] + 100 * nest[b] + 10 * nest[c] + nest[d]));
-            out(coord(nest[a], nest[b], nest[c], nest[d]), shape(1, 1, 1, 1)).store(value);
+            auto value = full<float>(shape(1, 1, 1, 1), cast<float>(1000 * nest.index(a) + 100 * nest.index(b) + 10 * nest.index(c) + nest.index(d)));
+            out(coord(nest.index(a), nest.index(b), nest.index(c), nest.index(d)), shape(1, 1, 1, 1)).store(value);
         }
     });
     auto kernel = definition.capture(tensor_shape(2, 1, 3, 1));
@@ -243,6 +305,8 @@ int main(int argc, char *argv[]) {
     auto runtime = Runtime{argc > 1 ? argv[1] : "cpu"};
     boost::ut::detail::cfg::parse_arg_with_fallback(argc > 1 ? argc - 1 : argc,
                                                     const_cast<const char **>(argc > 1 ? argv + 1 : argv));
+    "tile_ite_argument_order"_test = [&] { test_ite_argument_order<true>(runtime); };
+    "scalar_ite_argument_order"_test = [&] { test_ite_argument_order<false>(runtime); };
     "tile_subtile_bounds_and_snapshot"_test = [&] { test_bounds_and_snapshot(runtime); };
     "tile_singleton_execution_coordinates"_test = [&] { test_singleton_execution_coordinates(runtime); };
     "tile_simultaneous_value_yield"_test = [&] { test_tile_yield_is_simultaneous(runtime); };

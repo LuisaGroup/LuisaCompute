@@ -75,7 +75,7 @@ template<scalar_cpp_type T>
         auto index = indices.at(nest);
         auto coordinates = detail::projected_coordinates(value.space(), nest, dimension.dimension(), index);
         auto in_bounds = (index >= 0) && (index < dimension.extent().constant_value());
-        return select(in_bounds, value.at(coordinates), fallback);
+        return ite(in_bounds, value.at(coordinates), fallback);
     });
 }
 
@@ -83,7 +83,7 @@ template<scalar_cpp_type T>
 [[nodiscard]] Tile<int64_t> argmax(const Tile<T> &value, Axis dimension) noexcept {
     auto peak = reduce(value, dimension, maximum);
     auto indices = iota(dimension);
-    return reduce(select(value == peak, indices, std::numeric_limits<int64_t>::max()), dimension, minimum);
+    return reduce(ite(value == peak, indices, std::numeric_limits<int64_t>::max()), dimension, minimum);
 }
 
 template<scalar_cpp_type T>
@@ -129,7 +129,7 @@ template<scalar_cpp_type T>
         for (auto &item : nest.reduce(shape(candidate))) {
             auto candidate_index = item.index();
             auto coordinates = detail::projected_coordinates(value.space(), item, dimension.dimension(), candidate_index);
-            index = select(ranks.at(coordinates) == output_rank, candidate_index, index);
+            index = ite(ranks.at(coordinates) == output_rank, candidate_index, index);
         }
         return index;
     });

@@ -49,8 +49,8 @@ void test_bias_gelu_residual(Runtime &runtime) {
             auto m = axis("m", bm);
             auto n = axis("n", bn);
             for (auto &nest : parallel(shape(gm, gn))) {
-                auto origin = coord(nest[gm] * bm, nest[gn] * bn);
-                auto value = x[origin, shape(m, n)] + bias[coord(nest[gn] * bn), shape(n)];
+                auto origin = coord(nest.index(gm) * bm, nest.index(gn) * bn);
+                auto value = x[origin, shape(m, n)] + bias[coord(nest.index(gn) * bn), shape(n)];
                 auto cubic = value * value * value;
                 auto gelu = 0.5f * value * (1.0f + tanh(gelu_scale * (value + gelu_cubic * cubic)));
                 y(origin, shape(m, n)).store(gelu + residual[origin, shape(m, n)]);
@@ -164,7 +164,7 @@ void test_sparse_softmax_cross_entropy(Runtime &runtime) {
                 auto total = reduce(exponentials, c, add);
                 auto selected = gather(value, label, c);
                 losses(coord(nest.index()), shape(r)).store(luisa::compute::tile::log(total) + peak - selected);
-                auto one_hot = select(iota(c) == label, 1.0f, 0.0f);
+                auto one_hot = ite(iota(c) == label, 1.0f, 0.0f);
                 gradient(origin, shape(r, c)).store(exponentials / total - one_hot);
             }
         });
@@ -236,9 +236,9 @@ void test_flash_attention_online_softmax(Runtime &runtime) {
             auto d = axis("channel", q.extent<3>());
             auto dv = axis("value_channel", result.extent<3>());
             for (auto &nest : parallel(shape(batch, head, query_blocks))) {
-                auto b0 = nest[batch];
-                auto h0 = nest[head];
-                auto q0 = nest[query_blocks] * bq;
+                auto b0 = nest.index(batch);
+                auto h0 = nest.index(head);
+                auto q0 = nest.index(query_blocks) * bq;
                 auto query = q[coord(b0, h0, q0, 0), shape(b, h, m, d)];
                 auto row_max = full<float>(shape(b, h, m), -1e30f);
                 auto row_sum = zeros<float>(shape(b, h, m));
@@ -251,10 +251,10 @@ void test_flash_attention_online_softmax(Runtime &runtime) {
                     step.stage("score");
                     auto score = mma(query, key, zeros<float>(shape(b, h, m, s))) * scale;
                     auto valid = (iota(s) + k0 < k.extent<2>()) && (iota(s) + k0 <= iota(m) + q0);
-                    auto masked = select(valid, score, -1e30f);
+                    auto masked = ite(valid, score, -1e30f);
                     auto next_max = max(row_max, reduce(masked, s, maximum));
                     auto alpha = exp(row_max - next_max);
-                    auto probability = select(valid, exp(masked - next_max), 0.0f);
+                    auto probability = ite(valid, exp(masked - next_max), 0.0f);
                     step.stage("update");
                     row_sum = row_sum * alpha + reduce(probability, s, add);
                     acc = mma(probability, value, acc * alpha);

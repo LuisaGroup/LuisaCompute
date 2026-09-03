@@ -342,9 +342,9 @@ void test_dsl_reduction_end_to_end() {
             for (auto &row_nest : parallel(shape(row))) {
                 auto sum = Scalar<float>{0.0f};
                 for (auto &column_nest : row_nest.reduce(shape(column))) {
-                    sum += source(row_nest[row], column_nest[column]).load();
+                    sum += source(row_nest.index(row), column_nest.index(column)).load();
                 }
-                result(row_nest[row]).store(sum);
+                result(row_nest.index(row)).store(sum);
             }
         });
     auto kernel = definition.capture(
@@ -397,7 +397,7 @@ void test_dsl_masked_stencil_end_to_end() {
         "tile_dsl_masked_stencil", [](TensorView<const float, 1> source, TensorView<float, 1> result) {
             auto i = axis("i", source.extent<0>());
             for (auto &element : parallel(shape(i))) {
-                auto index = element[i];
+                auto index = element.index(i);
                 auto left_index = index - 1;
                 auto right_index = index + 1;
                 auto left_valid = (left_index >= 0) && (left_index < source.extent<0>());
@@ -405,7 +405,7 @@ void test_dsl_masked_stencil_end_to_end() {
                 auto left = source(left_index).load(left_valid, 0.0f);
                 auto center = source(index).load();
                 auto right = source(right_index).load(right_valid, 0.0f);
-                result(element[i]).store(left + 2.0f * center + right);
+                result(element.index(i)).store(left + 2.0f * center + right);
             }
         });
     auto kernel = definition.capture(tensor_shape("source", n), tensor_shape("result", n));

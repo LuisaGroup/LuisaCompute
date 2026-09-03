@@ -130,9 +130,27 @@ def block_shape(case: Case, gemm_block: tuple[int, int, int]) -> tuple[int, int,
     return (1, 256 if case.operation == "add" else case.n, 1)
 
 
+def parse_gemm_block(text: str) -> tuple[int, int, int]:
+    block = tuple(int(x) for x in text.split(","))
+    if len(block) != 3 or min(block) <= 0:
+        raise ValueError("GEMM blocks must contain three positive dimensions")
+    return block
+
+
+def tuning_candidates(block: tuple[int, int, int], window: int, blocks: str | None,
+                      windows: str | None) -> list[tuple[tuple[int, int, int], int]]:
+    if blocks is None and windows is None:
+        return []
+    shapes = [parse_gemm_block(value) for value in blocks.split(";")] if blocks is not None else [block]
+    stages = [int(value) for value in windows.split(",")] if windows is not None else [window]
+    if any(value not in (1, 2) for value in stages):
+        raise ValueError("tuning pipeline windows must be 1 or 2")
+    return list(dict.fromkeys((shape, stage) for shape in shapes for stage in stages))
+
+
 def validate_native_metadata(native: dict[str, Any], case: Case, backend: str, execution_scope: str,
                              pipeline_window: int = 2, cooperative_matrix: bool = False,
-                             gemm_block: tuple[int, int, int] = (8, 8, 16)) -> None:
+                             gemm_block: tuple[int, int, int] = (8, 8, 16), vectorize: bool = True) -> None:
     if native.get("backend") != backend or native.get("operation") != case.operation:
         raise RuntimeError("native backend/operation metadata does not match the request")
     if native.get("execution_scope") != execution_scope:
@@ -143,6 +161,8 @@ def validate_native_metadata(native: dict[str, Any], case: Case, backend: str, e
         raise RuntimeError("GEMM must contain one semantic TileIR MMA, not a scalar-memory substitute")
     if native.get("cooperative_matrix") is not cooperative_matrix:
         raise RuntimeError("native cooperative-matrix metadata does not match the request")
+    if native.get("vectorize") is not vectorize:
+        raise RuntimeError("native vectorization metadata does not match the request")
     calls = native.get("matrix_intrinsics")
     if type(calls) is not int or calls < 0:
         raise RuntimeError("native matrix-intrinsic count must be a nonnegative integer")
@@ -176,7 +196,8 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
             output = Path(temporary) / "output.f32"
             command = [str(args.native), backend, case.operation, str(case.m), str(case.n), str(case.k),
                        *(str(x) for x in result["block"]), str(args.samples), str(args.sample_ms), str(args.warmup_ms), str(output),
-                       args.execution_scope, str(args.pipeline_window), "matrix" if args.cooperative_matrix else "scalar"]
+                       args.execution_scope, str(args.pipeline_window), "matrix" if args.cooperative_matrix else "scalar",
+                       "no-vectorize" if args.no_vectorize else "vectorize"]
             process = subprocess.run(command, capture_output=True, text=True, check=False, timeout=args.timeout)
             if process.returncode:
                 raise RuntimeError(f"native benchmark failed ({process.returncode}):\n{process.stderr}\n{process.stdout}")
@@ -185,7 +206,7 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
                 raise RuntimeError("native executable did not emit exactly one JSON result")
             native = json.loads(lines[0])
             validate_native_metadata(native, case, backend, args.execution_scope, args.pipeline_window,
-                                     args.cooperative_matrix, args.gemm_block)
+                                     args.cooperative_matrix, args.gemm_block, not args.no_vectorize)
             array = np.fromfile(output, dtype="<f4")
             if array.size != reference.numel():
                 raise RuntimeError("native output byte count is incorrect")
@@ -234,29 +255,92 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
     return result
 
 
+def run_tuned_case(torch: Any, np: Any, args: argparse.Namespace, case: Case,
+                   backend: str, ordinal: int) -> dict[str, Any]:
+    # Each candidate is ordinary host configuration: recapture and native JIT
+    # happen again in run_case. No symbolic super-kernel or capture-once graph.
+    candidates = args.tuning_candidates
+    shift = ordinal % len(candidates)
+    candidates = candidates[shift:] + candidates[:shift]
+    trials: list[dict[str, Any]] = []
+    start = time.perf_counter_ns()
+    for index, (block, window) in enumerate(candidates):
+        trial: dict[str, Any] = {"block": block, "pipeline_window": window}
+        candidate_args = argparse.Namespace(**vars(args))
+        candidate_args.gemm_block, candidate_args.pipeline_window = block, window
+        print(f"  JIT trial {index + 1}/{len(candidates)}: block={block}, window={window}", flush=True)
+        try:
+            measured = run_case(torch, np, candidate_args, case, backend, ordinal * len(candidates) + index)
+            score = measured["native"]["throughput_us_p50"]
+            if not measured.get("valid") or not math.isfinite(score) or score <= 0:
+                raise RuntimeError("candidate lacks a valid positive timing")
+            trial.update(valid=True, measurement=measured)
+            print(f"    validated; native {score:.3f} us", flush=True)
+        except Exception as error:
+            trial.update(valid=False, error=str(error))
+            print(f"    rejected: {str(error).splitlines()[0]}", flush=True)
+        trials.append(trial)
+    tuning: dict[str, Any] = {
+        "selection_wall_ms": (time.perf_counter_ns() - start) / 1e6,
+        "selection_metric": "native_throughput_us_p50",
+        "reported_measurement": "fresh post-selection recapture/JIT and timing, not the search minimum",
+        "trials": trials,
+    }
+    valid = [index for index, trial in enumerate(trials) if trial["valid"]]
+    failed = {"case": dataclasses.asdict(case), "name": case.name, "backend": backend, "valid": False}
+    if not valid:
+        return failed | {"error": "no numerically valid JIT candidate", "tuning": tuning}
+    selected = min(valid, key=lambda index: trials[index]["measurement"]["native"]["throughput_us_p50"])
+    tuning["selected_trial"] = selected
+    winner = trials[selected]
+    candidate_args = argparse.Namespace(**vars(args))
+    candidate_args.gemm_block = winner["block"]
+    candidate_args.pipeline_window = winner["pipeline_window"]
+    print(f"  Selected block={winner['block']}, window={winner['pipeline_window']}; fresh validation/timing", flush=True)
+    try:
+        # Keep the fresh comparison's framework order alternating across
+        # shapes even when the candidate count is even.
+        result = run_case(torch, np, candidate_args, case, backend, ordinal)
+    except Exception as error:
+        result = failed | {"error": f"selected candidate failed revalidation: {error}"}
+    result["tuning"] = tuning
+    return result
+
+
 def write_report(report: dict[str, Any], directory: Path) -> None:
     (directory / "results.json").write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
     metadata = report["metadata"]
     lines = ["# TileIR/TVMx vs PyTorch", "", f"Generated: {metadata['timestamp']}", "",
              f"Hardware: {metadata['cpu']}; {metadata['platform']}. PyTorch {metadata['torch_version']}; FP32; {metadata['threads']} CPU threads.", "",
              f"Native root execution request: `{metadata.get('execution_scope', 'auto')}`. Explicit scopes fail on unsupported targets; `auto` uses the reference worker mapping.", "",
+             f"Native TIRx vectorization: `{metadata.get('vectorize', 'unrecorded')}`. When enabled, CPU independent-element domains are packed into SIMD without changing inner serial/reduction order. Disabling this does not disable LLVM's own optimizations.", "",
              "Both sides use device-resident inputs and preallocated outputs. Warm timings include host dispatch/binding overhead, exclude transfers and compilation, and are NOT GPU hardware-event times. PyTorch is eager (no torch.compile).", "",
-             f"Native GEMM retains an MMA in TileIR. Cooperative-matrix capability requested: `{metadata.get('cooperative_matrix', False)}`. Eligible Metal group MMA can use native FP32 SIMD-group matrices; other cases retain contraction loops. The matrix-calls column counts static call sites in generated Metal source, not dynamic instruction executions. Pipeline window: `{metadata.get('pipeline_window', 'unspecified')}`; 1 retains ordered execution, 2 permits safe software prefetching. Neither mode claims hardware-asynchronous transfers. Sort is not included in this performance comparison.", "",
+             f"Native GEMM retains an MMA in TileIR. Cooperative-matrix capability requested: `{metadata.get('cooperative_matrix', False)}`. Eligible Metal group MMA can use native FP32 SIMD-group matrices; other cases retain contraction loops. The matrix-calls column counts static call sites in generated Metal source, not dynamic instruction executions. Base pipeline window: `{metadata.get('pipeline_window', 'unspecified')}`; tuned choices appear per row. Window 1 retains ordered execution, 2 permits safe software prefetching. Neither mode claims hardware-asynchronous transfers. Sort is not included in this performance comparison.", "",
              "Ratio = native / PyTorch; greater than 1 means native is slower. P50 is per-call batched throughput; latency columns synchronize each individual call. All values are microseconds.", "",
-             "| Device | Operator / M×N[×K] | Block | Matrix calls | Native p50 | Torch p50 | Native p90 | Torch p90 | Ratio | Native latency | Torch latency |",
+             "| Device | Operator / M×N[×K] | Block / window | Matrix calls | Native p50 | Torch p50 | Native p90 | Torch p90 | Ratio | Native latency | Torch latency |",
              "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|"]
     for row in report["results"]:
         if not row.get("valid"):
             lines.append(f"| {row['backend']} | {row['name']} | FAILED | | | | | | | | |")
             continue
         native, pytorch = row["native"], row["torch"]
-        lines.append(f"| {row['backend']} | {row['name']} | {'×'.join(map(str, row['block']))} | {native.get('matrix_intrinsics', 'unrecorded')} | {native['throughput_us_p50']:.3f} | {pytorch['throughput_us_p50']:.3f} | {native['throughput_us_p90']:.3f} | {pytorch['throughput_us_p90']:.3f} | {row['slowdown']:.2f}× | {native['latency_us_p50']:.3f} | {pytorch['latency_us_p50']:.3f} |")
+        lines.append(f"| {row['backend']} | {row['name']} | {'×'.join(map(str, row['block']))} / {native['pipeline_window']} | {native.get('matrix_intrinsics', 'unrecorded')} | {native['throughput_us_p50']:.3f} | {pytorch['throughput_us_p50']:.3f} | {native['throughput_us_p90']:.3f} | {pytorch['throughput_us_p90']:.3f} | {row['slowdown']:.2f}× | {native['latency_us_p50']:.3f} | {pytorch['latency_us_p50']:.3f} |")
     lines.extend(["", "## Setup and cold-call phases", "", "Times below are milliseconds. Native compile includes the bridge/compiler call; lazy device compilation can also occur on first invocation. These are process-cold calls, not a guarantee that OS/driver disk caches are cold.", "",
                   "| Device / case | Capture | Native compile | Native alloc/upload | Torch alloc/upload | Native first call | Torch first call | Native download | Torch download |", "|---|---:|---:|---:|---:|---:|---:|---:|---:|"])
     for row in report["results"]:
         if row.get("valid"):
             a, b = row["native"], row["torch"]
             lines.append(f"| {row['backend']} / {row['name']} | {a['capture_ms']:.3f} | {a['compile_ms']:.3f} | {a['allocation_upload_ms']:.3f} | {b['allocation_upload_ms']:.3f} | {a['cold_call_ms']:.3f} | {b['cold_call_ms']:.3f} | {a['download_ms']:.3f} | {b['download_ms']:.3f} |")
+    tuned = [row for row in report["results"] if "tuning" in row]
+    if tuned:
+        lines.extend(["", "## JIT search", "",
+                      "All candidates are recaptured, compiled, and checked against the same FP64 oracle. Invalid candidates are retained in JSON but cannot win. Candidate order rotates across cases. Tables above use a fresh post-selection run, not the search minimum; a revalidation failure remains a failure. This is not a confidence interval or an exhaustive search.", "",
+                      "Selection wall time below includes JIT, validation, native/PyTorch measurements, and process overhead; it is excluded from warm timings. Full candidate settings, rejected cases, and raw trial samples are in results.json.", "",
+                      "| Device / case | Valid / attempted candidates | Selection wall ms |", "|---|---:|---:|"])
+        for row in tuned:
+            tuning = row["tuning"]
+            trials = tuning["trials"]
+            lines.append(f"| {row['backend']} / {row['name']} | {sum(trial['valid'] for trial in trials)} / {len(trials)} | {tuning['selection_wall_ms']:.3f} |")
     lines.extend(["", "Raw samples, numerical errors, device identities, compiler version, binary hash, source revision, and thread settings are in [results.json](results.json).", ""])
     (directory / "results.md").write_text("\n".join(lines))
 
@@ -268,11 +352,14 @@ def main() -> int:
     parser.add_argument("--backends", default="cpu,metal")
     parser.add_argument("--operations", default="gemm,add,sum,softmax")
     parser.add_argument("--gemm-block", default="8,8,16")
+    parser.add_argument("--tune-gemm-blocks", help="opt-in JIT search, e.g. '8,8,16;16,32,32;32,32,32'; final timing is a fresh run")
+    parser.add_argument("--tune-pipeline-windows", help="opt-in JIT windows, e.g. '1,2'; combined with tuning blocks")
     parser.add_argument("--execution-scope", choices=("auto", "worker", "group"), default="auto")
     parser.add_argument("--pipeline-window", type=int, choices=(1, 2), default=2,
                         help="GEMM scheduling window: 1 is ordered, 2 permits software prefetching")
     parser.add_argument("--cooperative-matrix", action="store_true",
                         help="assert native FP32 matrix capability (Metal requires Apple GPU family 7+); default off")
+    parser.add_argument("--no-vectorize", action="store_true", help="disable TIRx vectorization, including CPU independent-element packing")
     parser.add_argument("--threads", type=int, default=8)
     parser.add_argument("--samples", type=int, default=9)
     parser.add_argument("--sample-ms", type=int, default=20)
@@ -282,8 +369,13 @@ def main() -> int:
     args = parser.parse_args()
     args.native = args.native.resolve(strict=True)
     args.output = args.output.resolve()
-    args.gemm_block = tuple(int(x) for x in args.gemm_block.split(","))
-    if len(args.gemm_block) != 3 or min(args.gemm_block) <= 0 or min(args.threads, args.samples, args.sample_ms, args.warmup_ms) <= 0:
+    try:
+        args.gemm_block = parse_gemm_block(args.gemm_block)
+        args.tuning_candidates = tuning_candidates(args.gemm_block, args.pipeline_window,
+                                                  args.tune_gemm_blocks, args.tune_pipeline_windows)
+    except ValueError as error:
+        parser.error(str(error))
+    if min(args.threads, args.samples, args.sample_ms, args.warmup_ms) <= 0:
         parser.error("block dimensions, thread count, and timing parameters must be positive")
     backends = args.backends.split(",")
     if any(backend not in ("cpu", "metal") for backend in backends):
@@ -309,10 +401,19 @@ def main() -> int:
         "thread_environment": {key: os.environ[key] for key in ("TVM_NUM_THREADS", "OMP_NUM_THREADS", "VECLIB_MAXIMUM_THREADS")},
         "git_revision": revision, "worktree_dirty": dirty,
         "native_binary": str(args.native), "native_sha256": hashlib.sha256(args.native.read_bytes()).hexdigest(),
+        # The bridge is dynamically linked: an unchanged executable hash alone
+        # cannot identify its implementation. This is not a full loader trace.
+        "adjacent_tile_library_sha256": {
+            path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in sorted(args.native.parent.glob("*luisa-tile*"))
+            if path.is_file() and path.suffix in (".dylib", ".so", ".dll")
+        },
         "samples": args.samples, "sample_ms": args.sample_ms, "warmup_ms": args.warmup_ms,
         "execution_scope": args.execution_scope,
         "pipeline_window": args.pipeline_window,
         "cooperative_matrix": args.cooperative_matrix,
+        "vectorize": not args.no_vectorize,
+        "gemm_tuning_candidates": [{"block": block, "pipeline_window": window} for block, window in args.tuning_candidates],
         "quick": args.quick, "timing": "synchronized device-resident host wall time including dispatch",
     }, "results": []}
     cases = make_cases(args.operations.split(","), args.quick)
@@ -321,12 +422,15 @@ def main() -> int:
         for case in cases:
             print(f"{backend:5s} {case.name} ...", flush=True)
             try:
-                row = run_case(torch, np, args, case, backend, len(report["results"]))
-                print(f"  validated; native {row['native']['throughput_us_p50']:.3f} us, torch {row['torch']['throughput_us_p50']:.3f} us, ratio {row['slowdown']:.2f}x", flush=True)
+                measure = run_tuned_case if case.operation == "gemm" and args.tuning_candidates else run_case
+                row = measure(torch, np, args, case, backend, len(report["results"]))
             except Exception as error:
-                failed = True
                 row = {"name": case.name, "backend": backend, "case": dataclasses.asdict(case), "valid": False, "error": str(error)}
-                print(f"  FAILED: {error}", file=sys.stderr, flush=True)
+            if row.get("valid"):
+                print(f"  validated; native {row['native']['throughput_us_p50']:.3f} us, torch {row['torch']['throughput_us_p50']:.3f} us, ratio {row['slowdown']:.2f}x", flush=True)
+            else:
+                failed = True
+                print(f"  FAILED: {row['error']}", file=sys.stderr, flush=True)
             report["results"].append(row)
             write_report(report, args.output)
     print(f"Results: {args.output / 'results.md'}", flush=True)

@@ -1,7 +1,11 @@
+import argparse
+import contextlib
 import importlib.util
+import io
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 
 SPEC = importlib.util.spec_from_file_location("tile_torch_benchmark", Path(__file__).with_name("run.py"))
@@ -41,7 +45,7 @@ class BenchmarkContractTests(unittest.TestCase):
     def test_native_mapping_metadata_matches_the_request(self):
         case = MODULE.Case("gemm", 7, 17, 37)
         native = dict(backend="metal", operation="gemm", execution_scope="group", pipeline_window=2, mma_operations=1,
-                      cooperative_matrix=False, matrix_intrinsics=0)
+                      cooperative_matrix=False, matrix_intrinsics=0, vectorize=True)
         MODULE.validate_native_metadata(native, case, "metal", "group")
         for key, value in (("backend", "cpu"), ("operation", "add"), ("execution_scope", "worker"), ("mma_operations", 0)):
             with self.subTest(key=key), self.assertRaises(RuntimeError):
@@ -53,7 +57,7 @@ class BenchmarkContractTests(unittest.TestCase):
     def test_native_pipeline_window_matches_the_request(self):
         case = MODULE.Case("gemm", 7, 17, 37)
         native = dict(backend="metal", operation="gemm", execution_scope="worker", mma_operations=1,
-                      cooperative_matrix=False, matrix_intrinsics=0)
+                      cooperative_matrix=False, matrix_intrinsics=0, vectorize=True)
         for window in (1, 2):
             MODULE.validate_native_metadata(native | {"pipeline_window": window}, case, "metal", "worker", window)
             with self.assertRaisesRegex(RuntimeError, "pipeline-window"):
@@ -70,7 +74,7 @@ class BenchmarkContractTests(unittest.TestCase):
                                           ("metal", "group", (8, 8, 16))):
                 calls = int(enabled and backend == "metal" and scope == "group" and block == (8, 8, 16))
                 native = dict(backend=backend, operation="gemm", execution_scope=scope, pipeline_window=2,
-                              mma_operations=1, cooperative_matrix=enabled, matrix_intrinsics=calls)
+                              mma_operations=1, cooperative_matrix=enabled, matrix_intrinsics=calls, vectorize=True)
                 arguments = (case, backend, scope, 2, enabled, block)
                 with self.subTest(enabled=enabled, backend=backend, scope=scope, block=block):
                     MODULE.validate_native_metadata(native, *arguments)
@@ -81,6 +85,67 @@ class BenchmarkContractTests(unittest.TestCase):
                     for invalid in (None, -1, 1.5, True):
                         with self.assertRaisesRegex(RuntimeError, "matrix-intrinsic"):
                             MODULE.validate_native_metadata(native | {"matrix_intrinsics": invalid}, *arguments)
+
+    def test_native_vectorization_metadata_matches_the_request(self):
+        case = MODULE.Case("gemm", 7, 17, 37)
+        native = dict(backend="cpu", operation="gemm", execution_scope="worker", pipeline_window=2,
+                      cooperative_matrix=False, matrix_intrinsics=0, mma_operations=1)
+        for enabled in (False, True):
+            MODULE.validate_native_metadata(native | {"vectorize": enabled}, case, "cpu", "worker", vectorize=enabled)
+            for invalid in (None, int(enabled), not enabled):
+                with self.subTest(enabled=enabled, invalid=invalid), self.assertRaisesRegex(RuntimeError, "vectorization"):
+                    MODULE.validate_native_metadata(native | {"vectorize": invalid}, case, "cpu", "worker", vectorize=enabled)
+
+    def test_jit_candidates_are_explicit_and_deduplicated(self):
+        self.assertEqual(MODULE.tuning_candidates((8, 8, 16), 2, None, None), [])
+        self.assertEqual(MODULE.tuning_candidates((8, 8, 16), 2, "8,8,16;16,32,32;8,8,16", "1,2,1"),
+                         [((8, 8, 16), 1), ((8, 8, 16), 2), ((16, 32, 32), 1), ((16, 32, 32), 2)])
+        self.assertEqual(MODULE.tuning_candidates((8, 8, 16), 2, None, "1"), [((8, 8, 16), 1)])
+        for block in ("", "8,8", "0,8,16", "8,8,16,32", "8,a,16"):
+            with self.subTest(block=block), self.assertRaises(ValueError):
+                MODULE.parse_gemm_block(block)
+        with self.assertRaises(ValueError):
+            MODULE.tuning_candidates((8, 8, 16), 2, None, "0,2")
+
+    def test_jit_search_revalidates_winner_instead_of_publishing_minimum(self):
+        args = argparse.Namespace(tuning_candidates=[((8, 8, 16), 2), ((16, 32, 32), 1), ((64, 64, 64), 2)],
+                                  gemm_block=(8, 8, 16), pipeline_window=2)
+        calls = []
+        ordinals = []
+
+        def measure(torch, np, candidate, case, backend, ordinal):
+            calls.append((candidate.gemm_block, candidate.pipeline_window))
+            ordinals.append(ordinal)
+            if candidate.gemm_block == (64, 64, 64):
+                raise RuntimeError("capacity")
+            score = 100.0 if len(calls) == 4 else (2.0 if candidate.gemm_block == (8, 8, 16) else 1.0)
+            return {"valid": True, "native": {"throughput_us_p50": score}}
+
+        with patch.object(MODULE, "run_case", side_effect=measure), contextlib.redirect_stdout(io.StringIO()):
+            result = MODULE.run_tuned_case(None, None, args, MODULE.Case("gemm", 32, 32, 32), "cpu", 1)
+        self.assertEqual(calls[0], ((16, 32, 32), 1))  # Rotated trial order.
+        self.assertEqual(calls[-1], ((16, 32, 32), 1))
+        self.assertEqual(len(calls), 4)  # Includes a fresh recapture/JIT after selection.
+        self.assertEqual(ordinals[-1], 1)  # Fresh comparison preserves alternating framework order.
+        self.assertEqual(result["native"]["throughput_us_p50"], 100.0)
+        self.assertEqual(sum(trial["valid"] for trial in result["tuning"]["trials"]), 2)
+        self.assertEqual(args.gemm_block, (8, 8, 16))  # No mutation of caller configuration.
+
+    def test_jit_search_cannot_hide_failed_candidates_or_revalidation(self):
+        args = argparse.Namespace(tuning_candidates=[((8, 8, 16), 2)], gemm_block=(8, 8, 16), pipeline_window=2)
+        case = MODULE.Case("gemm", 32, 32, 32)
+        for failure in (RuntimeError("oracle"), {"valid": True, "native": {"throughput_us_p50": float("nan")}}):
+            effect = [failure] if isinstance(failure, Exception) else lambda *args: failure
+            with patch.object(MODULE, "run_case", side_effect=effect), contextlib.redirect_stdout(io.StringIO()):
+                result = MODULE.run_tuned_case(None, None, args, case, "cpu", 0)
+            self.assertFalse(result["valid"])
+            self.assertFalse(result["tuning"]["trials"][0]["valid"])
+        with patch.object(MODULE, "run_case", side_effect=[{"valid": True, "native": {"throughput_us_p50": 1.0}},
+                                                          RuntimeError("fresh oracle")]), contextlib.redirect_stdout(io.StringIO()):
+            result = MODULE.run_tuned_case(None, None, args, case, "cpu", 0)
+        self.assertFalse(result["valid"])
+        self.assertIn("revalidation", result["error"])
+        self.assertTrue(result["tuning"]["trials"][0]["valid"])
 
 
 if __name__ == "__main__":

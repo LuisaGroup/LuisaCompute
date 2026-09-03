@@ -192,8 +192,8 @@ void test_manual_gemm(Runtime &runtime) {
             auto n = axis("n", 8);
             auto k = axis("k", 8);
             for (auto &nest : parallel(shape(gm, gn), scope)) {
-                auto m0 = nest[gm] * 8;
-                auto n0 = nest[gn] * 8;
+                auto m0 = nest.index(gm) * 8;
+                auto n0 = nest.index(gn) * 8;
                 auto as = memory<float>(layout(shape(m, k), stride(9, 1)), resource);
                 auto bs = memory<float>(layout(shape(k, n), stride(1, 10)), resource);
                 auto acc = zeros<float>(shape(m, n));

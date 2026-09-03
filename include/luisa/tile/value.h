@@ -370,9 +370,9 @@ template<scalar_cpp_type To, scalar_cpp_type From>
 template<typename C, typename A, typename B>
     requires(detail::is_tile_v<std::remove_cvref_t<C>> || detail::tile_binary_operands<A, B>) &&
             (std::same_as<std::remove_cvref_t<C>, Tile<bool>> || std::same_as<std::remove_cvref_t<C>, Scalar<bool>>)
-[[nodiscard]] auto select(const C &condition, const A &a, const B &b) noexcept {
+[[nodiscard]] auto ite(const C &condition, const A &true_value, const B &false_value) noexcept {
     using T = detail::binary_element_t<A, B>;
-    Value *operands[]{condition.ir_value(), detail::operand_value<T>(a), detail::operand_value<T>(b)};
+    Value *operands[]{condition.ir_value(), detail::operand_value<T>(true_value), detail::operand_value<T>(false_value)};
     return Tile<T>{detail::make_tile_elementwise(ElementwiseOp::SELECT, operands, scalar_type_v<T>)};
 }
 

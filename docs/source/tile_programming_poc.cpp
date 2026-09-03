@@ -27,8 +27,8 @@ auto make_gemm(GemmConfig cfg) {
         auto k = axis("k", cfg.block_k);
 
         for (auto &nest : parallel(shape(gm, gn))) {
-            auto m0 = nest[gm] * cfg.block_m;
-            auto n0 = nest[gn] * cfg.block_n;
+            auto m0 = nest.index(gm) * cfg.block_m;
+            auto n0 = nest.index(gn) * cfg.block_n;
             auto acc = zeros<float>(shape(m, n));
 
             for (auto &step : nest.pipeline(shape(kt), {.stages = cfg.stages,
@@ -70,8 +70,8 @@ auto make_manual_gemm(GemmConfig cfg, exec::Scope scope = exec::Scope::AUTOMATIC
         auto k = axis("k", cfg.block_k);
 
         for (auto &nest : parallel(shape(gm, gn), scope)) {
-            auto m0 = nest[gm] * cfg.block_m;
-            auto n0 = nest[gn] * cfg.block_n;
+            auto m0 = nest.index(gm) * cfg.block_m;
+            auto n0 = nest.index(gn) * cfg.block_n;
             // Distinct local address maps; the logical operand shapes and
             // their common execution owner do not change.
             auto As = memory<float>(layout(shape(m, k), stride(cfg.block_k + 1, 1)), resource);

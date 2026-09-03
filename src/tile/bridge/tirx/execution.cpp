@@ -6,6 +6,7 @@
 #include <tvm/tirx/stmt_functor.h>
 
 #include <luisa/core/stl/unordered_map.h>
+#include <luisa/core/stl/vector.h>
 
 #include "execution.h"
 
@@ -116,6 +117,63 @@ public:
 
 tvm::tirx::Stmt privatize_vector_storage(const tvm::tirx::For &loop) {
     return VectorStorageExpander{loop}.run(loop);
+}
+
+tvm::tirx::Stmt vectorize_independent_elements(const tvm::tirx::For &loop) {
+    auto annotation = loop->annotations.Get(independent_elements_annotation);
+    auto rank = annotation ? annotation.value().as<tvm::IntImmNode>() : nullptr;
+    if (rank == nullptr || rank->value <= 0 ||
+        loop->annotations.size() != 1u + loop->annotations.count(mma_annotation)) { return {}; }
+    luisa::vector<const tvm::tirx::ForNode *> axes;
+    auto inner = loop.get();
+    for (auto i = int64_t{0}; i < rank->value; i++) {
+        auto step = inner && inner->step ? inner->step.value().as<tvm::IntImmNode>() : nullptr;
+        if (inner == nullptr || inner->kind != tvm::tirx::ForKind::kSerial || inner->thread_binding ||
+            inner->loop_var.ty() != tvm::PrimType::Int(64) ||
+            inner->min.as<tvm::IntImmNode>() == nullptr || inner->extent.as<tvm::IntImmNode>() == nullptr ||
+            (inner->step && (step == nullptr || step->value != 1)) || (i != 0 && !inner->annotations.empty())) { return {}; }
+        axes.push_back(inner);
+        if (i + 1 != rank->value) { inner = inner->body.as<tvm::tirx::ForNode>(); }
+    }
+    auto extent = inner->extent.as<tvm::IntImmNode>()->value;
+    if (extent < 4) { return {}; }
+    // Logical packs may span several hardware vectors. Keeping independent
+    // accumulators together exposes instruction-level parallelism to LLVM
+    // without unrolling/reassociating the temporal recurrence itself.
+    auto width = int64_t{4};
+    while (width < 16 && extent >= width * 2) { width *= 2; }
+    auto compatible = true;
+    tvm::tirx::PostOrderVisit(inner->body, [&](const tvm::ffi::ObjectRef &node) {
+        // These need storage privatization or a richer vectorizer. Automatic
+        // packing must not make an otherwise valid reference kernel fail.
+        compatible &= node.as<tvm::tirx::AllocBufferNode>() == nullptr && node.as<tvm::tirx::WhileNode>() == nullptr;
+        if (auto child = node.as<tvm::tirx::ForNode>()) {
+            compatible &= child->kind == tvm::tirx::ForKind::kSerial && !child->thread_binding;
+        }
+    });
+    if (!compatible) { return {}; }
+
+    // Independence is supplied by the element-domain contract. This is only
+    // a coordinate factorization; it neither re-proves memory dependencies
+    // nor changes serial K/reduction recurrences inside an element instance.
+    auto chunk = tvm::tirx::PrimVar{inner->loop_var->name + "_pack", tvm::PrimType::Int(64)};
+    auto lane = tvm::tirx::PrimVar{inner->loop_var->name + "_lane", tvm::PrimType::Int(64)};
+    auto coordinate = inner->min + chunk * tvm::IntImm::Int64(width) + lane;
+    auto body = tvm::tirx::Substitute(inner->body, tvm::ffi::Map<tvm::tirx::Var, tvm::Expr>{{inner->loop_var, coordinate}});
+    body = tvm::tirx::For{lane, tvm::IntImm::Int64(0), tvm::IntImm::Int64(width), tvm::tirx::ForKind::kVectorized, std::move(body)};
+    body = tvm::tirx::For{chunk, tvm::IntImm::Int64(0), tvm::IntImm::Int64(extent / width), tvm::tirx::ForKind::kSerial, std::move(body)};
+    if (extent % width != 0) {
+        auto tail = tvm::tirx::For{inner->loop_var, inner->min + tvm::IntImm::Int64(extent / width * width), tvm::IntImm::Int64(extent % width), tvm::tirx::ForKind::kSerial, inner->body};
+        body = tvm::tirx::SeqStmt::Flatten(tvm::ffi::Array<tvm::tirx::Stmt>{std::move(body), std::move(tail)});
+    }
+    for (auto i = axes.size() - 1u; i != 0u; i--) {
+        auto outer = axes[i - 1u];
+        auto annotations = outer->annotations;
+        annotations.erase(independent_elements_annotation);
+        annotations.erase(mma_annotation);
+        body = tvm::tirx::For{outer->loop_var, outer->min, outer->extent, tvm::tirx::ForKind::kSerial, std::move(body), std::nullopt, std::move(annotations), outer->step, outer->span};
+    }
+    return body;
 }
 
 }// namespace luisa::compute::tile::bridge::tirx::detail

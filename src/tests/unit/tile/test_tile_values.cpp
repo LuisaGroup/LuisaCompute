@@ -30,6 +30,22 @@ concept has_native_tile_subscript = requires(V view, Origin origin, IndexSpace s
     view.operator[](origin, space);
 };
 
+template<typename N>
+concept has_nest_subscript = requires(const N &nest, const Axis &axis) { nest[axis]; };
+
+template<typename C, typename T, typename F>
+concept has_condition_first_select = requires(C condition, T true_value, F false_value) {
+    select(condition, true_value, false_value);
+};
+
+static_assert(!has_nest_subscript<Nest>);
+static_assert(std::same_as<decltype(std::declval<const Nest &>().index(std::declval<const Axis &>())), Scalar<int64_t>>);
+static_assert(!has_condition_first_select<Scalar<bool>, Scalar<float>, Scalar<float>>);
+static_assert(!has_condition_first_select<Tile<bool>, Tile<float>, float>);
+static_assert(std::same_as<decltype(ite(std::declval<Scalar<bool>>(), 1.0f, 0.0f)), Scalar<float>>);
+static_assert(std::same_as<decltype(ite(std::declval<Tile<bool>>(), 1.0f, 0.0f)), Tile<float>>);
+static_assert(std::same_as<decltype(ite(std::declval<Scalar<bool>>(), std::declval<Tile<float>>(), 0.0f)), Tile<float>>);
+
 static_assert(!has_comma_adapter<Origin, int>);
 static_assert(!has_comma_adapter<int, IndexSpace>);
 static_assert(!has_comma_adapter<IndexSpace, IndexSpace>);
@@ -106,12 +122,12 @@ void test_tile_pipeline_and_mma() {
             auto acc = zeros<float>(shape(m, n));
             for (auto &step : nest.pipeline(shape(kt), {.stages = 2, .initiation_interval = 1})) {
                 step.stage("load");
-                auto x = a[coord(nest[gm] * 8, step.index() * 4), shape(m, k)];
-                auto y = b[coord(step.index() * 4, nest[gn] * 8), shape(k, n)];
+                auto x = a[coord(nest.index(gm) * 8, step.index() * 4), shape(m, k)];
+                auto y = b[coord(step.index() * 4, nest.index(gn) * 8), shape(k, n)];
                 step.stage("compute");
                 acc = mma(x, y, acc);
             }
-            c(coord(nest[gm] * 8, nest[gn] * 8), shape(m, n)).store(acc);
+            c(coord(nest.index(gm) * 8, nest.index(gn) * 8), shape(m, n)).store(acc);
         }
     });
     auto kernel = definition.capture(tensor_shape(13, 15), tensor_shape(15, 19), tensor_shape(13, 19));
