@@ -466,9 +466,9 @@ ValueHandle make_tile_elementwise(ElementwiseOp op, luisa::span<Value *const> op
     return operation == nullptr ? ValueHandle{} : ValueHandle{current_capture->make_slot(operation->result(0u))};
 }
 
-ValueHandle make_mma(Value *a, Value *b, Value *accumulator) noexcept {
+ValueHandle make_mma(Value *a, Value *b, Value *accumulator, MmaPolicy policy) noexcept {
     if (current_capture == nullptr) { return {}; }
-    auto operation = current_capture->builder.create_mma(a, b, accumulator);
+    auto operation = current_capture->builder.create_mma(a, b, accumulator, policy);
     return operation == nullptr ? ValueHandle{} : ValueHandle{current_capture->make_slot(operation->result(0u))};
 }
 

@@ -131,7 +131,8 @@ def block_shape(case: Case, gemm_block: tuple[int, int, int]) -> tuple[int, int,
 
 
 def validate_native_metadata(native: dict[str, Any], case: Case, backend: str, execution_scope: str,
-                             pipeline_window: int = 2) -> None:
+                             pipeline_window: int = 2, cooperative_matrix: bool = False,
+                             gemm_block: tuple[int, int, int] = (8, 8, 16)) -> None:
     if native.get("backend") != backend or native.get("operation") != case.operation:
         raise RuntimeError("native backend/operation metadata does not match the request")
     if native.get("execution_scope") != execution_scope:
@@ -140,6 +141,15 @@ def validate_native_metadata(native: dict[str, Any], case: Case, backend: str, e
         raise RuntimeError("native pipeline-window metadata does not match the request")
     if case.operation == "gemm" and native.get("mma_operations") != 1:
         raise RuntimeError("GEMM must contain one semantic TileIR MMA, not a scalar-memory substitute")
+    if native.get("cooperative_matrix") is not cooperative_matrix:
+        raise RuntimeError("native cooperative-matrix metadata does not match the request")
+    calls = native.get("matrix_intrinsics")
+    if type(calls) is not int or calls < 0:
+        raise RuntimeError("native matrix-intrinsic count must be a nonnegative integer")
+    eligible = (cooperative_matrix and backend == "metal" and execution_scope == "group"
+                and case.operation == "gemm" and all(size % 8 == 0 for size in gemm_block))
+    if bool(calls) != eligible:
+        raise RuntimeError("generated matrix-intrinsic calls do not match the benchmark's eligible path")
 
 
 def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend: str, ordinal: int) -> dict[str, Any]:
@@ -165,7 +175,8 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
         with tempfile.TemporaryDirectory(prefix="luisa-tile-benchmark-") as temporary:
             output = Path(temporary) / "output.f32"
             command = [str(args.native), backend, case.operation, str(case.m), str(case.n), str(case.k),
-                       *(str(x) for x in result["block"]), str(args.samples), str(args.sample_ms), str(args.warmup_ms), str(output), args.execution_scope, str(args.pipeline_window)]
+                       *(str(x) for x in result["block"]), str(args.samples), str(args.sample_ms), str(args.warmup_ms), str(output),
+                       args.execution_scope, str(args.pipeline_window), "matrix" if args.cooperative_matrix else "scalar"]
             process = subprocess.run(command, capture_output=True, text=True, check=False, timeout=args.timeout)
             if process.returncode:
                 raise RuntimeError(f"native benchmark failed ({process.returncode}):\n{process.stderr}\n{process.stdout}")
@@ -173,7 +184,8 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
             if len(lines) != 1:
                 raise RuntimeError("native executable did not emit exactly one JSON result")
             native = json.loads(lines[0])
-            validate_native_metadata(native, case, backend, args.execution_scope, args.pipeline_window)
+            validate_native_metadata(native, case, backend, args.execution_scope, args.pipeline_window,
+                                     args.cooperative_matrix, args.gemm_block)
             array = np.fromfile(output, dtype="<f4")
             if array.size != reference.numel():
                 raise RuntimeError("native output byte count is incorrect")
@@ -229,16 +241,16 @@ def write_report(report: dict[str, Any], directory: Path) -> None:
              f"Hardware: {metadata['cpu']}; {metadata['platform']}. PyTorch {metadata['torch_version']}; FP32; {metadata['threads']} CPU threads.", "",
              f"Native root execution request: `{metadata.get('execution_scope', 'auto')}`. Explicit scopes fail on unsupported targets; `auto` uses the reference worker mapping.", "",
              "Both sides use device-resident inputs and preallocated outputs. Warm timings include host dispatch/binding overhead, exclude transfers and compilation, and are NOT GPU hardware-event times. PyTorch is eager (no torch.compile).", "",
-             f"Native GEMM retains an MMA in TileIR, but the current TVMx schedule lowers it to loops: no tensor-core claim. Pipeline window: `{metadata.get('pipeline_window', 'unspecified')}`; 1 retains ordered execution, 2 permits safe software prefetching. Neither mode claims hardware-asynchronous transfers. Sort is not included in this performance comparison.", "",
+             f"Native GEMM retains an MMA in TileIR. Cooperative-matrix capability requested: `{metadata.get('cooperative_matrix', False)}`. Eligible Metal group MMA can use native FP32 SIMD-group matrices; other cases retain contraction loops. The matrix-calls column counts static call sites in generated Metal source, not dynamic instruction executions. Pipeline window: `{metadata.get('pipeline_window', 'unspecified')}`; 1 retains ordered execution, 2 permits safe software prefetching. Neither mode claims hardware-asynchronous transfers. Sort is not included in this performance comparison.", "",
              "Ratio = native / PyTorch; greater than 1 means native is slower. P50 is per-call batched throughput; latency columns synchronize each individual call. All values are microseconds.", "",
-             "| Device | Operator / M×N[×K] | Block | Native p50 | Torch p50 | Native p90 | Torch p90 | Ratio | Native latency | Torch latency |",
-             "|---|---|---|---:|---:|---:|---:|---:|---:|---:|"]
+             "| Device | Operator / M×N[×K] | Block | Matrix calls | Native p50 | Torch p50 | Native p90 | Torch p90 | Ratio | Native latency | Torch latency |",
+             "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|"]
     for row in report["results"]:
         if not row.get("valid"):
-            lines.append(f"| {row['backend']} | {row['name']} | FAILED | | | | | | | |")
+            lines.append(f"| {row['backend']} | {row['name']} | FAILED | | | | | | | | |")
             continue
         native, pytorch = row["native"], row["torch"]
-        lines.append(f"| {row['backend']} | {row['name']} | {'×'.join(map(str, row['block']))} | {native['throughput_us_p50']:.3f} | {pytorch['throughput_us_p50']:.3f} | {native['throughput_us_p90']:.3f} | {pytorch['throughput_us_p90']:.3f} | {row['slowdown']:.2f}× | {native['latency_us_p50']:.3f} | {pytorch['latency_us_p50']:.3f} |")
+        lines.append(f"| {row['backend']} | {row['name']} | {'×'.join(map(str, row['block']))} | {native.get('matrix_intrinsics', 'unrecorded')} | {native['throughput_us_p50']:.3f} | {pytorch['throughput_us_p50']:.3f} | {native['throughput_us_p90']:.3f} | {pytorch['throughput_us_p90']:.3f} | {row['slowdown']:.2f}× | {native['latency_us_p50']:.3f} | {pytorch['latency_us_p50']:.3f} |")
     lines.extend(["", "## Setup and cold-call phases", "", "Times below are milliseconds. Native compile includes the bridge/compiler call; lazy device compilation can also occur on first invocation. These are process-cold calls, not a guarantee that OS/driver disk caches are cold.", "",
                   "| Device / case | Capture | Native compile | Native alloc/upload | Torch alloc/upload | Native first call | Torch first call | Native download | Torch download |", "|---|---:|---:|---:|---:|---:|---:|---:|---:|"])
     for row in report["results"]:
@@ -259,6 +271,8 @@ def main() -> int:
     parser.add_argument("--execution-scope", choices=("auto", "worker", "group"), default="auto")
     parser.add_argument("--pipeline-window", type=int, choices=(1, 2), default=2,
                         help="GEMM scheduling window: 1 is ordered, 2 permits software prefetching")
+    parser.add_argument("--cooperative-matrix", action="store_true",
+                        help="assert native FP32 matrix capability (Metal requires Apple GPU family 7+); default off")
     parser.add_argument("--threads", type=int, default=8)
     parser.add_argument("--samples", type=int, default=9)
     parser.add_argument("--sample-ms", type=int, default=20)
@@ -298,6 +312,7 @@ def main() -> int:
         "samples": args.samples, "sample_ms": args.sample_ms, "warmup_ms": args.warmup_ms,
         "execution_scope": args.execution_scope,
         "pipeline_window": args.pipeline_window,
+        "cooperative_matrix": args.cooperative_matrix,
         "quick": args.quick, "timing": "synchronized device-resident host wall time including dispatch",
     }, "results": []}
     cases = make_cases(args.operations.split(","), args.quick)

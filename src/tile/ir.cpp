@@ -458,11 +458,13 @@ Operation *IRBuilder::create_elementwise(
     return operation;
 }
 
-Operation *IRBuilder::create_mma(Value *a, Value *b, Value *accumulator) noexcept {
+Operation *IRBuilder::create_mma(Value *a, Value *b, Value *accumulator, MmaPolicy policy) noexcept {
     if (a == nullptr || b == nullptr || accumulator == nullptr) { return nullptr; }
     Value *operands[]{a, b, accumulator};
     Type results[]{accumulator->type()};
-    return create(OperationKind::MMA, operands, results);
+    auto operation = create(OperationKind::MMA, operands, results);
+    if (operation != nullptr) { operation->set_mma_policy(policy); }
+    return operation;
 }
 
 Operation *IRBuilder::create_tile_map(Type result_type) noexcept {

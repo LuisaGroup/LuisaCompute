@@ -41,6 +41,22 @@ and verified by the driver. Keep execution scope, tile shape, inputs, and
 timing settings fixed, and run the two modes sequentially. This does not imply
 hardware-asynchronous copies; the flag has no effect on non-pipelined operators.
 
+Use `--backends metal --execution-scope group --cooperative-matrix` to opt in
+to native FP32 SIMD-group matrices on a compatible device (Apple GPU family
+7+, including this M1 Max). The flag is a device-capability assertion, not
+automatic GPU detection; the helper supplies `thread_warp_size=32`. It is off
+by default. Eligible M/N/K tile extents must be multiples of eight. Other
+scopes, types, and shapes keep the reference loops; global ragged edges are
+handled by the existing bounded Tile accesses. MMA allows reassociation at
+the declared FP32 types, without TF32 or other input-precision reduction.
+
+Compare runs with and without this flag using the same binary, block shape,
+pipeline window, execution scope, and timing settings. Native output records
+both the requested capability and the actual number of static
+`simdgroup_multiply_accumulate` call sites in generated Metal source. The
+driver checks that eligible cases select those instructions and fallback
+cases do not. A call-site count is not a dynamic instruction counter.
+
 Measurement contract:
 
 - Identical deterministic contiguous FP32 inputs; full outputs checked against
@@ -57,12 +73,12 @@ Measurement contract:
 - Warm measurements use a host clock around dispatch plus synchronization.
   They exclude transfers but include C++/Python binding and launch overhead;
   they are **not pure GPU-event kernel timings**. Do not run alongside builds.
-- The current native schedule is a reference realization. Explicit Metal
+- The default native schedule is a reference realization. Explicit Metal
   `group` partitions independent elements across workers and shares
-  group-owned compiler temporaries. Semantic `mma` still lowers to contraction
-  loops; matrix-atom selection, asynchronous pipelining, and parallel reduction
-  trees remain separate work. A correctness pass must not be described as
-  competitive performance.
+  group-owned compiler temporaries. The opt-in matrix selector replaces only
+  proven compatible MMA bodies; hardware-asynchronous transfers and parallel
+  reduction trees remain separate work. A correctness pass must not be
+  described as competitive performance.
 
 `results.json` contains raw samples, numerical errors, setup phases, compiler
 and hardware information, thread settings, the binary hash, and source

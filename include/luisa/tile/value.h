@@ -377,7 +377,7 @@ template<typename C, typename A, typename B>
 }
 
 template<scalar_cpp_type A, scalar_cpp_type B, scalar_cpp_type C>
-[[nodiscard]] Tile<C> mma(const Tile<A> &a, const Tile<B> &b, const Tile<C> &accumulator) noexcept {
+[[nodiscard]] Tile<C> mma(const Tile<A> &a, const Tile<B> &b, const Tile<C> &accumulator, MmaPolicy policy = {}) noexcept {
     auto &&as = a.space();
     auto &&bs = b.space();
     auto &&cs = accumulator.space();
@@ -414,9 +414,9 @@ template<scalar_cpp_type A, scalar_cpp_type B, scalar_cpp_type C>
         static_cast<void>(rhs.add(cs.axis(1).dimension, cs.axis(1).extent));
         auto av = relabel(a, lhs);
         auto bv = relabel(b, rhs);
-        return Tile<C>{detail::make_mma(av.ir_value(), bv.ir_value(), accumulator.ir_value())};
+        return Tile<C>{detail::make_mma(av.ir_value(), bv.ir_value(), accumulator.ir_value(), policy)};
     }
-    return Tile<C>{detail::make_mma(a.ir_value(), b.ir_value(), accumulator.ir_value())};
+    return Tile<C>{detail::make_mma(a.ir_value(), b.ir_value(), accumulator.ir_value(), policy)};
 }
 
 // Reduction policies are library values. They do not add operation kinds to

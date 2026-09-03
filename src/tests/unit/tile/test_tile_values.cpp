@@ -22,6 +22,26 @@ using Origin = decltype(coord(0, 0));
 using View = TensorView<float, 2>;
 using ConstView = TensorView<const float, 2>;
 
+template<typename L, typename R>
+concept has_comma_adapter = requires(L lhs, R rhs) { operator,(lhs, rhs); };
+
+template<typename V>
+concept has_native_tile_subscript = requires(V view, Origin origin, IndexSpace space) {
+    view.operator[](origin, space);
+};
+
+static_assert(!has_comma_adapter<Origin, int>);
+static_assert(!has_comma_adapter<int, IndexSpace>);
+static_assert(!has_comma_adapter<IndexSpace, IndexSpace>);
+#if defined(__cpp_multidimensional_subscript) && __cpp_multidimensional_subscript >= 202110L
+static_assert(has_native_tile_subscript<View>);
+static_assert(!has_comma_adapter<Origin, IndexSpace>);
+#else
+static_assert(!has_native_tile_subscript<View>);
+static_assert(has_comma_adapter<Origin, IndexSpace>);
+static_assert(has_comma_adapter<luisa::compute::tile::detail::TileSelection<2>, BoundsMode>);
+#endif
+
 // Clang diagnoses the C++20 grammar even when the comma is deliberately
 // overloaded. Keep the suppression local; C++23 never needs it.
 static_assert(std::same_as<decltype(std::declval<View>()(std::declval<Origin>(), std::declval<IndexSpace>())), MemoryRef<float, 2>>);
@@ -112,6 +132,7 @@ void test_tile_pipeline_and_mma() {
         if (op->kind() == OperationKind::MMA) {
             mmas++;
             expect(op->operand(2) == body->argument(1));
+            expect(op->mma_policy().allow_reassociation);
         }
         if (op->kind() == OperationKind::VIEW_LOAD) {
             loads++;
@@ -132,6 +153,26 @@ void test_tile_reduction_and_broadcast() {
     });
     auto kernel = definition.capture(tensor_shape(2, 7), tensor_shape(2, 7));
     expect(kernel.valid());
+}
+
+void test_mma_ordered_policy() {
+    auto kernel = tile_kernel("ordered_mma", [](ConstView a, ConstView b, View c) {
+                      auto x = a[coord(0, 0), shape(8, 16)];
+                      auto y = b[coord(0, 0), shape(16, 8)];
+                      c(coord(0, 0), shape(8, 8)).store(mma(x, y, zeros<float>(shape(8, 8)), {.allow_reassociation = false}));
+                  }).capture(tensor_shape(8, 16), tensor_shape(16, 8), tensor_shape(8, 8));
+    expect(kernel.valid());
+    auto count = 0u;
+    for (auto op : kernel.function().body().block(0)->operations()) {
+        if (op->kind() == OperationKind::MMA) {
+            count++;
+            expect(!op->mma_policy().allow_reassociation);
+            op->set_mma_policy({.allow_reassociation = true});
+            expect(op->mma_policy().allow_reassociation);
+        }
+    }
+    expect(eq(count, 1u));
+    expect(verify(kernel.module()).ok());
 }
 
 void test_positional_shapes() {
@@ -294,6 +335,7 @@ int main(int argc, char *argv[]) {
     "tile_read_syntax_equivalence"_test = test_equivalent_read_syntax;
     "tile_pipeline_mma_and_implicit_carry"_test = test_tile_pipeline_and_mma;
     "tile_reduction_and_broadcast"_test = test_tile_reduction_and_broadcast;
+    "tile_mma_ordered_policy"_test = test_mma_ordered_policy;
     "tile_positional_shapes_and_mma"_test = test_positional_shapes;
     "tile_map_rejects_memory_effects"_test = test_pure_map_rejects_memory;
     "tile_documented_gemm"_test = test_documented_gemm;

@@ -97,7 +97,7 @@ public:
     [[nodiscard]] tvm::Device device() const noexcept { return _device; }
     [[nodiscard]] luisa::string_view target() const noexcept { return _target; }
 
-    [[nodiscard]] Executable build(const compute::tile::Kernel &kernel, bool noalias = false) const {
+    [[nodiscard]] Executable build(const compute::tile::Kernel &kernel, bool noalias = false, bool cooperative_matrix = false) const {
         using namespace compute::tile::bridge::tirx;
         Executable result;
         if (!kernel.valid()) {
@@ -124,7 +124,13 @@ public:
         }
         CompileOptions options;
         options.target = _target;
+        if (cooperative_matrix && _target == "metal") {
+            // Opt-in tests/benchmarks require an Apple-family-7+ device, not
+            // merely the existence of an arbitrary Metal runtime.
+            options.target = R"({"kind":"metal","thread_warp_size":32})";
+        }
         options.noalias = noalias;
+        options.cooperative_matrix = cooperative_matrix;
         auto compilation = compile(std::move(native.value), kernel.function().name(), options);
         if (!compilation) {
             result.error = luisa::string{compilation.error()};

@@ -5,11 +5,13 @@ test sources so the documented syntax cannot drift into a second DSL.
 All operator POCs use subtiles and Tile SSA. Scalar memory-access tests are
 separate, explicitly low-level tests.
 
-The native TVMx bridge currently provides a correctness/reference schedule.
-An `mma` remains an MMA operation in TileIR; its initial TIRx realization is
-a loop contraction, not yet a tensor-core performance claim. Pipeline stages
-record ordering, but asynchronous overlap and warp specialization still need
-scheduling passes.
+The native TVMx bridge provides a correctness/reference schedule plus guarded
+optimizations. An `mma` remains an MMA operation in TileIR; its reference TIRx
+realization is a contraction loop. With an explicit device-capability opt-in,
+eligible FP32 Metal group operations select native SIMD-group matrix atoms.
+This is not a performance-parity claim. Safe pipeline cuts can use two-window
+software prefetching; hardware-asynchronous transfers and warp specialization
+remain future work.
 
 ## 1. One memory-access convention
 
@@ -129,6 +131,22 @@ large case again exports on Metal and rejects its infeasible shared allocation.
 Native index-expression tests compare compiled address calculations with the
 TileIR evaluator. The canonical example above is independently captured
 under both C++20 and C++23.
+
+### 2.2 Optional matrix atom selection
+
+The kernel syntax is unchanged. The native compiler's `cooperative_matrix`
+option asserts device support; Metal additionally requires
+`thread_warp_size=32` (Apple GPU family 7+). This is not inferred from a generic
+Metal target. Eligible rank-two FP32 group MMA uses 8×8 SIMD-group matrix
+instructions; other types, scopes, layouts, and shapes retain the reference
+loops. Global ragged edges and transposed loaded Tiles are supported.
+`mma(a, b, acc, {.allow_reassociation = false})` also keeps the ordered
+contraction; the default permits reassociation without reducing input precision.
+
+`test_tile_tirx_matrix` verifies both emitted Metal instructions and numerical
+results against a double-precision oracle. The native/PyTorch benchmark records
+the capability request separately from generated matrix call counts, so a
+fallback is not reported as a matrix-hardware measurement.
 
 ## 3. Elementwise bias + GELU + residual
 

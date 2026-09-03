@@ -64,6 +64,20 @@ struct Configuration {
     return std::chrono::duration<double, std::milli>{Clock::now() - start}.count();
 }
 
+// Count actual static call sites in the generated Metal source, not merely
+// semantic MMA operations or a requested compiler capability.
+[[nodiscard]] size_t matrix_intrinsics(const tvm::ffi::Module &module) {
+    auto count = size_t{0u};
+    if (std::string_view{module->kind()} == "metal") {
+        auto source = module->InspectSource("metal");
+        auto code = std::string_view{source.data(), source.size()};
+        constexpr auto call = std::string_view{"simdgroup_multiply_accumulate("};
+        for (auto position = code.find(call); position != std::string_view::npos; position = code.find(call, position + call.size())) { count++; }
+    }
+    for (auto &&child : module->imports()) { count += matrix_intrinsics(child.cast<tvm::ffi::Module>()); }
+    return count;
+}
+
 [[nodiscard]] Kernel capture(std::string_view operation, Configuration cfg) {
     if (operation == "gemm") {
         auto definition = tile_kernel("benchmark_gemm", [=](TensorView<const float, 2> A,
@@ -164,8 +178,8 @@ void print_samples(std::string_view name, const std::vector<double> &samples) {
 }// namespace
 
 int main(int argc, char *argv[]) {
-    if (argc < 13 || argc > 15) {
-        std::cerr << "Usage: benchmark_tile_tirx <cpu|metal> <gemm|add|sum|softmax> M N K BM BN BK samples sample-ms warmup-ms output.f32 [auto|worker|group] [pipeline-window:1|2]\n";
+    if (argc < 13 || argc > 16) {
+        std::cerr << "Usage: benchmark_tile_tirx <cpu|metal> <gemm|add|sum|softmax> M N K BM BN BK samples sample-ms warmup-ms output.f32 [auto|worker|group] [pipeline-window:1|2] [scalar|matrix]\n";
         return 1;
     }
     try {
@@ -175,9 +189,12 @@ int main(int argc, char *argv[]) {
                           positive_integer(argv[6]), positive_integer(argv[7]), positive_integer(argv[8])};
         auto execution_scope = argc >= 14 ? std::string_view{argv[13]} : std::string_view{"auto"};
         cfg.execution_scope = parse_execution_scope(execution_scope);
-        auto pipeline_window = argc == 15 ? positive_integer(argv[14]) : 2;
+        auto pipeline_window = argc >= 15 ? positive_integer(argv[14]) : 2;
         if (pipeline_window > 2) { throw std::invalid_argument{"benchmark pipeline window must be 1 or 2"}; }
         cfg.pipeline_window = static_cast<uint32_t>(pipeline_window);
+        auto matrix_mode = argc == 16 ? std::string_view{argv[15]} : std::string_view{"scalar"};
+        if (matrix_mode != "scalar" && matrix_mode != "matrix") { throw std::invalid_argument{"matrix mode must be scalar or matrix"}; }
+        auto cooperative_matrix = matrix_mode == "matrix";
         auto sample_count = positive_integer(argv[9]);
         auto target_ms = positive_integer(argv[10]);
         auto warmup_ms = positive_integer(argv[11]);
@@ -192,9 +209,10 @@ int main(int argc, char *argv[]) {
         auto kernel = capture(operation, cfg);
         auto capture_ms = milliseconds(start);
         start = Clock::now();
-        auto executable = runtime.build(kernel, true);
+        auto executable = runtime.build(kernel, true, cooperative_matrix);
         auto compile_ms = milliseconds(start);
         if (!executable.ok()) { throw std::runtime_error{executable.error.c_str()}; }
+        auto matrix_calls = matrix_intrinsics(executable.module.value());
         auto columns_a = operation == "gemm" ? cfg.k : cfg.n;
         auto rows_b = operation == "gemm" ? cfg.k : cfg.m;
         auto binary = operation == "gemm" || operation == "add";
@@ -240,6 +258,8 @@ int main(int argc, char *argv[]) {
                   << "{\"backend\":" << std::quoted(backend) << ",\"operation\":" << std::quoted(operation)
                   << ",\"execution_scope\":" << std::quoted(execution_scope)
                   << ",\"pipeline_window\":" << cfg.pipeline_window
+                  << ",\"cooperative_matrix\":" << (cooperative_matrix ? "true" : "false")
+                  << ",\"matrix_intrinsics\":" << matrix_calls
                   << ",\"runtime_init_ms\":" << runtime_init_ms << ",\"capture_ms\":" << capture_ms
                   << ",\"compile_ms\":" << compile_ms << ",\"allocation_upload_ms\":" << allocation_upload_ms
                   << ",\"cold_call_ms\":" << cold_call_ms << ",\"warmup_ms\":" << actual_warmup_ms

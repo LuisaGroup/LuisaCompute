@@ -123,7 +123,7 @@ private:
     friend class ::luisa::compute::tile::Scalar;
     friend ValueHandle make_tile_constant(ScalarType, const IndexSpace &, Attribute) noexcept;
     friend ValueHandle make_tile_elementwise(ElementwiseOp, luisa::span<Value *const>, ScalarType) noexcept;
-    friend ValueHandle make_mma(Value *, Value *, Value *) noexcept;
+    friend ValueHandle make_mma(Value *, Value *, Value *, MmaPolicy) noexcept;
     friend ValueHandle load_tile(Value *, luisa::span<Value *const>, const IndexSpace &, BoundsMode, Value *) noexcept;
     friend ValueHandle extract_tile(Value *, luisa::span<Value *const>) noexcept;
     friend ValueHandle capture_tile_map(const IndexSpace &, ScalarType, const std::function<Value *(const Nest &)> &) noexcept;
@@ -170,7 +170,7 @@ LUISA_TILE_API void store_view(
 
 [[nodiscard]] LUISA_TILE_API ValueHandle make_tile_constant(ScalarType type, const IndexSpace &space, Attribute value) noexcept;
 [[nodiscard]] LUISA_TILE_API ValueHandle make_tile_elementwise(ElementwiseOp op, luisa::span<Value *const> operands, ScalarType type) noexcept;
-[[nodiscard]] LUISA_TILE_API ValueHandle make_mma(Value *a, Value *b, Value *accumulator) noexcept;
+[[nodiscard]] LUISA_TILE_API ValueHandle make_mma(Value *a, Value *b, Value *accumulator, MmaPolicy policy) noexcept;
 [[nodiscard]] LUISA_TILE_API ValueHandle load_tile(Value *view, luisa::span<Value *const> origin,
                                                    const IndexSpace &space, BoundsMode bounds, Value *fallback = nullptr) noexcept;
 LUISA_TILE_API void store_tile(Value *view, luisa::span<Value *const> origin,

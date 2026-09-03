@@ -40,7 +40,8 @@ class BenchmarkContractTests(unittest.TestCase):
 
     def test_native_mapping_metadata_matches_the_request(self):
         case = MODULE.Case("gemm", 7, 17, 37)
-        native = dict(backend="metal", operation="gemm", execution_scope="group", pipeline_window=2, mma_operations=1)
+        native = dict(backend="metal", operation="gemm", execution_scope="group", pipeline_window=2, mma_operations=1,
+                      cooperative_matrix=False, matrix_intrinsics=0)
         MODULE.validate_native_metadata(native, case, "metal", "group")
         for key, value in (("backend", "cpu"), ("operation", "add"), ("execution_scope", "worker"), ("mma_operations", 0)):
             with self.subTest(key=key), self.assertRaises(RuntimeError):
@@ -51,13 +52,35 @@ class BenchmarkContractTests(unittest.TestCase):
 
     def test_native_pipeline_window_matches_the_request(self):
         case = MODULE.Case("gemm", 7, 17, 37)
-        native = dict(backend="metal", operation="gemm", execution_scope="worker", mma_operations=1)
+        native = dict(backend="metal", operation="gemm", execution_scope="worker", mma_operations=1,
+                      cooperative_matrix=False, matrix_intrinsics=0)
         for window in (1, 2):
             MODULE.validate_native_metadata(native | {"pipeline_window": window}, case, "metal", "worker", window)
             with self.assertRaisesRegex(RuntimeError, "pipeline-window"):
                 MODULE.validate_native_metadata(native | {"pipeline_window": 3 - window}, case, "metal", "worker", window)
         with self.assertRaisesRegex(RuntimeError, "pipeline-window"):
             MODULE.validate_native_metadata(native, case, "metal", "worker")
+
+    def test_matrix_capability_is_not_confused_with_emitted_instructions(self):
+        case = MODULE.Case("gemm", 7, 17, 37)
+        for enabled in (False, True):
+            for backend, scope, block in (("cpu", "worker", (8, 8, 16)),
+                                          ("metal", "worker", (8, 8, 16)),
+                                          ("metal", "group", (3, 5, 7)),
+                                          ("metal", "group", (8, 8, 16))):
+                calls = int(enabled and backend == "metal" and scope == "group" and block == (8, 8, 16))
+                native = dict(backend=backend, operation="gemm", execution_scope=scope, pipeline_window=2,
+                              mma_operations=1, cooperative_matrix=enabled, matrix_intrinsics=calls)
+                arguments = (case, backend, scope, 2, enabled, block)
+                with self.subTest(enabled=enabled, backend=backend, scope=scope, block=block):
+                    MODULE.validate_native_metadata(native, *arguments)
+                    with self.assertRaisesRegex(RuntimeError, "cooperative-matrix"):
+                        MODULE.validate_native_metadata(native | {"cooperative_matrix": not enabled}, *arguments)
+                    with self.assertRaisesRegex(RuntimeError, "matrix-intrinsic"):
+                        MODULE.validate_native_metadata(native | {"matrix_intrinsics": 1 - calls}, *arguments)
+                    for invalid in (None, -1, 1.5, True):
+                        with self.assertRaisesRegex(RuntimeError, "matrix-intrinsic"):
+                            MODULE.validate_native_metadata(native | {"matrix_intrinsics": invalid}, *arguments)
 
 
 if __name__ == "__main__":

@@ -45,6 +45,7 @@ private:
     uint32_t _logical_parallel_depth{0u};
     uint32_t _vector_depth{0u};
     bool _vectorize;
+    bool _cooperative_matrix;
     std::string _target_name;
 
 private:
@@ -182,6 +183,7 @@ protected:
             if (loop->annotations.count(independent_elements_annotation)) {
                 auto mapped = result.as_or_throw<tvm::tirx::For>();
                 mapped.CopyOnWrite()->annotations.erase(independent_elements_annotation);
+                mapped.CopyOnWrite()->annotations.erase(mma_annotation);
                 return mapped;
             }
             return result;
@@ -190,7 +192,7 @@ protected:
             scope && scope.value().as<tvm::ffi::String>() && scope.value().cast<tvm::ffi::String>() == "group") {
             if (_target_name != "metal") { _scope_error(loop, "group", "is not supported by this target's execution mapper"); }
             if (_logical_parallel_depth != 0u) { _scope_error(loop, "group", "requires a coordinate factorization for nested group bindings"); }
-            return map_metal_cooperative_group(tvm::ffi::GetRef<tvm::tirx::For>(loop), _gpu_threads_per_block, _shared_memory_limit);
+            return map_metal_cooperative_group(tvm::ffi::GetRef<tvm::tirx::For>(loop), _gpu_threads_per_block, _shared_memory_limit, _cooperative_matrix);
         }
         // Resolve before mutating the body, including through unbound or
         // serial intermediate levels. Unsupported constraints are hard errors,
@@ -226,9 +228,9 @@ protected:
 
 public:
     ExecutionMapper(RootParallelBinding binding, uint32_t gpu_threads_per_block, uint64_t shared_memory_limit,
-                    bool vectorize, std::string target_name) noexcept
+                    bool vectorize, bool cooperative_matrix, std::string target_name) noexcept
         : _binding{binding}, _gpu_threads_per_block{gpu_threads_per_block}, _shared_memory_limit{shared_memory_limit},
-          _vectorize{vectorize}, _target_name{std::move(target_name)} {}
+          _vectorize{vectorize}, _cooperative_matrix{cooperative_matrix}, _target_name{std::move(target_name)} {}
 
     using StmtMutator::operator();
 };
@@ -257,7 +259,8 @@ public:
     tvm::IRModule module,
     const tvm::Target &target,
     bool vectorize,
-    bool noalias) {
+    bool noalias,
+    bool cooperative_matrix) {
     auto binding = resolve_parallel_binding(target);
     auto threads = uint32_t{1u};
     auto shared_memory_limit = uint64_t{0u};
@@ -272,6 +275,7 @@ public:
             shared_memory_limit = static_cast<uint64_t>(std::max<int64_t>(0, maximum.value()));
         }
     }
+    cooperative_matrix &= target->kind->name == "metal" && target->GetAttr<int64_t>("thread_warp_size").value_or(0) == 32;
     FunctionMap functions;
     for (auto &&[global, base_function] : module->functions) {
         auto function = base_function.as<tvm::tirx::PrimFunc>();
@@ -280,7 +284,7 @@ public:
         }
         auto mapped = function.value();
         mapped.CopyOnWrite()->body = schedule_pipelines(mapped->body, noalias, shared_memory_limit);
-        mapped.CopyOnWrite()->body = ExecutionMapper{binding, threads, shared_memory_limit, vectorize, std::string{target->kind->name}}(mapped->body);
+        mapped.CopyOnWrite()->body = ExecutionMapper{binding, threads, shared_memory_limit, vectorize, cooperative_matrix, std::string{target->kind->name}}(mapped->body);
         functions.Set(global, std::move(mapped));
     }
     return make_module(std::move(functions), module->attrs, module->global_infos);
@@ -369,6 +373,7 @@ void run_common_pipeline(tvm::IRModule &module, const CompileOptions &options, c
     }
     apply(tvm::s_tir::transform::UnifyThreadBinding());
     apply(tvm::tirx::transform::StmtSimplify());
+    apply(tvm::tirx::transform::RemoveNoOp());
     // Resource/execution constraints have already been validated. Zero-trip
     // effects are gone, so an unused empty buffer needs no physical storage.
     // TVMx's host and Metal code generators reject zero-sized allocations.
@@ -427,7 +432,7 @@ CompilationResult compile(tvm::IRModule module, const CompileOptions &options) n
         tvm::Target device_target{tvm::ffi::String{options.target}};
         tvm::Target host_target{tvm::ffi::String{options.host}};
         tvm::Target bound_target{device_target, host_target};
-        module = detail::map_execution(std::move(module), device_target, options.vectorize, options.noalias);
+        module = detail::map_execution(std::move(module), device_target, options.vectorize, options.noalias, options.cooperative_matrix);
         detail::run_common_pipeline(module, options, bound_target);
 
         detail::FunctionMap host_functions;

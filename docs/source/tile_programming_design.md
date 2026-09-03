@@ -1256,12 +1256,24 @@ mma(A, B, C)[b, m, n]
       { convert(A[b, m, k]) * convert(B[b, k, n]) | k in K })
 ~~~
 
-The operation carries input conversion, accumulator element type, contraction
-axes, reassociation permission, and accuracy/rounding policy. Those are
-semantic constraints rather than a promise to emit a hardware instruction. A
-CPU may lower it to vector FMAs; a GPU may select one or more target MMA atoms;
-an unsupported exact policy may use the reference loop. In every case the
-Machine realization must refine the Candidate contract.
+The current typed operation records input/accumulator element types,
+contraction dimensions, and `MmaPolicy::allow_reassociation`. Inputs are
+converted to the accumulator type by the reference realization. MMA permits
+reassociation by default, but does not permit silently reducing input precision
+(for example, substituting TF32 for FP32). Ordered accumulation is explicit:
+
+~~~cpp
+acc = mma(a, b, acc); // target may choose a compatible cooperative matrix atom
+acc = mma(a, b, acc, {.allow_reassociation = false}); // preserve contraction order
+~~~
+
+The policy is stored on the TileIR operation and survives lowering; it is not
+just a frontend scheduling hint. Disabling reassociation retains the reference
+K order, not a promise to disable target FMA fusion or obtain bit-identical
+results on different devices. More detailed accuracy/rounding policies are
+design extensions, not implemented public options. A CPU may use vector FMAs;
+a GPU may select matrix atoms only when their numerical and layout contracts
+refine this operation. Otherwise the reference loop remains available.
 
 The spelling deliberately includes `C`. `mma(a, b, acc)` is one fused update,
 so `acc += mma(a, b)` would ambiguously add the accumulator twice. Common
@@ -2599,7 +2611,9 @@ rewritten by this compact-local-storage transformation.
 
 Metal group binding similarly includes a resource transformation, not just a
 loop tag. The structural exporter marks **independent element domains**;
-contraction axes and temporal loop iterations remain sequential.
+contraction axes remain sequential in the reference realization. Temporal
+iterations retain their dependences even when a safe pipeline plan overlaps
+independent producer/consumer work.
 It retains each domain as a rectangular serial loop nest with a rank marker.
 Flattening is a cooperative-binding decision, not a shared-export decision;
 CPU worker/vector paths keep the individual axes available to their optimizer.
@@ -2626,10 +2640,56 @@ parallel(..., GROUP)              one threadgroup per logical group
 The first implementation synchronizes conservatively between distributed
 operations. A scalar group effect executes once and publishes its result.
 The fence orders both shared resources and global views **within that group**;
-it is not device-wide synchronization between groups. Pipeline iterations stay
-serial and the cuts do not yet imply asynchronous copy or overlap. MMA output
-elements are distributed, but each element's contraction remains serial; the
-mapping does not claim matrix-hardware use or parallel reduction trees.
+it is not device-wide synchronization between groups. Safe pipeline cuts may
+use the two-window software-prefetch plan in section 7.3; other pipelines stay
+ordered. Neither plan implies hardware-asynchronous copy. Reference MMA
+distributes output elements and retains each element's serial contraction;
+parallel reduction trees remain separate planner work.
+
+#### Guarded native Metal matrix realization
+
+An optional native atom selector consumes the same MMA operation; no extra
+frontend hierarchy or memory object is required. `CompileOptions` has an
+explicit `cooperative_matrix` capability contract (default off). For Metal,
+the caller must target a device supporting native FP32 SIMD-group matrices
+and specify `thread_warp_size=32`; merely naming `metal` does not prove that
+capability. This keeps cross-compilation independent of the host GPU.
+The initial atom follows [Apple's SIMD-group matrix model](https://developer.apple.com/videos/play/tech-talks/10858/)
+introduced with Apple GPU family 7; the target contract must be established
+before selecting it.
+
+~~~text
+TileIR mma(A, B, C), with typed arithmetic policy
+  |
+  +-- reference TIRx contraction + MMA provenance marker
+  |
+  +-- capability + numerical policy + actual body/operand-map proof
+       |
+       +-- proven: complete 32-worker SIMD groups, 8x8 FP32 matrix atoms
+       |     native TIRx matrix load / multiply_accumulate / store
+       |
+       +-- otherwise: the existing checked contraction loops
+~~~
+
+The first selector handles rank-two FP32 operands/results, constant or
+independent Tile accumulators, positive strided row-major/transposed shared
+projections, and M/N/K extents divisible by eight. Global ragged edges are
+already handled by bounded Tile loads/stores; two-window pipeline slots remain
+uniform outer address coordinates. The matcher rechecks the actual typed
+load/multiply/add/store body, not just its marker, so a transform cannot leave
+stale metadata that changes semantics. Mixed conversions, opaque placed
+layouts, explicit worker-local execution, insufficient participants, and an
+ordered MMA policy keep the reference path.
+
+Native TIRx `metal.simdgroup` allocations and registered matrix operations go
+through TVMx's C++ compiler. Each matrix instruction runs on a complete SIMD
+group; job-tail predicates are uniform within that group, and the following
+group-wide fence remains outside those predicates. The selector never treats
+an individual worker's Tile as a cooperative fragment. Matrix selection is a
+legality decision, not a profitability claim or a change to default mapping.
+`test_tile_tirx_matrix` checks generated instructions and full numerical output
+on CPU and physical Metal, including transposes, ragged shapes, pipeline
+versions, numerical/capability fallbacks, stale markers, and zero contraction.
 
 Shared-memory budgeting is currently the conservative sum of compact group
 allocations, checked against the target capacity; lifetime-based reuse and
@@ -2676,11 +2736,13 @@ Pure elementwise expressions can fuse into their consumer. The initial
 reference schedule materializes loaded Tiles, map results, and MMA results
 into compiler-owned storage. Worker mapping keeps this private; explicit
 Metal group mapping shares group-level allocations as described above. MMA
-lowers to a checked contraction loop.
-This establishes semantics, not tensor-core performance or asynchronous
-pipeline execution. Explicit manual-memory bridge support, optimized
-execution/distribution plans, and target atom selection remain work in
-progress and unsupported forms fail closed. The compiler distinguishes ordinary
+retains a checked contraction fallback, with the opt-in Metal matrix
+realization described in section 11.3. Explicit Memory resources preserve
+MemoryState ordering and old-value snapshots; provable strided/composed
+layouts map to native address expressions, while unsupported placements fail
+closed. Safe pipelines use software prefetching, not hardware-asynchronous
+transfers. General distribution planning, storage reuse, and additional atom
+families remain work in progress. The compiler distinguishes ordinary
 TIRx statements (`STANDARD`) from programs containing native TIRx
 `TilePrimitive` calls (`TILE`), because only the latter require `LowerTIRx`.
 Both paths run `LowerTIRxOpaque` before host/device splitting so thread-binding

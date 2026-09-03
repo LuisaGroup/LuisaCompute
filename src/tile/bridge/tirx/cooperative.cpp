@@ -87,6 +87,7 @@ private:
     uint64_t _shared_memory_limit;
     uint64_t _shared_memory_used{0u};
     uint32_t _lane_depth{0u};
+    bool _cooperative_matrix;
     luisa::unordered_map<const tvm::tirx::VarNode *, tvm::tirx::BufferVar> _buffers;
 
 private:
@@ -151,12 +152,23 @@ protected:
                 throw std::runtime_error{"nested execution scope '" + name + "' in a cooperative group requires an available, unfactored worker level"};
             }
         }
+        if (elements && _lane_depth == 0u && _cooperative_matrix) {
+            auto matrix = try_metal_matrix(tvm::ffi::GetRef<tvm::tirx::For>(loop), _thread, _threads,
+                                           [this](tvm::tirx::BufferVar buffer) {
+                                               // Atom alias proofs apply only to allocations seen by
+                                               // this mapper, never an external buffer's scope label.
+                                               if (auto iter = _buffers.find(buffer.get()); iter != _buffers.end()) { return iter->second; }
+                                               return tvm::tirx::BufferVar{};
+                                           });
+            if (matrix.defined()) { return _synchronize(std::move(matrix)); }
+        }
         if ((logical || elements) && _lane_depth == 0u) { return _distribute(loop); }
         auto result = StmtExprMutator::VisitStmt_(loop).as_or_throw<tvm::tirx::For>();
         auto node = result.CopyOnWrite();
         node->annotations.erase(logical_parallel_annotation);
         node->annotations.erase(execution_scope_annotation);
         node->annotations.erase(independent_elements_annotation);
+        node->annotations.erase(mma_annotation);
         return result;
     }
 
@@ -231,28 +243,36 @@ protected:
     }
 
 public:
-    CooperativeGroupMapper(tvm::tirx::PrimVar thread, uint64_t threads, uint64_t shared_memory_limit)
-        : _thread{std::move(thread)}, _threads{threads}, _shared_memory_limit{shared_memory_limit} {}
+    CooperativeGroupMapper(tvm::tirx::PrimVar thread, uint64_t threads, uint64_t shared_memory_limit, bool cooperative_matrix)
+        : _thread{std::move(thread)}, _threads{threads}, _shared_memory_limit{shared_memory_limit}, _cooperative_matrix{cooperative_matrix} {}
 
     using StmtExprMutator::operator();
 };
 
 }// namespace
 
-tvm::tirx::Stmt map_metal_cooperative_group(const tvm::tirx::For &loop, uint32_t max_threads, uint64_t shared_memory_limit) {
+tvm::tirx::Stmt map_metal_cooperative_group(const tvm::tirx::For &loop, uint32_t max_threads, uint64_t shared_memory_limit, bool cooperative_matrix) {
     validate_domain(loop.get());
     auto groups = static_extent(loop->extent);
     auto grain = uint64_t{1u};
+    auto has_matrix = false;
     tvm::tirx::PostOrderVisit(loop->body, [&](const tvm::ffi::ObjectRef &node) {
         if (auto child = node.as<tvm::tirx::ForNode>(); child != nullptr &&
                                                         (child->annotations.count(independent_elements_annotation) || child->annotations.count(logical_parallel_annotation))) {
             grain = std::max(grain, element_domain(child).count);
+            if (auto policy = child->annotations.Get(mma_annotation)) {
+                auto value = policy.value().as<tvm::IntImmNode>();
+                has_matrix |= value != nullptr && value->value == 1;
+            }
         }
     });
     auto threads = std::min<uint64_t>(grain, std::max<uint32_t>(max_threads, 1u));
+    if (has_matrix && cooperative_matrix && max_threads >= 32u) {
+        threads = std::min<uint64_t>(grain / 32u + (grain % 32u != 0u), max_threads / 32u) * 32u;
+    }
     auto thread = tvm::tirx::PrimVar{loop->loop_var->name + "_worker", tvm::PrimType::Int(64)};
     auto group = tvm::tirx::PrimVar{loop->loop_var->name + "_group", tvm::PrimType::Int(64)};
-    auto body = CooperativeGroupMapper{thread, threads, shared_memory_limit}(loop->body);
+    auto body = CooperativeGroupMapper{thread, threads, shared_memory_limit, cooperative_matrix}(loop->body);
     // Empty domains are no-ops, but must not hide unsupported descendants.
     if (groups == 0u) { return tvm::tirx::Evaluate{tvm::IntImm::Int32(0)}; }
     body = tvm::tirx::Substitute(std::move(body),

@@ -474,7 +474,7 @@ private:
         auto initial = _tile(operation.operand(2));
         auto buffer = _new_storage(result->type(), statements);
         auto type = _primitive_type(result->type());
-        statements.push_back(_for_each(space, [&](const Indices &indices) {
+        auto statement = _for_each(space, [&](const Indices &indices) {
             Statements body{tvm::tirx::BufferStore{buffer, initial(indices), indices}};
             body.push_back(_for_each(contraction, [&](const Indices &contracted) {
                 auto coordinates = indices;
@@ -483,7 +483,12 @@ private:
                 auto sum = tvm::tirx::BufferLoad{buffer, indices} + product;
                 return tvm::tirx::BufferStore{buffer, std::move(sum), indices}; }, false));
             return tvm::tirx::SeqStmt::Flatten(body);
-        }));
+        });
+        if (auto loop = statement.as<tvm::tirx::For>()) {
+            loop.value().CopyOnWrite()->annotations.Set(mma_annotation, tvm::IntImm::Int32(operation.mma_policy().allow_reassociation));
+            statement = loop.value();
+        }
+        statements.push_back(std::move(statement));
         _bind_storage(result, std::move(buffer));
     }
 

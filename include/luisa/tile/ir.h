@@ -294,6 +294,14 @@ struct NamedAttribute {
     Attribute value;
 };
 
+struct MmaPolicy {
+    // MMA is a fused contraction, not a bitwise specification of a scalar
+    // loop. Reassociation permits target matrix atoms at the declared input
+    // and accumulator types; it never permits reducing input precision.
+    // Disable it to retain the reference contraction order.
+    bool allow_reassociation{true};
+};
+
 class LUISA_TILE_API Operation : public luisa::ManagedIntrusiveNode<Operation> {
 
 private:
@@ -305,6 +313,7 @@ private:
     OperationKind _kind{OperationKind::CUSTOM};
     ElementwiseOp _elementwise_op{ElementwiseOp::INVALID};
     BoundsMode _bounds_mode{BoundsMode::ASSUME};
+    MmaPolicy _mma_policy;
     luisa::string _custom_name;
     luisa::vector<luisa::ManagedPtr<Use>> _operands;
     luisa::vector<luisa::unique_ptr<Value>> _results;
@@ -333,6 +342,8 @@ public:
     [[nodiscard]] auto kind() const noexcept { return _kind; }
     [[nodiscard]] auto elementwise_op() const noexcept { return _elementwise_op; }
     [[nodiscard]] auto bounds_mode() const noexcept { return _bounds_mode; }
+    [[nodiscard]] auto mma_policy() const noexcept { return _mma_policy; }
+    void set_mma_policy(MmaPolicy policy) noexcept { _mma_policy = policy; }
     [[nodiscard]] luisa::string_view name() const noexcept;
     [[nodiscard]] auto parent_block() noexcept { return _parent; }
     [[nodiscard]] const auto *parent_block() const noexcept { return _parent; }
@@ -570,7 +581,7 @@ public:
     [[nodiscard]] Operation *create_elementwise(ElementwiseOp op,
                                                 luisa::span<Value *const> operands,
                                                 Type result_type) noexcept;
-    [[nodiscard]] Operation *create_mma(Value *a, Value *b, Value *accumulator) noexcept;
+    [[nodiscard]] Operation *create_mma(Value *a, Value *b, Value *accumulator, MmaPolicy policy = {}) noexcept;
     [[nodiscard]] Operation *create_tile_map(Type result_type) noexcept;
     [[nodiscard]] Operation *create_tile_extract(Value *tile, luisa::span<Value *const> indices) noexcept;
     [[nodiscard]] Operation *create_view_load(Value *view,

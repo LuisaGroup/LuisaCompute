@@ -32,6 +32,12 @@ struct CompileOptions {
     // PrimFunc parameters. Keep the conservative default when buffers may
     // alias, including when compiling directly lowered TileIR today.
     bool noalias{false};
+    // Opt-in capability contract for cross-compilation: the selected device
+    // supports native FP32 cooperative matrices. Metal additionally requires
+    // thread_warp_size=32 (Apple GPU family 7+). Generic "metal" is not enough
+    // to infer this feature. Ineligible shapes, scopes, or MMA policies keep
+    // the reference realization; no input precision is reduced.
+    bool cooperative_matrix{false};
 };
 
 class LUISA_TILE_TIRX_BRIDGE_API CompilationResult final {
