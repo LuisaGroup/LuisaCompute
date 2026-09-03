@@ -1,0 +1,7488 @@
+{
+  "metadata": {
+    "timestamp": "2026-09-03T02:45:06.490490+00:00",
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "torch_version": "2.14.0",
+    "torch_git_version": "08187d9e0fba026dc8217405802ab5381dc88d90",
+    "torch_config": "PyTorch built with:\n  - GCC 4.2\n  - C++ Version: 202002\n  - clang 21.0.0\n  - OpenMP 202011\n  - LAPACK is enabled (usually provided by MKL)\n  - NNPACK is enabled\n  - CPU capability usage: DEFAULT\n  - Build settings: BLAS_INFO=accelerate, BUILD_TYPE=Release, COMMIT_SHA=08187d9e0fba026dc8217405802ab5381dc88d90, CUDA_FLAGS= -DLIBCUDACXX_ENABLE_SIMPLIFIED_COMPLEX_OPERATIONS -Xfatbin -compress-all  -Wno-deprecated-gpu-targets --expt-extended-lambda -DCUB_WRAPPED_NAMESPACE=at_cuda_detail -DDISABLE_CUSPARSE_DEPRECATED -DCUDA_HAS_FP16=1 -D__CUDA_NO_HALF_OPERATORS__ -D__CUDA_NO_HALF_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__ -D__CUDA_NO_BFLOAT16_CONVERSIONS__ -DC10_NODEPRECATED, CXX_COMPILER=/usr/bin/c++, CXX_FLAGS= -fvisibility-inlines-hidden -DUSE_PTHREADPOOL -DNDEBUG -DUSE_KINETO -DUSE_PYTORCH_QNNPACK -DAT_BUILD_ARM_VEC256_WITH_SLEEF -DUSE_PYTORCH_METAL_EXPORT -DSYMBOLICATE_MOBILE_DEBUG_HANDLE -DUSE_COREML_DELEGATE -O2 -fPIC -DC10_NODEPRECATED -Wall -Wextra -Werror=return-type -Werror=non-virtual-dtor -Werror=braced-scalar-init -Werror=range-loop-construct -Werror=bool-operation -Wnarrowing -Wno-missing-field-initializers -Wno-unknown-pragmas -Wno-unused-parameter -Wno-strict-overflow -Wno-strict-aliasing -Wvla-extension -Wsuggest-override -Wnewline-eof -Winconsistent-missing-override -Winconsistent-missing-destructor-override -Wno-pass-failed -Wno-error=old-style-cast -Wconstant-conversion -Qunused-arguments -faligned-new -fno-math-errno -fno-trapping-math -Werror=format -fclang-abi-compat=17 -DUSE_MPS -Wno-missing-braces, LAPACK_INFO=accelerate, TORCH_VERSION=2.14.0, USE_CUDA=OFF, USE_CUDNN=OFF, USE_CUSPARSELT=OFF, USE_EIGEN_FOR_BLAS=ON, USE_GFLAGS=OFF, USE_GLOG=OFF, USE_GLOO=ON, USE_HIPSPARSELT=OFF, USE_MKL=OFF, USE_MKLDNN=OFF, USE_MPI=OFF, USE_NCCL=OFF, USE_NNPACK=ON, USE_OPENMP=ON, USE_ROCM=OFF, USE_ROCM_KERNEL_ASSERT=OFF, USE_XCCL=OFF, USE_XPU=OFF, \n",
+    "threads": 8,
+    "thread_environment": {
+      "TVM_NUM_THREADS": "8",
+      "OMP_NUM_THREADS": "8",
+      "VECLIB_MAXIMUM_THREADS": "8"
+    },
+    "git_revision": "ee15c9c89a6a00175b44fdb2505923f06fc5c4c0",
+    "worktree_dirty": true,
+    "native_sha256": "1f840b94397c7ca15ed612fbd55ea5c7c90660f9b06716a4eaf736f234b8b7cb",
+    "adjacent_tile_library_sha256": {
+      "libluisa-tile-bridge-tirx.dylib": "d6e3f15c9c6772e174038f38efaf7733fc4f5a2c2ba5f3ad5db8835485d95368",
+      "libluisa-tile.dylib": "2fca1d5b1db5249e66d9582f7ed9e1819863f2741009b00ed4c46b8de3b4de66"
+    },
+    "native_variants": {
+      "reference": {
+        "binary": "/private/tmp/luisa-tile-before-yield-yVDGdF/benchmark_tile_tirx",
+        "sha256": "1f840b94397c7ca15ed612fbd55ea5c7c90660f9b06716a4eaf736f234b8b7cb",
+        "adjacent_tile_library_sha256": {
+          "libluisa-tile-bridge-tirx.dylib": "d6e3f15c9c6772e174038f38efaf7733fc4f5a2c2ba5f3ad5db8835485d95368",
+          "libluisa-tile.dylib": "2fca1d5b1db5249e66d9582f7ed9e1819863f2741009b00ed4c46b8de3b4de66"
+        }
+      },
+      "candidate": {
+        "binary": "/Users/mike/CLionProjects/luisa/cmake-build-tirx/bin/benchmark_tile_tirx",
+        "sha256": "1f840b94397c7ca15ed612fbd55ea5c7c90660f9b06716a4eaf736f234b8b7cb",
+        "adjacent_tile_library_sha256": {
+          "libluisa-tile-bridge-tirx.dylib": "e6b672607475e777868a0d354b0d60c754023d66e9a36067eb764386996de33f",
+          "libluisa-tile.dylib": "2fca1d5b1db5249e66d9582f7ed9e1819863f2741009b00ed4c46b8de3b4de66"
+        }
+      }
+    },
+    "rounds": 4,
+    "samples": 9,
+    "sample_ms": 40,
+    "warmup_ms": 200,
+    "candidate_vector_mode": "reported",
+    "timing": "synchronized device-resident host wall time including dispatch; no profiler",
+    "source_reports": {
+      "reference": {
+        "path": "scripts/benchmark/tile_torch/results/m1-max-20260903-jit-cpu-default/results.json",
+        "sha256": "7c0d88e3305d2867f353e2ac835810b2a0e39863160248e725f141cdb67de375"
+      },
+      "candidate": {
+        "path": "scripts/benchmark/tile_torch/results/m1-max-20260903-jit-cpu-default/results.json",
+        "sha256": "7c0d88e3305d2867f353e2ac835810b2a0e39863160248e725f141cdb67de375"
+      }
+    },
+    "frozen_plans": {
+      "reference": [
+        {
+          "backend": "cpu",
+          "name": "gemm_32x32x32",
+          "case": {
+            "operation": "gemm",
+            "m": 32,
+            "n": 32,
+            "k": 32
+          },
+          "gemm_block": [
+            8,
+            8,
+            16
+          ],
+          "execution_scope": "worker",
+          "pipeline_window": 2,
+          "cooperative_matrix": false,
+          "no_vectorize": false,
+          "auto_vectorize": false
+        },
+        {
+          "backend": "cpu",
+          "name": "gemm_128x128x128",
+          "case": {
+            "operation": "gemm",
+            "m": 128,
+            "n": 128,
+            "k": 128
+          },
+          "gemm_block": [
+            8,
+            8,
+            16
+          ],
+          "execution_scope": "worker",
+          "pipeline_window": 2,
+          "cooperative_matrix": false,
+          "no_vectorize": false,
+          "auto_vectorize": false
+        },
+        {
+          "backend": "cpu",
+          "name": "gemm_512x512x512",
+          "case": {
+            "operation": "gemm",
+            "m": 512,
+            "n": 512,
+            "k": 512
+          },
+          "gemm_block": [
+            8,
+            8,
+            16
+          ],
+          "execution_scope": "worker",
+          "pipeline_window": 2,
+          "cooperative_matrix": false,
+          "no_vectorize": false,
+          "auto_vectorize": false
+        },
+        {
+          "backend": "cpu",
+          "name": "gemm_1024x1024x1024",
+          "case": {
+            "operation": "gemm",
+            "m": 1024,
+            "n": 1024,
+            "k": 1024
+          },
+          "gemm_block": [
+            8,
+            8,
+            16
+          ],
+          "execution_scope": "worker",
+          "pipeline_window": 2,
+          "cooperative_matrix": false,
+          "no_vectorize": false,
+          "auto_vectorize": false
+        },
+        {
+          "backend": "cpu",
+          "name": "gemm_256x1024x128",
+          "case": {
+            "operation": "gemm",
+            "m": 256,
+            "n": 1024,
+            "k": 128
+          },
+          "gemm_block": [
+            8,
+            8,
+            16
+          ],
+          "execution_scope": "worker",
+          "pipeline_window": 2,
+          "cooperative_matrix": false,
+          "no_vectorize": false,
+          "auto_vectorize": false
+        },
+        {
+          "backend": "cpu",
+          "name": "gemm_1024x128x256",
+          "case": {
+            "operation": "gemm",
+            "m": 1024,
+            "n": 128,
+            "k": 256
+          },
+          "gemm_block": [
+            8,
+            8,
+            16
+          ],
+          "execution_scope": "worker",
+          "pipeline_window": 2,
+          "cooperative_matrix": false,
+          "no_vectorize": false,
+          "auto_vectorize": false
+        },
+        {
+          "backend": "cpu",
+          "name": "gemm_127x193x61",
+          "case": {
+            "operation": "gemm",
+            "m": 127,
+            "n": 193,
+            "k": 61
+          },
+          "gemm_block": [
+            8,
+            8,
+            16
+          ],
+          "execution_scope": "worker",
+          "pipeline_window": 2,
+          "cooperative_matrix": false,
+          "no_vectorize": false,
+          "auto_vectorize": false
+        },
+        {
+          "backend": "cpu",
+          "name": "gemm_513x257x129",
+          "case": {
+            "operation": "gemm",
+            "m": 513,
+            "n": 257,
+            "k": 129
+          },
+          "gemm_block": [
+            8,
+            8,
+            16
+          ],
+          "execution_scope": "worker",
+          "pipeline_window": 2,
+          "cooperative_matrix": false,
+          "no_vectorize": false,
+          "auto_vectorize": false
+        }
+      ],
+      "candidate": [
+        {
+          "backend": "cpu",
+          "name": "gemm_32x32x32",
+          "case": {
+            "operation": "gemm",
+            "m": 32,
+            "n": 32,
+            "k": 32
+          },
+          "gemm_block": [
+            8,
+            8,
+            16
+          ],
+          "execution_scope": "worker",
+          "pipeline_window": 2,
+          "cooperative_matrix": false,
+          "no_vectorize": false,
+          "auto_vectorize": false
+        },
+        {
+          "backend": "cpu",
+          "name": "gemm_128x128x128",
+          "case": {
+            "operation": "gemm",
+            "m": 128,
+            "n": 128,
+            "k": 128
+          },
+          "gemm_block": [
+            8,
+            8,
+            16
+          ],
+          "execution_scope": "worker",
+          "pipeline_window": 2,
+          "cooperative_matrix": false,
+          "no_vectorize": false,
+          "auto_vectorize": false
+        },
+        {
+          "backend": "cpu",
+          "name": "gemm_512x512x512",
+          "case": {
+            "operation": "gemm",
+            "m": 512,
+            "n": 512,
+            "k": 512
+          },
+          "gemm_block": [
+            8,
+            8,
+            16
+          ],
+          "execution_scope": "worker",
+          "pipeline_window": 2,
+          "cooperative_matrix": false,
+          "no_vectorize": false,
+          "auto_vectorize": false
+        },
+        {
+          "backend": "cpu",
+          "name": "gemm_1024x1024x1024",
+          "case": {
+            "operation": "gemm",
+            "m": 1024,
+            "n": 1024,
+            "k": 1024
+          },
+          "gemm_block": [
+            8,
+            8,
+            16
+          ],
+          "execution_scope": "worker",
+          "pipeline_window": 2,
+          "cooperative_matrix": false,
+          "no_vectorize": false,
+          "auto_vectorize": false
+        },
+        {
+          "backend": "cpu",
+          "name": "gemm_256x1024x128",
+          "case": {
+            "operation": "gemm",
+            "m": 256,
+            "n": 1024,
+            "k": 128
+          },
+          "gemm_block": [
+            8,
+            8,
+            16
+          ],
+          "execution_scope": "worker",
+          "pipeline_window": 2,
+          "cooperative_matrix": false,
+          "no_vectorize": false,
+          "auto_vectorize": false
+        },
+        {
+          "backend": "cpu",
+          "name": "gemm_1024x128x256",
+          "case": {
+            "operation": "gemm",
+            "m": 1024,
+            "n": 128,
+            "k": 256
+          },
+          "gemm_block": [
+            8,
+            8,
+            16
+          ],
+          "execution_scope": "worker",
+          "pipeline_window": 2,
+          "cooperative_matrix": false,
+          "no_vectorize": false,
+          "auto_vectorize": false
+        },
+        {
+          "backend": "cpu",
+          "name": "gemm_127x193x61",
+          "case": {
+            "operation": "gemm",
+            "m": 127,
+            "n": 193,
+            "k": 61
+          },
+          "gemm_block": [
+            8,
+            8,
+            16
+          ],
+          "execution_scope": "worker",
+          "pipeline_window": 2,
+          "cooperative_matrix": false,
+          "no_vectorize": false,
+          "auto_vectorize": false
+        },
+        {
+          "backend": "cpu",
+          "name": "gemm_513x257x129",
+          "case": {
+            "operation": "gemm",
+            "m": 513,
+            "n": 257,
+            "k": 129
+          },
+          "gemm_block": [
+            8,
+            8,
+            16
+          ],
+          "execution_scope": "worker",
+          "pipeline_window": 2,
+          "cooperative_matrix": false,
+          "no_vectorize": false,
+          "auto_vectorize": false
+        }
+      ]
+    }
+  },
+  "results": [
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 32,
+        "n": 32,
+        "k": 32
+      },
+      "name": "gemm_32x32x32",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.003333,
+        "capture_ms": 0.049167,
+        "compile_ms": 343.004083,
+        "allocation_upload_ms": 0.006708,
+        "cold_call_ms": 0.180416,
+        "warmup_ms": 200.016958,
+        "download_ms": 0.001541,
+        "repetitions": 7111,
+        "output_elements": 1024,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          7.92935241176,
+          7.88472676136,
+          8.27636759949,
+          8.99864646323,
+          8.81935845873,
+          7.59929461398,
+          10.1199492336,
+          11.1919912811,
+          9.89580705949
+        ],
+        "latency_us": [
+          3.167,
+          3,
+          3.041,
+          3,
+          3.125,
+          3.042,
+          2.958,
+          2.958,
+          3
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 8.81935845873,
+        "throughput_us_p90": 10.3343576431,
+        "latency_us_p50": 3.0,
+        "latency_us_p90": 3.1334
+      },
+      "torch": {
+        "cold_call_ms": 0.035333,
+        "warmup_ms": 200.005666,
+        "repetitions": 36934,
+        "throughput_us": [
+          0.9499117885958736,
+          0.9456981913683868,
+          0.9031651053230086,
+          0.8961029674554609,
+          0.8772923864190176,
+          0.8813435317052039,
+          0.8671616938322412,
+          0.8649166892294362,
+          0.894937591379217
+        ],
+        "latency_us": [
+          1.5410000000000001,
+          1.0,
+          1.0,
+          0.958,
+          0.9169999999999999,
+          0.9169999999999999,
+          0.958,
+          0.9169999999999999,
+          1.042
+        ],
+        "throughput_us_p50": 0.894937591379217,
+        "throughput_us_p90": 0.9465409108138841,
+        "latency_us_p50": 0.958,
+        "latency_us_p90": 1.1418000000000001,
+        "download_ms": 0.029208,
+        "allocation_upload_ms": 0.0825,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 9.854718969999018,
+      "valid": true,
+      "round": 0,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 32,
+        "n": 32,
+        "k": 32
+      },
+      "name": "gemm_32x32x32",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.00475,
+        "warmup_ms": 200.006542,
+        "repetitions": 40000,
+        "throughput_us": [
+          0.8829958250000002,
+          0.866734375,
+          0.86481355,
+          0.81201875,
+          0.8252573000000001,
+          0.8260301999999999,
+          0.8757,
+          0.883841675,
+          0.8702583499999998
+        ],
+        "latency_us": [
+          1.042,
+          0.9169999999999999,
+          1.0,
+          1.0,
+          0.958,
+          0.959,
+          0.959,
+          0.959,
+          0.9169999999999999
+        ],
+        "throughput_us_p50": 0.866734375,
+        "throughput_us_p90": 0.8831649950000001,
+        "latency_us_p50": 0.959,
+        "latency_us_p90": 1.0084,
+        "download_ms": 0.006,
+        "allocation_upload_ms": 0.012042,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.007,
+        "capture_ms": 0.060125,
+        "compile_ms": 263.913042,
+        "allocation_upload_ms": 0.003875,
+        "cold_call_ms": 0.149542,
+        "warmup_ms": 200.073833,
+        "download_ms": 0.001875,
+        "repetitions": 5245,
+        "output_elements": 1024,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          6.89423260248,
+          9.80986653956,
+          9.3518749285,
+          12.1656896092,
+          9.93840152526,
+          8.6608993327,
+          7.00219256435,
+          5.81613441373,
+          5.78866387035
+        ],
+        "latency_us": [
+          4.875,
+          5.666,
+          4.292,
+          4,
+          4.958,
+          6.875,
+          7.959,
+          6.375,
+          5.25
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 8.6608993327,
+        "throughput_us_p90": 10.383859142048,
+        "latency_us_p50": 5.25,
+        "latency_us_p90": 7.0918
+      },
+      "slowdown": 9.992564714766274,
+      "valid": true,
+      "round": 0,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 128,
+        "n": 128,
+        "k": 128
+      },
+      "name": "gemm_128x128x128",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.006125,
+        "capture_ms": 0.055334,
+        "compile_ms": 256.517833,
+        "allocation_upload_ms": 0.007667,
+        "cold_call_ms": 0.153833,
+        "warmup_ms": 200.507416,
+        "download_ms": 0.005,
+        "repetitions": 260,
+        "output_elements": 16384,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          147.479007692,
+          115.530769231,
+          88.4241961538,
+          140.450157692,
+          73.9679461538,
+          73.6793269231,
+          83.0242,
+          46.3136192308,
+          44.94295
+        ],
+        "latency_us": [
+          50.792,
+          50.667,
+          49.084,
+          45.959,
+          50.333,
+          50.041,
+          49.333,
+          47.041,
+          46.792
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 83.0242,
+        "throughput_us_p90": 141.855927692,
+        "latency_us_p50": 49.333,
+        "latency_us_p90": 50.692
+      },
+      "torch": {
+        "cold_call_ms": 0.037667,
+        "warmup_ms": 200.0165,
+        "repetitions": 7218,
+        "throughput_us": [
+          4.865423247436963,
+          4.872852590745359,
+          4.958339152119701,
+          5.049096009975062,
+          5.180590191188695,
+          5.1315403158769755,
+          5.140972845663619,
+          5.079465641451926,
+          5.015539900249377
+        ],
+        "latency_us": [
+          8.0,
+          4.708,
+          5.125,
+          5.042,
+          5.2909999999999995,
+          5.042,
+          4.709,
+          4.709,
+          4.792
+        ],
+        "throughput_us_p50": 5.049096009975062,
+        "throughput_us_p90": 5.148896314768634,
+        "latency_us_p50": 5.042,
+        "latency_us_p90": 5.8328,
+        "download_ms": 0.006334,
+        "allocation_upload_ms": 0.024166,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 16.44337913875598,
+      "valid": true,
+      "round": 0,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 128,
+        "n": 128,
+        "k": 128
+      },
+      "name": "gemm_128x128x128",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.014333,
+        "warmup_ms": 200.03125,
+        "repetitions": 8570,
+        "throughput_us": [
+          4.896572345390899,
+          4.894826954492416,
+          4.911201866977829,
+          4.936308868144691,
+          4.881252508751459,
+          4.886775612602101,
+          4.9297064177362895,
+          4.866686114352392,
+          4.882142240373396
+        ],
+        "latency_us": [
+          4.832999999999999,
+          4.667,
+          4.792,
+          4.916,
+          4.875,
+          5.2909999999999995,
+          4.957999999999999,
+          4.667,
+          4.625
+        ],
+        "throughput_us_p50": 4.894826954492416,
+        "throughput_us_p90": 4.931026907817969,
+        "latency_us_p50": 4.832999999999999,
+        "latency_us_p90": 5.0245999999999995,
+        "download_ms": 0.005833,
+        "allocation_upload_ms": 0.013459,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.005666,
+        "capture_ms": 0.044625,
+        "compile_ms": 233.313334,
+        "allocation_upload_ms": 0.006833,
+        "cold_call_ms": 0.19525,
+        "warmup_ms": 200.14725,
+        "download_ms": 0.007375,
+        "repetitions": 460,
+        "output_elements": 16384,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          118.580523913,
+          138.59855,
+          88.399273913,
+          69.9484608696,
+          74.1306152174,
+          47.0570652174,
+          49.881973913,
+          50.88415,
+          53.3325195652
+        ],
+        "latency_us": [
+          48.75,
+          49.959,
+          50.958,
+          49.25,
+          48.541,
+          48.667,
+          48.958,
+          49.625,
+          49.125
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 69.9484608696,
+        "throughput_us_p90": 122.5841291304,
+        "latency_us_p50": 49.125,
+        "latency_us_p90": 50.1588
+      },
+      "slowdown": 14.290282684130867,
+      "valid": true,
+      "round": 0,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 512,
+        "n": 512,
+        "k": 512
+      },
+      "name": "gemm_512x512x512",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.003208,
+        "capture_ms": 0.045584,
+        "compile_ms": 239.836791,
+        "allocation_upload_ms": 0.112334,
+        "cold_call_ms": 2.359375,
+        "warmup_ms": 217.826583,
+        "download_ms": 0.18075,
+        "repetitions": 16,
+        "output_elements": 262144,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          2995.640625,
+          2488.5859375,
+          2405.7005625,
+          2028.3931875,
+          2363.359375,
+          1779.7239375,
+          1948.09375,
+          2126.64325,
+          2754.1354375
+        ],
+        "latency_us": [
+          1845.833,
+          1554.125,
+          2363.041,
+          2285.625,
+          2207.416,
+          1761.75,
+          2117.334,
+          1845.709,
+          2586.833
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 2363.359375,
+        "throughput_us_p90": 2802.436475,
+        "latency_us_p50": 2117.334,
+        "latency_us_p90": 2407.7994000000003
+      },
+      "torch": {
+        "cold_call_ms": 0.289958,
+        "warmup_ms": 200.429,
+        "repetitions": 254,
+        "throughput_us": [
+          163.38911023622046,
+          159.18307086614172,
+          157.9844133858268,
+          149.05659448818898,
+          150.03937007874015,
+          148.47112992125986,
+          155.81315748031497,
+          152.64042125984253,
+          154.29297637795275
+        ],
+        "latency_us": [
+          139.375,
+          143.75,
+          152.0,
+          146.417,
+          144.5,
+          148.375,
+          188.20899999999997,
+          279.5,
+          144.5
+        ],
+        "throughput_us_p50": 154.29297637795275,
+        "throughput_us_p90": 160.02427874015746,
+        "latency_us_p50": 146.417,
+        "latency_us_p90": 206.4672,
+        "download_ms": 0.022208,
+        "allocation_upload_ms": 0.034375,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 15.317349049063424,
+      "valid": true,
+      "round": 0,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 512,
+        "n": 512,
+        "k": 512
+      },
+      "name": "gemm_512x512x512",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.202458,
+        "warmup_ms": 200.133459,
+        "repetitions": 323,
+        "throughput_us": [
+          146.36184210526315,
+          148.62990092879258,
+          148.00503095975233,
+          146.46426625386997,
+          148.38145201238387,
+          159.97252321981424,
+          148.60332817337462,
+          148.04656656346748,
+          149.61958204334366
+        ],
+        "latency_us": [
+          136.708,
+          145.25,
+          123.666,
+          139.459,
+          121.541,
+          149.917,
+          122.0,
+          139.875,
+          158.042
+        ],
+        "throughput_us_p50": 148.38145201238387,
+        "throughput_us_p90": 151.69017027863777,
+        "latency_us_p50": 139.459,
+        "latency_us_p90": 151.542,
+        "download_ms": 0.009708,
+        "allocation_upload_ms": 0.025833,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.003208,
+        "capture_ms": 0.052375,
+        "compile_ms": 202.7975,
+        "allocation_upload_ms": 0.192916,
+        "cold_call_ms": 2.6595,
+        "warmup_ms": 203.551,
+        "download_ms": 0.120334,
+        "repetitions": 17,
+        "output_elements": 262144,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          2471.67158824,
+          3209.63482353,
+          2768.27452941,
+          3809.59317647,
+          2903.85294118,
+          3689.36523529,
+          9811.50241176,
+          2212.04658824,
+          2074.61517647
+        ],
+        "latency_us": [
+          1798.834,
+          1866.875,
+          1958.458,
+          1916.709,
+          3178.292,
+          2408.834,
+          2157.5,
+          2306.209,
+          2083.25
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 2903.85294118,
+        "throughput_us_p90": 5009.975023528001,
+        "latency_us_p50": 2083.25,
+        "latency_us_p90": 2562.7255999999998
+      },
+      "slowdown": 19.570188199382528,
+      "valid": true,
+      "round": 0,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 1024,
+        "n": 1024,
+        "k": 1024
+      },
+      "name": "gemm_1024x1024x1024",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.003917,
+        "capture_ms": 0.046541,
+        "compile_ms": 208.458708,
+        "allocation_upload_ms": 0.745792,
+        "cold_call_ms": 19.134167,
+        "warmup_ms": 254.658292,
+        "download_ms": 0.470916,
+        "repetitions": 2,
+        "output_elements": 1048576,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          17237.0625,
+          18146.125,
+          18439.9375,
+          18028.4165,
+          17594.9795,
+          20697.5,
+          17014.7295,
+          17248.7085,
+          18390.292
+        ],
+        "latency_us": [
+          17623.625,
+          17748.125,
+          16940.084,
+          19252.375,
+          17094.625,
+          18272.667,
+          19351.042,
+          18986.792,
+          21367.167
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 18028.4165,
+        "throughput_us_p90": 18891.45,
+        "latency_us_p50": 18272.667,
+        "latency_us_p90": 19754.267
+      },
+      "torch": {
+        "cold_call_ms": 2.160833,
+        "warmup_ms": 201.524291,
+        "repetitions": 29,
+        "throughput_us": [
+          1314.1278620689654,
+          1345.941103448276,
+          1448.1350689655173,
+          2238.333344827586,
+          1561.9453793103448,
+          1648.7241379310344,
+          1516.344827586207,
+          1457.2097586206896,
+          1371.7830344827585
+        ],
+        "latency_us": [
+          1150.833,
+          1017.625,
+          992.0,
+          1809.5829999999999,
+          1079.334,
+          1068.917,
+          1014.4169999999999,
+          1340.2920000000001,
+          1268.417
+        ],
+        "throughput_us_p50": 1457.2097586206896,
+        "throughput_us_p90": 1766.645979310345,
+        "latency_us_p50": 1079.334,
+        "latency_us_p90": 1434.1502000000003,
+        "download_ms": 0.007667,
+        "allocation_upload_ms": 0.034,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 12.37187466893212,
+      "valid": true,
+      "round": 0,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 1024,
+        "n": 1024,
+        "k": 1024
+      },
+      "name": "gemm_1024x1024x1024",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 2.286417,
+        "warmup_ms": 205.924417,
+        "repetitions": 37,
+        "throughput_us": [
+          1259.4414324324323,
+          1257.5855945945946,
+          1315.5912162162163,
+          1202.2083243243244,
+          1227.6374054054054,
+          1254.6272432432431,
+          1239.5495405405404,
+          1239.5945945945946,
+          1311.741
+        ],
+        "latency_us": [
+          1670.2079999999999,
+          1215.5,
+          1230.709,
+          1644.5,
+          1162.125,
+          1156.125,
+          1138.9579999999999,
+          1106.917,
+          1312.5
+        ],
+        "throughput_us_p50": 1254.6272432432431,
+        "throughput_us_p90": 1312.5110432432432,
+        "latency_us_p50": 1215.5,
+        "latency_us_p90": 1649.6416,
+        "download_ms": 0.009459,
+        "allocation_upload_ms": 0.044542,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.004416,
+        "capture_ms": 0.049917,
+        "compile_ms": 236.140625,
+        "allocation_upload_ms": 0.795459,
+        "cold_call_ms": 16.41375,
+        "warmup_ms": 254.648833,
+        "download_ms": 0.5345,
+        "repetitions": 2,
+        "output_elements": 1048576,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          17227.5,
+          18232.083,
+          16222.5625,
+          19925.875,
+          20602.292,
+          16343.396,
+          18038.1665,
+          17172.125,
+          21128.542
+        ],
+        "latency_us": [
+          18045.709,
+          21455.125,
+          22323.375,
+          28100.916,
+          18230.041,
+          15694.583,
+          15838.084,
+          16582.542,
+          17185.791
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 18038.1665,
+        "throughput_us_p90": 20707.542,
+        "latency_us_p50": 18045.709,
+        "latency_us_p90": 23478.8832
+      },
+      "slowdown": 14.377311346572455,
+      "valid": true,
+      "round": 0,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 256,
+        "n": 1024,
+        "k": 128
+      },
+      "name": "gemm_256x1024x128",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.003875,
+        "capture_ms": 0.048458,
+        "compile_ms": 236.724541,
+        "allocation_upload_ms": 0.019958,
+        "cold_call_ms": 0.605083,
+        "warmup_ms": 200.378875,
+        "download_ms": 0.034708,
+        "repetitions": 68,
+        "output_elements": 262144,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          1110.53247059,
+          945.605397059,
+          964.433205882,
+          1055.72242647,
+          702.988970588,
+          914.599264706,
+          849.553911765,
+          1044.80698529,
+          1086.08761765
+        ],
+        "latency_us": [
+          670.583,
+          1501.667,
+          634.584,
+          751.833,
+          732.75,
+          690.083,
+          515.75,
+          473.75,
+          472.583
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 964.433205882,
+        "throughput_us_p90": 1090.976588238,
+        "latency_us_p50": 670.583,
+        "latency_us_p90": 901.7998000000001
+      },
+      "torch": {
+        "cold_call_ms": 0.148375,
+        "warmup_ms": 200.386166,
+        "repetitions": 565,
+        "throughput_us": [
+          68.25958584070796,
+          67.86275752212389,
+          68.20538230088495,
+          69.51659292035399,
+          68.92603362831859,
+          68.24631150442477,
+          68.30243362831858,
+          75.66924778761062,
+          70.1108407079646
+        ],
+        "latency_us": [
+          66.667,
+          65.834,
+          65.916,
+          65.958,
+          65.834,
+          65.875,
+          65.75,
+          65.833,
+          65.791
+        ],
+        "throughput_us_p50": 68.30243362831858,
+        "throughput_us_p90": 71.2225221238938,
+        "latency_us_p50": 65.834,
+        "latency_us_p90": 66.0998,
+        "download_ms": 0.006959,
+        "allocation_upload_ms": 0.035292,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 14.120041624434016,
+      "valid": true,
+      "round": 0,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 256,
+        "n": 1024,
+        "k": 128
+      },
+      "name": "gemm_256x1024x128",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.113667,
+        "warmup_ms": 200.513875,
+        "repetitions": 502,
+        "throughput_us": [
+          68.29332669322709,
+          69.75863147410358,
+          68.36047410358566,
+          67.59702788844622,
+          69.75390039840637,
+          67.52846812749003,
+          67.16293027888447,
+          68.02183067729084,
+          71.13296812749005
+        ],
+        "latency_us": [
+          66.0,
+          66.167,
+          66.167,
+          65.875,
+          65.916,
+          65.916,
+          65.792,
+          65.875,
+          65.75
+        ],
+        "throughput_us_p50": 68.29332669322709,
+        "throughput_us_p90": 70.03349880478088,
+        "latency_us_p50": 65.916,
+        "latency_us_p90": 66.167,
+        "download_ms": 0.006583,
+        "allocation_upload_ms": 0.018042,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.003792,
+        "capture_ms": 0.050833,
+        "compile_ms": 205.499667,
+        "allocation_upload_ms": 0.0185,
+        "cold_call_ms": 0.538125,
+        "warmup_ms": 204.590458,
+        "download_ms": 0.1175,
+        "repetitions": 65,
+        "output_elements": 262144,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          951.929476923,
+          917.183338462,
+          1367.79744615,
+          1003.95961538,
+          824.1968,
+          872.458984615,
+          636.563461538,
+          841.675646154,
+          653.045507692
+        ],
+        "latency_us": [
+          671.042,
+          730.833,
+          725.833,
+          649.917,
+          1270.917,
+          713.75,
+          429.166,
+          845,
+          746.333
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 872.458984615,
+        "throughput_us_p90": 1076.727181534,
+        "latency_us_p50": 725.833,
+        "latency_us_p90": 930.1834000000001
+      },
+      "slowdown": 12.775171848547906,
+      "valid": true,
+      "round": 0,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 1024,
+        "n": 128,
+        "k": 256
+      },
+      "name": "gemm_1024x128x256",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.006,
+        "capture_ms": 0.048666,
+        "compile_ms": 204.560542,
+        "allocation_upload_ms": 0.048416,
+        "cold_call_ms": 1.216334,
+        "warmup_ms": 203.477208,
+        "download_ms": 0.056292,
+        "repetitions": 74,
+        "output_elements": 131072,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          815.453837838,
+          766.072081081,
+          734.414986486,
+          588.385135135,
+          624.282662162,
+          606.070945946,
+          712.154851351,
+          739.304621622,
+          759.915540541
+        ],
+        "latency_us": [
+          588.875,
+          786.458,
+          628.917,
+          787.625,
+          595.375,
+          676.625,
+          391.5,
+          383.25,
+          385.709
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 734.414986486,
+        "throughput_us_p90": 775.9484324324,
+        "latency_us_p50": 595.375,
+        "latency_us_p90": 786.6913999999999
+      },
+      "torch": {
+        "cold_call_ms": 0.164125,
+        "warmup_ms": 200.287375,
+        "repetitions": 621,
+        "throughput_us": [
+          65.97443639291465,
+          64.37889049919485,
+          64.80884380032205,
+          65.02046376811595,
+          65.02207407407408,
+          64.40143639291465,
+          65.08487600644122,
+          65.48664734299517,
+          64.8481610305958
+        ],
+        "latency_us": [
+          62.458,
+          63.125,
+          63.125,
+          63.125,
+          63.083,
+          63.084,
+          63.084,
+          63.125,
+          63.0
+        ],
+        "throughput_us_p50": 65.02046376811595,
+        "throughput_us_p90": 65.58420515297907,
+        "latency_us_p50": 63.084,
+        "latency_us_p90": 63.125,
+        "download_ms": 0.005666,
+        "allocation_upload_ms": 0.0325,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 11.295136083697617,
+      "valid": true,
+      "round": 0,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 1024,
+        "n": 128,
+        "k": 256
+      },
+      "name": "gemm_1024x128x256",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.136083,
+        "warmup_ms": 200.166917,
+        "repetitions": 631,
+        "throughput_us": [
+          65.10149286846276,
+          64.79417591125198,
+          65.32382567353407,
+          65.24148177496038,
+          64.85670839936608,
+          65.77284627575277,
+          64.72345483359746,
+          64.8909793977813,
+          68.87367828843105
+        ],
+        "latency_us": [
+          62.375,
+          62.958,
+          63.083,
+          63.041,
+          63.125,
+          63.042,
+          63.083,
+          63.0,
+          63.084
+        ],
+        "throughput_us_p50": 65.10149286846276,
+        "throughput_us_p90": 66.39301267828843,
+        "latency_us_p50": 63.042,
+        "latency_us_p90": 63.092200000000005,
+        "download_ms": 0.0065,
+        "allocation_upload_ms": 0.022125,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.005167,
+        "capture_ms": 0.048041,
+        "compile_ms": 238.340125,
+        "allocation_upload_ms": 0.112875,
+        "cold_call_ms": 0.507208,
+        "warmup_ms": 203.476916,
+        "download_ms": 0.151083,
+        "repetitions": 66,
+        "output_elements": 131072,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          1120.77715152,
+          701.045454545,
+          929.332075758,
+          933.676772727,
+          750.86869697,
+          645.504409091,
+          685.963378788,
+          1065.15025758,
+          708.213378788
+        ],
+        "latency_us": [
+          926.208,
+          401.333,
+          406.666,
+          366.458,
+          365.125,
+          654.75,
+          981.25,
+          726.666,
+          786.958
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 750.86869697,
+        "throughput_us_p90": 1076.275636368,
+        "latency_us_p50": 654.75,
+        "latency_us_p90": 937.2164
+      },
+      "slowdown": 11.533816874017413,
+      "valid": true,
+      "round": 0,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 127,
+        "n": 193,
+        "k": 61
+      },
+      "name": "gemm_127x193x61",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.007667,
+        "capture_ms": 0.053791,
+        "compile_ms": 211.890667,
+        "allocation_upload_ms": 0.013833,
+        "cold_call_ms": 0.229208,
+        "warmup_ms": 204.387458,
+        "download_ms": 0.0095,
+        "repetitions": 435,
+        "output_elements": 24511,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          113.034482759,
+          107.048370115,
+          118.988887356,
+          127.18362069,
+          129.604022989,
+          92.5747126437,
+          79.7043103448,
+          74.6116873563,
+          101.736685057
+        ],
+        "latency_us": [
+          36.041,
+          35.709,
+          36.833,
+          36.083,
+          36.833,
+          36.167,
+          36.416,
+          35.708,
+          36.042
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 107.048370115,
+        "throughput_us_p90": 127.6677011498,
+        "latency_us_p50": 36.083,
+        "latency_us_p90": 36.833
+      },
+      "torch": {
+        "cold_call_ms": 0.043791,
+        "warmup_ms": 200.010583,
+        "repetitions": 6234,
+        "throughput_us": [
+          6.755059672762272,
+          6.637291466153353,
+          6.69618222649984,
+          6.552327398139237,
+          6.5360723452037215,
+          6.462590952839268,
+          6.540530317613089,
+          6.53013041385948,
+          6.448942572986846
+        ],
+        "latency_us": [
+          6.75,
+          6.709,
+          6.875,
+          7.333,
+          6.5,
+          6.5,
+          7.083,
+          6.875,
+          7.417
+        ],
+        "throughput_us_p50": 6.540530317613089,
+        "throughput_us_p90": 6.707957715752326,
+        "latency_us_p50": 6.875,
+        "latency_us_p90": 7.3498,
+        "download_ms": 0.006375,
+        "allocation_upload_ms": 0.024625,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 16.366925144697806,
+      "valid": true,
+      "round": 0,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 127,
+        "n": 193,
+        "k": 61
+      },
+      "name": "gemm_127x193x61",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.013292,
+        "warmup_ms": 200.003834,
+        "repetitions": 6107,
+        "throughput_us": [
+          6.502688062878665,
+          6.521546258392009,
+          6.459131652202391,
+          6.527830031111838,
+          6.461239888652367,
+          6.6891205174390045,
+          6.585768953659734,
+          6.463409530047486,
+          6.491075814638939
+        ],
+        "latency_us": [
+          6.542,
+          6.75,
+          7.084,
+          6.208,
+          6.125,
+          6.208,
+          6.542,
+          6.958,
+          6.25
+        ],
+        "throughput_us_p50": 6.502688062878665,
+        "throughput_us_p90": 6.606439266415588,
+        "latency_us_p50": 6.542,
+        "latency_us_p90": 6.9832,
+        "download_ms": 0.005875,
+        "allocation_upload_ms": 0.0135,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.005,
+        "capture_ms": 0.046875,
+        "compile_ms": 188.426291,
+        "allocation_upload_ms": 0.011708,
+        "cold_call_ms": 0.142542,
+        "warmup_ms": 200.324333,
+        "download_ms": 0.005667,
+        "repetitions": 688,
+        "output_elements": 24511,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          121.301296512,
+          93.765684593,
+          91.6414723837,
+          89.5218023256,
+          72.0646802326,
+          86.3521075581,
+          98.316315407,
+          86.4217543605,
+          79.2737398256
+        ],
+        "latency_us": [
+          57.125,
+          60.834,
+          89.583,
+          73.75,
+          62.292,
+          93.958,
+          62.333,
+          89.709,
+          71.583
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 89.5218023256,
+        "throughput_us_p90": 102.913311628,
+        "latency_us_p50": 71.583,
+        "latency_us_p90": 90.5588
+      },
+      "slowdown": 13.76689170077916,
+      "valid": true,
+      "round": 0,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 513,
+        "n": 257,
+        "k": 129
+      },
+      "name": "gemm_513x257x129",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.003917,
+        "capture_ms": 0.047583,
+        "compile_ms": 180.347542,
+        "allocation_upload_ms": 0.012167,
+        "cold_call_ms": 1.42025,
+        "warmup_ms": 201.081333,
+        "download_ms": 0.054417,
+        "repetitions": 109,
+        "output_elements": 131841,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          611.547018349,
+          643.315752294,
+          773.604357798,
+          964.310018349,
+          790.763376147,
+          751.04587156,
+          811.152908257,
+          859.417055046,
+          1028.74693578
+        ],
+        "latency_us": [
+          663.042,
+          618.041,
+          1762.375,
+          760.584,
+          628.875,
+          754.666,
+          827.792,
+          665.625,
+          605
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 790.763376147,
+        "throughput_us_p90": 977.1974018352,
+        "latency_us_p50": 665.625,
+        "latency_us_p90": 1014.7086000000002
+      },
+      "torch": {
+        "cold_call_ms": 0.096834,
+        "warmup_ms": 200.156875,
+        "repetitions": 883,
+        "throughput_us": [
+          45.0081630804077,
+          44.844894677236695,
+          44.89628199320499,
+          44.97013023782559,
+          45.01906342015855,
+          45.6938946772367,
+          46.927472253680634,
+          44.815591166477915,
+          46.62556625141563
+        ],
+        "latency_us": [
+          42.833999999999996,
+          43.708,
+          43.625,
+          43.708,
+          43.5,
+          45.042,
+          46.5,
+          45.792,
+          46.291
+        ],
+        "throughput_us_p50": 45.0081630804077,
+        "throughput_us_p90": 46.68594745186863,
+        "latency_us_p50": 43.708,
+        "latency_us_p90": 46.3328,
+        "download_ms": 0.006166,
+        "allocation_upload_ms": 0.029791,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 17.569332361649384,
+      "valid": true,
+      "round": 0,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 513,
+        "n": 257,
+        "k": 129
+      },
+      "name": "gemm_513x257x129",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.064333,
+        "warmup_ms": 200.3325,
+        "repetitions": 920,
+        "throughput_us": [
+          45.693704347826085,
+          45.78183804347826,
+          45.80733695652174,
+          45.8741402173913,
+          44.86897608695652,
+          46.27409456521739,
+          44.73953804347826,
+          45.79307065217391,
+          44.42771739130435
+        ],
+        "latency_us": [
+          42.916999999999994,
+          43.625,
+          43.416000000000004,
+          43.458,
+          43.5,
+          43.458999999999996,
+          43.541999999999994,
+          43.458,
+          43.541000000000004
+        ],
+        "throughput_us_p50": 45.78183804347826,
+        "throughput_us_p90": 45.954131086956515,
+        "latency_us_p50": 43.458999999999996,
+        "latency_us_p90": 43.5586,
+        "download_ms": 0.006083,
+        "allocation_upload_ms": 0.020958,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.004208,
+        "capture_ms": 0.059125,
+        "compile_ms": 207.496875,
+        "allocation_upload_ms": 0.013542,
+        "cold_call_ms": 0.80275,
+        "warmup_ms": 202.846625,
+        "download_ms": 0.054042,
+        "repetitions": 54,
+        "output_elements": 131841,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          605.567907407,
+          998.705240741,
+          1076.1057037,
+          926.778555556,
+          1019.27622222,
+          739.952148148,
+          692.412037037,
+          757.530092593,
+          811.259259259
+        ],
+        "latency_us": [
+          494.042,
+          735.125,
+          684.292,
+          617.083,
+          983.041,
+          377.917,
+          683.583,
+          637.833,
+          614.75
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 811.259259259,
+        "throughput_us_p90": 1030.642118516,
+        "latency_us_p50": 637.833,
+        "latency_us_p90": 784.7082
+      },
+      "slowdown": 17.720111160424803,
+      "valid": true,
+      "round": 0,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 128,
+        "n": 128,
+        "k": 128
+      },
+      "name": "gemm_128x128x128",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.00475,
+        "capture_ms": 0.04625,
+        "compile_ms": 231.959083,
+        "allocation_upload_ms": 0.006458,
+        "cold_call_ms": 0.16875,
+        "warmup_ms": 200.170583,
+        "download_ms": 0.005458,
+        "repetitions": 582,
+        "output_elements": 16384,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          65.1108247423,
+          111.990764605,
+          91.2878006873,
+          113.868486254,
+          68.4371426117,
+          124.381013746,
+          56.1948024055,
+          73.424685567,
+          99.7857955326
+        ],
+        "latency_us": [
+          227.875,
+          352.708,
+          96.041,
+          82.708,
+          124.958,
+          78.875,
+          78.833,
+          51.25,
+          134.166
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 91.2878006873,
+        "throughput_us_p90": 115.97099175240001,
+        "latency_us_p50": 96.041,
+        "latency_us_p90": 252.84160000000003
+      },
+      "torch": {
+        "cold_call_ms": 0.028375,
+        "warmup_ms": 200.019291,
+        "repetitions": 7500,
+        "throughput_us": [
+          5.034072266666667,
+          5.0198887999999995,
+          4.94505,
+          4.945033333333333,
+          4.920238800000001,
+          4.875083333333333,
+          4.9952944,
+          4.903861066666668,
+          4.905944533333334
+        ],
+        "latency_us": [
+          5.084,
+          4.832999999999999,
+          5.375,
+          5.0,
+          4.708,
+          4.583,
+          4.625,
+          5.041,
+          5.0
+        ],
+        "throughput_us_p50": 4.945033333333333,
+        "throughput_us_p90": 5.022725493333333,
+        "latency_us_p50": 5.0,
+        "latency_us_p90": 5.1422,
+        "download_ms": 0.006458,
+        "allocation_upload_ms": 0.026792,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 18.46050259599868,
+      "valid": true,
+      "round": 1,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 128,
+        "n": 128,
+        "k": 128
+      },
+      "name": "gemm_128x128x128",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.008083,
+        "warmup_ms": 200.0015,
+        "repetitions": 8496,
+        "throughput_us": [
+          4.954983757062146,
+          4.923782721280603,
+          4.909741878531074,
+          4.843627354048964,
+          4.915121822033898,
+          4.862067443502825,
+          4.873960334274952,
+          4.898393361581921,
+          4.921350282485875
+        ],
+        "latency_us": [
+          5.666,
+          4.832999999999999,
+          4.75,
+          4.75,
+          5.0,
+          5.125,
+          5.458,
+          5.1659999999999995,
+          4.792
+        ],
+        "throughput_us_p50": 4.909741878531074,
+        "throughput_us_p90": 4.9300229284369115,
+        "latency_us_p50": 5.0,
+        "latency_us_p90": 5.4996,
+        "download_ms": 0.007,
+        "allocation_upload_ms": 0.011917,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.004291,
+        "capture_ms": 0.048292,
+        "compile_ms": 207.8005,
+        "allocation_upload_ms": 0.01675,
+        "cold_call_ms": 0.293167,
+        "warmup_ms": 200.361667,
+        "download_ms": 0.007125,
+        "repetitions": 898,
+        "output_elements": 16384,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          117.598737194,
+          66.1380846325,
+          71.232785078,
+          87.8746759465,
+          81.3413140312,
+          91.0075167038,
+          91.2195612472,
+          86.810596882,
+          127.469562361
+        ],
+        "latency_us": [
+          73.5,
+          83.25,
+          76.792,
+          76.042,
+          81.042,
+          59.084,
+          74.709,
+          75.708,
+          74.916
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 87.8746759465,
+        "throughput_us_p90": 119.5729022274,
+        "latency_us_p50": 75.708,
+        "latency_us_p90": 81.4836
+      },
+      "slowdown": 17.898023586688204,
+      "valid": true,
+      "round": 1,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 512,
+        "n": 512,
+        "k": 512
+      },
+      "name": "gemm_512x512x512",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.004334,
+        "capture_ms": 0.054125,
+        "compile_ms": 214.085,
+        "allocation_upload_ms": 0.114667,
+        "cold_call_ms": 2.131,
+        "warmup_ms": 205.578291,
+        "download_ms": 0.081584,
+        "repetitions": 26,
+        "output_elements": 262144,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          2033.55926923,
+          1999.1795,
+          2131.36861538,
+          2153.15384615,
+          2135.55926923,
+          1895.78365385,
+          3359.58011538,
+          2956.08811538,
+          2756.77246154
+        ],
+        "latency_us": [
+          2419.291,
+          2571.959,
+          2243.167,
+          2469.875,
+          1873.959,
+          2671.834,
+          3062.5,
+          2136.792,
+          2967.625
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 2135.55926923,
+        "throughput_us_p90": 3036.7865153800003,
+        "latency_us_p50": 2469.875,
+        "latency_us_p90": 2986.6
+      },
+      "torch": {
+        "cold_call_ms": 0.305875,
+        "warmup_ms": 200.777833,
+        "repetitions": 233,
+        "throughput_us": [
+          151.82099570815447,
+          148.5527510729614,
+          144.31670386266092,
+          148.9762145922747,
+          149.74391845493562,
+          157.53040343347638,
+          148.38948497854076,
+          147.1255364806867,
+          145.63662660944206
+        ],
+        "latency_us": [
+          145.875,
+          141.542,
+          165.75,
+          135.708,
+          124.583,
+          145.666,
+          186.042,
+          135.625,
+          152.667
+        ],
+        "throughput_us_p50": 148.5527510729614,
+        "throughput_us_p90": 152.96287725321886,
+        "latency_us_p50": 145.666,
+        "latency_us_p90": 169.8084,
+        "download_ms": 0.006959,
+        "allocation_upload_ms": 0.030292,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 14.375763853616714,
+      "valid": true,
+      "round": 1,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 512,
+        "n": 512,
+        "k": 512
+      },
+      "name": "gemm_512x512x512",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.191583,
+        "warmup_ms": 201.099667,
+        "repetitions": 274,
+        "throughput_us": [
+          152.71228467153284,
+          155.98813868613138,
+          151.91757664233577,
+          148.80596350364965,
+          148.7726605839416,
+          151.82786131386862,
+          146.5059306569343,
+          148.82922627737227,
+          150.05504744525547
+        ],
+        "latency_us": [
+          128.417,
+          141.833,
+          138.458,
+          142.292,
+          137.083,
+          144.667,
+          153.708,
+          158.417,
+          148.541
+        ],
+        "throughput_us_p50": 150.05504744525547,
+        "throughput_us_p90": 153.36745547445256,
+        "latency_us_p50": 142.292,
+        "latency_us_p90": 154.6498,
+        "download_ms": 0.006708,
+        "allocation_upload_ms": 0.027791,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.003166,
+        "capture_ms": 0.046417,
+        "compile_ms": 231.708542,
+        "allocation_upload_ms": 0.20825,
+        "cold_call_ms": 1.698167,
+        "warmup_ms": 227.521333,
+        "download_ms": 0.030917,
+        "repetitions": 19,
+        "output_elements": 262144,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          2365.83552632,
+          2679.33552632,
+          2902.74126316,
+          2827.72810526,
+          2164.53947368,
+          3629.72589474,
+          2176.75878947,
+          3350.20831579,
+          2911.47368421
+        ],
+        "latency_us": [
+          1928.333,
+          2214.208,
+          1877.458,
+          2077.875,
+          1604.083,
+          1550.209,
+          1538.791,
+          2079.708,
+          1951.667
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 2827.72810526,
+        "throughput_us_p90": 3406.1118315800004,
+        "latency_us_p50": 1928.333,
+        "latency_us_p90": 2106.608
+      },
+      "slowdown": 18.844605052633362,
+      "valid": true,
+      "round": 1,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 1024,
+        "n": 1024,
+        "k": 1024
+      },
+      "name": "gemm_1024x1024x1024",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.003333,
+        "capture_ms": 0.046667,
+        "compile_ms": 236.487,
+        "allocation_upload_ms": 0.727334,
+        "cold_call_ms": 11.936292,
+        "warmup_ms": 255.663708,
+        "download_ms": 0.5305,
+        "repetitions": 3,
+        "output_elements": 1048576,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          19546.0973333,
+          50767.4166667,
+          26086.8053333,
+          17870.0276667,
+          20151.9723333,
+          14664.236,
+          14404.8196667,
+          12472,
+          13673.264
+        ],
+        "latency_us": [
+          14941.208,
+          14754.5,
+          16087.625,
+          14528.833,
+          14193.5,
+          14767.916,
+          12832.5,
+          15799.709,
+          14171.541
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 17870.0276667,
+        "throughput_us_p90": 31022.927599980005,
+        "latency_us_p50": 14754.5,
+        "latency_us_p90": 15857.2922
+      },
+      "torch": {
+        "cold_call_ms": 1.438,
+        "warmup_ms": 210.525334,
+        "repetitions": 34,
+        "throughput_us": [
+          1227.952205882353,
+          1183.0735294117646,
+          1192.3443823529412,
+          1250.3235294117646,
+          1184.4779411764705,
+          1322.4399411764705,
+          1357.1470588235295,
+          1159.2757352941176,
+          1189.3100588235295
+        ],
+        "latency_us": [
+          1066.0,
+          1022.5409999999999,
+          1539.917,
+          1067.834,
+          2125.042,
+          1660.375,
+          1129.3329999999999,
+          1075.083,
+          1014.75
+        ],
+        "throughput_us_p50": 1192.3443823529412,
+        "throughput_us_p90": 1329.3813647058823,
+        "latency_us_p50": 1075.083,
+        "latency_us_p90": 1753.3084000000001,
+        "download_ms": 0.00925,
+        "allocation_upload_ms": 0.034666,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 14.987303946059404,
+      "valid": true,
+      "round": 1,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 1024,
+        "n": 1024,
+        "k": 1024
+      },
+      "name": "gemm_1024x1024x1024",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 1.282208,
+        "warmup_ms": 209.2185,
+        "repetitions": 36,
+        "throughput_us": [
+          1194.6979166666667,
+          1206.9583333333333,
+          1299.9212777777777,
+          1320.1678333333332,
+          1289.3541666666667,
+          1498.9455833333332,
+          1259.0127499999999,
+          1303.954861111111,
+          1216.78125
+        ],
+        "latency_us": [
+          1038.334,
+          1044.208,
+          1095.7920000000001,
+          1591.584,
+          1163.625,
+          925.667,
+          988.75,
+          986.375,
+          988.3340000000001
+        ],
+        "throughput_us_p50": 1289.3541666666667,
+        "throughput_us_p90": 1355.9233833333333,
+        "latency_us_p50": 1038.334,
+        "latency_us_p90": 1249.2168000000001,
+        "download_ms": 0.00725,
+        "allocation_upload_ms": 0.038584,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.003291,
+        "capture_ms": 0.046375,
+        "compile_ms": 207.076,
+        "allocation_upload_ms": 0.87875,
+        "cold_call_ms": 13.488084,
+        "warmup_ms": 232.01075,
+        "download_ms": 0.539333,
+        "repetitions": 3,
+        "output_elements": 1048576,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          13673.0416667,
+          14185.7223333,
+          13202.75,
+          14917.8193333,
+          16438.9863333,
+          15107.403,
+          15184.8473333,
+          15584.8193333,
+          15057.875
+        ],
+        "latency_us": [
+          16095.416,
+          15220.625,
+          13781.459,
+          12617.25,
+          12476.917,
+          11992.75,
+          11292.709,
+          11823.958,
+          13450.375
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 15057.875,
+        "throughput_us_p90": 15755.6527333,
+        "latency_us_p50": 12617.25,
+        "latency_us_p90": 15395.5832
+      },
+      "slowdown": 11.678618171242062,
+      "valid": true,
+      "round": 1,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 256,
+        "n": 1024,
+        "k": 128
+      },
+      "name": "gemm_256x1024x128",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.003667,
+        "capture_ms": 0.044583,
+        "compile_ms": 206.905625,
+        "allocation_upload_ms": 0.025292,
+        "cold_call_ms": 0.524208,
+        "warmup_ms": 201.220583,
+        "download_ms": 0.087625,
+        "repetitions": 112,
+        "output_elements": 262144,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          1066.17671429,
+          1158.05952679,
+          944.138017857,
+          1049.02715179,
+          1025.77604464,
+          939.975821429,
+          976.921508929,
+          691.199401786,
+          970.347098214
+        ],
+        "latency_us": [
+          1067.541,
+          378,
+          352.042,
+          349.708,
+          365.583,
+          510.166,
+          545.875,
+          854,
+          515
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 976.921508929,
+        "throughput_us_p90": 1084.5532767900002,
+        "latency_us_p50": 510.166,
+        "latency_us_p90": 896.7082
+      },
+      "torch": {
+        "cold_call_ms": 0.156708,
+        "warmup_ms": 200.5135,
+        "repetitions": 597,
+        "throughput_us": [
+          71.05206532663317,
+          69.2821055276382,
+          69.8742311557789,
+          68.85273534338359,
+          68.69828308207705,
+          70.62765326633166,
+          69.57132830820771,
+          68.53461809045226,
+          68.38512060301507
+        ],
+        "latency_us": [
+          64.917,
+          65.792,
+          65.708,
+          65.75,
+          65.792,
+          65.75,
+          65.709,
+          65.75,
+          65.708
+        ],
+        "throughput_us_p50": 69.2821055276382,
+        "throughput_us_p90": 70.71253567839196,
+        "latency_us_p50": 65.75,
+        "latency_us_p90": 65.792,
+        "download_ms": 0.006542,
+        "allocation_upload_ms": 0.031667,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 14.100632500830736,
+      "valid": true,
+      "round": 1,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 256,
+        "n": 1024,
+        "k": 128
+      },
+      "name": "gemm_256x1024x128",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.124041,
+        "warmup_ms": 200.076208,
+        "repetitions": 564,
+        "throughput_us": [
+          68.44843439716313,
+          68.13430851063829,
+          68.72687588652482,
+          68.77992021276596,
+          68.74135638297872,
+          68.48131028368793,
+          69.35682624113475,
+          69.70397517730497,
+          68.3083634751773
+        ],
+        "latency_us": [
+          66.0,
+          67.541,
+          67.458,
+          67.0,
+          66.958,
+          66.667,
+          66.708,
+          66.833,
+          66.792
+        ],
+        "throughput_us_p50": 68.72687588652482,
+        "throughput_us_p90": 69.4262560283688,
+        "latency_us_p50": 66.833,
+        "latency_us_p90": 67.4746,
+        "download_ms": 0.006333,
+        "allocation_upload_ms": 0.021625,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.00325,
+        "capture_ms": 0.045667,
+        "compile_ms": 235.264625,
+        "allocation_upload_ms": 0.02325,
+        "cold_call_ms": 0.844917,
+        "warmup_ms": 205.116959,
+        "download_ms": 0.047291,
+        "repetitions": 53,
+        "output_elements": 262144,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          1282.27986792,
+          950.83254717,
+          1109.30111321,
+          831.494490566,
+          969.080188679,
+          837.489,
+          891.173735849,
+          814.516509434,
+          1095.30188679
+        ],
+        "latency_us": [
+          904.5,
+          777.833,
+          756.125,
+          727.917,
+          3967.625,
+          695.917,
+          634.834,
+          1346.041,
+          1864.791
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 950.83254717,
+        "throughput_us_p90": 1143.896864152,
+        "latency_us_p50": 777.833,
+        "latency_us_p90": 2285.3578
+      },
+      "slowdown": 13.834944989205137,
+      "valid": true,
+      "round": 1,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 1024,
+        "n": 128,
+        "k": 256
+      },
+      "name": "gemm_1024x128x256",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.004166,
+        "capture_ms": 0.053084,
+        "compile_ms": 235.430417,
+        "allocation_upload_ms": 0.057417,
+        "cold_call_ms": 1.003208,
+        "warmup_ms": 200.697542,
+        "download_ms": 0.058667,
+        "repetitions": 68,
+        "output_elements": 131072,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          881.360294118,
+          660.931985294,
+          677.830264706,
+          664.868264706,
+          723.563735294,
+          700.360294118,
+          1112.41911765,
+          1002.14092647,
+          1420.20158824
+        ],
+        "latency_us": [
+          663.583,
+          715.333,
+          768.792,
+          656.625,
+          878.042,
+          685.292,
+          602.834,
+          596.625,
+          625.792
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 723.563735294,
+        "throughput_us_p90": 1173.9756117680001,
+        "latency_us_p50": 663.583,
+        "latency_us_p90": 790.642
+      },
+      "torch": {
+        "cold_call_ms": 0.127917,
+        "warmup_ms": 200.52225,
+        "repetitions": 607,
+        "throughput_us": [
+          64.13406095551895,
+          64.86175123558485,
+          64.91069357495881,
+          64.75665733113674,
+          64.93705436573312,
+          65.02155354200988,
+          65.42154036243822,
+          65.00837397034596,
+          65.32447775947281
+        ],
+        "latency_us": [
+          62.584,
+          63.042,
+          63.375,
+          63.125,
+          63.459,
+          63.375,
+          63.041,
+          63.458,
+          63.459
+        ],
+        "throughput_us_p50": 64.93705436573312,
+        "throughput_us_p90": 65.34389028006589,
+        "latency_us_p50": 63.375,
+        "latency_us_p90": 63.459,
+        "download_ms": 0.013042,
+        "allocation_upload_ms": 0.035458,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 11.142540146936819,
+      "valid": true,
+      "round": 1,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 1024,
+        "n": 128,
+        "k": 256
+      },
+      "name": "gemm_1024x128x256",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.084041,
+        "warmup_ms": 200.21425,
+        "repetitions": 621,
+        "throughput_us": [
+          65.34970531400967,
+          65.07682608695653,
+          65.28824476650564,
+          66.31803542673107,
+          64.95638647342994,
+          64.41854589371981,
+          66.91800966183574,
+          64.28958615136875,
+          65.70195813204508
+        ],
+        "latency_us": [
+          62.417,
+          63.333,
+          63.0,
+          63.083,
+          63.125,
+          63.0,
+          63.042,
+          63.041,
+          63.042
+        ],
+        "throughput_us_p50": 65.28824476650564,
+        "throughput_us_p90": 66.438030273752,
+        "latency_us_p50": 63.042,
+        "latency_us_p90": 63.1666,
+        "download_ms": 0.006084,
+        "allocation_upload_ms": 0.018042,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.004667,
+        "capture_ms": 0.056875,
+        "compile_ms": 226.7025,
+        "allocation_upload_ms": 0.036542,
+        "cold_call_ms": 0.630084,
+        "warmup_ms": 200.421834,
+        "download_ms": 0.024583,
+        "repetitions": 60,
+        "output_elements": 131072,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          541.516666667,
+          1135.53193333,
+          1109.15486667,
+          1293.17848333,
+          711.65,
+          1023.23055,
+          505.178483333,
+          556.35625,
+          874.543066667
+        ],
+        "latency_us": [
+          415.292,
+          324.75,
+          442.958,
+          430.666,
+          436.958,
+          610.292,
+          906.333,
+          740.042,
+          863.917
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 874.543066667,
+        "throughput_us_p90": 1167.06124333,
+        "latency_us_p50": 442.958,
+        "latency_us_p90": 872.4002
+      },
+      "slowdown": 13.39510764601931,
+      "valid": true,
+      "round": 1,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 127,
+        "n": 193,
+        "k": 61
+      },
+      "name": "gemm_127x193x61",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.003667,
+        "capture_ms": 0.054083,
+        "compile_ms": 188.609334,
+        "allocation_upload_ms": 0.015083,
+        "cold_call_ms": 0.218708,
+        "warmup_ms": 200.127584,
+        "download_ms": 0.019333,
+        "repetitions": 1129,
+        "output_elements": 24511,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          121.168992028,
+          155.763323295,
+          98.2012843224,
+          88.9495500443,
+          105.537163862,
+          99.6564437555,
+          97.0319973428,
+          96.5712648361,
+          70.3848166519
+        ],
+        "latency_us": [
+          33.875,
+          34.458,
+          40.583,
+          34.5,
+          39.125,
+          34,
+          50.083,
+          111.125,
+          37.542
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 98.2012843224,
+        "throughput_us_p90": 128.0878582814,
+        "latency_us_p50": 37.542,
+        "latency_us_p90": 62.29140000000001
+      },
+      "torch": {
+        "cold_call_ms": 0.043958,
+        "warmup_ms": 200.002583,
+        "repetitions": 5999,
+        "throughput_us": [
+          6.522031505250875,
+          6.573901150191698,
+          6.52837289548258,
+          6.47153692282047,
+          6.529338223037173,
+          6.464494082347058,
+          6.471349391565261,
+          6.516558426404401,
+          6.503736789464911
+        ],
+        "latency_us": [
+          7.083,
+          6.1659999999999995,
+          6.1659999999999995,
+          6.375,
+          6.625,
+          6.958,
+          6.333,
+          6.083,
+          6.2909999999999995
+        ],
+        "throughput_us_p50": 6.516558426404401,
+        "throughput_us_p90": 6.538250808468078,
+        "latency_us_p50": 6.333,
+        "latency_us_p90": 6.9830000000000005,
+        "download_ms": 0.006459,
+        "allocation_upload_ms": 0.04475,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 15.069501091941238,
+      "valid": true,
+      "round": 1,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 127,
+        "n": 193,
+        "k": 61
+      },
+      "name": "gemm_127x193x61",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.010459,
+        "warmup_ms": 200.009625,
+        "repetitions": 6233,
+        "throughput_us": [
+          6.510334830739611,
+          6.536532648804749,
+          6.581568586555431,
+          6.494565217391305,
+          6.765649286058078,
+          6.926861062088882,
+          6.577530884004492,
+          6.582745066581101,
+          6.683880154018931
+        ],
+        "latency_us": [
+          6.3340000000000005,
+          6.417,
+          6.625,
+          7.0,
+          6.375,
+          6.208,
+          6.375,
+          6.667,
+          7.084
+        ],
+        "throughput_us_p50": 6.581568586555431,
+        "throughput_us_p90": 6.797891641264239,
+        "latency_us_p50": 6.417,
+        "latency_us_p90": 7.0168,
+        "download_ms": 0.005292,
+        "allocation_upload_ms": 0.0125,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.004708,
+        "capture_ms": 0.052292,
+        "compile_ms": 210.437583,
+        "allocation_upload_ms": 0.009208,
+        "cold_call_ms": 0.166667,
+        "warmup_ms": 200.58975,
+        "download_ms": 0.008084,
+        "repetitions": 345,
+        "output_elements": 24511,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          117.096495652,
+          100.430675362,
+          174.623188406,
+          175.037437681,
+          97.1915478261,
+          92.4425130435,
+          73.9530202899,
+          111.160388406,
+          88.3433565217
+        ],
+        "latency_us": [
+          96.041,
+          79.416,
+          118.208,
+          106.75,
+          111.625,
+          175.875,
+          5527.833,
+          128.042,
+          386.833
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 100.430675362,
+        "throughput_us_p90": 174.706038261,
+        "latency_us_p50": 118.208,
+        "latency_us_p90": 1415.033000000001
+      },
+      "slowdown": 15.259382932991967,
+      "valid": true,
+      "round": 1,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 513,
+        "n": 257,
+        "k": 129
+      },
+      "name": "gemm_513x257x129",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.007875,
+        "capture_ms": 0.046875,
+        "compile_ms": 212.834708,
+        "allocation_upload_ms": 0.015542,
+        "cold_call_ms": 0.997875,
+        "warmup_ms": 201.948333,
+        "download_ms": 0.01675,
+        "repetitions": 65,
+        "output_elements": 131841,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          735.872430769,
+          611.7968,
+          652.332692308,
+          669.919876923,
+          727.455769231,
+          630.851276923,
+          788.240384615,
+          651.207692308,
+          700.414738462
+        ],
+        "latency_us": [
+          861.375,
+          337.375,
+          336.125,
+          335.375,
+          482.625,
+          337.417,
+          336.042,
+          353.708,
+          484.041
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 669.919876923,
+        "throughput_us_p90": 746.3460215381999,
+        "latency_us_p50": 337.417,
+        "latency_us_p90": 559.5078000000001
+      },
+      "torch": {
+        "cold_call_ms": 0.081167,
+        "warmup_ms": 200.037541,
+        "repetitions": 842,
+        "throughput_us": [
+          47.93769833729216,
+          46.142319477434675,
+          47.06373634204275,
+          45.489806413301665,
+          44.41587529691211,
+          44.95917458432304,
+          46.12005106888361,
+          45.04330047505938,
+          45.60243467933492
+        ],
+        "latency_us": [
+          43.208000000000006,
+          45.0,
+          45.042,
+          43.708,
+          43.791999999999994,
+          43.541999999999994,
+          43.583999999999996,
+          43.666000000000004,
+          43.666999999999994
+        ],
+        "throughput_us_p50": 45.60243467933492,
+        "throughput_us_p90": 47.23852874109264,
+        "latency_us_p50": 43.666999999999994,
+        "latency_us_p90": 45.0084,
+        "download_ms": 0.006166,
+        "allocation_upload_ms": 0.027625,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 14.690441017759499,
+      "valid": true,
+      "round": 1,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 513,
+        "n": 257,
+        "k": 129
+      },
+      "name": "gemm_513x257x129",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.064625,
+        "warmup_ms": 200.09025,
+        "repetitions": 921,
+        "throughput_us": [
+          44.447295331161776,
+          44.71403365906623,
+          44.873642779587406,
+          44.73642779587405,
+          46.429831704668835,
+          46.11219652551574,
+          45.03732356134636,
+          45.445756786102066,
+          45.61586102062975
+        ],
+        "latency_us": [
+          48.25,
+          48.291000000000004,
+          48.334,
+          48.833,
+          48.834,
+          50.041000000000004,
+          49.25,
+          50.625,
+          50.208000000000006
+        ],
+        "throughput_us_p50": 45.03732356134636,
+        "throughput_us_p90": 46.17572356134636,
+        "latency_us_p50": 48.834,
+        "latency_us_p90": 50.2914,
+        "download_ms": 0.006042,
+        "allocation_upload_ms": 0.016167,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.003708,
+        "capture_ms": 0.045583,
+        "compile_ms": 184.969709,
+        "allocation_upload_ms": 0.012958,
+        "cold_call_ms": 0.44725,
+        "warmup_ms": 200.099167,
+        "download_ms": 0.077584,
+        "repetitions": 52,
+        "output_elements": 131841,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          604.251596154,
+          780.970346154,
+          1508.37580769,
+          763.166673077,
+          713.770038462,
+          652.8165,
+          1146.246,
+          884.855769231,
+          959.068903846
+        ],
+        "latency_us": [
+          902.75,
+          619.209,
+          712.708,
+          763,
+          786.834,
+          606.583,
+          622.542,
+          675.333,
+          631.25
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 780.970346154,
+        "throughput_us_p90": 1218.6719615380002,
+        "latency_us_p50": 675.333,
+        "latency_us_p90": 810.0172
+      },
+      "slowdown": 17.340514142458368,
+      "valid": true,
+      "round": 1,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 32,
+        "n": 32,
+        "k": 32
+      },
+      "name": "gemm_32x32x32",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.0035,
+        "capture_ms": 0.046292,
+        "compile_ms": 332.130875,
+        "allocation_upload_ms": 0.006083,
+        "cold_call_ms": 0.218875,
+        "warmup_ms": 200.051666,
+        "download_ms": 0.003708,
+        "repetitions": 7006,
+        "output_elements": 1024,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          9.57971139024,
+          6.5441168998,
+          7.66942620611,
+          11.4942192407,
+          12.1008302883,
+          11.7730933486,
+          12.5886441621,
+          11.351924636,
+          11.4911445904
+        ],
+        "latency_us": [
+          8.584,
+          9.708,
+          7.542,
+          7.709,
+          8.333,
+          10.125,
+          12.334,
+          8.708,
+          12.084
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 11.4911445904,
+        "throughput_us_p90": 12.19839306306,
+        "latency_us_p50": 8.708,
+        "latency_us_p90": 12.134
+      },
+      "torch": {
+        "cold_call_ms": 0.020417,
+        "warmup_ms": 200.00725,
+        "repetitions": 45268,
+        "throughput_us": [
+          0.855587832464434,
+          0.9048582884156579,
+          0.8577324821065654,
+          0.8483328841565786,
+          0.8917023725368913,
+          0.8803974993372803,
+          0.8725709552001414,
+          0.8996402756914376,
+          0.9188785013696209
+        ],
+        "latency_us": [
+          1.167,
+          0.9169999999999999,
+          0.959,
+          0.875,
+          0.875,
+          0.875,
+          0.875,
+          0.916,
+          0.916
+        ],
+        "throughput_us_p50": 0.8803974993372803,
+        "throughput_us_p90": 0.9076623310064504,
+        "latency_us_p50": 0.916,
+        "latency_us_p90": 1.0006,
+        "download_ms": 0.00625,
+        "allocation_upload_ms": 0.019542,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 13.052223114047877,
+      "valid": true,
+      "round": 1,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 32,
+        "n": 32,
+        "k": 32
+      },
+      "name": "gemm_32x32x32",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.0085,
+        "warmup_ms": 200.002375,
+        "repetitions": 40000,
+        "throughput_us": [
+          0.883025,
+          0.85510105,
+          0.862120825,
+          0.822797925,
+          0.9005927249999999,
+          0.8768198,
+          0.8554416500000002,
+          0.8642,
+          0.86884895
+        ],
+        "latency_us": [
+          1.333,
+          0.958,
+          1.125,
+          0.834,
+          0.875,
+          0.833,
+          0.833,
+          0.875,
+          1.0
+        ],
+        "throughput_us_p50": 0.8642,
+        "throughput_us_p90": 0.886538545,
+        "latency_us_p50": 0.875,
+        "latency_us_p90": 1.1666,
+        "download_ms": 0.009583,
+        "allocation_upload_ms": 0.014417,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.005333,
+        "capture_ms": 0.048583,
+        "compile_ms": 301.762958,
+        "allocation_upload_ms": 0.003958,
+        "cold_call_ms": 0.144458,
+        "warmup_ms": 201.859833,
+        "download_ms": 0.001667,
+        "repetitions": 3809,
+        "output_elements": 1024,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          15.6573903912,
+          18.417618535,
+          15.2465870307,
+          12.916305592,
+          12.4517479653,
+          10.6705718036,
+          9.78921632975,
+          12.1734161197,
+          13.1378532423
+        ],
+        "latency_us": [
+          10.208,
+          8.708,
+          17.75,
+          10.458,
+          11.375,
+          18.333,
+          18.917,
+          12.041,
+          11.5
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 12.916305592,
+        "throughput_us_p90": 16.209436019960002,
+        "latency_us_p50": 11.5,
+        "latency_us_p90": 18.4498
+      },
+      "slowdown": 14.945968053691276,
+      "valid": true,
+      "round": 1,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 512,
+        "n": 512,
+        "k": 512
+      },
+      "name": "gemm_512x512x512",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.004667,
+        "capture_ms": 0.054583,
+        "compile_ms": 234.808667,
+        "allocation_upload_ms": 0.110916,
+        "cold_call_ms": 2.172375,
+        "warmup_ms": 202.86225,
+        "download_ms": 0.111208,
+        "repetitions": 15,
+        "output_elements": 262144,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          2190.91386667,
+          2388.25273333,
+          2055.81386667,
+          1978.31946667,
+          2568.58333333,
+          2112.91666667,
+          2155.8444,
+          2033.4056,
+          3603.1972
+        ],
+        "latency_us": [
+          2110.958,
+          1867.542,
+          2403.542,
+          2581.125,
+          1971.042,
+          1687.167,
+          1697.5,
+          2566.292,
+          2057.917
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 2155.8444,
+        "throughput_us_p90": 2775.5061066640005,
+        "latency_us_p50": 2057.917,
+        "latency_us_p90": 2569.2586
+      },
+      "torch": {
+        "cold_call_ms": 0.300416,
+        "warmup_ms": 201.06725,
+        "repetitions": 256,
+        "throughput_us": [
+          156.08316796875,
+          167.35563281249998,
+          161.83528515625,
+          159.71044921875,
+          151.41715624999998,
+          158.4697265625,
+          150.2849921875,
+          149.57487109375,
+          164.62809375
+        ],
+        "latency_us": [
+          132.291,
+          143.958,
+          176.458,
+          144.917,
+          129.292,
+          202.08300000000003,
+          183.125,
+          146.792,
+          153.791
+        ],
+        "throughput_us_p50": 158.4697265625,
+        "throughput_us_p90": 165.1736015625,
+        "latency_us_p50": 146.792,
+        "latency_us_p90": 186.91660000000002,
+        "download_ms": 0.006958,
+        "allocation_upload_ms": 0.031334,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 13.604140341276738,
+      "valid": true,
+      "round": 2,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 512,
+        "n": 512,
+        "k": 512
+      },
+      "name": "gemm_512x512x512",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.244375,
+        "warmup_ms": 201.062333,
+        "repetitions": 276,
+        "throughput_us": [
+          151.3916050724638,
+          147.44414492753623,
+          147.38330434782605,
+          148.03608333333335,
+          150.33952173913042,
+          158.5563115942029,
+          159.2241847826087,
+          157.8656376811594,
+          154.36609420289852
+        ],
+        "latency_us": [
+          151.0,
+          142.208,
+          129.542,
+          139.5,
+          168.083,
+          134.75,
+          131.584,
+          141.875,
+          154.042
+        ],
+        "throughput_us_p50": 151.3916050724638,
+        "throughput_us_p90": 158.68988623188406,
+        "latency_us_p50": 141.875,
+        "latency_us_p90": 156.8502,
+        "download_ms": 0.006208,
+        "allocation_upload_ms": 0.038041,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.003084,
+        "capture_ms": 0.045916,
+        "compile_ms": 207.943333,
+        "allocation_upload_ms": 0.10025,
+        "cold_call_ms": 2.479,
+        "warmup_ms": 204.414291,
+        "download_ms": 0.034166,
+        "repetitions": 17,
+        "output_elements": 262144,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          2028.89458824,
+          2270.97058824,
+          3082.07105882,
+          2376.83335294,
+          2155.65929412,
+          2331.84311765,
+          2682.44364706,
+          2064.04164706,
+          2634.61517647
+        ],
+        "latency_us": [
+          2293.75,
+          6368.625,
+          1629.5,
+          2733.542,
+          2200,
+          1952.875,
+          2012.042,
+          1839.791,
+          2315.167
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 2331.84311765,
+        "throughput_us_p90": 2762.369129412,
+        "latency_us_p50": 2200.0,
+        "latency_us_p90": 3460.5586000000003
+      },
+      "slowdown": 15.402724058139553,
+      "valid": true,
+      "round": 2,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 1024,
+        "n": 1024,
+        "k": 1024
+      },
+      "name": "gemm_1024x1024x1024",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.003458,
+        "capture_ms": 0.050875,
+        "compile_ms": 207.999125,
+        "allocation_upload_ms": 1.115583,
+        "cold_call_ms": 16.741917,
+        "warmup_ms": 244.951709,
+        "download_ms": 0.487166,
+        "repetitions": 3,
+        "output_elements": 1048576,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          13694.0416667,
+          14670.528,
+          13040.0696667,
+          17581.347,
+          13955.8056667,
+          14712.4583333,
+          15726.389,
+          14145.4863333,
+          12596.889
+        ],
+        "latency_us": [
+          13113.125,
+          15836.958,
+          15567.834,
+          16988.917,
+          16165.333,
+          15435.584,
+          14733.583,
+          14407.084,
+          12991.584
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 14145.4863333,
+        "throughput_us_p90": 16097.3806,
+        "latency_us_p50": 15435.584,
+        "latency_us_p90": 16330.0498
+      },
+      "torch": {
+        "cold_call_ms": 2.085375,
+        "warmup_ms": 201.118042,
+        "repetitions": 37,
+        "throughput_us": [
+          1398.9774864864864,
+          1351.4594594594594,
+          1302.8153243243244,
+          1168.3581081081081,
+          1179.287162162162,
+          1210.0597027027027,
+          1162.152027027027,
+          1151.1103513513513,
+          1071.8716216216217
+        ],
+        "latency_us": [
+          1299.5,
+          1869.792,
+          1065.9160000000002,
+          1028.7079999999999,
+          1139.667,
+          1183.2910000000002,
+          950.666,
+          1134.25,
+          1841.5
+        ],
+        "throughput_us_p50": 1179.287162162162,
+        "throughput_us_p90": 1360.9630648648647,
+        "latency_us_p50": 1139.667,
+        "latency_us_p90": 1847.1584,
+        "download_ms": 0.008958,
+        "allocation_upload_ms": 0.042041,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 11.994946427946338,
+      "valid": true,
+      "round": 2,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 1024,
+        "n": 1024,
+        "k": 1024
+      },
+      "name": "gemm_1024x1024x1024",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 1.333958,
+        "warmup_ms": 200.680334,
+        "repetitions": 37,
+        "throughput_us": [
+          1230.8648648648648,
+          1177.9853513513515,
+          1121.1824324324325,
+          1163.9864864864865,
+          1161.3096756756756,
+          1239.2635135135135,
+          1328.625,
+          1262.4481891891892,
+          1376.8096756756756
+        ],
+        "latency_us": [
+          1281.375,
+          1258.25,
+          1361.875,
+          1167.875,
+          1167.958,
+          1908.333,
+          2011.625,
+          1240.0420000000001,
+          1810.417
+        ],
+        "throughput_us_p50": 1230.8648648648648,
+        "throughput_us_p90": 1338.2619351351352,
+        "latency_us_p50": 1281.375,
+        "latency_us_p90": 1928.9914,
+        "download_ms": 0.00875,
+        "allocation_upload_ms": 0.034917,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.005083,
+        "capture_ms": 0.070625,
+        "compile_ms": 234.337709,
+        "allocation_upload_ms": 0.795583,
+        "cold_call_ms": 15.559875,
+        "warmup_ms": 232.349583,
+        "download_ms": 0.493792,
+        "repetitions": 3,
+        "output_elements": 1048576,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          17178.4443333,
+          13591.5973333,
+          16337.611,
+          13399.361,
+          13174.764,
+          14634.6946667,
+          14416.5693333,
+          13781.236,
+          15533.903
+        ],
+        "latency_us": [
+          18029.292,
+          15248.541,
+          14029.791,
+          17734.167,
+          17043.75,
+          12743.083,
+          13686.667,
+          16736.375,
+          13439.791
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 14416.5693333,
+        "throughput_us_p90": 16505.77766666,
+        "latency_us_p50": 15248.541,
+        "latency_us_p90": 17793.192000000003
+      },
+      "slowdown": 11.712552486322517,
+      "valid": true,
+      "round": 2,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 256,
+        "n": 1024,
+        "k": 128
+      },
+      "name": "gemm_256x1024x128",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.004042,
+        "capture_ms": 0.054208,
+        "compile_ms": 234.048208,
+        "allocation_upload_ms": 0.018917,
+        "cold_call_ms": 0.6505,
+        "warmup_ms": 202.731041,
+        "download_ms": 0.168833,
+        "repetitions": 60,
+        "output_elements": 262144,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          711.522233333,
+          786.229866667,
+          701.378466667,
+          1256.2493,
+          1039.8,
+          961.095833333,
+          1151.60556667,
+          869.896516667,
+          939.522916667
+        ],
+        "latency_us": [
+          659.333,
+          776.417,
+          748,
+          922.75,
+          2212.083,
+          1117.916,
+          6929.417,
+          441.25,
+          2276.375
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 939.522916667,
+        "throughput_us_p90": 1172.534313336,
+        "latency_us_p50": 922.75,
+        "latency_us_p90": 3206.983400000001
+      },
+      "torch": {
+        "cold_call_ms": 0.254833,
+        "warmup_ms": 200.451083,
+        "repetitions": 603,
+        "throughput_us": [
+          68.70522388059702,
+          69.16507794361526,
+          70.01561691542288,
+          69.66880928689883,
+          76.60164510779437,
+          70.19126533996683,
+          68.19548092868989,
+          68.6338441127695,
+          70.03551575456054
+        ],
+        "latency_us": [
+          68.41600000000001,
+          148.75,
+          90.291,
+          67.833,
+          66.959,
+          66.709,
+          66.958,
+          66.75,
+          66.834
+        ],
+        "throughput_us_p50": 69.66880928689883,
+        "throughput_us_p90": 71.47334129353234,
+        "latency_us_p50": 66.959,
+        "latency_us_p90": 101.98280000000001,
+        "download_ms": 0.005709,
+        "allocation_upload_ms": 0.065333,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 13.485560127746815,
+      "valid": true,
+      "round": 2,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 256,
+        "n": 1024,
+        "k": 128
+      },
+      "name": "gemm_256x1024x128",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.143709,
+        "warmup_ms": 200.281292,
+        "repetitions": 586,
+        "throughput_us": [
+          68.71672354948805,
+          67.78875085324232,
+          68.81854436860068,
+          68.13900682593857,
+          68.56676621160409,
+          68.27517064846417,
+          69.07707679180886,
+          68.8012662116041,
+          67.01599829351535
+        ],
+        "latency_us": [
+          65.0,
+          65.833,
+          65.709,
+          65.833,
+          66.041,
+          66.041,
+          67.583,
+          65.833,
+          65.833
+        ],
+        "throughput_us_p50": 68.56676621160409,
+        "throughput_us_p90": 68.87025085324233,
+        "latency_us_p50": 65.833,
+        "latency_us_p90": 66.3494,
+        "download_ms": 0.007333,
+        "allocation_upload_ms": 0.038541,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.003375,
+        "capture_ms": 0.049208,
+        "compile_ms": 205.6895,
+        "allocation_upload_ms": 0.017709,
+        "cold_call_ms": 0.922625,
+        "warmup_ms": 201.875375,
+        "download_ms": 0.076125,
+        "repetitions": 41,
+        "output_elements": 262144,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          1104.73068293,
+          1108.47765854,
+          1573.55895122,
+          908.054878049,
+          827.980707317,
+          1011.60873171,
+          788.223585366,
+          765.93802439,
+          764.618902439
+        ],
+        "latency_us": [
+          628.5,
+          850.625,
+          711.167,
+          734.958,
+          402.417,
+          641.167,
+          583.625,
+          1271.708,
+          385.958
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 908.054878049,
+        "throughput_us_p90": 1201.4939170760001,
+        "latency_us_p50": 641.167,
+        "latency_us_p90": 934.8416000000001
+      },
+      "slowdown": 13.243367424484468,
+      "valid": true,
+      "round": 2,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 1024,
+        "n": 128,
+        "k": 256
+      },
+      "name": "gemm_1024x128x256",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.006417,
+        "capture_ms": 0.048375,
+        "compile_ms": 203.012292,
+        "allocation_upload_ms": 0.049375,
+        "cold_call_ms": 1.244625,
+        "warmup_ms": 201.590625,
+        "download_ms": 0.074042,
+        "repetitions": 117,
+        "output_elements": 131072,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          781.162034188,
+          887.608974359,
+          688.732905983,
+          676.487179487,
+          756.766735043,
+          878.753205128,
+          766.747504274,
+          993.326923077,
+          758.667376068
+        ],
+        "latency_us": [
+          324.541,
+          492.417,
+          687.042,
+          992.25,
+          737,
+          554.333,
+          754.083,
+          551.167,
+          835.625
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 766.747504274,
+        "throughput_us_p90": 908.7525641026,
+        "latency_us_p50": 687.042,
+        "latency_us_p90": 866.95
+      },
+      "torch": {
+        "cold_call_ms": 0.153667,
+        "warmup_ms": 200.122042,
+        "repetitions": 554,
+        "throughput_us": [
+          65.34032671480144,
+          65.4277238267148,
+          66.13748555956678,
+          65.32874548736461,
+          64.60424187725631,
+          64.89869133574007,
+          64.98074729241877,
+          64.53737906137185,
+          64.95570216606497
+        ],
+        "latency_us": [
+          62.5,
+          63.416,
+          63.417,
+          63.459,
+          63.459,
+          63.417,
+          63.459,
+          63.458,
+          63.5
+        ],
+        "throughput_us_p50": 64.98074729241877,
+        "throughput_us_p90": 65.56967617328519,
+        "latency_us_p50": 63.458,
+        "latency_us_p90": 63.467200000000005,
+        "download_ms": 0.005,
+        "allocation_upload_ms": 0.028042,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 11.79961044189862,
+      "valid": true,
+      "round": 2,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 1024,
+        "n": 128,
+        "k": 256
+      },
+      "name": "gemm_1024x128x256",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.077666,
+        "warmup_ms": 200.216375,
+        "repetitions": 634,
+        "throughput_us": [
+          65.01616719242902,
+          64.98817034700315,
+          64.85659936908517,
+          64.66988643533124,
+          64.16857255520505,
+          65.2559810725552,
+          64.00072239747634,
+          64.87572239747634,
+          65.32938958990536
+        ],
+        "latency_us": [
+          63.625,
+          63.667,
+          64.041,
+          64.542,
+          64.083,
+          64.208,
+          63.916000000000004,
+          64.125,
+          64.041
+        ],
+        "throughput_us_p50": 64.87572239747634,
+        "throughput_us_p90": 65.27066277602523,
+        "latency_us_p50": 64.041,
+        "latency_us_p90": 64.2748,
+        "download_ms": 0.00625,
+        "allocation_upload_ms": 0.01575,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.004,
+        "capture_ms": 0.053542,
+        "compile_ms": 230.904708,
+        "allocation_upload_ms": 0.029,
+        "cold_call_ms": 0.894083,
+        "warmup_ms": 204.766208,
+        "download_ms": 0.0235,
+        "repetitions": 66,
+        "output_elements": 131072,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          985.693818182,
+          923.048606061,
+          921.622469697,
+          786.279030303,
+          675.878151515,
+          831.922348485,
+          937.849106061,
+          688.452651515,
+          1004.93434848
+        ],
+        "latency_us": [
+          3109.917,
+          10093.084,
+          2166.125,
+          595.75,
+          774.709,
+          1192.875,
+          1114.667,
+          728.375,
+          699.875
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 921.622469697,
+        "throughput_us_p90": 989.5419242416,
+        "latency_us_p50": 1114.667,
+        "latency_us_p90": 4506.550400000002
+      },
+      "slowdown": 14.205968513929813,
+      "valid": true,
+      "round": 2,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 127,
+        "n": 193,
+        "k": 61
+      },
+      "name": "gemm_127x193x61",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.010542,
+        "capture_ms": 0.085792,
+        "compile_ms": 213.390667,
+        "allocation_upload_ms": 0.009583,
+        "cold_call_ms": 0.313958,
+        "warmup_ms": 200.029583,
+        "download_ms": 0.006417,
+        "repetitions": 377,
+        "output_elements": 24511,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          90.0076259947,
+          109.636493369,
+          99.5079575597,
+          81.1049973475,
+          77.8629549072,
+          88.5134827586,
+          106.475352785,
+          71.8096816976,
+          95.1504190981
+        ],
+        "latency_us": [
+          29.792,
+          30.042,
+          31.541,
+          30.083,
+          29.875,
+          29.667,
+          29.75,
+          29.75,
+          29.834
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 90.0076259947,
+        "throughput_us_p90": 107.10758090179999,
+        "latency_us_p50": 29.834,
+        "latency_us_p90": 30.374599999999997
+      },
+      "torch": {
+        "cold_call_ms": 0.029458,
+        "warmup_ms": 200.012042,
+        "repetitions": 6037,
+        "throughput_us": [
+          6.698663740268345,
+          6.850229252940201,
+          6.665251780685771,
+          6.645436475070399,
+          6.644608249130362,
+          6.688021036938877,
+          6.55506311081663,
+          6.520974821931423,
+          6.53453702169952
+        ],
+        "latency_us": [
+          6.4159999999999995,
+          6.417,
+          6.375,
+          6.667,
+          7.083,
+          6.333,
+          6.167,
+          6.25,
+          6.584
+        ],
+        "throughput_us_p50": 6.645436475070399,
+        "throughput_us_p90": 6.728976842802716,
+        "latency_us_p50": 6.4159999999999995,
+        "latency_us_p90": 6.7501999999999995,
+        "download_ms": 0.006458,
+        "allocation_upload_ms": 0.017042,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 13.544276035494946,
+      "valid": true,
+      "round": 2,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 127,
+        "n": 193,
+        "k": 61
+      },
+      "name": "gemm_127x193x61",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.022209,
+        "warmup_ms": 200.001166,
+        "repetitions": 5549,
+        "throughput_us": [
+          6.58500774914399,
+          6.494908992611282,
+          6.501689493602451,
+          6.529877815822671,
+          6.501554334114255,
+          6.451838169039466,
+          6.567572355379347,
+          6.594093530365832,
+          6.811212290502794
+        ],
+        "latency_us": [
+          7.25,
+          6.25,
+          6.167,
+          6.333,
+          6.832999999999999,
+          7.083,
+          6.375,
+          6.208,
+          6.2909999999999995
+        ],
+        "throughput_us_p50": 6.529877815822671,
+        "throughput_us_p90": 6.637517282393224,
+        "latency_us_p50": 6.333,
+        "latency_us_p90": 7.1164000000000005,
+        "download_ms": 0.005584,
+        "allocation_upload_ms": 0.019083,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.004,
+        "capture_ms": 0.056667,
+        "compile_ms": 188.953,
+        "allocation_upload_ms": 0.013542,
+        "cold_call_ms": 0.149125,
+        "warmup_ms": 200.25225,
+        "download_ms": 0.014375,
+        "repetitions": 472,
+        "output_elements": 24511,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          86.1379766949,
+          78.9201101695,
+          143.124027542,
+          98.9186970339,
+          112.070974576,
+          153.150866525,
+          85.6353283898,
+          96.9719279661,
+          106.840394068
+        ],
+        "latency_us": [
+          32.916,
+          33.833,
+          33.333,
+          34.416,
+          37,
+          35.833,
+          33.833,
+          34.542,
+          33.666
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 98.9186970339,
+        "throughput_us_p90": 145.1293953386,
+        "latency_us_p50": 33.833,
+        "latency_us_p90": 36.0664
+      },
+      "slowdown": 15.14862908984426,
+      "valid": true,
+      "round": 2,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 513,
+        "n": 257,
+        "k": 129
+      },
+      "name": "gemm_513x257x129",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.0035,
+        "capture_ms": 0.048375,
+        "compile_ms": 187.88475,
+        "allocation_upload_ms": 0.0215,
+        "cold_call_ms": 0.97775,
+        "warmup_ms": 203.649959,
+        "download_ms": 0.105041,
+        "repetitions": 38,
+        "output_elements": 131841,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          724.914473684,
+          745.280684211,
+          745.820184211,
+          671.463815789,
+          702.948447368,
+          1056.28181579,
+          544.080052632,
+          845.143631579,
+          668.956131579
+        ],
+        "latency_us": [
+          1125.875,
+          10329.375,
+          1377.542,
+          588.708,
+          908.75,
+          630.792,
+          824.208,
+          938.709,
+          1739.541
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 724.914473684,
+        "throughput_us_p90": 887.3712684212,
+        "latency_us_p50": 938.709,
+        "latency_us_p90": 3457.5078000000017
+      },
+      "torch": {
+        "cold_call_ms": 0.078041,
+        "warmup_ms": 200.078917,
+        "repetitions": 763,
+        "throughput_us": [
+          47.277850589777195,
+          45.25524246395806,
+          46.09026867627785,
+          46.8055373525557,
+          49.82503276539974,
+          48.360310615989505,
+          46.89312975098296,
+          45.42523984272608,
+          45.407437745740495
+        ],
+        "latency_us": [
+          46.375,
+          48.875,
+          46.583,
+          45.5,
+          46.375,
+          46.416,
+          47.416,
+          45.625,
+          46.75
+        ],
+        "throughput_us_p50": 46.8055373525557,
+        "throughput_us_p90": 48.65325504587155,
+        "latency_us_p50": 46.416,
+        "latency_us_p90": 47.7078,
+        "download_ms": 0.006917,
+        "allocation_upload_ms": 0.043209,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 15.487792998159389,
+      "valid": true,
+      "round": 2,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 513,
+        "n": 257,
+        "k": 129
+      },
+      "name": "gemm_513x257x129",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.068959,
+        "warmup_ms": 200.104458,
+        "repetitions": 910,
+        "throughput_us": [
+          46.28718021978021,
+          45.902197802197804,
+          45.78507362637363,
+          45.94679560439561,
+          45.89294835164835,
+          45.22298461538461,
+          45.00476153846154,
+          45.24551208791209,
+          45.297984615384614
+        ],
+        "latency_us": [
+          50.791999999999994,
+          47.333,
+          45.916,
+          48.916000000000004,
+          46.958,
+          47.375,
+          47.75,
+          48.709,
+          44.875
+        ],
+        "throughput_us_p50": 45.78507362637363,
+        "throughput_us_p90": 46.014872527472534,
+        "latency_us_p50": 47.375,
+        "latency_us_p90": 49.2912,
+        "download_ms": 0.005709,
+        "allocation_upload_ms": 0.016042,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.005541,
+        "capture_ms": 0.088334,
+        "compile_ms": 208.535416,
+        "allocation_upload_ms": 0.013166,
+        "cold_call_ms": 0.850792,
+        "warmup_ms": 200.825958,
+        "download_ms": 0.059417,
+        "repetitions": 69,
+        "output_elements": 131841,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          952.90942029,
+          1181.76630435,
+          1159.21798551,
+          754.206521739,
+          663.643724638,
+          807.768115942,
+          679.123797101,
+          649.623782609,
+          776.199275362
+        ],
+        "latency_us": [
+          879.083,
+          605.334,
+          728.25,
+          928.833,
+          625.666,
+          642,
+          773.333,
+          587.833,
+          702.208
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 776.199275362,
+        "throughput_us_p90": 1163.727649278,
+        "latency_us_p50": 702.208,
+        "latency_us_p90": 889.033
+      },
+      "slowdown": 16.953107506086546,
+      "valid": true,
+      "round": 2,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 32,
+        "n": 32,
+        "k": 32
+      },
+      "name": "gemm_32x32x32",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.00375,
+        "capture_ms": 0.046167,
+        "compile_ms": 291.925208,
+        "allocation_upload_ms": 0.003875,
+        "cold_call_ms": 0.178833,
+        "warmup_ms": 200.19725,
+        "download_ms": 0.001292,
+        "repetitions": 3530,
+        "output_elements": 1024,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          8.89840651558,
+          8.40768413598,
+          9.44355524079,
+          11.8997050992,
+          7.27992209632,
+          9.49130056657,
+          12.3134441926,
+          12.347107932,
+          7.71235835694
+        ],
+        "latency_us": [
+          2.916,
+          2.667,
+          2.833,
+          2.583,
+          2.666,
+          2.875,
+          2.667,
+          2.583,
+          2.583
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 9.44355524079,
+        "throughput_us_p90": 12.32017694048,
+        "latency_us_p50": 2.667,
+        "latency_us_p90": 2.8832
+      },
+      "torch": {
+        "cold_call_ms": 0.018875,
+        "warmup_ms": 200.007,
+        "repetitions": 36900,
+        "throughput_us": [
+          0.9571251219512196,
+          0.9233784823848238,
+          0.9267231165311652,
+          0.9017592411924119,
+          0.8641790785907859,
+          0.893270081300813,
+          0.879359756097561,
+          0.8769015447154471,
+          0.8917818428184282
+        ],
+        "latency_us": [
+          1.25,
+          1.125,
+          1.042,
+          1.0,
+          1.042,
+          1.0,
+          1.167,
+          1.167,
+          0.9169999999999999
+        ],
+        "throughput_us_p50": 0.893270081300813,
+        "throughput_us_p90": 0.9328035176151761,
+        "latency_us_p50": 1.042,
+        "latency_us_p90": 1.1836,
+        "download_ms": 0.00575,
+        "allocation_upload_ms": 0.019958,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 10.571892463965595,
+      "valid": true,
+      "round": 2,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 32,
+        "n": 32,
+        "k": 32
+      },
+      "name": "gemm_32x32x32",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.003959,
+        "warmup_ms": 200.005208,
+        "repetitions": 43722,
+        "throughput_us": [
+          0.897914665385847,
+          0.8836645853346141,
+          0.9016465623713462,
+          0.8608680984401446,
+          0.876446640135401,
+          0.872158181235991,
+          0.9130881935867525,
+          0.8945458350487169,
+          0.8828917249897077
+        ],
+        "latency_us": [
+          1.083,
+          0.958,
+          0.958,
+          0.916,
+          0.958,
+          0.9169999999999999,
+          0.875,
+          0.875,
+          0.958
+        ],
+        "throughput_us_p50": 0.8836645853346141,
+        "throughput_us_p90": 0.9039348886144275,
+        "latency_us_p50": 0.958,
+        "latency_us_p90": 0.983,
+        "download_ms": 0.005666,
+        "allocation_upload_ms": 0.014667,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.013375,
+        "capture_ms": 0.067625,
+        "compile_ms": 262.100166,
+        "allocation_upload_ms": 0.003375,
+        "cold_call_ms": 0.120917,
+        "warmup_ms": 200.042291,
+        "download_ms": 0.001833,
+        "repetitions": 6357,
+        "output_elements": 1024,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          11.8137289602,
+          12.3285092025,
+          10.3762584552,
+          12.0960751927,
+          10.9287465786,
+          10.5340962718,
+          10.3423062765,
+          10.1063525248,
+          8.84680934403
+        ],
+        "latency_us": [
+          3.125,
+          3.084,
+          2.875,
+          2.916,
+          3.042,
+          3.042,
+          2.917,
+          3.208,
+          2.958
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 10.5340962718,
+        "throughput_us_p90": 12.142561994660001,
+        "latency_us_p50": 3.042,
+        "latency_us_p90": 3.1416
+      },
+      "slowdown": 11.920921633190822,
+      "valid": true,
+      "round": 2,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 128,
+        "n": 128,
+        "k": 128
+      },
+      "name": "gemm_128x128x128",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.0035,
+        "capture_ms": 0.053542,
+        "compile_ms": 209.729708,
+        "allocation_upload_ms": 0.007041,
+        "cold_call_ms": 0.1665,
+        "warmup_ms": 200.632334,
+        "download_ms": 0.004417,
+        "repetitions": 1021,
+        "output_elements": 16384,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          60.5405239961,
+          77.4988158668,
+          44.3106836435,
+          69.7922781587,
+          70.8433721841,
+          76.3945886386,
+          69.264324192,
+          63.9647404505,
+          82.9835945152
+        ],
+        "latency_us": [
+          82.125,
+          70.333,
+          77.5,
+          73.708,
+          97.25,
+          76.959,
+          73.208,
+          58.417,
+          46.125
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 69.7922781587,
+        "throughput_us_p90": 78.59577159648,
+        "latency_us_p50": 73.708,
+        "latency_us_p90": 85.15
+      },
+      "torch": {
+        "cold_call_ms": 0.046208,
+        "warmup_ms": 200.03225,
+        "repetitions": 7933,
+        "throughput_us": [
+          4.929676667086852,
+          4.95062296735157,
+          4.90077839405017,
+          4.876465397705786,
+          4.917864237993192,
+          4.948968486070844,
+          4.944792764401865,
+          4.90998575570402,
+          5.121964200176478
+        ],
+        "latency_us": [
+          4.917000000000001,
+          4.709,
+          5.042,
+          5.0,
+          5.25,
+          5.0,
+          4.667,
+          4.709,
+          4.709
+        ],
+        "throughput_us_p50": 4.929676667086852,
+        "throughput_us_p90": 4.984891213916551,
+        "latency_us_p50": 4.917000000000001,
+        "latency_us_p90": 5.0836,
+        "download_ms": 0.006291,
+        "allocation_upload_ms": 0.083875,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 14.1575772351705,
+      "valid": true,
+      "round": 2,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 128,
+        "n": 128,
+        "k": 128
+      },
+      "name": "gemm_128x128x128",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.012541,
+        "warmup_ms": 200.039584,
+        "repetitions": 7619,
+        "throughput_us": [
+          4.881267226670166,
+          4.949851292820579,
+          4.928583147394671,
+          4.935883974274839,
+          4.91410736317102,
+          4.9094971781073635,
+          4.917623703898149,
+          4.934713610710067,
+          5.022925055781598
+        ],
+        "latency_us": [
+          5.083,
+          4.917000000000001,
+          5.125,
+          5.25,
+          5.2909999999999995,
+          4.832999999999999,
+          4.791,
+          4.834,
+          5.083
+        ],
+        "throughput_us_p50": 4.928583147394671,
+        "throughput_us_p90": 4.964466045412783,
+        "latency_us_p50": 5.083,
+        "latency_us_p90": 5.2581999999999995,
+        "download_ms": 0.006333,
+        "allocation_upload_ms": 0.013541,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.005417,
+        "capture_ms": 0.043958,
+        "compile_ms": 236.940584,
+        "allocation_upload_ms": 0.006541,
+        "cold_call_ms": 0.222667,
+        "warmup_ms": 200.051459,
+        "download_ms": 0.008208,
+        "repetitions": 498,
+        "output_elements": 16384,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          75.4487108434,
+          88.6791345382,
+          80.1337851406,
+          103.028781124,
+          97.297439759,
+          70.8382710843,
+          68.4995823293,
+          92.7884036145,
+          65.2996144578
+        ],
+        "latency_us": [
+          78.333,
+          90.834,
+          54.792,
+          75.75,
+          77.291,
+          89.958,
+          81.083,
+          79.25,
+          79
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 80.1337851406,
+        "throughput_us_p90": 98.443708032,
+        "latency_us_p50": 79.0,
+        "latency_us_p90": 90.1332
+      },
+      "slowdown": 16.25899020958184,
+      "valid": true,
+      "round": 2,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 1024,
+        "n": 1024,
+        "k": 1024
+      },
+      "name": "gemm_1024x1024x1024",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.003209,
+        "capture_ms": 0.046791,
+        "compile_ms": 239.699458,
+        "allocation_upload_ms": 0.833417,
+        "cold_call_ms": 13.574209,
+        "warmup_ms": 220.459542,
+        "download_ms": 0.65475,
+        "repetitions": 3,
+        "output_elements": 1048576,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          15794.3053333,
+          15156.389,
+          13250.9303333,
+          13229.1386667,
+          13677.986,
+          12892.7083333,
+          12882.4723333,
+          12080.389,
+          15590.8056667
+        ],
+        "latency_us": [
+          16966.25,
+          12817.75,
+          15072.625,
+          16568.625,
+          12864.584,
+          12568.042,
+          12075,
+          14375.292,
+          14791.417
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 13250.9303333,
+        "throughput_us_p90": 15631.50560002,
+        "latency_us_p50": 14375.292,
+        "latency_us_p90": 16648.15
+      },
+      "torch": {
+        "cold_call_ms": 1.598625,
+        "warmup_ms": 207.549167,
+        "repetitions": 36,
+        "throughput_us": [
+          1614.4664444444445,
+          1413.1990833333332,
+          1291.2997777777778,
+          1288.4294166666668,
+          1263.7164166666669,
+          1134.3565,
+          1164.2430555555557,
+          1173.1550833333336,
+          1266.5729166666667
+        ],
+        "latency_us": [
+          1093.4170000000001,
+          1246.667,
+          1457.792,
+          1153.7079999999999,
+          963.25,
+          1076.333,
+          1173.166,
+          1038.625,
+          1084.708
+        ],
+        "throughput_us_p50": 1266.5729166666667,
+        "throughput_us_p90": 1453.4525555555556,
+        "latency_us_p50": 1093.4170000000001,
+        "latency_us_p90": 1288.892,
+        "download_ms": 0.006916,
+        "allocation_upload_ms": 0.057708,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 10.462035117704435,
+      "valid": true,
+      "round": 3,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 1024,
+        "n": 1024,
+        "k": 1024
+      },
+      "name": "gemm_1024x1024x1024",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 1.993042,
+        "warmup_ms": 207.448,
+        "repetitions": 39,
+        "throughput_us": [
+          1130.4733076923078,
+          1200.142076923077,
+          1130.7596153846155,
+          1148.375,
+          1214.857923076923,
+          1166.1068205128206,
+          1165.996794871795,
+          1351.2564102564102,
+          1213.8921025641025
+        ],
+        "latency_us": [
+          1229.125,
+          1305.5829999999999,
+          992.541,
+          1011.5840000000001,
+          1027.875,
+          1109.458,
+          1692.917,
+          1311.25,
+          1246.625
+        ],
+        "throughput_us_p50": 1166.1068205128206,
+        "throughput_us_p90": 1242.1376205128204,
+        "latency_us_p50": 1229.125,
+        "latency_us_p90": 1387.5834,
+        "download_ms": 0.007375,
+        "allocation_upload_ms": 0.039541,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.005083,
+        "capture_ms": 0.059042,
+        "compile_ms": 219.271,
+        "allocation_upload_ms": 0.860667,
+        "cold_call_ms": 15.065709,
+        "warmup_ms": 252.450416,
+        "download_ms": 0.505291,
+        "repetitions": 2,
+        "output_elements": 1048576,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          16498.1665,
+          17435.146,
+          16270,
+          57453.5,
+          18505.479,
+          15487.833,
+          17099.9165,
+          14721.1875,
+          13248.1875
+        ],
+        "latency_us": [
+          18186.083,
+          17708.417,
+          21331.292,
+          15201.417,
+          17101.334,
+          16734.25,
+          19354.542,
+          15306.459,
+          15519.375
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 16498.1665,
+        "throughput_us_p90": 26295.08320000001,
+        "latency_us_p50": 17101.334,
+        "latency_us_p90": 19749.892
+      },
+      "slowdown": 14.148074781643567,
+      "valid": true,
+      "round": 3,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 256,
+        "n": 1024,
+        "k": 128
+      },
+      "name": "gemm_256x1024x128",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.003583,
+        "capture_ms": 0.05375,
+        "compile_ms": 210.820042,
+        "allocation_upload_ms": 0.024958,
+        "cold_call_ms": 0.481,
+        "warmup_ms": 201.246458,
+        "download_ms": 0.190666,
+        "repetitions": 56,
+        "output_elements": 262144,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          944.96875,
+          1163.92410714,
+          1030.75742857,
+          1005.11458929,
+          1234.56919643,
+          1055.79166071,
+          1071.39657143,
+          982.657,
+          945.265625
+        ],
+        "latency_us": [
+          874.375,
+          546.833,
+          542.084,
+          685.875,
+          724.5,
+          699.333,
+          2825.333,
+          720.583,
+          862.917
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 1030.75742857,
+        "throughput_us_p90": 1178.053124998,
+        "latency_us_p50": 720.583,
+        "latency_us_p90": 1264.5666000000003
+      },
+      "torch": {
+        "cold_call_ms": 0.134167,
+        "warmup_ms": 200.389666,
+        "repetitions": 607,
+        "throughput_us": [
+          68.1165568369028,
+          68.71917792421748,
+          69.30038550247117,
+          69.13618945634268,
+          68.73016144975288,
+          68.23180889621086,
+          68.41035255354201,
+          68.0174349258649,
+          67.1727759472817
+        ],
+        "latency_us": [
+          71.625,
+          66.292,
+          65.959,
+          65.875,
+          65.792,
+          65.875,
+          74.083,
+          66.0,
+          65.959
+        ],
+        "throughput_us_p50": 68.41035255354201,
+        "throughput_us_p90": 69.16902866556838,
+        "latency_us_p50": 65.959,
+        "latency_us_p90": 72.1166,
+        "download_ms": 0.006083,
+        "allocation_upload_ms": 0.027875,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 15.067272570526047,
+      "valid": true,
+      "round": 3,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 256,
+        "n": 1024,
+        "k": 128
+      },
+      "name": "gemm_256x1024x128",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.098583,
+        "warmup_ms": 200.231625,
+        "repetitions": 575,
+        "throughput_us": [
+          68.11840695652174,
+          67.91166608695652,
+          68.755,
+          68.5645652173913,
+          67.70210086956521,
+          69.36717391304347,
+          66.96231826086957,
+          68.20086956521739,
+          67.55318782608695
+        ],
+        "latency_us": [
+          65.208,
+          65.833,
+          65.75,
+          65.75,
+          65.833,
+          65.791,
+          65.791,
+          65.792,
+          65.875
+        ],
+        "throughput_us_p50": 68.11840695652174,
+        "throughput_us_p90": 68.87743478260869,
+        "latency_us_p50": 65.791,
+        "latency_us_p90": 65.8414,
+        "download_ms": 0.005709,
+        "allocation_upload_ms": 0.019125,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.005542,
+        "capture_ms": 0.049167,
+        "compile_ms": 239.457542,
+        "allocation_upload_ms": 0.032583,
+        "cold_call_ms": 0.909792,
+        "warmup_ms": 209.194458,
+        "download_ms": 0.198791,
+        "repetitions": 36,
+        "output_elements": 262144,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          950.625,
+          1169.20833333,
+          1223.25230556,
+          1096.0625,
+          1182.88194444,
+          738.354166667,
+          707.815972222,
+          773.664361111,
+          744.072916667
+        ],
+        "latency_us": [
+          716.083,
+          3395.583,
+          689.875,
+          718.125,
+          855.875,
+          881.375,
+          640.042,
+          520.5,
+          587.875
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 950.625,
+        "throughput_us_p90": 1190.9560166640001,
+        "latency_us_p50": 716.083,
+        "latency_us_p90": 1384.2166000000004
+      },
+      "slowdown": 13.955479032367272,
+      "valid": true,
+      "round": 3,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 1024,
+        "n": 128,
+        "k": 256
+      },
+      "name": "gemm_1024x128x256",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.003667,
+        "capture_ms": 0.04775,
+        "compile_ms": 233.461959,
+        "allocation_upload_ms": 0.045167,
+        "cold_call_ms": 0.908541,
+        "warmup_ms": 201.157958,
+        "download_ms": 0.018666,
+        "repetitions": 63,
+        "output_elements": 131072,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          859.927920635,
+          976.108460317,
+          739.39484127,
+          1075.61244444,
+          896.090603175,
+          646.102507937,
+          634.724857143,
+          705.653444444,
+          672.743380952
+        ],
+        "latency_us": [
+          892.375,
+          632.334,
+          609.292,
+          636.334,
+          565.75,
+          579.625,
+          913.916,
+          725.416,
+          721.542
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 739.39484127,
+        "throughput_us_p90": 996.0092571416,
+        "latency_us_p50": 636.334,
+        "latency_us_p90": 896.6832
+      },
+      "torch": {
+        "cold_call_ms": 0.134125,
+        "warmup_ms": 200.30775,
+        "repetitions": 620,
+        "throughput_us": [
+          64.77130483870968,
+          64.5503370967742,
+          65.36404516129032,
+          64.52318548387096,
+          64.86754032258065,
+          64.37231129032259,
+          64.51706935483871,
+          65.42197580645161,
+          66.31969193548387
+        ],
+        "latency_us": [
+          62.459,
+          63.209,
+          63.083,
+          105.917,
+          75.166,
+          63.625,
+          63.334,
+          63.667,
+          63.0
+        ],
+        "throughput_us_p50": 64.77130483870968,
+        "throughput_us_p90": 65.60151903225807,
+        "latency_us_p50": 63.334,
+        "latency_us_p90": 81.31620000000001,
+        "download_ms": 0.006042,
+        "allocation_upload_ms": 0.027084,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 11.41546929016182,
+      "valid": true,
+      "round": 3,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 1024,
+        "n": 128,
+        "k": 256
+      },
+      "name": "gemm_1024x128x256",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.080166,
+        "warmup_ms": 200.342875,
+        "repetitions": 634,
+        "throughput_us": [
+          64.34582018927445,
+          65.82820662460568,
+          64.84674132492114,
+          65.15536277602524,
+          64.50177444794953,
+          65.43888012618297,
+          65.71924290220821,
+          64.65772870662461,
+          65.40102523659306
+        ],
+        "latency_us": [
+          62.375,
+          63.125,
+          63.208,
+          63.083,
+          63.125,
+          63.042,
+          63.166,
+          63.083,
+          63.125
+        ],
+        "throughput_us_p50": 65.15536277602524,
+        "throughput_us_p90": 65.7410356466877,
+        "latency_us_p50": 63.125,
+        "latency_us_p90": 63.1744,
+        "download_ms": 0.005958,
+        "allocation_upload_ms": 0.020084,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.005709,
+        "capture_ms": 0.05375,
+        "compile_ms": 202.855416,
+        "allocation_upload_ms": 0.059042,
+        "cold_call_ms": 0.656041,
+        "warmup_ms": 200.097167,
+        "download_ms": 0.074875,
+        "repetitions": 56,
+        "output_elements": 131072,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          1123.03869643,
+          789.954607143,
+          748.224696429,
+          803.482892857,
+          854.160714286,
+          721.262642857,
+          525.253714286,
+          712.816214286,
+          990.28125
+        ],
+        "latency_us": [
+          625.667,
+          466.25,
+          583.791,
+          393,
+          303.875,
+          306,
+          308.667,
+          526.625,
+          536.917
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 789.954607143,
+        "throughput_us_p90": 1016.832739286,
+        "latency_us_p50": 466.25,
+        "latency_us_p90": 592.1662
+      },
+      "slowdown": 12.124168656055339,
+      "valid": true,
+      "round": 3,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 127,
+        "n": 193,
+        "k": 61
+      },
+      "name": "gemm_127x193x61",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.004708,
+        "capture_ms": 0.044125,
+        "compile_ms": 187.99475,
+        "allocation_upload_ms": 0.0145,
+        "cold_call_ms": 0.332375,
+        "warmup_ms": 200.697125,
+        "download_ms": 0.006417,
+        "repetitions": 646,
+        "output_elements": 24511,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          86.1430603715,
+          132.069143963,
+          112.519543344,
+          103.865840557,
+          99.2191052632,
+          96.7568359133,
+          204.453495356,
+          69.463622291,
+          109.022252322
+        ],
+        "latency_us": [
+          32.208,
+          33,
+          32.333,
+          32.333,
+          32.792,
+          47.709,
+          82.375,
+          101.667,
+          110.375
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 103.865840557,
+        "throughput_us_p90": 146.5460142416,
+        "latency_us_p50": 33.0,
+        "latency_us_p90": 103.4086
+      },
+      "torch": {
+        "cold_call_ms": 0.032584,
+        "warmup_ms": 200.026,
+        "repetitions": 5161,
+        "throughput_us": [
+          6.514265646192598,
+          6.468053671769037,
+          6.607989536911452,
+          6.560283859717109,
+          6.468594652199187,
+          6.613124006975392,
+          6.544484208486727,
+          6.490546211974424,
+          6.54747142026739
+        ],
+        "latency_us": [
+          6.832999999999999,
+          6.916,
+          6.208,
+          5.958,
+          6.125,
+          6.4590000000000005,
+          7.042,
+          6.25,
+          6.125
+        ],
+        "throughput_us_p50": 6.544484208486727,
+        "throughput_us_p90": 6.60901643092424,
+        "latency_us_p50": 6.25,
+        "latency_us_p90": 6.9412,
+        "download_ms": 0.006,
+        "allocation_upload_ms": 0.026208,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 15.8707450806145,
+      "valid": true,
+      "round": 3,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 127,
+        "n": 193,
+        "k": 61
+      },
+      "name": "gemm_127x193x61",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.010458,
+        "warmup_ms": 200.018417,
+        "repetitions": 5614,
+        "throughput_us": [
+          6.505700035625223,
+          6.442828998931244,
+          6.57790790879943,
+          6.490002671891699,
+          6.535090844317777,
+          6.548116316351977,
+          6.508423762023512,
+          6.442138582116137,
+          6.535432312076951
+        ],
+        "latency_us": [
+          6.167,
+          6.542,
+          7.041,
+          42.5,
+          22.583,
+          7.75,
+          7.625,
+          7.0,
+          6.958
+        ],
+        "throughput_us_p50": 6.508423762023512,
+        "throughput_us_p90": 6.554074634841467,
+        "latency_us_p50": 7.041,
+        "latency_us_p90": 26.5664,
+        "download_ms": 0.006875,
+        "allocation_upload_ms": 0.011167,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.003833,
+        "capture_ms": 0.046375,
+        "compile_ms": 210.896334,
+        "allocation_upload_ms": 0.013167,
+        "cold_call_ms": 0.210875,
+        "warmup_ms": 200.000208,
+        "download_ms": 0.005167,
+        "repetitions": 428,
+        "output_elements": 24511,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          106.138920561,
+          129.664037383,
+          163.38989486,
+          157.223813084,
+          139.540985981,
+          104.36964486,
+          100.453658879,
+          74.4568738318,
+          76.7765771028
+        ],
+        "latency_us": [
+          112.166,
+          84.458,
+          35.916,
+          47.125,
+          42,
+          33.333,
+          33.916,
+          34.417,
+          33.833
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 106.138920561,
+        "throughput_us_p90": 158.4570294392,
+        "latency_us_p50": 35.916,
+        "latency_us_p90": 89.9996
+      },
+      "slowdown": 16.307930221187796,
+      "valid": true,
+      "round": 3,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 513,
+        "n": 257,
+        "k": 129
+      },
+      "name": "gemm_513x257x129",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.005958,
+        "capture_ms": 0.047084,
+        "compile_ms": 214.958625,
+        "allocation_upload_ms": 0.014167,
+        "cold_call_ms": 1.2125,
+        "warmup_ms": 200.808917,
+        "download_ms": 0.043583,
+        "repetitions": 47,
+        "output_elements": 131841,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          1273.38031915,
+          737.755319149,
+          799.97606383,
+          631.285468085,
+          634.639191489,
+          691.362595745,
+          866.915765957,
+          1305.27659574,
+          1082.02925532
+        ],
+        "latency_us": [
+          603.833,
+          414.833,
+          431.667,
+          10329.375,
+          887.125,
+          426.083,
+          422.041,
+          473.667,
+          457.208
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 799.97606383,
+        "throughput_us_p90": 1279.759574468,
+        "latency_us_p50": 457.208,
+        "latency_us_p90": 2775.5750000000016
+      },
+      "torch": {
+        "cold_call_ms": 0.088167,
+        "warmup_ms": 200.159792,
+        "repetitions": 875,
+        "throughput_us": [
+          47.62076114285714,
+          48.62966742857142,
+          47.79571428571428,
+          44.643952,
+          45.295761142857145,
+          44.42761828571429,
+          45.201142857142855,
+          45.32985714285714,
+          45.39119085714286
+        ],
+        "latency_us": [
+          42.542,
+          43.375,
+          54.833,
+          43.416999999999994,
+          43.25,
+          43.416999999999994,
+          43.5,
+          43.291000000000004,
+          42.791999999999994
+        ],
+        "throughput_us_p50": 45.32985714285714,
+        "throughput_us_p90": 47.96250491428571,
+        "latency_us_p50": 43.375,
+        "latency_us_p90": 45.766600000000004,
+        "download_ms": 0.005917,
+        "allocation_upload_ms": 0.030958,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 17.64788407139413,
+      "valid": true,
+      "round": 3,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 513,
+        "n": 257,
+        "k": 129
+      },
+      "name": "gemm_513x257x129",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.065084,
+        "warmup_ms": 200.186458,
+        "repetitions": 880,
+        "throughput_us": [
+          45.38380681818182,
+          45.42566250000001,
+          44.885131818181826,
+          44.24270795454545,
+          44.7703125,
+          45.27784090909091,
+          44.75161022727273,
+          44.73873068181818,
+          44.70582386363636
+        ],
+        "latency_us": [
+          43.458999999999996,
+          43.583,
+          43.458,
+          43.375,
+          43.416999999999994,
+          43.458,
+          43.416000000000004,
+          43.416999999999994,
+          43.416999999999994
+        ],
+        "throughput_us_p50": 44.7703125,
+        "throughput_us_p90": 45.39217795454545,
+        "latency_us_p50": 43.416999999999994,
+        "latency_us_p90": 43.483799999999995,
+        "download_ms": 0.005625,
+        "allocation_upload_ms": 0.01975,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.005375,
+        "capture_ms": 0.105916,
+        "compile_ms": 191.961958,
+        "allocation_upload_ms": 0.016417,
+        "cold_call_ms": 0.952958,
+        "warmup_ms": 200.537875,
+        "download_ms": 0.14325,
+        "repetitions": 61,
+        "output_elements": 131841,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          700.717213115,
+          1496.13729508,
+          952.911885246,
+          1116.32240984,
+          694.018442623,
+          714.546442623,
+          918.18647541,
+          835.449442623,
+          694.441934426
+        ],
+        "latency_us": [
+          784.375,
+          759.417,
+          851.958,
+          813.708,
+          742.417,
+          736.5,
+          572.959,
+          626,
+          616.25
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 835.449442623,
+        "throughput_us_p90": 1192.2853868880002,
+        "latency_us_p50": 742.417,
+        "latency_us_p90": 821.358
+      },
+      "slowdown": 18.66079095657418,
+      "valid": true,
+      "round": 3,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 32,
+        "n": 32,
+        "k": 32
+      },
+      "name": "gemm_32x32x32",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.006167,
+        "capture_ms": 0.052875,
+        "compile_ms": 260.801959,
+        "allocation_upload_ms": 0.003583,
+        "cold_call_ms": 0.22875,
+        "warmup_ms": 200.021791,
+        "download_ms": 0.005208,
+        "repetitions": 8000,
+        "output_elements": 1024,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          6.08102075,
+          8.335328125,
+          6.9329635,
+          9.094885375,
+          7.5685885,
+          8.688979125,
+          8.8380625,
+          9.3760625,
+          11.496890625
+        ],
+        "latency_us": [
+          4.542,
+          4.125,
+          5.208,
+          5.5,
+          4.708,
+          4.792,
+          4.875,
+          4.959,
+          5.584
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 8.688979125,
+        "throughput_us_p90": 9.800228125,
+        "latency_us_p50": 4.875,
+        "latency_us_p90": 5.5168
+      },
+      "torch": {
+        "cold_call_ms": 0.018791,
+        "warmup_ms": 200.004084,
+        "repetitions": 45479,
+        "throughput_us": [
+          0.8675359396644605,
+          0.8626673849468985,
+          0.8557933331867456,
+          0.8488313287451351,
+          0.862442006200664,
+          0.8510576309945249,
+          0.8733664768354624,
+          0.9141087095142814,
+          0.8604181710239891
+        ],
+        "latency_us": [
+          1.083,
+          0.916,
+          0.958,
+          0.875,
+          0.9169999999999999,
+          0.875,
+          0.916,
+          0.9169999999999999,
+          1.042
+        ],
+        "throughput_us_p50": 0.862442006200664,
+        "throughput_us_p90": 0.8815149233712262,
+        "latency_us_p50": 0.9169999999999999,
+        "latency_us_p90": 1.0502,
+        "download_ms": 0.006292,
+        "allocation_upload_ms": 0.021625,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 10.074856120793283,
+      "valid": true,
+      "round": 3,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 32,
+        "n": 32,
+        "k": 32
+      },
+      "name": "gemm_32x32x32",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.004875,
+        "warmup_ms": 200.000833,
+        "repetitions": 44094,
+        "throughput_us": [
+          0.9053669433483014,
+          0.8710595545879258,
+          0.8750368530865877,
+          0.8704047035877898,
+          0.895339116433075,
+          0.8773189096022135,
+          0.872177416428539,
+          0.8795404816981902,
+          0.8713137388306799
+        ],
+        "latency_us": [
+          1.0839999999999999,
+          1.0,
+          0.959,
+          0.9169999999999999,
+          0.875,
+          0.9169999999999999,
+          0.9169999999999999,
+          0.916,
+          0.9169999999999999
+        ],
+        "throughput_us_p50": 0.8750368530865877,
+        "throughput_us_p90": 0.8973446818161203,
+        "latency_us_p50": 0.9169999999999999,
+        "latency_us_p90": 1.0168,
+        "download_ms": 0.006208,
+        "allocation_upload_ms": 0.013,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.006459,
+        "capture_ms": 0.055417,
+        "compile_ms": 290.048375,
+        "allocation_upload_ms": 0.003958,
+        "cold_call_ms": 0.206375,
+        "warmup_ms": 200.02775,
+        "download_ms": 0.002625,
+        "repetitions": 12307,
+        "output_elements": 1024,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          12.0256967579,
+          9.61519184204,
+          9.21444779394,
+          7.4586515804,
+          10.2217268221,
+          9.04402982043,
+          10.5368150646,
+          7.35109084261,
+          9.771231088
+        ],
+        "latency_us": [
+          5.584,
+          5.875,
+          4.916,
+          32.917,
+          129.458,
+          15.959,
+          12.542,
+          15.333,
+          6
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 9.61519184204,
+        "throughput_us_p90": 10.834591403260001,
+        "latency_us_p50": 12.542,
+        "latency_us_p90": 52.225200000000015
+      },
+      "slowdown": 10.988327872275963,
+      "valid": true,
+      "round": 3,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 128,
+        "n": 128,
+        "k": 128
+      },
+      "name": "gemm_128x128x128",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.003625,
+        "capture_ms": 0.051792,
+        "compile_ms": 234.028,
+        "allocation_upload_ms": 0.006333,
+        "cold_call_ms": 0.169792,
+        "warmup_ms": 200.142584,
+        "download_ms": 0.006417,
+        "repetitions": 1523,
+        "output_elements": 16384,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          65.7305758372,
+          83.7854011819,
+          90.9376231123,
+          69.6949553513,
+          85.7780420223,
+          92.5897353907,
+          76.1446979645,
+          81.8524294156,
+          86.6201575837
+        ],
+        "latency_us": [
+          205.166,
+          118.208,
+          196.417,
+          82.25,
+          77.459,
+          76.542,
+          84,
+          102.459,
+          58.041
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 83.7854011819,
+        "throughput_us_p90": 91.26804556798,
+        "latency_us_p50": 84.0,
+        "latency_us_p90": 198.1668
+      },
+      "torch": {
+        "cold_call_ms": 0.027375,
+        "warmup_ms": 200.11475,
+        "repetitions": 7558,
+        "throughput_us": [
+          4.883622122254565,
+          4.9365517332627675,
+          4.928194231278116,
+          4.876422333950781,
+          4.910960703889917,
+          4.915051468642498,
+          4.87566710770045,
+          4.907570256681662,
+          4.947169621593014
+        ],
+        "latency_us": [
+          4.957999999999999,
+          4.875,
+          4.957999999999999,
+          5.0,
+          5.3340000000000005,
+          5.083,
+          4.667,
+          4.75,
+          4.708
+        ],
+        "throughput_us_p50": 4.910960703889917,
+        "throughput_us_p90": 4.938675310928817,
+        "latency_us_p50": 4.957999999999999,
+        "latency_us_p90": 5.1332,
+        "download_ms": 0.006417,
+        "allocation_upload_ms": 0.020708,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 17.06089831171618,
+      "valid": true,
+      "round": 3,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 128,
+        "n": 128,
+        "k": 128
+      },
+      "name": "gemm_128x128x128",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.011667,
+        "warmup_ms": 200.012292,
+        "repetitions": 8136,
+        "throughput_us": [
+          4.894399336283185,
+          4.909906588003933,
+          4.910910398230088,
+          4.912441617502458,
+          4.914121435594887,
+          4.876838618485743,
+          4.94016814159292,
+          4.932829400196657,
+          5.116975049164209
+        ],
+        "latency_us": [
+          5.958,
+          4.75,
+          4.832999999999999,
+          4.792,
+          5.2909999999999995,
+          5.208,
+          5.333,
+          5.083,
+          4.75
+        ],
+        "throughput_us_p50": 4.912441617502458,
+        "throughput_us_p90": 4.975529523107178,
+        "latency_us_p50": 5.083,
+        "latency_us_p90": 5.458,
+        "download_ms": 0.00725,
+        "allocation_upload_ms": 0.013541,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.004875,
+        "capture_ms": 0.059375,
+        "compile_ms": 207.216458,
+        "allocation_upload_ms": 0.008333,
+        "cold_call_ms": 0.267833,
+        "warmup_ms": 200.033125,
+        "download_ms": 0.01225,
+        "repetitions": 1246,
+        "output_elements": 16384,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          81.6443619583,
+          73.0509967897,
+          56.9500401284,
+          59.7347512039,
+          62.3067479936,
+          94.6416869984,
+          80.6733547352,
+          73.1631219904,
+          69.3924558587
+        ],
+        "latency_us": [
+          25,
+          24.542,
+          24.792,
+          24.834,
+          24.791,
+          24.75,
+          24.75,
+          24.5,
+          24.833
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 73.0509967897,
+        "throughput_us_p90": 84.24382696632,
+        "latency_us_p50": 24.791,
+        "latency_us_p90": 24.8672
+      },
+      "slowdown": 14.870608645897752,
+      "valid": true,
+      "round": 3,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 512,
+        "n": 512,
+        "k": 512
+      },
+      "name": "gemm_512x512x512",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.003792,
+        "capture_ms": 0.054333,
+        "compile_ms": 205.731792,
+        "allocation_upload_ms": 0.105625,
+        "cold_call_ms": 2.302958,
+        "warmup_ms": 208.151584,
+        "download_ms": 0.096625,
+        "repetitions": 19,
+        "output_elements": 262144,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          1892.72147368,
+          2051.41010526,
+          1754.64036842,
+          2744.57015789,
+          2212.28731579,
+          2892.22589474,
+          3760.54384211,
+          3794.98026316,
+          1845.12721053
+        ],
+        "latency_us": [
+          1621.125,
+          1337.583,
+          1895.375,
+          2402.333,
+          2142.416,
+          1934.666,
+          1752.792,
+          1599.25,
+          1490.417
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 2212.28731579,
+        "throughput_us_p90": 3767.4311263199997,
+        "latency_us_p50": 1752.792,
+        "latency_us_p90": 2194.3994000000002
+      },
+      "torch": {
+        "cold_call_ms": 0.294833,
+        "warmup_ms": 200.734291,
+        "repetitions": 267,
+        "throughput_us": [
+          153.8592397003745,
+          149.1566779026217,
+          148.72534456928838,
+          146.37593632958803,
+          149.6573033707865,
+          158.36017602996256,
+          146.6711947565543,
+          147.52980898876405,
+          153.8987191011236
+        ],
+        "latency_us": [
+          148.875,
+          168.542,
+          152.625,
+          194.0,
+          152.292,
+          132.458,
+          148.209,
+          137.542,
+          146.792
+        ],
+        "throughput_us_p50": 149.1566779026217,
+        "throughput_us_p90": 154.7910104868914,
+        "latency_us_p50": 148.875,
+        "latency_us_p90": 173.6336,
+        "download_ms": 0.006375,
+        "allocation_upload_ms": 0.032292,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 14.831969623474128,
+      "valid": true,
+      "round": 3,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 512,
+        "n": 512,
+        "k": 512
+      },
+      "name": "gemm_512x512x512",
+      "backend": "cpu",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.370167,
+        "warmup_ms": 200.274083,
+        "repetitions": 263,
+        "throughput_us": [
+          149.6080494296578,
+          141.85836501901142,
+          156.159855513308,
+          146.4801977186312,
+          152.72560456273766,
+          157.8534524714829,
+          151.08317490494298,
+          153.69882889733842,
+          150.4957224334601
+        ],
+        "latency_us": [
+          137.667,
+          193.0,
+          141.375,
+          166.375,
+          141.66699999999997,
+          148.916,
+          140.792,
+          149.083,
+          143.375
+        ],
+        "throughput_us_p50": 151.08317490494298,
+        "throughput_us_p90": 156.49857490494298,
+        "latency_us_p50": 143.375,
+        "latency_us_p90": 171.70000000000002,
+        "download_ms": 0.00575,
+        "allocation_upload_ms": 0.035,
+        "device": "cpu",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "cpu",
+        "operation": "gemm",
+        "execution_scope": "worker",
+        "pipeline_window": 2,
+        "cooperative_matrix": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 0,
+        "runtime_init_ms": 0.013334,
+        "capture_ms": 0.076834,
+        "compile_ms": 232.539791,
+        "allocation_upload_ms": 0.214667,
+        "cold_call_ms": 2.096667,
+        "warmup_ms": 213.130166,
+        "download_ms": 0.197959,
+        "repetitions": 19,
+        "output_elements": 262144,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          2490.32457895,
+          2899.63157895,
+          2533.57673684,
+          2454,
+          2298.13594737,
+          3552.27410526,
+          2002.95173684,
+          3057.01531579,
+          3012.03726316
+        ],
+        "latency_us": [
+          1204.25,
+          1760.375,
+          2136.625,
+          3165.208,
+          1977.542,
+          2398.667,
+          1404.625,
+          2054.708,
+          2364.417
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 2533.57673684,
+        "throughput_us_p90": 3156.067073684,
+        "latency_us_p50": 2054.708,
+        "latency_us_p90": 2551.9752
+      },
+      "slowdown": 16.76941683568704,
+      "valid": true,
+      "round": 3,
+      "variant": "reference"
+    }
+  ]
+}

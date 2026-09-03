@@ -5,6 +5,10 @@ performance threshold. It compares FP32 GEMM, add, row sum, and softmax on CPU
 and actual Metal / PyTorch MPS. GEMM includes small/large squares, tall/wide
 matrices, and non-multiple tail sizes; reductions vary both row count and width.
 
+Latest M1 Max evidence: [Staged/JIT and four-round comparisons](results/m1-max-20260903-jit.md)
+and [actual PyTorch dispatch / Xcode profiling](results/m1-max-20260903-profile.md).
+The reports include unsuccessful tuning choices and remaining library gaps.
+
 First configure TVMx support as described in the Tile design document, and
 complete the full build and correctness tests. The driver never builds or
 changes the build configuration:
