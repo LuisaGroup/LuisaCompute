@@ -151,7 +151,8 @@ def tuning_candidates(block: tuple[int, int, int], window: int, blocks: str | No
 def validate_native_metadata(native: dict[str, Any], case: Case, backend: str, execution_scope: str,
                              pipeline_window: int = 2, cooperative_matrix: bool = False,
                              gemm_block: tuple[int, int, int] = (8, 8, 16), vectorize: bool = True,
-                             auto_vectorize: bool = False, group_threads: int = 0) -> None:
+                             auto_vectorize: bool = False, group_threads: int = 0,
+                             copy_batch: int = 1) -> None:
     if native.get("backend") != backend or native.get("operation") != case.operation:
         raise RuntimeError("native backend/operation metadata does not match the request")
     if native.get("execution_scope") != execution_scope:
@@ -173,6 +174,13 @@ def validate_native_metadata(native: dict[str, Any], case: Case, backend: str, e
         plans = native.get("execution_plans")
         if not isinstance(plans, list) or not plans or any(p.get("threads") != group_threads for p in plans):
             raise RuntimeError("native realized group threads do not match the exact constraint")
+    reported_copy_batch = native.get("copy_batch", 1)
+    if type(reported_copy_batch) is not int or reported_copy_batch != copy_batch:
+        raise RuntimeError("native copy-batch policy does not match the request")
+    if copy_batch != 1:
+        plans = native.get("execution_plans")
+        if not isinstance(plans, list) or not plans or any(p.get("max_copy_batch") != copy_batch for p in plans):
+            raise RuntimeError("native copy-batch plan does not match the requested limit")
     calls = native.get("matrix_intrinsics")
     if type(calls) is not int or calls < 0:
         raise RuntimeError("native matrix-intrinsic count must be a nonnegative integer")
@@ -210,10 +218,13 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
                        args.execution_scope, str(args.pipeline_window), "matrix" if args.cooperative_matrix else "scalar",
                        "auto-vectorize" if args.auto_vectorize else "no-vectorize" if args.no_vectorize else "vectorize"]
             group_threads = getattr(args, "group_threads", 0)
+            copy_batch = getattr(args, "copy_batch", 1)
             # Preserve compatibility with frozen binaries predating this
             # optional constraint. They receive no new positional argument.
-            if group_threads:
-                command.append(str(group_threads))
+            if group_threads or copy_batch != 1:
+                command.append(str(group_threads) if group_threads else "auto")
+            if copy_batch != 1:
+                command.append(str(copy_batch))
             process = subprocess.run(command, capture_output=True, text=True, check=False, timeout=args.timeout)
             if process.returncode:
                 raise RuntimeError(f"native benchmark failed ({process.returncode}):\n{process.stderr}\n{process.stdout}")
@@ -222,7 +233,7 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
                 raise RuntimeError("native executable did not emit exactly one JSON result")
             native = json.loads(lines[0])
             validate_native_metadata(native, case, backend, args.execution_scope, args.pipeline_window,
-                                     args.cooperative_matrix, args.gemm_block, not args.no_vectorize, args.auto_vectorize, group_threads)
+                                     args.cooperative_matrix, args.gemm_block, not args.no_vectorize, args.auto_vectorize, group_threads, copy_batch)
             array = np.fromfile(output, dtype="<f4")
             if array.size != reference.numel():
                 raise RuntimeError("native output byte count is incorrect")
@@ -381,6 +392,8 @@ def main() -> int:
     parser.add_argument("--threads", type=int, default=8)
     parser.add_argument("--group-threads", type=int, default=0,
                         help="exact Metal group worker count; 0 lets the compiler planner choose (not CPU threads)")
+    parser.add_argument("--copy-batch", type=int, default=1,
+                        help="maximum in-flight values per Metal cooperative copy; 1 preserves scalar load/store order")
     parser.add_argument("--samples", type=int, default=9)
     parser.add_argument("--sample-ms", type=int, default=20)
     parser.add_argument("--warmup-ms", type=int, default=150)
@@ -402,6 +415,8 @@ def main() -> int:
         parser.error("backends must be cpu and/or metal")
     if not 0 <= args.group_threads <= 0xffffffff or (args.group_threads and (backends != ["metal"] or args.execution_scope != "group")):
         parser.error("group threads must be uint32; an explicit count requires only Metal group execution")
+    if not 1 <= args.copy_batch <= 16 or (args.copy_batch != 1 and (backends != ["metal"] or args.execution_scope != "group")):
+        parser.error("copy batch must be in [1,16]; batching requires only Metal group execution")
     for key in ("TVM_NUM_THREADS", "OMP_NUM_THREADS", "VECLIB_MAXIMUM_THREADS"):
         os.environ[key] = str(args.threads)
     # Set the environment before either framework initializes a thread pool.
@@ -437,6 +452,7 @@ def main() -> int:
         "vectorize": not args.no_vectorize,
         "auto_vectorize": args.auto_vectorize,
         "group_threads": args.group_threads,
+        "copy_batch": args.copy_batch,
         "gemm_tuning_candidates": [{"block": block, "pipeline_window": window} for block, window in args.tuning_candidates],
         "quick": args.quick, "timing": "synchronized device-resident host wall time including dispatch",
     }, "results": []}

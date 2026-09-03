@@ -48,6 +48,19 @@ class RepeatContractTests(unittest.TestCase):
         self.assertEqual(config["pipeline_window"], 1)
         self.assertNotIn("throughput_us_p50", config)
         self.assertEqual(config["group_threads"], 0)
+        self.assertEqual(config["copy_batch"], 1)
+
+    def test_replay_preserves_copy_batch_policy(self):
+        row = self.row()
+        row["native"]["copy_batch"] = 4
+        with patch.object(Path, "read_text", return_value=json.dumps({"results": [row]})):
+            config = REPEAT.load_plan(Path("unused.json"), {"gemm"})["metal", "gemm_17x19x13"]
+        self.assertEqual(config["copy_batch"], 4)
+        for invalid in (True, 0, 17, None):
+            row["native"]["copy_batch"] = invalid
+            with patch.object(Path, "read_text", return_value=json.dumps({"results": [row]})):
+                with self.assertRaisesRegex(ValueError, "copy-batch"):
+                    REPEAT.load_plan(Path("unused.json"), {"gemm"})
 
     def test_replay_preserves_exact_group_thread_constraint(self):
         row = self.row()
@@ -139,6 +152,19 @@ class BenchmarkContractTests(unittest.TestCase):
             for plans in ([], None, [{"threads": threads + 1}]):
                 with self.assertRaisesRegex(RuntimeError, "realized group threads"):
                     MODULE.validate_native_metadata(native | {"execution_plans": plans}, case, "metal", "group", **arguments)
+
+    def test_copy_batch_request_and_plan_are_both_checked(self):
+        case = MODULE.Case("gemm", 17, 19, 13)
+        native = dict(backend="metal", operation="gemm", execution_scope="group", pipeline_window=2,
+                      cooperative_matrix=False, matrix_intrinsics=0, mma_operations=1,
+                      vectorize=True, auto_vectorize=False, copy_batch=4, execution_plans=[{"max_copy_batch": 4}])
+        MODULE.validate_native_metadata(native, case, "metal", "group", copy_batch=4)
+        for policy in (True, 1, None):
+            with self.assertRaisesRegex(RuntimeError, "copy-batch policy"):
+                MODULE.validate_native_metadata(native | {"copy_batch": policy}, case, "metal", "group", copy_batch=4)
+        for plans in ([], None, [{"max_copy_batch": 1}]):
+            with self.assertRaisesRegex(RuntimeError, "copy-batch plan"):
+                MODULE.validate_native_metadata(native | {"execution_plans": plans}, case, "metal", "group", copy_batch=4)
 
     def test_matrix_capability_is_not_confused_with_emitted_instructions(self):
         case = MODULE.Case("gemm", 7, 17, 37)

@@ -75,6 +75,8 @@ void print_plans(luisa::span<const bridge::tirx::GroupPlan> plans) {
                   << ",\"optimized\":" << (plan.optimized ? "true" : "false")
                   << ",\"candidates_considered\":" << plan.candidates_considered
                   << ",\"candidates_rejected\":" << plan.candidates_rejected
+                  << ",\"max_copy_batch\":" << plan.max_copy_batch
+                  << ",\"batched_copy_operations\":" << plan.batched_copy_operations
                   << ",\"normalized_cost\":" << plan.cost.score
                   << ",\"matrix_issues\":" << plan.cost.matrix_issues
                   << ",\"shared_fragment_transfers\":" << plan.cost.shared_fragment_transfers
@@ -220,8 +222,8 @@ void print_samples(std::string_view name, const std::vector<double> &samples) {
 }// namespace
 
 int main(int argc, char *argv[]) {
-    if (argc < 13 || argc > 18) {
-        std::cerr << "Usage: benchmark_tile_tirx <cpu|metal> <gemm|add|sum|softmax> M N K BM BN BK samples sample-ms warmup-ms output.f32 [auto|worker|group] [pipeline-window:1|2] [scalar|matrix] [vectorize|no-vectorize|auto-vectorize] [group-threads:auto|N]\n";
+    if (argc < 13 || argc > 19) {
+        std::cerr << "Usage: benchmark_tile_tirx <cpu|metal> <gemm|add|sum|softmax> M N K BM BN BK samples sample-ms warmup-ms output.f32 [auto|worker|group] [pipeline-window:1|2] [scalar|matrix] [vectorize|no-vectorize|auto-vectorize] [group-threads:auto|N] [copy-batch:1..16]\n";
         return 1;
     }
     try {
@@ -242,12 +244,19 @@ int main(int argc, char *argv[]) {
         auto vectorize = vector_mode != "no-vectorize";
         auto auto_vectorize = vector_mode == "auto-vectorize";
         bridge::tirx::PlannerOptions planner;
-        if (argc == 18 && std::string_view{argv[17]} != "auto") {
+        if (argc >= 18 && std::string_view{argv[17]} != "auto") {
             auto requested = positive_integer(argv[17]);
             if (requested > std::numeric_limits<uint32_t>::max() || backend != "metal" || cfg.execution_scope != exec::Scope::GROUP) {
                 throw std::invalid_argument{"explicit group threads require a uint32 count and Metal group execution"};
             }
             planner.threads_per_group = static_cast<uint32_t>(requested);
+        }
+        if (argc == 19) {
+            auto requested = positive_integer(argv[18]);
+            if (requested > 16u || backend != "metal" || cfg.execution_scope != exec::Scope::GROUP) {
+                throw std::invalid_argument{"copy batching requires a value in [1,16] and Metal group execution"};
+            }
+            planner.max_copy_batch = static_cast<uint32_t>(requested);
         }
         auto sample_count = positive_integer(argv[9]);
         auto target_ms = positive_integer(argv[10]);
@@ -320,6 +329,7 @@ int main(int argc, char *argv[]) {
                   << ",\"vectorize\":" << (vectorize ? "true" : "false")
                   << ",\"auto_vectorize\":" << (auto_vectorize ? "true" : "false")
                   << ",\"planner_threads\":" << planner.threads_per_group
+                  << ",\"copy_batch\":" << planner.max_copy_batch
                   << ",\"matrix_intrinsics\":" << matrix_calls
                   << ",\"runtime_init_ms\":" << runtime_init_ms << ",\"capture_ms\":" << capture_ms
                   << ",\"compile_ms\":" << compile_ms << ",\"allocation_upload_ms\":" << allocation_upload_ms

@@ -154,6 +154,19 @@ void test_constraints_and_reference() {
     expect(plan_group(work, limits, one_width).ok());
     one_width.max_thread_candidates = 0u;
     expect(!plan_group(work, limits, one_width).ok());
+    one_width.max_thread_candidates = 32u;
+    one_width.max_copy_batch = 0u;
+    expect(!plan_group(work, limits, one_width).ok());
+    one_width.max_copy_batch = 17u;
+    expect(!plan_group(work, limits, one_width).ok());
+    one_width.max_copy_batch = 4u;
+    auto batched = plan_group(work, limits, one_width);
+    expect(batched.ok());
+    expect(eq(batched.plan.max_copy_batch, 4u));
+    one_width.enabled = false;
+    auto unbatched = plan_group(work, limits, one_width);
+    expect(unbatched.ok());
+    expect(eq(unbatched.plan.max_copy_batch, 1u));
 
     expect(!verify_matrix_distribution(work.matrices[0], {1u, 4u, 4u, 3u}, 128u, 32u));
     expect(!verify_matrix_distribution(work.matrices[0], {0u, 4u, 1u, 1u}, 128u, 32u));

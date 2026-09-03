@@ -304,6 +304,72 @@ void test_softmax(Runtime &runtime) {
     }
 }
 
+void test_batched_copies(Runtime &runtime) {
+    for (auto columns : {1, 7, 37, 129, 257, 1003}) {
+        constexpr auto groups = 3;
+        constexpr auto input_rows = groups * 3 - 1;
+        auto input_columns = std::max(1, columns - 4);
+        auto scope = root_scope(runtime);
+        auto definition = tile_kernel("cooperative_copy_batches", [=](TensorView<const float, 2> input,
+                                                                      TensorView<float, 2> output) {
+            auto m = axis("m", 3);
+            auto n = axis("n", columns);
+            for (auto &group : parallel(shape(groups), scope)) {
+                // Both ends need bounded loads. A batched full worker chunk
+                // is not permission to speculate invalid global accesses.
+                auto x = input.tile(coord(group.index() * 3 - 1, -2), shape(m, n), bounds::zero).load();
+                auto y = map<float>(shape(m, n), [&](const Nest &element) {
+                    return x.at(coord(2 - element.index(m), columns - 1 - element.index(n))) * 2.0f + 1.0f;
+                });
+                output(coord(group.index() * 3, 0), shape(m, n)).store(y);
+            }
+        });
+        auto kernel = definition.capture(tensor_shape(input_rows, input_columns), tensor_shape(groups * 3, columns));
+        auto input = values(input_rows * input_columns);
+        auto source = runtime.upload<float>({input_rows, input_columns}, input);
+        auto output = runtime.allocate<float>({groups * 3, columns});
+        luisa::vector<float> expected(groups * 3 * columns);
+        for (auto group = 0; group < groups; group++) {
+            for (auto row = 0; row < 3; row++) {
+                for (auto column = 0; column < columns; column++) {
+                    auto source_row = group * 3 + 1 - row;
+                    auto source_column = columns - 3 - column;
+                    auto value = source_row >= 0 && source_row < input_rows && source_column >= 0 && source_column < input_columns ?
+                                     input[source_row * input_columns + source_column] :
+                                     0.0f;
+                    expected[(group * 3 + row) * columns + column] = value * 2.0f + 1.0f;
+                }
+            }
+        }
+        for (auto threads : {32u, 48u, 256u}) {
+            for (auto batch : {1u, 4u, 16u}) {
+                if (runtime.target() != "metal" && (threads != 32u || batch != 1u)) { continue; }
+                luisa::compute::tile::bridge::tirx::PlannerOptions options;
+                options.threads_per_group = runtime.target() == "metal" ? threads : 0u;
+                options.max_copy_batch = batch;
+                auto executable = runtime.build(kernel, true, false, true, false, options);
+                expect(executable.ok()) << executable.error;
+                if (!executable.ok()) { continue; }
+                if (runtime.target() == "metal") {
+                    expect(eq(executable.plans.size(), size_t{1u}));
+                    if (!executable.plans.empty()) {
+                        auto batches_expected = batch > 1u && static_cast<uint32_t>(columns * 3) >= threads * 2u;
+                        expect(eq(executable.plans[0].max_copy_batch, batch));
+                        expect((executable.plans[0].batched_copy_operations != 0u) == batches_expected);
+                        if (batches_expected) {
+                            auto native = metal_source(executable.module.value());
+                            auto code = std::string_view{native.data(), native.size()};
+                            expect(code.find("_copy_value_") != std::string_view::npos);
+                        }
+                    }
+                }
+                (*executable.entry)(source, output);
+                expect_near(runtime.download<float>(output, expected.size()), expected);
+            }
+        }
+    }
+}
+
 void test_gemm(Runtime &runtime) {
     for (auto size : {1, 7, 17, 37}) {
         auto rows = size;
@@ -360,6 +426,7 @@ int main(int argc, char *argv[]) {
                                                     const_cast<const char **>(argc > 1 ? argv + 1 : argv));
     "tile_cooperative_shared_resources_and_global_order"_test = [&] { test_shared_tiles_and_global_order(runtime); };
     "tile_cooperative_softmax"_test = [&] { test_softmax(runtime); };
+    "tile_cooperative_batched_copies_and_guarded_tails"_test = [&] { test_batched_copies(runtime); };
     "tile_cooperative_gemm"_test = [&] { test_gemm(runtime); };
     "tile_cooperative_resource_capacity"_test = [&] { test_resource_capacity(runtime); };
     "tile_cooperative_host_local_capture"_test = [&] { test_host_local_capture_rejected(runtime); };

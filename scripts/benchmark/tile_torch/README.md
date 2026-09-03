@@ -5,7 +5,8 @@ performance threshold. It compares FP32 GEMM, add, row sum, and softmax on CPU
 and actual Metal / PyTorch MPS. GEMM includes small/large squares, tall/wide
 matrices, and non-multiple tail sizes; reductions vary both row count and width.
 
-Latest M1 Max evidence: [execution planner, cost-model errors, and controlled comparisons](results/m1-max-20260903-planner.md),
+Latest M1 Max evidence: [larger tiles and controlled cooperative-copy batching](results/m1-max-20260903-copy-plan.md),
+[execution planner, cost-model errors, and controlled comparisons](results/m1-max-20260903-planner.md),
 [Staged/JIT and four-round comparisons](results/m1-max-20260903-jit.md),
 and [actual PyTorch dispatch / Xcode profiling](results/m1-max-20260903-profile.md).
 The reports include unsuccessful tuning choices and remaining library gaps.
@@ -81,6 +82,16 @@ both the requested constraint and the realized `execution_plans`; the driver
 checks their agreement. Repeated comparisons preserve the constraint. An
 unsupported count fails rather than being silently clamped. The prior
 reference worker launch width of 256 is not a hardware limit on group plans.
+
+`--copy-batch 4` opts into up to four independent reads/computed values before
+their shared-memory stores. The default, one, preserves the reference sequence.
+This needs Metal group execution and is independent of the matrix capability.
+Only supported compiler-owned shared destinations are transformed; external
+writes and opaque effects retain their original lowering. Full worker chunks
+are batched, while bounded accesses and the remainder remain guarded. There
+is no async-copy, vector-alignment, or barrier-elision assumption. Native JSON
+records `max_copy_batch` and `batched_copy_operations` per group; replay checks
+and preserves the policy. The matrix score does not yet rank copy-batch sizes.
 
 Use `--pipeline-window 1` and `--pipeline-window 2` for a same-binary GEMM
 schedule comparison. Each ordinary host configuration captures/JITs a fresh

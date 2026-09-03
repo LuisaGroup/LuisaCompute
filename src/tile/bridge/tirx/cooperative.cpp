@@ -246,7 +246,7 @@ private:
     uint32_t _lane_depth{0u};
     bool _cooperative_matrix;
     const MatrixPlanIndices &_matrix_indices;
-    const GroupPlan &_plan;
+    GroupPlan &_plan;
     const AccumulatorLoops &_accumulators;
     const AccumulatorLoop *_active_accumulator{nullptr};
     MatrixLoopEmission *_loop_emission{nullptr};
@@ -255,6 +255,41 @@ private:
 private:
     [[nodiscard]] tvm::tirx::Stmt _synchronize(tvm::tirx::Stmt statement) const {
         return tvm::tirx::SeqStmt::Flatten(tvm::ffi::Array<tvm::tirx::Stmt>{std::move(statement), metal_group_barrier()});
+    }
+
+    [[nodiscard]] bool _can_batch_copy(const tvm::tirx::Stmt &body) const {
+        auto store = body.as<tvm::tirx::BufferStoreNode>();
+        // Restrict this realization to compiler-owned shared destinations.
+        // External writes, opaque effects, and conditional stores keep the
+        // reference sequence. The surrounding element domain already carries
+        // its semantic independence contract.
+        if (store == nullptr || store->predicate || store->buffer.scope() != "shared") { return false; }
+        auto owned = std::any_of(_buffers.begin(), _buffers.end(), [&](auto &&entry) {
+            return entry.second.same_as(store->buffer);
+        });
+        if (!owned) { return false; }
+        auto loads = 0u;
+        auto compatible = true;
+        tvm::tirx::PostOrderVisit(store->value, [&](const tvm::ffi::ObjectRef &node) {
+            if (auto load = node.as<tvm::tirx::BufferLoadNode>()) {
+                // Copies from another compiler buffer or external input are
+                // allowed, but not a read/modify/write of this destination.
+                compatible &= !load->buffer.same_as(store->buffer);
+                loads++;
+            }
+            if (auto call = node.as<tvm::CallNode>()) {
+                // Keep short-circuit bounded loads intact. Do not batch atomics,
+                // clocks, opaque reads, or other effectful calls merely because
+                // they occur in the value of a store.
+                compatible &= call->op.same_as(tvm::tirx::builtin::if_then_else());
+            }
+        });
+        for (auto &&index : store->indices) {
+            tvm::tirx::PostOrderVisit(index, [&](const tvm::ffi::ObjectRef &node) {
+                compatible &= node.as<tvm::tirx::BufferLoadNode>() == nullptr && node.as<tvm::CallNode>() == nullptr;
+            });
+        }
+        return compatible && loads != 0u;
     }
 
     [[nodiscard]] tvm::tirx::Stmt _distribute(const tvm::tirx::ForNode *loop) {
@@ -266,28 +301,53 @@ private:
         if (count == 0u) { return tvm::tirx::Evaluate{tvm::IntImm::Int32(0)}; }
         auto chunks = (count + _threads - 1u) / _threads;
         auto chunk = tvm::tirx::PrimVar{loop->loop_var->name + "_chunk", tvm::PrimType::Int(64)};
-        auto linear = chunk * tvm::IntImm::Int64(static_cast<int64_t>(_threads)) + _thread;
-        tvm::ffi::Map<tvm::tirx::Var, tvm::Expr> coordinates;
-        auto trailing = count;
-        for (auto axis : domain.axes) {
-            auto extent = static_extent(axis->extent);
-            trailing /= extent;
-            tvm::PrimExpr coordinate = linear;
-            if (domain.axes.size() != 1u) {
-                coordinate = tvm::floormod(tvm::floordiv(std::move(coordinate), tvm::IntImm::Int64(static_cast<int64_t>(trailing))), axis->extent);
+        auto element = [&](tvm::PrimExpr ordinal, bool guard) {
+            auto linear = ordinal * tvm::IntImm::Int64(static_cast<int64_t>(_threads)) + _thread;
+            tvm::ffi::Map<tvm::tirx::Var, tvm::Expr> coordinates;
+            auto trailing = count;
+            for (auto axis : domain.axes) {
+                auto extent = static_extent(axis->extent);
+                trailing /= extent;
+                tvm::PrimExpr coordinate = linear;
+                if (domain.axes.size() != 1u) {
+                    coordinate = tvm::floormod(tvm::floordiv(std::move(coordinate), tvm::IntImm::Int64(static_cast<int64_t>(trailing))), axis->extent);
+                }
+                coordinates.Set(axis->loop_var, axis->min + coordinate);
             }
-            coordinates.Set(axis->loop_var, axis->min + coordinate);
+            auto result = tvm::tirx::Substitute(body, coordinates);
+            if (guard) { result = tvm::tirx::IfThenElse{linear < tvm::IntImm::Int64(static_cast<int64_t>(count)), std::move(result)}; }
+            return result;
+        };
+        tvm::ffi::Array<tvm::tirx::Stmt> distributed;
+        auto consumed = uint64_t{0u};
+        auto batch = std::min<uint64_t>(_plan.max_copy_batch, count / _threads);
+        if (batch > 1u && _can_batch_copy(body)) {
+            auto batches = count / _threads / batch;
+            tvm::ffi::Array<tvm::tirx::Stmt> reads, writes;
+            for (auto i = uint64_t{0u}; i < batch; i++) {
+                auto copy = element(chunk * tvm::IntImm::Int64(static_cast<int64_t>(batch)) + tvm::IntImm::Int64(static_cast<int64_t>(i)), false)
+                                .as_or_throw<tvm::tirx::BufferStore>();
+                auto value = tvm::tirx::PrimVar{loop->loop_var->name + "_copy_value_" + std::to_string(i), copy->value.ty()};
+                reads.push_back(tvm::tirx::Bind{value, copy->value});
+                writes.push_back(tvm::tirx::BufferStore{copy->buffer, value, copy->indices, std::nullopt, copy->span});
+            }
+            for (auto &&write : writes) { reads.push_back(write); }
+            distributed.push_back(tvm::tirx::For{chunk, tvm::IntImm::Int64(0), tvm::IntImm::Int64(static_cast<int64_t>(batches)),
+                                                 tvm::tirx::ForKind::kSerial, tvm::tirx::SeqStmt::Flatten(reads)});
+            consumed = batches * batch;
+            _plan.batched_copy_operations++;
         }
-        body = tvm::tirx::Substitute(std::move(body), coordinates);
-        if (chunks * _threads != count) {
-            body = tvm::tirx::IfThenElse{linear < tvm::IntImm::Int64(static_cast<int64_t>(count)), std::move(body)};
+        // Only complete worker chunks were batched. Remainders retain the
+        // original load predicate and domain guard, so no inactive worker
+        // speculates an out-of-bounds read just to fill a batch.
+        if (consumed != chunks) {
+            distributed.push_back(tvm::tirx::For{chunk, tvm::IntImm::Int64(static_cast<int64_t>(consumed)),
+                                                 tvm::IntImm::Int64(static_cast<int64_t>(chunks - consumed)),
+                                                 tvm::tirx::ForKind::kSerial, element(chunk, chunks * _threads != count)});
         }
-        auto distributed = tvm::tirx::For{
-            chunk, tvm::IntImm::Int64(0), tvm::IntImm::Int64(static_cast<int64_t>(chunks)),
-            tvm::tirx::ForKind::kSerial, std::move(body)};
         // A barrier is outside the tail predicate: inactive workers still
         // participate, and the next operation may read any produced element.
-        return _synchronize(std::move(distributed));
+        return _synchronize(tvm::tirx::SeqStmt::Flatten(distributed));
     }
 
     [[nodiscard]] tvm::ffi::Optional<tvm::PrimExpr> _predicate(const tvm::ffi::Optional<tvm::PrimExpr> &value) {
@@ -434,7 +494,7 @@ protected:
 
 public:
     CooperativeGroupMapper(tvm::tirx::PrimVar thread, uint64_t threads, uint64_t shared_memory_limit, bool cooperative_matrix,
-                           const MatrixPlanIndices &matrix_indices, const GroupPlan &plan, const AccumulatorLoops &accumulators)
+                           const MatrixPlanIndices &matrix_indices, GroupPlan &plan, const AccumulatorLoops &accumulators)
         : _thread{std::move(thread)}, _threads{threads}, _shared_memory_limit{shared_memory_limit}, _cooperative_matrix{cooperative_matrix},
           _matrix_indices{matrix_indices}, _plan{plan}, _accumulators{accumulators} {}
 

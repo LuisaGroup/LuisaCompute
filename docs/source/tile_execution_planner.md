@@ -366,6 +366,28 @@ but more live per-subgroup state. A model must eventually price both using
 target evidence. Counting static matrix call sites in generated source is not
 counting dynamic instruction work.
 
+### Cooperative copy batching
+
+`PlannerOptions::max_copy_batch` optionally groups up to 16 independent values
+per worker: emit their reads/computation into native TIRx bindings, then their
+stores. One is the default reference sequence. This is an instruction-level
+parallelism option, not an asynchronous transfer or a vector-alignment claim.
+It does not change the worker-to-element map, move a stage, or remove a fence.
+
+The emitter only batches independent domains writing a compiler-owned shared
+temporary, with no destination read/modify/write, conditional store, or opaque
+effect. Short-circuit bounded loads retain their predicates. Only full worker
+chunks are batched; the remainder uses the original guarded path. Reports
+include the requested maximum and the number of actually batched operations.
+The benchmark/replay driver preserves the option as `--copy-batch N`.
+
+This choice is currently explicit, not included in the matrix model's search
+or calibrated score. Four-round same-binary measurements at 64x64x32 tiles show
+substantial improvements on two ragged GEMMs, but essentially no improvement
+on 512-cubed or 1024-cubed. No universal speedup or default change follows from
+those observations. The [copy-plan report](../../scripts/benchmark/tile_torch/results/m1-max-20260903-copy-plan.md)
+keeps all shapes, timing distributions, and correctness checks.
+
 ## 6. Implemented solver: enumeration plus Pareto dynamic programming
 
 For the currently small target thread bound, enumerate every complete-subgroup

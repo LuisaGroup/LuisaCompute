@@ -33,6 +33,10 @@ struct PlannerOptions {
     // search would exceed this many widths, require a larger budget or an exact
     // thread count instead of silently truncating the supposedly exact search.
     uint32_t max_thread_candidates{32u};
+    // Maximum independent values loaded before their stores in a cooperative
+    // copy. One retains the scalar load/store sequence; no async engine or
+    // vector-alignment promise is implied. The emitter checks each domain.
+    uint32_t max_copy_batch{1u};
     ExecutionCostModel cost;
 };
 
@@ -86,6 +90,8 @@ struct GroupPlan {
     uint64_t shared_memory_bytes{0u};
     uint64_t candidates_considered{0u};
     uint64_t candidates_rejected{0u};
+    uint32_t max_copy_batch{1u};
+    uint64_t batched_copy_operations{0u};
     luisa::vector<MatrixDistribution> matrices;
     PlanCost cost;
     bool optimized{false};

@@ -50,7 +50,8 @@ namespace {
         if (!std::isfinite(coefficient) || coefficient < 0.0) { return false; }
     }
     return cost.preferred_subgroups != 0u && cost.preferred_fragment_scalars_per_lane != 0u &&
-           options.max_fragment_scalars_per_lane >= 6u && options.max_thread_candidates != 0u;
+           options.max_fragment_scalars_per_lane >= 6u && options.max_thread_candidates != 0u &&
+           options.max_copy_batch != 0u && options.max_copy_batch <= 16u;
 }
 
 struct Alternative {
@@ -114,6 +115,7 @@ PlanningResult plan_group(const GroupWorkload &workload, const ExecutionLimits &
         }
     }
     plan.shared_memory_bytes = workload.shared_memory_bytes;
+    plan.max_copy_batch = options.enabled ? options.max_copy_batch : 1u;
     auto reference_threads = std::min<uint64_t>(std::max<uint64_t>(1u, workload.max_independent_elements), limits.max_threads);
     if (!workload.matrices.empty() && limits.max_threads >= limits.subgroup_size) {
         reference_threads = std::min<uint64_t>((reference_threads + limits.subgroup_size - 1u) / limits.subgroup_size,

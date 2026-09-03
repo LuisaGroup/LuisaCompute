@@ -39,6 +39,9 @@ def load_plan(path: Path, operations: set[str]) -> dict[tuple[str, str], dict[st
         group_threads = native.get("planner_threads", 0)
         if type(group_threads) is not int or not 0 <= group_threads <= 0xffffffff:
             raise ValueError(f"{case.name} has an invalid group-thread constraint")
+        copy_batch = native.get("copy_batch", 1)
+        if type(copy_batch) is not int or not 1 <= copy_batch <= 16:
+            raise ValueError(f"{case.name} has an invalid copy-batch policy")
         key = row["backend"], case.name
         if key in plan:
             raise ValueError(f"duplicate case {key}")
@@ -50,6 +53,7 @@ def load_plan(path: Path, operations: set[str]) -> dict[tuple[str, str], dict[st
             "no_vectorize": not native["vectorize"],
             "auto_vectorize": native["auto_vectorize"],
             "group_threads": group_threads,
+            "copy_batch": copy_batch,
         }
     if not plan:
         raise ValueError("the report contains no requested cases")
