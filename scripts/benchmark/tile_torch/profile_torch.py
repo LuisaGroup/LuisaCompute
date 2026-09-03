@@ -27,7 +27,7 @@ def main() -> int:
     parser.add_argument("--batch", type=int, default=32)
     parser.add_argument("--mps-path", choices=("default", "metal"), default="default")
     parser.add_argument("--signposts", action="store_true")
-    parser.add_argument("--metal-capture", type=Path)
+    parser.add_argument("--capture-dir", type=Path, help="new directory for a warmed Metal capture")
     args = parser.parse_args()
     try:
         m, n, k = (int(v) for v in args.shape.split(","))
@@ -35,9 +35,9 @@ def main() -> int:
         parser.error("shape must be M,N,K")
     if not math.isfinite(args.seconds) or min(m, n, k, args.seconds, args.threads, args.batch) <= 0:
         parser.error("shape, duration, threads, and batch must be positive")
-    if args.backend != "metal" and (args.signposts or args.metal_capture or args.mps_path != "default"):
+    if args.backend != "metal" and (args.signposts or args.capture_dir or args.mps_path != "default"):
         parser.error("MPS profiling options require --backend metal")
-    if args.metal_capture and args.metal_capture.exists():
+    if args.capture_dir and args.capture_dir.exists():
         parser.error("Metal capture path already exists")
     for key in ("TVM_NUM_THREADS", "OMP_NUM_THREADS", "VECLIB_MAXIMUM_THREADS"):
         os.environ[key] = str(args.threads)
@@ -46,7 +46,7 @@ def main() -> int:
     os.environ.pop("PYTORCH_MPS_PREFER_METAL", None)
     if args.mps_path == "metal":
         os.environ["PYTORCH_MPS_PREFER_METAL"] = "1"
-    if args.metal_capture:
+    if args.capture_dir:
         os.environ["MTL_CAPTURE_ENABLED"] = "1"
 
     import torch
@@ -70,10 +70,19 @@ def main() -> int:
             torch.mm(a, b, out=out)
         synchronize()
         validate(torch, out.cpu(), reference, "gemm")
-        if args.metal_capture:
-            with torch.mps.profiler.metal_capture(str(args.metal_capture.resolve())):
-                torch.mm(a, b, out=out)
-                synchronize()
+        captures = []
+        if args.capture_dir:
+            directory = args.capture_dir.resolve()
+            directory.mkdir(parents=True, exist_ok=False)
+            # PyTorch prefixes a capture counter and appends .gputrace; its
+            # argument is a basename, despite looking like a filesystem path.
+            with contextlib.chdir(directory):
+                with torch.mps.profiler.metal_capture("gemm"):
+                    torch.mm(a, b, out=out)
+                    synchronize()
+            captures = [str(p) for p in sorted(directory.glob("*.gputrace"))]
+            if not captures:
+                raise RuntimeError("Metal capture completed without producing a .gputrace")
         profiling = torch.mps.profiler.profile() if args.signposts else contextlib.nullcontext()
         started = time.perf_counter_ns()
         count = 0
@@ -90,6 +99,7 @@ def main() -> int:
         "torch_version": torch.__version__, "torch_git_version": torch.version.git_version,
         "torch_config": torch.__config__.show(), "mps_path": args.mps_path,
         "signposts": args.signposts, "iterations": count, "profile_wall_ms": elapsed_ms,
+        "metal_captures": captures,
         "correctness": correctness,
         "measurement": "profiled workload, not an uninstrumented performance result",
     }, allow_nan=False), flush=True)

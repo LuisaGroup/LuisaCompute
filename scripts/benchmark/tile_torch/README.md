@@ -141,13 +141,19 @@ the old implicit behavior is ambiguous. `--candidate-vector-mode auto-vectorize`
 can isolate packing against the same report passed as both inputs. Use
 `--operations gemm,add,sum,softmax` when both reports contain those cases.
 The paired min–max ratios are observed ranges, **not confidence intervals**.
+Use `--candidate-native` for a second, separately prebuilt executable when
+comparing implementation changes at frozen schedules. The report fingerprints
+both executables and their adjacent Tile libraries; verify their dynamic-loader
+paths before relying on a copied baseline. A build must never run during replay.
 
 `profile_torch.py` provides a long, checked, preallocated eager GEMM workload
 for an external profiler. `--backend cpu` uses the actual installed CPU build;
 `--backend metal --signposts` enables MPS signposts without per-dispatch waiting.
 `--mps-path metal` explicitly selects PyTorch's alternative Metal implementation;
-it is not the default-MPS baseline. `--metal-capture /tmp/name.gputrace` captures
-one warmed invocation for launch/resource inspection. Profiler timings are not
+it is not the default-MPS baseline. `--capture-dir /tmp/new-capture-directory`
+captures one warmed invocation for launch/resource inspection. PyTorch chooses
+the filename inside that new directory; the script verifies it exists and
+records the actual path. Profiler timings are not
 mixed into uninstrumented benchmark results. Record the exact PyTorch version
 and build commit before studying its dispatch heuristics.
 

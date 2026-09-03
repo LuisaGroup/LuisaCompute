@@ -100,6 +100,7 @@ def main() -> int:
     parser.add_argument("--reference", type=Path, required=True)
     parser.add_argument("--candidate", type=Path, required=True)
     parser.add_argument("--native", type=Path, required=True)
+    parser.add_argument("--candidate-native", type=Path, help="optional second prebuilt executable for implementation A/B tests")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--operations", default="gemm")
     parser.add_argument("--rounds", type=int, default=4)
@@ -113,8 +114,9 @@ def main() -> int:
     if args.rounds < 2 or args.rounds % 2 or min(args.samples, args.sample_ms, args.warmup_ms, args.threads, args.timeout) <= 0:
         parser.error("use an even number of rounds >= 2, and positive timing/thread settings")
     args.native = args.native.resolve()
-    if not args.native.is_file():
-        parser.error("the native executable must already be built")
+    args.candidate_native = (args.candidate_native or args.native).resolve()
+    if not args.native.is_file() or not args.candidate_native.is_file():
+        parser.error("both native executables must already be built")
     try:
         operations = set(args.operations.split(","))
         if not operations <= {"gemm", "add", "sum", "softmax"}:
@@ -150,6 +152,12 @@ def main() -> int:
         "native_sha256": digest(args.native),
         "adjacent_tile_library_sha256": {p.name: digest(p) for p in sorted(args.native.parent.glob("*luisa-tile*"))
                                         if p.is_file() and p.suffix in (".dylib", ".so", ".dll")},
+        "native_variants": {
+            variant: {"binary": str(binary), "sha256": digest(binary),
+                      "adjacent_tile_library_sha256": {p.name: digest(p) for p in sorted(binary.parent.glob("*luisa-tile*"))
+                                                      if p.is_file() and p.suffix in (".dylib", ".so", ".dll")}}
+            for variant, binary in (("reference", args.native), ("candidate", args.candidate_native))
+        },
         "rounds": args.rounds, "samples": args.samples, "sample_ms": args.sample_ms, "warmup_ms": args.warmup_ms,
         "candidate_vector_mode": args.candidate_vector_mode,
         "timing": "synchronized device-resident host wall time including dispatch; no profiler",
@@ -164,6 +172,7 @@ def main() -> int:
             config = dict(plans[variant][backend, name])
             case = Case(**config.pop("case"))
             run_args = argparse.Namespace(**(vars(args) | config))
+            run_args.native = args.native if variant == "reference" else args.candidate_native
             print(f"round {round_index + 1}/{args.rounds}: {backend} {name} {variant}", flush=True)
             try:
                 row = run_case(torch, np, run_args, case, backend, order)
