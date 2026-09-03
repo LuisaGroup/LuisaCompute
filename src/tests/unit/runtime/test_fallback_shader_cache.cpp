@@ -172,6 +172,26 @@ run_boolean_comparison_kernel(const char *program_path) noexcept {
     return result;
 }
 
+[[nodiscard]] std::array<uint, 4u>
+run_assume_kernel(const char *program_path) noexcept {
+    Context context{program_path};
+    auto device = context.create_device("fallback");
+    auto output = device.create_buffer<uint>(4u);
+    Kernel1D kernel = [](BufferUInt result) noexcept {
+        const auto index = dispatch_x();
+        assume(index < 4u);
+        result->write(index, index + 1u);
+    };
+    auto shader = device.compile(
+        kernel, ShaderOption{.enable_cache = false});
+    auto stream = device.create_stream();
+    std::array<uint, 4u> result{};
+    stream << shader(output).dispatch(4u)
+           << output.copy_to(result.data())
+           << synchronize();
+    return result;
+}
+
 [[nodiscard]] std::array<float4, 4u>
 run_minimal_codegen_vector_kernel(const char *program_path) noexcept {
     constexpr auto lane_count = 1024u;
@@ -273,6 +293,12 @@ int main(int argc, char *argv[]) {
             make_uint4(0u, 1u, 0u, 3u),
             make_uint4(1u, 0u, 3u, 0u)};
         expect(std::memcmp(actual.data(), expected.data(), sizeof(expected)) == 0);
+    };
+
+    "fallback lowers scalar boolean assumptions to LLVM i1"_test = [&] {
+        const auto actual = run_assume_kernel(program_path);
+        constexpr std::array expected{1u, 2u, 3u, 4u};
+        expect(actual == expected);
     };
 
     "fallback minimal codegen preserves vector spill alignment"_test = [&] {

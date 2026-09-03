@@ -3680,7 +3680,7 @@ private:
             case xir::DerivedInstructionTag::ASSUME: {
                 auto assume_inst = static_cast<const xir::AssumeInst *>(inst);
                 auto llvm_condition = _lookup_value(current, b, assume_inst->condition());
-                return b.CreateAssumption(llvm_condition);// TODO: we ignore assumption message for now
+                return b.CreateAssumption(_cmp_ne_zero(b, llvm_condition));// TODO: we ignore assumption message for now
             }
             case xir::DerivedInstructionTag::OUTLINE: {
                 auto outline_inst = static_cast<const xir::OutlineInst *>(inst);
