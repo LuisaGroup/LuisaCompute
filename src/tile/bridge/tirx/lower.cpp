@@ -7,6 +7,7 @@
 #include <tvm/tirx/expr.h>
 #include <tvm/tirx/op.h>
 #include <tvm/tirx/stmt.h>
+#include <tvm/tirx/stmt_functor.h>
 
 #include <luisa/core/stl/format.h>
 #include <luisa/core/stl/unordered_map.h>
@@ -769,34 +770,44 @@ private:
                     carries[0], _expression(operation.operand(0)), *element_indices});
                 continue;
             }
-            luisa::vector<tvm::tirx::BufferVar> snapshots;
-            snapshots.reserve(carries.size());
+            Statements updates;
             for (auto i = 0u; i < carries.size(); i++) {
                 auto value = operation.operand(i);
-                if (value->type().kind() == TypeKind::MEMORY_STATE) {
-                    snapshots.emplace_back();
+                auto &&type = value->type();
+                if (type.kind() == TypeKind::MEMORY_STATE) { continue; }
+                auto direct = _copy_to_storage(value, carries[i]);
+                auto reads_carry = false;
+                tvm::tirx::PostOrderVisit(direct, [&](const tvm::ffi::ObjectRef &node) {
+                    if (auto load = node.as<tvm::tirx::BufferLoadNode>()) {
+                        for (auto &&carry : carries) {
+                            reads_carry |= carry.defined() && load->buffer.same_as(carry);
+                        }
+                    }
+                });
+                // Carries are distinct, compiler-owned allocations. A value
+                // reading none of them is already stable across the entire
+                // parallel assignment, including a previously materialized
+                // tile. Do not copy it into another snapshot first.
+                if (!reads_carry) {
+                    updates.push_back(std::move(direct));
                     continue;
                 }
                 auto buffer = _new_storage(value->type(), statements);
                 statements.push_back(_copy_to_storage(value, buffer));
-                snapshots.push_back(std::move(buffer));
-            }
-            // A structured yield updates every carried value simultaneously.
-            // Snapshot all SSA expressions before writing any carry buffer so
-            // one update cannot change the expression of a later update.
-            for (auto i = 0u; i < carries.size(); i++) {
-                auto &&type = operation.operand(i)->type();
-                if (type.kind() == TypeKind::MEMORY_STATE) { continue; }
                 if (type.is_tile()) {
-                    statements.push_back(_for_each(*type.index_space(), [&](const Indices &indices) {
-                        return tvm::tirx::BufferStore{carries[i], tvm::tirx::BufferLoad{snapshots[i], indices}, indices};
+                    updates.push_back(_for_each(*type.index_space(), [&](const Indices &indices) {
+                        return tvm::tirx::BufferStore{carries[i], tvm::tirx::BufferLoad{buffer, indices}, indices};
                     }));
                 } else {
                     Indices indices{tvm::IntImm::Int64(0)};
-                    statements.push_back(tvm::tirx::BufferStore{
-                        carries[i], tvm::tirx::BufferLoad{snapshots[i], indices}, indices});
+                    updates.push_back(tvm::tirx::BufferStore{
+                        carries[i], tvm::tirx::BufferLoad{buffer, indices}, indices});
                 }
             }
+            // Even direct updates must wait until ALL dependent expressions
+            // have been snapshotted. Mixed stable/dependent yields and swaps
+            // still have simultaneous SSA semantics, not sequential stores.
+            for (auto &&update : updates) { statements.push_back(update); }
         }
         if (!carries.empty() && !saw_yield) {
             _fail("loop-carried TileIR region is missing a yield");

@@ -230,6 +230,63 @@ void test_memory_and_carries(Runtime &runtime, bool iteration_local) {
     expect_near(runtime.download<float>(output, columns), expected);
 }
 
+void test_stable_yield(Runtime &runtime, bool pipelined, uint32_t window) {
+    constexpr auto columns = 37;
+    auto scope = runtime.target() == "metal" ? exec::Scope::GROUP : exec::Scope::WORKER;
+    for (auto iterations : {0, 1, 5}) {
+        auto definition = tile_kernel("stable_yield", [=](TensorView<const float, 2> input,
+                                                          TensorView<float, 2> output) {
+            auto m = axis("m", 1);
+            auto n = axis("n", columns);
+            auto space = shape(m, n);
+            for (auto &nest : parallel(shape(1), scope)) {
+                auto current = zeros<float>(space);
+                auto history = full<float>(space, 1.0f);
+                auto range = pipelined ? nest.pipeline(shape(iterations), {.stages = window}) : nest.serial(shape(iterations));
+                for (auto &step : range) {
+                    if (pipelined) { step.stage("load"); }
+                    auto next = input[coord(step.index(), 0), space];
+                    if (pipelined) { step.stage("update"); }
+                    auto previous = current;
+                    // A stable first update must not overwrite current until
+                    // the later, dependent history expression is snapshotted.
+                    current = next;
+                    history += previous;
+                }
+                output(coord(0, 0), space).store(current);
+                output(coord(1, 0), space).store(history);
+            }
+        });
+        auto height = std::max(iterations, 1);
+        auto kernel = definition.capture(tensor_shape(height, columns), tensor_shape(2, columns));
+        auto native = bridge::tirx::lower(kernel.function());
+        expect(native.ok()) << native.error;
+        if (!native) { continue; }
+        auto allocations = size_t{0u};
+        tvm::tirx::PostOrderVisit(native.value->body, [&](const tvm::ffi::ObjectRef &node) {
+            allocations += node.as<tvm::tirx::AllocBufferNode>() != nullptr;
+        });
+        // Two carries, one immutable input load, and only ONE yield snapshot.
+        // The stable input load must not get copied into a fifth allocation.
+        expect(eq(allocations, 4u));
+        auto executable = runtime.build(kernel);
+        expect(executable.ok()) << executable.error;
+        if (!executable.ok()) { continue; }
+        luisa::vector<float> values(height * columns);
+        for (auto i = 0u; i < values.size(); i++) { values[i] = static_cast<float>(i % 29u) * 0.125f; }
+        auto input = runtime.upload<float>({height, columns}, values);
+        auto output = runtime.allocate<float>({2, columns});
+        (*executable.entry)(input, output);
+        luisa::vector<float> expected(2 * columns, 0.0f);
+        for (auto col = 0; col < columns; col++) {
+            expected[col] = iterations == 0 ? 0.0f : values[(iterations - 1) * columns + col];
+            expected[columns + col] = 1.0f;
+            for (auto row = 0; row + 1 < iterations; row++) { expected[columns + col] += values[row * columns + col]; }
+        }
+        expect_near(runtime.download<float>(output, expected.size()), expected);
+    }
+}
+
 void test_shared_capacity(Runtime &runtime) {
     if (runtime.target() != "metal") { return; }
     constexpr auto columns = 2200;
@@ -287,4 +344,8 @@ int main(int argc, char *argv[]) {
         test_memory_and_carries(runtime, true);
     };
     "tile_native_pipeline_shared_capacity"_test = [&] { test_shared_capacity(runtime); };
+    "tile_native_stable_yield_snapshot_elision"_test = [&] {
+        test_stable_yield(runtime, false, 1u);
+        for (auto window : {1u, 2u}) { test_stable_yield(runtime, true, window); }
+    };
 }
