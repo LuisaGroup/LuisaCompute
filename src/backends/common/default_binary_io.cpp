@@ -134,6 +134,11 @@ DefaultBinaryIO::DefaultBinaryIO(Context &&ctx, bool headless, bool use_lmdb) no
             "using the file-backed shader cache instead.");
     }
 #endif
+    // Always resolve the cache/data directories so headless contexts can still
+    // perform compile-only shader I/O (bytecode is written on demand). Only
+    // create the directories and open LMDB when not in headless mode.
+    _cache_dir = _ctx.data_directory() / ".cache"sv;
+    _data_dir = _ctx.data_directory() / ".data"sv;
     if (!headless) {
         _cache_dir = _ctx.create_data_subdir(".cache"sv);
         _data_dir = _ctx.create_data_subdir(".data"sv);

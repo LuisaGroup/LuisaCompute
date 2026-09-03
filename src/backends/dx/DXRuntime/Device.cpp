@@ -99,12 +99,16 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
     using Microsoft::WRL::ComPtr;
     size_t index{std::numeric_limits<size_t>::max()};
     bool use_runtime = true;
+    bool headless = false;
     bool use_lmdb = false;
     bool use_experimental = false;
     if (settings) {
         index = settings->device_index;
-        // auto select
-        use_runtime = !settings->headless;
+        // The DX backend always needs a real D3D12 device for compute and
+        // shader AOT compilation, even when the caller requests headless mode.
+        // Headless only affects surface/swapchain-less operation and the
+        // file-IO layer, not device creation.
+        headless = settings->headless;
         use_lmdb = settings->use_lmdb;
         max_allocator_count = settings->inqueue_buffer_limit ? 2 : std::numeric_limits<size_t>::max();
         file_io = settings->binary_io;
@@ -124,7 +128,7 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
     }
 #endif
     if (file_io == nullptr) {
-        ser_visitor = vstd::make_unique<DefaultBinaryIO>(std::move(ctx), !use_runtime, use_lmdb);
+        ser_visitor = vstd::make_unique<DefaultBinaryIO>(std::move(ctx), headless, use_lmdb);
         file_io = ser_visitor.get();
     }
     if (use_runtime) {
