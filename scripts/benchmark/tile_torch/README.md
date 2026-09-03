@@ -85,6 +85,16 @@ and hardware information, thread settings, the binary hash, and source
 revision. `results.md` is the readable comparison. Failed cases are retained
 and cause a nonzero exit code; no speed ratio is published for an invalid case.
 
+## Native matrix measurements
+
+The [M1 Max matrix comparison, 2026-09-03](results/m1-max-20260903-matrix.md)
+records 24 validated pairs at `37e1337fd`: eight Metal cases with/without
+matrix selection at identical 8×8×16 tiles and a two-window pipeline, plus
+eight fresh CPU cases. Metal 1024³ improved from 4.618 to 3.244 ms (1.42×),
+but remained 9.41× slower than PyTorch. CPU measured 12.425 versus 1.103 ms.
+Raw generated-instruction counts distinguish actual matrix selection from
+permission to select it. No autotuning was performed and the default is unchanged.
+
 ## Pipeline-window measurements
 
 The [M1 Max pipeline comparison, 2026-09-03](results/m1-max-20260903-pipeline.md)
