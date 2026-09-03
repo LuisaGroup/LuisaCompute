@@ -10,6 +10,8 @@
 #include <cmath>
 #include <string_view>
 #include <utility>
+#include <tvm/tirx/builtin.h>
+#include <tvm/tirx/op.h>
 #include <tvm/tirx/stmt_functor.h>
 
 using namespace luisa::compute::tile;
@@ -370,6 +372,201 @@ void test_batched_copies(Runtime &runtime) {
     }
 }
 
+void test_barrier_coalescing_nonadjacent_dependencies(Runtime &runtime) {
+    constexpr auto groups = 3;
+    auto scope = root_scope(runtime);
+    for (auto columns : {1, 37, 257, 1003}) {
+        auto kernel = tile_kernel("cooperative_nonadjacent_dependency", [=](TensorView<const float, 1> X,
+                                                                            TensorView<const float, 1> Y,
+                                                                            TensorView<float, 1> output) {
+                          auto n = axis("n", columns);
+                          for (auto &group : parallel(shape(groups), scope)) {
+                              auto origin = coord(group.index() * columns);
+                              auto x = X[origin, shape(n)];
+                              auto y = Y[origin, shape(n)];
+                              // The y load is independent of both the x load
+                              // and this read of x. Only an accumulated effect
+                              // summary notices the nonadjacent x dependence.
+                              auto z = map<float>(shape(n), [&](const Nest &element) {
+                                  return x.at(coord(columns - 1 - element.index(n))) * 3.0f + 1.0f;
+                              });
+                              output(origin, shape(n)).store(z + y);
+                          }
+                      }).capture(tensor_shape(groups * columns), tensor_shape(groups * columns), tensor_shape(groups * columns));
+        for (auto threads : {32u, 48u, 256u}) {
+            if (runtime.target() != "metal" && threads != 32u) { continue; }
+            for (auto enabled : {false, true}) {
+                bridge::tirx::PlannerOptions options;
+                options.threads_per_group = runtime.target() == "metal" ? threads : 0u;
+                options.coalesce_group_barriers = enabled;
+                auto executable = runtime.build(kernel, false, false, true, false, options);
+                expect(executable.ok()) << executable.error;
+                if (!executable.ok()) { continue; }
+                if (runtime.target() == "metal") {
+                    expect(eq(executable.plans.size(), size_t{1u}));
+                    if (!executable.plans.empty()) {
+                        auto &plan = executable.plans[0];
+                        // Only x-load -> y-load is an independent cut. In
+                        // particular y-load -> z must still publish x.
+                        expect(plan.group_barrier_sites_before >= 4u);
+                        expect(eq(plan.group_barrier_sites_after + static_cast<uint64_t>(enabled), plan.group_barrier_sites_before));
+                    }
+                }
+                for (auto repeat = 0; repeat < 4; repeat++) {
+                    auto x = values(groups * columns);
+                    auto y = values(groups * columns);
+                    for (auto &value : x) { value += 0.125f * static_cast<float>(repeat); }
+                    for (auto &value : y) { value = value * 2.0f - 0.25f * static_cast<float>(repeat); }
+                    auto a = runtime.upload<float>({groups * columns}, x);
+                    auto b = runtime.upload<float>({groups * columns}, y);
+                    auto output = runtime.allocate<float>({groups * columns});
+                    (*executable.entry)(a, b, output);
+                    luisa::vector<float> expected(groups * columns);
+                    for (auto group = 0; group < groups; group++) {
+                        for (auto column = 0; column < columns; column++) {
+                            auto index = group * columns + column;
+                            expected[index] = x[group * columns + columns - 1 - column] * 3.0f + 1.0f + y[index];
+                        }
+                    }
+                    expect_near(runtime.download<float>(output, expected.size()), expected);
+                }
+            }
+        }
+    }
+}
+
+void test_barrier_coalescing_global_aliases_and_loop_backedge(Runtime &runtime) {
+    constexpr auto groups = 3;
+    auto scope = root_scope(runtime);
+    for (auto columns : {37, 257, 1003}) {
+        auto kernel = tile_kernel("cooperative_alias_and_backedge", [=](TensorView<float, 1> A,
+                                                                        TensorView<const float, 1> B,
+                                                                        TensorView<float, 1> output) {
+                          auto n = axis("n", columns);
+                          for (auto &group : parallel(shape(groups), scope)) {
+                              auto origin = coord(group.index() * columns);
+                              for (auto &iteration : group.pipeline(shape(3), {.stages = 1u})) {
+                                  auto x = A[origin, shape(n)];
+                                  auto reversed = map<float>(shape(n), [&](const Nest &element) {
+                                      return x.at(coord(columns - 1 - element.index(n))) + 1.0f;
+                                  });
+                                  A(origin, shape(n)).store(reversed);
+                                  auto observed = B[origin, shape(n)];
+                                  auto next = map<float>(shape(n), [&](const Nest &element) {
+                                      return observed.at(coord(element.index(n))) + 2.0f;
+                                  });
+                                  output(origin, shape(n)).store(next);
+                              }
+                          }
+                      }).capture(tensor_shape(groups * columns), tensor_shape(groups * columns), tensor_shape(groups * columns));
+        for (auto enabled : {false, true}) {
+            bridge::tirx::PlannerOptions options;
+            options.threads_per_group = runtime.target() == "metal" ? 48u : 0u;
+            options.coalesce_group_barriers = enabled;
+            auto executable = runtime.build(kernel, false, false, true, false, options);
+            expect(executable.ok()) << executable.error;
+            if (!executable.ok()) { continue; }
+            if (runtime.target() == "metal") {
+                for (auto &plan : executable.plans) {
+                    // Every cut has a dependence. A/B/output are different
+                    // parameter identities, but no noalias promise was made.
+                    expect(plan.group_barrier_sites_before >= 5u);
+                    expect(eq(plan.group_barrier_sites_before, plan.group_barrier_sites_after));
+                }
+            }
+            for (auto alias_output : {false, true}) {
+                for (auto repeat = 0; repeat < 4; repeat++) {
+                    auto input = values(groups * columns);
+                    for (auto &value : input) { value += 0.125f * static_cast<float>(repeat); }
+                    auto shared = runtime.upload<float>({groups * columns}, input);
+                    auto output = alias_output ? shared : runtime.allocate<float>({groups * columns});
+                    (*executable.entry)(shared, shared, output);
+                    luisa::vector<float> expected(groups * columns);
+                    for (auto group = 0; group < groups; group++) {
+                        for (auto column = 0; column < columns; column++) {
+                            expected[group * columns + column] = input[group * columns + columns - 1 - column] + (alias_output ? 9.0f : 5.0f);
+                        }
+                    }
+                    expect_near(runtime.download<float>(output, expected.size()), expected);
+                }
+            }
+        }
+    }
+}
+
+class InsertExplicitBarrier final : public tvm::tirx::StmtMutator {
+protected:
+    [[nodiscard]] tvm::tirx::Stmt VisitStmt_(const tvm::tirx::ForNode *loop) final {
+        auto result = StmtMutator::VisitStmt_(loop);
+        if (insertions == 0u && loop->annotations.count("luisa.tile.independent_elements")) {
+            auto flags = tvm::Call{tvm::PrimType::Int(32), tvm::tirx::builtin::call_extern(), {tvm::tirx::StringImm{"metal::mem_flags"}, tvm::IntImm::Int32(3)}};
+            auto barrier = tvm::tirx::Evaluate{tvm::Call{tvm::PrimType::Void(), tvm::tirx::builtin::call_extern(), {tvm::tirx::StringImm{"metal::threadgroup_barrier"}, flags}}};
+            result = tvm::tirx::SeqStmt::Flatten(tvm::ffi::Array<tvm::tirx::Stmt>{result, barrier});
+            insertions++;
+        }
+        return result;
+    }
+
+public:
+    uint32_t insertions{0u};
+    using StmtMutator::operator();
+};
+
+void test_explicit_barrier_identity_is_preserved(Runtime &runtime) {
+    if (runtime.target() != "metal") { return; }
+    constexpr auto groups = 3, columns = 257;
+    auto kernel = tile_kernel("cooperative_explicit_barrier", [](TensorView<const float, 1> A,
+                                                                 TensorView<const float, 1> B,
+                                                                 TensorView<float, 1> output) {
+                      for (auto &group : parallel(shape(groups), exec::Scope::GROUP)) {
+                          auto origin = coord(group.index() * columns);
+                          auto a = A[origin, shape(columns)];
+                          auto b = B[origin, shape(columns)];
+                          output(origin, shape(columns)).store(a + b);
+                      }
+                  }).capture(tensor_shape(groups * columns), tensor_shape(groups * columns), tensor_shape(groups * columns));
+    for (auto enabled : {false, true}) {
+        auto native = bridge::tirx::lower(kernel.function());
+        expect(native.ok()) << native.error;
+        if (!native) { continue; }
+        // Same intrinsic and flags as the compiler fence, but a distinct
+        // explicit IR operation. Name matching must not make it removable.
+        InsertExplicitBarrier insert;
+        native.value.CopyOnWrite()->body = insert(native.value->body);
+        expect(eq(insert.insertions, 1u));
+        bridge::tirx::CompileOptions options;
+        options.target = "metal";
+        options.planner.threads_per_group = 48u;
+        options.planner.coalesce_group_barriers = enabled;
+        auto compilation = bridge::tirx::compile(native.value, kernel.function().name(), options);
+        expect(compilation.ok()) << compilation.error();
+        if (!compilation) { continue; }
+        auto source = metal_source(compilation.module().value());
+        auto code = std::string_view{source.data(), source.size()};
+        auto barriers = uint64_t{0u};
+        for (auto offset = code.find("metal::threadgroup_barrier("); offset != std::string_view::npos;
+             offset = code.find("metal::threadgroup_barrier(", offset + 1u)) { barriers++; }
+        expect(eq(compilation.plans().size(), size_t{1u}));
+        for (auto &plan : compilation.plans()) {
+            expect(eq(plan.group_barrier_sites_before, plan.group_barrier_sites_after));
+            expect(eq(barriers, plan.group_barrier_sites_after + 1u));
+        }
+        auto name = kernel.function().name();
+        auto entry = compilation.module().value()->GetFunction(tvm::ffi::String{name.data(), name.size()}, true);
+        expect(entry.has_value());
+        if (!entry) { continue; }
+        auto a = values(groups * columns);
+        auto b = values(groups * columns);
+        for (auto &value : b) { value = value * 2.0f + 1.0f; }
+        auto left = runtime.upload<float>({groups * columns}, a);
+        auto right = runtime.upload<float>({groups * columns}, b);
+        auto output = runtime.allocate<float>({groups * columns});
+        (*entry)(left, right, output);
+        for (auto i = 0u; i < a.size(); i++) { a[i] += b[i]; }
+        expect_near(runtime.download<float>(output, a.size()), a);
+    }
+}
+
 void test_gemm(Runtime &runtime) {
     for (auto size : {1, 7, 17, 37}) {
         auto rows = size;
@@ -427,6 +624,9 @@ int main(int argc, char *argv[]) {
     "tile_cooperative_shared_resources_and_global_order"_test = [&] { test_shared_tiles_and_global_order(runtime); };
     "tile_cooperative_softmax"_test = [&] { test_softmax(runtime); };
     "tile_cooperative_batched_copies_and_guarded_tails"_test = [&] { test_batched_copies(runtime); };
+    "tile_cooperative_barrier_nonadjacent_dependencies"_test = [&] { test_barrier_coalescing_nonadjacent_dependencies(runtime); };
+    "tile_cooperative_barrier_global_aliases_and_backedge"_test = [&] { test_barrier_coalescing_global_aliases_and_loop_backedge(runtime); };
+    "tile_cooperative_explicit_barrier_identity"_test = [&] { test_explicit_barrier_identity_is_preserved(runtime); };
     "tile_cooperative_gemm"_test = [&] { test_gemm(runtime); };
     "tile_cooperative_resource_capacity"_test = [&] { test_resource_capacity(runtime); };
     "tile_cooperative_host_local_capture"_test = [&] { test_host_local_capture_rejected(runtime); };

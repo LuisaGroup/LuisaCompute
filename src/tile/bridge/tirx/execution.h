@@ -10,6 +10,14 @@
 
 namespace luisa::compute::tile::bridge::tirx::detail {
 
+// The barrier identity belongs to this emission, not an intrinsic-name match.
+// Only the supplied fresh shared allocations are known disjoint. Unknown
+// effects and the last barrier in each sequential region are hard boundaries.
+[[nodiscard]] tvm::tirx::Stmt coalesce_group_barriers(
+    tvm::tirx::Stmt body, const tvm::tirx::Stmt &compiler_barrier,
+    luisa::span<const tvm::tirx::BufferVar> shared_allocations,
+    bool enabled, GroupPlan &plan);
+
 // The structural bridge preserves logical domains and hard scope constraints.
 // The target mapper consumes these only after resolving a legal realization.
 inline constexpr auto logical_parallel_annotation = "luisa.tile.logical_parallel";

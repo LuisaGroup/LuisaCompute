@@ -77,6 +77,8 @@ void print_plans(luisa::span<const bridge::tirx::GroupPlan> plans) {
                   << ",\"candidates_rejected\":" << plan.candidates_rejected
                   << ",\"max_copy_batch\":" << plan.max_copy_batch
                   << ",\"batched_copy_operations\":" << plan.batched_copy_operations
+                  << ",\"group_barrier_sites_before\":" << plan.group_barrier_sites_before
+                  << ",\"group_barrier_sites_after\":" << plan.group_barrier_sites_after
                   << ",\"normalized_cost\":" << plan.cost.score
                   << ",\"matrix_issues\":" << plan.cost.matrix_issues
                   << ",\"shared_fragment_transfers\":" << plan.cost.shared_fragment_transfers

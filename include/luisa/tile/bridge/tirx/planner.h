@@ -27,6 +27,9 @@ struct PlannerOptions {
     // Elide the initial/final shared accumulator only when its literal fill
     // and sole, fully in-bounds global store have been proved by analysis.
     bool direct_accumulator_store{true};
+    // Merge compiler-inserted group barriers only across independent effects.
+    // Explicit/unknown synchronization and loop-boundary fences are retained.
+    bool coalesce_group_barriers{true};
     // Zero lets the solver choose. A nonzero value is an exact tuning
     // constraint, checked against the target before any code is generated.
     uint32_t threads_per_group{0u};
@@ -98,6 +101,10 @@ struct GroupPlan {
     uint64_t candidates_rejected{0u};
     uint32_t max_copy_batch{1u};
     uint64_t batched_copy_operations{0u};
+    // Static emitted synchronization sites, not dynamic barrier executions.
+    // Filled by realization; the bootstrap ranking does not yet price them.
+    uint64_t group_barrier_sites_before{0u};
+    uint64_t group_barrier_sites_after{0u};
     luisa::vector<MatrixDistribution> matrices;
     PlanCost cost;
     bool optimized{false};

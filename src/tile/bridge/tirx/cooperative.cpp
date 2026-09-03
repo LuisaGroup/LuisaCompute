@@ -362,10 +362,12 @@ private:
     luisa::unordered_set<const tvm::tirx::VarNode *> _elided_buffers;
     luisa::unordered_set<const tvm::tirx::ForNode *> _elided_initializers;
     luisa::unordered_map<const tvm::tirx::ForNode *, tvm::tirx::Stmt> _direct_stores;
+    tvm::tirx::Stmt _compiler_barrier{metal_group_barrier()};
+    luisa::vector<tvm::tirx::BufferVar> _shared_allocations;
 
 private:
     [[nodiscard]] tvm::tirx::Stmt _synchronize(tvm::tirx::Stmt statement) const {
-        return tvm::tirx::SeqStmt::Flatten(tvm::ffi::Array<tvm::tirx::Stmt>{std::move(statement), metal_group_barrier()});
+        return tvm::tirx::SeqStmt::Flatten(tvm::ffi::Array<tvm::tirx::Stmt>{std::move(statement), _compiler_barrier});
     }
 
     [[nodiscard]] bool _can_batch_copy(const tvm::tirx::Stmt &body) const {
@@ -593,6 +595,7 @@ protected:
         auto type = tvm::tirx::BufferType{"shared", buffer->dtype, buffer->shape, {}, buffer->elem_offset, buffer->data_alignment, buffer->offset_factor};
         auto shared = tvm::tirx::BufferVar{buffer.name() + "_shared", std::move(type), buffer.span()};
         _buffers.emplace(buffer.get(), shared);
+        _shared_allocations.emplace_back(shared);
         return tvm::tirx::AllocBuffer{std::move(shared), std::move(annotations), allocation->span};
     }
 
@@ -634,7 +637,10 @@ public:
         }
     }
 
-    using StmtExprMutator::operator();
+    [[nodiscard]] tvm::tirx::Stmt map(const tvm::tirx::Stmt &body, bool coalesce) {
+        auto result = StmtExprMutator::operator()(body);
+        return coalesce_group_barriers(std::move(result), _compiler_barrier, _shared_allocations, coalesce, _plan);
+    }
 };
 
 }// namespace
@@ -653,7 +659,8 @@ tvm::tirx::Stmt map_metal_cooperative_group(const tvm::tirx::For &loop, uint32_t
     auto threads = plan.threads;
     auto thread = tvm::tirx::PrimVar{loop->loop_var->name + "_worker", tvm::PrimType::Int(64)};
     auto group = tvm::tirx::PrimVar{loop->loop_var->name + "_group", tvm::PrimType::Int(64)};
-    auto body = CooperativeGroupMapper{thread, threads, shared_memory_limit, cooperative_matrix, analysis.matrices, plan, analysis.accumulators}(loop->body);
+    auto body = CooperativeGroupMapper{thread, threads, shared_memory_limit, cooperative_matrix, analysis.matrices, plan, analysis.accumulators}
+                    .map(loop->body, options.enabled && options.coalesce_group_barriers);
     plans.emplace_back(std::move(plan));
     // Empty domains are no-ops, but must not hide unsupported descendants.
     if (groups == 0u) { return tvm::tirx::Evaluate{tvm::IntImm::Int32(0)}; }

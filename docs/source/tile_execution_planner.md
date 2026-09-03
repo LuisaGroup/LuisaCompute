@@ -435,6 +435,51 @@ on 512-cubed or 1024-cubed. No universal speedup or default change follows from
 those observations. The [copy-plan report](../../scripts/benchmark/tile_torch/results/m1-max-20260903-copy-plan.md)
 keeps all shapes, timing distributions, and correctness checks.
 
+### Dependence-aware group synchronization
+
+After resource/distribution realization, the bridge can coalesce its own group
+barriers across independent effects. For example, two input copies to distinct
+shared buffers can publish together before their matrix consumer:
+
+~~~text
+before:  copy A -> As; fence; copy B -> Bs; fence; MMA; fence
+after:   copy A -> As;        copy B -> Bs; fence; MMA; fence
+~~~
+
+No copy, memory effect, or participant mapping moves. The first fence is
+unnecessary only if its removal leaves every publication/order dependence
+covered. At a candidate cut, let `P` be all effects since the last **retained**
+fence and `S` the next segment. Coalescing requires neither side to be opaque,
+`W(P)` disjoint from `R(S)` and `W(S)`, and `R(P)` disjoint from `W(S)`.
+The implementation accumulates P after a removal; checking just the adjacent
+operation would incorrectly accept `write A; unrelated B; read A`.
+
+Only the mapper's fresh unplaced shared allocations have distinct alias
+classes. All external global buffers share one conservative class, even when
+their parameter identities or constness differ. Unknown storage, calls,
+explicit synchronization, and control exits remain hard boundaries. The pass
+recognizes compiler fences by their emission-local IR identity, not an opcode
+or external symbol name; an explicit identical-looking native barrier stays.
+The last fence of a sequential region is retained for the loop backedge or
+enclosing consumer. Barriers never move across loops/branches, and their full
+shared-plus-device fence semantics are unchanged. Resource reuse added by a
+later transformation must invalidate/recheck this synchronization plan.
+
+`PlannerOptions::coalesce_group_barriers` disables this pass independently;
+disabling the planner also retains the reference fences. `GroupPlan` reports
+`group_barrier_sites_before/after`: static sites, not dynamic executions or a
+latency estimate. These post-realization facts do not yet contribute calibrated
+barrier costs to the bootstrap score. CPU/Metal regressions cover nonadjacent
+dependencies, non-subgroup-multiple worker counts, aliased global parameters,
+and aliased output read on the next pipeline iteration. A Metal native-IR test
+also distinguishes an explicit barrier from compiler-owned barriers.
+
+The [M1 Max synchronization report](../../scripts/benchmark/tile_torch/results/m1-max-20260903-barrier-plan.md)
+holds the tile, worker count, fragment layout, and resource realization fixed.
+Four counterbalanced rounds show modest, shape-dependent gains, including one
+1024-cubed regression. Fewer barrier sites are not a proportional latency model
+and do not explain the remaining large-square gap to PyTorch.
+
 ## 6. Implemented solver: enumeration plus Pareto dynamic programming
 
 For the currently small target thread bound, enumerate every complete-subgroup
