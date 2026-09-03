@@ -238,6 +238,24 @@ the model's favorite. Exploration measurements and final winner remeasurement
 have separate budgets. Never average an invalid result into the training set
 or silently replace a failed final validation with its earlier search timing.
 
+Equal modeled cost is not an equivalence proof between realizations. The
+[M1 Max equal-score layout experiment](../../scripts/benchmark/tile_torch/results/m1-max-20260903-layout-tie.md)
+swaps the subgroup/local-fragment rectangle while keeping all reported work,
+resource, and synchronization features identical. The alternative is about
+3.7% slower on 1024-cubed across four rounds. The default tie order happens to
+win that comparison; this does not make the prior a calibrated layout model.
+A measurement-oriented shortlist must preserve structural diversity even when
+the exact single-incumbent solver can legitimately collapse score/resource
+ties. Generalizing dominance requires observationally relevant boundary
+features, not just changing the numerical tie-breaking order.
+
+The same report includes a separate lane/value interchange for cooperative
+copies. It improves the large-square paired medians by about 1% but regresses
+small shapes. The bootstrap work/resource features are again unchanged. Both
+experimental default changes were reverted; neither is a calibrated universal
+layout policy. A future shortlist and plan fingerprint must retain the actual
+copy participant/local-value map, not just a maximum batch size.
+
 ## 4. Implemented matrix mapping family
 
 The current planner targets a proved Metal group-level FP32 MMA with a
@@ -650,7 +668,7 @@ frozen pre-planner binary/library bundle, counterbalanced repeated comparisons,
 and PyTorch measured separately. An improvement over our old lowering must not
 be described as an improvement over PyTorch.
 
-Remaining structural work includes dependence-based barrier coalescing, more
+Remaining structural work includes broader synchronization planning, more
 selective materialization, layout-aware cooperative copies, combined software
 pipeline/residency planning, general nested hierarchy binding, CPU task/SIMD and
 storage planning, calibrated target models, and additional atom families. The

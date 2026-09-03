@@ -9,6 +9,7 @@ Latest M1 Max evidence: [larger tiles and controlled cooperative-copy batching](
 [execution planner, cost-model errors, and controlled comparisons](results/m1-max-20260903-planner.md),
 [proved direct accumulator output and controlled measurements](results/m1-max-20260903-direct-store.md),
 [dependence-aware synchronization and controlled measurements](results/m1-max-20260903-barrier-plan.md),
+[matrix/copy layout sensitivity missing from the model](results/m1-max-20260903-layout-tie.md),
 [Staged/JIT and four-round comparisons](results/m1-max-20260903-jit.md),
 and [actual PyTorch dispatch / Xcode profiling](results/m1-max-20260903-profile.md).
 The reports include unsuccessful tuning choices and remaining library gaps.
