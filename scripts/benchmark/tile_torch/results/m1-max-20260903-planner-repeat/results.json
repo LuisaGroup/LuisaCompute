@@ -1,0 +1,4220 @@
+{
+  "metadata": {
+    "timestamp": "2026-09-03T04:02:04.248088+00:00",
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "torch_version": "2.14.0",
+    "torch_git_version": "08187d9e0fba026dc8217405802ab5381dc88d90",
+    "torch_config": "PyTorch built with:\n  - GCC 4.2\n  - C++ Version: 202002\n  - clang 21.0.0\n  - OpenMP 202011\n  - LAPACK is enabled (usually provided by MKL)\n  - NNPACK is enabled\n  - CPU capability usage: DEFAULT\n  - Build settings: BLAS_INFO=accelerate, BUILD_TYPE=Release, COMMIT_SHA=08187d9e0fba026dc8217405802ab5381dc88d90, CUDA_FLAGS= -DLIBCUDACXX_ENABLE_SIMPLIFIED_COMPLEX_OPERATIONS -Xfatbin -compress-all  -Wno-deprecated-gpu-targets --expt-extended-lambda -DCUB_WRAPPED_NAMESPACE=at_cuda_detail -DDISABLE_CUSPARSE_DEPRECATED -DCUDA_HAS_FP16=1 -D__CUDA_NO_HALF_OPERATORS__ -D__CUDA_NO_HALF_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__ -D__CUDA_NO_BFLOAT16_CONVERSIONS__ -DC10_NODEPRECATED, CXX_COMPILER=/usr/bin/c++, CXX_FLAGS= -fvisibility-inlines-hidden -DUSE_PTHREADPOOL -DNDEBUG -DUSE_KINETO -DUSE_PYTORCH_QNNPACK -DAT_BUILD_ARM_VEC256_WITH_SLEEF -DUSE_PYTORCH_METAL_EXPORT -DSYMBOLICATE_MOBILE_DEBUG_HANDLE -DUSE_COREML_DELEGATE -O2 -fPIC -DC10_NODEPRECATED -Wall -Wextra -Werror=return-type -Werror=non-virtual-dtor -Werror=braced-scalar-init -Werror=range-loop-construct -Werror=bool-operation -Wnarrowing -Wno-missing-field-initializers -Wno-unknown-pragmas -Wno-unused-parameter -Wno-strict-overflow -Wno-strict-aliasing -Wvla-extension -Wsuggest-override -Wnewline-eof -Winconsistent-missing-override -Winconsistent-missing-destructor-override -Wno-pass-failed -Wno-error=old-style-cast -Wconstant-conversion -Qunused-arguments -faligned-new -fno-math-errno -fno-trapping-math -Werror=format -fclang-abi-compat=17 -DUSE_MPS -Wno-missing-braces, LAPACK_INFO=accelerate, TORCH_VERSION=2.14.0, USE_CUDA=OFF, USE_CUDNN=OFF, USE_CUSPARSELT=OFF, USE_EIGEN_FOR_BLAS=ON, USE_GFLAGS=OFF, USE_GLOG=OFF, USE_GLOO=ON, USE_HIPSPARSELT=OFF, USE_MKL=OFF, USE_MKLDNN=OFF, USE_MPI=OFF, USE_NCCL=OFF, USE_NNPACK=ON, USE_OPENMP=ON, USE_ROCM=OFF, USE_ROCM_KERNEL_ASSERT=OFF, USE_XCCL=OFF, USE_XPU=OFF, \n",
+    "threads": 8,
+    "thread_environment": {
+      "TVM_NUM_THREADS": "8",
+      "OMP_NUM_THREADS": "8",
+      "VECLIB_MAXIMUM_THREADS": "8"
+    },
+    "git_revision": "0fc45b9435a4b1ceb559a53299a21f9ad8fc2592",
+    "worktree_dirty": true,
+    "native_sha256": "1f840b94397c7ca15ed612fbd55ea5c7c90660f9b06716a4eaf736f234b8b7cb",
+    "adjacent_tile_library_sha256": {
+      "libluisa-tile-bridge-tirx.dylib": "e6b672607475e777868a0d354b0d60c754023d66e9a36067eb764386996de33f",
+      "libluisa-tile.dylib": "2fca1d5b1db5249e66d9582f7ed9e1819863f2741009b00ed4c46b8de3b4de66"
+    },
+    "native_variants": {
+      "reference": {
+        "binary": "/private/tmp/luisa-tile-before-planner-pBzxcr/benchmark_tile_tirx",
+        "sha256": "1f840b94397c7ca15ed612fbd55ea5c7c90660f9b06716a4eaf736f234b8b7cb",
+        "adjacent_tile_library_sha256": {
+          "libluisa-tile-bridge-tirx.dylib": "e6b672607475e777868a0d354b0d60c754023d66e9a36067eb764386996de33f",
+          "libluisa-tile.dylib": "2fca1d5b1db5249e66d9582f7ed9e1819863f2741009b00ed4c46b8de3b4de66"
+        }
+      },
+      "candidate": {
+        "binary": "/Users/mike/CLionProjects/luisa/cmake-build-tirx/bin/benchmark_tile_tirx",
+        "sha256": "70d4813eaa26ccfc1a7998e8281592373f8c7f193f7f79cc586db087f6529f24",
+        "adjacent_tile_library_sha256": {
+          "libluisa-tile-bridge-tirx.dylib": "5a212793dc09ce0431dc63476f9af308081623d579e7988db70ade7ec62d8209",
+          "libluisa-tile.dylib": "2fca1d5b1db5249e66d9582f7ed9e1819863f2741009b00ed4c46b8de3b4de66"
+        }
+      }
+    },
+    "rounds": 4,
+    "samples": 9,
+    "sample_ms": 40,
+    "warmup_ms": 200,
+    "candidate_vector_mode": "reported",
+    "timing": "synchronized device-resident host wall time including dispatch; no profiler",
+    "source_reports": {
+      "reference": {
+        "path": "scripts/benchmark/tile_torch/results/m1-max-20260903-planner-candidate/results.json",
+        "sha256": "c91184b3662a07d6ed6ac4031af366ea1ae96b5c7d501b92b4710d5017375a13"
+      },
+      "candidate": {
+        "path": "scripts/benchmark/tile_torch/results/m1-max-20260903-planner-candidate/results.json",
+        "sha256": "c91184b3662a07d6ed6ac4031af366ea1ae96b5c7d501b92b4710d5017375a13"
+      }
+    },
+    "frozen_plans": {
+      "reference": [
+        {
+          "backend": "metal",
+          "name": "gemm_32x32x32",
+          "case": {
+            "operation": "gemm",
+            "m": 32,
+            "n": 32,
+            "k": 32
+          },
+          "gemm_block": [
+            32,
+            64,
+            32
+          ],
+          "execution_scope": "group",
+          "pipeline_window": 1,
+          "cooperative_matrix": true,
+          "no_vectorize": false,
+          "auto_vectorize": false
+        },
+        {
+          "backend": "metal",
+          "name": "gemm_128x128x128",
+          "case": {
+            "operation": "gemm",
+            "m": 128,
+            "n": 128,
+            "k": 128
+          },
+          "gemm_block": [
+            32,
+            64,
+            32
+          ],
+          "execution_scope": "group",
+          "pipeline_window": 1,
+          "cooperative_matrix": true,
+          "no_vectorize": false,
+          "auto_vectorize": false
+        },
+        {
+          "backend": "metal",
+          "name": "gemm_512x512x512",
+          "case": {
+            "operation": "gemm",
+            "m": 512,
+            "n": 512,
+            "k": 512
+          },
+          "gemm_block": [
+            32,
+            64,
+            32
+          ],
+          "execution_scope": "group",
+          "pipeline_window": 1,
+          "cooperative_matrix": true,
+          "no_vectorize": false,
+          "auto_vectorize": false
+        },
+        {
+          "backend": "metal",
+          "name": "gemm_1024x1024x1024",
+          "case": {
+            "operation": "gemm",
+            "m": 1024,
+            "n": 1024,
+            "k": 1024
+          },
+          "gemm_block": [
+            32,
+            64,
+            32
+          ],
+          "execution_scope": "group",
+          "pipeline_window": 1,
+          "cooperative_matrix": true,
+          "no_vectorize": false,
+          "auto_vectorize": false
+        },
+        {
+          "backend": "metal",
+          "name": "gemm_256x1024x128",
+          "case": {
+            "operation": "gemm",
+            "m": 256,
+            "n": 1024,
+            "k": 128
+          },
+          "gemm_block": [
+            32,
+            64,
+            32
+          ],
+          "execution_scope": "group",
+          "pipeline_window": 1,
+          "cooperative_matrix": true,
+          "no_vectorize": false,
+          "auto_vectorize": false
+        },
+        {
+          "backend": "metal",
+          "name": "gemm_1024x128x256",
+          "case": {
+            "operation": "gemm",
+            "m": 1024,
+            "n": 128,
+            "k": 256
+          },
+          "gemm_block": [
+            32,
+            64,
+            32
+          ],
+          "execution_scope": "group",
+          "pipeline_window": 1,
+          "cooperative_matrix": true,
+          "no_vectorize": false,
+          "auto_vectorize": false
+        },
+        {
+          "backend": "metal",
+          "name": "gemm_127x193x61",
+          "case": {
+            "operation": "gemm",
+            "m": 127,
+            "n": 193,
+            "k": 61
+          },
+          "gemm_block": [
+            32,
+            64,
+            32
+          ],
+          "execution_scope": "group",
+          "pipeline_window": 1,
+          "cooperative_matrix": true,
+          "no_vectorize": false,
+          "auto_vectorize": false
+        },
+        {
+          "backend": "metal",
+          "name": "gemm_513x257x129",
+          "case": {
+            "operation": "gemm",
+            "m": 513,
+            "n": 257,
+            "k": 129
+          },
+          "gemm_block": [
+            32,
+            64,
+            32
+          ],
+          "execution_scope": "group",
+          "pipeline_window": 1,
+          "cooperative_matrix": true,
+          "no_vectorize": false,
+          "auto_vectorize": false
+        }
+      ],
+      "candidate": [
+        {
+          "backend": "metal",
+          "name": "gemm_32x32x32",
+          "case": {
+            "operation": "gemm",
+            "m": 32,
+            "n": 32,
+            "k": 32
+          },
+          "gemm_block": [
+            32,
+            64,
+            32
+          ],
+          "execution_scope": "group",
+          "pipeline_window": 1,
+          "cooperative_matrix": true,
+          "no_vectorize": false,
+          "auto_vectorize": false
+        },
+        {
+          "backend": "metal",
+          "name": "gemm_128x128x128",
+          "case": {
+            "operation": "gemm",
+            "m": 128,
+            "n": 128,
+            "k": 128
+          },
+          "gemm_block": [
+            32,
+            64,
+            32
+          ],
+          "execution_scope": "group",
+          "pipeline_window": 1,
+          "cooperative_matrix": true,
+          "no_vectorize": false,
+          "auto_vectorize": false
+        },
+        {
+          "backend": "metal",
+          "name": "gemm_512x512x512",
+          "case": {
+            "operation": "gemm",
+            "m": 512,
+            "n": 512,
+            "k": 512
+          },
+          "gemm_block": [
+            32,
+            64,
+            32
+          ],
+          "execution_scope": "group",
+          "pipeline_window": 1,
+          "cooperative_matrix": true,
+          "no_vectorize": false,
+          "auto_vectorize": false
+        },
+        {
+          "backend": "metal",
+          "name": "gemm_1024x1024x1024",
+          "case": {
+            "operation": "gemm",
+            "m": 1024,
+            "n": 1024,
+            "k": 1024
+          },
+          "gemm_block": [
+            32,
+            64,
+            32
+          ],
+          "execution_scope": "group",
+          "pipeline_window": 1,
+          "cooperative_matrix": true,
+          "no_vectorize": false,
+          "auto_vectorize": false
+        },
+        {
+          "backend": "metal",
+          "name": "gemm_256x1024x128",
+          "case": {
+            "operation": "gemm",
+            "m": 256,
+            "n": 1024,
+            "k": 128
+          },
+          "gemm_block": [
+            32,
+            64,
+            32
+          ],
+          "execution_scope": "group",
+          "pipeline_window": 1,
+          "cooperative_matrix": true,
+          "no_vectorize": false,
+          "auto_vectorize": false
+        },
+        {
+          "backend": "metal",
+          "name": "gemm_1024x128x256",
+          "case": {
+            "operation": "gemm",
+            "m": 1024,
+            "n": 128,
+            "k": 256
+          },
+          "gemm_block": [
+            32,
+            64,
+            32
+          ],
+          "execution_scope": "group",
+          "pipeline_window": 1,
+          "cooperative_matrix": true,
+          "no_vectorize": false,
+          "auto_vectorize": false
+        },
+        {
+          "backend": "metal",
+          "name": "gemm_127x193x61",
+          "case": {
+            "operation": "gemm",
+            "m": 127,
+            "n": 193,
+            "k": 61
+          },
+          "gemm_block": [
+            32,
+            64,
+            32
+          ],
+          "execution_scope": "group",
+          "pipeline_window": 1,
+          "cooperative_matrix": true,
+          "no_vectorize": false,
+          "auto_vectorize": false
+        },
+        {
+          "backend": "metal",
+          "name": "gemm_513x257x129",
+          "case": {
+            "operation": "gemm",
+            "m": 513,
+            "n": 257,
+            "k": 129
+          },
+          "gemm_block": [
+            32,
+            64,
+            32
+          ],
+          "execution_scope": "group",
+          "pipeline_window": 1,
+          "cooperative_matrix": true,
+          "no_vectorize": false,
+          "auto_vectorize": false
+        }
+      ]
+    }
+  },
+  "results": [
+    {
+      "backend": "metal",
+      "name": "gemm_32x32x32",
+      "case": {
+        "operation": "gemm",
+        "m": 32,
+        "n": 32,
+        "k": 32
+      },
+      "valid": false,
+      "error": "native benchmark failed (-6):\ndyld[8714]: Library not loaded: @rpath/libglslang.16.dylib\n  Referenced from: <CEC8C7F4-B703-3C77-AB0C-E249BB307A3A> /private/tmp/luisa-tile-before-planner-pBzxcr/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file)\n\n",
+      "round": 0,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 32,
+        "n": 32,
+        "k": 32
+      },
+      "name": "gemm_32x32x32",
+      "backend": "metal",
+      "block": [
+        32,
+        64,
+        32
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 42.110792,
+        "warmup_ms": 200.110875,
+        "repetitions": 1428,
+        "throughput_us": [
+          27.218283613445376,
+          27.048844537815125,
+          27.247840336134455,
+          28.295693277310924,
+          27.271650560224092,
+          27.67296918767507,
+          26.8015581232493,
+          26.757761204481792,
+          26.679504901960783
+        ],
+        "latency_us": [
+          277.084,
+          269.375,
+          283.16700000000003,
+          278.04200000000003,
+          260.75,
+          261.958,
+          255.917,
+          274.792,
+          275.708
+        ],
+        "throughput_us_p50": 27.218283613445376,
+        "throughput_us_p90": 27.79751400560224,
+        "latency_us_p50": 274.792,
+        "latency_us_p90": 279.067,
+        "download_ms": 0.302,
+        "allocation_upload_ms": 3.275625,
+        "device": "mps:0",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "metal",
+        "operation": "gemm",
+        "execution_scope": "group",
+        "pipeline_window": 1,
+        "cooperative_matrix": true,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 8,
+        "runtime_init_ms": 18.021958,
+        "capture_ms": 0.06675,
+        "compile_ms": 45.448,
+        "allocation_upload_ms": 1.310417,
+        "cold_call_ms": 76.755833,
+        "warmup_ms": 200.147667,
+        "download_ms": 0.284542,
+        "repetitions": 5294,
+        "output_elements": 1024,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          8.60987287495,
+          8.79105289006,
+          8.54162731394,
+          7.80540857575,
+          7.48181904042,
+          7.59845277673,
+          8.49984265206,
+          8.71795107669,
+          8.73480997355
+        ],
+        "latency_us": [
+          270.291,
+          244.5,
+          248.583,
+          240,
+          232.583,
+          224.375,
+          229.917,
+          233.417,
+          242.583
+        ],
+        "execution_plans": [
+          {
+            "threads": 128,
+            "shared_memory_bytes": 20480,
+            "optimized": true,
+            "candidates_considered": 28,
+            "candidates_rejected": 12,
+            "normalized_cost": 552,
+            "matrix_issues": 128,
+            "shared_fragment_transfers": 160,
+            "fragment_scalars_per_lane": 28,
+            "matrices": [
+              {
+                "subgroups_m": 1,
+                "subgroups_n": 4,
+                "atom_rows": 4,
+                "atom_columns": 2,
+                "persistent_accumulator": true
+              }
+            ]
+          }
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 8.54162731394,
+        "throughput_us_p90": 8.746058556852,
+        "latency_us_p50": 240.0,
+        "latency_us_p90": 252.9246
+      },
+      "slowdown": 0.31381946912040326,
+      "valid": true,
+      "round": 0,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 128,
+        "n": 128,
+        "k": 128
+      },
+      "name": "gemm_128x128x128",
+      "backend": "metal",
+      "block": [
+        32,
+        64,
+        32
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "metal",
+        "operation": "gemm",
+        "execution_scope": "group",
+        "pipeline_window": 1,
+        "cooperative_matrix": true,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 8,
+        "runtime_init_ms": 16.356042,
+        "capture_ms": 0.055,
+        "compile_ms": 42.886625,
+        "allocation_upload_ms": 1.504333,
+        "cold_call_ms": 0.993375,
+        "warmup_ms": 200.059833,
+        "download_ms": 0.308375,
+        "repetitions": 3070,
+        "output_elements": 16384,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          12.5622283388,
+          12.3515335505,
+          13.1978964169,
+          12.3475162866,
+          12.2017508143,
+          13.5637078176,
+          12.5174130293,
+          12.6705348534,
+          12.4633143322
+        ],
+        "latency_us": [
+          1238.584,
+          281.042,
+          262.333,
+          237.417,
+          343.834,
+          354.083,
+          266.292,
+          275.792,
+          222.375
+        ],
+        "execution_plans": [
+          {
+            "threads": 128,
+            "shared_memory_bytes": 20480,
+            "optimized": true,
+            "candidates_considered": 28,
+            "candidates_rejected": 12,
+            "normalized_cost": 1632,
+            "matrix_issues": 512,
+            "shared_fragment_transfers": 448,
+            "fragment_scalars_per_lane": 28,
+            "matrices": [
+              {
+                "subgroups_m": 1,
+                "subgroups_n": 4,
+                "atom_rows": 4,
+                "atom_columns": 2,
+                "persistent_accumulator": true
+              }
+            ]
+          }
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 12.5174130293,
+        "throughput_us_p90": 13.27105869704,
+        "latency_us_p50": 275.792,
+        "latency_us_p90": 530.9832000000001
+      },
+      "torch": {
+        "cold_call_ms": 4.462708,
+        "warmup_ms": 200.534584,
+        "repetitions": 1318,
+        "throughput_us": [
+          29.643556904400604,
+          28.033889226100154,
+          27.900859635811834,
+          26.65221927162367,
+          26.931050834597876,
+          27.29868512898331,
+          27.24124279210926,
+          28.06730500758725,
+          27.441009104704097
+        ],
+        "latency_us": [
+          335.166,
+          311.125,
+          306.959,
+          323.83299999999997,
+          306.958,
+          278.459,
+          286.625,
+          306.042,
+          291.16700000000003
+        ],
+        "throughput_us_p50": 27.441009104704097,
+        "throughput_us_p90": 28.38255538694992,
+        "latency_us_p50": 306.958,
+        "latency_us_p90": 326.09959999999995,
+        "download_ms": 0.323666,
+        "allocation_upload_ms": 0.870833,
+        "device": "mps:0",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 0.45615716905812304,
+      "valid": true,
+      "round": 0,
+      "variant": "candidate"
+    },
+    {
+      "backend": "metal",
+      "name": "gemm_128x128x128",
+      "case": {
+        "operation": "gemm",
+        "m": 128,
+        "n": 128,
+        "k": 128
+      },
+      "valid": false,
+      "error": "native benchmark failed (-6):\ndyld[8771]: Library not loaded: @rpath/libglslang.16.dylib\n  Referenced from: <CEC8C7F4-B703-3C77-AB0C-E249BB307A3A> /private/tmp/luisa-tile-before-planner-pBzxcr/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file)\n\n",
+      "round": 0,
+      "variant": "reference"
+    },
+    {
+      "backend": "metal",
+      "name": "gemm_512x512x512",
+      "case": {
+        "operation": "gemm",
+        "m": 512,
+        "n": 512,
+        "k": 512
+      },
+      "valid": false,
+      "error": "native benchmark failed (-6):\ndyld[8772]: Library not loaded: @rpath/libglslang.16.dylib\n  Referenced from: <CEC8C7F4-B703-3C77-AB0C-E249BB307A3A> /private/tmp/luisa-tile-before-planner-pBzxcr/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file)\n\n",
+      "round": 0,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 512,
+        "n": 512,
+        "k": 512
+      },
+      "name": "gemm_512x512x512",
+      "backend": "metal",
+      "block": [
+        32,
+        64,
+        32
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 3.648583,
+        "warmup_ms": 200.6505,
+        "repetitions": 706,
+        "throughput_us": [
+          48.551699716713884,
+          48.72757223796034,
+          48.51304390934843,
+          47.92274504249291,
+          48.391230878186974,
+          48.86172096317281,
+          49.21311331444759,
+          48.00548866855524,
+          48.184784702549585
+        ],
+        "latency_us": [
+          438.667,
+          314.167,
+          298.542,
+          315.375,
+          331.208,
+          285.584,
+          299.58299999999997,
+          321.041,
+          321.125
+        ],
+        "throughput_us_p50": 48.51304390934843,
+        "throughput_us_p90": 48.93199943342776,
+        "latency_us_p50": 315.375,
+        "latency_us_p90": 352.69980000000004,
+        "download_ms": 0.362041,
+        "allocation_upload_ms": 1.076125,
+        "device": "mps:0",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "metal",
+        "operation": "gemm",
+        "execution_scope": "group",
+        "pipeline_window": 1,
+        "cooperative_matrix": true,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 8,
+        "runtime_init_ms": 18.303958,
+        "capture_ms": 0.055083,
+        "compile_ms": 45.71775,
+        "allocation_upload_ms": 1.759458,
+        "cold_call_ms": 1.15125,
+        "warmup_ms": 200.805042,
+        "download_ms": 0.548542,
+        "repetitions": 506,
+        "output_elements": 262144,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          77.7766798419,
+          79.6525849802,
+          76.4141956522,
+          76.5419130435,
+          76.5965909091,
+          76.7729743083,
+          77.5656304348,
+          80.6443498024,
+          78.8795296443
+        ],
+        "latency_us": [
+          304.125,
+          341.541,
+          349.5,
+          312.042,
+          318.792,
+          323.209,
+          296.25,
+          343.125,
+          290.75
+        ],
+        "execution_plans": [
+          {
+            "threads": 128,
+            "shared_memory_bytes": 20480,
+            "optimized": true,
+            "candidates_considered": 28,
+            "candidates_rejected": 12,
+            "normalized_cost": 5952,
+            "matrix_issues": 2048,
+            "shared_fragment_transfers": 1600,
+            "fragment_scalars_per_lane": 28,
+            "matrices": [
+              {
+                "subgroups_m": 1,
+                "subgroups_n": 4,
+                "atom_rows": 4,
+                "atom_columns": 2,
+                "persistent_accumulator": true
+              }
+            ]
+          }
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 77.5656304348,
+        "throughput_us_p90": 79.85093794464001,
+        "latency_us_p50": 318.792,
+        "latency_us_p90": 344.4
+      },
+      "slowdown": 1.5988613408744108,
+      "valid": true,
+      "round": 0,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 1024,
+        "n": 1024,
+        "k": 1024
+      },
+      "name": "gemm_1024x1024x1024",
+      "backend": "metal",
+      "block": [
+        32,
+        64,
+        32
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "metal",
+        "operation": "gemm",
+        "execution_scope": "group",
+        "pipeline_window": 1,
+        "cooperative_matrix": true,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 8,
+        "runtime_init_ms": 17.092917,
+        "capture_ms": 0.063958,
+        "compile_ms": 47.880125,
+        "allocation_upload_ms": 2.905333,
+        "cold_call_ms": 2.020458,
+        "warmup_ms": 202.284375,
+        "download_ms": 0.821125,
+        "repetitions": 80,
+        "output_elements": 1048576,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          483.10885,
+          475.01875,
+          475.6395875,
+          478.4708375,
+          474.4510375,
+          475.43385,
+          474.7323,
+          482.274475,
+          476.83125
+        ],
+        "latency_us": [
+          691.375,
+          678.458,
+          694,
+          636,
+          669.5,
+          658.5,
+          716.458,
+          797.75,
+          619.958
+        ],
+        "execution_plans": [
+          {
+            "threads": 128,
+            "shared_memory_bytes": 20480,
+            "optimized": true,
+            "candidates_considered": 28,
+            "candidates_rejected": 12,
+            "normalized_cost": 11712,
+            "matrix_issues": 4096,
+            "shared_fragment_transfers": 3136,
+            "fragment_scalars_per_lane": 28,
+            "matrices": [
+              {
+                "subgroups_m": 1,
+                "subgroups_n": 4,
+                "atom_rows": 4,
+                "atom_columns": 2,
+                "persistent_accumulator": true
+              }
+            ]
+          }
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 475.6395875,
+        "throughput_us_p90": 482.44135,
+        "latency_us_p50": 678.458,
+        "latency_us_p90": 732.7164
+      },
+      "torch": {
+        "cold_call_ms": 4.174833,
+        "warmup_ms": 202.285917,
+        "repetitions": 138,
+        "throughput_us": [
+          288.84692028985506,
+          295.52777536231883,
+          288.89432608695654,
+          289.2910652173913,
+          289.06823913043473,
+          288.37470289855077,
+          292.6334492753623,
+          288.5954057971014,
+          289.7554347826087
+        ],
+        "latency_us": [
+          643.042,
+          551.4590000000001,
+          548.875,
+          526.9169999999999,
+          626.0,
+          531.833,
+          526.375,
+          536.2090000000001,
+          523.083
+        ],
+        "throughput_us_p50": 289.06823913043473,
+        "throughput_us_p90": 293.2123144927536,
+        "latency_us_p50": 536.2090000000001,
+        "latency_us_p90": 629.4084,
+        "download_ms": 0.4145,
+        "allocation_upload_ms": 2.056583,
+        "device": "mps:0",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 1.6454232015623815,
+      "valid": true,
+      "round": 0,
+      "variant": "candidate"
+    },
+    {
+      "backend": "metal",
+      "name": "gemm_1024x1024x1024",
+      "case": {
+        "operation": "gemm",
+        "m": 1024,
+        "n": 1024,
+        "k": 1024
+      },
+      "valid": false,
+      "error": "native benchmark failed (-6):\ndyld[8821]: Library not loaded: @rpath/libglslang.16.dylib\n  Referenced from: <CEC8C7F4-B703-3C77-AB0C-E249BB307A3A> /private/tmp/luisa-tile-before-planner-pBzxcr/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file)\n\n",
+      "round": 0,
+      "variant": "reference"
+    },
+    {
+      "backend": "metal",
+      "name": "gemm_256x1024x128",
+      "case": {
+        "operation": "gemm",
+        "m": 256,
+        "n": 1024,
+        "k": 128
+      },
+      "valid": false,
+      "error": "native benchmark failed (-6):\ndyld[8822]: Library not loaded: @rpath/libglslang.16.dylib\n  Referenced from: <CEC8C7F4-B703-3C77-AB0C-E249BB307A3A> /private/tmp/luisa-tile-before-planner-pBzxcr/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file)\n\n",
+      "round": 0,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 256,
+        "n": 1024,
+        "k": 128
+      },
+      "name": "gemm_256x1024x128",
+      "backend": "metal",
+      "block": [
+        32,
+        64,
+        32
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 4.050459,
+        "warmup_ms": 200.171083,
+        "repetitions": 1321,
+        "throughput_us": [
+          28.784002271006813,
+          28.87793338380015,
+          29.62433762301287,
+          30.10714761544284,
+          28.796208932626797,
+          28.723283875851628,
+          30.235900832702498,
+          30.318287660862982,
+          30.407929598788797
+        ],
+        "latency_us": [
+          382.91700000000003,
+          283.917,
+          270.0,
+          238.917,
+          229.416,
+          233.375,
+          228.792,
+          309.417,
+          245.333
+        ],
+        "throughput_us_p50": 29.62433762301287,
+        "throughput_us_p90": 30.336216048448144,
+        "latency_us_p50": 245.333,
+        "latency_us_p90": 324.117,
+        "download_ms": 0.316083,
+        "allocation_upload_ms": 0.922583,
+        "device": "mps:0",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "metal",
+        "operation": "gemm",
+        "execution_scope": "group",
+        "pipeline_window": 1,
+        "cooperative_matrix": true,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 8,
+        "runtime_init_ms": 16.395958,
+        "capture_ms": 0.051875,
+        "compile_ms": 44.06775,
+        "allocation_upload_ms": 1.755417,
+        "cold_call_ms": 1.122291,
+        "warmup_ms": 200.60025,
+        "download_ms": 0.630375,
+        "repetitions": 1338,
+        "output_elements": 262144,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          25.7690269058,
+          25.6839499253,
+          25.9065142003,
+          25.57645142,
+          26.0147301943,
+          25.6353079223,
+          25.8080156951,
+          25.7675014948,
+          25.445877429
+        ],
+        "latency_us": [
+          276.25,
+          236.375,
+          221.959,
+          228.625,
+          243.667,
+          244.958,
+          380.791,
+          240.875,
+          261.375
+        ],
+        "execution_plans": [
+          {
+            "threads": 128,
+            "shared_memory_bytes": 20480,
+            "optimized": true,
+            "candidates_considered": 28,
+            "candidates_rejected": 12,
+            "normalized_cost": 1632,
+            "matrix_issues": 512,
+            "shared_fragment_transfers": 448,
+            "fragment_scalars_per_lane": 28,
+            "matrices": [
+              {
+                "subgroups_m": 1,
+                "subgroups_n": 4,
+                "atom_rows": 4,
+                "atom_columns": 2,
+                "persistent_accumulator": true
+              }
+            ]
+          }
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 25.7675014948,
+        "throughput_us_p90": 25.928157399099998,
+        "latency_us_p50": 243.667,
+        "latency_us_p90": 297.1582
+      },
+      "slowdown": 0.8698085277958488,
+      "valid": true,
+      "round": 0,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 1024,
+        "n": 128,
+        "k": 256
+      },
+      "name": "gemm_1024x128x256",
+      "backend": "metal",
+      "block": [
+        32,
+        64,
+        32
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "metal",
+        "operation": "gemm",
+        "execution_scope": "group",
+        "pipeline_window": 1,
+        "cooperative_matrix": true,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 8,
+        "runtime_init_ms": 16.865666,
+        "capture_ms": 0.06375,
+        "compile_ms": 43.808834,
+        "allocation_upload_ms": 1.708583,
+        "cold_call_ms": 1.053167,
+        "warmup_ms": 200.072125,
+        "download_ms": 0.386834,
+        "repetitions": 1595,
+        "output_elements": 131072,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          24.5110501567,
+          24.3600840125,
+          24.8881398119,
+          24.2025862069,
+          24.6181818182,
+          24.4157003135,
+          22.8743730408,
+          22.7879573668,
+          23.0074188088
+        ],
+        "latency_us": [
+          272.333,
+          236.292,
+          236.125,
+          254.375,
+          238.792,
+          285.083,
+          226.334,
+          236.916,
+          303.125
+        ],
+        "execution_plans": [
+          {
+            "threads": 128,
+            "shared_memory_bytes": 20480,
+            "optimized": true,
+            "candidates_considered": 28,
+            "candidates_rejected": 12,
+            "normalized_cost": 3072,
+            "matrix_issues": 1024,
+            "shared_fragment_transfers": 832,
+            "fragment_scalars_per_lane": 28,
+            "matrices": [
+              {
+                "subgroups_m": 1,
+                "subgroups_n": 4,
+                "atom_rows": 4,
+                "atom_columns": 2,
+                "persistent_accumulator": true
+              }
+            ]
+          }
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 24.3600840125,
+        "throughput_us_p90": 24.67217341694,
+        "latency_us_p50": 238.792,
+        "latency_us_p90": 288.69140000000004
+      },
+      "torch": {
+        "cold_call_ms": 4.163875,
+        "warmup_ms": 200.212166,
+        "repetitions": 1304,
+        "throughput_us": [
+          29.604805981595092,
+          34.32068021472393,
+          29.07748619631902,
+          28.46085736196319,
+          29.175964723926384,
+          29.928361196319017,
+          30.382988496932516,
+          29.835345858895703,
+          31.08362116564417
+        ],
+        "latency_us": [
+          375.458,
+          262.083,
+          268.0,
+          293.417,
+          290.834,
+          239.5,
+          254.74999999999997,
+          267.667,
+          276.208
+        ],
+        "throughput_us_p50": 29.835345858895703,
+        "throughput_us_p90": 31.731032975460124,
+        "latency_us_p50": 268.0,
+        "latency_us_p90": 309.8252,
+        "download_ms": 0.306,
+        "allocation_upload_ms": 0.912334,
+        "device": "mps:0",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 0.8164840497478866,
+      "valid": true,
+      "round": 0,
+      "variant": "candidate"
+    },
+    {
+      "backend": "metal",
+      "name": "gemm_1024x128x256",
+      "case": {
+        "operation": "gemm",
+        "m": 1024,
+        "n": 128,
+        "k": 256
+      },
+      "valid": false,
+      "error": "native benchmark failed (-6):\ndyld[8870]: Library not loaded: @rpath/libglslang.16.dylib\n  Referenced from: <CEC8C7F4-B703-3C77-AB0C-E249BB307A3A> /private/tmp/luisa-tile-before-planner-pBzxcr/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file)\n\n",
+      "round": 0,
+      "variant": "reference"
+    },
+    {
+      "backend": "metal",
+      "name": "gemm_127x193x61",
+      "case": {
+        "operation": "gemm",
+        "m": 127,
+        "n": 193,
+        "k": 61
+      },
+      "valid": false,
+      "error": "native benchmark failed (-6):\ndyld[8871]: Library not loaded: @rpath/libglslang.16.dylib\n  Referenced from: <CEC8C7F4-B703-3C77-AB0C-E249BB307A3A> /private/tmp/luisa-tile-before-planner-pBzxcr/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file)\n\n",
+      "round": 0,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 127,
+        "n": 193,
+        "k": 61
+      },
+      "name": "gemm_127x193x61",
+      "backend": "metal",
+      "block": [
+        32,
+        64,
+        32
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 4.25725,
+        "warmup_ms": 200.611458,
+        "repetitions": 1411,
+        "throughput_us": [
+          26.871781715095672,
+          26.33147271438696,
+          27.078431608788094,
+          26.931668320340187,
+          26.867942593905028,
+          26.35099220411056,
+          27.641418143160877,
+          27.89815095676825,
+          29.074622253720765
+        ],
+        "latency_us": [
+          308.209,
+          273.416,
+          271.959,
+          295.041,
+          291.625,
+          269.416,
+          268.334,
+          289.16700000000003,
+          284.25
+        ],
+        "throughput_us_p50": 26.931668320340187,
+        "throughput_us_p90": 28.133445216158755,
+        "latency_us_p50": 284.25,
+        "latency_us_p90": 297.6746,
+        "download_ms": 0.311917,
+        "allocation_upload_ms": 1.386667,
+        "device": "mps:0",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "metal",
+        "operation": "gemm",
+        "execution_scope": "group",
+        "pipeline_window": 1,
+        "cooperative_matrix": true,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 8,
+        "runtime_init_ms": 16.463708,
+        "capture_ms": 0.062084,
+        "compile_ms": 48.596417,
+        "allocation_upload_ms": 1.616708,
+        "cold_call_ms": 1.11175,
+        "warmup_ms": 200.616333,
+        "download_ms": 0.331167,
+        "repetitions": 1575,
+        "output_elements": 24511,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          22.3945771429,
+          21.1073809524,
+          22.109655873,
+          21.6866666667,
+          22.0111904762,
+          22.0982806349,
+          22.1722222222,
+          22.0291796825,
+          22.376031746
+        ],
+        "latency_us": [
+          320.75,
+          252,
+          260.791,
+          253.583,
+          239.916,
+          1359.459,
+          249.25,
+          253.167,
+          222.792
+        ],
+        "execution_plans": [
+          {
+            "threads": 128,
+            "shared_memory_bytes": 20480,
+            "optimized": true,
+            "candidates_considered": 28,
+            "candidates_rejected": 12,
+            "normalized_cost": 912,
+            "matrix_issues": 256,
+            "shared_fragment_transfers": 256,
+            "fragment_scalars_per_lane": 28,
+            "matrices": [
+              {
+                "subgroups_m": 1,
+                "subgroups_n": 4,
+                "atom_rows": 4,
+                "atom_columns": 2,
+                "persistent_accumulator": true
+              }
+            ]
+          }
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 22.0982806349,
+        "throughput_us_p90": 22.37974082538,
+        "latency_us_p50": 253.167,
+        "latency_us_p90": 528.4918000000002
+      },
+      "slowdown": 0.8205314417232087,
+      "valid": true,
+      "round": 0,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 513,
+        "n": 257,
+        "k": 129
+      },
+      "name": "gemm_513x257x129",
+      "backend": "metal",
+      "block": [
+        32,
+        64,
+        32
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "metal",
+        "operation": "gemm",
+        "execution_scope": "group",
+        "pipeline_window": 1,
+        "cooperative_matrix": true,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 8,
+        "runtime_init_ms": 15.408459,
+        "capture_ms": 0.060458,
+        "compile_ms": 48.627583,
+        "allocation_upload_ms": 1.555167,
+        "cold_call_ms": 1.037833,
+        "warmup_ms": 200.362375,
+        "download_ms": 0.428292,
+        "repetitions": 961,
+        "output_elements": 131841,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          41.9678283039,
+          42.2661290323,
+          41.6697013528,
+          42.3749573361,
+          41.5859781478,
+          40.2991675338,
+          40.5009531738,
+          41.4508324662,
+          42.4286326743
+        ],
+        "latency_us": [
+          386,
+          281.25,
+          265.959,
+          273.333,
+          280.792,
+          264.875,
+          261.375,
+          266.875,
+          290.416
+        ],
+        "execution_plans": [
+          {
+            "threads": 128,
+            "shared_memory_bytes": 20480,
+            "optimized": true,
+            "candidates_considered": 28,
+            "candidates_rejected": 12,
+            "normalized_cost": 1992,
+            "matrix_issues": 640,
+            "shared_fragment_transfers": 544,
+            "fragment_scalars_per_lane": 28,
+            "matrices": [
+              {
+                "subgroups_m": 1,
+                "subgroups_n": 4,
+                "atom_rows": 4,
+                "atom_columns": 2,
+                "persistent_accumulator": true
+              }
+            ]
+          }
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 41.6697013528,
+        "throughput_us_p90": 42.38569240374,
+        "latency_us_p50": 273.333,
+        "latency_us_p90": 309.5328
+      },
+      "torch": {
+        "cold_call_ms": 4.490542,
+        "warmup_ms": 200.604916,
+        "repetitions": 1084,
+        "throughput_us": [
+          34.83421771217712,
+          35.27237084870849,
+          35.634725092250925,
+          34.87711439114391,
+          34.47739852398524,
+          34.75476660516605,
+          34.998731549815496,
+          34.92216328413284,
+          35.08279520295203
+        ],
+        "latency_us": [
+          479.041,
+          309.66700000000003,
+          316.584,
+          288.16700000000003,
+          321.041,
+          338.334,
+          325.834,
+          292.417,
+          322.33299999999997
+        ],
+        "throughput_us_p50": 34.92216328413284,
+        "throughput_us_p90": 35.344841697416975,
+        "latency_us_p50": 321.041,
+        "latency_us_p90": 366.47540000000004,
+        "download_ms": 0.354833,
+        "allocation_upload_ms": 1.089791,
+        "device": "mps:0",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 1.1932164973220016,
+      "valid": true,
+      "round": 0,
+      "variant": "candidate"
+    },
+    {
+      "backend": "metal",
+      "name": "gemm_513x257x129",
+      "case": {
+        "operation": "gemm",
+        "m": 513,
+        "n": 257,
+        "k": 129
+      },
+      "valid": false,
+      "error": "native benchmark failed (-6):\ndyld[8920]: Library not loaded: @rpath/libglslang.16.dylib\n  Referenced from: <CEC8C7F4-B703-3C77-AB0C-E249BB307A3A> /private/tmp/luisa-tile-before-planner-pBzxcr/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file)\n\n",
+      "round": 0,
+      "variant": "reference"
+    },
+    {
+      "backend": "metal",
+      "name": "gemm_128x128x128",
+      "case": {
+        "operation": "gemm",
+        "m": 128,
+        "n": 128,
+        "k": 128
+      },
+      "valid": false,
+      "error": "native benchmark failed (-6):\ndyld[8921]: Library not loaded: @rpath/libglslang.16.dylib\n  Referenced from: <CEC8C7F4-B703-3C77-AB0C-E249BB307A3A> /private/tmp/luisa-tile-before-planner-pBzxcr/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file)\n\n",
+      "round": 1,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 128,
+        "n": 128,
+        "k": 128
+      },
+      "name": "gemm_128x128x128",
+      "backend": "metal",
+      "block": [
+        32,
+        64,
+        32
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.448584,
+        "warmup_ms": 200.204292,
+        "repetitions": 1309,
+        "throughput_us": [
+          26.691048892284186,
+          26.645339954163482,
+          26.412815126050422,
+          26.800101604278073,
+          28.48494423223835,
+          28.072288006111535,
+          26.435765469824293,
+          26.51279602750191,
+          26.56872345301757
+        ],
+        "latency_us": [
+          293.084,
+          301.79200000000003,
+          271.45799999999997,
+          288.833,
+          264.125,
+          309.916,
+          263.83299999999997,
+          270.5,
+          267.70899999999995
+        ],
+        "throughput_us_p50": 26.645339954163482,
+        "throughput_us_p90": 28.1548192513369,
+        "latency_us_p50": 271.45799999999997,
+        "latency_us_p90": 303.4168,
+        "download_ms": 0.303041,
+        "allocation_upload_ms": 0.768875,
+        "device": "mps:0",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "metal",
+        "operation": "gemm",
+        "execution_scope": "group",
+        "pipeline_window": 1,
+        "cooperative_matrix": true,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 8,
+        "runtime_init_ms": 16.106125,
+        "capture_ms": 0.051333,
+        "compile_ms": 45.207458,
+        "allocation_upload_ms": 1.51475,
+        "cold_call_ms": 1.512625,
+        "warmup_ms": 201.096083,
+        "download_ms": 0.293083,
+        "repetitions": 3007,
+        "output_elements": 16384,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          13.527463585,
+          12.9703052877,
+          13.0621882275,
+          13.3031260392,
+          13.1810222813,
+          13.4311469904,
+          13.1008619887,
+          13.1905138011,
+          13.2939667443
+        ],
+        "latency_us": [
+          281.667,
+          245.708,
+          318.625,
+          280.959,
+          243.5,
+          235.084,
+          250.667,
+          255.709,
+          238.833
+        ],
+        "execution_plans": [
+          {
+            "threads": 128,
+            "shared_memory_bytes": 20480,
+            "optimized": true,
+            "candidates_considered": 28,
+            "candidates_rejected": 12,
+            "normalized_cost": 1632,
+            "matrix_issues": 512,
+            "shared_fragment_transfers": 448,
+            "fragment_scalars_per_lane": 28,
+            "matrices": [
+              {
+                "subgroups_m": 1,
+                "subgroups_n": 4,
+                "atom_rows": 4,
+                "atom_columns": 2,
+                "persistent_accumulator": true
+              }
+            ]
+          }
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 13.1905138011,
+        "throughput_us_p90": 13.45041030932,
+        "latency_us_p50": 250.667,
+        "latency_us_p90": 289.0586
+      },
+      "slowdown": 0.49504017677353407,
+      "valid": true,
+      "round": 1,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 512,
+        "n": 512,
+        "k": 512
+      },
+      "name": "gemm_512x512x512",
+      "backend": "metal",
+      "block": [
+        32,
+        64,
+        32
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "metal",
+        "operation": "gemm",
+        "execution_scope": "group",
+        "pipeline_window": 1,
+        "cooperative_matrix": true,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 8,
+        "runtime_init_ms": 28.823459,
+        "capture_ms": 0.058209,
+        "compile_ms": 44.83075,
+        "allocation_upload_ms": 1.845958,
+        "cold_call_ms": 1.17325,
+        "warmup_ms": 200.586708,
+        "download_ms": 0.527833,
+        "repetitions": 510,
+        "output_elements": 262144,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          77.4216490196,
+          77.5959960784,
+          76.9356215686,
+          76.4899509804,
+          78.2100490196,
+          77.7366,
+          77.6593960784,
+          77.6793294118,
+          77.7818627451
+        ],
+        "latency_us": [
+          325.875,
+          305.792,
+          288.875,
+          300.417,
+          327.5,
+          314.292,
+          399.5,
+          332.292,
+          319.834
+        ],
+        "execution_plans": [
+          {
+            "threads": 128,
+            "shared_memory_bytes": 20480,
+            "optimized": true,
+            "candidates_considered": 28,
+            "candidates_rejected": 12,
+            "normalized_cost": 5952,
+            "matrix_issues": 2048,
+            "shared_fragment_transfers": 1600,
+            "fragment_scalars_per_lane": 28,
+            "matrices": [
+              {
+                "subgroups_m": 1,
+                "subgroups_n": 4,
+                "atom_rows": 4,
+                "atom_columns": 2,
+                "persistent_accumulator": true
+              }
+            ]
+          }
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 77.6593960784,
+        "throughput_us_p90": 77.8675,
+        "latency_us_p50": 319.834,
+        "latency_us_p90": 345.73359999999997
+      },
+      "torch": {
+        "cold_call_ms": 1.008458,
+        "warmup_ms": 200.397083,
+        "repetitions": 808,
+        "throughput_us": [
+          47.881137376237625,
+          48.21122029702971,
+          49.07518564356435,
+          48.29769925742574,
+          47.8049702970297,
+          48.01737871287129,
+          47.96967821782178,
+          48.60973514851485,
+          49.13701485148515
+        ],
+        "latency_us": [
+          431.79200000000003,
+          321.834,
+          329.5,
+          314.583,
+          327.667,
+          297.5,
+          305.917,
+          328.0,
+          295.16700000000003
+        ],
+        "throughput_us_p50": 48.21122029702971,
+        "throughput_us_p90": 49.08755148514851,
+        "latency_us_p50": 321.834,
+        "latency_us_p90": 349.95840000000004,
+        "download_ms": 0.351166,
+        "allocation_upload_ms": 1.011,
+        "device": "mps:0",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 1.6108158142428222,
+      "valid": true,
+      "round": 1,
+      "variant": "candidate"
+    },
+    {
+      "backend": "metal",
+      "name": "gemm_512x512x512",
+      "case": {
+        "operation": "gemm",
+        "m": 512,
+        "n": 512,
+        "k": 512
+      },
+      "valid": false,
+      "error": "native benchmark failed (-6):\ndyld[8968]: Library not loaded: @rpath/libglslang.16.dylib\n  Referenced from: <CEC8C7F4-B703-3C77-AB0C-E249BB307A3A> /private/tmp/luisa-tile-before-planner-pBzxcr/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file)\n\n",
+      "round": 1,
+      "variant": "reference"
+    },
+    {
+      "backend": "metal",
+      "name": "gemm_1024x1024x1024",
+      "case": {
+        "operation": "gemm",
+        "m": 1024,
+        "n": 1024,
+        "k": 1024
+      },
+      "valid": false,
+      "error": "native benchmark failed (-6):\ndyld[8970]: Library not loaded: @rpath/libglslang.16.dylib\n  Referenced from: <CEC8C7F4-B703-3C77-AB0C-E249BB307A3A> /private/tmp/luisa-tile-before-planner-pBzxcr/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file)\n\n",
+      "round": 1,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 1024,
+        "n": 1024,
+        "k": 1024
+      },
+      "name": "gemm_1024x1024x1024",
+      "backend": "metal",
+      "block": [
+        32,
+        64,
+        32
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.741708,
+        "warmup_ms": 202.008333,
+        "repetitions": 138,
+        "throughput_us": [
+          288.7355072463768,
+          287.6014492753623,
+          288.81914492753623,
+          288.3719782608696,
+          296.40157246376805,
+          295.7765724637681,
+          297.89402173913044,
+          295.0018115942029,
+          302.73671014492754
+        ],
+        "latency_us": [
+          803.042,
+          604.084,
+          577.0,
+          1048.667,
+          839.542,
+          555.0840000000001,
+          569.209,
+          539.125,
+          522.8340000000001
+        ],
+        "throughput_us_p50": 295.0018115942029,
+        "throughput_us_p90": 298.86255942028987,
+        "latency_us_p50": 577.0,
+        "latency_us_p90": 881.3670000000001,
+        "download_ms": 0.494208,
+        "allocation_upload_ms": 1.682584,
+        "device": "mps:0",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "metal",
+        "operation": "gemm",
+        "execution_scope": "group",
+        "pipeline_window": 1,
+        "cooperative_matrix": true,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 8,
+        "runtime_init_ms": 17.239125,
+        "capture_ms": 0.049958,
+        "compile_ms": 45.772667,
+        "allocation_upload_ms": 2.746,
+        "cold_call_ms": 1.873208,
+        "warmup_ms": 201.128583,
+        "download_ms": 0.767583,
+        "repetitions": 83,
+        "output_elements": 1048576,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          485.174698795,
+          473.838855422,
+          475.095891566,
+          475.238457831,
+          473.720385542,
+          477.917168675,
+          475.386048193,
+          473.773590361,
+          474.138060241
+        ],
+        "latency_us": [
+          708.875,
+          674.667,
+          756.625,
+          672.917,
+          689.333,
+          676.166,
+          658.833,
+          660.959,
+          649.666
+        ],
+        "execution_plans": [
+          {
+            "threads": 128,
+            "shared_memory_bytes": 20480,
+            "optimized": true,
+            "candidates_considered": 28,
+            "candidates_rejected": 12,
+            "normalized_cost": 11712,
+            "matrix_issues": 4096,
+            "shared_fragment_transfers": 3136,
+            "fragment_scalars_per_lane": 28,
+            "matrices": [
+              {
+                "subgroups_m": 1,
+                "subgroups_n": 4,
+                "atom_rows": 4,
+                "atom_columns": 2,
+                "persistent_accumulator": true
+              }
+            ]
+          }
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 475.095891566,
+        "throughput_us_p90": 479.368674699,
+        "latency_us_p50": 674.667,
+        "latency_us_p90": 718.425
+      },
+      "slowdown": 1.6104846576994247,
+      "valid": true,
+      "round": 1,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 256,
+        "n": 1024,
+        "k": 128
+      },
+      "name": "gemm_256x1024x128",
+      "backend": "metal",
+      "block": [
+        32,
+        64,
+        32
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "metal",
+        "operation": "gemm",
+        "execution_scope": "group",
+        "pipeline_window": 1,
+        "cooperative_matrix": true,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 8,
+        "runtime_init_ms": 15.7345,
+        "capture_ms": 0.056125,
+        "compile_ms": 43.688583,
+        "allocation_upload_ms": 1.40975,
+        "cold_call_ms": 1.031125,
+        "warmup_ms": 200.235375,
+        "download_ms": 0.507333,
+        "repetitions": 1458,
+        "output_elements": 262144,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          25.396776406,
+          25.9146947874,
+          25.7590596708,
+          25.4250685871,
+          25.3802578875,
+          25.848537037,
+          25.597622085,
+          25.7423696845,
+          25.6842421125
+        ],
+        "latency_us": [
+          250.834,
+          257.875,
+          233.666,
+          249.208,
+          237.375,
+          267.792,
+          314.792,
+          251.25,
+          252.25
+        ],
+        "execution_plans": [
+          {
+            "threads": 128,
+            "shared_memory_bytes": 20480,
+            "optimized": true,
+            "candidates_considered": 28,
+            "candidates_rejected": 12,
+            "normalized_cost": 1632,
+            "matrix_issues": 512,
+            "shared_fragment_transfers": 448,
+            "fragment_scalars_per_lane": 28,
+            "matrices": [
+              {
+                "subgroups_m": 1,
+                "subgroups_n": 4,
+                "atom_rows": 4,
+                "atom_columns": 2,
+                "persistent_accumulator": true
+              }
+            ]
+          }
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 25.6842421125,
+        "throughput_us_p90": 25.86176858708,
+        "latency_us_p50": 251.25,
+        "latency_us_p90": 277.192
+      },
+      "torch": {
+        "cold_call_ms": 1.022833,
+        "warmup_ms": 200.324458,
+        "repetitions": 1265,
+        "throughput_us": [
+          29.700329644268777,
+          28.692687747035574,
+          30.748616600790513,
+          31.089591304347824,
+          30.213537549407114,
+          30.59713438735178,
+          31.54548695652174,
+          31.3953233201581,
+          30.4300395256917
+        ],
+        "latency_us": [
+          348.334,
+          267.916,
+          251.417,
+          269.792,
+          271.5,
+          267.459,
+          242.5,
+          315.5,
+          1226.125
+        ],
+        "throughput_us_p50": 30.59713438735178,
+        "throughput_us_p90": 31.425356047430828,
+        "latency_us_p50": 269.792,
+        "latency_us_p90": 523.8922000000001,
+        "download_ms": 0.3365,
+        "allocation_upload_ms": 1.285666,
+        "device": "mps:0",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 0.8394329281737356,
+      "valid": true,
+      "round": 1,
+      "variant": "candidate"
+    },
+    {
+      "backend": "metal",
+      "name": "gemm_256x1024x128",
+      "case": {
+        "operation": "gemm",
+        "m": 256,
+        "n": 1024,
+        "k": 128
+      },
+      "valid": false,
+      "error": "native benchmark failed (-6):\ndyld[9023]: Library not loaded: @rpath/libglslang.16.dylib\n  Referenced from: <CEC8C7F4-B703-3C77-AB0C-E249BB307A3A> /private/tmp/luisa-tile-before-planner-pBzxcr/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file)\n\n",
+      "round": 1,
+      "variant": "reference"
+    },
+    {
+      "backend": "metal",
+      "name": "gemm_1024x128x256",
+      "case": {
+        "operation": "gemm",
+        "m": 1024,
+        "n": 128,
+        "k": 256
+      },
+      "valid": false,
+      "error": "native benchmark failed (-6):\ndyld[9024]: Library not loaded: @rpath/libglslang.16.dylib\n  Referenced from: <CEC8C7F4-B703-3C77-AB0C-E249BB307A3A> /private/tmp/luisa-tile-before-planner-pBzxcr/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file)\n\n",
+      "round": 1,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 1024,
+        "n": 128,
+        "k": 256
+      },
+      "name": "gemm_1024x128x256",
+      "backend": "metal",
+      "block": [
+        32,
+        64,
+        32
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.446958,
+        "warmup_ms": 200.165917,
+        "repetitions": 1096,
+        "throughput_us": [
+          29.60352098540146,
+          29.399216240875912,
+          29.43430656934306,
+          29.024483576642336,
+          31.137736313868615,
+          30.952972627737225,
+          30.676930656934303,
+          29.649482664233574,
+          29.988100364963504
+        ],
+        "latency_us": [
+          272.33299999999997,
+          289.5,
+          289.791,
+          250.87500000000003,
+          239.25,
+          243.542,
+          329.291,
+          287.25,
+          237.334
+        ],
+        "throughput_us_p50": 29.649482664233574,
+        "throughput_us_p90": 30.989925364963504,
+        "latency_us_p50": 272.33299999999997,
+        "latency_us_p90": 297.69100000000003,
+        "download_ms": 0.2755,
+        "allocation_upload_ms": 1.064709,
+        "device": "mps:0",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "metal",
+        "operation": "gemm",
+        "execution_scope": "group",
+        "pipeline_window": 1,
+        "cooperative_matrix": true,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 8,
+        "runtime_init_ms": 15.77025,
+        "capture_ms": 0.056792,
+        "compile_ms": 46.543916,
+        "allocation_upload_ms": 1.498583,
+        "cold_call_ms": 1.210958,
+        "warmup_ms": 200.676625,
+        "download_ms": 0.3795,
+        "repetitions": 1446,
+        "output_elements": 131072,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          25.0707413555,
+          24.3804460581,
+          24.4352240664,
+          24.6033312586,
+          24.296824343,
+          24.1388603043,
+          24.4793969571,
+          24.5550082988,
+          24.8362150761
+        ],
+        "latency_us": [
+          288.416,
+          283.208,
+          251.916,
+          264.458,
+          250.333,
+          280.5,
+          251.75,
+          249.292,
+          240.167
+        ],
+        "execution_plans": [
+          {
+            "threads": 128,
+            "shared_memory_bytes": 20480,
+            "optimized": true,
+            "candidates_considered": 28,
+            "candidates_rejected": 12,
+            "normalized_cost": 3072,
+            "matrix_issues": 1024,
+            "shared_fragment_transfers": 832,
+            "fragment_scalars_per_lane": 28,
+            "matrices": [
+              {
+                "subgroups_m": 1,
+                "subgroups_n": 4,
+                "atom_rows": 4,
+                "atom_columns": 2,
+                "persistent_accumulator": true
+              }
+            ]
+          }
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 24.4793969571,
+        "throughput_us_p90": 24.88312033198,
+        "latency_us_p50": 251.916,
+        "latency_us_p90": 284.24960000000004
+      },
+      "slowdown": 0.825626444626965,
+      "valid": true,
+      "round": 1,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 127,
+        "n": 193,
+        "k": 61
+      },
+      "name": "gemm_127x193x61",
+      "backend": "metal",
+      "block": [
+        32,
+        64,
+        32
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "metal",
+        "operation": "gemm",
+        "execution_scope": "group",
+        "pipeline_window": 1,
+        "cooperative_matrix": true,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 8,
+        "runtime_init_ms": 16.166084,
+        "capture_ms": 0.061709,
+        "compile_ms": 48.530666,
+        "allocation_upload_ms": 1.294833,
+        "cold_call_ms": 1.051667,
+        "warmup_ms": 200.140666,
+        "download_ms": 0.315584,
+        "repetitions": 1832,
+        "output_elements": 24511,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          21.8013100437,
+          21.4805316594,
+          22.2672172489,
+          21.7643286026,
+          20.5577237991,
+          21.3883962882,
+          21.3260322052,
+          21.7883919214,
+          21.9772789301
+        ],
+        "latency_us": [
+          374.625,
+          264.041,
+          247.25,
+          242,
+          247.542,
+          271.291,
+          238.833,
+          239.875,
+          249.208
+        ],
+        "execution_plans": [
+          {
+            "threads": 128,
+            "shared_memory_bytes": 20480,
+            "optimized": true,
+            "candidates_considered": 28,
+            "candidates_rejected": 12,
+            "normalized_cost": 912,
+            "matrix_issues": 256,
+            "shared_fragment_transfers": 256,
+            "fragment_scalars_per_lane": 28,
+            "matrices": [
+              {
+                "subgroups_m": 1,
+                "subgroups_n": 4,
+                "atom_rows": 4,
+                "atom_columns": 2,
+                "persistent_accumulator": true
+              }
+            ]
+          }
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 21.7643286026,
+        "throughput_us_p90": 22.035266593859998,
+        "latency_us_p50": 247.542,
+        "latency_us_p90": 291.9578
+      },
+      "torch": {
+        "cold_call_ms": 0.948584,
+        "warmup_ms": 200.489458,
+        "repetitions": 1408,
+        "throughput_us": [
+          28.694691051136363,
+          27.666518465909096,
+          26.521484375,
+          26.284031960227274,
+          28.568181818181817,
+          27.930220170454547,
+          27.705492897727275,
+          30.321407670454548,
+          28.184836647727273
+        ],
+        "latency_us": [
+          375.625,
+          276.584,
+          290.25,
+          262.625,
+          271.83299999999997,
+          257.875,
+          284.041,
+          285.666,
+          253.74999999999997
+        ],
+        "throughput_us_p50": 27.930220170454547,
+        "throughput_us_p90": 29.020034375,
+        "latency_us_p50": 276.584,
+        "latency_us_p90": 307.325,
+        "download_ms": 0.304167,
+        "allocation_upload_ms": 1.102833,
+        "device": "mps:0",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 0.7792394213069248,
+      "valid": true,
+      "round": 1,
+      "variant": "candidate"
+    },
+    {
+      "backend": "metal",
+      "name": "gemm_127x193x61",
+      "case": {
+        "operation": "gemm",
+        "m": 127,
+        "n": 193,
+        "k": 61
+      },
+      "valid": false,
+      "error": "native benchmark failed (-6):\ndyld[9073]: Library not loaded: @rpath/libglslang.16.dylib\n  Referenced from: <CEC8C7F4-B703-3C77-AB0C-E249BB307A3A> /private/tmp/luisa-tile-before-planner-pBzxcr/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file)\n\n",
+      "round": 1,
+      "variant": "reference"
+    },
+    {
+      "backend": "metal",
+      "name": "gemm_513x257x129",
+      "case": {
+        "operation": "gemm",
+        "m": 513,
+        "n": 257,
+        "k": 129
+      },
+      "valid": false,
+      "error": "native benchmark failed (-6):\ndyld[9074]: Library not loaded: @rpath/libglslang.16.dylib\n  Referenced from: <CEC8C7F4-B703-3C77-AB0C-E249BB307A3A> /private/tmp/luisa-tile-before-planner-pBzxcr/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file)\n\n",
+      "round": 1,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 513,
+        "n": 257,
+        "k": 129
+      },
+      "name": "gemm_513x257x129",
+      "backend": "metal",
+      "block": [
+        32,
+        64,
+        32
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.482875,
+        "warmup_ms": 200.26425,
+        "repetitions": 1165,
+        "throughput_us": [
+          34.42156652360515,
+          34.22936309012876,
+          35.11630901287554,
+          34.56062231759657,
+          34.40007210300429,
+          34.38987811158798,
+          34.58962832618026,
+          34.906830901287556,
+          34.12335450643777
+        ],
+        "latency_us": [
+          403.416,
+          289.66700000000003,
+          291.875,
+          267.83299999999997,
+          351.04200000000003,
+          294.208,
+          275.75,
+          274.95799999999997,
+          296.833
+        ],
+        "throughput_us_p50": 34.42156652360515,
+        "throughput_us_p90": 34.94872652360515,
+        "latency_us_p50": 291.875,
+        "latency_us_p90": 361.51680000000005,
+        "download_ms": 0.321833,
+        "allocation_upload_ms": 1.005916,
+        "device": "mps:0",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "metal",
+        "operation": "gemm",
+        "execution_scope": "group",
+        "pipeline_window": 1,
+        "cooperative_matrix": true,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 8,
+        "runtime_init_ms": 16.153667,
+        "capture_ms": 0.060083,
+        "compile_ms": 48.550125,
+        "allocation_upload_ms": 1.543667,
+        "cold_call_ms": 1.085375,
+        "warmup_ms": 200.116125,
+        "download_ms": 0.407542,
+        "repetitions": 891,
+        "output_elements": 131841,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          42.5265622896,
+          42.1196217733,
+          42.2297508418,
+          42.1156004489,
+          41.1582491582,
+          41.3638237935,
+          42.3729427609,
+          42.6517497194,
+          42.5751492705
+        ],
+        "latency_us": [
+          309.209,
+          251.167,
+          268.792,
+          280.042,
+          278.458,
+          270.459,
+          294.833,
+          258.041,
+          263.083
+        ],
+        "execution_plans": [
+          {
+            "threads": 128,
+            "shared_memory_bytes": 20480,
+            "optimized": true,
+            "candidates_considered": 28,
+            "candidates_rejected": 12,
+            "normalized_cost": 1992,
+            "matrix_issues": 640,
+            "shared_fragment_transfers": 544,
+            "fragment_scalars_per_lane": 28,
+            "matrices": [
+              {
+                "subgroups_m": 1,
+                "subgroups_n": 4,
+                "atom_rows": 4,
+                "atom_columns": 2,
+                "persistent_accumulator": true
+              }
+            ]
+          }
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 42.2297508418,
+        "throughput_us_p90": 42.59046936028,
+        "latency_us_p50": 270.459,
+        "latency_us_p90": 297.70820000000003
+      },
+      "slowdown": 1.2268398886738714,
+      "valid": true,
+      "round": 1,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 32,
+        "n": 32,
+        "k": 32
+      },
+      "name": "gemm_32x32x32",
+      "backend": "metal",
+      "block": [
+        32,
+        64,
+        32
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "metal",
+        "operation": "gemm",
+        "execution_scope": "group",
+        "pipeline_window": 1,
+        "cooperative_matrix": true,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 8,
+        "runtime_init_ms": 17.920209,
+        "capture_ms": 0.056375,
+        "compile_ms": 45.233542,
+        "allocation_upload_ms": 1.622583,
+        "cold_call_ms": 0.82975,
+        "warmup_ms": 200.163166,
+        "download_ms": 0.260042,
+        "repetitions": 4357,
+        "output_elements": 1024,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          9.00611085609,
+          8.90572641726,
+          8.64508262566,
+          8.88273651595,
+          8.36073169612,
+          9.00486756943,
+          8.89861142988,
+          9.21086756943,
+          8.79432522378
+        ],
+        "latency_us": [
+          280.667,
+          253.167,
+          365.75,
+          242.083,
+          252.292,
+          246.667,
+          324.417,
+          253.959,
+          252.167
+        ],
+        "execution_plans": [
+          {
+            "threads": 128,
+            "shared_memory_bytes": 20480,
+            "optimized": true,
+            "candidates_considered": 28,
+            "candidates_rejected": 12,
+            "normalized_cost": 552,
+            "matrix_issues": 128,
+            "shared_fragment_transfers": 160,
+            "fragment_scalars_per_lane": 28,
+            "matrices": [
+              {
+                "subgroups_m": 1,
+                "subgroups_n": 4,
+                "atom_rows": 4,
+                "atom_columns": 2,
+                "persistent_accumulator": true
+              }
+            ]
+          }
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 8.89861142988,
+        "throughput_us_p90": 9.047062198758,
+        "latency_us_p50": 253.167,
+        "latency_us_p90": 332.6836
+      },
+      "torch": {
+        "cold_call_ms": 0.933416,
+        "warmup_ms": 200.269458,
+        "repetitions": 1361,
+        "throughput_us": [
+          27.532482733284347,
+          27.697863335782515,
+          29.913115356355622,
+          26.712680382072005,
+          27.288605437178546,
+          27.685372520205732,
+          27.720915503306397,
+          27.559667891256428,
+          28.567903747244667
+        ],
+        "latency_us": [
+          339.25,
+          284.916,
+          280.833,
+          403.95799999999997,
+          278.0,
+          295.792,
+          270.167,
+          268.666,
+          267.625
+        ],
+        "throughput_us_p50": 27.685372520205732,
+        "throughput_us_p90": 28.836946069066858,
+        "latency_us_p50": 280.833,
+        "latency_us_p90": 352.1916,
+        "download_ms": 0.294291,
+        "allocation_upload_ms": 1.092083,
+        "device": "mps:0",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 0.32141924127571303,
+      "valid": true,
+      "round": 1,
+      "variant": "candidate"
+    },
+    {
+      "backend": "metal",
+      "name": "gemm_32x32x32",
+      "case": {
+        "operation": "gemm",
+        "m": 32,
+        "n": 32,
+        "k": 32
+      },
+      "valid": false,
+      "error": "native benchmark failed (-6):\ndyld[9121]: Library not loaded: @rpath/libglslang.16.dylib\n  Referenced from: <CEC8C7F4-B703-3C77-AB0C-E249BB307A3A> /private/tmp/luisa-tile-before-planner-pBzxcr/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file)\n\n",
+      "round": 1,
+      "variant": "reference"
+    },
+    {
+      "backend": "metal",
+      "name": "gemm_512x512x512",
+      "case": {
+        "operation": "gemm",
+        "m": 512,
+        "n": 512,
+        "k": 512
+      },
+      "valid": false,
+      "error": "native benchmark failed (-6):\ndyld[9122]: Library not loaded: @rpath/libglslang.16.dylib\n  Referenced from: <CEC8C7F4-B703-3C77-AB0C-E249BB307A3A> /private/tmp/luisa-tile-before-planner-pBzxcr/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file)\n\n",
+      "round": 2,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 512,
+        "n": 512,
+        "k": 512
+      },
+      "name": "gemm_512x512x512",
+      "backend": "metal",
+      "block": [
+        32,
+        64,
+        32
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.562333,
+        "warmup_ms": 200.183958,
+        "repetitions": 818,
+        "throughput_us": [
+          47.821821515892424,
+          48.45695721271393,
+          49.26319193154035,
+          48.29421393643032,
+          47.915036674816626,
+          48.6054902200489,
+          49.134831295843526,
+          47.89303178484108,
+          48.23553422982885
+        ],
+        "latency_us": [
+          470.833,
+          292.125,
+          298.458,
+          307.458,
+          288.041,
+          327.583,
+          225.667,
+          330.916,
+          345.084
+        ],
+        "throughput_us_p50": 48.29421393643032,
+        "throughput_us_p90": 49.16050342298289,
+        "latency_us_p50": 307.458,
+        "latency_us_p90": 370.23380000000003,
+        "download_ms": 0.321709,
+        "allocation_upload_ms": 0.839333,
+        "device": "mps:0",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "metal",
+        "operation": "gemm",
+        "execution_scope": "group",
+        "pipeline_window": 1,
+        "cooperative_matrix": true,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 8,
+        "runtime_init_ms": 16.665834,
+        "capture_ms": 0.059959,
+        "compile_ms": 46.239834,
+        "allocation_upload_ms": 1.86075,
+        "cold_call_ms": 1.189084,
+        "warmup_ms": 200.983292,
+        "download_ms": 0.518916,
+        "repetitions": 465,
+        "output_elements": 262144,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          77.8663978495,
+          77.7362903226,
+          77.9376344086,
+          77.8023290323,
+          77.8267935484,
+          77.6639784946,
+          77.9253591398,
+          79.0511634409,
+          77.6340494624
+        ],
+        "latency_us": [
+          401.542,
+          282.291,
+          287.417,
+          266.083,
+          291.875,
+          339.959,
+          309.292,
+          318.791,
+          310.959
+        ],
+        "execution_plans": [
+          {
+            "threads": 128,
+            "shared_memory_bytes": 20480,
+            "optimized": true,
+            "candidates_considered": 28,
+            "candidates_rejected": 12,
+            "normalized_cost": 5952,
+            "matrix_issues": 2048,
+            "shared_fragment_transfers": 1600,
+            "fragment_scalars_per_lane": 28,
+            "matrices": [
+              {
+                "subgroups_m": 1,
+                "subgroups_n": 4,
+                "atom_rows": 4,
+                "atom_columns": 2,
+                "persistent_accumulator": true
+              }
+            ]
+          }
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 77.8267935484,
+        "throughput_us_p90": 78.16034021506,
+        "latency_us_p50": 309.292,
+        "latency_us_p90": 352.2756
+      },
+      "slowdown": 1.6115138275331167,
+      "valid": true,
+      "round": 2,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 1024,
+        "n": 1024,
+        "k": 1024
+      },
+      "name": "gemm_1024x1024x1024",
+      "backend": "metal",
+      "block": [
+        32,
+        64,
+        32
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "metal",
+        "operation": "gemm",
+        "execution_scope": "group",
+        "pipeline_window": 1,
+        "cooperative_matrix": true,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 8,
+        "runtime_init_ms": 16.604542,
+        "capture_ms": 0.054125,
+        "compile_ms": 44.336417,
+        "allocation_upload_ms": 2.665,
+        "cold_call_ms": 1.689084,
+        "warmup_ms": 203.920417,
+        "download_ms": 0.924708,
+        "repetitions": 82,
+        "output_elements": 1048576,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          472.942585366,
+          477.480695122,
+          473.854170732,
+          485.016768293,
+          474.207317073,
+          473.809963415,
+          473.960878049,
+          474.9065,
+          473.715963415
+        ],
+        "latency_us": [
+          712.375,
+          668.958,
+          672.208,
+          659.25,
+          910.792,
+          857.541,
+          675.334,
+          671.667,
+          656.333
+        ],
+        "execution_plans": [
+          {
+            "threads": 128,
+            "shared_memory_bytes": 20480,
+            "optimized": true,
+            "candidates_considered": 28,
+            "candidates_rejected": 12,
+            "normalized_cost": 11712,
+            "matrix_issues": 4096,
+            "shared_fragment_transfers": 3136,
+            "fragment_scalars_per_lane": 28,
+            "matrices": [
+              {
+                "subgroups_m": 1,
+                "subgroups_n": 4,
+                "atom_rows": 4,
+                "atom_columns": 2,
+                "persistent_accumulator": true
+              }
+            ]
+          }
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 473.960878049,
+        "throughput_us_p90": 478.9879097562,
+        "latency_us_p50": 672.208,
+        "latency_us_p90": 868.1912000000001
+      },
+      "torch": {
+        "cold_call_ms": 1.216542,
+        "warmup_ms": 200.442542,
+        "repetitions": 135,
+        "throughput_us": [
+          287.52562222222224,
+          290.49444444444447,
+          296.15031111111114,
+          291.00432592592597,
+          289.1265481481481,
+          288.1564814814815,
+          288.81574074074075,
+          287.72160740740736,
+          293.61049629629633
+        ],
+        "latency_us": [
+          599.625,
+          532.292,
+          519.5419999999999,
+          545.083,
+          570.25,
+          588.625,
+          613.958,
+          529.334,
+          534.0
+        ],
+        "throughput_us_p50": 289.1265481481481,
+        "throughput_us_p90": 294.1184592592593,
+        "latency_us_p50": 545.083,
+        "latency_us_p90": 602.4916,
+        "download_ms": 0.428416,
+        "allocation_upload_ms": 1.572583,
+        "device": "mps:0",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 1.6392852233207686,
+      "valid": true,
+      "round": 2,
+      "variant": "candidate"
+    },
+    {
+      "backend": "metal",
+      "name": "gemm_1024x1024x1024",
+      "case": {
+        "operation": "gemm",
+        "m": 1024,
+        "n": 1024,
+        "k": 1024
+      },
+      "valid": false,
+      "error": "native benchmark failed (-6):\ndyld[9171]: Library not loaded: @rpath/libglslang.16.dylib\n  Referenced from: <CEC8C7F4-B703-3C77-AB0C-E249BB307A3A> /private/tmp/luisa-tile-before-planner-pBzxcr/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file)\n\n",
+      "round": 2,
+      "variant": "reference"
+    },
+    {
+      "backend": "metal",
+      "name": "gemm_256x1024x128",
+      "case": {
+        "operation": "gemm",
+        "m": 256,
+        "n": 1024,
+        "k": 128
+      },
+      "valid": false,
+      "error": "native benchmark failed (-6):\ndyld[9172]: Library not loaded: @rpath/libglslang.16.dylib\n  Referenced from: <CEC8C7F4-B703-3C77-AB0C-E249BB307A3A> /private/tmp/luisa-tile-before-planner-pBzxcr/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file)\n\n",
+      "round": 2,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 256,
+        "n": 1024,
+        "k": 128
+      },
+      "name": "gemm_256x1024x128",
+      "backend": "metal",
+      "block": [
+        32,
+        64,
+        32
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.430542,
+        "warmup_ms": 200.107958,
+        "repetitions": 1261,
+        "throughput_us": [
+          28.517578905630454,
+          28.67542268041237,
+          29.207704996034895,
+          30.42753766851705,
+          29.124636796193492,
+          28.557692307692307,
+          29.151599524187155,
+          30.3826986518636,
+          30.499206978588422
+        ],
+        "latency_us": [
+          337.667,
+          331.166,
+          283.875,
+          282.917,
+          264.625,
+          256.958,
+          262.375,
+          299.084,
+          232.208
+        ],
+        "throughput_us_p50": 29.151599524187155,
+        "throughput_us_p90": 30.441871530531326,
+        "latency_us_p50": 282.917,
+        "latency_us_p90": 332.4662,
+        "download_ms": 0.470417,
+        "allocation_upload_ms": 1.128708,
+        "device": "mps:0",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "metal",
+        "operation": "gemm",
+        "execution_scope": "group",
+        "pipeline_window": 1,
+        "cooperative_matrix": true,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 8,
+        "runtime_init_ms": 16.49575,
+        "capture_ms": 0.046334,
+        "compile_ms": 44.813042,
+        "allocation_upload_ms": 2.3495,
+        "cold_call_ms": 1.039167,
+        "warmup_ms": 201.887959,
+        "download_ms": 0.505083,
+        "repetitions": 1573,
+        "output_elements": 262144,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          25.3770133503,
+          25.3825492689,
+          25.899051494,
+          25.7778658614,
+          26.3145797839,
+          24.4729548633,
+          24.5767374444,
+          24.7066643357,
+          25.6560184361
+        ],
+        "latency_us": [
+          291.5,
+          273.5,
+          275.666,
+          243.125,
+          255.334,
+          253.959,
+          268.583,
+          273.75,
+          254.667
+        ],
+        "execution_plans": [
+          {
+            "threads": 128,
+            "shared_memory_bytes": 20480,
+            "optimized": true,
+            "candidates_considered": 28,
+            "candidates_rejected": 12,
+            "normalized_cost": 1632,
+            "matrix_issues": 512,
+            "shared_fragment_transfers": 448,
+            "fragment_scalars_per_lane": 28,
+            "matrices": [
+              {
+                "subgroups_m": 1,
+                "subgroups_n": 4,
+                "atom_rows": 4,
+                "atom_columns": 2,
+                "persistent_accumulator": true
+              }
+            ]
+          }
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 25.3825492689,
+        "throughput_us_p90": 25.982157151979997,
+        "latency_us_p50": 268.583,
+        "latency_us_p90": 278.8328
+      },
+      "slowdown": 0.8707086294815499,
+      "valid": true,
+      "round": 2,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 1024,
+        "n": 128,
+        "k": 256
+      },
+      "name": "gemm_1024x128x256",
+      "backend": "metal",
+      "block": [
+        32,
+        64,
+        32
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "metal",
+        "operation": "gemm",
+        "execution_scope": "group",
+        "pipeline_window": 1,
+        "cooperative_matrix": true,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 8,
+        "runtime_init_ms": 15.19625,
+        "capture_ms": 0.05425,
+        "compile_ms": 42.724166,
+        "allocation_upload_ms": 1.365458,
+        "cold_call_ms": 1.033708,
+        "warmup_ms": 200.452333,
+        "download_ms": 0.386208,
+        "repetitions": 1421,
+        "output_elements": 131072,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          24.6201034483,
+          24.9617346939,
+          24.3253286418,
+          24.6864588318,
+          24.0664440535,
+          24.6313926812,
+          24.3867874736,
+          24.5623680507,
+          24.2319373681
+        ],
+        "latency_us": [
+          291.542,
+          248.875,
+          268.334,
+          261.75,
+          244.417,
+          245.083,
+          1286.5,
+          295.459,
+          256.5
+        ],
+        "execution_plans": [
+          {
+            "threads": 128,
+            "shared_memory_bytes": 20480,
+            "optimized": true,
+            "candidates_considered": 28,
+            "candidates_rejected": 12,
+            "normalized_cost": 3072,
+            "matrix_issues": 1024,
+            "shared_fragment_transfers": 832,
+            "fragment_scalars_per_lane": 28,
+            "matrices": [
+              {
+                "subgroups_m": 1,
+                "subgroups_n": 4,
+                "atom_rows": 4,
+                "atom_columns": 2,
+                "persistent_accumulator": true
+              }
+            ]
+          }
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 24.5623680507,
+        "throughput_us_p90": 24.74151400422,
+        "latency_us_p50": 261.75,
+        "latency_us_p90": 493.6672000000002
+      },
+      "torch": {
+        "cold_call_ms": 1.117417,
+        "warmup_ms": 200.067958,
+        "repetitions": 1287,
+        "throughput_us": [
+          31.267223776223776,
+          30.209887334887334,
+          30.465714840714842,
+          30.296037296037294,
+          28.786162393162392,
+          29.295584304584306,
+          30.537036519036523,
+          29.93809867909868,
+          30.336602952602952
+        ],
+        "latency_us": [
+          392.834,
+          336.375,
+          304.917,
+          265.54100000000005,
+          269.83299999999997,
+          278.167,
+          264.75,
+          253.666,
+          259.542
+        ],
+        "throughput_us_p50": 30.296037296037294,
+        "throughput_us_p90": 30.683073970473973,
+        "latency_us_p50": 269.83299999999997,
+        "latency_us_p90": 347.6668,
+        "download_ms": 0.301375,
+        "allocation_upload_ms": 1.409792,
+        "device": "mps:0",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 0.8107452407286528,
+      "valid": true,
+      "round": 2,
+      "variant": "candidate"
+    },
+    {
+      "backend": "metal",
+      "name": "gemm_1024x128x256",
+      "case": {
+        "operation": "gemm",
+        "m": 1024,
+        "n": 128,
+        "k": 256
+      },
+      "valid": false,
+      "error": "native benchmark failed (-6):\ndyld[9219]: Library not loaded: @rpath/libglslang.16.dylib\n  Referenced from: <CEC8C7F4-B703-3C77-AB0C-E249BB307A3A> /private/tmp/luisa-tile-before-planner-pBzxcr/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file)\n\n",
+      "round": 2,
+      "variant": "reference"
+    },
+    {
+      "backend": "metal",
+      "name": "gemm_127x193x61",
+      "case": {
+        "operation": "gemm",
+        "m": 127,
+        "n": 193,
+        "k": 61
+      },
+      "valid": false,
+      "error": "native benchmark failed (-6):\ndyld[9221]: Library not loaded: @rpath/libglslang.16.dylib\n  Referenced from: <CEC8C7F4-B703-3C77-AB0C-E249BB307A3A> /private/tmp/luisa-tile-before-planner-pBzxcr/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file)\n\n",
+      "round": 2,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 127,
+        "n": 193,
+        "k": 61
+      },
+      "name": "gemm_127x193x61",
+      "backend": "metal",
+      "block": [
+        32,
+        64,
+        32
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.342167,
+        "warmup_ms": 200.342583,
+        "repetitions": 1241,
+        "throughput_us": [
+          26.099885576148267,
+          26.546971796937953,
+          26.753390813859788,
+          27.241371474617246,
+          26.918480257856565,
+          27.288745366639805,
+          26.9620265914585,
+          27.301100725221595,
+          26.81856003223207
+        ],
+        "latency_us": [
+          320.709,
+          259.042,
+          286.292,
+          272.084,
+          252.5,
+          1490.375,
+          305.66700000000003,
+          237.75,
+          229.209
+        ],
+        "throughput_us_p50": 26.918480257856565,
+        "throughput_us_p90": 27.291216438356162,
+        "latency_us_p50": 272.084,
+        "latency_us_p90": 554.6422000000002,
+        "download_ms": 0.308083,
+        "allocation_upload_ms": 0.717042,
+        "device": "mps:0",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "metal",
+        "operation": "gemm",
+        "execution_scope": "group",
+        "pipeline_window": 1,
+        "cooperative_matrix": true,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 8,
+        "runtime_init_ms": 16.05675,
+        "capture_ms": 0.06525,
+        "compile_ms": 51.782209,
+        "allocation_upload_ms": 1.467708,
+        "cold_call_ms": 1.135959,
+        "warmup_ms": 200.193667,
+        "download_ms": 0.333875,
+        "repetitions": 1818,
+        "output_elements": 24511,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          21.5471215622,
+          20.758319582,
+          20.145489549,
+          20.370049505,
+          21.5250962596,
+          20.5160434543,
+          20.037059956,
+          20.4269114411,
+          20.4250550055
+        ],
+        "latency_us": [
+          323.333,
+          276.291,
+          258.625,
+          236.75,
+          250.167,
+          274.416,
+          319.584,
+          251.125,
+          1195.5
+        ],
+        "execution_plans": [
+          {
+            "threads": 128,
+            "shared_memory_bytes": 20480,
+            "optimized": true,
+            "candidates_considered": 28,
+            "candidates_rejected": 12,
+            "normalized_cost": 912,
+            "matrix_issues": 256,
+            "shared_fragment_transfers": 256,
+            "fragment_scalars_per_lane": 28,
+            "matrices": [
+              {
+                "subgroups_m": 1,
+                "subgroups_n": 4,
+                "atom_rows": 4,
+                "atom_columns": 2,
+                "persistent_accumulator": true
+              }
+            ]
+          }
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 20.4269114411,
+        "throughput_us_p90": 21.52950132012,
+        "latency_us_p50": 274.416,
+        "latency_us_p90": 497.7664000000002
+      },
+      "slowdown": 0.7588434133512458,
+      "valid": true,
+      "round": 2,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 513,
+        "n": 257,
+        "k": 129
+      },
+      "name": "gemm_513x257x129",
+      "backend": "metal",
+      "block": [
+        32,
+        64,
+        32
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "metal",
+        "operation": "gemm",
+        "execution_scope": "group",
+        "pipeline_window": 1,
+        "cooperative_matrix": true,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 8,
+        "runtime_init_ms": 21.175834,
+        "capture_ms": 0.054667,
+        "compile_ms": 52.369583,
+        "allocation_upload_ms": 1.517041,
+        "cold_call_ms": 1.234875,
+        "warmup_ms": 200.12675,
+        "download_ms": 0.445833,
+        "repetitions": 931,
+        "output_elements": 131841,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          41.1392320086,
+          41.9044038668,
+          41.6515843179,
+          41.6491675618,
+          41.5947905478,
+          42.2429731472,
+          42.387396348,
+          42.2806562836,
+          42.2502685285
+        ],
+        "latency_us": [
+          299.875,
+          263.125,
+          268.917,
+          263.625,
+          281.917,
+          269.291,
+          357.417,
+          273.292,
+          260.75
+        ],
+        "execution_plans": [
+          {
+            "threads": 128,
+            "shared_memory_bytes": 20480,
+            "optimized": true,
+            "candidates_considered": 28,
+            "candidates_rejected": 12,
+            "normalized_cost": 1992,
+            "matrix_issues": 640,
+            "shared_fragment_transfers": 544,
+            "fragment_scalars_per_lane": 28,
+            "matrices": [
+              {
+                "subgroups_m": 1,
+                "subgroups_n": 4,
+                "atom_rows": 4,
+                "atom_columns": 2,
+                "persistent_accumulator": true
+              }
+            ]
+          }
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 41.9044038668,
+        "throughput_us_p90": 42.30200429648,
+        "latency_us_p50": 269.291,
+        "latency_us_p90": 311.3834
+      },
+      "torch": {
+        "cold_call_ms": 1.0155,
+        "warmup_ms": 200.08075,
+        "repetitions": 935,
+        "throughput_us": [
+          34.44505347593583,
+          34.164928342245986,
+          33.91791443850267,
+          35.15548128342246,
+          34.99353796791444,
+          35.06399251336898,
+          35.09193368983957,
+          35.02651550802139,
+          34.63636363636363
+        ],
+        "latency_us": [
+          430.16700000000003,
+          290.416,
+          295.75,
+          273.125,
+          275.125,
+          314.875,
+          302.58299999999997,
+          277.583,
+          267.83299999999997
+        ],
+        "throughput_us_p50": 34.99353796791444,
+        "throughput_us_p90": 35.10464320855615,
+        "latency_us_p50": 290.416,
+        "latency_us_p90": 337.9334,
+        "download_ms": 0.335208,
+        "allocation_upload_ms": 0.958958,
+        "device": "mps:0",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 1.1974897738325896,
+      "valid": true,
+      "round": 2,
+      "variant": "candidate"
+    },
+    {
+      "backend": "metal",
+      "name": "gemm_513x257x129",
+      "case": {
+        "operation": "gemm",
+        "m": 513,
+        "n": 257,
+        "k": 129
+      },
+      "valid": false,
+      "error": "native benchmark failed (-6):\ndyld[9269]: Library not loaded: @rpath/libglslang.16.dylib\n  Referenced from: <CEC8C7F4-B703-3C77-AB0C-E249BB307A3A> /private/tmp/luisa-tile-before-planner-pBzxcr/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file)\n\n",
+      "round": 2,
+      "variant": "reference"
+    },
+    {
+      "backend": "metal",
+      "name": "gemm_32x32x32",
+      "case": {
+        "operation": "gemm",
+        "m": 32,
+        "n": 32,
+        "k": 32
+      },
+      "valid": false,
+      "error": "native benchmark failed (-6):\ndyld[9270]: Library not loaded: @rpath/libglslang.16.dylib\n  Referenced from: <CEC8C7F4-B703-3C77-AB0C-E249BB307A3A> /private/tmp/luisa-tile-before-planner-pBzxcr/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file)\n\n",
+      "round": 2,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 32,
+        "n": 32,
+        "k": 32
+      },
+      "name": "gemm_32x32x32",
+      "backend": "metal",
+      "block": [
+        32,
+        64,
+        32
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 0.464375,
+        "warmup_ms": 200.12925,
+        "repetitions": 1228,
+        "throughput_us": [
+          26.467697882736154,
+          26.367908794788274,
+          26.241958469055376,
+          26.12968241042345,
+          26.268118892508145,
+          26.983984527687294,
+          27.267678338762217,
+          28.089543159609118,
+          28.318811074918568
+        ],
+        "latency_us": [
+          231.209,
+          278.291,
+          275.04200000000003,
+          280.625,
+          263.542,
+          335.375,
+          296.375,
+          256.0,
+          252.042
+        ],
+        "throughput_us_p50": 26.467697882736154,
+        "throughput_us_p90": 28.13539674267101,
+        "latency_us_p50": 275.04200000000003,
+        "latency_us_p90": 304.175,
+        "download_ms": 0.284084,
+        "allocation_upload_ms": 0.984084,
+        "device": "mps:0",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "metal",
+        "operation": "gemm",
+        "execution_scope": "group",
+        "pipeline_window": 1,
+        "cooperative_matrix": true,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 8,
+        "runtime_init_ms": 16.058708,
+        "capture_ms": 0.054792,
+        "compile_ms": 44.282959,
+        "allocation_upload_ms": 1.342667,
+        "cold_call_ms": 0.767333,
+        "warmup_ms": 200.034792,
+        "download_ms": 0.273542,
+        "repetitions": 4345,
+        "output_elements": 1024,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          9.02044487917,
+          8.33861703107,
+          8.75710586881,
+          8.54450517837,
+          9.12153808976,
+          7.50217675489,
+          7.57002301496,
+          7.49659562716,
+          8.62928653625
+        ],
+        "latency_us": [
+          306.5,
+          223.041,
+          242.958,
+          232.417,
+          229.625,
+          182.458,
+          451.041,
+          236.083,
+          223.834
+        ],
+        "execution_plans": [
+          {
+            "threads": 128,
+            "shared_memory_bytes": 20480,
+            "optimized": true,
+            "candidates_considered": 28,
+            "candidates_rejected": 12,
+            "normalized_cost": 552,
+            "matrix_issues": 128,
+            "shared_fragment_transfers": 160,
+            "fragment_scalars_per_lane": 28,
+            "matrices": [
+              {
+                "subgroups_m": 1,
+                "subgroups_n": 4,
+                "atom_rows": 4,
+                "atom_columns": 2,
+                "persistent_accumulator": true
+              }
+            ]
+          }
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 8.54450517837,
+        "throughput_us_p90": 9.040663521288,
+        "latency_us_p50": 232.417,
+        "latency_us_p90": 335.4082
+      },
+      "slowdown": 0.32282766775659955,
+      "valid": true,
+      "round": 2,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 128,
+        "n": 128,
+        "k": 128
+      },
+      "name": "gemm_128x128x128",
+      "backend": "metal",
+      "block": [
+        32,
+        64,
+        32
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "metal",
+        "operation": "gemm",
+        "execution_scope": "group",
+        "pipeline_window": 1,
+        "cooperative_matrix": true,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 8,
+        "runtime_init_ms": 16.074083,
+        "capture_ms": 0.052208,
+        "compile_ms": 42.536167,
+        "allocation_upload_ms": 1.370333,
+        "cold_call_ms": 0.987541,
+        "warmup_ms": 200.333708,
+        "download_ms": 0.324542,
+        "repetitions": 2664,
+        "output_elements": 16384,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          13.3197882883,
+          13.1089838589,
+          13.2827357357,
+          13.0796888138,
+          13.2366426426,
+          13.5208333333,
+          13.0405405405,
+          13.2969065315,
+          13.179460961
+        ],
+        "latency_us": [
+          272.084,
+          246.875,
+          243.667,
+          239.625,
+          267.666,
+          229.875,
+          262.042,
+          246.041,
+          276.167
+        ],
+        "execution_plans": [
+          {
+            "threads": 128,
+            "shared_memory_bytes": 20480,
+            "optimized": true,
+            "candidates_considered": 28,
+            "candidates_rejected": 12,
+            "normalized_cost": 1632,
+            "matrix_issues": 512,
+            "shared_fragment_transfers": 448,
+            "fragment_scalars_per_lane": 28,
+            "matrices": [
+              {
+                "subgroups_m": 1,
+                "subgroups_n": 4,
+                "atom_rows": 4,
+                "atom_columns": 2,
+                "persistent_accumulator": true
+              }
+            ]
+          }
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 13.2366426426,
+        "throughput_us_p90": 13.3599972973,
+        "latency_us_p50": 246.875,
+        "latency_us_p90": 272.9006
+      },
+      "torch": {
+        "cold_call_ms": 0.99875,
+        "warmup_ms": 200.231625,
+        "repetitions": 1364,
+        "throughput_us": [
+          35.71991129032258,
+          27.987016862170087,
+          27.398185483870968,
+          26.94849706744868,
+          26.998197947214077,
+          26.303885630498534,
+          31.42650293255132,
+          28.67647287390029,
+          29.224340175953078
+        ],
+        "latency_us": [
+          403.25,
+          317.291,
+          237.333,
+          287.125,
+          294.25,
+          256.166,
+          281.33399999999995,
+          324.167,
+          271.708
+        ],
+        "throughput_us_p50": 27.987016862170087,
+        "throughput_us_p90": 32.285184604105574,
+        "latency_us_p50": 287.125,
+        "latency_us_p90": 339.98359999999997,
+        "download_ms": 0.306083,
+        "allocation_upload_ms": 1.030292,
+        "device": "mps:0",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 0.4729565393763672,
+      "valid": true,
+      "round": 2,
+      "variant": "candidate"
+    },
+    {
+      "backend": "metal",
+      "name": "gemm_128x128x128",
+      "case": {
+        "operation": "gemm",
+        "m": 128,
+        "n": 128,
+        "k": 128
+      },
+      "valid": false,
+      "error": "native benchmark failed (-6):\ndyld[9319]: Library not loaded: @rpath/libglslang.16.dylib\n  Referenced from: <CEC8C7F4-B703-3C77-AB0C-E249BB307A3A> /private/tmp/luisa-tile-before-planner-pBzxcr/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file)\n\n",
+      "round": 2,
+      "variant": "reference"
+    },
+    {
+      "backend": "metal",
+      "name": "gemm_1024x1024x1024",
+      "case": {
+        "operation": "gemm",
+        "m": 1024,
+        "n": 1024,
+        "k": 1024
+      },
+      "valid": false,
+      "error": "native benchmark failed (-6):\ndyld[9320]: Library not loaded: @rpath/libglslang.16.dylib\n  Referenced from: <CEC8C7F4-B703-3C77-AB0C-E249BB307A3A> /private/tmp/luisa-tile-before-planner-pBzxcr/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file)\n\n",
+      "round": 3,
+      "variant": "reference"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 1024,
+        "n": 1024,
+        "k": 1024
+      },
+      "name": "gemm_1024x1024x1024",
+      "backend": "metal",
+      "block": [
+        32,
+        64,
+        32
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 1.349209,
+        "warmup_ms": 202.034083,
+        "repetitions": 134,
+        "throughput_us": [
+          289.24533582089555,
+          293.12841791044775,
+          288.81032089552235,
+          288.1035447761194,
+          290.8268059701493,
+          289.8184104477612,
+          288.7291716417911,
+          294.1865671641791,
+          288.7590223880597
+        ],
+        "latency_us": [
+          758.583,
+          687.125,
+          547.875,
+          564.584,
+          529.292,
+          623.125,
+          536.416,
+          529.875,
+          530.9169999999999
+        ],
+        "throughput_us_p50": 289.24533582089555,
+        "throughput_us_p90": 293.340047761194,
+        "latency_us_p50": 547.875,
+        "latency_us_p90": 701.4166,
+        "download_ms": 0.442833,
+        "allocation_upload_ms": 1.465833,
+        "device": "mps:0",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "metal",
+        "operation": "gemm",
+        "execution_scope": "group",
+        "pipeline_window": 1,
+        "cooperative_matrix": true,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 8,
+        "runtime_init_ms": 17.945708,
+        "capture_ms": 0.054875,
+        "compile_ms": 45.296541,
+        "allocation_upload_ms": 2.71925,
+        "cold_call_ms": 1.623916,
+        "warmup_ms": 203.39875,
+        "download_ms": 0.782917,
+        "repetitions": 83,
+        "output_elements": 1048576,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          474.59839759,
+          475.768578313,
+          482.502518072,
+          473.925204819,
+          473.823289157,
+          473.573301205,
+          473.634036145,
+          482.313253012,
+          473.84186747
+        ],
+        "latency_us": [
+          723.5,
+          666.25,
+          675.625,
+          675.417,
+          663.75,
+          661.5,
+          669.333,
+          646.291,
+          644.917
+        ],
+        "execution_plans": [
+          {
+            "threads": 128,
+            "shared_memory_bytes": 20480,
+            "optimized": true,
+            "candidates_considered": 28,
+            "candidates_rejected": 12,
+            "normalized_cost": 11712,
+            "matrix_issues": 4096,
+            "shared_fragment_transfers": 3136,
+            "fragment_scalars_per_lane": 28,
+            "matrices": [
+              {
+                "subgroups_m": 1,
+                "subgroups_n": 4,
+                "atom_rows": 4,
+                "atom_columns": 2,
+                "persistent_accumulator": true
+              }
+            ]
+          }
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 473.925204819,
+        "throughput_us_p90": 482.351106024,
+        "latency_us_p50": 666.25,
+        "latency_us_p90": 685.2
+      },
+      "slowdown": 1.6384886673244772,
+      "valid": true,
+      "round": 3,
+      "variant": "candidate"
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 256,
+        "n": 1024,
+        "k": 128
+      },
+      "name": "gemm_256x1024x128",
+      "backend": "metal",
+      "block": [
+        32,
+        64,
+        32
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "metal",
+        "operation": "gemm",
+        "execution_scope": "group",
+        "pipeline_window": 1,
+        "cooperative_matrix": true,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 8,
+        "runtime_init_ms": 15.319208,
+        "capture_ms": 0.050375,
+        "compile_ms": 42.983375,
+        "allocation_upload_ms": 2.513958,
+        "cold_call_ms": 1.06925,
+        "warmup_ms": 200.092416,
+        "download_ms": 0.486959,
+        "repetitions": 1455,
+        "output_elements": 262144,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          25.6939573883,
+          25.9751718213,
+          25.7995127148,
+          25.8562426117,
+          26.2016323024,
+          25.8712199313,
+          25.829180756,
+          25.9593072165,
+          25.8202749141
+        ],
+        "latency_us": [
+          268.667,
+          224.875,
+          252.708,
+          260.792,
+          262.333,
+          238.459,
+          250.209,
+          268.583,
+          285.542
+        ],
+        "execution_plans": [
+          {
+            "threads": 128,
+            "shared_memory_bytes": 20480,
+            "optimized": true,
+            "candidates_considered": 28,
+            "candidates_rejected": 12,
+            "normalized_cost": 1632,
+            "matrix_issues": 512,
+            "shared_fragment_transfers": 448,
+            "fragment_scalars_per_lane": 28,
+            "matrices": [
+              {
+                "subgroups_m": 1,
+                "subgroups_n": 4,
+                "atom_rows": 4,
+                "atom_columns": 2,
+                "persistent_accumulator": true
+              }
+            ]
+          }
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 25.8562426117,
+        "throughput_us_p90": 26.020463917519997,
+        "latency_us_p50": 260.792,
+        "latency_us_p90": 272.042
+      },
+      "torch": {
+        "cold_call_ms": 0.970209,
+        "warmup_ms": 200.314375,
+        "repetitions": 1234,
+        "throughput_us": [
+          30.32637763371151,
+          28.58110453808752,
+          30.129288492706646,
+          29.049770664505672,
+          29.559866288492707,
+          29.531571312803887,
+          30.439154781199353,
+          30.807266612641815,
+          30.387290113452185
+        ],
+        "latency_us": [
+          345.5,
+          260.084,
+          280.083,
+          276.792,
+          245.25,
+          254.5,
+          245.25,
+          271.166,
+          234.708
+        ],
+        "throughput_us_p50": 30.129288492706646,
+        "throughput_us_p90": 30.512777147487846,
+        "latency_us_p50": 260.084,
+        "latency_us_p90": 293.1664,
+        "download_ms": 0.324833,
+        "allocation_upload_ms": 1.093166,
+        "device": "mps:0",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 0.8581763428618298,
+      "valid": true,
+      "round": 3,
+      "variant": "candidate"
+    },
+    {
+      "backend": "metal",
+      "name": "gemm_256x1024x128",
+      "case": {
+        "operation": "gemm",
+        "m": 256,
+        "n": 1024,
+        "k": 128
+      },
+      "valid": false,
+      "error": "native benchmark failed (-6):\ndyld[9367]: Library not loaded: @rpath/libglslang.16.dylib\n  Referenced from: <CEC8C7F4-B703-3C77-AB0C-E249BB307A3A> /private/tmp/luisa-tile-before-planner-pBzxcr/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file)\n\n",
+      "round": 3,
+      "variant": "reference"
+    },
+    {
+      "backend": "metal",
+      "name": "gemm_1024x128x256",
+      "case": {
+        "operation": "gemm",
+        "m": 1024,
+        "n": 128,
+        "k": 256
+      },
+      "valid": false,
+      "error": "native benchmark failed (-6):\ndyld[9368]: Library not loaded: @rpath/libglslang.16.dylib\n  Referenced from: <CEC8C7F4-B703-3C77-AB0C-E249BB307A3A> /private/tmp/luisa-tile-before-planner-pBzxcr/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm/lib/libglslang.16.dylib' (no such file), '/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvmx-venv/lib/python3.14/site-packages/tvm_ffi/lib/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../bin/libglslang.16.dylib' (no such file), '/private/tmp/luisa-tile-before-planner-pBzxcr/../lib/libglslang.16.dylib' (no such file)\n\n",
+      "round": 3,
+      "variant": "reference"
+    }
+  ]
+}

@@ -5,7 +5,8 @@ performance threshold. It compares FP32 GEMM, add, row sum, and softmax on CPU
 and actual Metal / PyTorch MPS. GEMM includes small/large squares, tall/wide
 matrices, and non-multiple tail sizes; reductions vary both row count and width.
 
-Latest M1 Max evidence: [Staged/JIT and four-round comparisons](results/m1-max-20260903-jit.md)
+Latest M1 Max evidence: [execution planner, cost-model errors, and controlled comparisons](results/m1-max-20260903-planner.md),
+[Staged/JIT and four-round comparisons](results/m1-max-20260903-jit.md),
 and [actual PyTorch dispatch / Xcode profiling](results/m1-max-20260903-profile.md).
 The reports include unsuccessful tuning choices and remaining library gaps.
 
@@ -71,6 +72,15 @@ and checked in every native result. `auto` retains the reference worker
 mapping. CPU does not yet support `group` and rejects it explicitly. Run each
 variant separately into a new output directory; do not change the block shape
 when attributing a difference to execution mapping alone.
+
+`--group-threads 128` supplies an exact Metal group worker-count constraint,
+separate from `--threads 8` (the host/PyTorch CPU thread setting). Zero, the
+default, lets the compiler planner choose. This supports controlled cost-model
+ranking tests with the same TileIR and tile shape. The native report records
+both the requested constraint and the realized `execution_plans`; the driver
+checks their agreement. Repeated comparisons preserve the constraint. An
+unsupported count fails rather than being silently clamped. The prior
+reference worker launch width of 256 is not a hardware limit on group plans.
 
 Use `--pipeline-window 1` and `--pipeline-window 2` for a same-binary GEMM
 schedule comparison. Each ordinary host configuration captures/JITs a fresh
