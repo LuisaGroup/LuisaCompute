@@ -48,7 +48,7 @@ enum class TypeKind : uint8_t {
     VIEW,
     MEMORY,
     MEMORY_STATE,
-    OPAQUE
+    OPAQUE_TYPE
 };
 
 class LUISA_TILE_API Type final {
@@ -83,7 +83,7 @@ public:
     [[nodiscard]] bool is_memory() const noexcept { return _kind == TypeKind::MEMORY; }
     [[nodiscard]] Type tile_value_type() const noexcept;
 
-    friend bool operator==(const Type &lhs, const Type &rhs) noexcept;
+    friend LUISA_TILE_API bool operator==(const Type &lhs, const Type &rhs) noexcept;
 };
 
 [[nodiscard]] LUISA_TILE_API bool operator==(const Type &lhs, const Type &rhs) noexcept;

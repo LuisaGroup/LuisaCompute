@@ -25,7 +25,7 @@ Type Type::memory(ScalarType scalar, const IndexSpace &space) noexcept {
 }
 
 Type Type::opaque(luisa::string_view name) noexcept {
-    Type type{TypeKind::OPAQUE};
+    Type type{TypeKind::OPAQUE_TYPE};
     type._opaque_name = luisa::string{name.data(), name.size()};
     return type;
 }
@@ -39,7 +39,7 @@ bool Type::is_valid() const noexcept {
         case TypeKind::TILE:
         case TypeKind::VIEW:
         case TypeKind::MEMORY: return _scalar != ScalarType::INVALID && _space != nullptr && _space->is_valid();
-        case TypeKind::OPAQUE: return !_opaque_name.empty();
+        case TypeKind::OPAQUE_TYPE: return !_opaque_name.empty();
     }
     return false;
 }

@@ -22,7 +22,7 @@ class LUISA_TILE_API VerificationResult final {
 
 private:
     friend class detail::Verifier;
-    friend VerificationResult verify(const Module &, const TargetModel *) noexcept;
+    friend LUISA_TILE_API VerificationResult verify(const Module &, const TargetModel *) noexcept;
     luisa::vector<VerificationDiagnostic> _diagnostics;
 
 public:

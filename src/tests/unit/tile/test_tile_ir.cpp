@@ -7,8 +7,16 @@
 
 #include "ut/ut.hpp"
 
+// Reproduce the Windows GDI macro even when this test is built elsewhere.
+// Public Tile headers must coexist with it, without undefining it.
+#ifndef OPAQUE
+#define OPAQUE 2
+#endif
+
 #include <luisa/tile/analysis.h>
 #include <luisa/tile/verifier.h>
+
+static_assert(OPAQUE == 2);
 
 using namespace luisa;
 using namespace luisa::compute::tile;
@@ -78,6 +86,17 @@ struct GemmTypes {
 }
 
 }// namespace
+
+void test_opaque_type_with_windows_macro() {
+    auto type = Type::opaque("test.resource");
+    expect(type.kind() == TypeKind::OPAQUE_TYPE);
+    expect(type.is_valid());
+    expect(type.opaque_name() == "test.resource");
+    expect(type == Type::opaque("test.resource"));
+    expect(type != Type::opaque("test.other_resource"));
+    expect(type != Type::index());
+    expect(!Type::opaque("").is_valid());
+}
 
 void test_valid_structured_mma() {
     Module module;
@@ -331,6 +350,7 @@ void test_intrusive_instruction_mutation() {
 
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
+    "tile_ir_opaque_type_with_windows_macro"_test = test_opaque_type_with_windows_macro;
     "tile_ir_valid_structured_mma"_test = test_valid_structured_mma;
     "tile_ir_pipeline_and_memory"_test = test_pipeline_regions_and_memory_effects;
     "tile_ir_execution_scope_partial_order"_test = test_execution_scope_partial_order;

@@ -107,29 +107,29 @@ private:
     explicit ValueHandle(luisa::shared_ptr<ValueSlot> slot) noexcept;
     void _assign(Value *value) noexcept;
 
-    friend ValueHandle make_constant(ScalarType type, Attribute value) noexcept;
-    friend ValueHandle make_elementwise_operation(ElementwiseOp op,
-                                                  luisa::span<const ValueHandle> operands,
-                                                  ScalarType result_type) noexcept;
-    friend ValueHandle load_view(Value *view,
-                                 luisa::span<const ValueHandle> indices,
-                                 const ValueHandle *predicate,
-                                 const ValueHandle *fallback) noexcept;
-    friend luisa::vector<ValueHandle> nest_indices(
+    friend LUISA_TILE_API ValueHandle make_constant(ScalarType type, Attribute value) noexcept;
+    friend LUISA_TILE_API ValueHandle make_elementwise_operation(ElementwiseOp op,
+                                                                 luisa::span<const ValueHandle> operands,
+                                                                 ScalarType result_type) noexcept;
+    friend LUISA_TILE_API ValueHandle load_view(Value *view,
+                                                luisa::span<const ValueHandle> indices,
+                                                const ValueHandle *predicate,
+                                                const ValueHandle *fallback) noexcept;
+    friend LUISA_TILE_API luisa::vector<ValueHandle> nest_indices(
         const Nest &nest,
         const IndexSpace &space) noexcept;
     friend class ::luisa::compute::tile::Nest;
     template<typename T>
     friend class ::luisa::compute::tile::Scalar;
-    friend ValueHandle make_tile_constant(ScalarType, const IndexSpace &, Attribute) noexcept;
-    friend ValueHandle make_tile_elementwise(ElementwiseOp, luisa::span<Value *const>, ScalarType) noexcept;
-    friend ValueHandle make_mma(Value *, Value *, Value *, MmaPolicy) noexcept;
-    friend ValueHandle load_tile(Value *, luisa::span<Value *const>, const IndexSpace &, BoundsMode, Value *) noexcept;
-    friend ValueHandle extract_tile(Value *, luisa::span<Value *const>) noexcept;
-    friend ValueHandle capture_tile_map(const IndexSpace &, ScalarType, const std::function<Value *(const Nest &)> &) noexcept;
-    friend DeclaredMemory declare_memory(ScalarType, const IndexSpace &, mem::Resource, const IndexMap *) noexcept;
-    friend ValueHandle load_memory(Value *, const ValueHandle &) noexcept;
-    friend void store_memory(Value *, ValueHandle &, Value *) noexcept;
+    friend LUISA_TILE_API ValueHandle make_tile_constant(ScalarType, const IndexSpace &, Attribute) noexcept;
+    friend LUISA_TILE_API ValueHandle make_tile_elementwise(ElementwiseOp, luisa::span<Value *const>, ScalarType) noexcept;
+    friend LUISA_TILE_API ValueHandle make_mma(Value *, Value *, Value *, MmaPolicy) noexcept;
+    friend LUISA_TILE_API ValueHandle load_tile(Value *, luisa::span<Value *const>, const IndexSpace &, BoundsMode, Value *) noexcept;
+    friend LUISA_TILE_API ValueHandle extract_tile(Value *, luisa::span<Value *const>) noexcept;
+    friend LUISA_TILE_API ValueHandle capture_tile_map(const IndexSpace &, ScalarType, const std::function<Value *(const Nest &)> &) noexcept;
+    friend LUISA_TILE_API DeclaredMemory declare_memory(ScalarType, const IndexSpace &, mem::Resource, const IndexMap *) noexcept;
+    friend LUISA_TILE_API ValueHandle load_memory(Value *, const ValueHandle &) noexcept;
+    friend LUISA_TILE_API void store_memory(Value *, ValueHandle &, Value *) noexcept;
 
 public:
     ValueHandle() noexcept = default;
