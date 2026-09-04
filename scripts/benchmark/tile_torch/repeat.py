@@ -64,6 +64,17 @@ def load_plan(path: Path, operations: set[str]) -> dict[tuple[str, str], dict[st
         forwarding = native.get("forward_readonly_tile_loads", False)
         if type(forwarding) is not bool:
             raise ValueError(f"{case.name} has an invalid input-view policy")
+        metal_subgroup_reductions = native.get("metal_subgroup_reductions", False)
+        if type(metal_subgroup_reductions) is not bool:
+            raise ValueError(f"{case.name} has an invalid Metal subgroup-reduction policy")
+        if metal_subgroup_reductions:
+            execution_plans = native.get("execution_plans")
+            if (row["backend"] != "metal" or case.operation not in ("sum", "softmax", "rmsnorm") or
+                    native["execution_scope"] != "auto" or native.get("metal_mpp", False) is not False or
+                    forwarding is not True or not isinstance(execution_plans, list) or not execution_plans or
+                    any(plan.get("optimized") is not True or type(plan.get("threads")) is not int or
+                        plan["threads"] < 32 or plan["threads"] % 32 for plan in execution_plans)):
+                raise ValueError(f"{case.name} has an unrealized Metal subgroup-reduction policy")
         cpu_views = row["backend"] == "cpu" and forwarding
         cpu_model = native.get("cpu_target_policy") if row["backend"] == "cpu" else None
         validate_cpu_target_policy(native, cpu_model, row["backend"])
@@ -93,9 +104,11 @@ def load_plan(path: Path, operations: set[str]) -> dict[tuple[str, str], dict[st
             "cpu_model": cpu_model,
             "cpu_matrix_backend": cpu_matrix,
             "cpu_math_backend": cpu_math,
+            "metal_subgroup_reductions": metal_subgroup_reductions,
             "expected_cpu_model": native.get("cpu_model") if row["backend"] == "cpu" else None,
             "elide_independent_subgroup_barriers": elide,
-            "matrix_realization": "mpp-views" if forwarding and not cpu_views else "mpp" if native.get("metal_mpp") else "simdgroup",
+            "matrix_realization": "mpp-views" if forwarding and not cpu_views and not metal_subgroup_reductions else
+                                  "mpp" if native.get("metal_mpp") else "simdgroup",
         }
     if not plan:
         raise ValueError("the report contains no requested cases")
@@ -191,7 +204,7 @@ def main() -> int:
         parser.error("both native executables must already be built")
     try:
         operations = set(args.operations.split(","))
-        if not operations <= {"gemm", "add", "sum", "softmax"}:
+        if not operations <= {"gemm", "add", "sum", "softmax", "rmsnorm"}:
             raise ValueError("unknown operation in replay selection")
         plans = {"reference": load_plan(args.reference, operations), "candidate": load_plan(args.candidate, operations)}
         if plans["reference"].keys() != plans["candidate"].keys():

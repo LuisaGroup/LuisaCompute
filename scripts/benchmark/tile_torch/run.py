@@ -52,7 +52,7 @@ def make_cases(operations: list[str], quick: bool = False) -> list[Case]:
     for operation in operations:
         if operation == "gemm":
             cases.extend(Case(operation, *shape) for shape in gemm)
-        elif operation in ("add", "sum", "softmax"):
+        elif operation in ("add", "sum", "softmax", "rmsnorm"):
             cases.extend(Case(operation, *shape) for shape in (elementwise if operation == "add" else reduction))
         else:
             raise ValueError(f"unknown operation {operation!r}")
@@ -176,7 +176,7 @@ def validate_native_metadata(native: dict[str, Any], case: Case, backend: str, e
                              pipeline_window: int = 2, cooperative_matrix: bool = False,
                              gemm_block: tuple[int, int, int] = (8, 8, 16), vectorize: bool = True,
                              auto_vectorize: bool = False, group_threads: int = 0,
-                             copy_batch: int = 1) -> None:
+                             copy_batch: int = 1, metal_subgroup_reductions: bool = False) -> None:
     if native.get("backend") != backend or native.get("operation") != case.operation:
         raise RuntimeError("native backend/operation metadata does not match the request")
     if native.get("execution_scope") != execution_scope:
@@ -191,6 +191,15 @@ def validate_native_metadata(native: dict[str, Any], case: Case, backend: str, e
         raise RuntimeError("native vectorization metadata does not match the request")
     if native.get("auto_vectorize") is not auto_vectorize:
         raise RuntimeError("native automatic-vectorization metadata does not match the request")
+    if native.get("metal_subgroup_reductions", False) is not metal_subgroup_reductions:
+        raise RuntimeError("native Metal SIMD-group reduction policy does not match the request")
+    if metal_subgroup_reductions:
+        plans = native.get("execution_plans")
+        if not isinstance(plans, list) or not plans or any(
+                plan.get("optimized") is not True or type(plan.get("independent_subgroups")) is not bool or
+                type(plan.get("threads")) is not int or plan["threads"] < 32 or plan["threads"] % 32
+                for plan in plans):
+            raise RuntimeError("Metal SIMD-group reduction request was not realized by a valid execution plan")
     requested_threads = native.get("planner_threads", 0)
     if type(requested_threads) is not int or requested_threads != group_threads:
         raise RuntimeError("native group-thread constraint does not match the request")
@@ -215,12 +224,17 @@ def validate_native_metadata(native: dict[str, Any], case: Case, backend: str, e
         raise RuntimeError("generated matrix-intrinsic calls do not match the benchmark's eligible path")
 
 
-def validate_tirx_realization(native: dict[str, Any], realization: str, cpu_input_views: bool = False) -> None:
+def validate_tirx_realization(native: dict[str, Any], realization: str, cpu_input_views: bool = False,
+                              metal_subgroup_reductions: bool = False) -> None:
     if type(cpu_input_views) is not bool:
         raise ValueError("CPU input-view policy must be boolean")
     if cpu_input_views:
         if realization != "simdgroup" or native.get("backend") != "cpu" or native.get("metal_mpp", False) is not False or native.get("forward_readonly_tile_loads") is not True:
             raise ValueError("CPU input views require explicit LLVM forwarding without MPP")
+        return
+    if metal_subgroup_reductions:
+        if realization != "simdgroup" or native.get("backend") != "metal" or native.get("metal_mpp", False) is not False or native.get("forward_readonly_tile_loads") is not True:
+            raise ValueError("Metal SIMD-group reductions require the reference TIRx bridge with proved input views")
         return
     if realization == "simdgroup":
         if native.get("metal_mpp", False) is not False or native.get("forward_readonly_tile_loads", False) is not False:
@@ -390,13 +404,17 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
         return (((indices * seed + 17) % 127 - 63).float() / 64).reshape(rows, columns)
 
     a_host = inputs(case.m, case.k if case.operation == "gemm" else case.n, 5)
-    b_host = inputs(case.k if case.operation == "gemm" else case.m, case.n, 11) if case.operation in ("gemm", "add") else None
+    b_rows = case.k if case.operation == "gemm" else 1 if case.operation == "rmsnorm" else case.m
+    b_host = inputs(b_rows, case.n, 11) if case.operation in ("gemm", "add", "rmsnorm") else None
     if case.operation == "gemm":
         reference = a_host.double() @ b_host.double()
     elif case.operation == "add":
         reference = a_host.double() + b_host.double()
     elif case.operation == "sum":
         reference = a_host.double().sum(dim=1)
+    elif case.operation == "rmsnorm":
+        x = a_host.double()
+        reference = x * torch.rsqrt((x * x).mean(dim=1, keepdim=True) + 1e-5) * b_host.double()
     else:
         reference = a_host.double().softmax(dim=1)
 
@@ -412,7 +430,9 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
         with tempfile.TemporaryDirectory(prefix="luisa-tile-benchmark-") as temporary:
             output = Path(temporary) / "output.f32"
             realization = getattr(args, "matrix_realization", "simdgroup")
-            matrix_mode = realization if realization != "simdgroup" else "matrix" if args.cooperative_matrix else "scalar"
+            matrix_mode = ("subgroup-reduce" if getattr(args, "metal_subgroup_reductions", False) else
+                           realization if realization != "simdgroup" else
+                           "matrix" if args.cooperative_matrix else "scalar")
             command = [str(args.native), backend, case.operation, str(case.m), str(case.n), str(case.k),
                        *(str(x) for x in result["block"]), str(args.samples), str(args.sample_ms), str(args.warmup_ms), str(output),
                        args.execution_scope, str(args.pipeline_window), matrix_mode,
@@ -450,7 +470,7 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
                 destination = source_dir / (result["native_source_sha256"] + suffix)
                 if not destination.exists():
                     destination.write_bytes(source)
-            validate_tirx_realization(native, realization, cpu_views)
+            validate_tirx_realization(native, realization, cpu_views, getattr(args, "metal_subgroup_reductions", False))
             validate_subgroup_policy(native, elide)
             validate_cpu_storage_policy(native, cpu_stack)
             validate_cpu_vector_policy(native, cpu_lanes)
@@ -459,7 +479,8 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
             validate_cpu_matrix_policy(native, cpu_matrix, backend, case.operation)
             validate_cpu_math_policy(native, cpu_math, backend, case.operation)
             validate_native_metadata(native, case, backend, args.execution_scope, args.pipeline_window,
-                                     args.cooperative_matrix, args.gemm_block, not args.no_vectorize, args.auto_vectorize, group_threads, copy_batch)
+                                     args.cooperative_matrix, args.gemm_block, not args.no_vectorize, args.auto_vectorize, group_threads, copy_batch,
+                                     getattr(args, "metal_subgroup_reductions", False))
             array = np.fromfile(output, dtype="<f4")
             if array.size != reference.numel():
                 raise RuntimeError("native output byte count is incorrect")
@@ -475,7 +496,7 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
         start = time.perf_counter_ns()
         a = a_host.to(device)
         b = b_host.to(device) if b_host is not None else None
-        out = torch.empty(reference.shape, dtype=torch.float32, device=device)
+        out = None if case.operation == "rmsnorm" else torch.empty(reference.shape, dtype=torch.float32, device=device)
         synchronize()
         allocation_upload_ms = (time.perf_counter_ns() - start) / 1e6
         if case.operation == "gemm":
@@ -484,15 +505,19 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
             invoke = lambda: torch.add(a, b, out=out)
         elif case.operation == "sum":
             invoke = lambda: torch.sum(a, dim=1, out=out)
+        elif case.operation == "rmsnorm":
+            invoke = lambda: torch.nn.functional.rms_norm(a, (case.n,), b[0], eps=1e-5)
         else:
             invoke = lambda: torch.softmax(a, dim=1, out=out)
         measured = time_torch(invoke, synchronize, args)
         start = time.perf_counter_ns()
-        actual = out.cpu()
+        actual = (invoke() if out is None else out).cpu()
         synchronize()
         measured["download_ms"] = (time.perf_counter_ns() - start) / 1e6
         measured["allocation_upload_ms"] = allocation_upload_ms
-        measured["device"] = str(out.device)
+        measured["device"] = str(a.device)
+        measured["output_policy"] = (
+            "framework_return_value" if out is None else "preallocated_out")
         measured["correctness"] = validate(torch, actual, reference, case.operation)
         result["torch"] = measured
 
@@ -602,7 +627,7 @@ def write_report(report: dict[str, Any], directory: Path) -> None:
              f"Hardware: {metadata['cpu']}; {metadata['platform']}. PyTorch {metadata['torch_version']}; FP32; {metadata['threads']} CPU threads.", "",
              f"Native root execution request: `{metadata.get('execution_scope', 'auto')}`. Explicit scopes fail on unsupported targets; `auto` uses the reference worker mapping.", "",
              f"Native TIRx vectorization: `{metadata.get('vectorize', 'unrecorded')}`; experimental automatic CPU packing: `{metadata.get('auto_vectorize', 'unrecorded')}`. Automatic packing is opt-in and preserves inner serial/reduction order. Disabling TIRx vectorization does not disable LLVM's own optimizations.", "",
-             "Both sides use device-resident inputs and preallocated outputs. Warm timings include host dispatch/binding overhead, exclude transfers and compilation, and are NOT GPU hardware-event times. PyTorch is eager (no torch.compile).", "",
+             "Both sides use device-resident inputs. Native outputs are preallocated. PyTorch uses preallocated `out=` storage where its operator exposes it; `functional.rms_norm` has no `out=` overload and its returned-output allocation remains inside warm timing. Warm timings include host dispatch/binding overhead, exclude transfers and compilation, and are NOT GPU hardware-event times. PyTorch is eager (no torch.compile).", "",
              f"Native GEMM retains an MMA in TileIR. CPU matrix realization: `{metadata.get('cpu_matrix_backend', 'reference')}`. CBLAS is selected only from a proved whole-kernel contract and is visible as one provider call in generated LLVM; reference keeps contraction loops. CPU array math: `{metadata.get('cpu_math_backend', 'reference')}`. Accelerate consumes only proved FP32 add/max/min recurrences and a versioned compiler-owned shared FP32 exp materialization; the DSL and execution hierarchy remain target-independent. Cooperative-matrix capability requested: `{metadata.get('cooperative_matrix', False)}`. Eligible Metal group MMA can use native FP32 SIMD-group matrices. Base pipeline window: `{metadata.get('pipeline_window', 'unspecified')}`; tuned choices appear per row. Window 1 retains ordered execution, 2 permits safe software prefetching. Neither mode claims hardware-asynchronous transfers. Sort is not included in this performance comparison.", "",
              "Ratio = native / PyTorch; greater than 1 means native is slower. P50 is per-call batched throughput; latency columns synchronize each individual call. All values are microseconds.", "",
              "| Device | Operator / M×N[×K] | Block / window | Matrix calls | Native p50 | Torch p50 | Native p90 | Torch p90 | Ratio | Native latency | Torch latency |",
@@ -673,6 +698,8 @@ def main() -> int:
                         help="assert native FP32 matrix capability (Metal requires Apple GPU family 7+); default off")
     parser.add_argument("--matrix-realization", choices=("simdgroup", "mpp", "mpp-views"), default="simdgroup",
                         help="independent TIRx realization; MPP options require a patched compiler and Metal group GEMM")
+    parser.add_argument("--metal-subgroup-reductions", action="store_true",
+                        help="opt in to proved Metal SIMD-group add/max/min reduction mapping and its FP32 tree order")
     parser.add_argument("--elide-independent-subgroup-barriers", action="store_true",
                         help="opt-in synchronization candidate; only proved independent MPP-view groups can elide fences")
     vectorization = parser.add_mutually_exclusive_group()
@@ -732,17 +759,29 @@ def main() -> int:
         parser.error("CBLAS realization requires only CPU GEMM with automatic execution binding")
     if args.cpu_math_backend == "accelerate" and backends != ["cpu"]:
         parser.error("Accelerate array math requires only the CPU backend")
+    requested_operations = args.operations.split(",")
+    if args.metal_subgroup_reductions and (backends != ["metal"] or args.execution_scope != "auto" or
+                                           args.matrix_realization != "simdgroup" or args.cooperative_matrix or
+                                           any(operation not in ("sum", "softmax", "rmsnorm") for operation in requested_operations)):
+        parser.error("Metal SIMD-group reductions require only automatic Metal sum, softmax, or RMSNorm with the reference TIRx realization")
     if any(backend not in ("cpu", "metal") for backend in backends):
         parser.error("backends must be cpu and/or metal")
     if args.matrix_realization != "simdgroup" and (backends != ["metal"] or args.operations != "gemm" or
                                                   args.execution_scope != "group" or not args.cooperative_matrix):
         parser.error("MPP realizations require only Metal group GEMM with cooperative matrices enabled")
-    if not 0 <= args.group_threads <= 0xffffffff or (args.group_threads and (backends != ["metal"] or args.execution_scope != "group")):
-        parser.error("group threads must be uint32; an explicit count requires only Metal group execution")
+    if not 0 <= args.group_threads <= 0xffffffff or (args.group_threads and
+            (backends != ["metal"] or (args.execution_scope != "group" and not args.metal_subgroup_reductions))):
+        parser.error("group threads must be uint32; an explicit count requires Metal group execution or subgroup reductions")
     if not 1 <= args.copy_batch <= 16 or (args.copy_batch != 1 and (backends != ["metal"] or args.execution_scope != "group")):
         parser.error("copy batch must be in [1,16]; batching requires only Metal group execution")
-    if args.mapping_tuning_candidates and (backends != ["metal"] or args.execution_scope != "group"):
-        parser.error("mapping tuning requires only Metal group execution")
+    if args.metal_subgroup_reductions and args.tuning_candidates:
+        parser.error("GEMM block/pipeline tuning does not apply to Metal SIMD-group reductions")
+    if args.mapping_tuning_candidates and (
+            backends != ["metal"] or
+            (args.execution_scope != "group" and not args.metal_subgroup_reductions)):
+        parser.error("mapping tuning requires Metal group execution or Metal SIMD-group reductions")
+    if args.metal_subgroup_reductions and any(batch != 1 for _, batch in args.mapping_tuning_candidates):
+        parser.error("copy-batch tuning does not apply to Metal SIMD-group reductions")
     for key in ("TVM_NUM_THREADS", "OMP_NUM_THREADS", "VECLIB_MAXIMUM_THREADS"):
         os.environ[key] = str(args.threads)
     # Set the environment before either framework initializes a thread pool.
@@ -778,6 +817,7 @@ def main() -> int:
         "pipeline_window": args.pipeline_window,
         "cooperative_matrix": args.cooperative_matrix,
         "matrix_realization": args.matrix_realization,
+        "metal_subgroup_reductions": args.metal_subgroup_reductions,
         "vectorize": not args.no_vectorize,
         "auto_vectorize": args.auto_vectorize,
         "cpu_stack_bytes": args.cpu_stack_bytes, "capture_sources": args.capture_sources,
@@ -801,7 +841,11 @@ def main() -> int:
         for case in cases:
             print(f"{backend:5s} {case.name} ...", flush=True)
             try:
-                measure = run_tuned_case if case.operation == "gemm" and (args.tuning_candidates or args.mapping_tuning_candidates) else run_case
+                tune = ((case.operation == "gemm" and
+                         (args.tuning_candidates or args.mapping_tuning_candidates)) or
+                        (args.metal_subgroup_reductions and
+                         bool(args.mapping_tuning_candidates)))
+                measure = run_tuned_case if tune else run_case
                 row = measure(torch, np, args, case, backend, len(report["results"]))
             except Exception as error:
                 row = {"name": case.name, "backend": backend, "case": dataclasses.asdict(case), "valid": False, "error": str(error)}

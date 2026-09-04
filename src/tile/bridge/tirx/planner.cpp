@@ -141,6 +141,8 @@ namespace {
 [[nodiscard]] bool valid_options(const PlannerOptions &options) noexcept {
     auto &cost = options.cost;
     for (auto coefficient : {cost.matrix_issue, cost.shared_fragment_transfer, cost.independent_element, cost.subgroup_setup,
+                             cost.subgroup_reduction_scalar_round, cost.subgroup_reduction_collective,
+                             cost.subgroup_reduction_group_setup,
                              cost.metal_mpp_memory_fragment, cost.metal_mpp_lhs_footprint, cost.metal_mpp_rhs_footprint,
                              cost.metal_mpp_output_fragment, cost.metal_mpp_tensor_operation, cost.metal_mpp_accumulator_init,
                              cost.metal_mpp_tile_aspect, cost.metal_mpp_local_row_aspect, cost.metal_mpp_local_column_aspect,

@@ -1,11 +1,14 @@
 # Native TileIR / TVMx vs PyTorch
 
 This is an opt-in **correctness-checked, multi-shape** benchmark, not a CTest
-performance threshold. It compares FP32 GEMM, add, row sum, and softmax on CPU
-and actual Metal / PyTorch MPS. GEMM includes small/large squares, tall/wide
-matrices, and non-multiple tail sizes; reductions vary both row count and width.
+performance threshold. It compares FP32 GEMM, add, row sum, softmax and RMSNorm
+on CPU and actual Metal / PyTorch MPS. GEMM includes small/large squares,
+tall/wide matrices, and non-multiple tail sizes; reductions vary both row count
+and width.
 
-Latest M1 Max evidence: [MPP cost-model v1→v2 calibration-cohort study](results/m1-max-20260905-mpp-cost-v2-search/notes.md),
+Latest M1 Max evidence: [Metal subgroup sum/softmax/RMSNorm cohort](results/m1-max-20260905-metal-subgroup-reductions/notes.md),
+[balanced same-binary RMSNorm lowering A/B](results/m1-max-20260905-metal-subgroup-rmsnorm-replay/notes.md),
+[MPP cost-model v1→v2 calibration-cohort study](results/m1-max-20260905-mpp-cost-v2-search/notes.md),
 [frozen seven-path MPP-v2 replay](results/m1-max-20260905-mpp-cost-v2-replay/notes.md),
 [proved CPU CBLAS plan](results/m1-max-20260905-cpu-cblas-v2-plan/notes.md),
 [six-order CPU CBLAS/Torch/direct-BLAS replay](results/m1-max-20260905-cpu-cblas-v2-replay/notes.md),
@@ -334,14 +337,60 @@ both the requested capability and the actual number of static
 driver checks that eligible cases select those instructions and fallback
 cases do not. A call-site count is not a dynamic instruction counter.
 
+### Metal SIMD-group reductions
+
+`--metal-subgroup-reductions` opts automatic Metal sum, softmax and RMSNorm
+into the proved FP32 add/max/min collective realization. It requires the
+ordinary `simdgroup` TIRx path, automatic root execution, no cooperative
+matrix option and only those operations. The option is also explicit
+permission to replace the reference FP32 left fold with a tree order; it is
+never inferred merely because the target supports SIMD collectives.
+
+The planner enumerates one, two, four and eight SIMD groups per logical row.
+One-group programs may be packed independently into a wider threadgroup;
+multi-group programs use uniform SIMD collectives, small shared partial arrays
+and a group barrier. Eligible reused compiler-owned Tiles are compacted to
+worker-private stripes only after an affine access/ownership proof. Native JSON
+records groups per program, whole-group threads, shared bytes, private stripe
+size, reduction counts, barrier sites and the separately versioned
+`metal_subgroup_reduction_v1` score.
+
+Run the automatic planner with:
+
+```sh
+uv run --no-project --python 3.13 --with torch --with numpy python \
+  scripts/benchmark/tile_torch/run.py \
+  --native cmake-build-tirx/bin/benchmark_tile_tirx \
+  --output NEW_EMPTY_DIRECTORY --backends metal \
+  --operations sum,softmax,rmsnorm --metal-subgroup-reductions \
+  --samples 11 --sample-ms 100 --warmup-ms 100 --capture-sources
+```
+
+`--group-threads 128` is an exact cooperating-worker constraint for this
+realization. A measured staged/JIT sweep can instead use
+`--tune-group-threads '32,64,128,256'`. Each width is separately captured,
+compiled and fully validated; invalid trials remain in JSON. The measured
+winner is then captured/JIT-compiled and measured again, so the reported row
+is not a search minimum. GEMM block/pipeline and copy-batch tuning are rejected
+for this reduction mode.
+
+The saved [12-case report](results/m1-max-20260905-metal-subgroup-reductions/notes.md)
+and [balanced RMSNorm A/B](results/m1-max-20260905-metal-subgroup-rmsnorm-replay/notes.md)
+document exact plans, commands, hashes, complete errors and interpretation
+limits. They are an M1 Max FP32 cohort, not all-device or production-LLM parity.
+
 Measurement contract:
 
 - Identical deterministic contiguous FP32 inputs; full outputs checked against
   a CPU FP64 reference with the same tolerances for both implementations.
 - CPU thread environment is set before importing either framework. MPS or
   native Metal unavailability is an error, never a CPU fallback.
-- Inputs and outputs are allocated before warm measurements; PyTorch uses
-  eager `out=` operations under inference mode, with no per-call allocation.
+- Inputs and native outputs are allocated before warm measurements. PyTorch
+  uses eager `out=` operations under inference mode where the operator exposes
+  one. `torch.nn.functional.rms_norm` has no `out=` overload, so its returned
+  output allocation remains inside warm timing and is recorded as
+  `output_policy=framework_return_value`; other current operations report
+  `preallocated_out`.
 - Capture, native compilation, allocation/upload, first invocation, and
   download are reported separately. First-call timings are not a claim of an
   empty OS/driver cache, and PyTorch's process is reused across cases.

@@ -259,6 +259,37 @@ its compiler-owned group fences additionally requires the default-off
 is not guaranteed to improve performance; original TIRx, staged MPP and the
 default forwarding path keep their existing fence policy.
 
+### Native SIMD-group reductions inside TIRx
+
+`PlannerOptions::metal_subgroup_reductions` selects a separate Metal
+realization for structurally proved FP32 add/max/min row programs. It does not
+call MPS, MPP or a provider library. The bridge maps the logical root program
+to one, two, four or eight 32-lane SIMD groups, emits ordinary TIRx thread
+bindings and `simd_sum`/`simd_max`/`simd_min` Metal intrinsics, and uses a
+small shared partial array only when multiple groups cooperate.
+
+This pass runs before the generic root mapper and after shared structural
+export. It accepts automatic or explicit subgroup roots; an unrealizable
+explicit subgroup request fails, while an automatic root can retain the
+reference path. The compile option is also explicit permission for a
+floating-point tree order. Target width, noalias arguments, reducer identity,
+pure contribution, uniform control, effect placement and memory capacity are
+rechecked before mapping.
+
+Repeated compiler-owned Tile values can be compacted from logical full-row
+storage to worker-private stripes. The transformation proves every flattened
+load/store index equals the current distributed element coordinate; an
+escaping, fixed or permuted access is not compacted. Explicit manual Memory
+is not inferred from this optimization and keeps its own placement/store
+contract.
+
+The resulting `DeviceArtifact` uses the same direct-buffer ABI and ordinary
+Metal Runtime path described above. The standalone TVM runtime is retained as
+an independent comparison. Both routes consume scheduled TIRx; no source-level
+warp role or new Runtime resource type is introduced. The exact mapping,
+finite cost model, staged/JIT controls and measured evidence are documented in
+[TIRx Metal reductions](tile_tirx_reduction_report.md).
+
 ## First native realization, not a complete Machine TileIR
 
 `src/backends/metal/tile/metal_tile_codegen.cpp` reads Candidate TileIR and

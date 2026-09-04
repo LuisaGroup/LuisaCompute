@@ -142,7 +142,7 @@ public:
         if (_target == "llvm" && _cpu_model != "generic") {
             options.target = luisa::string{"{\"kind\":\"llvm\",\"mcpu\":\""} + _cpu_model + "\"}";
         }
-        if (cooperative_matrix && _target == "metal") {
+        if ((cooperative_matrix || planner.metal_subgroup_reductions) && _target == "metal") {
             // Opt-in tests/benchmarks require an Apple-family-7+ device, not
             // merely the existence of an arbitrary Metal runtime.
             options.target = R"({"kind":"metal","thread_warp_size":32})";

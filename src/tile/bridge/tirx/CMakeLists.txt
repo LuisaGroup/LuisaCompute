@@ -65,6 +65,7 @@ set(LUISA_COMPUTE_TILE_TIRX_BRIDGE_SOURCES
         planner.cpp
         pipeline.cpp
         synchronization.cpp
+        reduction.cpp
         views.cpp)
 
 add_library(luisa-compute-tile-bridge-tirx

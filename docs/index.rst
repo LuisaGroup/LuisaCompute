@@ -18,6 +18,7 @@ LuisaCompute is a high-performance cross-platform computing framework for graphi
    source/tile_status_report
    source/tile_programming_design
    source/tile_execution_planner
+   source/tile_tirx_reduction_report
    source/tile_native_runtime
    source/tile_xir_design
    source/tile_programming_poc_kernels

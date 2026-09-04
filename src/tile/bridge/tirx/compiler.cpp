@@ -258,6 +258,21 @@ protected:
             if (_logical_parallel_depth != 0u) { _scope_error(loop, "group", "requires a coordinate factorization for nested group bindings"); }
             return map_metal_cooperative_group(tvm::ffi::GetRef<tvm::tirx::For>(loop), _gpu_group_thread_limit, _shared_memory_limit, _cooperative_matrix, _metal_mpp, _planner, _plans, _readonly_inputs);
         }
+        if (_target_name == "metal" && _planner.enabled && _planner.metal_subgroup_reductions &&
+            _logical_parallel_depth == 0u) {
+            auto constraint = loop->annotations.Get(execution_scope_annotation);
+            auto scope = constraint ? constraint.value().as<tvm::ffi::String>() : tvm::ffi::Optional<tvm::ffi::String>{};
+            auto automatic_or_subgroup = !constraint || (scope && scope.value() == "subgroup");
+            if (automatic_or_subgroup) {
+                auto mapped = try_map_metal_subgroup_reduction(
+                    tvm::ffi::GetRef<tvm::tirx::For>(loop), _gpu_group_thread_limit,
+                    _shared_memory_limit, _planner, _plans);
+                if (mapped.defined()) { return mapped; }
+                if (constraint) {
+                    _scope_error(loop, "subgroup", "does not contain a realizable uniform reduction program");
+                }
+            }
+        }
         // Resolve before mutating the body, including through unbound or
         // serial intermediate levels. Unsupported constraints are hard errors,
         // never optional hints that disappear during structural export.
@@ -377,7 +392,13 @@ public:
         }
     }
     auto cooperative_matrix = options.cooperative_matrix && target->kind->name == "metal" && target->GetAttr<int64_t>("thread_warp_size").value_or(0) == 32;
-    if (options.forward_readonly_tile_loads && !options.metal_mpp && binding != RootParallelBinding::CPU_THREADS) {
+    auto subgroup_reductions = options.planner.metal_subgroup_reductions;
+    if (subgroup_reductions &&
+        (!options.planner.enabled || !options.noalias || target->kind->name != "metal" ||
+         target->GetAttr<int64_t>("thread_warp_size").value_or(0) != 32)) {
+        throw std::runtime_error{"Metal SIMD-group reductions require an enabled planner, noalias, and a Metal target with thread_warp_size=32"};
+    }
+    if (options.forward_readonly_tile_loads && !options.metal_mpp && !subgroup_reductions && binding != RootParallelBinding::CPU_THREADS) {
         throw std::runtime_error{"read-only Tile view forwarding requires LLVM or Metal MPP realization"};
     }
     if (options.metal_mpp) {
@@ -407,7 +428,8 @@ public:
                 std::move(mapped), cpu_math_realization_annotation,
                 tvm::ffi::String{"accelerate"});
         }
-        auto views = options.forward_readonly_tile_loads ? forward_readonly_tile_loads(mapped, options.noalias, binding == RootParallelBinding::CPU_THREADS) : ReadonlyViews{mapped->body, {}};
+        auto forward_views = options.forward_readonly_tile_loads || subgroup_reductions;
+        auto views = forward_views ? forward_readonly_tile_loads(mapped, options.noalias, binding == RootParallelBinding::CPU_THREADS || subgroup_reductions) : ReadonlyViews{mapped->body, {}};
         mapped.CopyOnWrite()->body = std::move(views.body);
         mapped.CopyOnWrite()->body = schedule_pipelines(mapped->body, options.noalias, shared_memory_limit,
                                                         !options.metal_mpp && cooperative_matrix && options.planner.enabled && options.planner.max_pipeline_prefetch_scalars_per_lane != 0u);

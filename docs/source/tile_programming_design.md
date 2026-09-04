@@ -1507,6 +1507,15 @@ The reduction domain and monoid define meaning. Distribution and the target
 catalog decide the physical collective.
 ```
 
+The first proof-driven realization of this factoring is now implemented for
+Metal FP32 add/max/min row programs. It maps a logical reduction to one or more
+SIMD groups and derives worker-private/shared storage from the selected owner
+map; see [TIRx Metal reductions](tile_tirx_reduction_report.md). In that bounded
+implementation, the explicit `metal_subgroup_reductions` compile option is the
+floating-point tree-order permission. A richer per-reducer accuracy,
+determinism, NaN and signed-zero policy remains part of this language design,
+not a feature already exposed by the current C++ surface.
+
 A custom state reduction remains compact. Welford normalization, for example,
 uses one state instead of hard-coding a two-pass warp algorithm:
 

@@ -24,6 +24,18 @@ using luisa::test::tile_tirx::Runtime;
 
 namespace {
 
+[[nodiscard]] tvm::ffi::String metal_source(
+    const tvm::ffi::Module &module) {
+    if (std::string_view{module->kind()} == "metal") {
+        return module->InspectSource("metal");
+    }
+    for (auto &&child : module->imports()) {
+        auto source = metal_source(child.cast<tvm::ffi::Module>());
+        if (!source.empty()) { return source; }
+    }
+    return {};
+}
+
 [[nodiscard]] Kernel make_copy(exec::Scope scope, int64_t count) {
     auto definition = tile_kernel("execution_copy", [scope, count](TensorView<const float, 1> input,
                                                                    TensorView<float, 1> output) {
@@ -74,7 +86,7 @@ void test_empty_parallel(Runtime &runtime) {
 
 [[nodiscard]] Kernel make_exp_copy(exec::Scope scope, int64_t count) {
     auto definition = tile_kernel("execution_exp_copy", [scope, count](TensorView<const float, 1> input,
-                                                                        TensorView<float, 1> output) {
+                                                                       TensorView<float, 1> output) {
         for (auto &nest : parallel(shape(count), scope)) {
             auto origin = coord(nest.index());
             output(origin, shape(1)).store(exp(input[origin, shape(1)]));
@@ -105,7 +117,7 @@ void test_cpu_parallel_launch_cost(Runtime &runtime) {
 
 void test_shared_exp_is_materialized_once() {
     auto definition = tile_kernel("shared_exp", [](TensorView<const float, 2> input,
-                                                    TensorView<float, 2> output) {
+                                                   TensorView<float, 2> output) {
         auto row = axis("row", input.extent<0>());
         auto column = axis("column", input.extent<1>());
         auto one = axis("one", 1);
@@ -128,9 +140,252 @@ void test_shared_exp_is_materialized_once() {
     expect(eq(calls, 1u));
 }
 
+[[nodiscard]] Kernel make_row_sum(int64_t rows, int64_t columns) {
+    auto definition = tile_kernel("metal_subgroup_sum", [](TensorView<const float, 2> input,
+                                                           TensorView<float, 1> output) {
+        auto rows = axis("rows", input.extent<0>());
+        auto one = axis("one", 1);
+        auto columns = axis("columns", input.extent<1>());
+        for (auto &nest : parallel(shape(rows))) {
+            auto value = input[coord(nest.index(), 0), shape(one, columns)];
+            output(coord(nest.index()), shape(one)).store(reduce(value, columns, add));
+        }
+    });
+    return definition.capture(tensor_shape(rows, columns), tensor_shape(rows));
+}
+
+[[nodiscard]] Kernel make_row_softmax(int64_t rows, int64_t columns) {
+    auto definition = tile_kernel("metal_subgroup_softmax", [](TensorView<const float, 2> input,
+                                                               TensorView<float, 2> output) {
+        auto rows = axis("rows", input.extent<0>());
+        auto one = axis("one", 1);
+        auto columns = axis("columns", input.extent<1>());
+        for (auto &nest : parallel(shape(rows))) {
+            auto origin = coord(nest.index(), 0);
+            auto value = input[origin, shape(one, columns)];
+            auto shifted = exp(value - reduce(value, columns, maximum));
+            output(origin, shape(one, columns))
+                .store(shifted / reduce(shifted, columns, add));
+        }
+    });
+    return definition.capture(tensor_shape(rows, columns),
+                              tensor_shape(rows, columns));
+}
+
+[[nodiscard]] Kernel make_row_extrema(int64_t rows, int64_t columns) {
+    auto definition = tile_kernel("metal_subgroup_extrema", [](TensorView<const float, 2> input,
+                                                               TensorView<float, 1> minima,
+                                                               TensorView<float, 1> maxima) {
+        auto rows = axis("rows", input.extent<0>());
+        auto one = axis("one", 1);
+        auto columns = axis("columns", input.extent<1>());
+        for (auto &nest : parallel(shape(rows))) {
+            auto value = input[coord(nest.index(), 0), shape(one, columns)];
+            minima(coord(nest.index()), shape(one)).store(reduce(value, columns, minimum));
+            maxima(coord(nest.index()), shape(one)).store(reduce(value, columns, maximum));
+        }
+    });
+    return definition.capture(tensor_shape(rows, columns), tensor_shape(rows),
+                              tensor_shape(rows));
+}
+
+[[nodiscard]] PlannerOptions subgroup_reduction_options() {
+    auto planner = PlannerOptions{};
+    planner.metal_subgroup_reductions = true;
+    return planner;
+}
+
+void test_metal_subgroup_reduction_contract(Runtime &runtime) {
+    auto planner = subgroup_reduction_options();
+    auto kernel = make_row_sum(3, 37);
+    if (runtime.target() != "metal") {
+        auto unavailable = runtime.build(
+            kernel, true, false, true, false, planner, false, true);
+        expect(!unavailable.ok());
+        expect(unavailable.error.find("Metal") != luisa::string::npos)
+            << unavailable.error;
+        return;
+    }
+    auto missing_noalias = runtime.build(
+        kernel, false, false, true, false, planner, false, true);
+    expect(!missing_noalias.ok());
+    expect(missing_noalias.error.find("noalias") != luisa::string::npos)
+        << missing_noalias.error;
+
+    auto reference = runtime.build(kernel, true, false, true, false,
+                                   PlannerOptions{}, false, false);
+    expect(reference.ok()) << reference.error;
+    if (reference.ok()) {
+        auto source = metal_source(reference.module.value());
+        expect(std::string_view{source.data(), source.size()}.find("simd_sum(") ==
+               std::string_view::npos)
+            << source;
+    }
+}
+
+void test_metal_subgroup_sum(Runtime &runtime) {
+    if (runtime.target() != "metal") { return; }
+    constexpr std::array cases{
+        std::pair{int64_t{127}, uint32_t{1}},
+        std::pair{int64_t{257}, uint32_t{1}},
+        std::pair{int64_t{1024}, uint32_t{4}},
+        std::pair{int64_t{4096}, uint32_t{8}}};
+    for (auto [columns, expected_subgroups] : cases) {
+        constexpr auto rows = int64_t{5};
+        auto kernel = make_row_sum(rows, columns);
+        expect(kernel.valid()) << "columns=" << columns;
+        auto executable = runtime.build(
+            kernel, true, false, true, false,
+            subgroup_reduction_options(), false, true);
+        expect(executable.ok()) << executable.error;
+        if (!executable.ok()) { continue; }
+        expect(eq(executable.plans.size(), 1u));
+        if (executable.plans.empty()) { continue; }
+        auto &plan = executable.plans.front();
+        expect(eq(plan.reduction_subgroups_per_program,
+                  expected_subgroups));
+        expect(eq(plan.reduction_operations, 1u));
+        expect(eq(plan.reduction_elements,
+                  static_cast<uint64_t>(columns)));
+        expect(eq(plan.shared_memory_bytes,
+                  expected_subgroups == 1u ? 0u :
+                                             expected_subgroups * sizeof(float)));
+        expect(eq(plan.group_barrier_sites_after,
+                  expected_subgroups == 1u ? 0u : 1u));
+        expect(eq(plan.independent_subgroups,
+                  expected_subgroups == 1u));
+        auto source = metal_source(executable.module.value());
+        auto code = std::string_view{source.data(), source.size()};
+        expect(code.find("simd_sum(") != std::string_view::npos) << source;
+        luisa::vector<float> values(static_cast<size_t>(rows * columns));
+        for (auto i = 0u; i < values.size(); i++) {
+            values[i] = static_cast<float>(static_cast<int64_t>(i % 127u) - 63) /
+                        64.0f;
+        }
+        auto input = runtime.upload<float>({rows, columns}, values);
+        auto output = runtime.allocate<float>({rows});
+        (*executable.entry)(input, output);
+        auto actual = runtime.download<float>(output, rows);
+        for (auto row = int64_t{0}; row < rows; row++) {
+            auto expected = 0.0;
+            for (auto column = int64_t{0}; column < columns; column++) {
+                expected += values[static_cast<size_t>(row * columns + column)];
+            }
+            expect(std::abs(static_cast<double>(actual[row]) - expected) <=
+                   2e-5 * std::max(1.0, std::abs(expected)))
+                << "columns=" << columns << " row=" << row;
+        }
+    }
+}
+
+void test_metal_subgroup_striped_softmax(Runtime &runtime) {
+    if (runtime.target() != "metal") { return; }
+    constexpr auto rows = int64_t{3};
+    constexpr auto columns = int64_t{4096};
+    auto kernel = make_row_softmax(rows, columns);
+    expect(kernel.valid());
+    auto executable = runtime.build(
+        kernel, true, false, true, false,
+        subgroup_reduction_options(), false, true);
+    expect(executable.ok()) << executable.error;
+    if (!executable.ok()) { return; }
+    expect(eq(executable.plans.size(), 1u));
+    if (executable.plans.empty()) { return; }
+    auto &plan = executable.plans.front();
+    expect(eq(plan.reduction_subgroups_per_program, 8u));
+    expect(eq(plan.reduction_operations, 2u));
+    expect(eq(plan.reduction_elements, 8192u));
+    expect(eq(plan.striped_storage_scalars_per_worker, 16u));
+    expect(!plan.independent_subgroups);
+    auto source = metal_source(executable.module.value());
+    auto code = std::string_view{source.data(), source.size()};
+    expect(code.find("_worker_stripe[16]") != std::string_view::npos) << source;
+    expect(code.find("thread float tile_storage_7[4096]") ==
+           std::string_view::npos)
+        << source;
+    expect(code.find("simd_max(") != std::string_view::npos) << source;
+    expect(code.find("simd_sum(") != std::string_view::npos) << source;
+
+    luisa::vector<float> values(static_cast<size_t>(rows * columns));
+    for (auto i = 0u; i < values.size(); i++) {
+        values[i] = static_cast<float>(static_cast<int64_t>((i * 5u + 17u) %
+                                                            127u) -
+                                       63) /
+                    64.0f;
+    }
+    auto input = runtime.upload<float>({rows, columns}, values);
+    auto output = runtime.allocate<float>({rows, columns});
+    (*executable.entry)(input, output);
+    auto actual = runtime.download<float>(output, values.size());
+    for (auto row = int64_t{0}; row < rows; row++) {
+        auto maximum_value = -std::numeric_limits<double>::infinity();
+        for (auto column = int64_t{0}; column < columns; column++) {
+            maximum_value = std::max(
+                maximum_value,
+                static_cast<double>(values[static_cast<size_t>(
+                    row * columns + column)]));
+        }
+        auto denominator = 0.0;
+        for (auto column = int64_t{0}; column < columns; column++) {
+            denominator += std::exp(
+                static_cast<double>(values[static_cast<size_t>(
+                    row * columns + column)]) -
+                maximum_value);
+        }
+        for (auto column = int64_t{0}; column < columns; column++) {
+            auto index = static_cast<size_t>(row * columns + column);
+            auto expected = std::exp(static_cast<double>(values[index]) -
+                                     maximum_value) /
+                            denominator;
+            expect(std::abs(static_cast<double>(actual[index]) - expected) <=
+                   2e-6 + 2e-5 * std::abs(expected))
+                << "row=" << row << " column=" << column;
+        }
+    }
+}
+
+void test_metal_subgroup_extrema(Runtime &runtime) {
+    if (runtime.target() != "metal") { return; }
+    constexpr auto rows = int64_t{7};
+    constexpr auto columns = int64_t{1024};
+    auto executable = runtime.build(
+        make_row_extrema(rows, columns), true, false, true, false,
+        subgroup_reduction_options(), false, true);
+    expect(executable.ok()) << executable.error;
+    if (!executable.ok()) { return; }
+    expect(eq(executable.plans.size(), 1u));
+    if (executable.plans.empty()) { return; }
+    expect(eq(executable.plans.front().reduction_operations, 2u));
+    expect(eq(executable.plans.front().reduction_elements, 2048u));
+    auto source = metal_source(executable.module.value());
+    auto code = std::string_view{source.data(), source.size()};
+    expect(code.find("simd_min(") != std::string_view::npos) << source;
+    expect(code.find("simd_max(") != std::string_view::npos) << source;
+
+    luisa::vector<float> values(static_cast<size_t>(rows * columns));
+    for (auto i = 0u; i < values.size(); i++) {
+        values[i] = static_cast<float>(static_cast<int64_t>((i * 13u + 5u) %
+                                                            509u) -
+                                       254) /
+                    32.0f;
+    }
+    auto input = runtime.upload<float>({rows, columns}, values);
+    auto minima = runtime.allocate<float>({rows});
+    auto maxima = runtime.allocate<float>({rows});
+    (*executable.entry)(input, minima, maxima);
+    auto actual_minima = runtime.download<float>(minima, rows);
+    auto actual_maxima = runtime.download<float>(maxima, rows);
+    for (auto row = int64_t{0}; row < rows; row++) {
+        auto first = values.begin() + row * columns;
+        auto last = first + columns;
+        expect(eq(actual_minima[row], *std::min_element(first, last)));
+        expect(eq(actual_maxima[row], *std::max_element(first, last)));
+    }
+}
+
 void test_cpu_accelerate_math(Runtime &runtime) {
     auto definition = tile_kernel("accelerate_exp", [](TensorView<const float, 2> input,
-                                                        TensorView<float, 2> output) {
+                                                       TensorView<float, 2> output) {
         auto row = axis("row", input.extent<0>());
         auto column = axis("column", input.extent<1>());
         auto one = axis("one", 1);
@@ -483,6 +738,10 @@ int main(int argc, char *argv[]) {
     "tile_execution_empty_domain"_test = [&] { test_empty_parallel(runtime); };
     "tile_execution_cpu_parallel_launch_cost"_test = [&] { test_cpu_parallel_launch_cost(runtime); };
     "tile_execution_shared_exp_materialization"_test = test_shared_exp_is_materialized_once;
+    "tile_execution_metal_subgroup_reduction_contract"_test = [&] { test_metal_subgroup_reduction_contract(runtime); };
+    "tile_execution_metal_subgroup_sum"_test = [&] { test_metal_subgroup_sum(runtime); };
+    "tile_execution_metal_subgroup_striped_softmax"_test = [&] { test_metal_subgroup_striped_softmax(runtime); };
+    "tile_execution_metal_subgroup_extrema"_test = [&] { test_metal_subgroup_extrema(runtime); };
     "tile_execution_cpu_accelerate_math"_test = [&] { test_cpu_accelerate_math(runtime); };
     "tile_execution_scope_preserved"_test = test_scope_survives_export;
     "tile_execution_unsupported_scopes"_test = [&] { test_unsupported_scopes(runtime); };

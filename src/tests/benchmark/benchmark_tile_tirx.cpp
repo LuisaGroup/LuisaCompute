@@ -77,7 +77,9 @@ void print_plans(luisa::span<const bridge::tirx::GroupPlan> plans) {
     std::cout << "\"execution_plans\":[";
     auto separator = "";
     for (auto &plan : plans) {
-        auto cost_basis = plan.cost_basis == bridge::tirx::MatrixCostBasis::METAL_MPP_MEMORY ?
+        auto cost_basis = plan.reduction_subgroups_per_program != 0u ?
+                              "metal_subgroup_reduction_v1" :
+                          plan.cost_basis == bridge::tirx::MatrixCostBasis::METAL_MPP_MEMORY ?
                               "metal_mpp_memory_v2" :
                               "simdgroup_reference_geometry";
         std::cout << separator << "{\"threads\":" << plan.threads
@@ -92,6 +94,10 @@ void print_plans(luisa::span<const bridge::tirx::GroupPlan> plans) {
                   << ",\"batched_copy_operations\":" << plan.batched_copy_operations
                   << ",\"prefetched_pipeline_loops\":" << plan.prefetched_pipeline_loops
                   << ",\"prefetch_storage_scalars_per_lane\":" << plan.prefetch_storage_scalars_per_lane
+                  << ",\"reduction_subgroups_per_program\":" << plan.reduction_subgroups_per_program
+                  << ",\"striped_storage_scalars_per_worker\":" << plan.striped_storage_scalars_per_worker
+                  << ",\"reduction_operations\":" << plan.reduction_operations
+                  << ",\"reduction_elements\":" << plan.reduction_elements
                   << ",\"group_barrier_sites_before\":" << plan.group_barrier_sites_before
                   << ",\"group_barrier_sites_after\":" << plan.group_barrier_sites_after
                   << ",\"independent_subgroups\":" << (plan.independent_subgroups ? "true" : "false")
@@ -295,7 +301,24 @@ void dump_source(const tvm::ffi::Module &module, std::string_view kind, const ch
         });
         return definition.capture(tensor_shape(cfg.m, cfg.n), tensor_shape(cfg.m, cfg.n));
     }
-    throw std::invalid_argument{"operation must be gemm, add, sum, or softmax"};
+    if (operation == "rmsnorm") {
+        auto definition = tile_kernel("benchmark_rmsnorm", [=](TensorView<const float, 2> X,
+                                                               TensorView<const float, 2> Gamma,
+                                                               TensorView<float, 2> Y) {
+            auto rows = axis("rows", X.extent<0>());
+            auto m = axis("m", 1);
+            auto n = axis("n", X.extent<1>());
+            for (auto &nest : parallel(shape(rows), cfg.execution_scope)) {
+                auto origin = coord(nest.index(), 0);
+                auto x = X[origin, shape(m, n)];
+                auto variance = reduce(x * x, n, add) / static_cast<float>(cfg.n);
+                auto gamma = Gamma[coord(0, 0), shape(m, n)];
+                Y(origin, shape(m, n)).store(x / sqrt(variance + 1e-5f) * gamma);
+            }
+        });
+        return definition.capture(tensor_shape(cfg.m, cfg.n), tensor_shape(1, cfg.n), tensor_shape(cfg.m, cfg.n));
+    }
+    throw std::invalid_argument{"operation must be gemm, add, sum, softmax, or rmsnorm"};
 }
 
 [[nodiscard]] luisa::vector<float> input_values(size_t count, uint64_t seed) {
@@ -351,8 +374,9 @@ void run_luisa(const char *program, const char *output_path, std::string_view op
         if (!file) { throw std::runtime_error{"cannot write generated source"}; }
     }
     auto columns_a = operation == "gemm" ? cfg.k : cfg.n;
-    auto rows_b = operation == "gemm" ? cfg.k : cfg.m;
-    auto binary = operation == "gemm" || operation == "add";
+    auto rows_b = operation == "gemm" ? cfg.k : operation == "rmsnorm" ? 1 :
+                                                                         cfg.m;
+    auto binary = operation == "gemm" || operation == "add" || operation == "rmsnorm";
     auto host_a = input_values(cfg.m * columns_a, 5);
     auto host_b = input_values(binary ? rows_b * cfg.n : 1, 11);
     auto output_count = operation == "sum" ? cfg.m : cfg.m * cfg.n;
@@ -414,6 +438,7 @@ void run_luisa(const char *program, const char *output_path, std::string_view op
               << ",\"pipeline_window\":" << cfg.pipeline_window
               << ",\"cooperative_matrix\":" << (options.cooperative_matrix ? "true" : "false")
               << ",\"metal_mpp\":" << (options.metal_mpp ? "true" : "false")
+              << ",\"metal_subgroup_reductions\":" << (options.planner.metal_subgroup_reductions ? "true" : "false")
               << ",\"forward_readonly_tile_loads\":" << (options.forward_readonly_tile_loads ? "true" : "false")
               << ",\"elide_independent_subgroup_barriers\":" << (options.planner.elide_independent_subgroup_barriers ? "true" : "false")
               << ",\"vectorize\":" << (options.vectorize ? "true" : "false")
@@ -439,7 +464,7 @@ void run_luisa(const char *program, const char *output_path, std::string_view op
 
 int main(int argc, char *argv[]) {
     if (argc < 13 || argc > 27) {
-        std::cerr << "Usage: benchmark_tile_tirx <cpu|metal> <gemm|add|sum|softmax> M N K BM BN BK samples sample-ms warmup-ms output.f32 [auto|worker|group] [pipeline-window:1|2] [scalar|matrix|mpp|mpp-views] [vectorize|no-vectorize|auto-vectorize] [group-threads:auto|N] [copy-batch:1..16] [tvm|luisa|luisa-fast] [retain-subgroup-fences|elide-subgroup-fences] [cpu-stack-bytes:0..65536] [cpu-vector-lanes:16|32|64|128] [retain-input-snapshots|forward-input-views] [cpu-model:generic|native] [cpu-matrix:reference|cblas] [cpu-math:reference|accelerate]\n";
+        std::cerr << "Usage: benchmark_tile_tirx <cpu|metal> <gemm|add|sum|softmax|rmsnorm> M N K BM BN BK samples sample-ms warmup-ms output.f32 [auto|worker|group] [pipeline-window:1|2] [scalar|subgroup-reduce|matrix|mpp|mpp-views] [vectorize|no-vectorize|auto-vectorize] [group-threads:auto|N] [copy-batch:1..16] [tvm|luisa|luisa-fast] [retain-subgroup-fences|elide-subgroup-fences] [cpu-stack-bytes:0..65536] [cpu-vector-lanes:16|32|64|128] [retain-input-snapshots|forward-input-views] [cpu-model:generic|native] [cpu-matrix:reference|cblas] [cpu-math:reference|accelerate]\n";
         return 1;
     }
     try {
@@ -453,10 +478,11 @@ int main(int argc, char *argv[]) {
         if (pipeline_window > 2) { throw std::invalid_argument{"benchmark pipeline window must be 1 or 2"}; }
         cfg.pipeline_window = static_cast<uint32_t>(pipeline_window);
         auto matrix_mode = argc >= 16 ? std::string_view{argv[15]} : std::string_view{"scalar"};
-        if (matrix_mode != "scalar" && matrix_mode != "matrix" && matrix_mode != "mpp" && matrix_mode != "mpp-views") { throw std::invalid_argument{"matrix mode must be scalar, matrix, mpp, or mpp-views"}; }
-        auto cooperative_matrix = matrix_mode != "scalar";
-        auto forward_readonly_tile_loads = matrix_mode == "mpp-views";
-        auto metal_mpp = matrix_mode == "mpp" || forward_readonly_tile_loads;
+        if (matrix_mode != "scalar" && matrix_mode != "subgroup-reduce" && matrix_mode != "matrix" && matrix_mode != "mpp" && matrix_mode != "mpp-views") { throw std::invalid_argument{"realization mode must be scalar, subgroup-reduce, matrix, mpp, or mpp-views"}; }
+        auto metal_subgroup_reductions = matrix_mode == "subgroup-reduce";
+        auto cooperative_matrix = matrix_mode == "matrix" || matrix_mode == "mpp" || matrix_mode == "mpp-views";
+        auto forward_readonly_tile_loads = matrix_mode == "mpp-views" || metal_subgroup_reductions;
+        auto metal_mpp = matrix_mode == "mpp" || matrix_mode == "mpp-views";
         if (argc >= 24) {
             auto policy = std::string_view{argv[23]};
             if (policy != "retain-input-snapshots" && policy != "forward-input-views") {
@@ -470,15 +496,22 @@ int main(int argc, char *argv[]) {
         if (metal_mpp && (backend != "metal" || operation != "gemm" || cfg.execution_scope != exec::Scope::GROUP)) {
             throw std::invalid_argument{"MPP benchmarking requires Metal group GEMM"};
         }
+        if (metal_subgroup_reductions &&
+            (backend != "metal" || cfg.execution_scope != exec::Scope::AUTOMATIC ||
+             (operation != "sum" && operation != "softmax" && operation != "rmsnorm"))) {
+            throw std::invalid_argument{"SIMD-group reduction benchmarking requires automatic Metal sum, softmax, or RMSNorm"};
+        }
         auto vector_mode = argc >= 17 ? std::string_view{argv[16]} : std::string_view{"vectorize"};
         if (vector_mode != "vectorize" && vector_mode != "no-vectorize" && vector_mode != "auto-vectorize") { throw std::invalid_argument{"vector mode must be vectorize, no-vectorize, or auto-vectorize"}; }
         auto vectorize = vector_mode != "no-vectorize";
         auto auto_vectorize = vector_mode == "auto-vectorize";
         bridge::tirx::PlannerOptions planner;
+        planner.metal_subgroup_reductions = metal_subgroup_reductions;
         if (argc >= 18 && std::string_view{argv[17]} != "auto") {
             auto requested = positive_integer(argv[17]);
-            if (requested > std::numeric_limits<uint32_t>::max() || backend != "metal" || cfg.execution_scope != exec::Scope::GROUP) {
-                throw std::invalid_argument{"explicit group threads require a uint32 count and Metal group execution"};
+            if (requested > std::numeric_limits<uint32_t>::max() || backend != "metal" ||
+                (cfg.execution_scope != exec::Scope::GROUP && !metal_subgroup_reductions)) {
+                throw std::invalid_argument{"explicit group threads require Metal group execution or the subgroup-reduction planner"};
             }
             planner.threads_per_group = static_cast<uint32_t>(requested);
         }
@@ -552,6 +585,7 @@ int main(int argc, char *argv[]) {
                 throw std::invalid_argument{"Runtime must be tvm, or luisa/luisa-fast on Metal"};
             }
             bridge::tirx::CompileOptions options;
+            options.noalias = true;
             options.cooperative_matrix = cooperative_matrix;
             options.metal_mpp = metal_mpp;
             options.forward_readonly_tile_loads = forward_readonly_tile_loads;
@@ -594,8 +628,9 @@ int main(int argc, char *argv[]) {
             if (!std::filesystem::exists(path)) { throw std::runtime_error{"requested generated source is unavailable"}; }
         }
         auto columns_a = operation == "gemm" ? cfg.k : cfg.n;
-        auto rows_b = operation == "gemm" ? cfg.k : cfg.m;
-        auto binary = operation == "gemm" || operation == "add";
+        auto rows_b = operation == "gemm" ? cfg.k : operation == "rmsnorm" ? 1 :
+                                                                             cfg.m;
+        auto binary = operation == "gemm" || operation == "add" || operation == "rmsnorm";
         auto host_a = input_values(static_cast<size_t>(cfg.m * columns_a), 5);
         auto host_b = input_values(binary ? static_cast<size_t>(rows_b * cfg.n) : 0u, 11);
         start = Clock::now();
@@ -640,6 +675,7 @@ int main(int argc, char *argv[]) {
                   << ",\"pipeline_window\":" << cfg.pipeline_window
                   << ",\"cooperative_matrix\":" << (cooperative_matrix ? "true" : "false")
                   << ",\"metal_mpp\":" << (metal_mpp ? "true" : "false")
+                  << ",\"metal_subgroup_reductions\":" << (metal_subgroup_reductions ? "true" : "false")
                   << ",\"forward_readonly_tile_loads\":" << (forward_readonly_tile_loads ? "true" : "false")
                   << ",\"elide_independent_subgroup_barriers\":" << (planner.elide_independent_subgroup_barriers ? "true" : "false")
                   << ",\"vectorize\":" << (vectorize ? "true" : "false")

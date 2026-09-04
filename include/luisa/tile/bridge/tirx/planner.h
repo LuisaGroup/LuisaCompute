@@ -22,6 +22,15 @@ struct ExecutionCostModel {
     double shared_fragment_transfer{2.0};
     double independent_element{0.0078125};
     double subgroup_setup{8.0};
+    // Metal reduction planner v1 scores discrete 1/2/4/8-SIMD-group
+    // realizations in abstract issue rounds. The first term prices one scalar
+    // stripe round, the second prices each reduction collective per
+    // participating SIMD-group, and the third prices a cooperative
+    // threadgroup. One-group programs amortize the latter when several
+    // independent logical programs share a threadgroup.
+    double subgroup_reduction_scalar_round{1.0};
+    double subgroup_reduction_collective{2.0};
+    double subgroup_reduction_group_setup{16.0};
     // MPP reads A/B from memory inside each tensor operation. These terms are
     // expressed in logical 8x8 fragments. The footprint terms distinguish the
     // two row-major operands without pretending to be byte-accurate cache
@@ -69,6 +78,15 @@ struct PlannerOptions {
     // serial recurrence. Requires CPU auto-vectorization when non-default.
     uint32_t max_cpu_vector_lanes{16u};
     bool enabled{true};
+    // Opt-in Metal realization for proved FP32 add/max/min reductions.
+    // Independent short programs may share one threadgroup; wider programs
+    // search one, two, four, or eight cooperating SIMD-groups. Element domains
+    // are striped over workers and reducers use native collectives plus proved
+    // shared partials when necessary. Floating-point addition therefore uses
+    // a tree order rather than the reference left fold. This policy is both
+    // the numerical permission and the planner candidate switch; it is never
+    // inferred from a target name or a coincidental loop annotation.
+    bool metal_subgroup_reductions{false};
     bool retain_accumulators{true};
     // Elide the initial/final shared accumulator only when its literal fill
     // and sole, fully in-bounds global store have been proved by analysis.
@@ -175,6 +193,13 @@ struct GroupPlan {
     uint64_t batched_copy_operations{0u};
     uint64_t prefetched_pipeline_loops{0u};
     uint64_t prefetch_storage_scalars_per_lane{0u};
+    // Reduction-realization facts. Zero subgroups means this is not a native
+    // subgroup-reduction plan. Striped storage is compiler-local state after
+    // logical Tile materializations are compacted to each worker's ownership.
+    uint32_t reduction_subgroups_per_program{0u};
+    uint64_t striped_storage_scalars_per_worker{0u};
+    uint64_t reduction_operations{0u};
+    uint64_t reduction_elements{0u};
     // Static emitted synchronization sites, not dynamic barrier executions.
     // Filled by realization; the bootstrap ranking does not yet price them.
     uint64_t group_barrier_sites_before{0u};

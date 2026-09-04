@@ -402,6 +402,31 @@ class RepeatContractTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "group-thread"):
                     REPEAT.load_plan(Path("unused.json"), {"gemm"})
 
+    def test_replay_preserves_metal_subgroup_reduction_policy(self):
+        row = self.row()
+        row["case"] = {"operation": "softmax", "m": 64, "n": 4096, "k": 1}
+        row["block"] = [1, 4096, 1]
+        row["native"] |= {
+            "execution_scope": "auto", "cooperative_matrix": False,
+            "metal_subgroup_reductions": True, "metal_mpp": False,
+            "forward_readonly_tile_loads": True,
+            "execution_plans": [{"optimized": True, "threads": 256,
+                                 "independent_subgroups": False}],
+        }
+        with patch.object(Path, "read_text", return_value=json.dumps({"results": [row]})):
+            config = REPEAT.load_plan(Path("unused.json"), {"softmax"})["metal", "softmax_64x4096"]
+        self.assertIs(config["metal_subgroup_reductions"], True)
+        self.assertEqual(config["matrix_realization"], "simdgroup")
+        self.assertIs(config["cpu_input_views"], False)
+        for changes in ({"metal_subgroup_reductions": 1},
+                        {"forward_readonly_tile_loads": False},
+                        {"metal_mpp": True},
+                        {"execution_plans": [{"optimized": False, "threads": 256}]}):
+            bad = row | {"native": row["native"] | changes}
+            with patch.object(Path, "read_text", return_value=json.dumps({"results": [bad]})):
+                with self.assertRaisesRegex(ValueError, "subgroup-reduction"):
+                    REPEAT.load_plan(Path("unused.json"), {"softmax"})
+
     def test_plan_does_not_guess_historical_vectorization_semantics(self):
         row = self.row()
         del row["native"]["auto_vectorize"]
@@ -426,9 +451,10 @@ class BenchmarkContractTests(unittest.TestCase):
         self.assertTrue(any(c.m % 8 and c.n % 8 and c.k % 16 for c in cases))
 
     def test_reduction_sizes_include_wide_and_single_row(self):
-        cases = MODULE.make_cases(["sum", "softmax"])
+        cases = MODULE.make_cases(["sum", "softmax", "rmsnorm"])
         self.assertTrue(any(c.m == 1 for c in cases))
         self.assertTrue(any(c.n == 4096 for c in cases))
+        self.assertEqual(sum(c.operation == "rmsnorm" for c in cases), 4)
 
     def test_percentiles(self):
         self.assertEqual(MODULE.percentile([9, 1, 5], 0.5), 5)
@@ -480,6 +506,20 @@ class BenchmarkContractTests(unittest.TestCase):
             for plans in ([], None, [{"threads": threads + 1}]):
                 with self.assertRaisesRegex(RuntimeError, "realized group threads"):
                     MODULE.validate_native_metadata(native | {"execution_plans": plans}, case, "metal", "group", **arguments)
+
+    def test_subgroup_reduction_metadata_accepts_cooperating_subgroups(self):
+        case = MODULE.Case("rmsnorm", 128, 1024)
+        native = dict(backend="metal", operation="rmsnorm", execution_scope="auto", pipeline_window=2,
+                      cooperative_matrix=False, matrix_intrinsics=0, vectorize=True, auto_vectorize=False,
+                      metal_subgroup_reductions=True, execution_plans=[{
+                          "optimized": True, "threads": 128, "independent_subgroups": False}])
+        MODULE.validate_native_metadata(native, case, "metal", "auto", metal_subgroup_reductions=True)
+        for plans in ([], None, [{"optimized": False, "threads": 128, "independent_subgroups": False}],
+                      [{"optimized": True, "threads": 48, "independent_subgroups": False}],
+                      [{"optimized": True, "threads": 128, "independent_subgroups": "false"}]):
+            with self.assertRaisesRegex(RuntimeError, "SIMD-group reduction"):
+                MODULE.validate_native_metadata(native | {"execution_plans": plans}, case, "metal", "auto",
+                                                metal_subgroup_reductions=True)
 
     def test_copy_batch_request_and_plan_are_both_checked(self):
         case = MODULE.Case("gemm", 17, 19, 13)
@@ -613,6 +653,26 @@ class BenchmarkContractTests(unittest.TestCase):
         selected = result["tuning"]["trials"][result["tuning"]["selected_trial"]]
         self.assertEqual((selected["group_threads"], selected["copy_batch"]), (256, 4))
         self.assertEqual((args.group_threads, args.copy_batch), (0, 1))
+
+    def test_reduction_mapping_search_jits_each_width_and_revalidates(self):
+        args = argparse.Namespace(tuning_candidates=[], gemm_block=(8, 8, 16), pipeline_window=1,
+                                  group_threads=0, copy_batch=1,
+                                  mapping_tuning_candidates=[(32, 1), (128, 1), (256, 1)])
+        calls = []
+
+        def measure(torch, np, candidate, case, backend, ordinal):
+            calls.append((case.operation, candidate.group_threads, ordinal))
+            score = 50.0 if len(calls) == 4 else {32: 8.0, 128: 3.0, 256: 5.0}[candidate.group_threads]
+            return dict(valid=True, native=dict(throughput_us_p50=score))
+
+        case = MODULE.Case("softmax", 64, 4096, 1)
+        with patch.object(MODULE, "run_case", side_effect=measure), contextlib.redirect_stdout(io.StringIO()):
+            result = MODULE.run_tuned_case(None, None, args, case, "metal", 0)
+        self.assertEqual(calls, [("softmax", 32, 0), ("softmax", 128, 1),
+                                 ("softmax", 256, 2), ("softmax", 128, 0)])
+        self.assertEqual(result["native"]["throughput_us_p50"], 50.0)
+        self.assertEqual(result["tuning"]["selected_trial"], 1)
+        self.assertEqual(args.group_threads, 0)
 
     def test_jit_search_reports_model_regret_without_overriding_measurement(self):
         args = argparse.Namespace(tuning_candidates=[((32, 128, 1024), 1), ((128, 32, 1024), 1)],

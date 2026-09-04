@@ -126,6 +126,15 @@ struct ReadonlyViews {
     bool cooperative_matrix, bool metal_mpp, const PlannerOptions &options, luisa::vector<GroupPlan> &plans,
     luisa::span<const tvm::tirx::BufferVar> readonly_inputs);
 
+// Map an eligible logical root program to one Metal SIMD-group. The matcher
+// revalidates canonical reducer bodies, identities, effect placement and
+// uniform collective control flow. Undefined means that the ordinary worker
+// realization remains applicable.
+[[nodiscard]] tvm::tirx::Stmt try_map_metal_subgroup_reduction(
+    const tvm::tirx::For &loop, uint32_t max_threads,
+    uint64_t shared_memory_limit,
+    const PlannerOptions &options, luisa::vector<GroupPlan> &plans);
+
 // The planner and emitter use the same semantic contract matcher. A diagnostic
 // annotation or coincidentally named buffer alone cannot authorize an MMA.
 [[nodiscard]] std::optional<MatrixWorkload> metal_matrix_workload(

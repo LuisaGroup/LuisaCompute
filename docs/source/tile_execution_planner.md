@@ -496,6 +496,52 @@ handle probe uses a Metal 4 queue with explicit dispatch barriers and commit
 feedback; Metal 4 does not supply automatic resource hazard tracking. API
 differences are recorded, not attributed to shader arithmetic.
 
+### 3.7 Implemented Metal reduction family: execution before storage
+
+The TIRx bridge now implements a separate, opt-in planner for structurally
+proved FP32 add/max/min row programs. It is not an MMA plan with different
+coefficients and does not reuse MPP's opaque resource assumptions. The complete
+formal mapping, ownership proof, tests and evidence are in
+[TIRx Metal reductions](tile_tirx_reduction_report.md).
+
+For `S in {1,2,4,8}` SIMD groups per logical program, `W=32S` workers stripe
+every reduction and independent element domain. `S=1` may pack several source
+`parallel` programs into one threadgroup; `S>1` assigns one program per group
+and combines subgroup results through a proved shared partial array. A reused
+compiler-owned logical Tile becomes `ceil_div(N,W)` private values per worker
+only when affine analysis proves every access has that worker's distributed
+element coordinate. Thus resource layout is derived from execution ownership;
+it does not define the source hierarchy.
+
+After hard target/effect/alias/control constraints, the finite v1 score is:
+
+~~~text
+rounds(S) = sum[d] ceil_div(independent_domain[d], 32S)
+          + sum[r] ceil_div(reduction_extent[r], 32S)
+
+score(S) = scalar_round_cost * rounds(S)
+         + collective_cost * reduction_count * S
+         + group_setup_cost / packed_programs(S)
+~~~
+
+The default coefficients `1, 2, 16` are abstract M1-class priors, not measured
+nanoseconds or occupancy. Each independent domain is rounded separately so
+two softmax passes cannot share a fictitious tail round. Exhaustive enumeration
+is exact for four candidates. A nonzero `threads_per_group` is an exact
+constraint; `run.py --tune-group-threads` recaptures/JITs each concrete width,
+validates it, and independently recompiles the winner. Measurement calibrates
+ranking but can never override legality.
+
+The current 12-case sum/softmax/RMSNorm report selects one, two, four and eight
+groups as widths grow, checks every output, and is faster than eager Torch MPS
+in all saved rows. A balanced same-binary RMSNorm A/B attributes a
+21.19×--49.87× improvement to this mapping family. Sum and softmax use
+preallocated Torch outputs; the RMSNorm Torch comparison includes its
+framework-returned output allocation, while the native A/B does not. These
+facts validate the
+need for a structural execution plan; they do not establish the coefficient
+prior on held-out devices or a production LLM operator suite.
+
 ## 4. Implemented matrix mapping family
 
 The current planner targets a proved Metal group-level FP32 MMA with a

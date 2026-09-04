@@ -49,6 +49,18 @@ policy A/B shows no systematic add change, 2.71--6.12× reduction speedups and
 2.10--5.46× softmax speedups. All 192 replayed outputs pass their complete
 oracles and the fingerprinted artifacts remain unchanged.
 
+The TIRx Metal route now has a third, non-library realization family for
+proved FP32 row reductions. It maps one logical program to one, two, four or
+eight 32-lane SIMD groups, packs independent short programs, and compacts
+eligible compiler-owned Tiles to worker-private stripes through an affine
+ownership proof. In the current 12-case sum/softmax/RMSNorm run, every complete
+output passes and Tile/Torch host-wall throughput ranges from 0.124× to 0.902×.
+Sum and softmax use preallocated output on both sides; PyTorch RMSNorm includes
+its unavoidable returned-output allocation. A same-binary four-round native
+RMSNorm A/B measures a 21.19×--49.87× speedup over the old scalar-worker
+lowering and is unaffected by that PyTorch API asymmetry. This is a narrow M1
+Max cohort, not a production LLM-suite or pure-GPU-event claim.
+
 **The general library-performance goal is still not complete.** These CPU
 wins are legal provider realizations for narrow proved contracts, not evidence
 that the portable loop family or direct XIR route has acquired BLAS-class
@@ -64,12 +76,15 @@ No Metal result is relabeled as XIR performance.
 | [Language and layout design](tile_programming_design.md) | Minimal primitives, lexical Nests, assignment capture, layout algebra and proof boundaries |
 | [Executable kernel gallery](tile_programming_poc_kernels.md) | GEMM, reductions, attention, CNN/filter and Top-K/sort syntax/composition examples |
 | [Execution planner](tile_execution_planner.md) | General binding/distribution/atom/resource/time formulation; current Metal implementation versus future calibrated model |
+| [TIRx Metal reductions](tile_tirx_reduction_report.md) | Formal subgroup mapping, ownership proof, finite solver, staged/JIT interface, tests and complete performance evidence |
 | [Runtime and native lowering](tile_native_runtime.md) | Factory, backend ownership, shader handles, Metal native/TIRx limits and ABI |
 | [XIR execution planning](tile_xir_design.md) | Exact implemented CPU candidate space, cost equations, alias constraints, SSA/CFG lowering and extension roadmap |
 | {download}`Benchmark tools <../../scripts/benchmark/tile_torch/README.md>` | Reproduction interfaces, timing definitions, controls and saved runs |
 | {download}`Validation evidence <../../scripts/benchmark/tile_torch/results/m1-max-20260905-xir-validation/notes.md>` | Test commands, failure investigations, logs and audit details |
 | {download}`Metal MPP cost v2 search <../../scripts/benchmark/tile_torch/results/m1-max-20260905-mpp-cost-v2-search/notes.md>` | v1 failure, v2 equations, hard legality and in-cohort model regret |
 | {download}`Metal MPP cost v2 replay <../../scripts/benchmark/tile_torch/results/m1-max-20260905-mpp-cost-v2-replay/notes.md>` | Frozen schedules, 784 full-output checks and balanced MPP/MPS/Torch evidence |
+| {download}`Metal reduction cohort <../../scripts/benchmark/tile_torch/results/m1-max-20260905-metal-subgroup-reductions/notes.md>` | Sum, softmax and RMSNorm plans, 12 complete outputs, timings, hashes and exact command |
+| {download}`Balanced RMSNorm A/B <../../scripts/benchmark/tile_torch/results/m1-max-20260905-metal-subgroup-rmsnorm-replay/notes.md>` | Same-binary reference/subgroup causality check across four shapes and four balanced rounds |
 | {download}`CPU CBLAS replay <../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-cblas-v2-replay/notes.md>` | Eight frozen GEMMs, six implementation orders, direct CBLAS overhead and Torch comparison |
 | {download}`CPU array-math replay <../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-accelerate-ops-replay/notes.md>` | Causal reference/Accelerate A/B over add controls, row reductions and softmax |
 | {download}`Final CPU/provider validation <../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-provider-validation/notes.md>` | Full rebuild, focused structural tests, 34/34 submitted-source Tile cohort, 64/64 Python checks and documentation QA |
@@ -89,11 +104,11 @@ One language and Runtime contract do not imply identical target schedules or int
 | Execution | `parallel`, `serial`, `pipeline`, `reduce`; scope constraints | The backend must realize the requested binding; unsupported bindings are errors |
 | Data/layout | Typed layout representation and proof mechanisms; Tensor as storage plus layout/view | Not every represented layout has an emitter on every bridge |
 | TileIR | Mutable typed SSA, regions and intrusive ownership/use structure | General Machine TileIR and its pass suite are not implemented |
-| TIRx | Native C++ export, shared structural lowering, CPU/Metal realizations; typed MPP v2 modes and bounded target-specific cost/solver | Held-out calibration and broader atoms/operators remain necessary |
+| TIRx | Native C++ export, shared structural lowering, CPU/Metal realizations; typed MPP v2 modes; proved Metal FP32 subgroup reductions; bounded target-specific cost/solvers | Held-out calibration, richer reduction policy and broader atoms/operators remain necessary |
 | Native Metal | Typed FP32 MMA/view-forwarding subset; ordinary Runtime shader and launch | Not general epilogues, K pipelines, manual Memory, all dtypes or arbitrary operators |
 | XIR/SIMD | Direct verified XIR; local Tile expansion; loop PHIs; ordinary CPU Runtime | No matrix-extension atom, packed GEMM microkernel or general Tile distribution |
 | CPU planner / realizations | Root-axis permutations × legal worker-block widths; bounded storage/SIMD/launch choices; proved CBLAS and Accelerate atoms | Provider selection is explicit; no fitted break-even model, whole-program optimum, general Tile partitioning or physical pipeline solver |
-| Autotuning | Recapture/JIT variants and frozen-plan benchmarking | Broader search requires legal emitters and measured ranking; one capture is not mandatory |
+| Autotuning | Recapture/JIT variants, exact Metal reduction-width sweeps and frozen-plan benchmarking | Broader search requires legal emitters and measured ranking; one capture is not mandatory |
 
 The existing CuTe-derived mixed-radix/composition design is not a claim of a
 complete decision procedure over arbitrary programs. The language design
@@ -137,8 +152,8 @@ For ownership auditing, the same cohort was first run against an unowned local
 generated-source assertions in `test_tile_tirx_cooperative_metal` and
 `test_tile_tirx_memory_metal`. Restoring the submitted value made the full
 31-test label pass without weakening either assertion. The local edit is not
-part of this source snapshot. The Python benchmark-contract suite passes
-**64/64**. See the
+part of this source snapshot. The current Python benchmark-contract suite
+passes **67/67**. See the
 {download}`final validation note <../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-provider-validation/notes.md>`
 for commands and scope; this is not a claim that every non-Tile repository
 test passed.
@@ -189,6 +204,40 @@ Report tables use medians of within-round p50s. A paired ratio is the median
 of same-round numerator/denominator ratios, **not** a ratio of the displayed
 medians. Ranges and counts of slower rounds are descriptive, not confidence
 intervals. No slow or failed row is discarded to improve the headline.
+
+### Metal subgroup reductions close the measured normalization defect
+
+The [formal design and evidence report](tile_tirx_reduction_report.md)
+documents the new opt-in TIRx Metal realization. It structurally revalidates
+canonical FP32 add/max/min reductions, searches one/two/four/eight cooperating
+SIMD groups, and derives private/shared storage from the selected execution
+map. For softmax width 4096, a logical compiler-owned 4096-element Tile becomes
+16 private values per worker only after every access proves the same affine
+owner; the old per-thread `float[4096]` form is rejected by source tests.
+
+The final current-binary run uses 11 samples, 100 ms calibrated sample windows
+and 100 ms warmup. All 12 complete FP64 checks pass:
+
+| Family | Shapes | Tile/Torch range | Fastest absolute Tile | Slowest relative Tile |
+|---|---|---:|---:|---:|
+| row sum | 1×127, 17×257, 128×1024, 64×4096 | 0.293×--0.716× | 3.106 µs | 0.716× |
+| softmax | same widths/row counts | 0.124×--0.286× | 3.305 µs | 0.286× |
+| RMSNorm | same widths/row counts | 0.546×--0.902× | 3.904 µs | 0.902× |
+
+The independent same-binary RMSNorm replay rotates variant and case order for
+four rounds. The subgroup path is 21.19×--49.87× faster than the old reference
+lowering by median paired ratio and remains faster than eager Torch in all four
+shapes. Native uses preallocated output; PyTorch's functional RMSNorm allocates
+its returned output inside timing, so only the native reference/candidate A/B
+is the clean causal comparison. The saved
+{download}`cohort report <../../scripts/benchmark/tile_torch/results/m1-max-20260905-metal-subgroup-reductions/notes.md>`
+and
+{download}`balanced replay <../../scripts/benchmark/tile_torch/results/m1-max-20260905-metal-subgroup-rmsnorm-replay/notes.md>`
+retain every sample, plan, output error, artifact hash and exact command.
+
+This closes the diagnosed scalar-worker realization for the admitted subset.
+It is not production attention/cross-entropy coverage, low-precision evidence,
+held-out device calibration or pure Metal kernel timing.
 
 ### New XIR/SIMD planner pilot
 
