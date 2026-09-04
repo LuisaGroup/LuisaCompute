@@ -124,8 +124,10 @@ different target parameters and realized-work models.
 Use nonnegative target-specific priors as a bootstrap. Then measure
 correctness-checked JIT candidates, retain the raw samples, and fit ranking or
 time predictions. Keep cold compilation, allocation/upload, warm dispatch, and
-device execution separate. The current benchmark measures warm amortized
-host-wall time, including dispatch; it is not a GPU-event timer.
+device execution separate. The TileIR/PyTorch benchmark measures warm amortized
+host-wall time, including dispatch; it is not a GPU-event timer. The separate
+native MPP/MPS experiment also records Metal command-buffer GPU intervals.
+Those include batch dispatch and synchronization, not only arithmetic time.
 
 The calibration key includes the device/architecture, driver, compiler and
 bridge revisions, numerical policy, and timing method. A model version belongs
@@ -279,6 +281,88 @@ cost model as if it were another reachable mapping. In particular:
   realization family, memory movement and pipeline before enlarging the
   solver budget. Integer programming or annealing cannot select an absent
   microkernel, layout or overlap protocol.
+
+### 3.6 Native MPP experiment: operation scope is not launch size
+
+The native `benchmark_tile_mpp` experiment tests a second atom family before
+adding it to TileIR lowering. It uses Apple's
+[MPP tensor operations](https://developer.apple.com/documentation/metal/running-inline-ml-operations-in-a-shader-with-metal-4),
+not an MPS library call. Its `tensor_inline` arguments are ordinary buffers
+plus layouts, so the experiment does not justify a new frontend resource type.
+The result can remain a backend cooperative tensor until its explicit store.
+
+There are two distinct, tunable execution maps:
+
+~~~text
+whole-group collective                 independent subgroup cohort
+group                                  group
+  all G subgroups -> one BM x BN MMA      (r, c) subgroup -> one TM x TN MMA
+                                         BM = Cm * TM, BN = Cn * TN
+                                         G = Cm * Cn
+
+logical output coordinate:
+  m = (group_m * Cm + r) * TM + i
+  n = (group_n * Cn + c) * TN + j
+
+independent memory-view composition:
+  A: (m, k) -> base_A + m * stride_A + k
+  B: (k, n) -> base_B + k * stride_B + n
+  C: (m, n) -> base_C + m * stride_C + n
+~~~
+
+These maps describe an execution nest followed by three different resource
+layouts. No buffer determines the hierarchy. In particular, four subgroups
+computing a collective `64x64` tile are not interchangeable with four
+independent `32x32` operations, even though both produce 4096 elements with
+128 threads. Their synchronization, input reuse, private layout and compiler
+implementation can differ. Total FLOPs, thread count and accumulator bytes
+cannot distinguish them in a cost model.
+
+The local macOS 26.5 MPP headers constrain an operation to one SIMD group or
+all SIMD groups in its threadgroup. For this FP32 family, descriptor M/N must
+be multiples of eight, with at least one a multiple of sixteen; a static K
+must be a multiple of sixteen. A dynamic K supports tails. The native probe
+checks these constraints and the compiled pipeline's thread limit. Static
+tensor slices are used only for proved interior tiles; tail groups use
+bounded dynamic views. An inactive cohort member may skip work only when the
+operation is subgroup-scoped and its entire subgroup is inactive.
+
+**Integration contract (not an implemented TileIR-to-MPP pass yet):**
+
+1. **Planner:** enumerate the atom implementation, operation participation
+   scope, outer group/cohort factorization, operand-view maps and temporary
+   materializations together. Respect explicit execution and memory bindings;
+   an `exec::group` constraint is not permission to merge logical groups into
+   subgroups. Broader tile shapes can use ordinary recapture/JIT.
+2. **Legality:** direct operand-view forwarding requires a load/effect proof.
+   A Tile load is a snapshot; replacing it with an MPP read is illegal if an
+   intervening aliasing store can change the value. Explicit manual stores,
+   user barriers, arithmetic policy and accumulator initialization remain
+   observable. Recognize semantic bodies, never kernel names.
+3. **Cost model:** key samples by atom family, operation scope, cohort map,
+   dtype/precision, shape, strides, bounds mode, compiler and device. Account
+   for active/inactive groups, full versus edge operations, K extent, buffer
+   reuse and output materialization. For an opaque MPP operation, unknown
+   internal registers, barriers and copy stages stay unknown; do not invent
+   native-8x8 issue counts or port its coefficients to another atom family.
+4. **Solver:** exhaustive enumeration is sufficient for the small tested
+   family. Apply integer coverage/resource constraints first, shortlist with
+   a model, then JIT and validate. The current experiment uses measured GPU
+   batch time as an empirical cost and retains every rejected/failed candidate.
+   Frozen independent replay evaluates a selected plan, not a search minimum.
+5. **Emitter:** `TileIR -> TIRx` retains typed operations, regions, effects and
+   views. A supported Metal realization lowers its chosen atom to MPP and
+   constructs inline tensors from buffer/layout expressions. Until that
+   emitter and its capability checks exist, an MPP timing cannot win the
+   production `plan_group` search. Native 8x8 and scalar fallbacks remain valid.
+
+The benchmark runner is
+[`compare_mpp.py`](../../scripts/benchmark/tile_torch/compare_mpp.py). It separates
+search from six-order replay and records host and GPU batch times. Inline
+tensors use a tracked classic Metal queue, as does MPS. The optional tensor
+handle probe uses a Metal 4 queue with explicit dispatch barriers and commit
+feedback; Metal 4 does not supply automatic resource hazard tracking. API
+differences are recorded, not attributed to shader arithmetic.
 
 ## 4. Implemented matrix mapping family
 

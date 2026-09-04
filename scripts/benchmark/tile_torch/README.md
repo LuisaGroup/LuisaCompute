@@ -206,6 +206,61 @@ and hardware information, thread settings, the binary hash, and source
 revision. `results.md` is the readable comparison. Failed cases are retained
 and cause a nonzero exit code; no speed ratio is published for an invalid case.
 
+## Native MPP versus MPS
+
+`benchmark_tile_mpp` is a standalone hand-written Metal Performance Primitives
+GEMM probe, not a TileIR lowering and not an MPS library fallback. It needs a
+macOS 26 SDK/runtime and supported Apple GPU. Its default `tensor_inline`
+representation is an ordinary buffer plus extents/strides; it uses the classic
+tracked command queue, like `benchmark_tile_system`. An optional tensor-handle
+mode uses Metal 4 with explicit dispatch barriers and commit-feedback checks.
+
+The configuration is
+`tile_m,tile_n,operation_simdgroups,cooperative_output,static_k,inline_tensors[,group_simdgroups,cohort_rows]`.
+One operation can use a single subgroup or the whole group. Independent
+single-subgroup operations can form a spatial cohort; the group need not have
+the same size as the operation. Static M/N slices are used only inside the
+matrix. Dynamic slices retain bounds for ragged output and K tails. Static K
+requires a multiple of 16 for this FP32 family.
+
+After a full build, screen a small family, then freeze and replay it:
+
+```sh
+uv run --no-project --python 3.13 --with numpy python \
+  scripts/benchmark/tile_torch/compare_mpp.py \
+  --mpp cmake-build-tirx/bin/benchmark_tile_mpp \
+  --mps cmake-build-tirx/bin/benchmark_tile_system \
+  --config 64,64,4,1,0,1 \
+  --config 32,32,1,1,0,1,4,4 \
+  --config 16,16,1,1,0,1 \
+  --output /tmp/mpp-search
+
+uv run --no-project --python 3.13 --with numpy python \
+  scripts/benchmark/tile_torch/compare_mpp.py \
+  --mpp cmake-build-tirx/bin/benchmark_tile_mpp \
+  --mps cmake-build-tirx/bin/benchmark_tile_system \
+  --plan /tmp/mpp-search/results.json \
+  --rounds 6 --samples 9 --sample-ms 40 --warmup-ms 200 \
+  --output /tmp/mpp-replay
+```
+
+This runner permits only FP32, no fast math or relaxed precision, and checks
+every full output against the same FP64 oracle as the Tile comparisons. Search
+selects by GPU batch time; its minimum is not a validated speedup. Replay
+executes all six orders of MPS/default-MPP/selected-MPP for every shape, rotates
+shape order, verifies binary stability and records all failures. Keep binaries
+unchanged and do not build or run other GPU work during either campaign.
+
+Both probes also report `gpu_throughput_us` and `gpu_latency_us`, in addition
+to host wall times. These are Metal command-buffer GPU intervals; they include
+dispatch/barrier work and are not individual arithmetic-instruction timings.
+The existing TileIR/PyTorch timers remain host-wall timers.
+
+The [M1 Max experiment](results/m1-max-20260904-mpp.md) records the candidate
+family, numerical checks, frozen replay and remaining gap. These samples can
+calibrate MPP-specific ranking only after a matching emitter exists; they must
+not be pasted into the native 8x8 atom model as interchangeable issue costs.
+
 ## Repeat and profile
 
 Freeze schedules from two reports and repeat them without selecting new winners:

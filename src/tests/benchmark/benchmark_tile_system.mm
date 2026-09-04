@@ -44,6 +44,8 @@ struct Measurement {
     uint64_t repetitions;
     std::vector<double> throughput;
     std::vector<double> latency;
+    std::vector<double> gpu_throughput;
+    std::vector<double> gpu_latency;
 };
 
 [[nodiscard]] int positive_integer(const char *text) {
@@ -114,6 +116,7 @@ void validate(const Configuration &cfg, const std::vector<float> &a,
     auto b = input_values(elements(cfg.k, cfg.n), 11u);
     std::vector<float> c(elements(cfg.m, cfg.n), std::numeric_limits<float>::quiet_NaN());
     Measurement result{};
+    double gpu_ms{};
     std::function<double(uint64_t)> batch;
     std::function<void()> download = [] {};
     auto start = Clock::now();
@@ -176,7 +179,7 @@ void validate(const Configuration &cfg, const std::vector<float> &a,
         upload(left, a);
         upload(right, b);
         upload(output, c);// NaNs ensure beta=0 does not depend on old output.
-        batch = [=](uint64_t repetitions) {
+        batch = [=, &gpu_ms](uint64_t repetitions) {
             @autoreleasepool {
                 auto begin = Clock::now();
                 auto command = [queue commandBuffer];
@@ -185,6 +188,7 @@ void validate(const Configuration &cfg, const std::vector<float> &a,
                     [kernel encodeToCommandBuffer:command leftMatrix:left rightMatrix:right resultMatrix:output];
                 }
                 complete(command);
+                gpu_ms = 1000.0 * (command.GPUEndTime - command.GPUStartTime);
                 return milliseconds(begin);
             }
         };
@@ -213,8 +217,14 @@ void validate(const Configuration &cfg, const std::vector<float> &a,
         auto scaled = std::clamp(result.repetitions * cfg.sample_ms / std::max(elapsed, 1e-6), 1.0, 100000.0);
         result.repetitions = std::min(uint64_t{100000u}, std::max(result.repetitions + 1u, static_cast<uint64_t>(scaled)));
     }
-    for (auto i = 0; i < cfg.samples; i++) { result.throughput.push_back(1000.0 * batch(result.repetitions) / result.repetitions); }
-    for (auto i = 0; i < cfg.samples; i++) { result.latency.push_back(1000.0 * batch(1u)); }
+    for (auto i = 0; i < cfg.samples; i++) {
+        result.throughput.push_back(1000.0 * batch(result.repetitions) / result.repetitions);
+        if (backend == "metal") { result.gpu_throughput.push_back(1000.0 * gpu_ms / result.repetitions); }
+    }
+    for (auto i = 0; i < cfg.samples; i++) {
+        result.latency.push_back(1000.0 * batch(1u));
+        if (backend == "metal") { result.gpu_latency.push_back(1000.0 * gpu_ms); }
+    }
     start = Clock::now();
     download();
     result.download_ms = milliseconds(start);
@@ -277,6 +287,12 @@ int main(int argc, char *argv[]) {
             print_samples("throughput_us", result.throughput);
             std::cout << ',';
             print_samples("latency_us", result.latency);
+            if (backend == "metal") {
+                std::cout << ',';
+                print_samples("gpu_throughput_us", result.gpu_throughput);
+                std::cout << ',';
+                print_samples("gpu_latency_us", result.gpu_latency);
+            }
             std::cout << "}\n";
             return 0;
         } catch (const std::exception &error) {

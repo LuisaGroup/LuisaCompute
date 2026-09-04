@@ -562,6 +562,12 @@ if (APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
     target_link_libraries(benchmark_tile_system PRIVATE
             "-framework Foundation" "-framework Accelerate"
             "-framework Metal" "-framework MetalPerformanceShaders")
+    add_executable(benchmark_tile_mpp benchmark/benchmark_tile_mpp.mm)
+    set_target_properties(benchmark_tile_mpp PROPERTIES
+            OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED ON OBJCXX_EXTENSIONS OFF)
+    target_compile_options(benchmark_tile_mpp PRIVATE -fobjc-arc)
+    target_link_libraries(benchmark_tile_mpp PRIVATE
+            "-framework Foundation" "-framework Metal")
     foreach (_system_backend IN ITEMS cpu metal)
         add_test(NAME test_tile_system_${_system_backend}
                 COMMAND benchmark_tile_system --self-test ${_system_backend})

@@ -981,6 +981,20 @@ View = (domain, map, valid(domain))
 `bounds::zero`, `bounds::predicate`, and `bounds::assume` are policies for the
 invalid part of the domain.
 
+The shorthand **Tensor = Buffer + Layout** describes this non-owning view:
+the buffer supplies resource identity and storage, while the layout describes
+the indexed domain and its mapping into that storage. More explicitly,
+`TensorView = (buffer, domain, address_map, validity, bounds_policy)`. Validity
+and the policy remain explicit view metadata; they are not side effects hidden
+inside the layout algebra. Slicing composes the view map and intersects bounds;
+it does not allocate, copy, or choose an execution scope.
+
+For example, a backend can express the same view as a Metal `tensor_inline`
+constructed from an ordinary buffer pointer, extents, and strides. This does
+not require a new TileIR resource kind or a tensor-handle kernel ABI. A Metal
+`cooperative_tensor` is different: it is one possible realization of a Tile SSA
+value in participant-private storage, not the meaning of a frontend tensor view.
+
 Gather, scatter, indirection, and data-dependent indices are semantic index
 operations feeding a layout. Treating a memory load as a layout node would
 destroy most useful equivalence and invertibility reasoning.
