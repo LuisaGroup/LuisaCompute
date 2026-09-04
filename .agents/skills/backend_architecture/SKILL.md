@@ -242,6 +242,25 @@ resource, the native resource identity is an additional alias boundary. Either
 canonicalize hazards by that identity or enforce a documented external-sync
 contract; pointer equality between backend wrappers is not enough.
 
+### Acceleration-structure (BLAS/TLAS) hazards
+
+A TLAS build dereferences every instanced BLAS through the raw device
+addresses baked into the instance buffer (instance AABBs derive from child
+BLAS contents). Two generic consequences:
+
+- **Barrier coverage must be per-referenced-BLAS, not per-modified-instance.**
+  Recording the child-BLAS read barrier only for instances appearing in the
+  current modification/refresh list misses the in-place BLAS update case: it
+  leaves both lists empty, so the TLAS update build races the BLAS build and
+  picks up stale geometry (or device-lost). Iterate the full instance table
+  and record a read on every live child BLAS buffer at every TLAS build.
+- **BLAS destruction must unlink the BLAS from every referencing TLAS's
+  pending refresh bookkeeping** (the per-TLAS set-map that a BLAS recreate
+  queues to refresh its device address). Only clearing the live-instance slot
+  leaves a dangling pooled handle the next TLAS build dereferences — a UAF
+  that typically manifests as a hang (spin lock inside freed memory), not a
+  crash. Applies to any backend with update-handle bookkeeping (vk, dx).
+
 For Vulkan-owned buffers and images, queue-family sharing is a separate
 creation-time contract. If graphics, compute, and copy select more than one
 unique queue family, create resources in concurrent sharing mode over exactly
