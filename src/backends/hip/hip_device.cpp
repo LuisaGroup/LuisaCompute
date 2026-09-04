@@ -754,8 +754,56 @@ HIPDevice::~HIPDevice() noexcept {
             });
         }
     }
+    {
+        luisa::vector<hipModule_t> modules;
+        {
+            std::scoped_lock lock{_shader_module_retirement_mutex};
+            modules = std::move(_retired_shader_modules);
+        }
+        with_device([&] {
+            for (auto module : modules) {
+                LUISA_CHECK_HIP(hipModuleUnload(module));
+            }
+        });
+    }
     LUISA_CHECK_HIP(hipDevicePrimaryCtxRelease(_hip_device));
     _hip_context = nullptr;
+}
+
+void HIPDevice::retire_shader_module(hipModule_t module) noexcept {
+    // HIPRT loads its builder code lazily. On ROCm 7.2/gfx1201, unloading a
+    // user module before any HIPRT build has executed can leave the first
+    // builder launch with an invalid code object. Context creation, builder
+    // size queries, and device synchronization do not establish the required
+    // lifetime boundary; completion of an actual build does. Module unload is
+    // not stream ordered, so retain every retired module until that boundary.
+    auto unload_now = false;
+    {
+        std::scoped_lock lock{_shader_module_retirement_mutex};
+        if (_hiprt_build_completed) {
+            unload_now = true;
+        } else {
+            _retired_shader_modules.emplace_back(module);
+        }
+    }
+    if (unload_now) {
+        with_device([&] { LUISA_CHECK_HIP(hipModuleUnload(module)); });
+    }
+}
+
+void HIPDevice::notify_hiprt_build_completed() noexcept {
+    luisa::vector<hipModule_t> modules;
+    {
+        std::scoped_lock lock{_shader_module_retirement_mutex};
+        if (_hiprt_build_completed) { return; }
+        _hiprt_build_completed = true;
+        modules = std::move(_retired_shader_modules);
+    }
+    with_device([&] {
+        for (auto module : modules) {
+            LUISA_CHECK_HIP(hipModuleUnload(module));
+        }
+    });
 }
 
 HIPMotionMeshBuiltin &HIPDevice::motion_mesh_builtin() const noexcept {
@@ -862,6 +910,16 @@ void HIPDevice::destroy_motion_instance(uint64_t handle) noexcept {
 luisa::string HIPDevice::query(luisa::string_view property) noexcept {
     if (property == "amdgpu_arch") {
         return _amdgpu_arch;
+    }
+    // Diagnostic state used by the lifecycle regression. Keeping this behind
+    // Device::query avoids exposing backend implementation types publicly.
+    if (property == "hip_retired_shader_module_count") {
+        std::scoped_lock lock{_shader_module_retirement_mutex};
+        return luisa::format("{}", _retired_shader_modules.size());
+    }
+    if (property == "hiprt_build_completed") {
+        std::scoped_lock lock{_shader_module_retirement_mutex};
+        return _hiprt_build_completed ? "true" : "false";
     }
     return DeviceInterface::query(property);
 }
