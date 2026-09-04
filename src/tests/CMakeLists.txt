@@ -552,6 +552,26 @@ foreach (_tile_cpp_standard IN LISTS _tile_test_cpp_standards)
     set_target_properties(test_tile_values_cpp${_tile_cpp_standard} PROPERTIES
             CXX_STANDARD ${_tile_cpp_standard} CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
 endforeach ()
+if (APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    # Independent system-library baselines, not a Tile/TVM lowering path.
+    enable_language(OBJCXX)
+    add_executable(benchmark_tile_system benchmark/benchmark_tile_system.mm)
+    set_target_properties(benchmark_tile_system PROPERTIES
+            OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED ON OBJCXX_EXTENSIONS OFF)
+    target_compile_options(benchmark_tile_system PRIVATE -fobjc-arc)
+    target_link_libraries(benchmark_tile_system PRIVATE
+            "-framework Foundation" "-framework Accelerate"
+            "-framework Metal" "-framework MetalPerformanceShaders")
+    foreach (_system_backend IN ITEMS cpu metal)
+        add_test(NAME test_tile_system_${_system_backend}
+                COMMAND benchmark_tile_system --self-test ${_system_backend})
+    endforeach ()
+    set_tests_properties(test_tile_system_cpu PROPERTIES
+            LABELS "unit;unit_tile;unit_tile_system")
+    # Hardware availability must not become a new default host-unit dependency.
+    set_tests_properties(test_tile_system_metal PROPERTIES
+            LABELS "integration;integration_tile_system;unit_tile_system")
+endif ()
 if (LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE)
     luisa_compute_add_test(test_tile_tirx
             unit/tile/bridge/test_tirx_layout.cpp

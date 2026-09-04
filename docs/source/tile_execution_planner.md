@@ -256,6 +256,30 @@ experimental default changes were reverted; neither is a calibrated universal
 layout policy. A future shortlist and plan fingerprint must retain the actual
 copy participant/local-value map, not just a maximum batch size.
 
+### 3.5 External libraries are performance targets, not solver candidates
+
+The benchmark now has separate direct-library GEMM baselines:
+[Accelerate cblas_sgemm](https://developer.apple.com/documentation/accelerate/blas-library)
+on CPU and [MPSMatrixMultiplication](https://developer.apple.com/documentation/metalperformanceshaders/mpsmatrixmultiplication)
+on Metal, alongside eager PyTorch. The native system-library executable does
+not link TileIR or TVM and cannot silently replace a candidate's lowering.
+See the [measurement protocol](../../scripts/benchmark/tile_torch/README.md#direct-blas-and-mps-gemm-baselines).
+
+These comparisons answer a different question from model regret: how far is
+our best *tested realization* from an optimized external implementation of
+the same operation? A library timing is not a proved lower bound and not a
+sample of our execution-mapping family. It must not be inserted into the
+cost model as if it were another reachable mapping. In particular:
+
+- Calibrate model features on our own legal realizations and controlled
+  microbenchmarks; evaluate ranking on held-out shapes.
+- Keep library, PyTorch and Tile API/submission costs visible. Batched host
+  wall times do not by themselves identify pure device compute time.
+- If all measured candidates remain far behind a library, inspect the
+  realization family, memory movement and pipeline before enlarging the
+  solver budget. Integer programming or annealing cannot select an absent
+  microkernel, layout or overlap protocol.
+
 ## 4. Implemented matrix mapping family
 
 The current planner targets a proved Metal group-level FP32 MMA with a

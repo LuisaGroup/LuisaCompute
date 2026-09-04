@@ -19,6 +19,85 @@ REPEAT = importlib.util.module_from_spec(REPEAT_SPEC)
 with patch.dict(sys.modules, {"run": MODULE}):
     REPEAT_SPEC.loader.exec_module(REPEAT)
 
+SYSTEM_SPEC = importlib.util.spec_from_file_location("tile_system_compare", Path(__file__).with_name("compare_system.py"))
+SYSTEM = importlib.util.module_from_spec(SYSTEM_SPEC)
+with patch.dict(sys.modules, {"run": MODULE, "repeat": REPEAT}):
+    SYSTEM_SPEC.loader.exec_module(SYSTEM)
+
+
+class SystemBaselineTests(unittest.TestCase):
+    def test_three_implementation_orders_are_balanced_per_case(self):
+        keys = [("metal", str(i)) for i in range(8)]
+        for key in keys:
+            orders = [MODULE.implementation_order(ordinal, True) for r in range(6)
+                      for k, ordinal in SYSTEM.order_for_round(keys, r) if k == key]
+            self.assertEqual(len(set(orders)), 6)
+            for implementation in ("native", "torch", "system"):
+                self.assertEqual([sum(o.index(implementation) == i for o in orders) for i in range(3)], [2, 2, 2])
+            for a, b in (("native", "torch"), ("native", "system"), ("system", "torch")):
+                self.assertEqual(sum(o.index(a) < o.index(b) for o in orders), 3)
+
+    def test_two_implementation_replay_is_unchanged(self):
+        for ordinal in range(6):
+            self.assertEqual(MODULE.implementation_order(ordinal),
+                             ("native", "torch") if ordinal % 2 == 0 else ("torch", "native"))
+
+    @staticmethod
+    def row(backend):
+        return dict(backend=backend, operation="gemm", dtype="float32", layout="compact_row_major",
+                    m=7, n=19, k=13, alpha=1, beta=0, transpose_left=False, transpose_right=False,
+                    row_bytes=[52, 76, 76], repetitions=5, throughput_us=[2., 3.], latency_us=[6., 7.],
+                    implementation="accelerate_cblas_sgemm" if backend == "cpu" else "mps_matrix_multiplication",
+                    api_variant="classic_lp64" if backend == "cpu" else "MPSKernelOptionsNone",
+                    storage="host" if backend == "cpu" else "private",
+                    batch_policy="synchronous_calls" if backend == "cpu" else "one_command_buffer_per_batch")
+
+    def test_system_api_shape_precision_and_layout_are_checked(self):
+        case = MODULE.Case("gemm", 7, 19, 13)
+        for backend in ("cpu", "metal"):
+            row = self.row(backend)
+            MODULE.validate_system_metadata(row, case, backend, 2)
+            for key, value in (("backend", "cuda"), ("operation", "add"), ("m", 8), ("dtype", "float16"),
+                               ("transpose_left", 0), ("beta", 1), ("row_bytes", [52, 80, 80]),
+                               ("implementation", "torch"), ("api_variant", "reduced_precision"),
+                               ("storage", "managed"), ("batch_policy", "single_call")):
+                with self.subTest(backend=backend, key=key), self.assertRaisesRegex(RuntimeError, "metadata mismatch"):
+                    MODULE.validate_system_metadata(row | {key: value}, case, backend, 2)
+
+    def test_invalid_timings_or_unsupported_operations_fail_closed(self):
+        case = MODULE.Case("gemm", 7, 19, 13)
+        row = self.row("metal")
+        for value in (None, 0, True, 100001):
+            with self.assertRaisesRegex(RuntimeError, "repetition"):
+                MODULE.validate_system_metadata(row | {"repetitions": value}, case, "metal", 2)
+        for metric in ("throughput_us", "latency_us"):
+            for values in ([], [1], [1, float("nan")], [1, float("inf")], [1, 0], [1, -1], [1, True]):
+                with self.assertRaisesRegex(RuntimeError, "samples"):
+                    MODULE.validate_system_metadata(row | {metric: values}, case, "metal", 2)
+        with self.assertRaisesRegex(RuntimeError, "only CPU/Metal GEMM"):
+            MODULE.validate_system_metadata(row, MODULE.Case("add", 7, 19), "metal", 2)
+
+    def test_report_uses_round_medians_not_the_lucky_minimum(self):
+        rows = [dict(backend="metal", name="example", valid=True, round=i, system_slowdown=t / 2,
+                     native={"throughput_us_p50": t}, torch={"throughput_us_p50": 4}, system={"throughput_us_p50": 2})
+                for i, t in enumerate([1, 2, 3, 4, 5, 100])]
+        with patch.object(Path, "write_text") as write:
+            SYSTEM.write_report({"metadata": {"rounds": 6}, "results": rows}, Path("unused"))
+        markdown = write.call_args_list[-1].args[0]
+        self.assertIn("6/6 | 3.500 | 4.000 | 2.000 | 1.750", markdown)
+        self.assertIn("[0.500, 50.000]", markdown)
+
+    def test_report_keeps_failed_rounds_and_withholds_complete_statistics(self):
+        rows = [dict(backend="metal", name="example", valid=True, round=i) for i in range(5)]
+        rows.append(dict(backend="metal", name="example", valid=False, round=5, error="bad output"))
+        with patch.object(Path, "write_text") as write:
+            SYSTEM.write_report({"metadata": {"rounds": 6}, "results": rows}, Path("unused"))
+        raw = json.loads(write.call_args_list[0].args[0])
+        self.assertEqual(len(raw["results"]), 6)
+        markdown = write.call_args_list[-1].args[0]
+        self.assertIn("5/6 | INCOMPLETE", markdown)
+        self.assertIn("Failed measurements: 1", markdown)
+
 
 class RepeatContractTests(unittest.TestCase):
     def test_variant_and_framework_orders_are_both_balanced(self):

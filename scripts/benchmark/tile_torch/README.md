@@ -6,6 +6,7 @@ and actual Metal / PyTorch MPS. GEMM includes small/large squares, tall/wide
 matrices, and non-multiple tail sizes; reductions vary both row count and width.
 
 Latest M1 Max evidence: [larger tiles and controlled cooperative-copy batching](results/m1-max-20260903-copy-plan.md),
+[six-round direct Accelerate/BLAS and MPS comparison](results/m1-max-20260903-system-baselines.md),
 [execution planner, cost-model errors, and controlled comparisons](results/m1-max-20260903-planner.md),
 [proved direct accumulator output and controlled measurements](results/m1-max-20260903-direct-store.md),
 [dependence-aware synchronization and controlled measurements](results/m1-max-20260903-barrier-plan.md),
@@ -13,6 +14,63 @@ Latest M1 Max evidence: [larger tiles and controlled cooperative-copy batching](
 [Staged/JIT and four-round comparisons](results/m1-max-20260903-jit.md),
 and [actual PyTorch dispatch / Xcode profiling](results/m1-max-20260903-profile.md).
 The reports include unsuccessful tuning choices and remaining library gaps.
+
+## Direct BLAS and MPS GEMM baselines
+
+On macOS the build also creates `benchmark_tile_system`, an independent
+Objective-C++ executable linked only to system frameworks, not TileIR or TVM.
+It uses CPU Accelerate `cblas_sgemm` (classic LP64 API) and GPU
+`MPSMatrixMultiplication` (`MPSKernelOptionsNone`, no reduced-precision option).
+These are **comparison baselines, not replacement lowering paths**.
+PyTorch's default MPS execution is listed separately; it is not assumed to use
+the same internal kernel as the direct MPS matrix API.
+
+Both library baselines use compact row-major FP32 `C=A*B`, alpha=1, beta=0,
+no transpose, and the same deterministic values as the Tile/PyTorch driver.
+MPS inputs and output use private device buffers, uploaded once before warm
+timing; no padded strides or input prepacking are introduced. Every repeated
+call writes the same preallocated output. One timed MPS batch encodes all
+calls into one command buffer, commits and waits once. Single-call latency
+uses a separate command buffer per call. API/encoding/submission costs remain
+in warm timings; library-internal scratch management is not artificially
+subtracted. Timing is host wall time, **not pure GPU time**.
+
+After a complete build, validate both native paths explicitly:
+
+```sh
+ctest --test-dir cmake-build-tirx -R '^test_tile_system_' --output-on-failure
+```
+
+The CPU self-test is a host unit test; the Metal self-test is an explicit
+hardware integration test. Both check every output against FP64 on four
+shapes, including tails and repeated beta=0 calls starting with NaN output.
+Add `--system-baseline cmake-build-tirx/bin/benchmark_tile_system` to `run.py`
+to include the appropriate system baseline for each GEMM case; other
+operations retain the existing two-implementation comparison.
+
+For published comparisons, freeze valid CPU/Metal schedules in ordinary
+`run.py` reports, then replay all three implementations in six balanced orders:
+
+```sh
+uv run --no-project --python 3.13 --with torch --with numpy python \
+  scripts/benchmark/tile_torch/compare_system.py \
+  --native cmake-build-tirx/bin/benchmark_tile_tirx \
+  --system-baseline cmake-build-tirx/bin/benchmark_tile_system \
+  --plan /path/to/cpu/results.json --plan /path/to/metal/results.json \
+  --output /tmp/tile-system-comparison --rounds 6 \
+  --samples 9 --sample-ms 40 --warmup-ms 200 --threads 8
+```
+
+The old reports supply **parameters only**, never timing scores. Each shape
+gets all six permutations of Tile/PyTorch/system order; case order rotates.
+All outputs use the same full FP64 check. Failures remain failures, not dropped
+rounds, and binaries are hash-checked before/after the run. Raw timings,
+individually synchronized latency, API/storage/stride metadata and correctness
+errors are retained. Thread settings are requests, not measured library worker
+counts. Compare device-specific baselines within each backend, not CPU BLAS
+against Metal as if they used the same resources.
+
+## Tile/PyTorch driver
 
 First configure TVMx support as described in the Tile design document, and
 complete the full build and correctness tests. The driver never builds or

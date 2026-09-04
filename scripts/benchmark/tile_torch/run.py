@@ -191,6 +191,38 @@ def validate_native_metadata(native: dict[str, Any], case: Case, backend: str, e
         raise RuntimeError("generated matrix-intrinsic calls do not match the benchmark's eligible path")
 
 
+def implementation_order(ordinal: int, system_baseline: bool = False) -> tuple[str, ...]:
+    if not system_baseline:
+        return ("native", "torch") if ordinal % 2 == 0 else ("torch", "native")
+    # Six orders balance both position and pairwise precedence over six rounds.
+    return (("native", "torch", "system"), ("system", "torch", "native"),
+            ("torch", "system", "native"), ("native", "system", "torch"),
+            ("system", "native", "torch"), ("torch", "native", "system"))[ordinal % 6]
+
+
+def validate_system_metadata(result: dict[str, Any], case: Case, backend: str, samples: int) -> None:
+    expected = dict(backend=backend, operation="gemm", dtype="float32", layout="compact_row_major",
+                    m=case.m, n=case.n, k=case.k, alpha=1, beta=0,
+                    transpose_left=False, transpose_right=False,
+                    row_bytes=[case.k * 4, case.n * 4, case.n * 4],
+                    implementation="accelerate_cblas_sgemm" if backend == "cpu" else "mps_matrix_multiplication",
+                    api_variant="classic_lp64" if backend == "cpu" else "MPSKernelOptionsNone",
+                    storage="host" if backend == "cpu" else "private",
+                    batch_policy="synchronous_calls" if backend == "cpu" else "one_command_buffer_per_batch")
+    if case.operation != "gemm" or backend not in ("cpu", "metal"):
+        raise RuntimeError("system baselines support only CPU/Metal GEMM")
+    for key, value in expected.items():
+        if type(result.get(key)) is not type(value) or result[key] != value:
+            raise RuntimeError(f"system baseline metadata mismatch: {key}")
+    if type(result.get("repetitions")) is not int or not 1 <= result["repetitions"] <= 100000:
+        raise RuntimeError("system baseline repetition count is invalid")
+    for metric in ("throughput_us", "latency_us"):
+        values = result.get(metric)
+        if not isinstance(values, list) or len(values) != samples or any(
+                type(v) not in (int, float) or not math.isfinite(v) or v <= 0 for v in values):
+            raise RuntimeError(f"system baseline samples are invalid: {metric}")
+
+
 def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend: str, ordinal: int) -> dict[str, Any]:
     def inputs(rows: int, columns: int, seed: int) -> Any:
         indices = torch.arange(rows * columns, dtype=torch.int64)
@@ -209,6 +241,11 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
 
     result: dict[str, Any] = {"case": dataclasses.asdict(case), "name": case.name, "backend": backend,
                              "block": block_shape(case, args.gemm_block), "timing_order": "native_first" if ordinal % 2 == 0 else "torch_first"}
+    system_binary = getattr(args, "system_baseline", None)
+    order = implementation_order(ordinal, system_binary is not None and case.operation == "gemm")
+    result["implementation_order"] = order
+    if len(order) == 3:
+        result["timing_order"] = "_then_".join(order)
 
     def run_native() -> None:
         with tempfile.TemporaryDirectory(prefix="luisa-tile-benchmark-") as temporary:
@@ -270,14 +307,30 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
         measured["correctness"] = validate(torch, actual, reference, case.operation)
         result["torch"] = measured
 
+    def run_system() -> None:
+        with tempfile.TemporaryDirectory(prefix="luisa-tile-system-") as temporary:
+            output = Path(temporary) / "output.f32"
+            command = [str(system_binary), backend, str(case.m), str(case.n), str(case.k),
+                       str(args.samples), str(args.sample_ms), str(args.warmup_ms), str(output)]
+            process = subprocess.run(command, capture_output=True, text=True, check=False, timeout=args.timeout)
+            if process.returncode:
+                raise RuntimeError(f"system baseline failed ({process.returncode}):\n{process.stderr}\n{process.stdout}")
+            measured = json.loads(process.stdout)
+            validate_system_metadata(measured, case, backend, args.samples)
+            if output.stat().st_size != reference.numel() * 4:
+                raise RuntimeError("system output byte count is incorrect")
+            actual = torch.from_numpy(np.fromfile(output, dtype="<f4")).reshape(reference.shape)
+            measured["correctness"] = validate(torch, actual, reference, case.operation)
+            summarize(measured)
+            result["system"] = measured
+
     with torch.inference_mode():
-        if ordinal % 2 == 0:
-            run_native()
-            run_pytorch()
-        else:
-            run_pytorch()
-            run_native()
+        actions = {"native": run_native, "torch": run_pytorch, "system": run_system}
+        for implementation in order:
+            actions[implementation]()
     result["slowdown"] = result["native"]["throughput_us_p50"] / result["torch"]["throughput_us_p50"]
+    if "system" in result:
+        result["system_slowdown"] = result["native"]["throughput_us_p50"] / result["system"]["throughput_us_p50"]
     result["valid"] = True
     return result
 
@@ -359,6 +412,15 @@ def write_report(report: dict[str, Any], directory: Path) -> None:
             a, b = row["native"], row["torch"]
             lines.append(f"| {row['backend']} / {row['name']} | {a['capture_ms']:.3f} | {a['compile_ms']:.3f} | {a['allocation_upload_ms']:.3f} | {b['allocation_upload_ms']:.3f} | {a['cold_call_ms']:.3f} | {b['cold_call_ms']:.3f} | {a['download_ms']:.3f} | {b['download_ms']:.3f} |")
     tuned = [row for row in report["results"] if "tuning" in row]
+    if any("system" in row for row in report["results"]):
+        lines.extend(["", "## Direct system-library GEMM baselines", "",
+                      "Same FP32 inputs, compact row-major strides, alpha=1, beta=0, no transpose or reduced-precision option. CPU uses classic LP64 Accelerate cblas_sgemm; Metal uses MPSMatrixMultiplication (not MPSGraph) with private buffers and one command buffer per timed batch. Timings include API/encoding/submission costs, not setup or uploads. Complete outputs pass the same FP64 oracle. Raw samples and each case's implementation order are recorded in JSON; use compare_system.py for per-case six-order balance.", "",
+                      "| Device / case | System implementation | System p50 µs | Native / system | System latency µs |",
+                      "|---|---|---:|---:|---:|"])
+        for row in report["results"]:
+            if row.get("valid") and "system" in row:
+                system = row["system"]
+                lines.append(f"| {row['backend']} / {row['name']} | {system['implementation']} | {system['throughput_us_p50']:.3f} | {row['system_slowdown']:.3f}× | {system['latency_us_p50']:.3f} |")
     if tuned:
         lines.extend(["", "## JIT search", "",
                       "All candidates are recaptured, compiled, and checked against the same FP64 oracle. Invalid candidates are retained in JSON but cannot win. Candidate order rotates across cases. Tables above use a fresh post-selection run, not the search minimum; a revalidation failure remains a failure. This is not a confidence interval or an exhaustive search.", "",
@@ -375,6 +437,7 @@ def write_report(report: dict[str, Any], directory: Path) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--native", type=Path, required=True, help="already-built benchmark_tile_tirx executable")
+    parser.add_argument("--system-baseline", type=Path, help="optional prebuilt benchmark_tile_system; adds direct BLAS/MPS for GEMM")
     parser.add_argument("--output", type=Path, required=True, help="new directory for JSON and Markdown results")
     parser.add_argument("--backends", default="cpu,metal")
     parser.add_argument("--operations", default="gemm,add,sum,softmax")
@@ -401,6 +464,8 @@ def main() -> int:
     parser.add_argument("--quick", action="store_true", help="smoke run; omits the large shape cases")
     args = parser.parse_args()
     args.native = args.native.resolve(strict=True)
+    if args.system_baseline is not None:
+        args.system_baseline = args.system_baseline.resolve(strict=True)
     args.output = args.output.resolve()
     try:
         args.gemm_block = parse_gemm_block(args.gemm_block)
@@ -438,6 +503,8 @@ def main() -> int:
         "thread_environment": {key: os.environ[key] for key in ("TVM_NUM_THREADS", "OMP_NUM_THREADS", "VECLIB_MAXIMUM_THREADS")},
         "git_revision": revision, "worktree_dirty": dirty,
         "native_binary": str(args.native), "native_sha256": hashlib.sha256(args.native.read_bytes()).hexdigest(),
+        "system_baseline": {"binary": str(args.system_baseline),
+                            "sha256": hashlib.sha256(args.system_baseline.read_bytes()).hexdigest()} if args.system_baseline else None,
         # The bridge is dynamically linked: an unchanged executable hash alone
         # cannot identify its implementation. This is not a full loader trace.
         "adjacent_tile_library_sha256": {
