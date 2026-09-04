@@ -64,6 +64,10 @@ public:
     SIMDShader(
         const ShaderOption &option, Function kernel,
         uint32_t warp_width, uint32_t dispatch_worker_count) noexcept;
+    // A verified, already compiled XIR entry uses the same argument packing,
+    // worker pool, command encoder and resource lifetime as a SIMT kernel.
+    SIMDShader(SIMDCompiledKernel compiled, uint3 block_size,
+               luisa::vector<Usage> argument_usages) noexcept;
     ~SIMDShader() noexcept;
 
     void dispatch(

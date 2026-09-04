@@ -44,10 +44,21 @@ public:
 
     [[nodiscard]] MetalShaderHandle compile(
         luisa::string_view src, const ShaderOption &option,
-        MetalShaderMetadata &metadata) const noexcept;
+        MetalShaderMetadata &metadata,
+        MTL::LanguageVersion minimum_version = MTL::LanguageVersion3_0,
+        luisa::string *diagnostic = nullptr) const noexcept;
 
     [[nodiscard]] MetalShaderHandle load(
         luisa::string_view name, MetalShaderMetadata &metadata) const noexcept;
+
+    // Unmodified external device source with a typed direct-buffer ABI. This
+    // path shares the device compiler and memory cache, not the AST archive
+    // format (which assumes kernel_main + kernel_main_indirect).
+    [[nodiscard]] MetalShaderHandle compile_buffer_kernel(
+        luisa::string_view src, luisa::string_view entry,
+        const ShaderOption &option, MetalShaderMetadata &metadata,
+        luisa::string &diagnostic,
+        MTL::LanguageVersion minimum_version = MTL::LanguageVersion3_0) const noexcept;
 };
 
 }// namespace luisa::compute::metal

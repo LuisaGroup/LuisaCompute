@@ -60,6 +60,9 @@ public:
 
     [[nodiscard]] ShaderCreationInfo create_shader(
         const ShaderOption &option, Function kernel) noexcept override;
+    [[nodiscard]] ShaderCreationInfo create_tile_kernel(
+        const ShaderOption &option, const tile::Function &kernel,
+        const tile::CompileOptions &tile_options, tile::KernelMetadata &metadata) noexcept override;
     [[nodiscard]] ShaderCreationInfo load_shader(
         luisa::string_view name,
         luisa::span<const Type *const> arg_types) noexcept override;

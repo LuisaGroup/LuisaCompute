@@ -16,6 +16,8 @@ set_target_properties(luisa-compute-tile PROPERTIES
 
 luisa_compute_install(tile SOURCES ${LUISA_COMPUTE_TILE_SOURCES})
 
+add_subdirectory(bridge/xir)
+
 if (LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE)
     add_subdirectory(bridge/tirx)
 endif ()

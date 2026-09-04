@@ -77,14 +77,24 @@ class Runtime final {
 private:
     tvm::Device _device{kDLCPU, 0};
     luisa::string _target{"llvm"};
+    luisa::string _cpu_model{"generic"};
 
 public:
-    explicit Runtime(luisa::string_view backend) {
+    explicit Runtime(luisa::string_view backend, bool native_cpu = false) {
+        if (native_cpu && backend != "cpu") { throw std::invalid_argument{"native CPU model requires the CPU backend"}; }
         if (backend == "metal") {
             _device = tvm::Device{kDLMetal, 0};
             _target = "metal";
         } else if (backend != "cpu") {
             throw std::invalid_argument{"Tile test backend must be cpu or metal"};
+        }
+        if (native_cpu) {
+            auto cpu = tvm::ffi::Function::GetGlobalRequired("target.llvm_get_system_cpu")().cast<tvm::ffi::String>();
+            auto triple = tvm::ffi::Function::GetGlobalRequired("target.llvm_get_system_triple")().cast<tvm::ffi::String>();
+            if (cpu.empty() || !tvm::ffi::Function::GetGlobalRequired("target.llvm_is_valid_cpu")(cpu, triple).cast<bool>()) {
+                throw std::runtime_error{"LLVM cannot represent the detected host CPU; no generic fallback"};
+            }
+            _cpu_model.assign(cpu.data(), cpu.size());
         }
         auto api = tvm::runtime::DeviceAPI::Get(_device, true);
         if (api == nullptr) { throw std::runtime_error{"requested TVMx device runtime is unavailable"}; }
@@ -97,9 +107,12 @@ public:
 
     [[nodiscard]] tvm::Device device() const noexcept { return _device; }
     [[nodiscard]] luisa::string_view target() const noexcept { return _target; }
+    [[nodiscard]] luisa::string_view cpu_model() const noexcept { return _cpu_model; }
 
     [[nodiscard]] Executable build(const compute::tile::Kernel &kernel, bool noalias = false, bool cooperative_matrix = false, bool vectorize = true, bool auto_vectorize = false,
-                                   const compute::tile::bridge::tirx::PlannerOptions &planner = {}) const {
+                                   const compute::tile::bridge::tirx::PlannerOptions &planner = {}, bool metal_mpp = false, bool forward_readonly_tile_loads = false,
+                                   compute::tile::bridge::tirx::CpuMatrixBackend cpu_matrix_backend = compute::tile::bridge::tirx::CpuMatrixBackend::REFERENCE,
+                                   compute::tile::bridge::tirx::CpuMathBackend cpu_math_backend = compute::tile::bridge::tirx::CpuMathBackend::REFERENCE) const {
         using namespace compute::tile::bridge::tirx;
         Executable result;
         if (!kernel.valid()) {
@@ -126,6 +139,9 @@ public:
         }
         CompileOptions options;
         options.target = _target;
+        if (_target == "llvm" && _cpu_model != "generic") {
+            options.target = luisa::string{"{\"kind\":\"llvm\",\"mcpu\":\""} + _cpu_model + "\"}";
+        }
         if (cooperative_matrix && _target == "metal") {
             // Opt-in tests/benchmarks require an Apple-family-7+ device, not
             // merely the existence of an arbitrary Metal runtime.
@@ -133,8 +149,12 @@ public:
         }
         options.noalias = noalias;
         options.cooperative_matrix = cooperative_matrix;
+        options.metal_mpp = metal_mpp;
+        options.forward_readonly_tile_loads = forward_readonly_tile_loads;
         options.vectorize = vectorize;
         options.auto_vectorize = auto_vectorize;
+        options.cpu_matrix_backend = cpu_matrix_backend;
+        options.cpu_math_backend = cpu_math_backend;
         options.planner = planner;
         auto compilation = compile(std::move(native.value), kernel.function().name(), options);
         if (!compilation) {
@@ -142,6 +162,14 @@ public:
             return result;
         }
         result.module = compilation.module();
+        if (_target == "llvm") {
+            auto source = result.module.value()->InspectSource("ll");
+            auto expected = luisa::string{"\"target-cpu\"=\""} + _cpu_model + "\"";
+            if (luisa::string_view{source.data(), source.size()}.find(expected) == luisa::string_view::npos) {
+                result.error = "LLVM codegen did not preserve the requested CPU model";
+                return result;
+            }
+        }
         result.plans.assign(compilation.plans().begin(), compilation.plans().end());
         auto name = kernel.function().name();
         result.entry = result.module.value()->GetFunction(

@@ -15,6 +15,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <string_view>
 
 using namespace luisa;
 using namespace luisa::compute::tile;
@@ -206,10 +207,57 @@ void test_same_reduction_on_cpu_and_metal() {
     }
 }
 
+void test_cpu_target_model_reaches_codegen() {
+    auto cpu = tvm::ffi::Function::GetGlobalRequired("target.llvm_get_system_cpu")().cast<tvm::ffi::String>();
+    auto triple = tvm::ffi::Function::GetGlobalRequired("target.llvm_get_system_triple")().cast<tvm::ffi::String>();
+    expect(tvm::ffi::Function::GetGlobalRequired("target.llvm_is_valid_cpu")(cpu, triple).cast<bool>());
+    auto model_target = luisa::string{"{\"kind\":\"llvm\",\"mcpu\":\""}.append(cpu.data(), cpu.size()).append("\"}");
+    auto definition = tile_kernel("cpu_target_policy", [](TensorView<const float, 1> input, TensorView<float, 1> output) {
+        for (auto &worker : parallel(shape(37))) {
+            auto i = worker.index();
+            output(i).store(input(i).load() * 1.5f + 0.25f);
+        }
+    });
+    auto kernel = definition.capture(tensor_shape(37), tensor_shape(37));
+    auto native = lower(kernel.function());
+    expect(native.ok()) << native.error;
+    if (!native) { return; }
+    for (auto mode = 0u; mode < 3u; mode++) {
+        auto model_compute = mode == 1u;
+        auto gpu_compute = mode == 2u;
+        CompileOptions options;
+        options.target = gpu_compute ? "metal" : model_compute ? model_target :
+                                                                 R"({"kind":"llvm","mcpu":"generic"})";
+        // The host controls GPU launch wrappers, not the ISA of a standalone
+        // CPU compute entry. Test both directions so defaults cannot mask it.
+        options.host = model_compute ? "llvm" : model_target;
+        auto compiled = compile(native.value, kernel.function().name(), options);
+        expect(compiled.ok()) << compiled.error();
+        if (!compiled) { continue; }
+        auto source = compiled.module().value()->InspectSource("ll");
+        auto expected_cpu = model_compute || gpu_compute ? luisa::string{cpu.data(), cpu.size()} : luisa::string{"generic"};
+        auto attribute = luisa::string{"\"target-cpu\"=\""} + expected_cpu + "\"";
+        expect(std::string_view{source.data(), source.size()}.find(attribute) != std::string_view::npos)
+            << "requested target=" << options.target << " host=" << options.host << " must emit " << attribute;
+        auto entry = compiled.module().value()->GetFunction("cpu_target_policy", true);
+        expect(entry.has_value());
+        if (!entry) { continue; }
+        luisa::vector<float> values(37);
+        for (auto i = 0u; i < values.size(); i++) { values[i] = static_cast<float>(i) * 0.125f - 1.0f; }
+        tvm::Device device{gpu_compute ? kDLMetal : kDLCPU, 0};
+        auto input = upload({37}, values, device);
+        auto output = allocate({37}, device);
+        (*entry)(input, output);
+        auto actual = download(output, values.size());
+        for (auto i = 0u; i < values.size(); i++) { expect(close(actual[i], values[i] * 1.5f + 0.25f)); }
+    }
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     "tile_tirx_same_axpy_executes_on_cpu_and_metal"_test = test_same_axpy_on_cpu_and_metal;
     "tile_tirx_same_reduction_executes_on_cpu_and_metal"_test = test_same_reduction_on_cpu_and_metal;
+    "tile_tirx_cpu_target_model_reaches_codegen"_test = test_cpu_target_model_reaches_codegen;
 }

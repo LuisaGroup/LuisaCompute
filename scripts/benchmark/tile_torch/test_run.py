@@ -1,10 +1,12 @@
 import argparse
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -100,6 +102,253 @@ class SystemBaselineTests(unittest.TestCase):
 
 
 class RepeatContractTests(unittest.TestCase):
+    def test_cpu_model_checks_resolved_llvm_model_and_frozen_machine(self):
+        MODULE.validate_cpu_target_policy({}, None, "cpu")
+        generic = dict(cpu_target_policy="generic", cpu_model="generic")
+        native = dict(cpu_target_policy="native", cpu_model="apple-m1")
+        MODULE.validate_cpu_target_policy(generic, "generic", "cpu", b'"target-cpu"="generic"')
+        MODULE.validate_cpu_target_policy(native, "native", "cpu", b'"target-cpu"="apple-m1"', "apple-m1")
+        for row, policy, backend in (({}, "native", "cpu"), ({}, "generic", "cpu"),
+                                     (native, None, "cpu"), (native, "native", "metal"),
+                                     (generic, "native", "cpu"), (native, True, "cpu"),
+                                     (native | {"cpu_model": "native"}, "native", "cpu"),
+                                     (native | {"cpu_model": "generic"}, "native", "cpu")):
+            with self.assertRaises(ValueError):
+                MODULE.validate_cpu_target_policy(row, policy, backend)
+        for source in (b'', b'"target-cpu"="generic"', b'"target-cpu"="apple-m1" "target-cpu"="generic"'):
+            with self.assertRaisesRegex(ValueError, "LLVM CPU model"):
+                MODULE.validate_cpu_target_policy(native, "native", "cpu", source)
+        with self.assertRaisesRegex(ValueError, "frozen plan"):
+            MODULE.validate_cpu_target_policy(native, "native", "cpu", expected_model="apple-m2")
+
+    def test_optional_native_arguments_preserve_legacy_binaries_and_padding(self):
+        self.assertEqual(MODULE.optional_native_arguments(argparse.Namespace()), [])
+        old = dict(cpu_stack_bytes=8192, cpu_vector_lanes=64, cpu_input_views=True)
+        expected = ["auto", "1", "tvm", "retain-subgroup-fences", "8192", "64", "forward-input-views"]
+        self.assertEqual(MODULE.optional_native_arguments(argparse.Namespace(**old)), expected)
+        self.assertEqual(MODULE.optional_native_arguments(argparse.Namespace(**old, cpu_model="native")), expected + ["native"])
+        for model in ("generic", "native"):
+            self.assertEqual(MODULE.optional_native_arguments(argparse.Namespace(cpu_model=model)),
+                             ["auto", "1", "tvm", "retain-subgroup-fences", "0", "16", "retain-input-snapshots", model])
+        self.assertEqual(MODULE.optional_native_arguments(argparse.Namespace(group_threads=128, copy_batch=4)), ["128", "4"])
+        self.assertEqual(MODULE.optional_native_arguments(argparse.Namespace(cpu_matrix_backend="cblas")),
+                         ["auto", "1", "tvm", "retain-subgroup-fences", "0", "16",
+                          "retain-input-snapshots", "generic", "cblas"])
+        self.assertEqual(MODULE.optional_native_arguments(argparse.Namespace(cpu_math_backend="accelerate")),
+                         ["auto", "1", "tvm", "retain-subgroup-fences", "0", "16",
+                          "retain-input-snapshots", "generic", "reference", "accelerate"])
+
+    def test_cpu_matrix_policy_requires_realized_external_call(self):
+        MODULE.validate_cpu_matrix_policy({}, "reference", "cpu", "gemm")
+        MODULE.validate_cpu_matrix_policy({"cpu_matrix_backend": "cblas", "external_matrix_calls": 1},
+                                          "cblas", "cpu", "gemm")
+        for row, requested, backend, operation in (
+                ({}, "cblas", "cpu", "gemm"),
+                ({"cpu_matrix_backend": "cblas", "external_matrix_calls": 2}, "cblas", "cpu", "gemm"),
+                ({"cpu_matrix_backend": "reference", "external_matrix_calls": 1}, "reference", "cpu", "gemm"),
+                ({"cpu_matrix_backend": "cblas", "external_matrix_calls": 1}, "cblas", "metal", "gemm"),
+                ({"cpu_matrix_backend": "cblas", "external_matrix_calls": 1}, "cblas", "cpu", "add")):
+            with self.assertRaises(ValueError):
+                MODULE.validate_cpu_matrix_policy(row, requested, backend, operation)
+
+    def test_cpu_math_policy_requires_realized_exp_provider(self):
+        MODULE.validate_cpu_math_policy({}, "reference", "cpu", "softmax")
+        MODULE.validate_cpu_math_policy({"cpu_math_backend": "accelerate", "external_vector_math_calls": 1},
+                                        "accelerate", "cpu", "softmax")
+        MODULE.validate_cpu_math_policy({"cpu_math_backend": "accelerate", "external_vector_math_calls": 1},
+                                        "accelerate", "cpu", "sum")
+        for row, requested, backend, operation in (
+                ({}, "accelerate", "cpu", "softmax"),
+                ({"cpu_math_backend": "reference", "external_vector_math_calls": 1}, "reference", "cpu", "softmax"),
+                ({"cpu_math_backend": "accelerate", "external_vector_math_calls": 1}, "accelerate", "metal", "softmax"),
+                ({"cpu_math_backend": "accelerate", "external_vector_math_calls": 0}, "accelerate", "cpu", "softmax")):
+            with self.assertRaises(ValueError):
+                MODULE.validate_cpu_math_policy(row, requested, backend, operation)
+
+    def test_replay_retains_resolved_cpu_model_without_upgrading_legacy_plans(self):
+        row = self.row()
+        row["backend"] = "cpu"
+        for policy, model in ((None, None), ("generic", "generic"), ("native", "apple-m1")):
+            current = dict(row, native=dict(row["native"]))
+            if policy is not None:
+                current["native"].update(cpu_target_policy=policy, cpu_model=model)
+            with patch.object(Path, "read_text", return_value=json.dumps({"results": [current]})):
+                config = REPEAT.load_plan(Path("unused.json"), {"gemm"})["cpu", "gemm_17x19x13"]
+            self.assertEqual(config["cpu_model"], policy)
+            self.assertEqual(config["expected_cpu_model"], model)
+
+    def test_replay_retains_cpu_math_backend(self):
+        row = self.row()
+        row["backend"] = "cpu"
+        row["native"].update(cpu_math_backend="accelerate", external_vector_math_calls=0)
+        with patch.object(Path, "read_text", return_value=json.dumps({"results": [row]})):
+            config = REPEAT.load_plan(Path("unused.json"), {"gemm"})["cpu", "gemm_17x19x13"]
+        self.assertEqual(config["cpu_math_backend"], "accelerate")
+
+    def test_shared_vector_override_preserves_input_view_ablation(self):
+        plans = [{("cpu", "case"): dict(auto_vectorize=True, no_vectorize=False, cpu_vector_lanes=16,
+                                       cpu_input_views=forward)} for forward in (False, True)]
+        for plan in plans:
+            REPEAT.override_cpu_vector_lanes(plan, 64)
+        self.assertEqual([p["cpu", "case"]["cpu_vector_lanes"] for p in plans], [64, 64])
+        self.assertEqual([p["cpu", "case"]["cpu_input_views"] for p in plans], [False, True])
+        original = dict(auto_vectorize=True, no_vectorize=False, cpu_vector_lanes=16)
+        for backend, config, budget in (("cpu", original, True), ("cpu", original, 48), ("metal", original, 64),
+                                       ("cpu", original | {"auto_vectorize": False}, 64),
+                                       ("cpu", original | {"no_vectorize": True}, 64)):
+            plan = {("cpu", "first"): dict(original), (backend, "invalid"): dict(config)}
+            with self.assertRaises(ValueError):
+                REPEAT.override_cpu_vector_lanes(plan, budget)
+            self.assertEqual(plan["cpu", "first"], original)
+
+    def test_cpu_input_views_are_not_mpp_or_an_implicit_reference_policy(self):
+        native = dict(backend="cpu", metal_mpp=False, forward_readonly_tile_loads=True)
+        MODULE.validate_tirx_realization(native, "simdgroup", True)
+        for invalid in (native | {"backend": "metal"}, native | {"metal_mpp": True},
+                        native | {"forward_readonly_tile_loads": False}, native | {"forward_readonly_tile_loads": 1}):
+            with self.assertRaises(ValueError):
+                MODULE.validate_tirx_realization(invalid, "simdgroup", True)
+        for realization in ("mpp", "mpp-views"):
+            with self.assertRaises(ValueError):
+                MODULE.validate_tirx_realization(native, realization, True)
+        with self.assertRaises(ValueError):
+            MODULE.validate_tirx_realization(native, "simdgroup")
+        with self.assertRaises(ValueError):
+            MODULE.validate_tirx_realization(native, "simdgroup", 1)
+
+    def test_replay_preserves_cpu_views_separately_from_matrix_realization(self):
+        row = self.row()
+        row["backend"] = "cpu"
+        row["native"].update(forward_readonly_tile_loads=True, metal_mpp=False)
+        with patch.object(Path, "read_text", return_value=json.dumps({"results": [row]})):
+            config = REPEAT.load_plan(Path("unused.json"), {"gemm"})["cpu", "gemm_17x19x13"]
+        self.assertTrue(config["cpu_input_views"])
+        self.assertEqual(config["matrix_realization"], "simdgroup")
+        for key, value in (("forward_readonly_tile_loads", 1), ("forward_readonly_tile_loads", None), ("metal_mpp", True)):
+            invalid = dict(row, native=row["native"] | {key: value})
+            with patch.object(Path, "read_text", return_value=json.dumps({"results": [invalid]})):
+                with self.assertRaises(ValueError):
+                    REPEAT.load_plan(Path("unused.json"), {"gemm"})
+
+    def test_cpu_vector_budget_must_match_and_preserve_legacy_default(self):
+        MODULE.validate_cpu_vector_policy({}, 16)
+        for budget in (16, 32, 64, 128):
+            MODULE.validate_cpu_vector_policy({"cpu_vector_lanes": budget}, budget)
+        for actual in (None, False, 16, 256, "64"):
+            with self.assertRaisesRegex(ValueError, "CPU vector lanes"):
+                MODULE.validate_cpu_vector_policy({"cpu_vector_lanes": actual}, 64)
+        for requested in (None, False, 0, 8, 48, 129):
+            with self.assertRaises(ValueError):
+                MODULE.validate_cpu_vector_policy({"cpu_vector_lanes": requested}, requested)
+
+    def test_replay_requires_cpu_auto_vectorization_for_cartesian_packs(self):
+        row = self.row()
+        row["backend"] = "cpu"
+        row["native"].update(vectorize=True, auto_vectorize=True)
+        for budget in (None, 16, 32, 64, 128):
+            if budget is not None:
+                row["native"]["cpu_vector_lanes"] = budget
+            with patch.object(Path, "read_text", return_value=json.dumps({"results": [row]})):
+                config = REPEAT.load_plan(Path("unused.json"), {"gemm"})["cpu", "gemm_17x19x13"]
+            self.assertEqual(config["cpu_vector_lanes"], budget or 16)
+        for backend, auto, vectorize, budget in (("metal", True, True, 64), ("cpu", False, True, 64),
+                                                ("cpu", True, False, 64), ("cpu", True, True, 48),
+                                                ("cpu", True, True, True), ("cpu", True, True, None)):
+            row["backend"] = backend
+            row["native"].update(auto_vectorize=auto, vectorize=vectorize, cpu_vector_lanes=budget)
+            with patch.object(Path, "read_text", return_value=json.dumps({"results": [row]})):
+                with self.assertRaisesRegex(ValueError, "CPU vector-lane"):
+                    REPEAT.load_plan(Path("unused.json"), {"gemm"})
+
+    def test_cpu_stack_budget_must_be_reported_exactly(self):
+        MODULE.validate_cpu_storage_policy({}, 0)
+        MODULE.validate_cpu_storage_policy({"cpu_stack_bytes": 8192}, 8192)
+        for actual in (None, False, 1, 65537, "8192"):
+            with self.assertRaisesRegex(ValueError, "CPU stack budget"):
+                MODULE.validate_cpu_storage_policy({"cpu_stack_bytes": actual}, 8192)
+        with self.assertRaises(ValueError):
+            MODULE.validate_cpu_storage_policy({}, 8192)
+        with self.assertRaises(ValueError):
+            MODULE.validate_cpu_storage_policy({}, False)
+
+    def test_replay_preserves_cpu_stack_budget_and_legacy_zero(self):
+        row = self.row()
+        row["backend"] = "cpu"
+        for budget in (None, 0, 8192):
+            if budget is not None:
+                row["native"]["cpu_stack_bytes"] = budget
+            with patch.object(Path, "read_text", return_value=json.dumps({"results": [row]})):
+                config = REPEAT.load_plan(Path("unused.json"), {"gemm"})["cpu", "gemm_17x19x13"]
+            self.assertEqual(config["cpu_stack_bytes"], budget or 0)
+        for backend, budget in (("metal", 8192), ("cpu", True), ("cpu", -1), ("cpu", 65537), ("cpu", None)):
+            row["backend"] = backend
+            row["native"]["cpu_stack_bytes"] = budget
+            with patch.object(Path, "read_text", return_value=json.dumps({"results": [row]})):
+                with self.assertRaisesRegex(ValueError, "CPU stack budget"):
+                    REPEAT.load_plan(Path("unused.json"), {"gemm"})
+
+    def test_subgroup_fence_policy_requires_a_realization_proof(self):
+        MODULE.validate_subgroup_policy({}, False)  # legacy default
+        isolated = dict(elide_independent_subgroup_barriers=True,
+                        execution_plans=[dict(independent_subgroups=True, group_barrier_sites_before=2, group_barrier_sites_after=0)])
+        MODULE.validate_subgroup_policy(isolated, True)
+        MODULE.validate_subgroup_policy(isolated | dict(execution_plans=[dict(independent_subgroups=False, group_barrier_sites_before=6, group_barrier_sites_after=5)]), True)
+        for bad in ({}, isolated | dict(elide_independent_subgroup_barriers=1),
+                    isolated | dict(execution_plans=[]), isolated | dict(execution_plans=[{}]),
+                    isolated | dict(execution_plans=[dict(independent_subgroups=True, group_barrier_sites_before=2, group_barrier_sites_after=1)]),
+                    isolated | dict(execution_plans=[dict(independent_subgroups=True, group_barrier_sites_before=2, group_barrier_sites_after=False)]),
+                    isolated | dict(execution_plans=[dict(independent_subgroups=False, group_barrier_sites_before=2, group_barrier_sites_after=3)])):
+            with self.assertRaises(ValueError):
+                MODULE.validate_subgroup_policy(bad, True)
+        with self.assertRaises(ValueError):
+            MODULE.validate_subgroup_policy(isolated, False)
+
+    def test_replay_preserves_subgroup_fence_policy(self):
+        row = self.row()
+        row["native"].update(metal_mpp=True, forward_readonly_tile_loads=True, elide_independent_subgroup_barriers=True)
+        with patch.object(Path, "read_text", return_value=json.dumps({"results": [row]})):
+            config = REPEAT.load_plan(Path("unused.json"), {"gemm"})["metal", "gemm_17x19x13"]
+        self.assertIs(config["elide_independent_subgroup_barriers"], True)
+        for changes in (dict(elide_independent_subgroup_barriers=1), dict(elide_independent_subgroup_barriers=None),
+                        dict(forward_readonly_tile_loads=False)):
+            bad = row | dict(native=row["native"] | changes)
+            with patch.object(Path, "read_text", return_value=json.dumps({"results": [bad]})):
+                with self.assertRaisesRegex(ValueError, "subgroup-fence"):
+                    REPEAT.load_plan(Path("unused.json"), {"gemm"})
+
+    def test_fingerprints_cover_both_runtimes_and_extra_compiler(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            binaries = []
+            for variant in ("before", "after"):
+                folder = root / variant
+                folder.mkdir()
+                binary = folder / "benchmark"
+                binary.write_bytes(b"same executable")
+                binaries.append(binary)
+                (folder / "runtime.dylib").write_bytes(variant.encode())
+                (folder / "unrelated.txt").write_bytes(b"not an artifact")
+            compiler = root / "compiler.dylib"
+            compiler.write_bytes(b"compiler")
+            hashes = REPEAT.artifact_hashes(binaries, [compiler])
+            self.assertEqual(len(hashes), 5)
+            self.assertEqual(hashes[str(compiler.resolve())], hashlib.sha256(b"compiler").hexdigest())
+            runtime = binaries[1].parent / "runtime.dylib"
+            runtime.write_bytes(b"changed without relinking executable")
+            self.assertNotEqual(hashes, REPEAT.artifact_hashes(binaries, [compiler]))
+
+    def test_fingerprints_deduplicate_symlinks_and_reject_missing_artifacts(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            binary = root / "benchmark"
+            binary.write_bytes(b"executable")
+            library = root / "runtime.1.dylib"
+            library.write_bytes(b"runtime")
+            (root / "runtime.dylib").symlink_to(library.name)
+            self.assertEqual(len(REPEAT.artifact_hashes([binary, binary], [library])), 2)
+            with self.assertRaises(FileNotFoundError):
+                REPEAT.artifact_hashes([binary], [root / "missing.dylib"])
+
     def test_variant_and_framework_orders_are_both_balanced(self):
         keys = [("metal", str(i)) for i in range(8)]
         rounds = [list(REPEAT.order_for_round(keys, i)) for i in range(4)]
@@ -320,6 +569,71 @@ class BenchmarkContractTests(unittest.TestCase):
         self.assertEqual(result["native"]["throughput_us_p50"], 100.0)
         self.assertEqual(sum(trial["valid"] for trial in result["tuning"]["trials"]), 2)
         self.assertEqual(args.gemm_block, (8, 8, 16))  # No mutation of caller configuration.
+
+    def test_mapping_candidates_are_bounded_deduplicated_and_opt_in(self):
+        self.assertEqual(MODULE.mapping_candidates(128, 4, None, None), [])
+        self.assertEqual(MODULE.mapping_candidates(128, 4, "0,256,0", "1,4,1"),
+                         [(0, 1), (0, 4), (256, 1), (256, 4)])
+        self.assertEqual(MODULE.mapping_candidates(128, 4, None, "8"), [(128, 8)])
+        self.assertEqual(MODULE.mapping_candidates(128, 4, "64", None), [(64, 4)])
+        for value in ("", "auto", "-1", "4294967296"):
+            with self.subTest(threads=value), self.assertRaises(ValueError):
+                MODULE.mapping_candidates(128, 4, value, None)
+        for value in ("", "0", "17", "1.5"):
+            with self.subTest(batch=value), self.assertRaises(ValueError):
+                MODULE.mapping_candidates(128, 4, None, value)
+
+    def test_joint_candidate_product_and_compile_budget(self):
+        args = argparse.Namespace(tuning_candidates=[((32, 64, 32), 1), ((64, 64, 32), 2)],
+                                  mapping_tuning_candidates=[(128, 4), (256, 8)], max_tuning_candidates=4)
+        self.assertEqual(MODULE.joint_candidates(args), [((32, 64, 32), 1, 128, 4), ((32, 64, 32), 1, 256, 8),
+                                                       ((64, 64, 32), 2, 128, 4), ((64, 64, 32), 2, 256, 8)])
+        for budget in (0, 3):
+            args.max_tuning_candidates = budget
+            with self.assertRaisesRegex(ValueError, "budget"):
+                MODULE.joint_candidates(args)
+        args = argparse.Namespace(tuning_candidates=[], gemm_block=(16, 32, 32), pipeline_window=1,
+                                  mapping_tuning_candidates=[(128, 4), (256, 4)])
+        self.assertEqual(MODULE.joint_candidates(args), [((16, 32, 32), 1, 128, 4), ((16, 32, 32), 1, 256, 4)])
+
+    def test_joint_search_revalidates_the_entire_selected_mapping(self):
+        args = argparse.Namespace(tuning_candidates=[], gemm_block=(32, 64, 32), pipeline_window=1,
+                                  group_threads=0, copy_batch=1, mapping_tuning_candidates=[(128, 1), (256, 4)])
+        calls = []
+
+        def measure(torch, np, candidate, case, backend, ordinal):
+            calls.append((candidate.gemm_block, candidate.pipeline_window, candidate.group_threads, candidate.copy_batch))
+            score = 100.0 if len(calls) == 3 else 1.0 if candidate.copy_batch == 4 else 2.0
+            return dict(valid=True, native=dict(throughput_us_p50=score))
+
+        with patch.object(MODULE, "run_case", side_effect=measure), contextlib.redirect_stdout(io.StringIO()):
+            result = MODULE.run_tuned_case(None, None, args, MODULE.Case("gemm", 128, 128, 128), "metal", 0)
+        self.assertEqual(calls, [((32, 64, 32), 1, 128, 1), ((32, 64, 32), 1, 256, 4), ((32, 64, 32), 1, 256, 4)])
+        self.assertEqual(result["native"]["throughput_us_p50"], 100.0)
+        selected = result["tuning"]["trials"][result["tuning"]["selected_trial"]]
+        self.assertEqual((selected["group_threads"], selected["copy_batch"]), (256, 4))
+        self.assertEqual((args.group_threads, args.copy_batch), (0, 1))
+
+    def test_jit_search_reports_model_regret_without_overriding_measurement(self):
+        args = argparse.Namespace(tuning_candidates=[((32, 128, 1024), 1), ((128, 32, 1024), 1)],
+                                  gemm_block=(64, 64, 1024), pipeline_window=1)
+        calls = []
+
+        def measure(torch, np, candidate, case, backend, ordinal):
+            calls.append(candidate.gemm_block)
+            if len(calls) == 3:
+                return {"valid": True, "native": {"throughput_us_p50": 100.0}}
+            timing, model = ((10.0, 1.0) if candidate.gemm_block[0] == 32 else (8.0, 2.0))
+            return {"valid": True, "native": {"throughput_us_p50": timing,
+                                                "execution_plans": [{"normalized_kernel_cost": model}]}}
+
+        with patch.object(MODULE, "run_case", side_effect=measure), contextlib.redirect_stdout(io.StringIO()):
+            result = MODULE.run_tuned_case(None, None, args, MODULE.Case("gemm", 1024, 1024, 1024), "metal", 0)
+        tuning = result["tuning"]
+        self.assertEqual(tuning["model_selected_trial"], 0)
+        self.assertEqual(tuning["selected_trial"], 1)
+        self.assertAlmostEqual(tuning["model_regret"], 0.25)
+        self.assertEqual(calls[-1], (128, 32, 1024))
 
     def test_jit_search_cannot_hide_failed_candidates_or_revalidation(self):
         args = argparse.Namespace(tuning_candidates=[((8, 8, 16), 2)], gemm_block=(8, 8, 16), pipeline_window=2)

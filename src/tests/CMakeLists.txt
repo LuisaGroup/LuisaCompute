@@ -119,6 +119,10 @@ target_include_directories(test_simd_xir_to_schedule PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd/schedule)
 
 if (TARGET luisa-compute-simd-llvm)
+    luisa_compute_add_test(test_simd_phi_parallel_copy unit/simd/test_phi_parallel_copy.cpp
+            LABELS "unit;unit_simd;unit_llvm;integration_simd")
+    target_link_libraries(test_simd_phi_parallel_copy PRIVATE luisa-compute-simd-compiler)
+    target_include_directories(test_simd_phi_parallel_copy PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd)
     add_executable(test_fallback_llvm_native_math
             unit/fallback/test_fallback_llvm_native_math.cpp
             ../backends/fallback/fallback_codegen.cpp)
@@ -538,6 +542,24 @@ luisa_compute_add_test(test_tile_layout unit/tile/test_tile_layout.cpp LABELS "u
 luisa_compute_add_test(test_tile_ir unit/tile/test_tile_ir.cpp LABELS "unit;unit_tile")
 luisa_compute_add_test(test_tile_dsl unit/tile/test_tile_dsl.cpp LABELS "unit;unit_tile")
 luisa_compute_add_test(test_tile_memory unit/tile/test_tile_memory.cpp LABELS "unit;unit_tile")
+luisa_compute_add_test(test_tile_xir unit/tile/bridge/test_xir.cpp LABELS "unit;unit_tile;unit_tile_xir")
+target_link_libraries(test_tile_xir PRIVATE luisa::tile-xir)
+if (TARGET luisa-compute-backend-simd)
+    luisa_compute_add_test(benchmark_tile_xir benchmark/benchmark_tile_xir.cpp)
+    add_dependencies(benchmark_tile_xir luisa-compute-backend-simd)
+    luisa_compute_add_test(test_tile_xir_runtime unit/tile/bridge/test_xir_runtime.cpp
+            LABELS "integration;integration_tile_xir;integration_simd" ARGS simd)
+    add_dependencies(test_tile_xir_runtime luisa-compute-backend-simd)
+    luisa_compute_add_test(test_tile_xir_llm unit/tile/bridge/test_xir_llm.cpp
+            LABELS "integration;integration_tile_xir;integration_simd" ARGS simd)
+    add_dependencies(test_tile_xir_llm luisa-compute-backend-simd)
+    if (LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE)
+        target_link_libraries(test_tile_xir_runtime PRIVATE luisa::tile-tirx)
+        target_compile_definitions(test_tile_xir_runtime PRIVATE LUISA_TEST_TILE_XIR_TIRX=1)
+        target_link_libraries(test_tile_xir_llm PRIVATE luisa::tile-tirx)
+        target_compile_definitions(test_tile_xir_llm PRIVATE LUISA_TEST_TILE_XIR_TIRX=1)
+    endif ()
+endif ()
 set(_tile_test_cpp_standards 20)
 set(_tile_poc_cpp_standard 20)
 if ("cxx_std_23" IN_LIST CMAKE_CXX_COMPILE_FEATURES)
@@ -552,6 +574,19 @@ foreach (_tile_cpp_standard IN LISTS _tile_test_cpp_standards)
     set_target_properties(test_tile_values_cpp${_tile_cpp_standard} PROPERTIES
             CXX_STANDARD ${_tile_cpp_standard} CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
 endforeach ()
+if (LUISA_COMPUTE_ENABLE_METAL AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    luisa_compute_add_test(test_tile_native_codegen
+            unit/tile/test_tile_native_codegen.cpp LABELS "unit;unit_tile;unit_tile_native")
+    target_sources(test_tile_native_codegen PRIVATE ../backends/metal/tile/metal_tile_codegen.cpp)
+    target_include_directories(test_tile_native_codegen PRIVATE ../backends/metal/tile)
+    luisa_compute_add_test(test_tile_native_runtime
+            unit/tile/test_tile_native_runtime.cpp LABELS "integration;integration_tile_native" ARGS metal)
+    luisa_compute_add_test(benchmark_tile_native benchmark/benchmark_tile_native.cpp)
+    if (LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE AND LUISA_TILE_TVM_METAL_RUNTIME_LIBRARY)
+        target_link_libraries(test_tile_native_runtime PRIVATE luisa::tile-tirx)
+        target_compile_definitions(test_tile_native_runtime PRIVATE LUISA_TEST_TILE_NATIVE_TIRX=1)
+    endif ()
+endif ()
 if (APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
     # Independent system-library baselines, not a Tile/TVM lowering path.
     enable_language(OBJCXX)
@@ -562,6 +597,12 @@ if (APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
     target_link_libraries(benchmark_tile_system PRIVATE
             "-framework Foundation" "-framework Accelerate"
             "-framework Metal" "-framework MetalPerformanceShaders")
+    add_executable(benchmark_tile_manual benchmark/benchmark_tile_manual.mm)
+    set_target_properties(benchmark_tile_manual PROPERTIES
+            OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED ON OBJCXX_EXTENSIONS OFF)
+    target_compile_options(benchmark_tile_manual PRIVATE -fobjc-arc)
+    target_link_libraries(benchmark_tile_manual PRIVATE
+            "-framework Foundation" "-framework Metal")
     add_executable(benchmark_tile_mpp benchmark/benchmark_tile_mpp.mm)
     set_target_properties(benchmark_tile_mpp PROPERTIES
             OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED ON OBJCXX_EXTENSIONS OFF)

@@ -15,6 +15,67 @@ namespace {
 using Statements = tvm::ffi::Array<tvm::tirx::Stmt>;
 using Buffers = luisa::unordered_set<const tvm::tirx::VarNode *>;
 
+// A whole-group proof, not a local decision that a matrix call "looks pure".
+// Only emitted private operations and one terminal, partitioned global store
+// are accepted. A shared access, a second sink, an output in a loop, an escape,
+// an explicit barrier or any unknown statement keeps the reference fences.
+class SubgroupIsolation final {
+private:
+    const tvm::tirx::Stmt &_barrier;
+    const tvm::tirx::Stmt &_output;
+    luisa::unordered_set<const tvm::tirx::StmtNode *> _private;
+    bool _finished{false};
+
+    [[nodiscard]] bool _visit(const tvm::tirx::Stmt &statement, uint32_t depth) {
+        if (statement.same_as(_barrier)) { return true; }
+        if (auto evaluate = statement.as<tvm::tirx::EvaluateNode>()) {
+            if (auto constant = evaluate->value.as<tvm::IntImmNode>(); constant != nullptr && constant->value == 0) { return true; }
+        }
+        if (auto sequence = statement.as<tvm::tirx::SeqStmtNode>()) {
+            return std::all_of(sequence->seq.begin(), sequence->seq.end(), [&](auto &&child) { return _visit(child, depth); });
+        }
+        if (_finished) { return false; }
+        if (statement.same_as(_output)) {
+            _finished = depth == 0u;
+            return _finished;
+        }
+        if (_private.contains(statement.get())) { return true; }
+        if (auto loop = statement.as<tvm::tirx::ForNode>()) {
+            auto minimum = loop->min.as<tvm::IntImmNode>();
+            auto extent = loop->extent.as<tvm::IntImmNode>();
+            auto step = loop->step ? loop->step.value().as<tvm::IntImmNode>() : nullptr;
+            if (loop->kind != tvm::tirx::ForKind::kSerial || loop->thread_binding || !loop->annotations.empty() ||
+                minimum == nullptr || extent == nullptr || extent->value <= 0 ||
+                (loop->step && (step == nullptr || step->value != 1))) { return false; }
+            return _visit(loop->body, depth + 1u);
+        }
+        return false;
+    }
+
+public:
+    SubgroupIsolation(const tvm::tirx::Stmt &barrier, const tvm::tirx::Stmt &output,
+                      luisa::span<const tvm::tirx::Stmt> private_operations)
+        : _barrier{barrier}, _output{output} {
+        for (auto &&statement : private_operations) { _private.emplace(statement.get()); }
+    }
+
+    [[nodiscard]] bool prove(const tvm::tirx::Stmt &body) { return _visit(body, 0u) && _finished; }
+};
+
+class IsolatedBarrierRemoval final : public tvm::tirx::StmtMutator {
+private:
+    const tvm::tirx::Stmt &_barrier;
+
+protected:
+    [[nodiscard]] tvm::tirx::Stmt VisitStmt(const tvm::tirx::Stmt &statement) final {
+        if (statement.same_as(_barrier)) { return tvm::tirx::Evaluate{tvm::IntImm::Int32(0)}; }
+        return StmtMutator::VisitStmt(statement);
+    }
+
+public:
+    explicit IsolatedBarrierRemoval(const tvm::tirx::Stmt &barrier) noexcept : _barrier{barrier} {}
+};
+
 struct Access {
     Buffers reads, writes;
     bool external_read{false};
@@ -168,14 +229,22 @@ public:
 tvm::tirx::Stmt coalesce_group_barriers(
     tvm::tirx::Stmt body, const tvm::tirx::Stmt &compiler_barrier,
     luisa::span<const tvm::tirx::BufferVar> shared_allocations,
-    bool enabled, GroupPlan &plan) {
+    bool enabled, bool elide_independent_subgroups, GroupPlan &plan,
+    luisa::span<const tvm::tirx::Stmt> subgroup_private_operations,
+    luisa::span<const tvm::tirx::Stmt> subgroup_output_stores) {
     BarrierCounter before{compiler_barrier};
     before(body);
     plan.group_barrier_sites_before = before.sites;
+    plan.independent_subgroups = shared_allocations.empty() && subgroup_output_stores.size() == 1u &&
+                                 SubgroupIsolation{compiler_barrier, subgroup_output_stores.front(), subgroup_private_operations}.prove(body);
     if (enabled) {
-        Buffers shared;
-        for (auto &&buffer : shared_allocations) { shared.emplace(buffer.get()); }
-        body = BarrierCoalescer{compiler_barrier, shared}(body);
+        if (elide_independent_subgroups && plan.independent_subgroups) {
+            body = IsolatedBarrierRemoval{compiler_barrier}(body);
+        } else {
+            Buffers shared;
+            for (auto &&buffer : shared_allocations) { shared.emplace(buffer.get()); }
+            body = BarrierCoalescer{compiler_barrier, shared}(body);
+        }
     }
     BarrierCounter after{compiler_barrier};
     after(body);

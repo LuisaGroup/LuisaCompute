@@ -1,4 +1,5 @@
 #include <array>
+#include <cmath>
 #include <limits>
 #include <optional>
 #include <stdexcept>
@@ -32,6 +33,12 @@ struct AffineIndex {
     if (addend != 0u && scale > (limit - value) / addend) { return false; }
     value += addend * scale;
     return true;
+}
+
+[[nodiscard]] bool is_positive_zero(const tvm::PrimExpr &expression) noexcept {
+    auto value = expression.as<tvm::FloatImmNode>();
+    return value != nullptr && expression.ty() == tvm::PrimType::Float(32) &&
+           value->value == 0.0 && !std::signbit(value->value);
 }
 
 // Prove a positive strided matrix projection, rather than guessing it from
@@ -137,16 +144,19 @@ struct MatrixView {
 [[nodiscard]] std::optional<MatrixView> matrix_view(
     const tvm::tirx::BufferLoadNode *load, const Axes &axes,
     uint32_t row_axis, uint32_t column_axis, uint64_t rows, uint64_t columns,
-    const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer) {
+    const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer, bool writable = false) {
     if (load == nullptr || load->predicate || load->buffer->dtype != tvm::PrimType::Float(32)) { return {}; }
     auto buffer = map_buffer(load->buffer);
-    // Only the caller's compiler-owned allocations confer non-aliasing. The
-    // general address projection below does not confer ownership on globals.
-    if (!buffer.defined() || buffer.scope() != "shared") { return {}; }
+    // The caller authorizes compiler-owned shared allocations and explicitly
+    // proved immutable noalias inputs. A global scope label alone is never
+    // authority. Writable accumulators still require owned shared storage.
+    if (!buffer.defined() || (buffer.scope() != "shared" && (writable || buffer.scope() != "global"))) { return {}; }
     return matrix_projection(std::move(buffer), load->indices, axes, row_axis, column_axis, rows, columns, load->buffer);
 }
 
-[[nodiscard]] bool prove_in_domain(tvm::PrimExpr predicate, luisa::span<const tvm::tirx::ForNode *const> domain) {
+}// namespace
+
+bool prove_in_loop_domain(tvm::PrimExpr predicate, luisa::span<const tvm::tirx::ForNode *const> domain) {
     auto pure = true;
     tvm::tirx::PostOrderVisit(predicate, [&](const tvm::ffi::ObjectRef &node) {
         pure &= node.as<tvm::tirx::BufferLoadNode>() == nullptr && node.as<tvm::CallNode>() == nullptr;
@@ -187,6 +197,8 @@ struct MatrixView {
     });
     return proven && stores != 0u;
 }
+
+namespace {
 
 [[nodiscard]] tvm::Expr matrix_address(const MatrixView &view, const Coordinates &coordinates) {
     auto indices = tvm::tirx::Substitute(view.indices, coordinates);
@@ -265,7 +277,7 @@ struct MatchedMatrix {
     Axes axes{loop->loop_var, column_loop->loop_var, contraction->loop_var};
     auto a = matrix_view(a_load, axes, 0u, 2u, m, k, map_buffer);
     auto b = matrix_view(b_load, axes, 2u, 1u, k, n, map_buffer);
-    auto d = matrix_view(accumulator, axes, 0u, 1u, m, n, map_buffer);
+    auto d = matrix_view(accumulator, axes, 0u, 1u, m, n, map_buffer, true);
     if (!a || !b || !d || d->buffer.same_as(a->buffer) || d->buffer.same_as(b->buffer)) { return {}; }
     // Initialization is either one uniform literal or an independent C tile.
     auto fill = init->value.as<tvm::FloatImmNode>();
@@ -349,6 +361,81 @@ struct MatchedMatrix {
     return tvm::tirx::SeqStmt::Flatten(initial);
 }
 
+[[nodiscard]] tvm::tirx::Stmt mpp_matrix(
+    const MatchedMatrix &matrix, const MatrixDistribution &distribution,
+    const tvm::tirx::PrimVar &thread, MatrixLoopEmission *loop_emission) {
+    // Use the already verified contiguous subgroup rectangle. A/B remain
+    // memory views read by one MPP operation; only C is materialized. This
+    // delegates internal K scheduling to MPP without extending fragment lives
+    // or bypassing any TileIR ownership, bounds, or recurrence proof.
+    auto m = static_cast<int64_t>(distribution.atom_rows * 8u);
+    auto n = static_cast<int64_t>(distribution.atom_columns * 8u);
+    auto k = matrix.k;
+    auto subgroup = tvm::floordiv(thread, tvm::IntImm::Int64(32));
+    auto sg_n = tvm::IntImm::Int64(distribution.subgroups_n);
+    Coordinates coordinates{{matrix.axes[0], tvm::floordiv(subgroup, sg_n) * tvm::IntImm::Int64(m)},
+                            {matrix.axes[1], tvm::floormod(subgroup, sg_n) * tvm::IntImm::Int64(n)},
+                            {matrix.axes[2], tvm::IntImm::Int64(0)}};
+    auto cf = tvm::tirx::decl_buffer({tvm::IntImm::Int64(m * n)}, tvm::PrimType::Float(32),
+                                     matrix.axes[0]->name + "_mpp_c", "metal.cooperative_tensor");
+    auto zero = tvm::IntImm::Int32(0);
+    auto transfer = [&](const MatrixView &view, bool store) {
+        static const auto load_op = tvm::Op::Get("tirx.cooperative_tensor_load");
+        static const auto store_op = tvm::Op::Get("tirx.cooperative_tensor_store");
+        return tvm::tirx::Evaluate{tvm::Call{tvm::PrimType::Void(), store ? store_op : load_op, {cf, zero, matrix_address(view, coordinates), tvm::IntImm::Int64(static_cast<int64_t>(view.stride)), tvm::IntImm::Int64(m), tvm::IntImm::Int64(n), tvm::IntImm::Bool(view.transpose), tvm::IntImm::Int64(m), tvm::IntImm::Int64(n), tvm::IntImm::Int64(k), tvm::IntImm::Int32(2)}}};
+    };
+    auto direct = loop_emission != nullptr && loop_emission->output.has_value();
+    auto overwrite = direct ? loop_emission->overwrite_accumulator : !matrix.c && is_positive_zero(matrix.initial);
+    tvm::ffi::Array<tvm::tirx::Stmt> initial{tvm::tirx::AllocBuffer{cf}};
+    // MPP multiply mode defines D = A * B, so no destination
+    // initialization is required or observable.
+    if (!overwrite) {
+        if (matrix.c && !direct) {
+            initial.push_back(transfer(*matrix.c, false));
+        } else {
+            static const auto fill_op = tvm::Op::Get("tirx.cooperative_tensor_fill");
+            initial.push_back(tvm::tirx::Evaluate{tvm::Call{tvm::PrimType::Void(), fill_op, {cf, zero, direct ? loop_emission->initial : matrix.initial, tvm::IntImm::Int64(m), tvm::IntImm::Int64(n)}}});
+        }
+    }
+    // Resolve only after compile() has checked the extension capability. This
+    // keeps ordinary SIMD-group builds link-compatible with unpatched TVMx.
+    const auto &mma_op = tvm::Op::Get(overwrite ? "tirx.cooperative_tensor_multiply_from_memory" :
+                                                  "tirx.cooperative_tensor_multiply_accumulate_from_memory");
+    tvm::ffi::Array<tvm::Expr> mma_args{
+        cf, zero,
+        matrix_address(matrix.a, coordinates), tvm::IntImm::Int64(static_cast<int64_t>(matrix.a.stride)),
+        matrix_address(matrix.b, coordinates), tvm::IntImm::Int64(static_cast<int64_t>(matrix.b.stride))};
+    if (!overwrite) {
+        mma_args.push_back(cf);
+        mma_args.push_back(zero);
+    }
+    mma_args.push_back(tvm::IntImm::Int64(m));
+    mma_args.push_back(tvm::IntImm::Int64(n));
+    mma_args.push_back(tvm::IntImm::Int64(k));
+    mma_args.push_back(tvm::IntImm::Bool(matrix.a.transpose));
+    mma_args.push_back(tvm::IntImm::Bool(matrix.b.transpose));
+    auto multiply = tvm::tirx::Evaluate{tvm::Call{tvm::PrimType::Void(), mma_op, std::move(mma_args)}};
+    auto destination = loop_emission == nullptr ? matrix.d : *matrix.c;
+    if (direct) {
+        auto &output = *loop_emission->output;
+        auto indices = tvm::tirx::Substitute(output.indices, Coordinates{{output.row, matrix.axes[0]}, {output.column, matrix.axes[1]}});
+        destination = MatrixView{output.buffer, std::move(indices), output.stride, output.transpose, output.buffer};
+    }
+    auto final = transfer(destination, true);
+    if (loop_emission != nullptr) {
+        loop_emission->before = tvm::tirx::SeqStmt::Flatten(initial);
+        loop_emission->after = std::move(final);
+        if (direct) {
+            loop_emission->subgroup_inputs = std::array{matrix.a.buffer, matrix.b.buffer};
+            loop_emission->subgroup_step = multiply;
+        }
+        return multiply;
+    }
+    initial.push_back(std::move(multiply));
+    initial.push_back(std::move(final));
+    return tvm::tirx::SeqStmt::Flatten(initial);
+}
+
 }// namespace
 
 std::optional<MatrixWorkload> metal_matrix_workload(
@@ -409,14 +496,14 @@ std::optional<MatrixLoopEmission::Output> metal_matrix_output(
     luisa::vector<const tvm::tirx::ForNode *> domain{ancestors.begin(), ancestors.end()};
     domain.emplace_back(loop.get());
     domain.emplace_back(column);
-    if (!prove_in_domain(std::move(valid), domain)) { return {}; }
+    if (!prove_in_loop_domain(std::move(valid), domain)) { return {}; }
     return MatrixLoopEmission::Output{store->buffer, store->indices, loop->loop_var, column->loop_var, view->stride, view->transpose};
 }
 
 tvm::tirx::Stmt try_metal_matrix(
     const tvm::tirx::For &loop, const tvm::tirx::PrimVar &thread, uint64_t threads,
     const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer,
-    const MatrixDistribution &distribution, MatrixLoopEmission *loop_emission) {
+    const MatrixDistribution &distribution, MatrixLoopEmission *loop_emission, bool metal_mpp) {
     if (threads < 32u || threads % 32u != 0u) { return {}; }
     auto matched = match_metal_matrix(loop, map_buffer);
     if (!matched) { return {}; }
@@ -434,8 +521,11 @@ tvm::tirx::Stmt try_metal_matrix(
         if (distribution.direct_accumulator_store &&
             (loop_emission == nullptr || !loop_emission->output || loop_emission->initial.as<tvm::FloatImmNode>() == nullptr ||
              loop_emission->initial.ty() != tvm::PrimType::Float(32))) { return {}; }
-        return rectangular_matrix(*matched, distribution, thread, loop_emission);
+        return metal_mpp ? mpp_matrix(*matched, distribution, thread, loop_emission) :
+                           rectangular_matrix(*matched, distribution, thread, loop_emission);
     }
+
+    if (metal_mpp) { throw std::runtime_error{"Metal MPP currently requires an exact rectangular subgroup plan"}; }
 
     auto suffix = loop->loop_var->name;
     auto af = tvm::tirx::decl_buffer({tvm::IntImm::Int64(64)}, tvm::PrimType::Float(32), suffix + "_mma_a", "metal.simdgroup");

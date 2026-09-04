@@ -272,6 +272,123 @@ void test_direct_output_requires_proof_and_releases_both_buffers() {
     expect(!plan_group(work, limits, options).ok());
 }
 
+[[nodiscard]] PlanningResult mpp_plan(uint64_t m, uint64_t n, uint64_t k, bool overwrite = true) {
+    GroupWorkload work;
+    work.programs = 64u;
+    work.max_independent_elements = m * n;
+    work.shared_memory_bytes = 8u * m * n;
+    work.matrices.push_back({m, n, k, 1u, 1u, true, overwrite});
+    PlannerOptions options;
+    options.threads_per_group = 128u;
+    return plan_group(work, ExecutionLimits{128u, 32u, 0u}, options,
+                      MatrixCostBasis::METAL_MPP_MEMORY);
+}
+
+void test_mpp_cost_basis_and_shape_ranking() {
+    auto square_512 = mpp_plan(64u, 64u, 512u);
+    auto tall_512 = mpp_plan(128u, 32u, 512u);
+    auto square_1024 = mpp_plan(64u, 64u, 1024u);
+    auto tall_1024 = mpp_plan(128u, 32u, 1024u);
+    for (auto result : {&square_512, &tall_512, &square_1024, &tall_1024}) {
+        expect(result->ok()) << result->error;
+        if (!*result) { continue; }
+        expect(result->plan.cost_basis == MatrixCostBasis::METAL_MPP_MEMORY);
+        expect(eq(result->plan.programs, 64ull));
+        expect(result->plan.matrices[0].rectangular());
+        expect(result->plan.cost.metal_mpp_operations > 0.0);
+        expect(result->plan.cost.memory_fragment_reads > 0.0);
+        expect(eq(result->plan.cost.accumulator_initializations, 0.0));
+        expect(eq(result->plan.cost.kernel_score, result->plan.cost.score));
+    }
+    // The versioned MPP prior crosses over as K grows: a balanced group tile
+    // wins while descriptor/setup work dominates, then the row-major RHS
+    // footprint makes a tall tile preferable. These are ranking contracts, not
+    // nanosecond predictions or legality rules.
+    expect(square_512.plan.cost.score < tall_512.plan.cost.score);
+    expect(tall_1024.plan.cost.score < square_1024.plan.cost.score);
+    expect(square_1024.plan.cost.score != tall_1024.plan.cost.score);
+
+    auto accumulate = mpp_plan(64u, 64u, 1024u, false);
+    expect(accumulate.ok()) << accumulate.error;
+    if (accumulate) {
+        expect(accumulate.plan.cost.accumulator_initializations > 0.0);
+        expect(accumulate.plan.cost.score > square_1024.plan.cost.score);
+    }
+
+    GroupWorkload work;
+    work.programs = 1u;
+    work.shared_memory_bytes = 8u * 64u * 64u;
+    work.matrices.push_back({64u, 64u, 1024u, 1u, 1u, true, true});
+    PlannerOptions bad;
+    bad.threads_per_group = 128u;
+    bad.cost.metal_mpp_rhs_footprint = std::numeric_limits<double>::quiet_NaN();
+    expect(!plan_group(work, ExecutionLimits{128u, 32u, 0u}, bad,
+                       MatrixCostBasis::METAL_MPP_MEMORY)
+                .ok());
+    bad.cost.metal_mpp_rhs_footprint = 0.375;
+    bad.cost.preferred_concurrent_programs = 0u;
+    expect(!plan_group(work, ExecutionLimits{128u, 32u, 0u}, bad,
+                       MatrixCostBasis::METAL_MPP_MEMORY)
+                .ok());
+    bad.cost.preferred_concurrent_programs = 64u;
+    bad.cost.metal_mpp_concurrent_subgroups = 0u;
+    expect(!plan_group(work, ExecutionLimits{128u, 32u, 0u}, bad,
+                       MatrixCostBasis::METAL_MPP_MEMORY)
+                .ok());
+}
+
+void test_mpp_subgroup_critical_path_and_machine_waves() {
+    GroupWorkload work;
+    work.programs = 1u;
+    work.independent_elements = 1024u;
+    work.max_independent_elements = 1024u;
+    work.shared_memory_bytes = 8u * 32u * 32u;
+    work.matrices.push_back({32u, 32u, 32u, 1u, 1u, true, true});
+    PlannerOptions narrow_options;
+    narrow_options.threads_per_group = 64u;
+    PlannerOptions wide_options;
+    wide_options.threads_per_group = 256u;
+    auto limits = ExecutionLimits{256u, 32u, 0u};
+    auto narrow = plan_group(work, limits, narrow_options, MatrixCostBasis::METAL_MPP_MEMORY);
+    auto wide = plan_group(work, limits, wide_options, MatrixCostBasis::METAL_MPP_MEMORY);
+    expect(narrow.ok()) << narrow.error;
+    expect(wide.ok()) << wide.error;
+    if (!narrow || !wide) { return; }
+    expect(wide.plan.cost.score < narrow.plan.cost.score);
+    expect(eq(narrow.plan.cost.concurrent_waves, 1.0));
+    expect(eq(wide.plan.cost.concurrent_waves, 1.0));
+    expect(wide.plan.cost.kernel_score < narrow.plan.cost.kernel_score);
+
+    // The same per-program critical path is not a whole-device throughput
+    // prediction. Once many programs saturate the target prior, a wider group
+    // consumes proportionally more subgroup slots and therefore more waves.
+    work.programs = 1024u;
+    narrow = plan_group(work, limits, narrow_options, MatrixCostBasis::METAL_MPP_MEMORY);
+    wide = plan_group(work, limits, wide_options, MatrixCostBasis::METAL_MPP_MEMORY);
+    expect(narrow.ok()) << narrow.error;
+    expect(wide.ok()) << wide.error;
+    if (!narrow || !wide) { return; }
+    expect(narrow.plan.cost.concurrent_waves < wide.plan.cost.concurrent_waves);
+    expect(narrow.plan.cost.kernel_score < wide.plan.cost.kernel_score);
+
+    // Eight 8x8 local matrices cover 32x16 geometrically, but violate MPP's
+    // descriptor rule. The unconstrained solver must choose a narrower legal
+    // cohort instead of returning a plan that fails during code generation.
+    GroupWorkload descriptor_work;
+    descriptor_work.programs = 1u;
+    descriptor_work.max_independent_elements = 32u * 16u;
+    descriptor_work.shared_memory_bytes = 8u * 32u * 16u;
+    descriptor_work.matrices.push_back({32u, 16u, 32u, 1u, 1u, true, true});
+    PlannerOptions automatic;
+    auto descriptor = plan_group(descriptor_work, limits, automatic, MatrixCostBasis::METAL_MPP_MEMORY);
+    expect(descriptor.ok()) << descriptor.error;
+    if (descriptor) {
+        expect(descriptor.plan.threads < 256u);
+        auto &mapping = descriptor.plan.matrices[0];
+        expect(mapping.atom_rows % 2u == 0u || mapping.atom_columns % 2u == 0u);
+    }
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -281,4 +398,6 @@ int main(int argc, char *argv[]) {
     "tile_planner_multiple_contracts_and_model_separation"_test = [] { test_multiple_contracts_and_model_separation(); };
     "tile_planner_pareto_capacity_beats_local_greedy_choice"_test = [] { test_capacity_requires_slower_resident_choice(); };
     "tile_planner_direct_output_proof_and_storage_accounting"_test = [] { test_direct_output_requires_proof_and_releases_both_buffers(); };
+    "tile_planner_mpp_cost_basis_and_shape_ranking"_test = [] { test_mpp_cost_basis_and_shape_ranking(); };
+    "tile_planner_mpp_subgroup_critical_path_and_machine_waves"_test = [] { test_mpp_subgroup_critical_path_and_machine_waves(); };
 }

@@ -101,8 +101,10 @@ compiler bridges provide metadata without a runtime device adapter. It runs
 the definition afresh for each call. Every executable Tile DSL test and POC
 uses this signature entry; the former `define`/`input`/`output`/`inout` helpers
 and their `Buffer` proxy have been removed, with no compatibility surface.
-The runtime `device.jit` adapter, arbitrary strided views, and scalar signature
-parameters remain separate implementation work.
+The opt-in `luisa/tile/runtime.h` adapter can compile a captured kernel through
+`tile::compile(device, kernel)` and dispatch it on an ordinary Runtime Stream.
+Automatic argument-shape capture at invocation, arbitrary strided views, and
+scalar signature parameters remain separate implementation work.
 
 ## 2. Non-negotiable separations
 
@@ -1607,6 +1609,13 @@ a materialized edge it also chooses storage layout, resource class, lifetime,
 version count, and synchronization. Those are compiler decisions constrained by
 target capabilities and tuning, not mandatory source annotations.
 
+The current TIRx bridge demonstrates this boundary without adding syntax: a
+shared expensive elementwise Tile (`exp`, `log`, `sqrt`, or `tanh`) with more
+than one SSA use is materialized once, while cheap arithmetic stays fused. A
+versioned exp contract may later select a checked CPU array-math atom. This is
+an initial conservative policy, not part of the language semantics and not a
+reason for the programmer to declare `Memory`.
+
 `Memory` is an expert-only semantic escape hatch. It is requested only when the
 programmer intentionally needs stable address identity: a mailbox, explicit
 alias, persistent mutable state, pinned storage layout or swizzle, a manual
@@ -2529,18 +2538,32 @@ bootstrap scheduling, legalization, and code generation. TVM types never
 appear in the C++ DSL API, TileIR core headers, cache ABI, or runtime ABI.
 
 Interoperability code lives below `luisa/tile/bridge/`: `bridge/tirx` owns the
-TVM dependency and a future `bridge/xir` owns TileIR-to-Luisa-XIR translation.
+TVM dependency and `bridge/xir` owns TileIR-to-Luisa-XIR translation. The first
+XIR realization targets independent CPU workers and connects to the existing
+SIMD backend; it is separate from both native MPP and TIRx.
 The TIRx bridge constructs `tvm::tirx::PrimFunc`, layouts, expressions, and
 statements directly through TVM's public C++ API. TVMScript text is useful for
 debug printing and differential tests, but source generation or Python parsing
 is not a compiler boundary.
 
-Native hardware lowering is not another bridge. A backend such as Metal or
-CUDA implements a common Tile compiler `DeviceExtension` alongside its other
-backend services. The portable runtime asks the active device for that
-extension; unsupported devices may instead select an installed compiler bridge.
-This keeps external compiler interop, native backend code generation, and
-hardware target identity as three distinct concepts.
+Native hardware lowering is not another bridge. `DeviceInterface` exposes an
+optional `create_tile_kernel` factory: TileIR and compile options enter the
+active backend, which owns the compiler-route choice and returns a normal
+`ShaderCreationInfo` plus launch/argument metadata. The default implementation
+reports unsupported. TVM types do not cross this ABI. A backend can use native
+lowering or an installed bridge to obtain its executable; a bridge is not a
+new hardware device. Validation wraps this factory like ordinary shader
+creation, and launches use existing shader handles and Stream commands.
+
+Metal MPP and the optional TIRx device-artifact route are implemented through
+this factory, described in [Independent Tile Runtime](tile_native_runtime.md).
+`tile::Lowering::NATIVE` and `tile::Lowering::TIRX` select explicitly. TIRx
+retains its independent CPU/Metal TVM-runtime regression and comparison path;
+the new device artifact preserves a typed PrimFunc, argument binding map and
+static launch geometry, with unchanged generated Metal source. Both factory
+routes return ordinary Runtime shaders. Neither silently falls back to TVM,
+MPP or MPS when its selected realization rejects a kernel. Intra-kernel
+Tile/SIMT DSL mixing is deliberately out of scope.
 
 ### 11.2 Layout bridge
 
@@ -2600,6 +2623,24 @@ Scheduled TileIR (physical scopes + index maps)
                  v
        target-specific TVM code generation
 ~~~
+
+A target realization may collapse a proved region into one opaque atom without
+mechanically preserving every loop as a machine loop. It must preserve the
+region's observable values/effects, layout correspondence, alias contract and
+selected numerical policy. Current examples are a complete compact FP32 GEMM
+realized as one CBLAS call and shared exp/add/max/min regions realized through
+vForce/vDSP. Their versioned contracts come from typed TileIR dataflow and are
+revalidated against the transformed TIRx body. This is atom selection behind
+the execution model, not a GEMM/softmax frontend primitive or a memory-derived
+hierarchy.
+
+In the complete planner, execution binding and atom selection are joint
+choices: a matrix atom may constrain participant/layout maps, while a whole
+CPU provider atom may consume an entire logical region and make an internal
+worker mapping irrelevant. The current CPU provider choices are explicit
+compile policies rather than an automatic cost-model decision; the portable
+reference path remains available for comparison and unsupported explicit
+requests fail closed.
 
 The reference schedule leaves logical `parallel` as marked serial TIRx during
 structural export, **including its optional execution-scope constraint**. The
@@ -2724,7 +2765,7 @@ TileIR mma(A, B, C), with typed arithmetic policy
   +-- capability + numerical policy + actual body/operand-map proof
        |
        +-- proven: complete 32-worker SIMD groups, 8x8 FP32 matrix atoms
-       |     native TIRx matrix load / multiply_accumulate / store
+       |     native TIRx matrix load / multiply[/accumulate] / store
        |
        +-- otherwise: the existing checked contraction loops
 ~~~

@@ -16,8 +16,14 @@ namespace {
            (workload.accumulator_iterations == 0u || workload.executions % workload.accumulator_iterations == 0u);
 }
 
-[[nodiscard]] PlanCost matrix_cost(const MatrixWorkload &workload, const MatrixDistribution &distribution,
-                                   uint32_t threads, const ExecutionLimits &limits, const PlannerOptions &options) noexcept {
+[[nodiscard]] double aspect_excess(uint64_t rows, uint64_t columns) noexcept {
+    auto large = static_cast<double>(std::max(rows, columns));
+    auto small = static_cast<double>(std::min(rows, columns));
+    return large / small - 1.0;
+}
+
+[[nodiscard]] PlanCost reference_matrix_cost(const MatrixWorkload &workload, const MatrixDistribution &distribution,
+                                             uint32_t threads, const ExecutionLimits &limits, const PlannerOptions &options) noexcept {
     auto atoms = static_cast<double>(workload.rows / 8u) * static_cast<double>(workload.columns / 8u);
     auto steps = static_cast<double>(workload.contraction / 8u);
     auto groups = threads / limits.subgroup_size;
@@ -52,12 +58,97 @@ namespace {
     return result;
 }
 
+[[nodiscard]] PlanCost mpp_matrix_cost(const MatrixWorkload &workload, const MatrixDistribution &distribution,
+                                       uint32_t threads, const ExecutionLimits &limits, const PlannerOptions &options) noexcept {
+    auto atoms = static_cast<double>(workload.rows / 8u) * static_cast<double>(workload.columns / 8u);
+    auto steps = static_cast<double>(workload.contraction / 8u);
+    auto executions = static_cast<double>(workload.executions);
+    auto groups = threads / limits.subgroup_size;
+    PlanCost result;
+    if (!distribution.rectangular()) { return result; }
+
+    result.matrix_issues = atoms * steps * executions;
+    result.metal_mpp_operations = static_cast<double>(groups) * executions;
+    result.memory_fragment_reads = static_cast<double>(groups) *
+                                   static_cast<double>(distribution.atom_rows + distribution.atom_columns) *
+                                   steps * executions;
+    // These are unique logical footprints within one group. The MPP operation
+    // may issue duplicate requests across subgroups; memory_fragment_reads
+    // accounts for those separately. A/B are intentionally asymmetric because
+    // row-major RHS rows have the less favorable reuse direction in this
+    // realization. This is a ranking prior, not an alias/cache proof.
+    result.lhs_footprint_fragments = static_cast<double>(workload.rows / 8u) * steps * executions;
+    result.rhs_footprint_fragments = static_cast<double>(workload.columns / 8u) * steps * executions;
+    auto accumulator_executions = distribution.persistent_accumulator ?
+                                      executions / static_cast<double>(workload.accumulator_iterations) :
+                                      executions;
+    if (!workload.overwrites_accumulator) {
+        result.accumulator_initializations = atoms * accumulator_executions;
+    }
+    if (distribution.direct_accumulator_store) {
+        result.direct_fragment_stores = atoms * accumulator_executions;
+    } else {
+        result.shared_fragment_transfers = atoms * accumulator_executions;
+    }
+
+    auto local_rows = distribution.atom_rows;
+    auto local_columns = distribution.atom_columns;
+    result.tile_aspect_fragments = atoms * executions * aspect_excess(workload.rows, workload.columns);
+    if (local_rows > local_columns) {
+        result.local_row_aspect_issues = result.matrix_issues * aspect_excess(local_rows, local_columns);
+    } else if (local_columns > local_rows) {
+        result.local_column_aspect_issues = result.matrix_issues * aspect_excess(local_rows, local_columns);
+    }
+    // Only the output cooperative tensor is explicitly live in generated MSL;
+    // A/B remain memory operands. This is logical state, not a register count.
+    result.fragment_scalars_per_lane = (64u / limits.subgroup_size) *
+                                       distribution.atom_rows * distribution.atom_columns;
+
+    auto &model = options.cost;
+    auto issue_work = result.matrix_issues * model.matrix_issue +
+                      result.shared_fragment_transfers * model.shared_fragment_transfer +
+                      result.direct_fragment_stores * model.metal_mpp_output_fragment +
+                      result.metal_mpp_operations * model.metal_mpp_tensor_operation +
+                      result.memory_fragment_reads * model.metal_mpp_memory_fragment +
+                      result.lhs_footprint_fragments * model.metal_mpp_lhs_footprint +
+                      result.rhs_footprint_fragments * model.metal_mpp_rhs_footprint +
+                      result.accumulator_initializations * model.metal_mpp_accumulator_init +
+                      result.tile_aspect_fragments * model.metal_mpp_tile_aspect +
+                      result.local_row_aspect_issues * model.metal_mpp_local_row_aspect +
+                      result.local_column_aspect_issues * model.metal_mpp_local_column_aspect;
+    auto state_pressure = std::max(1.0, static_cast<double>(result.fragment_scalars_per_lane) /
+                                            model.preferred_fragment_scalars_per_lane);
+    // The rectangular distribution assigns disjoint tensor work to `groups`
+    // subgroups that execute concurrently. Its critical path is aggregate
+    // issue work divided by that explicit parallel width, not the aggregate
+    // itself. Outer machine saturation is priced once in plan_group.
+    result.score = issue_work * state_pressure / static_cast<double>(groups);
+    return result;
+}
+
+[[nodiscard]] PlanCost matrix_cost(const MatrixWorkload &workload, const MatrixDistribution &distribution,
+                                   uint32_t threads, const ExecutionLimits &limits, const PlannerOptions &options,
+                                   MatrixCostBasis cost_basis) noexcept {
+    switch (cost_basis) {
+        case MatrixCostBasis::SIMDGROUP_REFERENCE:
+            return reference_matrix_cost(workload, distribution, threads, limits, options);
+        case MatrixCostBasis::METAL_MPP_MEMORY:
+            return mpp_matrix_cost(workload, distribution, threads, limits, options);
+    }
+    return {};
+}
+
 [[nodiscard]] bool valid_options(const PlannerOptions &options) noexcept {
     auto &cost = options.cost;
-    for (auto coefficient : {cost.matrix_issue, cost.shared_fragment_transfer, cost.independent_element, cost.subgroup_setup}) {
+    for (auto coefficient : {cost.matrix_issue, cost.shared_fragment_transfer, cost.independent_element, cost.subgroup_setup,
+                             cost.metal_mpp_memory_fragment, cost.metal_mpp_lhs_footprint, cost.metal_mpp_rhs_footprint,
+                             cost.metal_mpp_output_fragment, cost.metal_mpp_tensor_operation, cost.metal_mpp_accumulator_init,
+                             cost.metal_mpp_tile_aspect, cost.metal_mpp_local_row_aspect, cost.metal_mpp_local_column_aspect,
+                             cost.metal_mpp_independent_element, cost.metal_mpp_group_setup}) {
         if (!std::isfinite(coefficient) || coefficient < 0.0) { return false; }
     }
     return cost.preferred_subgroups != 0u && cost.preferred_fragment_scalars_per_lane != 0u &&
+           cost.preferred_concurrent_programs != 0u && cost.metal_mpp_concurrent_subgroups != 0u &&
            options.max_fragment_scalars_per_lane >= 6u && options.max_thread_candidates != 0u &&
            options.max_copy_batch != 0u && options.max_copy_batch <= 16u;
 }
@@ -73,6 +164,24 @@ struct PartialPlan {
     PlanCost cost;
     uint64_t released_bytes{0u};
 };
+
+void add_cost(PlanCost &destination, const PlanCost &source) noexcept {
+    destination.matrix_issues += source.matrix_issues;
+    destination.shared_fragment_transfers += source.shared_fragment_transfers;
+    destination.direct_fragment_stores += source.direct_fragment_stores;
+    destination.metal_mpp_operations += source.metal_mpp_operations;
+    destination.memory_fragment_reads += source.memory_fragment_reads;
+    destination.lhs_footprint_fragments += source.lhs_footprint_fragments;
+    destination.rhs_footprint_fragments += source.rhs_footprint_fragments;
+    destination.accumulator_initializations += source.accumulator_initializations;
+    destination.tile_aspect_fragments += source.tile_aspect_fragments;
+    destination.local_row_aspect_issues += source.local_row_aspect_issues;
+    destination.local_column_aspect_issues += source.local_column_aspect_issues;
+    destination.independent_elements += source.independent_elements;
+    destination.fragment_scalars_per_lane = std::max(destination.fragment_scalars_per_lane,
+                                                     source.fragment_scalars_per_lane);
+    destination.score += source.score;
+}
 
 // Exact Pareto dominance for the additive objective and one shared-capacity
 // constraint. Keeping only the fastest choice per operation would be wrong:
@@ -106,9 +215,12 @@ bool verify_matrix_distribution(const MatrixWorkload &workload, const MatrixDist
            distribution.atom_columns == workload.columns / 8u / distribution.subgroups_n;
 }
 
-PlanningResult plan_group(const GroupWorkload &workload, const ExecutionLimits &limits, const PlannerOptions &options) noexcept {
+PlanningResult plan_group(const GroupWorkload &workload, const ExecutionLimits &limits, const PlannerOptions &options,
+                          MatrixCostBasis cost_basis) noexcept {
     PlanningResult result;
     auto &plan = result.plan;
+    plan.programs = workload.programs;
+    plan.cost_basis = cost_basis;
     if (limits.max_threads == 0u || limits.subgroup_size != 32u || !valid_options(options)) {
         result.error = "invalid group planner limits or cost coefficients";
         return result;
@@ -175,6 +287,15 @@ PlanningResult plan_group(const GroupWorkload &workload, const ExecutionLimits &
                     plan.candidates_rejected++;
                     continue;
                 }
+                // Metal MPP's matrix descriptor requires at least one local
+                // output dimension to be a multiple of 16. Since atom extents
+                // are measured in 8x8 units, two odd local factors are not a
+                // legal MPP realization even though they cover the Tile.
+                if (cost_basis == MatrixCostBasis::METAL_MPP_MEMORY &&
+                    candidate.atom_rows % 2u != 0u && candidate.atom_columns % 2u != 0u) {
+                    plan.candidates_rejected++;
+                    continue;
+                }
                 // Avoid overflow as well as unbounded generated unrolled code.
                 auto scalar_budget = options.max_fragment_scalars_per_lane / (64u / limits.subgroup_size);
                 if (candidate.atom_rows > scalar_budget || candidate.atom_columns > scalar_budget ||
@@ -182,7 +303,7 @@ PlanningResult plan_group(const GroupWorkload &workload, const ExecutionLimits &
                     plan.candidates_rejected++;
                     continue;
                 }
-                auto estimate = matrix_cost(matrix, candidate, threads, limits, options);
+                auto estimate = matrix_cost(matrix, candidate, threads, limits, options, cost_basis);
                 auto released = uint64_t{0u};
                 if (candidate.persistent_accumulator) {
                     auto bytes_per_element = candidate.direct_accumulator_store ? 8u : 4u;
@@ -194,7 +315,12 @@ PlanningResult plan_group(const GroupWorkload &workload, const ExecutionLimits &
                 }
                 alternatives.emplace_back(Alternative{candidate, estimate, released});
             }
-            alternatives.emplace_back(Alternative{{}, matrix_cost(matrix, {}, threads, limits, options), 0u});
+            // The MPP target has no scalar/reference fallback under an explicit
+            // MPP realization request. Keeping it as a scored alternative would
+            // let the solver return a plan that codegen must reject later.
+            if (cost_basis == MatrixCostBasis::SIMDGROUP_REFERENCE) {
+                alternatives.emplace_back(Alternative{{}, matrix_cost(matrix, {}, threads, limits, options, cost_basis), 0u});
+            }
             luisa::vector<PartialPlan> next;
             for (auto &partial : frontier) {
                 for (auto &alternative : alternatives) {
@@ -205,11 +331,7 @@ PlanningResult plan_group(const GroupWorkload &workload, const ExecutionLimits &
                     }
                     candidate.released_bytes += alternative.released_bytes;
                     candidate.matrices.emplace_back(alternative.distribution);
-                    candidate.cost.matrix_issues += alternative.cost.matrix_issues;
-                    candidate.cost.shared_fragment_transfers += alternative.cost.shared_fragment_transfers;
-                    candidate.cost.direct_fragment_stores += alternative.cost.direct_fragment_stores;
-                    candidate.cost.fragment_scalars_per_lane = std::max(candidate.cost.fragment_scalars_per_lane, alternative.cost.fragment_scalars_per_lane);
-                    candidate.cost.score += alternative.cost.score;
+                    add_cost(candidate.cost, alternative.cost);
                     insert_frontier(next, std::move(candidate));
                 }
             }
@@ -217,14 +339,31 @@ PlanningResult plan_group(const GroupWorkload &workload, const ExecutionLimits &
         }
         for (auto &candidate : frontier) {
             auto shared_bytes = workload.shared_memory_bytes - candidate.released_bytes;
-            candidate.cost.score += static_cast<double>(workload.independent_elements) * options.cost.independent_element +
-                                    groups * options.cost.subgroup_setup;
-            if (shared_bytes > limits.shared_memory_bytes) {
+            candidate.cost.independent_elements = static_cast<double>(workload.independent_elements);
+            if (cost_basis == MatrixCostBasis::METAL_MPP_MEMORY) {
+                candidate.cost.score += candidate.cost.independent_elements * options.cost.metal_mpp_independent_element /
+                                            static_cast<double>(groups) +
+                                        options.cost.metal_mpp_group_setup;
+                // Logical programs compete for subgroup slots. Fractional
+                // waves intentionally remain a smooth ranking prior rather
+                // than claiming a queried residency boundary.
+                candidate.cost.concurrent_waves = std::max(
+                    1.0, static_cast<double>(workload.programs) * static_cast<double>(groups) /
+                             static_cast<double>(options.cost.metal_mpp_concurrent_subgroups));
+            } else {
+                candidate.cost.score += candidate.cost.independent_elements * options.cost.independent_element +
+                                        groups * options.cost.subgroup_setup;
+                candidate.cost.concurrent_waves = std::max(
+                    1.0, static_cast<double>(workload.programs) /
+                             static_cast<double>(options.cost.preferred_concurrent_programs));
+            }
+            candidate.cost.kernel_score = candidate.cost.score * candidate.cost.concurrent_waves;
+            if (shared_bytes > limits.shared_memory_bytes || !std::isfinite(candidate.cost.kernel_score)) {
                 plan.candidates_rejected++;
                 continue;
             }
-            if (candidate.cost.score < best) {
-                best = candidate.cost.score;
+            if (candidate.cost.kernel_score < best) {
+                best = candidate.cost.kernel_score;
                 plan.threads = threads;
                 plan.matrices = std::move(candidate.matrices);
                 plan.shared_memory_bytes = shared_bytes;
@@ -233,7 +372,11 @@ PlanningResult plan_group(const GroupWorkload &workload, const ExecutionLimits &
             }
         }
     }
-    if (!std::isfinite(best)) { result.error = "no finite group plan fits target shared-memory capacity and cost bounds"; }
+    if (!std::isfinite(best)) {
+        result.error = cost_basis == MatrixCostBasis::METAL_MPP_MEMORY ?
+                           "no legal Metal MPP group plan: each local matrix requires M or N to be a multiple of 16 and must fit shared-memory capacity and cost bounds" :
+                           "no finite group plan fits target shared-memory capacity and cost bounds";
+    }
     return result;
 }
 

@@ -5,15 +5,69 @@ performance threshold. It compares FP32 GEMM, add, row sum, and softmax on CPU
 and actual Metal / PyTorch MPS. GEMM includes small/large squares, tall/wide
 matrices, and non-multiple tail sizes; reductions vary both row count and width.
 
-Latest M1 Max evidence: [larger tiles and controlled cooperative-copy batching](results/m1-max-20260903-copy-plan.md),
+Latest M1 Max evidence: [MPP cost-model v1→v2 calibration-cohort study](results/m1-max-20260905-mpp-cost-v2-search/notes.md),
+[frozen seven-path MPP-v2 replay](results/m1-max-20260905-mpp-cost-v2-replay/notes.md),
+[proved CPU CBLAS plan](results/m1-max-20260905-cpu-cblas-v2-plan/notes.md),
+[six-order CPU CBLAS/Torch/direct-BLAS replay](results/m1-max-20260905-cpu-cblas-v2-replay/notes.md),
+[CPU reference add/sum/softmax plan](results/m1-max-20260905-cpu-reference-ops-v2/notes.md),
+[CPU Accelerate add/sum/softmax plan](results/m1-max-20260905-cpu-accelerate-ops-v2/notes.md),
+[six-round CPU array-math policy A/B](results/m1-max-20260905-cpu-accelerate-ops-replay/notes.md),
+[CPU provider/code/docs validation](results/m1-max-20260905-cpu-provider-validation/notes.md),
+[ragged CPU guard repair A/B](results/m1-max-20260905-cpu-guards-replay/notes.md),
+[fresh guarded-view CPU/Torch/BLAS comparison](results/m1-max-20260905-cpu-guards-system/notes.md),
+[seven-path Metal maintenance smoke check](results/m1-max-20260905-guards-lowerings-smoke/notes.md),
+[other-operator guard smoke check](results/m1-max-20260905-cpu-guards-ops/notes.md),
+[retained scalarization failure](results/m1-max-20260904-cpu-guard-plan/notes.md),
+[CPU input-view A/B](results/m1-max-20260904-cpu-views-replay/notes.md),
+[fresh input-view CPU/Torch/BLAS comparison](results/m1-max-20260904-cpu-views-system/notes.md),
+[CPU Cartesian packing A/B](results/m1-max-20260904-cpu-cartesian-replay/notes.md),
+[fresh Cartesian CPU/Torch/BLAS comparison](results/m1-max-20260904-cpu-cartesian-system/notes.md),
+[seven-way explicit subgroup-sync candidate](results/m1-max-20260904-subgroup-sync-lowerings/notes.md),
+[fixed-geometry subgroup-fence A/B replay](results/m1-max-20260904-subgroup-sync-replay/notes.md),
+[seven-way replay with proved read-only TIRx views](results/m1-max-20260904-tirx-views/notes.md),
+[independent TIRx MPP codegen and its retained regression](results/m1-max-20260904-tirx-mpp/notes.md),
+[seven-way native/TIRx/MPP/MPS/Torch and Runtime controls](results/m1-max-20260904-runtime-controls/notes.md),
+[rejected fragment-load batching, with saved patch and six-round replay](results/m1-max-20260904-fragment-batch/notes.md),
+[five-path native/TIRx/MPP/MPS/Torch replay](results/m1-max-20260904-joint-lowerings/notes.md),
+[larger tiles and controlled cooperative-copy batching](results/m1-max-20260903-copy-plan.md),
 [six-round direct Accelerate/BLAS and MPS comparison](results/m1-max-20260903-system-baselines.md),
 [execution planner, cost-model errors, and controlled comparisons](results/m1-max-20260903-planner.md),
 [proved direct accumulator output and controlled measurements](results/m1-max-20260903-direct-store.md),
 [dependence-aware synchronization and controlled measurements](results/m1-max-20260903-barrier-plan.md),
 [matrix/copy layout sensitivity missing from the model](results/m1-max-20260903-layout-tie.md),
+[rejected structural experiments and joint execution search](results/m1-max-20260904-tirx-structure.md),
 [Staged/JIT and four-round comparisons](results/m1-max-20260903-jit.md),
 and [actual PyTorch dispatch / Xcode profiling](results/m1-max-20260903-profile.md).
 The reports include unsuccessful tuning choices and remaining library gaps.
+
+## Direct XIR/SIMD planner comparison
+
+`compare_xir.py` is the independent CPU pilot for the direct
+TileIR→XIR→SIMD Runtime path. It does not call or relabel the TIRx binary. It
+balances automatic planning, a fixed `{root order [0,1], 64 workers/block}`
+control and eager Torch over all six orders, retains full outputs and LLVM,
+and rechecks an FP64 oracle before accepting a timing row:
+
+```bash
+uv run --no-project --python 3.13 --with numpy --with torch \
+  python scripts/benchmark/tile_torch/compare_xir.py \
+  --native BUILD/bin/benchmark_tile_xir \
+  --compiler-artifact /path/to/the/actual/libLLVM.dylib \
+  --output NEW_EMPTY_DIRECTORY \
+  --rounds 6 --samples 5 --sample-ms 20 --warmup-ms 100 --threads 8
+```
+
+The C++ binary also accepts `planned`, `canonical`, or `reversed`, followed
+optionally by an exact block-worker count. Planner policy, realized order,
+cost decomposition, source identity, cold/JIT phases and both throughput and
+single-call latency samples are emitted as JSON. The report hashes the binary,
+all adjacent Luisa dynamic libraries and explicit compiler artifacts before
+and after timing. Do not run builds, tests or profilers concurrently.
+
+The first saved pilot is
+[m1-max-20260905-xir-simd](results/m1-max-20260905-xir-simd/notes.md).
+It is intentionally a negative-result report: a narrow mapping search does
+not replace packed/register-blocked CPU matrix realization.
 
 ## Direct BLAS and MPS GEMM baselines
 
@@ -72,6 +126,100 @@ against Metal as if they used the same resources.
 
 ## Tile/PyTorch driver
 
+For the LLVM path, `--cpu-stack-bytes 8192` enables the bounded
+compiler-temporary stack realization. Zero (the default) retains workspace
+allocation. The budget is cumulative with alignment padding, has a 65536-byte
+ceiling, and does not override explicit Memory or permit pointer escapes.
+It changes storage realization, not the tile geometry or arithmetic policy.
+`repeat.py --candidate-cpu-stack-bytes 8192` changes only the candidate, so the
+same frozen schedule and a pre-change binary can serve as the reference.
+`compare_system.py --cpu-stack-bytes 8192` overrides CPU cases only and still
+compares with eager PyTorch and direct Accelerate BLAS in six balanced orders.
+
+`--auto-vectorize --cpu-vector-lanes 64` enables Cartesian CPU register packs.
+The lane budget accepts 16/32/64/128; 16 preserves the single-row realization.
+Larger packs keep separate contiguous row vectors inside a common serial
+recurrence, exposing multi-row operand reuse without reassociating K. The
+budget is not a hardware vector width. Unsupported regions keep the old
+single-row packing, and CPU stack planning is independent.
+`repeat.py --cpu-stack-bytes 8192 --candidate-cpu-vector-lanes 64` holds storage
+fixed for both variants while changing only the candidate's pack budget.
+`compare_system.py --cpu-vector-lanes 64` changes CPU cases only. Replay keeps
+the exact reported policy; missing legacy lane metadata means 16, never an
+inferred target-specific default.
+
+`--cpu-input-views` independently enables proved immutable input expressions
+on LLVM. Padded reads retain their original lazy guard and fill; explicit
+Memory, mutable or aliased inputs, pointer escapes, and unproved consumer
+indices keep snapshots. This is not MPP, and does not change its strict view
+policy or the default reference lowering.
+Use `repeat.py --cpu-stack-bytes 8192 --cpu-vector-lanes 64
+--candidate-cpu-input-views` to hold both storage and register packing fixed
+while changing only input forwarding. `compare_system.py --cpu-input-views`
+applies to CPU cases only, preserving fresh Torch/BLAS comparisons. Keep
+regressions: direct global reads can lose the benefits of compact packing.
+
+`--cpu-matrix-backend cblas` is restricted to CPU GEMM with automatic root
+binding. The bridge accepts it only for a proved whole compact rank-two FP32
+`C=A*B` contract with noalias buffers and a registered
+`tvm.contrib.cblas.matmul` provider. The native JSON must report
+`cpu_matrix_backend="cblas"` and exactly one semantic external matrix call;
+the runner rejects a missing or unexpected call. This is an actual Tile
+lowering candidate, unlike `--system-baseline`, which is a separate executable
+used only as a control. Keep both in reports when measuring provider overhead:
+
+```sh
+uv run --no-project --python 3.13 --with torch --with numpy python \
+  scripts/benchmark/tile_torch/run.py \
+  --native cmake-build-tirx/bin/benchmark_tile_tirx \
+  --system-baseline cmake-build-tirx/bin/benchmark_tile_system \
+  --output NEW_EMPTY_DIRECTORY --backends cpu --operations gemm \
+  --cpu-model native --cpu-matrix-backend cblas \
+  --samples 9 --sample-ms 40 --warmup-ms 200 --threads 8 --capture-sources
+```
+
+`--cpu-math-backend accelerate` is restricted to CPU but can be combined with
+add/sum/softmax. It leaves add unchanged, realizes structurally proved
+contiguous add/max/min reductions with vDSP, and realizes only a versioned
+compiler-owned shared FP32 exp map with vForce. The static call-site diagnostic
+is zero for add and nonzero for eligible sum/softmax. It can be larger than the
+number of provider kinds when a small serial root is unrolled, so it is not a
+dynamic call counter.
+
+This policy permits provider reduction order and vForce denormal/floating-
+exception behavior; reference is the default. Compare the two policies with
+separate initial reports and `repeat.py`, which preserves each report's
+`cpu_math_backend` field:
+
+```sh
+uv run --no-project --python 3.13 --with torch --with numpy python \
+  scripts/benchmark/tile_torch/repeat.py \
+  --reference /path/to/reference/results.json \
+  --candidate /path/to/accelerate/results.json \
+  --native cmake-build-tirx/bin/benchmark_tile_tirx \
+  --output NEW_EMPTY_DIRECTORY --operations add,sum,softmax \
+  --rounds 6 --samples 7 --sample-ms 40 --warmup-ms 200 \
+  --threads 8 --capture-sources
+```
+
+Automatic CPU roots also report `cpu_parallel_task_threshold` (currently 64).
+Below it, cheap automatic roots stay serial; explicit worker roots and bodies
+with transcendental/opaque calls retain parallel mapping. This is a scheduling
+prior, not a change to the source `parallel` semantics.
+
+`--capture-sources` archives both LLVM IR (`.ll`) and Metal (`.metal`) by SHA256.
+The repeat/system runners fingerprint both executables and their adjacent
+shared libraries; use repeatable `--compiler-artifact PATH` arguments to cover
+external TVM compiler/runtime libraries. Every replay checks the reported CPU
+budget exactly; older reports without the field mean the old zero-budget path.
+
+The [M1 Max CPU storage A/B](results/m1-max-20260904-cpu-stack-replay/notes.md)
+and [six-order Torch/BLAS comparison](results/m1-max-20260904-cpu-stack-system/notes.md)
+record the first measured realization. Its median gains over the old lowering
+do not establish library parity; 512³ regresses in two A/B pairs and the policy
+remains default-off. Raw LLVM, complete output checks, and artifact fingerprints
+are retained alongside the reports.
+
 First configure TVMx support as described in the Tile design document, and
 complete the full build and correctness tests. The driver never builds or
 changes the build configuration:
@@ -105,12 +253,20 @@ uv run --no-project --python 3.13 --with torch --with numpy python \
   --tune-pipeline-windows '1,2'
 ```
 
-The candidate set is the product of those explicit block/window lists, with
-duplicates removed. With just one tuning flag, the other setting remains at
-`--gemm-block` / `--pipeline-window`. No tuning happens by default. Every trial
+Metal group searches can also specify `--tune-group-threads '128,256'` and
+`--tune-copy-batches '1,4,8'`. These form a joint product with the block/window
+lists; they do not alter the frontend kernel semantics. Zero in the thread
+list invokes the planner's automatic choice, not a zero-thread launch.
+Unspecified dimensions retain their ordinary command-line setting. Duplicate
+configurations are removed; a product exceeding `--max-tuning-candidates`
+(default 256 per shape) is rejected, never silently truncated. Include the
+incumbent schedule in the lists when assessing an optimization.
+
+No tuning happens by default. Every trial
 uses the full FP64 correctness check; rejected candidates remain in JSON and
 cannot win. Candidate order rotates across shapes. After selection, the driver
-recaptures/JITs and measures the winner again: the published table is that
+recaptures/JITs and measures the entire winning block/window/thread/copy
+configuration again: the published table is that
 fresh result, not the search minimum. Failed revalidation is never replaced by
 an earlier favorable trial. Search cost (including validation/framework timing)
 is separate from warm execution cost. This does not autotune PyTorch or
@@ -206,7 +362,168 @@ and hardware information, thread settings, the binary hash, and source
 revision. `results.md` is the readable comparison. Failed cases are retained
 and cause a nonzero exit code; no speed ratio is published for an invalid case.
 
-## Native MPP versus MPS
+## Five-path Tile lowering comparison
+
+`benchmark_tile_native` is the actual TileIR→Metal-backend→MPP route, launched
+through Luisa Runtime. It is distinct from the handwritten `benchmark_tile_mpp`
+probe. `benchmark_tile_tirx` remains the native C++ TVM bridge comparison;
+neither benchmark calls MPS as a fallback. Build with both Metal and the TIRx
+bridge enabled, complete the **full build**, and run correctness tests before
+timing. Do not build or run other GPU work during measurement.
+
+```sh
+uv run --no-project --python 3.13 --with numpy --with torch python \
+  scripts/benchmark/tile_torch/compare_lowerings.py \
+  --native cmake-build-tirx/bin/benchmark_tile_native \
+  --tirx cmake-build-tirx/bin/benchmark_tile_tirx \
+  --mpp cmake-build-tirx/bin/benchmark_tile_mpp \
+  --mps cmake-build-tirx/bin/benchmark_tile_system \
+  --mpp-plan scripts/benchmark/tile_torch/results/m1-max-20260904-mpp-search/results.json \
+  --tirx-plan scripts/benchmark/tile_torch/results/m1-max-20260904-joint-search/results.json \
+  --rounds 10 --samples 7 --sample-ms 30 --warmup-ms 200 \
+  --output /tmp/tile-five-path-replay
+```
+
+The plans supply configurations only; all binaries recapture/recompile and
+measure afresh. Without plan arguments, explicit fixed defaults are recorded,
+not described as autotuned winners. The default eight shapes cover small and
+large squares, rectangles and tails; `--shape MxNxK` is repeatable. Full FP64
+validation uses identical deterministic inputs and preallocated outputs.
+Ten rounds balance positions and pairwise precedence. Fewer rounds are allowed
+only as clearly labeled unbalanced smoke/exploration runs. All five paths run
+even when another fails, and failures cause a nonzero exit code.
+
+Tables compare **host-wall** batched throughput for all five paths, including
+their different Runtime/API overheads; they do not claim pure GPU speedups.
+MPS/handwritten-MPP GPU intervals remain in raw JSON only. Native/hand-MPP
+ratios use matched descriptors/cohorts but include different host runtimes.
+The current native subset is FP32, dynamic K, inline tensors and cooperative
+output; an incompatible MPP plan is rejected rather than silently changed.
+
+FP32 here specifies tensor types, not identical compiler math policies or
+bitwise reproducibility. Native/handwritten MPP explicitly disable fast math
+and relaxed precision; MPS uses `MPSKernelOptionsNone`, and Torch uses its
+recorded default MPS route. This driver does not independently override or
+validate the external TVMx Metal runtime's MSL fast-math flag. The deterministic
+benchmark inputs are dyadic and cannot alone certify multiplication precision;
+the separate kernel tests use non-dyadic inputs, transposes, tails and changed
+buffers. Keep those tests and policy checks alongside performance validation.
+
+### Same-source TIRx Runtime controls
+
+The Metal backend now accepts `tile::Lowering::TIRX` through the same Tile
+factory and ordinary Runtime shader/stream path as native MPP. The standalone
+`benchmark_tile_tirx` accepts a final `tvm` (default), `luisa`, or `luisa-fast`
+argument. The latter two compile unchanged TIRx-generated Metal source with
+fast math explicitly off/on. They share the same `capture()` function and
+planner options as the TVM runtime benchmark. No LLVM host wrapper is JITed
+for the Luisa path. Only a single static launch with FP32 buffer arguments is
+currently supported; unsupported host work is rejected rather than dropped.
+
+Add `--tirx-runtime-controls` to `compare_lowerings.py` to measure all seven
+paths. Its default becomes **14 rounds**, balancing positions and pairwise
+precedence across seven implementations. Every TIRx path dumps its generated
+source outside timing; the runner stores content-addressed sources and requires
+identical SHA-256 plus matching threadgroup widths before accepting a Runtime
+comparison. Whole-output FP64 validation still applies independently to every
+path. Compiler language/resource options and submission APIs may differ, so
+an equal source hash does not imply identical binaries or isolate launch cost.
+
+```sh
+uv run --no-project --python 3.13 --with torch --with numpy python \
+  scripts/benchmark/tile_torch/compare_lowerings.py \
+  --native cmake-build-tirx/bin/benchmark_tile_native \
+  --tirx cmake-build-tirx/bin/benchmark_tile_tirx \
+  --mpp cmake-build-tirx/bin/benchmark_tile_mpp \
+  --mps cmake-build-tirx/bin/benchmark_tile_system \
+  --mpp-plan scripts/benchmark/tile_torch/results/m1-max-20260904-mpp-search/results.json \
+  --tirx-plan scripts/benchmark/tile_torch/results/m1-max-20260904-joint-search/results.json \
+  --tirx-runtime-controls --rounds 14 \
+  --output /tmp/tile-runtime-comparison
+```
+
+### Independent TIRx MPP codegen
+
+`--tirx-mpp` adds a sixth path through TVM's own Metal MPP code generator,
+beside native MPP, default TIRx SIMD-group, handwritten MPP, MPS and Torch.
+It does not call the native emitter. Build the optional
+[pinned C++ TVM extension](../../../src/tile/bridge/tirx/patches/README.md)
+in isolation; normal TIRx builds need no patch. Complete the full build and
+correctness checks before comparing. The standalone matrix-mode argument
+`mpp` explicitly selects this realization; an unavailable extension is an
+error, never a fallback.
+
+Use the command above with the isolated binaries, `--tirx-mpp --rounds 12`,
+and repeat `--compiler-artifact /path/to/library` for `libtvm_compiler.dylib`,
+`libtvm_runtime.dylib`, `libtvm_runtime_metal.dylib` and `libtvm_ffi.dylib`.
+Those externally linked libraries are hashed before and after the run.
+The two TIRx paths use the same frozen geometry. The additional path must
+report actual generated MPP call sites, zero SIMD-group MMA call sites, and
+`cost_basis=metal_mpp_memory_v2`. That separately versioned relative-work score
+uses MPP memory/shape features, subgroup critical-path work and an outer
+program-wave prior. It is not an internal instruction count, measured register
+or occupancy value, or calibrated time prediction. Do not merge its timings
+into the SIMD-group cost model. With both optional comparisons enabled, eight
+paths require sixteen rounds instead.
+
+The [2026-09-04 six-path replay](results/m1-max-20260904-tirx-mpp/notes.md)
+records 576 valid complete outputs, library/source fingerprints, the retained
+1024³ regression versus original TIRx, and the remaining native/MPS gap.
+
+### Read-only snapshot forwarding before resource planning
+
+The optional TIRx MPP extension also supports a separately measured read-only
+view-forwarding family. Use `run.py --matrix-realization mpp-views` together with
+`--cooperative-matrix --execution-scope group --backends metal --operations gemm`
+and explicit tuning lists. Every candidate is captured/JIT-compiled again and
+validated; rejected capacities or padded full-K candidates remain in the report.
+Forwarding requires proved immutable, noalias, bounded input snapshots. Manual
+memory remains explicit. The `metal_mpp_memory_v2` basis remains an analytic
+prior, not a calibrated time model; Staged/JIT measurements choose the frozen
+schedule.
+
+For the independent comparison, add `--tirx-mpp --tirx-view-plan SEARCH/results.json`
+to `compare_lowerings.py`, with the ordinary `--tirx-plan` and external
+`--compiler-artifact` fingerprints. This retains original TIRx, staged TIRx MPP,
+native MPP, handwritten MPP, MPS and Torch and adds forwarding MPP as a seventh
+path. Fourteen rounds balance order. Both requested forwarding policy and actual
+MPP calls are checked. The view schedule is recorded separately; a geometry
+change is not presented as a same-geometry lowering-only speedup.
+
+The [seven-path replay](results/m1-max-20260904-tirx-views/notes.md) records
+784 valid complete outputs. On this M1 Max, 512³ measured 43.523 µs versus
+Torch's 48.794 µs; 1024³ measured 291.736 µs versus Torch's 291.133 µs and
+MPS's 278.687 µs. These are synchronized host-wall batched times, not GPU
+kernel durations. The large-GEMM library gap is reduced, not closed.
+
+The newer [MPP cost-model v2 search](results/m1-max-20260905-mpp-cost-v2-search/notes.md)
+separates subgroup critical-path work from whole-device waves. On the same
+finite calibration cohort it reduces mean/median/max model regret from
+74.18/43.05/239.58% to 8.82/2.59/34.37%; this is explicitly not a held-out
+result. Its [independent 14-round replay](results/m1-max-20260905-mpp-cost-v2-replay/notes.md)
+validates all 784 outputs and beats Torch and MPS on all eight tested FP32
+GEMMs. At 1024³, TIRx MPP views measure 270.675 µs versus MPS at 272.572 µs
+and Torch at 284.654 µs; the paired ratios are 0.9938× and 0.9513×. This does
+not establish other-device, low-precision or non-GEMM parity.
+
+Subgroup-fence elision is a separate, default-off tuning choice, not an
+automatic consequence of forwarding. `run.py --elide-independent-subgroup-barriers`
+selects it for `mpp-views`; `repeat.py --candidate-subgroup-fences elide` and
+`compare_lowerings.py --tirx-view-subgroup-fences elide` select it explicitly
+for their candidate/view path. Frozen reports preserve the policy. The native
+benchmark records both the requested policy and each group's independently
+proved `independent_subgroups` fact. Unsafe groups retain their fences even
+when elision is requested. The first four-round A/B found a **512³ regression**,
+so fewer barriers must not be assumed profitable or enabled by a shape table.
+
+For compiler implementation A/B tests, `repeat.py --capture-sources` requires
+both binaries to dump generated Metal, archives content-addressed sources and
+records each command. The runner fingerprints both executables, every adjacent
+runtime library and any explicit `--compiler-artifact` before and after timing;
+changing an artifact fails the run. No JIT/compiler boundary uses Python source
+generation: these Python programs only orchestrate benchmarks and oracles.
+
+## Handwritten MPP versus MPS
 
 `benchmark_tile_mpp` is a standalone hand-written Metal Performance Primitives
 GEMM probe, not a TileIR lowering and not an MPS library fallback. It needs a

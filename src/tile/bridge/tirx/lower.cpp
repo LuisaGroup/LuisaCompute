@@ -1,8 +1,12 @@
+#include <cmath>
 #include <exception>
 #include <functional>
+#include <initializer_list>
 #include <limits>
+#include <optional>
 #include <string>
 
+#include <tvm/ir/attrs.h>
 #include <tvm/tirx/buffer.h>
 #include <tvm/tirx/expr.h>
 #include <tvm/tirx/op.h>
@@ -21,6 +25,329 @@
 namespace luisa::compute::tile::bridge::tirx {
 
 namespace detail {
+
+namespace {
+
+struct WholeGemmContract {
+    uint64_t m;
+    uint64_t n;
+    uint64_t k;
+};
+
+[[nodiscard]] std::optional<uint64_t> static_extent(
+    const IndexSpace &space, size_t axis) noexcept {
+    if (axis >= space.rank()) { return std::nullopt; }
+    auto &&extent = space.axis(axis).extent;
+    if (!extent.is_constant()) { return std::nullopt; }
+    return extent.constant_value();
+}
+
+[[nodiscard]] bool has_shape(
+    const Type &type, std::initializer_list<uint64_t> extents) noexcept {
+    auto space = type.index_space();
+    if (space == nullptr || space->rank() != extents.size()) { return false; }
+    auto axis = size_t{0u};
+    for (auto extent : extents) {
+        if (static_extent(*space, axis++) != extent) { return false; }
+    }
+    return true;
+}
+
+[[nodiscard]] std::optional<uint64_t> unsigned_constant(
+    const Value *value) noexcept {
+    if (value == nullptr || value->origin() != Value::Origin::OPERATION_RESULT) {
+        return std::nullopt;
+    }
+    auto operation = value->defining_operation();
+    if (operation == nullptr || operation->kind() != OperationKind::CONSTANT ||
+        operation->result_count() != 1u || operation->result(0u) != value) {
+        return std::nullopt;
+    }
+    auto attribute = operation->attribute("value");
+    if (attribute == nullptr) { return std::nullopt; }
+    auto &&payload = attribute->value();
+    if (auto item = luisa::get_if<uint64_t>(&payload)) { return *item; }
+    if (auto item = luisa::get_if<int64_t>(&payload); item != nullptr && *item >= 0) {
+        return static_cast<uint64_t>(*item);
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] bool is_zero_constant(const Value *value) noexcept {
+    if (auto item = unsigned_constant(value)) { return *item == 0u; }
+    if (value == nullptr || value->origin() != Value::Origin::OPERATION_RESULT) {
+        return false;
+    }
+    auto operation = value->defining_operation();
+    if (operation == nullptr || operation->kind() != OperationKind::CONSTANT) {
+        return false;
+    }
+    auto attribute = operation->attribute("value");
+    if (attribute == nullptr) { return false; }
+    if (auto item = luisa::get_if<double>(&attribute->value())) { return *item == 0.0; }
+    return false;
+}
+
+[[nodiscard]] bool is_infinity_constant(
+    const Value *value, bool negative) noexcept {
+    if (value == nullptr || value->origin() != Value::Origin::OPERATION_RESULT) {
+        return false;
+    }
+    auto operation = value->defining_operation();
+    if (operation == nullptr || operation->kind() != OperationKind::CONSTANT) {
+        return false;
+    }
+    auto attribute = operation->attribute("value");
+    if (attribute == nullptr) { return false; }
+    auto item = luisa::get_if<double>(&attribute->value());
+    return item != nullptr && std::isinf(*item) && std::signbit(*item) == negative;
+}
+
+[[nodiscard]] std::optional<int64_t> match_reduction_contract(
+    const Operation &operation) noexcept {
+    if (operation.kind() != OperationKind::REDUCE || !operation.domain() ||
+        operation.domain()->rank() != 1u || operation.operand_count() != 1u ||
+        operation.result_count() != 1u || operation.region_count() != 1u ||
+        operation.operand(0u)->type().kind() != TypeKind::SCALAR ||
+        operation.operand(0u)->type().scalar_type() != ScalarType::FLOAT32 ||
+        operation.result(0u)->type() != operation.operand(0u)->type() ||
+        operation.region(0u)->block_count() != 1u) { return std::nullopt; }
+    auto body = operation.region(0u)->block(0u);
+    if (body->argument_count() != 2u || body->operation_count() != 3u) {
+        return std::nullopt;
+    }
+    auto extract = body->operation(0u);
+    auto combine = body->operation(1u);
+    auto yield = body->operation(2u);
+    if (extract->kind() != OperationKind::TILE_EXTRACT ||
+        extract->result_count() != 1u || extract->result(0u)->type().kind() != TypeKind::SCALAR ||
+        extract->result(0u)->type().scalar_type() != ScalarType::FLOAT32 ||
+        combine->kind() != OperationKind::ELEMENTWISE || combine->operand_count() != 2u ||
+        combine->result_count() != 1u || combine->result(0u)->type() != operation.result(0u)->type() ||
+        yield->kind() != OperationKind::YIELD || yield->operand_count() != 1u ||
+        yield->operand(0u) != combine->result(0u)) { return std::nullopt; }
+    auto carry = body->argument(1u);
+    auto element = extract->result(0u);
+    if (!((combine->operand(0u) == carry && combine->operand(1u) == element) ||
+          (combine->operand(1u) == carry && combine->operand(0u) == element))) {
+        return std::nullopt;
+    }
+    switch (combine->elementwise_op()) {
+        case ElementwiseOp::ADD:
+            return is_zero_constant(operation.operand(0u)) ?
+                       std::optional<int64_t>{reduction_add_contract} : std::nullopt;
+        case ElementwiseOp::MAX:
+            return is_infinity_constant(operation.operand(0u), true) ?
+                       std::optional<int64_t>{reduction_max_contract} : std::nullopt;
+        case ElementwiseOp::MIN:
+            return is_infinity_constant(operation.operand(0u), false) ?
+                       std::optional<int64_t>{reduction_min_contract} : std::nullopt;
+        default: return std::nullopt;
+    }
+}
+
+[[nodiscard]] bool scaled_index(
+    const Value *value, const Value *index, uint64_t scale) noexcept {
+    if (value == nullptr || index == nullptr ||
+        value->origin() != Value::Origin::OPERATION_RESULT) { return false; }
+    auto operation = value->defining_operation();
+    if (operation == nullptr || operation->kind() != OperationKind::ELEMENTWISE ||
+        operation->elementwise_op() != ElementwiseOp::MUL ||
+        operation->operand_count() != 2u || operation->result_count() != 1u ||
+        operation->result(0u) != value) { return false; }
+    auto lhs = operation->operand(0u);
+    auto rhs = operation->operand(1u);
+    return (lhs == index && unsigned_constant(rhs) == scale) ||
+           (rhs == index && unsigned_constant(lhs) == scale);
+}
+
+[[nodiscard]] bool same_dimension(
+    const IndexSpace &lhs, size_t lhs_axis,
+    const IndexSpace &rhs, size_t rhs_axis) noexcept {
+    return lhs_axis < lhs.rank() && rhs_axis < rhs.rank() &&
+           lhs.axis(lhs_axis).dimension == rhs.axis(rhs_axis).dimension;
+}
+
+[[nodiscard]] constexpr uint64_t ceil_div_positive(
+    uint64_t value, uint64_t divisor) noexcept {
+    return value / divisor + static_cast<uint64_t>(value % divisor != 0u);
+}
+
+[[nodiscard]] std::optional<WholeGemmContract> match_whole_gemm(
+    const Function &function) noexcept {
+    if (function.body().block_count() != 1u) { return std::nullopt; }
+    auto root = function.body().block(0u);
+    if (root->argument_count() != 3u || root->operation_count() != 1u) {
+        return std::nullopt;
+    }
+    auto a_view = root->argument(0u);
+    auto b_view = root->argument(1u);
+    auto c_view = root->argument(2u);
+    for (auto view : {a_view, b_view, c_view}) {
+        if (!view->type().is_view() || view->type().scalar_type() != ScalarType::FLOAT32 ||
+            view->type().index_space() == nullptr || view->type().index_space()->rank() != 2u) {
+            return std::nullopt;
+        }
+    }
+    auto a_space = a_view->type().index_space();
+    auto b_space = b_view->type().index_space();
+    auto c_space = c_view->type().index_space();
+    auto m = static_extent(*a_space, 0u);
+    auto k = static_extent(*a_space, 1u);
+    auto b_k = static_extent(*b_space, 0u);
+    auto n = static_extent(*b_space, 1u);
+    if (!m || !n || !k || *m == 0u || *n == 0u || *k == 0u ||
+        b_k != k || static_extent(*c_space, 0u) != m ||
+        static_extent(*c_space, 1u) != n) { return std::nullopt; }
+
+    auto parallel = root->operation(0u);
+    if (parallel->kind() != OperationKind::PARALLEL ||
+        parallel->operand_count() != 0u || parallel->result_count() != 0u ||
+        parallel->region_count() != 1u || !parallel->domain() ||
+        parallel->domain()->rank() != 2u ||
+        parallel->execution_scope_constraint() ||
+        parallel->resource_class_constraint() ||
+        parallel->region(0u)->block_count() != 1u) { return std::nullopt; }
+    auto body = parallel->region(0u)->block(0u);
+    if (body->argument_count() != 2u || body->operation_count() != 8u) {
+        return std::nullopt;
+    }
+
+    const Operation *pipeline = nullptr;
+    const Operation *store = nullptr;
+    const Operation *outer_yield = nullptr;
+    size_t constants = 0u;
+    size_t multiplies = 0u;
+    for (auto operation : body->operations()) {
+        switch (operation->kind()) {
+            case OperationKind::CONSTANT: constants++; break;
+            case OperationKind::ELEMENTWISE:
+                if (operation->elementwise_op() != ElementwiseOp::MUL) { return std::nullopt; }
+                multiplies++;
+                break;
+            case OperationKind::PIPELINE:
+                if (pipeline != nullptr) { return std::nullopt; }
+                pipeline = operation;
+                break;
+            case OperationKind::VIEW_STORE:
+                if (store != nullptr) { return std::nullopt; }
+                store = operation;
+                break;
+            case OperationKind::YIELD:
+                if (outer_yield != nullptr) { return std::nullopt; }
+                outer_yield = operation;
+                break;
+            default: return std::nullopt;
+        }
+    }
+    if (constants != 3u || multiplies != 2u || pipeline == nullptr ||
+        store == nullptr || outer_yield == nullptr ||
+        outer_yield->operand_count() != 0u ||
+        outer_yield != body->operation(body->operation_count() - 1u)) {
+        return std::nullopt;
+    }
+    if (pipeline->operand_count() != 1u || pipeline->result_count() != 1u ||
+        pipeline->region_count() != 1u || !pipeline->domain() ||
+        pipeline->domain()->rank() != 1u ||
+        pipeline->execution_scope_constraint() || pipeline->resource_class_constraint() ||
+        pipeline->region(0u)->block_count() != 1u) { return std::nullopt; }
+    auto accumulator = pipeline->operand(0u);
+    auto result = pipeline->result(0u);
+    if (!is_zero_constant(accumulator) ||
+        accumulator->type().scalar_type() != ScalarType::FLOAT32 ||
+        !(accumulator->type() == result->type()) ||
+        !accumulator->type().is_tile()) { return std::nullopt; }
+    auto result_space = result->type().index_space();
+    if (result_space == nullptr || result_space->rank() != 2u) { return std::nullopt; }
+    auto bm = static_extent(*result_space, 0u);
+    auto bn = static_extent(*result_space, 1u);
+    if (!bm || !bn || *bm == 0u || *bn == 0u ||
+        static_extent(*parallel->domain(), 0u) != ceil_div_positive(*m, *bm) ||
+        static_extent(*parallel->domain(), 1u) != ceil_div_positive(*n, *bn)) {
+        return std::nullopt;
+    }
+    auto m0 = store->operand_count() == 4u ? store->operand(1u) : nullptr;
+    auto n0 = store->operand_count() == 4u ? store->operand(2u) : nullptr;
+    if (store->bounds_mode() != BoundsMode::ZERO || !store->domain() ||
+        store->operand_count() != 4u || store->operand(0u) != c_view ||
+        store->operand(3u) != result || *store->domain() != *result_space ||
+        !scaled_index(m0, body->argument(0u), *bm) ||
+        !scaled_index(n0, body->argument(1u), *bn)) { return std::nullopt; }
+
+    auto pipeline_body = pipeline->region(0u)->block(0u);
+    if (pipeline_body->argument_count() != 2u ||
+        pipeline_body->argument(1u)->type() != accumulator->type()) {
+        return std::nullopt;
+    }
+    const Operation *mma = nullptr;
+    const Operation *inner_yield = nullptr;
+    luisa::vector<const Operation *> loads;
+    size_t inner_constants = 0u;
+    size_t inner_multiplies = 0u;
+    for (auto operation : pipeline_body->operations()) {
+        switch (operation->kind()) {
+            case OperationKind::CONSTANT: inner_constants++; break;
+            case OperationKind::ELEMENTWISE:
+                if (operation->elementwise_op() != ElementwiseOp::MUL) { return std::nullopt; }
+                inner_multiplies++;
+                break;
+            case OperationKind::STAGE: break;
+            case OperationKind::VIEW_LOAD: loads.emplace_back(operation); break;
+            case OperationKind::MMA:
+                if (mma != nullptr) { return std::nullopt; }
+                mma = operation;
+                break;
+            case OperationKind::YIELD:
+                if (inner_yield != nullptr) { return std::nullopt; }
+                inner_yield = operation;
+                break;
+            default: return std::nullopt;
+        }
+    }
+    if (inner_constants != 1u || inner_multiplies != 1u || loads.size() != 2u ||
+        mma == nullptr || inner_yield == nullptr ||
+        inner_yield != pipeline_body->operation(pipeline_body->operation_count() - 1u) ||
+        mma->operand_count() != 3u || mma->result_count() != 1u ||
+        !mma->mma_policy().allow_reassociation ||
+        mma->operand(2u) != pipeline_body->argument(1u) ||
+        inner_yield->operand_count() != 1u || inner_yield->operand(0u) != mma->result(0u)) {
+        return std::nullopt;
+    }
+    auto a_load = mma->operand(0u)->defining_operation();
+    auto b_load = mma->operand(1u)->defining_operation();
+    if (a_load == nullptr || b_load == nullptr || a_load == b_load ||
+        a_load->kind() != OperationKind::VIEW_LOAD ||
+        b_load->kind() != OperationKind::VIEW_LOAD ||
+        (a_load != loads[0u] && a_load != loads[1u]) ||
+        (b_load != loads[0u] && b_load != loads[1u]) ||
+        a_load->bounds_mode() != BoundsMode::ZERO ||
+        b_load->bounds_mode() != BoundsMode::ZERO ||
+        a_load->operand_count() != 3u || b_load->operand_count() != 3u ||
+        a_load->operand(0u) != a_view || b_load->operand(0u) != b_view ||
+        !a_load->domain() || !b_load->domain()) { return std::nullopt; }
+    auto a_tile = a_load->result(0u)->type().index_space();
+    auto b_tile = b_load->result(0u)->type().index_space();
+    if (a_tile == nullptr || b_tile == nullptr || a_tile->rank() != 2u || b_tile->rank() != 2u ||
+        static_extent(*a_tile, 0u) != bm || static_extent(*b_tile, 1u) != bn) {
+        return std::nullopt;
+    }
+    auto bk = static_extent(*a_tile, 1u);
+    if (!bk || *bk == 0u || static_extent(*b_tile, 0u) != bk ||
+        !same_dimension(*a_tile, 0u, *result_space, 0u) ||
+        !same_dimension(*a_tile, 1u, *b_tile, 0u) ||
+        !same_dimension(*b_tile, 1u, *result_space, 1u) ||
+        static_extent(*pipeline->domain(), 0u) != ceil_div_positive(*k, *bk)) {
+        return std::nullopt;
+    }
+    auto k0 = a_load->operand(2u);
+    if (a_load->operand(1u) != m0 || b_load->operand(1u) != k0 ||
+        b_load->operand(2u) != n0 ||
+        !scaled_index(k0, pipeline_body->argument(0u), *bk) ||
+        !(mma->result(0u)->type() == result->type())) { return std::nullopt; }
+    return WholeGemmContract{*m, *n, *k};
+}
+
+}// namespace
 
 class FunctionLowerer final {
 
@@ -299,7 +626,22 @@ private:
         });
     }
 
-    void _lower_tile_elementwise(const Operation &operation) {
+    [[nodiscard]] static bool _worth_materializing(ElementwiseOp op) noexcept {
+        // Shared cheap arithmetic normally benefits from fusion. Transcendentals
+        // are different: expanding the same lazy Tile expression into a reduce
+        // and a later consumer duplicates substantial work and can leave one
+        // copy scalar. Materialize only this conservative, target-independent
+        // class here; a target cost model may grow the policy later.
+        switch (op) {
+            case ElementwiseOp::EXP:
+            case ElementwiseOp::LOG:
+            case ElementwiseOp::SQRT:
+            case ElementwiseOp::TANH: return true;
+            default: return false;
+        }
+    }
+
+    void _lower_tile_elementwise(const Operation &operation, Statements &statements) {
         auto result = operation.result(0);
         luisa::vector<TileExpression> inputs;
         for (auto i = 0u; i < operation.operand_count(); i++) {
@@ -307,11 +649,28 @@ private:
         }
         auto op = operation.elementwise_op();
         auto type = _primitive_type(result->type());
-        _tiles.insert_or_assign(result, [inputs = std::move(inputs), op, type](const Indices &indices) {
+        TileExpression expression = [inputs = std::move(inputs), op, type](const Indices &indices) {
             luisa::vector<tvm::PrimExpr> elements;
             for (auto &&input : inputs) { elements.emplace_back(input(indices)); }
             return _apply_elementwise(op, elements, type);
-        });
+        };
+        if (_worth_materializing(op) && result->use_count() > 1u) {
+            auto buffer = _new_storage(result->type(), statements);
+            auto materialization = _for_each(*result->type().index_space(), [&](const Indices &indices) {
+                return tvm::tirx::BufferStore{buffer, expression(indices), indices};
+            });
+            if (op == ElementwiseOp::EXP) {
+                if (auto loop = materialization.as<tvm::tirx::For>()) {
+                    loop.value().CopyOnWrite()->annotations.Set(
+                        materialized_exp_annotation, tvm::IntImm::Int32(1));
+                    materialization = loop.value();
+                }
+            }
+            statements.push_back(std::move(materialization));
+            _bind_storage(result, std::move(buffer));
+        } else {
+            _tiles.insert_or_assign(result, std::move(expression));
+        }
     }
 
     void _lower_tile_load(const Operation &operation, Statements &statements) {
@@ -402,6 +761,7 @@ private:
         if (auto resource = operation.resource_class_constraint()) {
             annotations.Set(memory_resource_annotation, tvm::ffi::String{std::string{*resource}});
         }
+        annotations.Set(manual_memory_annotation, tvm::IntImm::Bool(true));
         statements.push_back(tvm::tirx::AllocBuffer{buffer, std::move(annotations)});
         _memories.emplace(memory, std::move(buffer));
     }
@@ -638,6 +998,14 @@ private:
                     std::move(loop_body)};
             }
         }
+        if (auto contract = match_reduction_contract(operation)) {
+            if (auto loop = loop_body.as<tvm::tirx::For>()) {
+                loop.value().CopyOnWrite()->annotations.Set(
+                    reduction_contract_annotation,
+                    tvm::IntImm::Int32(*contract));
+                loop_body = loop.value();
+            }
+        }
         prefix.push_back(std::move(loop_body));
         for (auto i = 0u; i < operation.result_count(); i++) {
             if (carries[i].defined()) { _bind_storage(operation.result(i), carries[i]); }
@@ -661,7 +1029,7 @@ private:
             }
             case OperationKind::ELEMENTWISE:
                 if (operation.result(0)->type().is_tile()) {
-                    _lower_tile_elementwise(operation);
+                    _lower_tile_elementwise(operation, statements);
                 } else {
                     _bind_expression(operation.result(0u), _elementwise(operation));
                 }
@@ -895,6 +1263,12 @@ public:
             return result;
         }
         result.value = tvm::tirx::PrimFunc{std::move(parameters), std::move(body)};
+        if (auto contract = match_whole_gemm(_function)) {
+            result.value = tvm::WithAttr(std::move(result.value), whole_gemm_contract_annotation, int64_t{1});
+            result.value = tvm::WithAttr(std::move(result.value), whole_gemm_m_annotation, static_cast<int64_t>(contract->m));
+            result.value = tvm::WithAttr(std::move(result.value), whole_gemm_n_annotation, static_cast<int64_t>(contract->n));
+            result.value = tvm::WithAttr(std::move(result.value), whole_gemm_k_annotation, static_cast<int64_t>(contract->k));
+        }
         return result;
     }
 };

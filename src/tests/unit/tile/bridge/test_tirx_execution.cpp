@@ -6,7 +6,10 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
+#include <limits>
 #include <string_view>
+#include <tvm/tirx/op.h>
 #include <tvm/tirx/stmt_functor.h>
 
 #include <luisa/core/mathematics.h>
@@ -60,6 +63,124 @@ void test_empty_parallel(Runtime &runtime) {
     check_copy(runtime, exec::Scope::AUTOMATIC, 0);
     check_copy(runtime, exec::Scope::WORKER, 0);
     if (runtime.target() == "metal") { check_copy(runtime, exec::Scope::GROUP, 0); }
+}
+
+[[nodiscard]] bool has_cpu_parallel_launch(const luisa::test::tile_tirx::Executable &executable) {
+    if (!executable.module) { return false; }
+    auto source = executable.module.value()->InspectSource("ll");
+    auto code = std::string_view{source.data(), source.size()};
+    return code.find("load ptr, ptr @__TVMBackendParallelLaunch") != std::string_view::npos;
+}
+
+[[nodiscard]] Kernel make_exp_copy(exec::Scope scope, int64_t count) {
+    auto definition = tile_kernel("execution_exp_copy", [scope, count](TensorView<const float, 1> input,
+                                                                        TensorView<float, 1> output) {
+        for (auto &nest : parallel(shape(count), scope)) {
+            auto origin = coord(nest.index());
+            output(origin, shape(1)).store(exp(input[origin, shape(1)]));
+        }
+    });
+    return definition.capture(tensor_shape(count), tensor_shape(count));
+}
+
+void test_cpu_parallel_launch_cost(Runtime &runtime) {
+    if (runtime.target() != "llvm") { return; }
+    auto small = runtime.build(make_copy(exec::Scope::AUTOMATIC, 7));
+    auto expensive = runtime.build(make_exp_copy(exec::Scope::AUTOMATIC, 7));
+    auto explicit_worker = runtime.build(make_copy(exec::Scope::WORKER, 7));
+    auto boundary = runtime.build(make_copy(exec::Scope::AUTOMATIC, 64));
+    auto disabled_options = PlannerOptions{};
+    disabled_options.enabled = false;
+    auto disabled = runtime.build(make_copy(exec::Scope::AUTOMATIC, 7), false, false, true, false, disabled_options);
+    for (auto executable : {&small, &expensive, &explicit_worker, &boundary, &disabled}) {
+        expect(executable->ok()) << executable->error;
+    }
+    if (!small.ok() || !expensive.ok() || !explicit_worker.ok() || !boundary.ok() || !disabled.ok()) { return; }
+    expect(!has_cpu_parallel_launch(small));
+    expect(has_cpu_parallel_launch(expensive));
+    expect(has_cpu_parallel_launch(explicit_worker));
+    expect(has_cpu_parallel_launch(boundary));
+    expect(has_cpu_parallel_launch(disabled));
+}
+
+void test_shared_exp_is_materialized_once() {
+    auto definition = tile_kernel("shared_exp", [](TensorView<const float, 2> input,
+                                                    TensorView<float, 2> output) {
+        auto row = axis("row", input.extent<0>());
+        auto column = axis("column", input.extent<1>());
+        auto one = axis("one", 1);
+        for (auto &nest : parallel(shape(row))) {
+            auto origin = coord(nest.index(), 0);
+            auto value = input[origin, shape(one, column)];
+            auto exponential = exp(value);
+            output(origin, shape(one, column)).store(exponential + reduce(exponential, column, add));
+        }
+    });
+    auto kernel = definition.capture(tensor_shape(3, 37), tensor_shape(3, 37));
+    auto native = lower(kernel.function());
+    expect(native.ok()) << native.error;
+    if (!native) { return; }
+    auto exp_op = tvm::Op::Get("tirx.exp");
+    auto calls = 0u;
+    tvm::tirx::PostOrderVisit(native.value->body, [&](const tvm::ffi::ObjectRef &node) {
+        if (auto call = node.as<tvm::CallNode>()) { calls += call->op.same_as(exp_op); }
+    });
+    expect(eq(calls, 1u));
+}
+
+void test_cpu_accelerate_math(Runtime &runtime) {
+    auto definition = tile_kernel("accelerate_exp", [](TensorView<const float, 2> input,
+                                                        TensorView<float, 2> output) {
+        auto row = axis("row", input.extent<0>());
+        auto column = axis("column", input.extent<1>());
+        auto one = axis("one", 1);
+        for (auto &nest : parallel(shape(row))) {
+            auto origin = coord(nest.index(), 0);
+            auto value = input[origin, shape(one, column)];
+            auto exponential = exp(value);
+            output(origin, shape(one, column)).store(exponential + reduce(exponential, column, add));
+        }
+    });
+    auto kernel = definition.capture(tensor_shape(3, 37), tensor_shape(3, 37));
+    auto planner = PlannerOptions{};
+    planner.max_cpu_stack_bytes = 4096u;
+    auto executable = runtime.build(
+        kernel, true, false, true, true, planner, false, true,
+        CpuMatrixBackend::REFERENCE, CpuMathBackend::ACCELERATE);
+    if (runtime.target() != "llvm") {
+        expect(!executable.ok());
+        expect(executable.error.find("array-math") != luisa::string::npos) << executable.error;
+        return;
+    }
+    expect(executable.ok()) << executable.error;
+    if (!executable.ok()) { return; }
+    auto source = executable.module.value()->InspectSource("ll");
+    auto code = std::string_view{source.data(), source.size()};
+    expect(code.find("call void @luisa_tile_accelerate_expf(") != std::string_view::npos) << source;
+    expect(code.find("call void @luisa_tile_accelerate_reduce_add_f32(") != std::string_view::npos) << source;
+    auto provider_calls = 0u;
+    constexpr auto prefix = std::string_view{"call void @luisa_tile_accelerate_"};
+    for (auto position = code.find(prefix); position != std::string_view::npos;
+         position = code.find(prefix, position + prefix.size())) { provider_calls++; }
+    expect(eq(provider_calls, 2u)) << source;
+    luisa::vector<float> values(3u * 37u);
+    for (auto i = 0u; i < values.size(); i++) {
+        values[i] = static_cast<float>(static_cast<int>(i % 23u) - 11) * 0.0625f;
+    }
+    auto input = runtime.upload<float>({3, 37}, values);
+    auto output = runtime.allocate<float>({3, 37});
+    (*executable.entry)(input, output);
+    auto actual = runtime.download<float>(output, values.size());
+    for (auto row = 0u; row < 3u; row++) {
+        auto sum = 0.0f;
+        for (auto column = 0u; column < 37u; column++) {
+            sum += std::exp(values[row * 37u + column]);
+        }
+        for (auto column = 0u; column < 37u; column++) {
+            auto expected = std::exp(values[row * 37u + column]) + sum;
+            expect(std::abs(actual[row * 37u + column] - expected) <= 2e-5f * std::max(1.0f, std::abs(expected)));
+        }
+    }
 }
 
 void test_scope_survives_export() {
@@ -262,6 +383,96 @@ void test_vector_roots_and_nesting(Runtime &runtime) {
     }
 }
 
+enum class VectorGuardCase { BOUNDS,
+                             HOLE,
+                             TEMPORAL,
+                             CONDITIONAL,
+                             NESTED_LAZY,
+                             DYNAMIC_DIVISOR,
+                             DYNAMIC_TEMPORAL };
+
+void test_auto_vector_guards(Runtime &runtime) {
+    if (runtime.target() != "llvm") { return; }
+    auto i64 = [](int64_t value) { return tvm::IntImm::Int64(value); };
+    auto f32 = [](float value) { return tvm::FloatImm{tvm::PrimType::Float(32), value}; };
+    for (auto mode : {VectorGuardCase::BOUNDS, VectorGuardCase::HOLE, VectorGuardCase::TEMPORAL,
+                      VectorGuardCase::CONDITIONAL, VectorGuardCase::NESTED_LAZY, VectorGuardCase::DYNAMIC_DIVISOR, VectorGuardCase::DYNAMIC_TEMPORAL}) {
+        auto a = tvm::tirx::decl_buffer({i64(37)}, tvm::PrimType::Float(32), "input");
+        auto d = tvm::tirx::decl_buffer({i64(4), i64(35)}, tvm::PrimType::Float(32), "output");
+        auto origin = tvm::tirx::PrimVar{"origin", tvm::PrimType::Int(64)};
+        auto trips = tvm::tirx::PrimVar{"trips", tvm::PrimType::Int(64)};
+        auto row = tvm::tirx::PrimVar{"row", tvm::PrimType::Int(64)};
+        auto column = tvm::tirx::PrimVar{"column", tvm::PrimType::Int(64)};
+        auto time = tvm::tirx::PrimVar{"time", tvm::PrimType::Int(64)};
+        auto col = column - i64(7);
+        auto temporal = mode == VectorGuardCase::TEMPORAL || mode == VectorGuardCase::DYNAMIC_TEMPORAL;
+        tvm::PrimExpr address = origin + col;
+        if (temporal) { address += time; }
+        if (mode == VectorGuardCase::DYNAMIC_DIVISOR) { address = tvm::floordiv(col, origin); }
+        tvm::PrimExpr guard = address >= i64(0) && address < i64(37);
+        if (mode == VectorGuardCase::HOLE) {
+            // The endpoints can both be valid while interior lanes are not.
+            guard = guard && tvm::floormod(col, i64(7)) != i64(3);
+        }
+        auto value = tvm::if_then_else(guard, tvm::tirx::BufferLoad{a, {address}}, f32(-2.25f));
+        if (mode == VectorGuardCase::NESTED_LAZY) { value = tvm::if_then_else(origin < i64(100), value, f32(-2.25f)); }
+        if (mode == VectorGuardCase::DYNAMIC_DIVISOR) { value = tvm::if_then_else(origin > i64(0), value, f32(-2.25f)); }
+        tvm::ffi::Array<tvm::PrimExpr> output_index{row, col};
+        tvm::tirx::Stmt body = tvm::tirx::BufferStore{d, tvm::tirx::BufferLoad{d, output_index} + value * f32(2.0f), output_index};
+        if (temporal) {
+            body = tvm::tirx::For{time, i64(0), mode == VectorGuardCase::DYNAMIC_TEMPORAL ? tvm::PrimExpr{trips} : tvm::PrimExpr{i64(3)}, tvm::tirx::ForKind::kSerial, std::move(body)};
+        }
+        if (mode == VectorGuardCase::CONDITIONAL) { body = tvm::tirx::IfThenElse{origin < i64(100), std::move(body)}; }
+        body = tvm::tirx::SeqStmt{{tvm::tirx::BufferStore{d, f32(0.5f), output_index}, std::move(body)}};
+        body = tvm::tirx::For{column, i64(7), i64(35), tvm::tirx::ForKind::kSerial, std::move(body)};
+        body = tvm::tirx::For{row, i64(0), i64(4), tvm::tirx::ForKind::kSerial, std::move(body), {}, {{"luisa.tile.independent_elements", tvm::IntImm::Int32(2)}}};
+        auto function = tvm::tirx::PrimFunc{{a, d, origin, trips}, std::move(body)};
+        for (auto lanes : {0u, 16u, 64u}) {
+            CompileOptions options;
+            options.target = "llvm";
+            options.auto_vectorize = lanes != 0u;
+            options.planner.max_cpu_vector_lanes = lanes == 0u ? 16u : lanes;
+            auto compiled = compile(function, "auto_vector_guards", options);
+            expect(compiled.ok()) << compiled.error();
+            if (!compiled) { continue; }
+            auto entry = compiled.module().value()->GetFunction("auto_vector_guards", true);
+            expect(entry.has_value());
+            if (!entry) { continue; }
+            luisa::vector<float> input(37);
+            for (auto i = 0u; i < input.size(); i++) { input[i] = static_cast<float>(i) * 0.125f - 1.0f; }
+            auto source = runtime.upload<float>({37}, input);
+            for (auto start : {int64_t{-9}, int64_t{0}, int64_t{16}, int64_t{34}, int64_t{37}, std::numeric_limits<int64_t>::max() - 16}) {
+                auto huge = start > 100;
+                if (huge && mode != VectorGuardCase::CONDITIONAL && mode != VectorGuardCase::NESTED_LAZY && mode != VectorGuardCase::DYNAMIC_TEMPORAL) { continue; }
+                for (auto count : {int64_t{0}, int64_t{3}}) {
+                    // A zero-trip/untaken region must not evaluate its address
+                    // arithmetic (which would overflow for this sentinel).
+                    if (huge && mode == VectorGuardCase::DYNAMIC_TEMPORAL && count != 0) { continue; }
+                    auto output = runtime.upload<float>({4, 35}, luisa::vector<float>(140, -19.0f));
+                    (*entry)(source, output, start, count);
+                    auto actual = runtime.download<float>(output, 140u);
+                    for (auto i = 0u; i < actual.size(); i++) {
+                        auto c = static_cast<int64_t>(i % 35u);
+                        auto expected = 0.5f;
+                        auto iterations = mode == VectorGuardCase::DYNAMIC_TEMPORAL ? count : temporal ? 3 :
+                                                                                                         1;
+                        if (mode == VectorGuardCase::CONDITIONAL && huge) { iterations = 0; }
+                        for (auto t = int64_t{0}; t < iterations; t++) {
+                            auto v = -2.25f;
+                            if (!(mode == VectorGuardCase::NESTED_LAZY && huge) && !(mode == VectorGuardCase::DYNAMIC_DIVISOR && start <= 0)) {
+                                auto index = mode == VectorGuardCase::DYNAMIC_DIVISOR ? c / start : start + c + (temporal ? t : 0);
+                                if (index >= 0 && index < 37 && !(mode == VectorGuardCase::HOLE && c % 7 == 3)) { v = input[index]; }
+                            }
+                            expected += v * 2.0f;
+                        }
+                        expect(eq(actual[i], expected)) << "mode=" << static_cast<uint32_t>(mode) << " lanes=" << lanes << " start=" << start << " count=" << count << " i=" << i;
+                    }
+                }
+            }
+        }
+    }
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -270,6 +481,9 @@ int main(int argc, char *argv[]) {
                                                     const_cast<const char **>(argc > 1 ? argv + 1 : argv));
     "tile_execution_explicit_worker"_test = [&] { test_explicit_worker(runtime); };
     "tile_execution_empty_domain"_test = [&] { test_empty_parallel(runtime); };
+    "tile_execution_cpu_parallel_launch_cost"_test = [&] { test_cpu_parallel_launch_cost(runtime); };
+    "tile_execution_shared_exp_materialization"_test = test_shared_exp_is_materialized_once;
+    "tile_execution_cpu_accelerate_math"_test = [&] { test_cpu_accelerate_math(runtime); };
     "tile_execution_scope_preserved"_test = test_scope_survives_export;
     "tile_execution_unsupported_scopes"_test = [&] { test_unsupported_scopes(runtime); };
     "tile_execution_unknown_scope"_test = [&] { test_unknown_scope(runtime); };
@@ -277,4 +491,5 @@ int main(int argc, char *argv[]) {
     "tile_execution_worker_vector"_test = [&] { test_worker_vector(runtime); };
     "tile_execution_vector_private_tiles_and_carries"_test = [&] { test_vector_private_tiles_and_carries(runtime); };
     "tile_execution_vector_roots_and_nesting"_test = [&] { test_vector_roots_and_nesting(runtime); };
+    "tile_execution_auto_vector_guards"_test = [&] { test_auto_vector_guards(runtime); };
 }

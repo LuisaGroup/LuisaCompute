@@ -240,6 +240,20 @@ for _, standard in ipairs({20, 23}) do
         end
     end, nil, "cxx" .. standard)
 end
+if has_config("lc_metal_backend") and is_plat("macosx") then
+    test_proj("test_tile_native_codegen", "unit/tile/test_tile_native_codegen.cpp", false, function()
+        add_deps("lc-tile")
+        add_files("../backends/metal/tile/metal_tile_codegen.cpp")
+        add_includedirs("../backends/metal/tile")
+    end)
+    test_proj("test_tile_native_runtime", "unit/tile/test_tile_native_runtime.cpp", false, function()
+        add_deps("lc-tile")
+    end)
+    test_proj("benchmark_tile_native", "benchmark/benchmark_tile_native.cpp", false, function()
+        add_deps("lc-tile")
+    end)
+end
+
 -- unit/dsl
 test_proj("test_binding_group", "unit/dsl/test_binding_group.cpp")
 test_proj("test_binding_group_template", "unit/dsl/test_binding_group_template.cpp")

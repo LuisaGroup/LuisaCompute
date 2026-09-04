@@ -4,6 +4,11 @@ Status: the Metal FP32 matrix realization described in sections 4--6 is
 implemented. The target-independent formulation and later search strategies
 describe the extension contract, not features already available on every target.
 
+The independent [XIR/SIMD CPU planner](tile_xir_design.md) now searches root
+axis order and Runtime worker packing using a separate relative-work model.
+It does not reuse GPU occupancy equations or claim that Tile partitioning,
+cache blocking and physical pipelining are already implemented.
+
 The planner chooses an implementation of the existing execution structure. It
 does not introduce a second programming language, infer a new meaning for
 `parallel`, or let a fast candidate override memory and numerical semantics.
@@ -143,6 +148,54 @@ unmeasured/uncertain choices as such; a noisy minimum is not a stable win.
 
 ### 3.3 Concrete contract for the calibrated model
 
+The optional TIRx MPP path now has a separate read-only snapshot-forwarding
+candidate family. Its order is `effect/bounds proof -> snapshot forwarding ->
+pipeline planning -> group resource/geometry planning -> typed MPP codegen`.
+Full-K global views therefore do not consume imaginary shared A/B allocations.
+Contract v2 also distinguishes an overwriting MPP multiply from
+multiply-accumulate. The bridge selects it only for a reassociable standalone
+positive-zero MMA or a closed positive-zero direct-output recurrence with one
+static iteration; nonzero/negative-zero C, multiple K steps and observable
+carry state retain accumulation. Mode is therefore a derived legal-realization
+feature, not a name-based peephole or a user-visible DSL primitive.
+
+After these proofs, the current bridge selects a separately versioned
+`metal_mpp_memory_v2` bootstrap model instead of scoring MPP candidates with
+the SIMD-group reference formula. For `G` participating subgroups, `P` logical
+programs and target-profile subgroup capacity `Q`, it computes:
+
+~~~text
+issue = weighted(MMA issues, MPP operations, fragment reads, A/B footprints,
+                 accumulator initialization, output traffic, aspect terms)
+program_score = issue * state_pressure / G
+              + independent_elements * element_weight / G
+              + group_setup
+waves        = max(1, P * G / Q)
+kernel_score = program_score * waves
+~~~
+
+The division by `G` is important: disjoint subgroup tensor operations are a
+concurrent program critical path, not serial work. The outer wave factor then
+prices whole-device subgroup demand once. `Q=512` is currently an M1-class
+replaceable prior, not queried occupancy, and fractional waves are deliberately
+a smooth ranking heuristic. All quantities and the selected score are emitted
+in the compilation/benchmark report.
+
+```{figure} ../_static/tile/mpp-cost-model.svg
+:alt: Metal MPP planning separates semantic and target facts, hard legality, target-specific cost features, bounded exact search, and authoritative staged JIT measurement.
+:width: 100%
+
+Cost-model v2 narrows a legal candidate set; complete-output validation and measured selection remain the authority.
+```
+
+Legality remains independent of this score. Exact coverage, target thread and
+shared-memory limits, fragment/code-size bounds, and MPP's requirement that
+each local matrix have M or N divisible by 16 are hard rejections. A coefficient
+cannot rescue an illegal descriptor. The benchmark keeps the old TIRx and
+staged MPP controls and selects/replays forwarding candidates separately. A
+measured choice belongs to the specialized configuration, not to a hard-coded
+shape dispatch in the bridge.
+
 The proposed general model is a **resource-constrained execution model**, not
 a sum of costs assigned to TileIR opcode names. Its inputs have three layers:
 
@@ -204,8 +257,9 @@ realization and rates, rather than reusing GPU occupancy equations.
 
 The output should contain a time estimate or interval, its feature breakdown,
 the dominant predicted bottleneck, and unsupported/uncertain features. The
-current `PlanCost` is only the bootstrap relative-work summary in section 5;
-this richer calibrated evaluator is not yet implemented.
+current `PlanCost` implements the deterministic relative-work bootstrap above;
+it does **not** yet implement this richer calibrated time/interval evaluator,
+hardware-counter feedback, or uncertainty propagation.
 
 Calibration should independently excite identifiable terms: copy/layout
 sweeps, atom throughput with different reuse and live state, barriers and
@@ -241,7 +295,7 @@ have separate budgets. Never average an invalid result into the training set
 or silently replace a failed final validation with its earlier search timing.
 
 Equal modeled cost is not an equivalence proof between realizations. The
-[M1 Max equal-score layout experiment](../../scripts/benchmark/tile_torch/results/m1-max-20260903-layout-tie.md)
+{download}`M1 Max equal-score layout experiment <../../scripts/benchmark/tile_torch/results/m1-max-20260903-layout-tie.md>`
 swaps the subgroup/local-fragment rectangle while keeping all reported work,
 resource, and synchronization features identical. The alternative is about
 3.7% slower on 1024-cubed across four rounds. The default tie order happens to
@@ -258,6 +312,43 @@ experimental default changes were reverted; neither is a calibrated universal
 layout policy. A future shortlist and plan fingerprint must retain the actual
 copy participant/local-value map, not just a maximum batch size.
 
+The {download}`subsequent structural experiments <../../scripts/benchmark/tile_torch/results/m1-max-20260904-tirx-structure.md>`
+also reject blanket contraction unrolling, direct global fragment loading,
+shared-row padding, and double staging as universal defaults. Similar output
+ownership to the MPP cohort did not reproduce its performance with the 8x8
+atom family. These measurements constrain proposed defaults; they do not
+identify a specific hardware bottleneck from elapsed time alone.
+
+The {download}`MPP cost-model study <../../scripts/benchmark/tile_torch/results/m1-max-20260905-mpp-cost-v2-replay/notes.md>`
+records the correction rather than hiding the failed model. On the same
+8-shape × 45-candidate calibration cohort, v1 summed work from concurrent
+subgroups and systematically overvalued narrow threadgroups. Replacing that
+with subgroup critical-path work plus an outer wave prior changes the measured
+finite-set regret as follows:
+
+| Metric | MPP cost v1 | MPP cost v2 |
+|---|---:|---:|
+| Mean top-choice regret | 74.18% | 8.82% |
+| Median top-choice regret | 43.05% | 2.59% |
+| Maximum top-choice regret | 239.58% | 34.37% |
+| Exact measured winner | 1 / 8 | 4 / 8 |
+
+These are short 3-sample, 10 ms **in-cohort** search measurements. They show
+that the concurrency term fixed a structural ranking error; they do not show
+held-out generalization or a hardware optimum. Residual regret on 512³,
+1024×128×256 and 513×257×129 still calls for calibrated cache/layout, edge and
+launch features. The final frozen replay recompiles and remeasures the selected
+v2 schedules independently of these search timings.
+
+The outer Staged/JIT benchmark now jointly enumerates requested block shapes,
+pipeline windows, group widths, and cooperative-copy batches. The product has
+an explicit compilation budget and includes rejected candidates in its report.
+Selection is followed by a fresh capture/JIT of all winning settings; frozen
+replay uses the recorded native configuration, not an old score. This is an
+implemented measurement-based outer tuner, separate from the inner planner's
+still-uncalibrated analytic ranking. MPS/Torch remain external baselines and
+cannot win this candidate search by replacing Tile lowering.
+
 ### 3.5 External libraries are performance targets, not solver candidates
 
 The benchmark now has separate direct-library GEMM baselines:
@@ -265,7 +356,8 @@ The benchmark now has separate direct-library GEMM baselines:
 on CPU and [MPSMatrixMultiplication](https://developer.apple.com/documentation/metalperformanceshaders/mpsmatrixmultiplication)
 on Metal, alongside eager PyTorch. The native system-library executable does
 not link TileIR or TVM and cannot silently replace a candidate's lowering.
-See the [measurement protocol](../../scripts/benchmark/tile_torch/README.md#direct-blas-and-mps-gemm-baselines).
+See the direct BLAS and MPS GEMM baseline section in the
+{download}`measurement protocol <../../scripts/benchmark/tile_torch/README.md>`.
 
 These comparisons answer a different question from model regret: how far is
 our best *tested realization* from an optimized external implementation of
@@ -281,6 +373,33 @@ cost model as if it were another reachable mapping. In particular:
   realization family, memory movement and pipeline before enlarging the
   solver budget. Integer programming or annealing cannot select an absent
   microkernel, layout or overlap protocol.
+
+#### When a library routine is a legal target atom
+
+An independent library executable is not a schedule candidate. A provider
+call can nevertheless become part of our realization family when the target
+backend owns that choice and proves an exact semantic contract. These two
+roles must remain visibly different:
+
+| Role | Enters Tile compilation? | Purpose |
+|---|---|---|
+| Direct CBLAS/MPS benchmark | No | External performance and correctness control |
+| CBLAS/vDSP/vForce target atom | Yes, behind an explicit policy | Reachable implementation of a proved TileIR/TIRx contract |
+
+The current CPU contract path is deliberately narrow. The TileIR exporter
+matches typed SSA/dataflow, attaches a versioned contract, and the CPU pass
+rechecks the transformed TIRx body, ABI, layout, aliasing and numerical policy.
+Only then may it emit an external call. External symbol strings are used at
+the C/TVM provider ABI boundary; they are not used to identify TileIR or TIRx
+operations. Reference loops remain the semantic control, while an explicit
+provider request with no supported realization fails closed.
+
+A provider atom still needs a cost model. Its features include call/packing
+overhead, layout conversion, synchronization, problem size, target library
+version and thread policy. The current CBLAS and Accelerate choices are explicit
+compile options, not an automatic claim that the provider wins every shape.
+The saved direct-library replay measures exactly why: a 32³ GEMM is dominated
+by wrapper overhead even though large matrices approach direct CBLAS.
 
 ### 3.6 Native MPP experiment: operation scope is not launch size
 
@@ -327,7 +446,17 @@ tensor slices are used only for proved interior tiles; tail groups use
 bounded dynamic views. An inactive cohort member may skip work only when the
 operation is subgroup-scoped and its entire subgroup is inactive.
 
-**Integration contract (not an implemented TileIR-to-MPP pass yet):**
+**Integration contract:**
+
+The backend-local native realization and an optional independent TIRx MPP
+emitter now exist; see [Tile Runtime](tile_native_runtime.md). TIRx MPP contract
+v2 has separate typed `D=A*B` and `D=A*B+C` operations and fails closed on
+mixed allocation modes. `plan_group` now has a separate MPP basis, enumerates
+legal thread widths and exact rectangular subgroup factorizations, and ranks
+them with target-specific realization features. The generic Machine TileIR
+transform and calibrated time/uncertainty model described here are not yet
+implemented; the native Metal emitter also does not yet consume this TIRx-local
+planner.
 
 1. **Planner:** enumerate the atom implementation, operation participation
    scope, outer group/cohort factorization, operand-view maps and temporary
@@ -339,22 +468,25 @@ operation is subgroup-scoped and its entire subgroup is inactive.
    intervening aliasing store can change the value. Explicit manual stores,
    user barriers, arithmetic policy and accumulator initialization remain
    observable. Recognize semantic bodies, never kernel names.
-3. **Cost model:** key samples by atom family, operation scope, cohort map,
-   dtype/precision, shape, strides, bounds mode, compiler and device. Account
+3. **Cost model:** key samples by atom family, overwrite/accumulate mode,
+   operation scope, cohort map, dtype/precision, shape, strides, bounds mode,
+   compiler and device. Account
    for active/inactive groups, full versus edge operations, K extent, buffer
    reuse and output materialization. For an opaque MPP operation, unknown
    internal registers, barriers and copy stages stay unknown; do not invent
    native-8x8 issue counts or port its coefficients to another atom family.
 4. **Solver:** exhaustive enumeration is sufficient for the small tested
    family. Apply integer coverage/resource constraints first, shortlist with
-   a model, then JIT and validate. The current experiment uses measured GPU
-   batch time as an empirical cost and retains every rejected/failed candidate.
-   Frozen independent replay evaluates a selected plan, not a search minimum.
+   a model, then JIT and validate. The standalone native probe records GPU and
+   host batch time; the TIRx outer tuner ranks synchronized host-wall samples.
+   Both retain every rejected/failed candidate. Frozen independent replay
+   evaluates a selected plan, not a search minimum.
 5. **Emitter:** `TileIR -> TIRx` retains typed operations, regions, effects and
    views. A supported Metal realization lowers its chosen atom to MPP and
-   constructs inline tensors from buffer/layout expressions. Until that
-   emitter and its capability checks exist, an MPP timing cannot win the
-   production `plan_group` search. Native 8x8 and scalar fallbacks remain valid.
+   constructs inline tensors from buffer/layout expressions. Explicit TIRx MPP
+   compilation now invokes the MPP legality/cost basis in `plan_group`;
+   automatic cross-family selection among MPP, SIMD-group and scalar atoms is
+   still absent. The independent native emitter has its own capability gate.
 
 The benchmark runner is
 [`compare_mpp.py`](../../scripts/benchmark/tile_torch/compare_mpp.py). It separates
@@ -479,9 +611,14 @@ so incidental frontend value copies cannot conceal an unsafe residency proof.
 The pinned TVMx LLVM emitter rejects native `Break`/`Continue`; CPU tests check
 that specific rejection, while Metal executes those two control-flow oracles.
 
-## 5. Implemented relative-work model
+## 5. Implemented relative-work models
 
-`ExecutionCostModel` is an inspectable prior, **not a nanosecond predictor**.
+`ExecutionCostModel` contains two separately reported bases. The selected
+`GroupPlan::cost_basis` prevents MPP features from being mislabeled as
+SIMD-group work. Both are inspectable priors, **not nanosecond predictors**.
+
+### 5.1 SIMD-group reference basis
+
 For an MMA executed `E` times, and a proved resident recurrence of length `L`:
 
 ~~~text
@@ -513,10 +650,10 @@ Direct global stores are reported separately. They are not free: the original
 logical independent-element work still prices the output conservatively. It
 also still includes an elided literal fill; this bootstrap does not yet assign
 calibrated prices to different output protocols.
-Ordinary independent-element work is recorded but constant across this first
-mapping family; it does not yet predict the effect of thread count on copy
-throughput. The group count is recorded as a workload fact but is not yet used
-to model whole-device occupancy. The pressure/parallelism factors are explicit
+In this reference basis, ordinary independent-element work is recorded but
+constant across the first mapping family; it does not yet predict the effect
+of thread count on copy throughput. Logical program count uses a coarse
+preferred-program wave prior. The pressure/parallelism factors are explicit
 heuristics with replaceable coefficients. General bank-conflict, spill,
 repartition, launch, and pipeline-overlap models are not implemented here.
 
@@ -539,6 +676,46 @@ but more live per-subgroup state. A model must eventually price both using
 target evidence. Counting static matrix call sites in generated source is not
 counting dynamic instruction work.
 
+### 5.2 Metal MPP memory v2 basis
+
+MPP memory-input operations do not have the reference realization's shared A/B
+fragment copies. The v2 feature vector instead records:
+
+| Feature | Meaning and limitation |
+|---|---|
+| `matrix_issues` | Logical 8×8 result atoms × K atoms × executions; target issue work, not a source call-site count |
+| `metal_mpp_operations` | Participating subgroup tensor operations × executions |
+| `memory_fragment_reads` | Per-subgroup A/B memory fragment requests; separate from unique footprints |
+| `lhs/rhs_footprint_fragments` | Unique logical A/B footprints with asymmetric reuse priors, not claimed DRAM transactions |
+| `accumulator_initializations` | Absent only when the overwrite proof selects `D=A*B` |
+| output/shared transfers | Derived from direct-output and persistent-accumulator proofs |
+| Tile/local aspect terms | Target-versioned rectangle priors; not layout-equivalence claims |
+| `fragment_scalars_per_lane` | Opaque-output logical live state, not measured registers |
+| `independent_elements` | Scalar address/guard/store work outside the matrix atom |
+
+For one group realization, the code computes:
+
+~~~text
+issue = sum(feature[i] * coefficient[i])
+state_pressure = max(1, fragment_scalars_per_lane / preferred_fragment_state)
+score = issue * state_pressure / subgroups
+      + independent_elements * element_weight / subgroups
+      + group_setup
+waves = max(1, logical_programs * subgroups / concurrent_subgroup_prior)
+kernel_score = score * waves
+~~~
+
+The solver compares `kernel_score` across thread widths. The subgroup division
+models disjoint MPP operations on the program critical path; `waves` prices
+outer machine demand once. The default concurrent-subgroup prior is 512 for the
+tested M1-class profile. It is deliberately replaceable and fractional—neither
+a target query nor a claim about physical residency boundaries.
+
+The {download}`v1→v2 study <../../scripts/benchmark/tile_torch/results/m1-max-20260905-mpp-cost-v2-search/notes.md>`
+shows why both terms matter and retains every invalid candidate. The v2 score
+reduces in-cohort mean regret from 74.18% to 8.82%, but the 34.37% maximum miss
+and absence of held-out data keep measured Staged/JIT ranking authoritative.
+
 ### Cooperative copy batching
 
 `PlannerOptions::max_copy_batch` optionally groups up to 16 independent values
@@ -558,7 +735,7 @@ This choice is currently explicit, not included in the matrix model's search
 or calibrated score. Four-round same-binary measurements at 64x64x32 tiles show
 substantial improvements on two ragged GEMMs, but essentially no improvement
 on 512-cubed or 1024-cubed. No universal speedup or default change follows from
-those observations. The [copy-plan report](../../scripts/benchmark/tile_torch/results/m1-max-20260903-copy-plan.md)
+those observations. The {download}`copy-plan report <../../scripts/benchmark/tile_torch/results/m1-max-20260903-copy-plan.md>`
 keeps all shapes, timing distributions, and correctness checks.
 
 ### Dependence-aware group synchronization
@@ -586,7 +763,7 @@ their parameter identities or constness differ. Unknown storage, calls,
 explicit synchronization, and control exits remain hard boundaries. The pass
 recognizes compiler fences by their emission-local IR identity, not an opcode
 or external symbol name; an explicit identical-looking native barrier stays.
-The last fence of a sequential region is retained for the loop backedge or
+In the general effect analysis, the last fence of a sequential region is retained for the loop backedge or
 enclosing consumer. Barriers never move across loops/branches, and their full
 shared-plus-device fence semantics are unchanged. Resource reuse added by a
 later transformation must invalidate/recheck this synchronization plan.
@@ -600,11 +777,60 @@ dependencies, non-subgroup-multiple worker counts, aliased global parameters,
 and aliased output read on the next pipeline iteration. A Metal native-IR test
 also distinguishes an explicit barrier from compiler-owned barriers.
 
-The [M1 Max synchronization report](../../scripts/benchmark/tile_torch/results/m1-max-20260903-barrier-plan.md)
+The {download}`M1 Max synchronization report <../../scripts/benchmark/tile_torch/results/m1-max-20260903-barrier-plan.md>`
 holds the tile, worker count, fragment layout, and resource realization fixed.
 Four counterbalanced rounds show modest, shape-dependent gains, including one
 1024-cubed regression. Fewer barrier sites are not a proportional latency model
 and do not explain the remaining large-square gap to PyTorch.
+
+### Independent subgroup programs: legality is not profitability
+
+There is now a stricter whole-group proof for the opt-in TIRx MPP read-only
+view realization. The matrix mapper supplies emission-local statement
+identities for private cooperative-tensor initialization, synchronous MPP
+steps and a verified partitioned output. The view analysis separately proves
+the exact A/B parameter identities immutable under the caller's noalias
+contract. A scope name, zero shared-memory usage or `metal_mpp=true` alone is
+not enough.
+
+The entire group must contain only these operations, uniform constant-bound
+serial loops, no-ops and compiler-owned fences, followed by exactly one output
+store outside all loops. A second global effect, a post-store consumer, an
+output on a loop backedge, shared storage, branches, escapes, explicit fences
+or unknown statements rejects the proof. Full subgroup participation and the
+nonoverlapping output rectangles come from the matrix distribution verifier.
+No instruction or memory access moves when the fences are removed.
+
+~~~text
+realized body + immutable-input / partition / participation facts
+                             |
+                   whole-group isolation proof
+                    /                       \
+                 fails                     succeeds
+                   |                          |
+       general conservative coalescing   legal choices: retain | elide
+                                              |
+                                  explicit planner/JIT choice
+                                  (retain is the default)
+~~~
+
+`GroupPlan::independent_subgroups` records the proof independently of the
+profitability choice. `PlannerOptions::elide_independent_subgroup_barriers`
+is default-off and also requires the planner and `coalesce_group_barriers`
+enabled. Selecting it never supplies missing proof facts. The fixed-geometry
+{download}`A/B replay <../../scripts/benchmark/tile_torch/results/m1-max-20260904-subgroup-sync-replay/results.md>`
+is a counterexample to pricing each removed fence as a guaranteed benefit:
+512³ got slower in all four rounds, despite six interior cases having no
+cross-subgroup communication. Apple's [MPP programming guide, §2.3.4](https://developer.apple.com/download/files/Metal-Performance-Primitives-Programming-Guide.pdf)
+also describes periodic group barriers as a cache-working-set tuning tool.
+That is a possible mechanism, not a measured diagnosis of this M1 result.
+
+Read-only snapshot forwarding now reaches a fixed point. Axis relabeling can
+produce `input -> snapshot -> relabeled snapshot -> MMA`; each round rechecks
+whole-function effects, bounds, dominance and nonescape, then removes at least
+one unique compiler allocation. This finite iteration handles anonymous shape
+axes without asking the DSL author to reuse axis objects merely to avoid
+storage. It does not remove manual `Memory` or weaken any snapshot contract.
 
 ## 6. Implemented solver: enumeration plus Pareto dynamic programming
 
@@ -761,6 +987,322 @@ that a particular search algorithm will be best for our realization family.
 MetaSchedule integration would need an explicit compatible schedule/measurement
 adapter; it is not automatically supplied by emitting ordinary TIRx statements.
 
+### LLVM compiler-temporary storage realization
+
+`PlannerOptions::max_cpu_stack_bytes` is an opt-in storage budget (0–65536
+bytes, default zero), independent of the logical execution hierarchy. It does
+not change the C++ DSL, tile shape, loop order, arithmetic, input/output layout,
+or CPU task binding. Disabling the planner retains the workspace path too.
+
+~~~text
+TileIR compiler temporaries / explicit Memory
+                  |
+     TIRx flatten + vectorize + unroll
+                  |
+  allocation identity + escape/placement audit
+                  |
+       compact local scalar storage?
+       static positive extent, nonescaping?
+       no manual/unknown allocation contract?
+                  |
+     cumulative aligned payload <= budget
+          /                         \
+        yes                          no
+   LLVM stack allocation       TVM workspace allocation
+   (may become registers)      (original mechanism)
+~~~
+
+The pass runs immediately before host builtin lowering, after transforms that
+can expand storage or duplicate definitions. It charges each eligible static
+allocation with 16-byte padding; branch copies are summed, not assumed to share
+lifetimes. Vector-typed, dynamic, strided, custom-layout, aliased, raw-pointer,
+address-taken, and manually materialized resources are not candidates. Explicit
+Memory remains explicit even without a resource-class argument; its marker
+survives the common passes until this audit. A 68-byte payload therefore needs
+80 budget bytes; two such buffers need 160, not two independent 80-byte limits.
+This bounds **newly planned temporary payload**, not the total thread stack:
+LLVM spills, host wrappers, and user/TVM-owned stack objects are separate.
+
+The pinned TVM host pass otherwise sends `local` allocations through
+`TVMBackendAllocWorkspace`, even for small static tiles. This plan uses TVM's
+native `disable_lower_builtin` allocation annotation to retain `AllocBuffer`
+for LLVM; it neither rewrites generated LLVM nor replaces a kernel with BLAS.
+The ordinary TIRx realization remains selectable with budget zero. Removing
+these allocation calls is not by itself a CPU GEMM microkernel: operand packing,
+multi-row register reuse, temporal accumulator residency, and task/cache
+partitioning still need independent models and measurements.
+
+The {download}`first CPU storage replay <../../scripts/benchmark/tile_torch/results/m1-max-20260904-cpu-stack-replay/notes.md>`
+improves paired medians over the previous lowering but also has per-round
+regressions. The {download}`direct Torch/BLAS follow-up <../../scripts/benchmark/tile_torch/results/m1-max-20260904-cpu-stack-system/notes.md>`
+still shows an approximately 11× 1024³ gap. This is a legal realization
+candidate, not evidence of a solved CPU mapping/cost model.
+
+### Cartesian CPU register packs
+
+`PlannerOptions::max_cpu_vector_lanes` bounds the logical scalar count in a
+Cartesian pack: 16 (default), 32, 64, or 128. Non-default values require LLVM
+and automatic vectorization. This is a compiler/code-size budget, **not** a
+hardware SIMD width, measured register count, or a new DSL hierarchy. Disabling
+the planner retains the existing single-row automatic pack.
+
+For the two innermost independent axes, choose a power-of-two column width
+`W <= 16` and row count `R`, with `R*W <= budget`. The full-pack coordinate map
+is `(m_min + rm*R + r, n_min + cn*W + lane)`, where `0 <= r < R` and
+`0 <= lane < W`. Column tails cover only complete rows; row tails cover all
+columns. These domains are disjoint and cover the original rectangle. All
+outer axes and each element's temporal recurrence are retained.
+
+~~~text
+single-row packing                   Cartesian packing (R=4, W=16)
+
+for row                              for row_pack
+  initialize C[row, vector]             initialize C[4 rows, vectors]
+  for k                                for k
+    load B[k, vector]                    load B[k, vector]  <-- shared SSA value
+    update C[row, vector]                update row 0 vector
+                                         update row 1 vector
+                                         update row 2 vector
+                                         update row 3 vector
+~~~
+
+This is unroll-and-jam of independent element instances, not tensorization.
+Only sequences, rectangular serial loops with element-invariant bounds/steps,
+and element stores are distributed. Allocations, definitions, control flow,
+unknown annotations, and lane-dependent temporal bounds retain the single-row
+fallback. The semantic independent-element contract permits the interchange;
+an MMA annotation alone does not. Arithmetic expressions and serial K order are
+unchanged, including when reassociation is forbidden.
+
+Rows remain separate contiguous TIRx vectors inside the common temporal loop.
+The first prototype instead flattened row/column coordinates into a single
+64-lane vector; the pinned TIRx emitter expanded the irregular address vector
+into scalar loads/stores and regressed the 512³ probe. That implementation was
+removed. The current emission exposes shared B loads to ordinary LLVM CSE,
+without rewriting LLVM text or calling a GEMM library. It is still an opt-in
+candidate: code size, tail work, packing traffic, and register pressure must be
+measured, independently of the stack-allocation budget.
+
+The {download}`four-round fixed-geometry replay <../../scripts/benchmark/tile_torch/results/m1-max-20260904-cpu-cartesian-replay/notes.md>`
+improves seven paired median ratios but regresses 32³; the default remains 16.
+The {download}`six-order CPU/Torch/BLAS comparison <../../scripts/benchmark/tile_torch/results/m1-max-20260904-cpu-cartesian-system/notes.md>`
+still shows about an 8× 1024³ gap. Larger packs alone are not a complete CPU
+mapping model.
+
+### CPU immutable-input expressions
+
+`CompileOptions::forward_readonly_tile_loads` also admits an independent LLVM
+candidate. It stays default-off and is separate from stack placement and
+Cartesian packing. The existing MPP policy remains strict: a cooperative
+memory-input atom requires an unconditionally valid address.
+
+For CPU scalar/SIMD consumers, a padded snapshot can instead become the same
+**lazy guarded expression** at its use site. If the original copy is
+`T[i] = if_then_else(G(i), A[F(i)], fill(i))`, a later `T[j]` may become that
+expression with `i := j`, only after all of these checks:
+
+- The entire invocation satisfies `noalias`; the external source has no
+  stores or escapes, and no unknown effect can invalidate that fact.
+- Every memory read in the address, guard, and fill expression is immutable
+  too. Read-only A alone does not make `A[index_buffer[i]]` a stable snapshot.
+- The unique complete initialization dominates every use, each consumer
+  index is proved in the temporary's domain, and the guard implies a valid
+  source address. An unknown proof keeps materialization.
+- The temporary is compiler-owned, compact FP32 storage with no explicit
+  Memory annotation, alias, or observed storage identity.
+
+~~~text
+Tile load snapshot
+        |
+  effects + dominance + bounds + resource constraints
+        |
+        +-- unknown / mutable / manual ---> retain snapshot
+        |
+        +-- proved immutable
+                  |
+          +-------+--------------------+
+          |                            |
+     LLVM consumer                cooperative MPP input
+     retain lazy guard/fill       require unconditional address
+          |                            |
+     SIMD + storage planning      MPP resource + geometry planning
+~~~
+
+This does not turn a padded Tile into an unguarded pointer view. Bounds and
+fill semantics survive substitution; ordered MMA keeps the same K recurrence.
+The current proof query deliberately rejects memory-dependent consumer
+indices, even some bounded gathers. Such cases remain correct snapshots, not
+promises of complete indirect-access optimization.
+
+Legality is not profitability. Forwarding trades copy/workspace traffic for
+direct global strides and repeated predicates; compact packing may still win
+through cache reuse or vectorization. Candidate selection must measure that
+tradeoff at fixed geometry, thread request, stack budget, and pack budget.
+
+The {download}`four-round forwarding A/B <../../scripts/benchmark/tile_torch/results/m1-max-20260904-cpu-views-replay/notes.md>`
+confirms staging-array removal and 1.45–1.76× paired median improvements for
+five regular shapes. In that historical revision both ragged GEMMs kept the same snapshot code;
+their timing differences are not evidence of forwarding's guard cost.
+The {download}`six-order CPU/Torch/BLAS comparison <../../scripts/benchmark/tile_torch/results/m1-max-20260904-cpu-views-system/notes.md>`
+measures 5.541 ms versus 0.982/0.989 ms at 1024³. The cost model must record
+actual realization and fallback coverage, not merely the requested switch.
+
+### Full-vector guard specialization
+
+Ragged immutable views exposed two separate lowering problems. First, the
+native arithmetic proof did not always recognize `G => G` when coordinates
+contained mixed-radix division/remainder. The forwarding audit now also
+accepts bounds that are structurally present as conjuncts of the original
+guard. Association/order and extra masks do not matter; an OR arm is never
+treated as an assumption. All existing immutability/dominance checks remain.
+
+Second, **legally forwarded does not mean efficiently vectorized**. The
+{download}`retained failed experiment <../../scripts/benchmark/tile_torch/results/m1-max-20260904-cpu-guard-plan/notes.md>`
+eliminated A/B storage but emitted only scalar input loads and scalar FMAs
+for both ragged benchmark shapes. A lazy per-lane bounds check had scalarized
+the contraction. More aggressive copy elimination alone was much slower.
+
+Automatic CPU packing now proposes one full-vector fast path. Let `p` be
+the available enclosing coordinates, `l` a lane of a width-`W` pack, and `G`
+the selected lane-dependent guard conjuncts. Its sufficient precondition is
+
+`U(p) = AND(g(p, l) for g in G for l in [0, W))`.
+
+~~~text
+lazy guarded input expression
+              |
+    compute U for this pack
+              |
+       +------+------+
+       |             |
+     U=true        U=false
+       |             |
+  SIMD fast arm    original guarded arm
+  selected g=true same padding and bounds
+       |             |
+       +------+------+
+              |
+     same ordered recurrence
+~~~
+
+The fast arm replaces only those established Boolean facts. Scalar guards,
+including the K coordinate and row bounds, stay in the expression. The slow
+arm is the original loop, not an unchecked pointer access. Full and tail
+arms do not execute together, and no FP zero products or recurrence steps
+are discarded. This is a transformation of independent element domains,
+not an MMA-only rule or an additional DSL primitive.
+
+The same proof now handles lane-dependent statement guards around stores.
+This matters even for plain ragged elementwise kernels: a predicated scalar
+store inside a vector loop can force LLVM to scalarize an otherwise contiguous
+full pack. A statement guard is versioned only when it has no `else` effect and
+every lane-dependent condition contributes a proved pack predicate. Scalar
+conditions remain in both arms. The 17×257 add control consequently fell from
+the earlier approximately 2.84 µs observation to about 0.42 µs without any
+provider call or change to its bounds semantics.
+
+The precondition uses **every lane**, not merely endpoints: masks can have
+interior holes. Candidate packs have 4–16 lanes and at most eight distinct
+guard leaves; they receive one binary version, not a decision tree per
+predicate. Only pure integer conditions already evaluated unconditionally
+for every lane are selected. Memory reads, dynamic divisors, variables
+defined inside the pack, predicated-read address expressions, unknown
+effects, nested lazy arms, and possibly empty inner loops cannot supply
+speculated facts. Native SSA renewal and statement simplification run before
+vector lowering. Explicit vector scopes and Metal/MPP selection are unchanged.
+
+Versioning increases code size and may increase JIT time; it does not prove
+profitability. The planner must compare actual snapshot, lazy scalarized, and
+full-vector realizations at fixed geometry. The guarded-view and automatic
+packing options remain independently opt-in. Tests check actual allocation
+removal and vector FMA emission, plus nonzero padding, interior masks,
+negative offsets, nonzero loop minima, dynamic/zero-trip recurrences, and
+untaken expressions that would overflow or divide by zero if speculated.
+
+The {download}`fixed-geometry, frozen-binary A/B <../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-guards-replay/notes.md>`
+measures 1.279×/1.818× paired median improvements for the two ragged GEMMs,
+with all four pairs improving for each. The six regular shapes have unchanged
+LLVM instructions and remain no-op timing controls. The independent
+{download}`six-order library comparison <../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-guards-system/notes.md>`
+still measures 5.919 ms Tile versus 1.021/1.028 ms Torch/BLAS at 1024³; this
+repair is not the end of CPU execution/target planning.
+
+### CPU root launch-cost guard
+
+Logical `parallel` still means independent instances. It does not require the
+CPU target to pay a thread-pool launch for every tiny automatic root. The
+current planner uses a transparent bootstrap rule:
+
+~~~text
+explicit worker scope                       -> parallel (hard constraint)
+planner disabled                            -> parallel (reference policy)
+automatic root, extent >= 64                -> parallel
+automatic root, extent < 64, expensive body -> parallel
+automatic root, extent < 64, cheap body     -> serial
+~~~
+
+The body audit recognizes transcendental TIRx operations by typed `Op`
+identity. Unknown external and packed calls are conservatively expensive.
+Known synchronous vDSP reductions are treated as cheap so several short rows
+do not pay a host launch only to call a small array routine. This is a target
+scheduling choice, not a proof of `parallel` independence and not a new DSL
+scope. The value 64 is a replaceable prior; a calibrated model should use
+task count, per-task work, provider overhead, thread-pool state and cache
+footprint. Tests cover the boundary, a transcendental body, explicit worker
+binding and the planner-disabled reference path.
+
+### Shared Tile SSA and CPU provider atoms
+
+Lazy Tile expressions are valuable for fusion, but duplicating a shared
+transcendental into a reduction and a later consumer is structurally wrong for
+performance. During structural export, a shared `exp`, `log`, `sqrt` or `tanh`
+result with more than one SSA use receives one compiler-owned materialization.
+Cheap arithmetic remains fused. This decision is independent of memory scope:
+it creates an internal realization candidate, not a user-visible `Memory`.
+Only the exact shared FP32 `exp` form currently carries a versioned provider
+contract.
+
+The CPU provider proof is two-level:
+
+1. TileIR structure proves semantic intent. A reduction must be one rank-one
+   FP32 recurrence with exactly one extracted element, one typed add/max/min,
+   one yielded carry, and the corresponding `0`, `-inf`, or `+inf` identity.
+   Whole GEMM requires the complete proved `C=A*B` dataflow contract.
+2. The target pass revalidates the transformed TIRx. Array math requires a
+   static compact zero-based map or contiguous final-dimension recurrence;
+   CBLAS requires three compact rank-two FP32 parameters with matching extents
+   and `noalias`. A stale annotation cannot rescue a mismatching body.
+
+```{figure} ../_static/tile/tirx-realization-pipeline.svg
+:alt: Structural TileIR export creates versioned proof contracts; target-specific passes revalidate them before choosing portable, CPU-provider, or Metal matrix atoms.
+:width: 100%
+
+The second proof firewall lets common passes evolve without turning annotations
+or diagnostic names into unchecked rewrite authority.
+```
+
+`CpuMatrixBackend::CBLAS` replaces the eligible whole function with one
+registered `tvm.contrib.cblas.matmul` packed call. It does not decompose the
+execution hierarchy mechanically or call CBLAS from ordinary elementwise
+code. `CpuMathBackend::ACCELERATE` maps proved reductions to synchronous vDSP
+and the shared exp map to vForce. Known wrapper pointers are nonescaping, so
+the bounded compiler-temporary stack planner may still retain their compact
+scratch storage.
+
+The math option explicitly permits provider semantics: vDSP may reorder FP32
+reductions, while vForce has documented denormal and exception differences.
+Reference remains the default. On a build/target without the provider, an
+explicit request fails. On a supported target, an unrecognized local pattern
+stays in reference TIRx; it is never approximately matched by an opcode label.
+
+The {download}`array-math replay <../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-accelerate-ops-replay/notes.md>`
+reports 2.71--6.12× paired gains for row sums and 2.10--5.46× for softmax,
+while add controls remain approximately 1×. The
+{download}`CBLAS replay <../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-cblas-v2-replay/notes.md>`
+reports all eight shapes, direct CBLAS and eager Torch in all six execution
+orders. These results validate two reachable atom families; they do not imply
+that direct XIR or the portable reference loops have reached library parity.
+
 ## 8. Validation and remaining work
 
 Current regression coverage includes all thread-count choices up to the target
@@ -771,14 +1313,18 @@ Metal numerical execution. Intermediate accumulator observers retain the
 original storage behavior. Native matrix eligibility still checks capability,
 arithmetic policy, the actual typed body, and operand layouts.
 
-Performance validation uses multiple shapes, full-output FP64 references, a
-frozen pre-planner binary/library bundle, counterbalanced repeated comparisons,
-and PyTorch measured separately. An improvement over our old lowering must not
-be described as an improvement over PyTorch.
+Performance validation uses multiple shapes, full-output FP64 references,
+frozen binary/library fingerprints, counterbalanced repeated comparisons, and
+PyTorch measured separately. The v2 Metal replay establishes parity for its
+eight GEMMs; the CPU provider replays establish parity or better for their
+eligible FP32 GEMM/sum/softmax cohorts. Neither result covers arbitrary
+dtypes/operators or the portable XIR/reference realization. Improvements over
+old lowering are reported separately from external comparisons.
 
-Remaining structural work includes broader synchronization planning, more
-selective materialization, layout-aware cooperative copies, combined software
-pipeline/residency planning, general nested hierarchy binding, CPU task/SIMD and
-storage planning, calibrated target models, and additional atom families. The
-first planner removes specific repeated fragment traffic; it does not yet solve
-all execution-to-hardware mappings or establish PyTorch-level performance.
+Remaining structural work includes broader synchronization planning, a general
+materialization cost model, layout-aware cooperative copies, combined software
+pipeline/residency planning, general nested hierarchy binding, CPU task/SIMD,
+cache/packing and provider break-even planning, calibrated target models, and
+additional atom families. The current planners and provider proofs solve
+specific realization gaps; they do not yet solve all execution-to-hardware
+mappings or establish cross-target, cross-operator PyTorch-level performance.

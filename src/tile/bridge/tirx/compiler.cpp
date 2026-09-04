@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <array>
 #include <exception>
 #include <limits>
 #include <stdexcept>
@@ -11,6 +12,7 @@
 #include <tvm/s_tir/transform.h>
 #include <tvm/target/target.h>
 #include <tvm/tirx/analysis.h>
+#include <tvm/tirx/builtin.h>
 #include <tvm/tirx/stmt_functor.h>
 #include <tvm/tirx/transform.h>
 
@@ -32,6 +34,49 @@ enum class RootParallelBinding : uint8_t {
     GPU_GRID
 };
 
+class CpuCallAudit final : public tvm::tirx::StmtExprVisitor {
+protected:
+    void VisitExpr_(const tvm::CallNode *call) final {
+        // Transcendentals can dominate a small loop body's cost (exp in
+        // softmax is the current example). Test registered Op identity, not
+        // diagnostic names on the encountered operation.
+        static const std::array expensive{
+            tvm::Op::Get("tirx.exp"), tvm::Op::Get("tirx.exp2"),
+            tvm::Op::Get("tirx.exp10"), tvm::Op::Get("tirx.erf"),
+            tvm::Op::Get("tirx.tanh"), tvm::Op::Get("tirx.sigmoid"),
+            tvm::Op::Get("tirx.log"), tvm::Op::Get("tirx.log2"),
+            tvm::Op::Get("tirx.log1p"), tvm::Op::Get("tirx.log10")};
+        has_expensive_call |= std::any_of(
+            expensive.begin(), expensive.end(),
+            [&](const tvm::Op &op) noexcept { return call->op.same_as(op); });
+        // A synchronous external/provider call is opaque target work. Keeping
+        // a small automatic root parallel is conservative; the launch model
+        // must not reinterpret it as a cheap scalar expression.
+        auto external = call->op.same_as(tvm::tirx::builtin::call_extern());
+        auto cheap_array_reduction = false;
+        if (external && !call->args.empty()) {
+            if (auto callee = call->args[0u].as<tvm::tirx::StringImmNode>()) {
+                cheap_array_reduction =
+                    callee->value == "luisa_tile_accelerate_reduce_add_f32" ||
+                    callee->value == "luisa_tile_accelerate_reduce_max_f32" ||
+                    callee->value == "luisa_tile_accelerate_reduce_min_f32";
+            }
+        }
+        has_expensive_call |= (external && !cheap_array_reduction) ||
+                              call->op.same_as(tvm::tirx::builtin::tvm_call_packed());
+        StmtExprVisitor::VisitExpr_(call);
+    }
+
+public:
+    bool has_expensive_call{false};
+};
+
+[[nodiscard]] bool cpu_body_has_expensive_call(const tvm::tirx::Stmt &body) {
+    CpuCallAudit audit;
+    audit(body);
+    return audit.has_expensive_call;
+}
+
 [[nodiscard]] tvm::IRModule make_module(
     FunctionMap functions,
     tvm::DictAttrs attributes,
@@ -49,9 +94,11 @@ private:
     bool _vectorize;
     bool _auto_vectorize;
     bool _cooperative_matrix;
+    bool _metal_mpp;
     std::string _target_name;
     const PlannerOptions &_planner;
     luisa::vector<GroupPlan> &_plans;
+    luisa::span<const tvm::tirx::BufferVar> _readonly_inputs;
 
 private:
     [[noreturn]] void _scope_error(
@@ -167,6 +214,9 @@ private:
 protected:
     [[nodiscard]] tvm::tirx::Stmt VisitStmt_(const tvm::tirx::AllocBufferNode *allocation) final {
         auto result = StmtMutator::VisitStmt_(allocation).as_or_throw<tvm::tirx::AllocBuffer>();
+        if (_binding != RootParallelBinding::CPU_THREADS) {
+            result.CopyOnWrite()->annotations.erase(manual_memory_annotation);
+        }
         if (auto constraint = result->annotations.Get(memory_resource_annotation)) {
             auto resource = constraint.value().as<tvm::ffi::String>();
             if (!resource || resource.value() != "private") {
@@ -187,21 +237,26 @@ protected:
             auto result = StmtMutator::VisitStmt_(loop);
             if (loop->annotations.count(independent_elements_annotation)) {
                 auto mapped = result.as_or_throw<tvm::tirx::For>();
+                mapped.CopyOnWrite()->annotations.erase(materialized_exp_annotation);
                 if (_binding == RootParallelBinding::CPU_THREADS && _auto_vectorize && _vector_depth == 0u) {
-                    auto packed = vectorize_independent_elements(mapped);
+                    auto packed = vectorize_independent_elements(mapped, _planner.enabled ? _planner.max_cpu_vector_lanes : 16u);
                     if (packed.defined()) { return packed; }
                 }
                 mapped.CopyOnWrite()->annotations.erase(independent_elements_annotation);
                 mapped.CopyOnWrite()->annotations.erase(mma_annotation);
                 return mapped;
             }
-            return result;
+            auto mapped = result.as_or_throw<tvm::tirx::For>();
+            mapped.CopyOnWrite()->annotations.erase(deferred_pipeline_annotation);
+            mapped.CopyOnWrite()->annotations.erase(reduction_contract_annotation);
+            mapped.CopyOnWrite()->annotations.erase(materialized_exp_annotation);
+            return mapped;
         }
         if (auto scope = loop->annotations.Get(execution_scope_annotation);
             scope && scope.value().as<tvm::ffi::String>() && scope.value().cast<tvm::ffi::String>() == "group") {
             if (_target_name != "metal") { _scope_error(loop, "group", "is not supported by this target's execution mapper"); }
             if (_logical_parallel_depth != 0u) { _scope_error(loop, "group", "requires a coordinate factorization for nested group bindings"); }
-            return map_metal_cooperative_group(tvm::ffi::GetRef<tvm::tirx::For>(loop), _gpu_group_thread_limit, _shared_memory_limit, _cooperative_matrix, _planner, _plans);
+            return map_metal_cooperative_group(tvm::ffi::GetRef<tvm::tirx::For>(loop), _gpu_group_thread_limit, _shared_memory_limit, _cooperative_matrix, _metal_mpp, _planner, _plans, _readonly_inputs);
         }
         // Resolve before mutating the body, including through unbound or
         // serial intermediate levels. Unsupported constraints are hard errors,
@@ -227,6 +282,15 @@ protected:
             return _loop(loop, tvm::tirx::ForKind::kSerial, std::move(body), std::move(annotations));
         }
         if (_binding == RootParallelBinding::CPU_THREADS) {
+            auto constraint = loop->annotations.Get(execution_scope_annotation);
+            auto explicit_worker = constraint && constraint.value().as<tvm::ffi::String>() &&
+                                   constraint.value().cast<tvm::ffi::String>() == "worker";
+            auto extent = loop->extent.as<tvm::IntImmNode>();
+            if (_planner.enabled && !explicit_worker && extent != nullptr && extent->value >= 0 &&
+                static_cast<uint64_t>(extent->value) < _planner.min_cpu_parallel_tasks &&
+                !cpu_body_has_expensive_call(loop->body)) {
+                return _loop(loop, tvm::tirx::ForKind::kSerial, std::move(body), std::move(annotations));
+            }
             return _loop(loop, tvm::tirx::ForKind::kParallel, std::move(body), std::move(annotations));
         }
         if (_binding == RootParallelBinding::GPU_GRID) {
@@ -237,11 +301,11 @@ protected:
 
 public:
     ExecutionMapper(RootParallelBinding binding, uint32_t gpu_threads_per_block, uint32_t gpu_group_thread_limit, uint64_t shared_memory_limit,
-                    bool vectorize, bool auto_vectorize, bool cooperative_matrix, std::string target_name,
-                    const PlannerOptions &planner, luisa::vector<GroupPlan> &plans) noexcept
+                    bool vectorize, bool auto_vectorize, bool cooperative_matrix, bool metal_mpp, std::string target_name,
+                    const PlannerOptions &planner, luisa::vector<GroupPlan> &plans, luisa::span<const tvm::tirx::BufferVar> readonly_inputs) noexcept
         : _binding{binding}, _gpu_threads_per_block{gpu_threads_per_block}, _gpu_group_thread_limit{gpu_group_thread_limit}, _shared_memory_limit{shared_memory_limit},
-          _vectorize{vectorize}, _auto_vectorize{auto_vectorize}, _cooperative_matrix{cooperative_matrix}, _target_name{std::move(target_name)},
-          _planner{planner}, _plans{plans} {}
+          _vectorize{vectorize}, _auto_vectorize{auto_vectorize}, _cooperative_matrix{cooperative_matrix}, _metal_mpp{metal_mpp}, _target_name{std::move(target_name)},
+          _planner{planner}, _plans{plans}, _readonly_inputs{readonly_inputs} {}
 
     using StmtMutator::operator();
 };
@@ -271,6 +335,28 @@ public:
     const tvm::Target &target,
     const CompileOptions &options, luisa::vector<GroupPlan> &plans) {
     auto binding = resolve_parallel_binding(target);
+    if (options.cpu_matrix_backend != CpuMatrixBackend::REFERENCE &&
+        binding != RootParallelBinding::CPU_THREADS) {
+        throw std::runtime_error{"CPU matrix realization requires an LLVM target"};
+    }
+    if (options.cpu_math_backend != CpuMathBackend::REFERENCE &&
+        binding != RootParallelBinding::CPU_THREADS) {
+        throw std::runtime_error{"CPU array-math realization requires an LLVM target"};
+    }
+    if (options.planner.max_cpu_stack_bytes > 65536u ||
+        (options.planner.max_cpu_stack_bytes != 0u && binding != RootParallelBinding::CPU_THREADS)) {
+        throw std::runtime_error{"CPU stack planning requires an LLVM target and a byte budget in [0,65536]"};
+    }
+    if (options.planner.min_cpu_parallel_tasks == 0u ||
+        (options.planner.min_cpu_parallel_tasks != 64u &&
+         binding != RootParallelBinding::CPU_THREADS)) {
+        throw std::runtime_error{"CPU parallel launch threshold requires an LLVM target and a positive task count"};
+    }
+    auto lanes = options.planner.max_cpu_vector_lanes;
+    if (lanes < 16u || lanes > 128u || (lanes & (lanes - 1u)) != 0u ||
+        (lanes != 16u && (binding != RootParallelBinding::CPU_THREADS || !options.auto_vectorize || !options.vectorize))) {
+        throw std::runtime_error{"CPU vector packing requires 16/32/64/128 logical lanes and LLVM auto-vectorization when non-default"};
+    }
     auto threads = uint32_t{1u};
     auto group_thread_limit = uint32_t{1u};
     auto shared_memory_limit = uint64_t{0u};
@@ -291,6 +377,18 @@ public:
         }
     }
     auto cooperative_matrix = options.cooperative_matrix && target->kind->name == "metal" && target->GetAttr<int64_t>("thread_warp_size").value_or(0) == 32;
+    if (options.forward_readonly_tile_loads && !options.metal_mpp && binding != RootParallelBinding::CPU_THREADS) {
+        throw std::runtime_error{"read-only Tile view forwarding requires LLVM or Metal MPP realization"};
+    }
+    if (options.metal_mpp) {
+        if (!cooperative_matrix || !options.planner.enabled) {
+            throw std::runtime_error{"Metal MPP requires the Metal cooperative matrix capability and an enabled planner"};
+        }
+        auto capability = tvm::ffi::Function::GetGlobal("target.metal.mpp_memory_contract_version");
+        if (!capability || (*capability)().cast<int64_t>() != 2) {
+            throw std::runtime_error{"This TVM build lacks Metal MPP memory contract v2; use SIMD-group lowering or the documented TVM patch"};
+        }
+    }
     FunctionMap functions;
     for (auto &&[global, base_function] : module->functions) {
         auto function = base_function.as<tvm::tirx::PrimFunc>();
@@ -298,8 +396,22 @@ public:
             throw std::runtime_error{"Tile TIRx execution mapping only accepts PrimFunc modules"};
         }
         auto mapped = function.value();
-        mapped.CopyOnWrite()->body = schedule_pipelines(mapped->body, options.noalias, shared_memory_limit);
-        mapped.CopyOnWrite()->body = ExecutionMapper{binding, threads, group_thread_limit, shared_memory_limit, options.vectorize, options.auto_vectorize, cooperative_matrix, std::string{target->kind->name}, options.planner, plans}(mapped->body);
+        if (options.cpu_matrix_backend == CpuMatrixBackend::CBLAS) {
+            mapped = realize_cpu_whole_gemm(std::move(mapped), options.noalias);
+            functions.Set(global, std::move(mapped));
+            continue;
+        }
+        if (options.cpu_math_backend == CpuMathBackend::ACCELERATE) {
+            mapped.CopyOnWrite()->body = realize_cpu_vector_math(mapped->body);
+            mapped = tvm::WithAttr(
+                std::move(mapped), cpu_math_realization_annotation,
+                tvm::ffi::String{"accelerate"});
+        }
+        auto views = options.forward_readonly_tile_loads ? forward_readonly_tile_loads(mapped, options.noalias, binding == RootParallelBinding::CPU_THREADS) : ReadonlyViews{mapped->body, {}};
+        mapped.CopyOnWrite()->body = std::move(views.body);
+        mapped.CopyOnWrite()->body = schedule_pipelines(mapped->body, options.noalias, shared_memory_limit,
+                                                        !options.metal_mpp && cooperative_matrix && options.planner.enabled && options.planner.max_pipeline_prefetch_scalars_per_lane != 0u);
+        mapped.CopyOnWrite()->body = ExecutionMapper{binding, threads, group_thread_limit, shared_memory_limit, options.vectorize, options.auto_vectorize, cooperative_matrix, options.metal_mpp, std::string{target->kind->name}, options.planner, plans, views.inputs}(mapped->body);
         functions.Set(global, std::move(mapped));
     }
     return make_module(std::move(functions), module->attrs, module->global_infos);
@@ -345,7 +457,12 @@ protected:
             if (extent == nullptr || extent->value < 0) { return StmtMutator::VisitStmt_(allocation); }
             empty |= extent->value == 0;
         }
-        if (!empty || !allocation->annotations.empty()) { return StmtMutator::VisitStmt_(allocation); }
+        // Placement constraints were already validated. Retaining a manual
+        // marker for the later CPU storage audit must not keep dead empty
+        // storage alive: there is no allocation to remap in the first place.
+        if (!empty || allocation->annotations.size() != allocation->annotations.count(manual_memory_annotation)) {
+            return StmtMutator::VisitStmt_(allocation);
+        }
         auto offset = allocation->buffer->elem_offset.as<tvm::IntImmNode>();
         if (!allocation->buffer->strides.empty() || allocation->buffer->layout.has_value() ||
             !allocation->buffer->allocated_addr.empty() || offset == nullptr || offset->value != 0) {
@@ -376,7 +493,7 @@ void remove_empty_allocations(tvm::IRModule &module) {
     module = make_module(std::move(functions), module->attrs, module->global_infos);
 }
 
-void run_common_pipeline(tvm::IRModule &module, const CompileOptions &options, const tvm::Target &target) {
+void run_common_pipeline(tvm::IRModule &module, const CompileOptions &options, const tvm::Target &target, bool packed_api = true) {
     auto apply = [&module](tvm::transform::Pass pass) {
         module = run_pass(std::move(pass), std::move(module));
     };
@@ -413,12 +530,21 @@ void run_common_pipeline(tvm::IRModule &module, const CompileOptions &options, c
     apply(tvm::tirx::transform::VerifyMemory());
     apply(tvm::tirx::transform::AnnotateEntryFunc());
     apply(tvm::tirx::transform::SplitHostDevice());
-    apply(tvm::tirx::transform::MakePackedAPI());
-    apply(tvm::tirx::transform::FP8StorageLegalize());
-    apply(tvm::tirx::transform::BF16StorageLegalize());
+    if (packed_api) {
+        apply(tvm::tirx::transform::MakePackedAPI());
+        apply(tvm::tirx::transform::FP8StorageLegalize());
+        apply(tvm::tirx::transform::BF16StorageLegalize());
+    }
 }
 
-void finalize_host(tvm::IRModule &module) {
+void finalize_host(tvm::IRModule &module, uint32_t stack_budget) {
+    FunctionMap functions;
+    for (auto &&[global, base_function] : module->functions) {
+        auto function = base_function.as_or_throw<tvm::tirx::PrimFunc>();
+        function.CopyOnWrite()->body = plan_cpu_storage(function->body, stack_budget);
+        functions.Set(global, std::move(function));
+    }
+    module = make_module(std::move(functions), module->attrs, module->global_infos);
     module = run_pass(tvm::tirx::transform::LowerTVMBuiltin(), std::move(module));
     module = run_pass(tvm::tirx::transform::LowerIntrin(), std::move(module));
 }
@@ -440,7 +566,143 @@ void finalize_device(tvm::IRModule &module) {
     return builder(std::move(module), target).cast<tvm::ffi::Module>();
 }
 
+// Deliberately closed host grammar: a device artifact is not an interpreter
+// for the host program. In particular a loop/conditional around a launch must
+// not be mistaken for a single unconditional dispatch.
+using HostBufferArguments = luisa::unordered_map<const tvm::tirx::VarNode *, uint32_t>;
+
+[[nodiscard]] uint32_t buffer_argument(const tvm::Expr &expr, const HostBufferArguments &buffers) {
+    auto projection = expr.as<tvm::CallNode>();
+    if (!projection || !projection->op.same_as(tvm::tirx::builtin::buffer_data()) || projection->args.size() != 1u) {
+        throw std::runtime_error{"device artifact requires direct buffer parameters (no scalars, pointer offsets, or host temporaries)"};
+    }
+    auto variable = projection->args[0u].as<tvm::tirx::VarNode>();
+    auto iter = buffers.find(variable);
+    if (iter == buffers.end()) { throw std::runtime_error{"device buffer does not originate at a host parameter"}; }
+    return iter->second;
+}
+
+void collect_static_launch(const tvm::tirx::Stmt &stmt, const tvm::CallNode *&launch, HostBufferArguments &buffers) {
+    if (auto sequence = stmt.as<tvm::tirx::SeqStmtNode>()) {
+        for (auto &child : sequence->seq) { collect_static_launch(child, launch, buffers); }
+        return;
+    }
+    if (auto declaration = stmt.as<tvm::tirx::DeclBufferNode>()) {
+        // FlattenBuffer introduces pure aliases of parameter storage. Track
+        // pointer identity through those declarations, without dropping an
+        // allocation/copy or guessing from buffer names.
+        auto index = buffer_argument(declaration->data, buffers);
+        if (!buffers.emplace(declaration->buffer.get(), index).second) {
+            throw std::runtime_error{"device artifact has a redefined host buffer"};
+        }
+        return;
+    }
+    if (auto evaluate = stmt.as<tvm::tirx::EvaluateNode>()) {
+        if (auto constant = evaluate->value.as<tvm::IntImmNode>(); constant && constant->value == 0) { return; }
+        if (auto call = evaluate->value.as<tvm::CallNode>();
+            call && call->op.same_as(tvm::tirx::builtin::tvm_call_packed()) && launch == nullptr) {
+            launch = call;
+            return;
+        }
+    }
+    throw std::runtime_error{"device artifact requires exactly one unconditional launch and no host effects; rejected " + std::string{stmt->GetTypeKey()}};
+}
+
+[[nodiscard]] DeviceArtifact extract_device_artifact(const tvm::tirx::PrimFunc &host,
+                                                     const tvm::tirx::PrimFunc &device) {
+    DeviceArtifact artifact;
+    const tvm::CallNode *launch = nullptr;
+    HostBufferArguments buffers;
+    for (auto i = size_t{0u}; i < host->params.size(); i++) {
+        if (!host->params[i]->ty.as<tvm::tirx::BufferTypeNode>()) { throw std::runtime_error{"device artifact host ABI requires buffer parameters"}; }
+        buffers.emplace(host->params[i].get(), static_cast<uint32_t>(i));
+    }
+    collect_static_launch(host->body, launch, buffers);
+    if (launch == nullptr) { throw std::runtime_error{"device artifact has no launch"}; }
+    auto symbol = device->GetAttr<tvm::ffi::String>(tvm::attr::kGlobalSymbol);
+    auto tags = device->GetAttr<tvm::ffi::Array<tvm::ffi::String>>(tvm::tirx::attr::kKernelLaunchParams);
+    auto callee = launch->args.empty() ? nullptr : launch->args[0].as<tvm::tirx::StringImmNode>();
+    if (!symbol || !tags || !callee || callee->value != symbol.value() ||
+        launch->args.size() != 1u + device->params.size() + tags.value().size()) {
+        throw std::runtime_error{"device artifact launch signature mismatch"};
+    }
+    artifact.entry = std::string{symbol.value()};
+    for (auto i = size_t{0u}; i < device->params.size(); i++) {
+        auto ptr = device->params[i]->ty.as<tvm::PointerTypeNode>();
+        if (!ptr) { throw std::runtime_error{"device artifact requires a pointer-only device ABI"}; }
+        artifact.buffer_arguments.emplace_back(buffer_argument(launch->args[i + 1u], buffers));
+    }
+    std::array<bool, 6u> seen{};
+    for (auto i = size_t{0u}; i < tags.value().size(); i++) {
+        constexpr std::array names{"blockIdx.x", "blockIdx.y", "blockIdx.z", "threadIdx.x", "threadIdx.y", "threadIdx.z"};
+        auto tag = std::string{tags.value()[i]};
+        auto iter = std::find(names.begin(), names.end(), tag);
+        auto extent = launch->args[1u + device->params.size() + i].as<tvm::IntImmNode>();
+        if (iter == names.end() || !extent || extent->value <= 0 || extent->value > UINT32_MAX) {
+            throw std::runtime_error{"device artifact requires static uint32 grid/block extents and no dynamic launch resources"};
+        }
+        auto index = static_cast<size_t>(iter - names.begin());
+        if (seen[index]) { throw std::runtime_error{"duplicate device launch dimension"}; }
+        seen[index] = true;
+        (index < 3u ? artifact.grid[index] : artifact.block[index - 3u]) = static_cast<uint32_t>(extent->value);
+    }
+    return artifact;
+}
+
 }// namespace detail
+
+DeviceCompilationResult compile_device(tvm::tirx::PrimFunc function, luisa::string_view name,
+                                       const CompileOptions &options) noexcept {
+    DeviceCompilationResult result;
+    try {
+        if (!function.defined() || name.empty()) { throw std::runtime_error{"device artifact requires a defined, named PrimFunc"}; }
+        if (options.auto_vectorize && !options.vectorize) { throw std::runtime_error{"automatic vectorization requires vectorization"}; }
+        tvm::Target target{tvm::ffi::String{options.target}};
+        if (target->kind->name != "metal") { throw std::runtime_error{"device artifact currently supports only Metal"}; }
+        // Use a host target only for TVMx's typed host/device partition pass.
+        // There is no LLVM code generation or packed-function JIT here.
+        tvm::Target bound{target, tvm::Target{tvm::ffi::String{"llvm"}}};
+        auto symbol = tvm::ffi::String{std::string{name}};
+        function = tvm::WithAttr(std::move(function), tvm::attr::kGlobalSymbol, symbol);
+        if (options.noalias) { function = tvm::WithAttr(std::move(function), "tirx.noalias", true); }
+        auto global = tvm::GlobalVar{symbol};
+        auto module = detail::make_module({{global, std::move(function)}});
+        module = detail::map_execution(std::move(module), target, options, result.plans);
+        detail::run_common_pipeline(module, options, bound, false);
+        if (module->functions.size() != 2u) { throw std::runtime_error{"device artifact requires exactly one host entry and one device entry"}; }
+        auto host = module->functions.at(global).as_or_throw<tvm::tirx::PrimFunc>();
+        for (auto &[device_global, base] : module->functions) {
+            if (device_global.same_as(global)) { continue; }
+            auto device = base.as_or_throw<tvm::tirx::PrimFunc>();
+            result.artifact = detail::extract_device_artifact(host, device);
+            auto device_module = detail::make_module({{device_global, device}}, module->attrs, module->global_infos);
+            // Storage ABI legalization cannot consume the still-typed host
+            // Buffer parameters. Run it on the pointer-ABI device partition.
+            device_module = detail::run_pass(tvm::tirx::transform::FP8StorageLegalize(), std::move(device_module));
+            device_module = detail::run_pass(tvm::tirx::transform::BF16StorageLegalize(), std::move(device_module));
+            detail::finalize_device(device_module);
+            result.artifact.function = device_module->functions.at(device_global).as_or_throw<tvm::tirx::PrimFunc>();
+            tvm::tirx::PostOrderVisit(result.artifact.function->body, [&](const tvm::ffi::ObjectRef &node) {
+                if (auto allocation = node.as<tvm::tirx::AllocBufferNode>()) {
+                    result.artifact.requires_metal4 |= allocation->buffer.scope() == "metal.cooperative_tensor";
+                }
+            });
+            // InspectSource returns the code generator's own output unchanged.
+            // ABI metadata was already extracted from the typed launch above.
+            auto compiled = detail::codegen(std::move(device_module), target);
+            auto source = compiled->InspectSource("metal");
+            result.artifact.source.assign(source.data(), source.size());
+            if (source.empty()) { throw std::runtime_error{"Metal code generator returned no source artifact"}; }
+        }
+    } catch (const tvm::ffi::Error &error) {
+        result.error = error.what();
+    } catch (const std::exception &error) {
+        result.error = error.what();
+    } catch (...) {
+        result.error = "unknown failure while compiling a TIRx device artifact";
+    }
+    return result;
+}
 
 CompilationResult compile(tvm::IRModule module, const CompileOptions &options) noexcept {
     if (!module.defined()) { return CompilationResult{luisa::string{"cannot compile an undefined TIRx module"}}; }
@@ -449,7 +711,10 @@ CompilationResult compile(tvm::IRModule module, const CompileOptions &options) n
     if (options.auto_vectorize && !options.vectorize) { return CompilationResult{luisa::string{"automatic vectorization requires vectorization to be enabled"}}; }
     try {
         tvm::Target device_target{tvm::ffi::String{options.target}};
-        tvm::Target host_target{tvm::ffi::String{options.host}};
+        // MakePackedAPI replaces a CPU entry's target with its host target,
+        // and LLVM codegen uses the module target for every function. Keep
+        // both stages on the requested CPU ISA; GPU wrappers still use host.
+        auto host_target = detail::is_host_target(device_target) ? tvm::Target{device_target, tvm::Target{}} : tvm::Target{tvm::ffi::String{options.host}};
         tvm::Target bound_target{device_target, host_target};
         luisa::vector<GroupPlan> plans;
         module = detail::map_execution(std::move(module), device_target, options, plans);
@@ -485,7 +750,7 @@ CompilationResult compile(tvm::IRModule module, const CompileOptions &options) n
 
         auto host_module = detail::make_module(
             std::move(host_functions), module->attrs, module->global_infos);
-        detail::finalize_host(host_module);
+        detail::finalize_host(host_module, options.planner.enabled ? options.planner.max_cpu_stack_bytes : 0u);
         auto runtime_module = detail::codegen(std::move(host_module), host_target);
         for (auto &&partition : device_partitions) {
             auto device_module = detail::make_module(

@@ -287,14 +287,14 @@ MetalCompiler::_load_kernels_from_library(MTL::Library *library, uint3 block_siz
         function_desc->setName(name);
         function_desc->setOptions(MTL::FunctionOptionCompileToBinary);
         auto function = NS::TransferPtr(library->newFunction(function_desc, &error));
-        function->setLabel(label);
         function_desc->release();
-        if (error != nullptr) {
+        if (error != nullptr || !function) {
             LUISA_WARNING_WITH_LOCATION(
                 "Error during creating Metal compute function: {}.",
-                error->localizedDescription()->utf8String());
+                error == nullptr ? "Metal returned no function" : error->localizedDescription()->utf8String());
             return {};
         }
+        function->setLabel(label);
         compute_pipeline_desc->setComputeFunction(function.get());
         auto pipeline = NS::TransferPtr(_device->handle()->newComputePipelineState(
             compute_pipeline_desc.get(), MTL::PipelineOptionNone, nullptr, &error));
@@ -317,12 +317,17 @@ MetalCompiler::_load_kernels_from_library(MTL::Library *library, uint3 block_siz
 
 MetalShaderHandle MetalCompiler::compile(luisa::string_view src,
                                          const ShaderOption &option,
-                                         MetalShaderMetadata &metadata) const noexcept {
+                                         MetalShaderMetadata &metadata,
+                                         MTL::LanguageVersion minimum_version,
+                                         luisa::string *diagnostic) const noexcept {
 
     return with_autorelease_pool([&] {
         auto src_hash = luisa::hash_value(src);
         auto opt_hash = luisa::hash_value(option);
         auto hash = luisa::hash_combine({src_hash, opt_hash});
+        if (minimum_version != MTL::LanguageVersion3_0) {
+            hash = luisa::hash_combine({hash, static_cast<uint64_t>(minimum_version)});
+        }
         metadata.checksum = hash;
 
         // try memory cache
@@ -379,8 +384,8 @@ MetalShaderHandle MetalCompiler::compile(luisa::string_view src,
         auto options = MTL::CompileOptions::alloc()->init();
         options->setFastMathEnabled(option.enable_fast_math);
         options->setLibraryType(MTL::LibraryTypeExecutable);
-        if (options->languageVersion() < MTL::LanguageVersion3_0) {
-            options->setLanguageVersion(MTL::LanguageVersion3_0);
+        if (options->languageVersion() < minimum_version) {
+            options->setLanguageVersion(minimum_version);
         }
 
         // this requires iOS 16.4+, iPadOS 16.4+, macOS 13.3+, Mac Catalyst 16.4+, tvOS 16.4+
@@ -390,9 +395,8 @@ MetalShaderHandle MetalCompiler::compile(luisa::string_view src,
                                                       metadata.block_size.z);
         }
 
-        NS::Error *error;
+        NS::Error *error = nullptr;
         auto library = NS::TransferPtr(_device->handle()->newLibrary(source, options, &error));
-        library->setLabel(NS::String::string(name.c_str(), NS::UTF8StringEncoding));
         source->release();
         options->release();
         if (error != nullptr) {
@@ -400,12 +404,21 @@ MetalShaderHandle MetalCompiler::compile(luisa::string_view src,
                 "Error during compiling Metal shader '{}': {}.",
                 name, error->localizedDescription()->utf8String());
         }
+        if (!library && diagnostic != nullptr) {
+            *diagnostic = error == nullptr ? "Metal returned no library" : error->localizedDescription()->utf8String();
+            return MetalShaderHandle{};
+        }
         LUISA_ASSERT(library, "Failed to compile Metal shader '{}'.", name);
+        library->setLabel(NS::String::string(name.c_str(), NS::UTF8StringEncoding));
 
         auto [pso_desc, pso] = _load_kernels_from_library(
             library.get(), metadata.block_size);
 
         // create pso
+        if ((!pso.entry || !pso.indirect_entry) && diagnostic != nullptr) {
+            *diagnostic = "Failed to create Metal Tile pipeline";
+            return MetalShaderHandle{};
+        }
         LUISA_ASSERT(pso.entry && pso.indirect_entry,
                      "Failed to create Metal compute pipeline for '{}'.", name);
 
@@ -415,6 +428,61 @@ MetalShaderHandle MetalCompiler::compile(luisa::string_view src,
         }
         _cache.update(hash, pso);
         return pso;
+    });
+}
+
+MetalShaderHandle MetalCompiler::compile_buffer_kernel(luisa::string_view src, luisa::string_view entry,
+                                                       const ShaderOption &option, MetalShaderMetadata &metadata,
+                                                       luisa::string &diagnostic, MTL::LanguageVersion minimum_version) const noexcept {
+    return with_autorelease_pool([&] {
+        // ABI, entry, shape and math policy are all part of the cache identity.
+        auto hash = luisa::hash_combine({luisa::hash_value(src), luisa::hash_value(entry), luisa::hash_value(option),
+                                         luisa::hash_value(metadata.block_size), luisa::hash_value(luisa::string_view{"metal-direct-buffers-v1"})});
+        if (minimum_version != MTL::LanguageVersion3_0) { hash = luisa::hash_combine({hash, static_cast<uint64_t>(minimum_version)}); }
+        metadata.checksum = hash;
+        if (option.enable_cache) {
+            if (auto cached = _cache.fetch(hash)) { return *cached; }
+        }
+        if (option.compile_only || !option.name.empty()) {
+            diagnostic = "Direct-buffer Tile archives are not supported yet";
+            return MetalShaderHandle{};
+        }
+        if (option.enable_debug_info || detail::get_bool_env("LUISA_DUMP_SOURCE")) {
+            auto name = luisa::format("metal_tile_{:016x}.metal", hash);
+            static_cast<void>(_device->io()->write_shader_source(name, {reinterpret_cast<const std::byte *>(src.data()), src.size()}));
+        }
+        auto source = NS::TransferPtr(NS::String::alloc()->init(const_cast<char *>(src.data()), src.size(), NS::UTF8StringEncoding, false));
+        auto options = NS::TransferPtr(MTL::CompileOptions::alloc()->init());
+        options->setFastMathEnabled(option.enable_fast_math);
+        options->setLibraryType(MTL::LibraryTypeExecutable);
+        if (options->languageVersion() < minimum_version) { options->setLanguageVersion(minimum_version); }
+        auto threads = metadata.block_size.x * metadata.block_size.y * metadata.block_size.z;
+        if (__builtin_available(iOS 16.4, macOS 13.3, tvOS 16.4, macCatalyst 16.4, *)) {
+            options->setMaxTotalThreadsPerThreadgroup(threads);
+        }
+        NS::Error *error = nullptr;
+        auto library = NS::TransferPtr(_device->handle()->newLibrary(source.get(), options.get(), &error));
+        if (!library) {
+            diagnostic = error ? error->localizedDescription()->utf8String() : "Metal returned no device library";
+            return MetalShaderHandle{};
+        }
+        auto name = NS::TransferPtr(NS::String::alloc()->init(const_cast<char *>(entry.data()), entry.size(), NS::UTF8StringEncoding, false));
+        auto function = NS::TransferPtr(library->newFunction(name.get()));
+        if (!function) {
+            diagnostic = "Metal device artifact entry was not found";
+            return MetalShaderHandle{};
+        }
+        auto desc = NS::TransferPtr(MTL::ComputePipelineDescriptor::alloc()->init());
+        desc->setComputeFunction(function.get());
+        desc->setMaxTotalThreadsPerThreadgroup(threads);
+        auto pipeline = NS::TransferPtr(_device->handle()->newComputePipelineState(desc.get(), MTL::PipelineOptionNone, nullptr, &error));
+        if (!pipeline) {
+            diagnostic = error ? error->localizedDescription()->utf8String() : "Metal returned no device pipeline";
+            return MetalShaderHandle{};
+        }
+        MetalShaderHandle result{std::move(pipeline), {}};
+        if (option.enable_cache) { _cache.update(hash, result); }
+        return result;
     });
 }
 

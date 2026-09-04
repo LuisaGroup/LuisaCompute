@@ -18,7 +18,15 @@ import subprocess
 import sys
 from typing import Any
 
-from run import Case, percentile, run_case
+from run import Case, percentile, run_case, validate_cpu_target_policy
+
+
+def artifact_hashes(binaries: list[Path], extra: list[Path]) -> dict[str, str]:
+    artifacts = {p.resolve(strict=True) for p in binaries + extra}
+    for binary in binaries:
+        artifacts.update(p.resolve() for p in binary.parent.iterdir()
+                         if p.is_file() and p.suffix in (".dylib", ".so", ".dll"))
+    return {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(artifacts)}
 
 
 def load_plan(path: Path, operations: set[str]) -> dict[tuple[str, str], dict[str, Any]]:
@@ -42,7 +50,32 @@ def load_plan(path: Path, operations: set[str]) -> dict[tuple[str, str], dict[st
         copy_batch = native.get("copy_batch", 1)
         if type(copy_batch) is not int or not 1 <= copy_batch <= 16:
             raise ValueError(f"{case.name} has an invalid copy-batch policy")
+        elide = native.get("elide_independent_subgroup_barriers", False)
+        if type(elide) is not bool or elide and native.get("forward_readonly_tile_loads") is not True:
+            raise ValueError(f"{case.name} has an invalid subgroup-fence policy")
         key = row["backend"], case.name
+        cpu_stack = native.get("cpu_stack_bytes", 0)
+        if type(cpu_stack) is not int or not 0 <= cpu_stack <= 65536 or (cpu_stack and row["backend"] != "cpu"):
+            raise ValueError(f"{case.name} has an invalid CPU stack budget")
+        cpu_lanes = native.get("cpu_vector_lanes", 16)
+        if type(cpu_lanes) is not int or cpu_lanes not in (16, 32, 64, 128) or (
+                cpu_lanes != 16 and (row["backend"] != "cpu" or not native["auto_vectorize"] or not native["vectorize"])):
+            raise ValueError(f"{case.name} has an invalid CPU vector-lane policy")
+        forwarding = native.get("forward_readonly_tile_loads", False)
+        if type(forwarding) is not bool:
+            raise ValueError(f"{case.name} has an invalid input-view policy")
+        cpu_views = row["backend"] == "cpu" and forwarding
+        cpu_model = native.get("cpu_target_policy") if row["backend"] == "cpu" else None
+        validate_cpu_target_policy(native, cpu_model, row["backend"])
+        cpu_matrix = native.get("cpu_matrix_backend", "reference")
+        if cpu_matrix not in ("reference", "cblas") or (cpu_matrix == "cblas" and
+                (row["backend"] != "cpu" or case.operation != "gemm" or native["execution_scope"] != "auto")):
+            raise ValueError(f"{case.name} has an invalid CPU matrix realization")
+        cpu_math = native.get("cpu_math_backend", "reference")
+        if cpu_math not in ("reference", "accelerate") or (cpu_math == "accelerate" and row["backend"] != "cpu"):
+            raise ValueError(f"{case.name} has an invalid CPU array-math realization")
+        if cpu_views and native.get("metal_mpp", False) is not False:
+            raise ValueError(f"{case.name} combines CPU input views with MPP")
         if key in plan:
             raise ValueError(f"duplicate case {key}")
         plan[key] = {
@@ -54,10 +87,28 @@ def load_plan(path: Path, operations: set[str]) -> dict[tuple[str, str], dict[st
             "auto_vectorize": native["auto_vectorize"],
             "group_threads": group_threads,
             "copy_batch": copy_batch,
+            "cpu_stack_bytes": cpu_stack,
+            "cpu_vector_lanes": cpu_lanes,
+            "cpu_input_views": cpu_views,
+            "cpu_model": cpu_model,
+            "cpu_matrix_backend": cpu_matrix,
+            "cpu_math_backend": cpu_math,
+            "expected_cpu_model": native.get("cpu_model") if row["backend"] == "cpu" else None,
+            "elide_independent_subgroup_barriers": elide,
+            "matrix_realization": "mpp-views" if forwarding and not cpu_views else "mpp" if native.get("metal_mpp") else "simdgroup",
         }
     if not plan:
         raise ValueError("the report contains no requested cases")
     return plan
+
+
+def override_cpu_vector_lanes(plan: dict[tuple[str, str], dict[str, Any]], budget: int) -> None:
+    if type(budget) is not int or budget not in (16, 32, 64, 128) or any(
+            backend != "cpu" or config["auto_vectorize"] is not True or config["no_vectorize"] is not False
+            for (backend, _), config in plan.items()):
+        raise ValueError("CPU vector-lane override requires auto-vectorized CPU plans and 16/32/64/128 lanes")
+    for config in plan.values():
+        config["cpu_vector_lanes"] = budget
 
 
 def order_for_round(keys: list[Any], round_index: int):
@@ -109,6 +160,10 @@ def main() -> int:
     parser.add_argument("--candidate", type=Path, required=True)
     parser.add_argument("--native", type=Path, required=True)
     parser.add_argument("--candidate-native", type=Path, help="optional second prebuilt executable for implementation A/B tests")
+    parser.add_argument("--compiler-artifact", type=Path, action="append", default=[],
+                        help="additional compiler/runtime library to fingerprint before and after timing")
+    parser.add_argument("--capture-sources", action="store_true",
+                        help="require and archive generated LLVM/Metal sources; both binaries must support source dumping")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--operations", default="gemm")
     parser.add_argument("--rounds", type=int, default=4)
@@ -118,6 +173,15 @@ def main() -> int:
     parser.add_argument("--threads", type=int, default=8)
     parser.add_argument("--timeout", type=float, default=120)
     parser.add_argument("--candidate-vector-mode", choices=("reported", "vectorize", "no-vectorize", "auto-vectorize"), default="reported")
+    parser.add_argument("--candidate-subgroup-fences", choices=("reported", "retain", "elide"), default="reported")
+    parser.add_argument("--candidate-cpu-stack-bytes", type=int, help="override only the CPU candidate's storage budget")
+    parser.add_argument("--cpu-stack-bytes", type=int, help="hold the CPU storage budget fixed for BOTH variants")
+    parser.add_argument("--candidate-cpu-vector-lanes", type=int, choices=(16, 32, 64, 128),
+                        help="override only the CPU candidate's logical SIMD-pack budget")
+    parser.add_argument("--cpu-vector-lanes", type=int, choices=(16, 32, 64, 128),
+                        help="hold the CPU logical SIMD-pack budget fixed for BOTH variants")
+    parser.add_argument("--candidate-cpu-input-views", action="store_true", help="enable immutable input views only for CPU candidates")
+    parser.add_argument("--candidate-cpu-model", choices=("generic", "native"), help="override only CPU candidate codegen; reference remains frozen")
     args = parser.parse_args()
     if args.rounds < 2 or args.rounds % 2 or min(args.samples, args.sample_ms, args.warmup_ms, args.threads, args.timeout) <= 0:
         parser.error("use an even number of rounds >= 2, and positive timing/thread settings")
@@ -132,14 +196,50 @@ def main() -> int:
         plans = {"reference": load_plan(args.reference, operations), "candidate": load_plan(args.candidate, operations)}
         if plans["reference"].keys() != plans["candidate"].keys():
             raise ValueError("reports must contain exactly the same requested backend/cases")
+        if args.cpu_stack_bytes is not None:
+            if not 0 <= args.cpu_stack_bytes <= 65536 or any(k[0] != "cpu" for k in plans["reference"]):
+                raise ValueError("shared CPU stack override requires CPU plans and a budget in [0,65536]")
+            for plan in plans.values():
+                for config in plan.values():
+                    config["cpu_stack_bytes"] = args.cpu_stack_bytes
         if args.candidate_vector_mode != "reported":
             for config in plans["candidate"].values():
                 config["no_vectorize"] = args.candidate_vector_mode == "no-vectorize"
                 config["auto_vectorize"] = args.candidate_vector_mode == "auto-vectorize"
+        if args.cpu_vector_lanes is not None:
+            for plan in plans.values():
+                override_cpu_vector_lanes(plan, args.cpu_vector_lanes)
+        if args.candidate_subgroup_fences != "reported":
+            for config in plans["candidate"].values():
+                if config["matrix_realization"] != "mpp-views":
+                    raise ValueError("subgroup-fence override requires MPP-view candidates")
+                config["elide_independent_subgroup_barriers"] = args.candidate_subgroup_fences == "elide"
+        if args.candidate_cpu_stack_bytes is not None:
+            if not 0 <= args.candidate_cpu_stack_bytes <= 65536 or any(k[0] != "cpu" for k in plans["candidate"]):
+                raise ValueError("CPU stack override requires CPU candidates and a budget in [0,65536]")
+            for config in plans["candidate"].values():
+                config["cpu_stack_bytes"] = args.candidate_cpu_stack_bytes
+        if args.candidate_cpu_vector_lanes is not None:
+            override_cpu_vector_lanes(plans["candidate"], args.candidate_cpu_vector_lanes)
+        if args.candidate_cpu_input_views:
+            for (backend, _), config in plans["candidate"].items():
+                if backend != "cpu" or config["matrix_realization"] != "simdgroup":
+                    raise ValueError("CPU input-view override requires CPU reference-lowering candidates")
+                config["cpu_input_views"] = True
+        if args.candidate_cpu_model is not None:
+            if any(backend != "cpu" for backend, _ in plans["candidate"]):
+                raise ValueError("CPU model override requires CPU candidates")
+            for config in plans["candidate"].values():
+                config["cpu_model"] = args.candidate_cpu_model
+                config["expected_cpu_model"] = None
     except (KeyError, ValueError) as error:
         parser.error(str(error))
     for key in ("TVM_NUM_THREADS", "OMP_NUM_THREADS", "VECLIB_MAXIMUM_THREADS"):
         os.environ[key] = str(args.threads)
+    removed = {key: os.environ.pop(key, None) for key in (
+        "PYTORCH_MPS_FAST_MATH", "PYTORCH_MPS_PREFER_METAL", "PYTORCH_ENABLE_MPS_FALLBACK",
+        "LUISA_ENABLE_VALIDATION", "MTL_DEBUG_LAYER", "MTL_SHADER_VALIDATION",
+        "DYLD_PRINT_LIBRARIES", "LUISA_TILE_BENCH_DUMP_SOURCE")}
     import numpy as np
     import torch
     torch.set_num_threads(args.threads)
@@ -150,13 +250,15 @@ def main() -> int:
     args.output.mkdir(parents=True, exist_ok=False)
     root = Path(__file__).resolve().parents[3]
     digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
+    hashes = artifact_hashes([args.native, args.candidate_native], args.compiler_artifact)
     report = {"metadata": {
         "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(), "platform": platform.platform(),
         "torch_version": torch.__version__, "torch_git_version": torch.version.git_version,
         "torch_config": torch.__config__.show(), "threads": torch.get_num_threads(),
         "thread_environment": {key: os.environ[key] for key in ("TVM_NUM_THREADS", "OMP_NUM_THREADS", "VECLIB_MAXIMUM_THREADS")},
         "git_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(),
-        "worktree_dirty": subprocess.run(["git", "diff", "--quiet"], cwd=root).returncode != 0,
+        "worktree_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=root)),
+        "removed_environment": removed, "artifacts_sha256": hashes, "capture_sources": args.capture_sources,
         "native_sha256": digest(args.native),
         "adjacent_tile_library_sha256": {p.name: digest(p) for p in sorted(args.native.parent.glob("*luisa-tile*"))
                                         if p.is_file() and p.suffix in (".dylib", ".so", ".dll")},
@@ -168,6 +270,13 @@ def main() -> int:
         },
         "rounds": args.rounds, "samples": args.samples, "sample_ms": args.sample_ms, "warmup_ms": args.warmup_ms,
         "candidate_vector_mode": args.candidate_vector_mode,
+        "candidate_subgroup_fences": args.candidate_subgroup_fences,
+        "candidate_cpu_stack_bytes": args.candidate_cpu_stack_bytes,
+        "shared_cpu_stack_bytes": args.cpu_stack_bytes,
+        "candidate_cpu_vector_lanes": args.candidate_cpu_vector_lanes,
+        "shared_cpu_vector_lanes": args.cpu_vector_lanes,
+        "candidate_cpu_input_views": args.candidate_cpu_input_views,
+        "candidate_cpu_model": args.candidate_cpu_model,
         "timing": "synchronized device-resident host wall time including dispatch; no profiler",
         "source_reports": {variant: {"path": str(path), "sha256": digest(path)}
                            for variant, path in (("reference", args.reference), ("candidate", args.candidate))},
@@ -192,7 +301,9 @@ def main() -> int:
             row.update(round=round_index, variant=variant)
             report["results"].append(row)
             write_report(report, args.output)
-    return 1 if failed else 0
+    report["metadata"]["artifacts_unchanged"] = all(Path(p).is_file() and digest(Path(p)) == h for p, h in hashes.items())
+    write_report(report, args.output)
+    return int(failed or not report["metadata"]["artifacts_unchanged"])
 
 
 if __name__ == "__main__":

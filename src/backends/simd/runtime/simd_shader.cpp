@@ -594,6 +594,24 @@ SIMDShader::SIMDShader(
 
 SIMDShader::~SIMDShader() noexcept = default;
 
+SIMDShader::SIMDShader(SIMDCompiledKernel compiled, uint3 block_size,
+                       luisa::vector<Usage> argument_usages) noexcept
+    : _compiled{std::move(compiled)}, _block_size{block_size},
+      _argument_usages{std::move(argument_usages)} {
+    LUISA_ASSERT(_compiled.succeeded() && _compiled.print_formats.empty(), "Invalid precompiled SIMD Tile entry.");
+    LUISA_ASSERT(static_cast<uint64_t>(block_size.x) * block_size.y * block_size.z % _compiled.warp_width == 0u,
+                 "SIMD Tile block size must be a multiple of packet width.");
+    _entry = reinterpret_cast<Entry *>(_compiled.entry);
+    _packet_batch_entry = reinterpret_cast<PacketBatchEntry *>(_compiled.packet_batch_entry);
+    _block_batch_entry = reinterpret_cast<BlockBatchEntry *>(_compiled.block_batch_entry);
+    _enable_packet_batch_entry = _packet_batch_entry != nullptr;
+    _enable_block_batch_entry = _block_batch_entry != nullptr;
+    if (auto directory = std::getenv("LUISA_SIMD_DUMP_ASSEMBLY_DIR")) {
+        dump_compilation_artifacts(directory, "tile_xir", _compiled.warp_width,
+                                   _compiled.assembly, _compiled.jit->object());
+    }
+}
+
 void SIMDShader::_build_bound_arguments(
     luisa::span<const Function::Binding> bindings) noexcept {
     _bound_arguments.reserve(bindings.size());

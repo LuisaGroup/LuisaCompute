@@ -9,6 +9,12 @@ DeviceInterface::DeviceInterface(Context &&ctx) noexcept
 
 DeviceInterface::~DeviceInterface() noexcept = default;
 
+ShaderCreationInfo DeviceInterface::create_tile_kernel(
+    const ShaderOption &, const tile::Function &,
+    const tile::CompileOptions &, tile::KernelMetadata &) noexcept {
+    return ShaderCreationInfo::make_invalid();
+}
+
 Context DeviceInterface::context() const noexcept {
     return Context{_ctx_impl};
 }

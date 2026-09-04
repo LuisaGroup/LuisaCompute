@@ -615,7 +615,7 @@ private:
         ::llvm::Value *lane_affine_seed = nullptr,
         ::llvm::Value *operand_sanitization_mask = nullptr);
     void _assign(schedule::EdgeAssignment assignment,
-                 ::llvm::Value *mask);
+                 ::llvm::Value *mask, ::llvm::Value *source_value);
     void _apply_assignments(
         const std::vector<schedule::EdgeAssignment> &assignments,
         ::llvm::Value *mask);

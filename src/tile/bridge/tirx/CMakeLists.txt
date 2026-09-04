@@ -6,12 +6,21 @@ find_path(LUISA_TILE_TVM_FFI_INCLUDE_PATH
         NAMES tvm/ffi/object.h
         HINTS "${LUISA_COMPUTE_TVM_FFI_INCLUDE_DIR}"
         NO_DEFAULT_PATH)
+find_path(LUISA_TILE_TVM_DLPACK_INCLUDE_PATH
+        NAMES dlpack/dlpack.h
+        HINTS "${LUISA_COMPUTE_TVM_FFI_INCLUDE_DIR}"
+        "${LUISA_COMPUTE_TVM_FFI_INCLUDE_DIR}/../3rdparty/dlpack/include"
+        NO_DEFAULT_PATH)
 find_library(LUISA_TILE_TVM_COMPILER_LIBRARY
         NAMES tvm_compiler
         HINTS "${LUISA_COMPUTE_TVM_LIBRARY_DIR}"
         NO_DEFAULT_PATH)
 find_library(LUISA_TILE_TVM_RUNTIME_LIBRARY
         NAMES tvm_runtime
+        HINTS "${LUISA_COMPUTE_TVM_LIBRARY_DIR}"
+        NO_DEFAULT_PATH)
+find_library(LUISA_TILE_TVM_RUNTIME_EXTRA_LIBRARY
+        NAMES tvm_runtime_extra
         HINTS "${LUISA_COMPUTE_TVM_LIBRARY_DIR}"
         NO_DEFAULT_PATH)
 find_library(LUISA_TILE_TVM_FFI_LIBRARY
@@ -31,6 +40,7 @@ endif ()
 foreach (_dependency
         LUISA_TILE_TVM_INCLUDE_PATH
         LUISA_TILE_TVM_FFI_INCLUDE_PATH
+        LUISA_TILE_TVM_DLPACK_INCLUDE_PATH
         LUISA_TILE_TVM_COMPILER_LIBRARY
         LUISA_TILE_TVM_RUNTIME_LIBRARY
         LUISA_TILE_TVM_FFI_LIBRARY)
@@ -46,6 +56,7 @@ endforeach ()
 set(LUISA_COMPUTE_TILE_TIRX_BRIDGE_SOURCES
         compiler.cpp
         cooperative.cpp
+        cpu.cpp
         execution.cpp
         layout.cpp
         lower.cpp
@@ -53,7 +64,8 @@ set(LUISA_COMPUTE_TILE_TIRX_BRIDGE_SOURCES
         matrix.cpp
         planner.cpp
         pipeline.cpp
-        synchronization.cpp)
+        synchronization.cpp
+        views.cpp)
 
 add_library(luisa-compute-tile-bridge-tirx
         ${LUISA_COMPUTE_TILE_TIRX_BRIDGE_SOURCES})
@@ -62,7 +74,8 @@ target_compile_definitions(luisa-compute-tile-bridge-tirx
 target_include_directories(luisa-compute-tile-bridge-tirx
         PUBLIC
         $<BUILD_INTERFACE:${LUISA_TILE_TVM_INCLUDE_PATH}>
-        $<BUILD_INTERFACE:${LUISA_TILE_TVM_FFI_INCLUDE_PATH}>)
+        $<BUILD_INTERFACE:${LUISA_TILE_TVM_FFI_INCLUDE_PATH}>
+        $<BUILD_INTERFACE:${LUISA_TILE_TVM_DLPACK_INCLUDE_PATH}>)
 target_link_libraries(luisa-compute-tile-bridge-tirx
         PUBLIC
         luisa-compute-tile
@@ -72,6 +85,19 @@ target_link_libraries(luisa-compute-tile-bridge-tirx
 if (LUISA_TILE_TVM_METAL_RUNTIME_LIBRARY)
     target_link_libraries(luisa-compute-tile-bridge-tirx
             PUBLIC "${LUISA_TILE_TVM_METAL_RUNTIME_LIBRARY}")
+endif ()
+if (LUISA_TILE_TVM_RUNTIME_EXTRA_LIBRARY)
+    # Optional registered CPU/library atoms live here in current TVMx builds.
+    # The compiler still checks each requested provider at runtime.
+    target_link_libraries(luisa-compute-tile-bridge-tirx
+            PUBLIC "${LUISA_TILE_TVM_RUNTIME_EXTRA_LIBRARY}")
+endif ()
+if (APPLE)
+    find_library(LUISA_TILE_ACCELERATE_FRAMEWORK Accelerate REQUIRED)
+    target_link_libraries(luisa-compute-tile-bridge-tirx
+            PUBLIC "${LUISA_TILE_ACCELERATE_FRAMEWORK}")
+    target_compile_definitions(luisa-compute-tile-bridge-tirx
+            PRIVATE LUISA_TILE_HAS_ACCELERATE=1)
 endif ()
 if (UNIX)
     target_link_options(luisa-compute-tile-bridge-tirx PUBLIC

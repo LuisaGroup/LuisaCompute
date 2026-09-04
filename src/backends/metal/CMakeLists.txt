@@ -67,6 +67,7 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             metal_device.cpp metal_device.h
             metal_compiler.cpp metal_compiler.h
             metal_codegen_ast.cpp metal_codegen_ast.h
+            tile/metal_tile.cpp tile/metal_tile_codegen.cpp tile/metal_tile_codegen.h
             metal_texture.cpp metal_texture.h
             metal_stream.cpp metal_stream.mm metal_stream.h
             metal_event.cpp metal_event.h
@@ -94,12 +95,18 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     add_dependencies(luisa-compute-backend-metal
             luisa-compute-backend-metal-embed)
 
+    if (TARGET luisa-compute-tile-bridge-tirx)
+        target_link_libraries(luisa-compute-backend-metal PRIVATE luisa-compute-tile-bridge-tirx)
+        target_compile_definitions(luisa-compute-backend-metal PRIVATE LUISA_METAL_TILE_TIRX=1)
+    endif ()
+
     if (TARGET luisa-compute-oidn-ext)
         target_link_libraries(luisa-compute-backend-metal PRIVATE luisa-compute-oidn-ext)
     endif ()
 
     find_library(COMPRESSION_LIB compression)
     target_link_libraries(luisa-compute-backend-metal PRIVATE
+            luisa-compute-tile
             luisa-compute-xir
             luisa-compute-metal-cpp
             ${COMPRESSION_LIB}

@@ -18,6 +18,12 @@ namespace luisa::compute {
 
 class Context;
 
+namespace tile {
+class Function;
+struct CompileOptions;
+struct KernelMetadata;
+}// namespace tile
+
 namespace detail {
 class ContextImpl;
 }// namespace detail
@@ -149,6 +155,12 @@ public:
 
     // kernel
     [[nodiscard]] virtual ShaderCreationInfo create_shader(const ShaderOption &option, Function kernel) noexcept = 0;
+    // Optional native Tile compiler. The runtime owns the ordinary shader and
+    // dispatch ABI; it does not depend on the Tile compiler or an external IR.
+    [[nodiscard]] virtual ShaderCreationInfo create_tile_kernel(
+        const ShaderOption &option, const tile::Function &kernel,
+        const tile::CompileOptions &tile_options,
+        tile::KernelMetadata &metadata) noexcept;
     [[nodiscard]] virtual ShaderCreationInfo load_shader(luisa::string_view name, luisa::span<const Type *const> arg_types) noexcept = 0;
     virtual Usage shader_argument_usage(uint64_t handle, size_t index) noexcept = 0;
     virtual void destroy_shader(uint64_t handle) noexcept = 0;

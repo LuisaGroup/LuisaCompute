@@ -15,6 +15,9 @@ struct MetalShaderHandle {
     NS::SharedPtr<MTL::ComputePipelineState> indirect_entry;
 };
 
+enum class MetalShaderBinding : uint8_t { ARGUMENT_BUFFER,
+                                          DIRECT_BUFFERS };
+
 class MetalShader {
 
 public:
@@ -25,6 +28,9 @@ private:
     luisa::vector<Usage> _argument_usages{};
     luisa::vector<uint8_t> _argument_sampled{};
     luisa::vector<Argument> _bound_arguments{};
+    MetalShaderBinding _binding{MetalShaderBinding::ARGUMENT_BUFFER};
+    // Indexed by Metal buffer slot; values index the original Runtime args.
+    luisa::vector<uint32_t> _buffer_arguments;
     uint _block_size[3];
     uint64_t _source_checksum{};
     size_t _source_size_bytes{};
@@ -49,7 +55,9 @@ public:
                 size_t source_size_bytes,
                 size_t source_line_count,
                 double codegen_ms,
-                double compile_ms) noexcept;
+                double compile_ms,
+                MetalShaderBinding binding = MetalShaderBinding::ARGUMENT_BUFFER,
+                luisa::vector<uint32_t> buffer_arguments = {}) noexcept;
     ~MetalShader() noexcept;
     void launch(MetalCommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept;
     [[nodiscard]] Usage argument_usage(uint index) const noexcept;

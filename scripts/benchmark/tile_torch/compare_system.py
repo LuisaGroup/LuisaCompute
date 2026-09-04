@@ -18,7 +18,7 @@ import subprocess
 import sys
 from typing import Any
 
-from repeat import load_plan
+from repeat import artifact_hashes, load_plan
 from run import Case, percentile, run_case
 
 
@@ -61,6 +61,13 @@ def main() -> int:
     parser.add_argument("--plan", action="append", type=Path, required=True, help="frozen run.py report; repeat to combine CPU/Metal")
     parser.add_argument("--native", type=Path, required=True)
     parser.add_argument("--system-baseline", type=Path, required=True)
+    parser.add_argument("--compiler-artifact", type=Path, action="append", default=[])
+    parser.add_argument("--capture-sources", action="store_true")
+    parser.add_argument("--cpu-stack-bytes", type=int, help="override CPU storage budget; leave GPU plans unchanged")
+    parser.add_argument("--cpu-vector-lanes", type=int, choices=(16, 32, 64, 128),
+                        help="override CPU logical SIMD-pack budget; leave GPU plans unchanged")
+    parser.add_argument("--cpu-input-views", action="store_true", help="enable immutable input views on CPU cases only")
+    parser.add_argument("--cpu-model", choices=("generic", "native"), help="override CPU codegen model; leave GPU cases unchanged")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--rounds", type=int, default=6)
     parser.add_argument("--samples", type=int, default=9)
@@ -82,11 +89,40 @@ def main() -> int:
             if plan.keys() & added.keys():
                 raise ValueError("plans contain overlapping cases")
             plan.update(added)
+        if args.cpu_stack_bytes is not None:
+            if not 0 <= args.cpu_stack_bytes <= 65536 or not any(backend == "cpu" for backend, _ in plan):
+                raise ValueError("CPU stack override requires CPU cases and a budget in [0,65536]")
+            for (backend, _), config in plan.items():
+                if backend == "cpu":
+                    config["cpu_stack_bytes"] = args.cpu_stack_bytes
+        if args.cpu_vector_lanes is not None:
+            if not any(backend == "cpu" for backend, _ in plan):
+                raise ValueError("CPU vector-lane override requires CPU cases")
+            for (backend, _), config in plan.items():
+                if backend == "cpu":
+                    if not config["auto_vectorize"] or config["no_vectorize"]:
+                        raise ValueError("CPU vector-lane override requires CPU auto-vectorization")
+                    config["cpu_vector_lanes"] = args.cpu_vector_lanes
+        if args.cpu_input_views:
+            if not any(backend == "cpu" for backend, _ in plan):
+                raise ValueError("CPU input-view override requires CPU cases")
+            for (backend, _), config in plan.items():
+                if backend == "cpu":
+                    config["cpu_input_views"] = True
+        if args.cpu_model is not None:
+            if not any(backend == "cpu" for backend, _ in plan):
+                raise ValueError("CPU model override requires CPU cases")
+            for (backend, _), config in plan.items():
+                if backend == "cpu":
+                    config["cpu_model"] = args.cpu_model
+                    config["expected_cpu_model"] = None
     except (KeyError, ValueError) as error:
         parser.error(str(error))
     for key in ("TVM_NUM_THREADS", "OMP_NUM_THREADS", "VECLIB_MAXIMUM_THREADS"):
         os.environ[key] = str(args.threads)
-    overrides = ("PYTORCH_MPS_FAST_MATH", "PYTORCH_MPS_PREFER_METAL", "PYTORCH_ENABLE_MPS_FALLBACK")
+    overrides = ("PYTORCH_MPS_FAST_MATH", "PYTORCH_MPS_PREFER_METAL", "PYTORCH_ENABLE_MPS_FALLBACK",
+                 "LUISA_ENABLE_VALIDATION", "MTL_DEBUG_LAYER", "MTL_SHADER_VALIDATION",
+                 "DYLD_PRINT_LIBRARIES", "LUISA_TILE_BENCH_DUMP_SOURCE")
     prior_overrides = {key: os.environ.pop(key, None) for key in overrides}
     import numpy as np
     import torch
@@ -98,9 +134,7 @@ def main() -> int:
     args.output.mkdir(parents=True, exist_ok=False)
     root = Path(__file__).resolve().parents[3]
     digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
-    artifacts = [args.native, args.system_baseline, *[p for p in sorted(args.native.parent.glob("*luisa-tile*"))
-                 if p.is_file() and p.suffix in (".dylib", ".so", ".dll")]]
-    hashes = {str(path): digest(path) for path in artifacts}
+    hashes = artifact_hashes([args.native, args.system_baseline], args.compiler_artifact)
     report = {"metadata": {
         "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(), "platform": platform.platform(),
         "torch_version": torch.__version__, "torch_config": torch.__config__.show(),
@@ -108,8 +142,12 @@ def main() -> int:
         "thread_environment": {key: os.environ[key] for key in ("TVM_NUM_THREADS", "OMP_NUM_THREADS", "VECLIB_MAXIMUM_THREADS")},
         "removed_mps_overrides": prior_overrides,
         "git_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(),
-        "worktree_dirty": subprocess.run(["git", "diff", "--quiet"], cwd=root).returncode != 0,
+        "worktree_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=root)),
         "artifacts_sha256": hashes,
+        "capture_sources": args.capture_sources, "cpu_stack_override": args.cpu_stack_bytes,
+        "cpu_vector_lanes_override": args.cpu_vector_lanes,
+        "cpu_input_views_override": args.cpu_input_views,
+        "cpu_model_override": args.cpu_model,
         "plan_sources": [{"path": str(path.resolve()), "sha256": digest(path)} for path in args.plan],
         "rounds": args.rounds, "samples": args.samples, "sample_ms": args.sample_ms, "warmup_ms": args.warmup_ms,
         "timing": "synchronized device-resident host wall including dispatch, not GPU-event time",
@@ -133,7 +171,7 @@ def main() -> int:
                 print(f"  FAILED: {row['error']}", flush=True)
             report["results"].append(row)
             write_report(report, args.output)
-    report["metadata"]["artifacts_unchanged"] = all(path.is_file() and digest(path) == hashes[str(path)] for path in artifacts)
+    report["metadata"]["artifacts_unchanged"] = all(Path(path).is_file() and digest(Path(path)) == sha for path, sha in hashes.items())
     write_report(report, args.output)
     print(f"Results: {args.output / 'results.md'}", flush=True)
     return int(failed or not report["metadata"]["artifacts_unchanged"])

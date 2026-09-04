@@ -8,6 +8,11 @@
 
 namespace luisa::compute::tile::bridge::tirx {
 
+enum class MatrixCostBasis : uint8_t {
+    SIMDGROUP_REFERENCE,
+    METAL_MPP_MEMORY,
+};
+
 // Relative issue-work coefficients, NOT measured nanoseconds or a promise of
 // occupancy. Device calibration can replace these priors without changing
 // candidate legality or the solver. Unknown register allocation is represented
@@ -17,19 +22,65 @@ struct ExecutionCostModel {
     double shared_fragment_transfer{2.0};
     double independent_element{0.0078125};
     double subgroup_setup{8.0};
+    // MPP reads A/B from memory inside each tensor operation. These terms are
+    // expressed in logical 8x8 fragments. The footprint terms distinguish the
+    // two row-major operands without pretending to be byte-accurate cache
+    // traffic; the aspect terms are versioned target priors for MPP descriptor
+    // and subgroup-grid shape. Correctness-checked JIT data may replace them.
+    double metal_mpp_memory_fragment{1.0};
+    double metal_mpp_lhs_footprint{0.125};
+    double metal_mpp_rhs_footprint{0.375};
+    double metal_mpp_output_fragment{1.0};
+    double metal_mpp_tensor_operation{8.0};
+    double metal_mpp_accumulator_init{1.0};
+    double metal_mpp_tile_aspect{0.1875};
+    double metal_mpp_local_row_aspect{0.25};
+    double metal_mpp_local_column_aspect{0.125};
+    // Non-matrix element work is divided across the participating subgroups.
+    // One logical unit therefore represents one scalar per subgroup lane.
+    double metal_mpp_independent_element{0.03125};
+    // Fixed critical-path prior for entering one cooperative MPP program.
+    double metal_mpp_group_setup{8.0};
     uint32_t preferred_subgroups{4u};
     uint32_t preferred_fragment_scalars_per_lane{32u};
+    // Reference-realization latency-wave prior for independent programs.
+    uint32_t preferred_concurrent_programs{64u};
+    // MPP v2 uses subgroup demand rather than pretending that 64-, 128-, and
+    // 256-thread programs consume the same machine capacity. This M1-class
+    // prior is deliberately replaceable by a calibrated target profile; it is
+    // not a queried occupancy limit or a portable hardware fact.
+    uint32_t metal_mpp_concurrent_subgroups{512u};
 };
 
 struct PlannerOptions {
+    // Automatic CPU roots below this many independent tasks stay serial to
+    // avoid paying the TVM thread-pool launch cost. Explicit worker bindings
+    // remain hard constraints. One preserves the always-parallel policy.
+    uint32_t min_cpu_parallel_tasks{64u};
+    // Opt-in LLVM storage realization. At most this many bytes of compact,
+    // nonescaping compiler temporaries become stack allocations per PrimFunc
+    // (including alignment padding). Valid range is [0,65536]. Zero, or a
+    // disabled planner, retains TVM workspace allocation.
+    // This is not a bound on LLVM spills or user/TVM-owned stack objects.
+    uint32_t max_cpu_stack_bytes{0u};
+    // Logical SIMD-pack budget, not a hardware vector width/register count.
+    // Sixteen retains single-row packing. Larger powers of two (up to 128)
+    // may combine adjacent independent rows while preserving each element's
+    // serial recurrence. Requires CPU auto-vectorization when non-default.
+    uint32_t max_cpu_vector_lanes{16u};
     bool enabled{true};
     bool retain_accumulators{true};
     // Elide the initial/final shared accumulator only when its literal fill
     // and sole, fully in-bounds global store have been proved by analysis.
     bool direct_accumulator_store{true};
     // Merge compiler-inserted group barriers only across independent effects.
-    // Explicit/unknown synchronization and loop-boundary fences are retained.
+    // Retain loop-boundary fences unless the independent-subgroup option below
+    // is also selected. Explicit/unknown synchronization is never removed.
     bool coalesce_group_barriers{true};
+    // A profitability choice, not permission to assume independence. Requires
+    // a whole-group proof of private subgroup programs and one terminal store.
+    // Default off: even redundant fences can improve cache/issue scheduling.
+    bool elide_independent_subgroup_barriers{false};
     // Zero lets the solver choose. A nonzero value is an exact tuning
     // constraint, checked against the target before any code is generated.
     uint32_t threads_per_group{0u};
@@ -43,6 +94,9 @@ struct PlannerOptions {
     // copy. One retains the scalar load/store sequence; no async engine or
     // vector-alignment promise is implied. The emitter checks each domain.
     uint32_t max_copy_batch{1u};
+    // Bound worker-private software-prefetch storage, not hardware registers.
+    // Zero disables late prefetching; pipeline window one is always ordered.
+    uint32_t max_pipeline_prefetch_scalars_per_lane{32u};
     ExecutionCostModel cost;
 };
 
@@ -61,6 +115,9 @@ struct MatrixWorkload {
     // observation of C/D inside this many loop iterations. Zero disables it.
     uint64_t accumulator_iterations{0u};
     bool has_direct_output{false};
+    // A proved one-iteration, positive-zero recurrence that may use MPP's
+    // D=A*B mode. This is a semantic proof result, not a profitability hint.
+    bool overwrites_accumulator{false};
 };
 
 struct GroupWorkload {
@@ -89,23 +146,46 @@ struct PlanCost {
     double matrix_issues{0.0};
     double shared_fragment_transfers{0.0};
     double direct_fragment_stores{0.0};
+    double metal_mpp_operations{0.0};
+    double memory_fragment_reads{0.0};
+    double lhs_footprint_fragments{0.0};
+    double rhs_footprint_fragments{0.0};
+    double accumulator_initializations{0.0};
+    double tile_aspect_fragments{0.0};
+    double local_row_aspect_issues{0.0};
+    double local_column_aspect_issues{0.0};
+    double independent_elements{0.0};
     uint64_t fragment_scalars_per_lane{0u};
+    // score is one logical program's relative work and drives the inner
+    // solver. kernel_score applies the outer program-wave prior so separately
+    // staged/JIT-compiled execution shapes can be compared on the same basis.
     double score{0.0};
+    double concurrent_waves{1.0};
+    double kernel_score{0.0};
 };
 
 struct GroupPlan {
     luisa::string name;
+    uint64_t programs{0u};
     uint32_t threads{1u};
     uint64_t shared_memory_bytes{0u};
     uint64_t candidates_considered{0u};
     uint64_t candidates_rejected{0u};
     uint32_t max_copy_batch{1u};
     uint64_t batched_copy_operations{0u};
+    uint64_t prefetched_pipeline_loops{0u};
+    uint64_t prefetch_storage_scalars_per_lane{0u};
     // Static emitted synchronization sites, not dynamic barrier executions.
     // Filled by realization; the bootstrap ranking does not yet price them.
     uint64_t group_barrier_sites_before{0u};
     uint64_t group_barrier_sites_after{0u};
+    // Realization proof, independent of the selected fence-elision policy.
+    bool independent_subgroups{false};
     luisa::vector<MatrixDistribution> matrices;
+    MatrixCostBasis cost_basis{MatrixCostBasis::SIMDGROUP_REFERENCE};
+    // Explicit realization selected by the target bridge. cost_basis records
+    // which separately versioned feature model ranked it.
+    bool metal_mpp{false};
     PlanCost cost;
     bool optimized{false};
 };
@@ -121,12 +201,15 @@ struct PlanningResult {
 // Exhaustive discrete solver for the currently implemented group realization
 // family: thread count x rectangular subgroup factorizations x resident atom
 // blocks. Covers every exact rectangular factorization in the supplied bounds,
-// not all possible GPU programs. The reference realization is always a candidate.
-// No compiler IR, JIT, measurements, or mutable global state is needed to rank
-// candidates. MatrixWorkloads must come from proved semantic MMA contracts.
+// not all possible GPU programs. No compiler IR, JIT, measurements, or mutable
+// global state is needed to rank candidates. The SIMD-group basis includes the
+// reference realization; an
+// explicit MPP basis has no scalar fallback and fails if no legal descriptor
+// exists. MatrixWorkloads must come from proved semantic MMA contracts.
 [[nodiscard]] LUISA_TILE_TIRX_BRIDGE_API PlanningResult plan_group(
     const GroupWorkload &workload, const ExecutionLimits &limits,
-    const PlannerOptions &options = {}) noexcept;
+    const PlannerOptions &options = {},
+    MatrixCostBasis cost_basis = MatrixCostBasis::SIMDGROUP_REFERENCE) noexcept;
 
 // Independent, integer-only coverage/resource check, also applied by codegen.
 // Cost-model coefficients cannot grant legality to a candidate.

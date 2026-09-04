@@ -1,0 +1,413 @@
+diff --git a/include/tvm/tirx/builtin.h b/include/tvm/tirx/builtin.h
+index 3026894..ca25dbc 100644
+--- a/include/tvm/tirx/builtin.h
++++ b/include/tvm/tirx/builtin.h
+@@ -601,6 +601,41 @@ TVM_DLL const Op& cooperative_tensor_store();
+  */
+ TVM_DLL const Op& cooperative_tensor_multiply_accumulate();
+
++/*!
++ * \brief FP32 MPP multiply with non-owning strided memory inputs.
++ *
++ * void cooperative_tensor_multiply_from_memory(
++ *     Var d, PrimExpr index_d, PrimExpr ptr_a, PrimExpr stride_a,
++ *     PrimExpr ptr_b, PrimExpr stride_b,
++ *     int M, int N, int K, bool column_major_a, bool column_major_b);
++ *
++ * A is logically M x K, B is K x N, and D is an M x N cooperative tensor
++ * in metal.cooperative_tensor storage. This operation overwrites D and does
++ * not read its previous contents. The remaining participation, bounds,
++ * storage, shape, and precision requirements are identical to
++ * cooperative_tensor_multiply_accumulate_from_memory.
++ */
++TVM_DLL const Op& cooperative_tensor_multiply_from_memory();
++
++/*!
++ * \brief FP32 MPP multiply-accumulate with non-owning strided memory inputs.
++ *
++ * void cooperative_tensor_multiply_accumulate_from_memory(
++ *     Var d, PrimExpr index_d, PrimExpr ptr_a, PrimExpr stride_a,
++ *     PrimExpr ptr_b, PrimExpr stride_b, Var c, PrimExpr index_c,
++ *     int M, int N, int K, bool column_major_a, bool column_major_b);
++ *
++ * A is logically M x K, B is K x N, and C/D are M x N cooperative tensors
++ * in metal.cooperative_tensor storage. Strides are positive element strides;
++ * each input may reside in global or shared storage. Inputs are read at this
++ * call, not at an earlier view declaration. C is read and D is written; D may
++ * equal C. The caller must provide full, uniform participation of one complete
++ * 32-thread SIMD group, sufficient in-bounds storage, and memory synchronization.
++ * This Metal implementation requires static 8-multiple shapes and
++ * static fragment indices. It does not enable relaxed input precision.
++ */
++TVM_DLL const Op& cooperative_tensor_multiply_accumulate_from_memory();
++
+ // TODO(tvm-team) replace the usage of the vector operations by Shuffle.
+ /*!
+  * \brief Get the high level half of the vector
+diff --git a/src/backend/metal/codegen/codegen_metal.cc b/src/backend/metal/codegen/codegen_metal.cc
+index 78a0d74..55aec5e 100644
+--- a/src/backend/metal/codegen/codegen_metal.cc
++++ b/src/backend/metal/codegen/codegen_metal.cc
+@@ -27,10 +27,12 @@
+ #include <tvm/ffi/container/map.h>
+ #include <tvm/ffi/reflection/registry.h>
+ #include <tvm/runtime/logging.h>
++#include <tvm/tirx/stmt_functor.h>
+ #include <tvm/tirx/transform.h>
+
+ #include <algorithm>
+ #include <cmath>
++#include <limits>
+ #include <sstream>
+ #include <string>
+ #include <unordered_map>
+@@ -60,10 +62,37 @@ Var GetSimdgroupBufferVar(const Expr& data) {
+       << "Metal simdgroup data operands must be a Var or buffer_data(BufferVar), but got " << data;
+ }
+
++int64_t CooperativeConstant(const Expr& value, const char* label) {
++  const auto* imm = value.as<IntImmNode>();
++  TVM_FFI_ICHECK(imm) << "Metal cooperative tensor requires a constant " << label;
++  return imm->value;
++}
++
++bool CooperativeBoolean(const Expr& value) {
++  int64_t v = CooperativeConstant(value, "layout flag");
++  TVM_FFI_ICHECK(v == 0 || v == 1) << "Metal cooperative layout flag must be Boolean";
++  return v != 0;
++}
++
++void CheckCooperativeMemory(const Expr& pointer, const Expr& stride, int64_t rows, int64_t columns,
++                            bool column_major) {
++  const auto* type = pointer->ty.as<PointerTypeNode>();
++  TVM_FFI_ICHECK(type && type->element_type == PrimType::Float(32))
++      << "Metal cooperative tensor memory inputs require typed FP32 pointers";
++  TVM_FFI_ICHECK(type->storage_scope == "global" || type->storage_scope == "shared")
++      << "Metal cooperative tensor memory must be global or shared, not " << type->storage_scope;
++  int64_t ld = CooperativeConstant(stride, "leading stride");
++  TVM_FFI_ICHECK(ld >= (column_major ? rows : columns) && ld <= std::numeric_limits<int>::max())
++      << "Invalid Metal cooperative tensor leading stride";
++}
++
+ }  // namespace
+
+ void CodeGenMetal::InitFuncState(const PrimFunc& f) {
+   CodeGenC::InitFuncState(f);
++  simdgroup_dtype_.clear();
++  cooperative_tensors_.clear();
++  CollectCooperativeTensors(f);
+   // analyze the data;
+   for (Var arg : f->params) {
+     if (arg->ty.as<PointerTypeNode>()) {
+@@ -72,6 +101,166 @@ void CodeGenMetal::InitFuncState(const PrimFunc& f) {
+   }
+ }
+
++void CodeGenMetal::CollectCooperativeTensors(const PrimFunc& f) {
++  auto record = [&](const Expr& data, int64_t m, int64_t n, int64_t k) -> CooperativeTensorInfo& {
++    TVM_FFI_ICHECK(m > 0 && n > 0 && k > 0 && m % 8 == 0 && n % 8 == 0 && k % 8 == 0)
++        << "Metal MPP requires positive, static 8-multiple matrix shapes";
++    TVM_FFI_ICHECK(m % 16 == 0 || n % 16 == 0)
++        << "Metal MPP requires at least one of M or N to be a multiple of 16";
++    constexpr int64_t limit = std::numeric_limits<int>::max();
++    TVM_FFI_ICHECK(m <= limit / n && m <= limit / k && n <= limit / k)
++        << "Metal MPP matrix shape exceeds the int coordinate domain";
++    Var var = GetSimdgroupBufferVar(data);
++    auto [it, inserted] = cooperative_tensors_.emplace(var.get(), CooperativeTensorInfo{m, n, k});
++    TVM_FFI_ICHECK(inserted || (it->second.m == m && it->second.n == n && it->second.k == k))
++        << "Inconsistent Metal cooperative tensor matrix contracts for " << var;
++    return it->second;
++  };
++  tirx::PostOrderVisit(f->body, [&](const ffi::ObjectRef& node) {
++    const auto* call = node.as<CallNode>();
++    if (!call) return;
++    if (call->op.same_as(builtin::cooperative_tensor_multiply_from_memory())) {
++      TVM_FFI_ICHECK_EQ(call->args.size(), 11);
++      int64_t m = CooperativeConstant(call->args[6], "M");
++      int64_t n = CooperativeConstant(call->args[7], "N");
++      int64_t k = CooperativeConstant(call->args[8], "K");
++      bool ta = CooperativeBoolean(call->args[9]);
++      bool tb = CooperativeBoolean(call->args[10]);
++      auto& info = record(call->args[0], m, n, k);
++      TVM_FFI_ICHECK(!info.has_mma ||
++                     (info.multiply_only && info.transpose_a == ta && info.transpose_b == tb))
++          << "Inconsistent Metal cooperative tensor operation or operand layouts";
++      info.has_mma = true;
++      info.multiply_only = true;
++      info.transpose_a = ta;
++      info.transpose_b = tb;
++    } else if (call->op.same_as(builtin::cooperative_tensor_multiply_accumulate_from_memory())) {
++      TVM_FFI_ICHECK_EQ(call->args.size(), 13);
++      int64_t m = CooperativeConstant(call->args[8], "M");
++      int64_t n = CooperativeConstant(call->args[9], "N");
++      int64_t k = CooperativeConstant(call->args[10], "K");
++      bool ta = CooperativeBoolean(call->args[11]);
++      bool tb = CooperativeBoolean(call->args[12]);
++      for (int index : {0, 6}) {
++        auto& info = record(call->args[index], m, n, k);
++        TVM_FFI_ICHECK(!info.has_mma ||
++                       (!info.multiply_only && info.transpose_a == ta && info.transpose_b == tb))
++            << "Inconsistent Metal cooperative tensor operation or operand layouts";
++        info.has_mma = true;
++        info.multiply_only = false;
++        info.transpose_a = ta;
++        info.transpose_b = tb;
++      }
++    } else if (call->op.same_as(builtin::cooperative_tensor_load()) ||
++               call->op.same_as(builtin::cooperative_tensor_store())) {
++      TVM_FFI_ICHECK_EQ(call->args.size(), 11);
++      TVM_FFI_ICHECK_EQ(CooperativeConstant(call->args[10], "operand role"), 2)
++          << "This Metal MPP realization only materializes destination tensors";
++      int64_t m = CooperativeConstant(call->args[7], "M");
++      int64_t n = CooperativeConstant(call->args[8], "N");
++      int64_t k = CooperativeConstant(call->args[9], "K");
++      TVM_FFI_ICHECK_EQ(CooperativeConstant(call->args[4], "rows"), m);
++      TVM_FFI_ICHECK_EQ(CooperativeConstant(call->args[5], "columns"), n);
++      record(call->args[0], m, n, k);
++    }
++  });
++  if (!cooperative_tensors_.empty()) {
++    decl_stream << "#include <MetalPerformancePrimitives/MetalPerformancePrimitives.h>\n";
++  }
++}
++
++std::string CodeGenMetal::CooperativeTensorRef(const Expr& data, const Expr& index) {
++  Var var = GetSimdgroupBufferVar(data);
++  auto it = cooperative_tensors_.find(var.get());
++  TVM_FFI_ICHECK(it != cooperative_tensors_.end() && it->second.count != 0)
++      << "Missing Metal cooperative tensor allocation/contract for " << var;
++  int64_t i = CooperativeConstant(index, "fragment index");
++  TVM_FFI_ICHECK(i >= 0 && static_cast<uint64_t>(i) < it->second.count)
++      << "Metal cooperative tensor fragment index out of range";
++  return it->second.fragments.at(static_cast<size_t>(i));
++}
++
++std::string CodeGenMetal::CooperativeMemoryView(const Expr& pointer, const Expr& stride,
++                                                int64_t rows, int64_t columns, bool column_major) {
++  CheckCooperativeMemory(pointer, stride, rows, columns, column_major);
++  std::string scope = pointer->ty.as<PointerTypeNode>()->storage_scope;
++  int64_t ld = CooperativeConstant(stride, "leading stride");
++  // tensor_inline uses (column, row) coordinates. This helper also serves
++  // transfers; MMA inputs use physical row-major views plus descriptor flags.
++  std::ostringstream os;
++  std::string extents =
++      "extents<int, " + std::to_string(columns) + ", " + std::to_string(rows) + ">";
++  os << "tensor<" << (scope == "global" ? "device" : "threadgroup") << " float, " << extents
++     << ", tensor_inline>(" << PrintExpr(pointer) << ", " << extents << "{}, array<int, 2>{"
++     << (column_major ? ld : 1) << ", " << (column_major ? 1 : ld) << "})";
++  return os.str();
++}
++
++void CodeGenMetal::PrintCooperativeCall(const CallNode* op, std::ostream& os) {
++  bool fill = op->op.same_as(builtin::cooperative_tensor_fill());
++  bool load = op->op.same_as(builtin::cooperative_tensor_load());
++  bool store = op->op.same_as(builtin::cooperative_tensor_store());
++  bool multiply = op->op.same_as(builtin::cooperative_tensor_multiply_from_memory());
++  TVM_FFI_ICHECK_EQ(op->args.size(), fill ? 5 : (load || store || multiply ? 11 : 13));
++  std::string d = CooperativeTensorRef(op->args[0], op->args[1]);
++  const auto& info = cooperative_tensors_.at(GetSimdgroupBufferVar(op->args[0]).get());
++  if (fill) {
++    TVM_FFI_ICHECK_EQ(CooperativeConstant(op->args[3], "rows"), info.m);
++    TVM_FFI_ICHECK_EQ(CooperativeConstant(op->args[4], "columns"), info.n);
++    TVM_FFI_ICHECK(op->args[2]->ty == PrimType::Float(32));
++    std::string value = PrintExpr(op->args[2]);
++    std::string i = name_supply_->FreshName("mpp_element");
++    os << "{\n#pragma unroll\nfor (uint " << i << " = 0; " << i << " < " << d
++       << ".get_capacity(); ++" << i << ") { if (" << d << ".is_valid_element(" << i << ")) " << d
++       << '[' << i << "] = " << value << "; } }";
++  } else if (load || store) {
++    if (CooperativeBoolean(op->args[6])) {
++      // MPP's inline tensor transfer path does not preserve a nonunit inner
++      // stride on the validated SDK. Map the opaque destination distribution
++      // through its public coordinates, independently of memory orientation.
++      CheckCooperativeMemory(op->args[2], op->args[3], info.m, info.n, true);
++      std::string pointer = PrintExpr(op->args[2]);
++      std::string stride = PrintExpr(op->args[3]);
++      std::string p = name_supply_->FreshName("mpp_memory");
++      std::string i = name_supply_->FreshName("mpp_element");
++      std::string xy = name_supply_->FreshName("mpp_coordinate");
++      os << "{ auto " << p << " = " << pointer << ";\n#pragma unroll\nfor (uint " << i << " = 0; "
++         << i << " < " << d << ".get_capacity(); ++" << i << ") { if (" << d << ".is_valid_element("
++         << i << ")) { auto " << xy << " = " << d << ".get_multidimensional_index(" << i << "); ";
++      std::string element = p + "[" + xy + "[0] * " + stride + " + " + xy + "[1]]";
++      std::string fragment = d + "[" + i + "]";
++      os << (load ? fragment : element) << " = " << (load ? element : fragment) << "; } } }";
++    } else {
++      os << d << (load ? ".load(" : ".store(")
++         << CooperativeMemoryView(op->args[2], op->args[3], info.m, info.n, false) << ")";
++    }
++  } else {
++    std::string c;
++    if (!multiply) c = CooperativeTensorRef(op->args[6], op->args[7]);
++    // The MPP matmul ABI requires its transpose in the operation descriptor.
++    // Merely exchanging tensor strides does not implement a transposed MMA.
++    std::string av =
++        CooperativeMemoryView(op->args[2], op->args[3], info.transpose_a ? info.k : info.m,
++                              info.transpose_a ? info.m : info.k, false);
++    std::string bv =
++        CooperativeMemoryView(op->args[4], op->args[5], info.transpose_b ? info.n : info.k,
++                              info.transpose_b ? info.k : info.n, false);
++    std::string a = name_supply_->FreshName("mpp_left");
++    std::string b = name_supply_->FreshName("mpp_right");
++    os << "{ ";
++    if (!multiply && c != d) {
++      // Explicit element copy also avoids an SDK cooperative_tensor assignment
++      // constness defect. Both contracts and fragment bounds were checked above.
++      std::string i = name_supply_->FreshName("mpp_element");
++      os << "\n#pragma unroll\nfor (uint " << i << " = 0; " << i << " < " << d
++         << ".get_capacity(); ++" << i << ") { if (" << d << ".is_valid_element(" << i << ")) " << d
++         << '[' << i << "] = " << c << '[' << i << "]; } ";
++    }
++    os << "auto " << a << " = " << av << "; auto " << b << " = " << bv << "; "
++       << info.operation_type << "{}.run(" << a << ", " << b << ", " << d << "); }";
++  }
++}
++
+ CodeGenMetal::CodeGenMetal(Target target) : target_(target) {
+   decl_stream << "#include <metal_stdlib>\n";
+   decl_stream << "using namespace metal;\n\n";
+@@ -344,7 +533,40 @@ void CodeGenMetal::VisitStmt_(const AllocBufferNode* op) {
+   auto scope = op->buffer.scope();
+   alloc_storage_scope_[op->buffer.get()] = scope;
+   const PrimType& dtype = op->buffer->dtype;
+-  if (scope == "metal.simdgroup") {
++  if (scope == "metal.cooperative_tensor") {
++    TVM_FFI_ICHECK(dtype == PrimType::Float(32)) << "Metal MPP currently requires FP32";
++    auto it = cooperative_tensors_.find(op->buffer.get());
++    TVM_FFI_ICHECK(it != cooperative_tensors_.end()) << "Missing Metal MPP matrix contract";
++    auto& info = it->second;
++    size_t elements = static_cast<size_t>(info.m * info.n);
++    TVM_FFI_ICHECK_EQ(constant_size % elements, 0);
++    info.count = constant_size / elements;
++    std::string descriptor = name_supply_->FreshName("mpp_descriptor");
++    info.operation_type = name_supply_->FreshName("mpp_operation");
++    stream << "constexpr auto " << descriptor << " = mpp::tensor_ops::matmul2d_descriptor("
++           << info.m << ", " << info.n << ", mpp::tensor_ops::dynamic_length_v<int>, "
++           << (info.transpose_a ? "true" : "false") << ", " << (info.transpose_b ? "true" : "false")
++           << ", false, "
++           << "mpp::tensor_ops::matmul2d_descriptor::mode::"
++           << (info.multiply_only ? "multiply" : "multiply_accumulate") << ");\n";
++    PrintIndent();
++    stream << "using " << info.operation_type << " = mpp::tensor_ops::matmul2d<" << descriptor
++           << ", execution_simdgroups<1>>;\n";
++    PrintIndent();
++    std::string tensor_type = name_supply_->FreshName("mpp_tensor");
++    stream << "using " << tensor_type << " = " << info.operation_type
++           << "::cooperative_tensor_destination_t<" << info.operation_type
++           << "::cooperative_tensor_left_input_t<float, float, float>, " << info.operation_type
++           << "::cooperative_tensor_right_input_t<float, float, float>, float>;\n";
++    // Metal cooperative tensors have implementation-defined storage size and
++    // cannot be C++ array elements. Static TIR fragment ordinals name distinct
++    // opaque variables instead; dynamic ordinals are rejected above.
++    for (size_t i = 0; i < info.count; ++i) {
++      info.fragments.push_back(name_supply_->FreshName(vid + "_fragment"));
++      PrintIndent();
++      stream << tensor_type << ' ' << info.fragments.back() << ";\n";
++    }
++  } else if (scope == "metal.simdgroup") {
+     bool supported_simdgroup_dtype = dtype == PrimType::Float(16) || dtype == PrimType::Float(32) ||
+                                      dtype == PrimType::BFloat(16);
+     TVM_FFI_ICHECK(supported_simdgroup_dtype)
+@@ -405,7 +627,13 @@ void CodeGenMetal::VisitExpr_(const CallNode* op, std::ostream& os) {  // NOLINT
+   static const Op& simdgroup_store_op = Op::Get("tirx.simdgroup_store");
+   static const Op& simdgroup_multiply_accumulate_op = Op::Get("tirx.simdgroup_multiply_accumulate");
+
+-  if (op->op.same_as(make_filled_simdgroup_matrix_op)) {
++  if (op->op.same_as(builtin::cooperative_tensor_fill()) ||
++      op->op.same_as(builtin::cooperative_tensor_load()) ||
++      op->op.same_as(builtin::cooperative_tensor_store()) ||
++      op->op.same_as(builtin::cooperative_tensor_multiply_from_memory()) ||
++      op->op.same_as(builtin::cooperative_tensor_multiply_accumulate_from_memory())) {
++    PrintCooperativeCall(op, os);
++  } else if (op->op.same_as(make_filled_simdgroup_matrix_op)) {
+     TVM_FFI_ICHECK_EQ(op->args.size(), 5);
+     Var var = GetSimdgroupBufferVar(op->args[0]);
+     // Get the data type of the simdgroup matrix
+@@ -562,6 +790,7 @@ void RegisterMetalCodegen() {
+
+   namespace refl = tvm::ffi::reflection;
+   refl::GlobalDef().def("target.build.metal", BuildMetal);
++  refl::GlobalDef().def("target.metal.mpp_memory_contract_version", []() { return 2; });
+ }
+ }  // namespace codegen
+ }  // namespace tvm
+diff --git a/src/backend/metal/codegen/codegen_metal.h b/src/backend/metal/codegen/codegen_metal.h
+index b54852f..7564bba 100644
+--- a/src/backend/metal/codegen/codegen_metal.h
++++ b/src/backend/metal/codegen/codegen_metal.h
+@@ -28,6 +28,7 @@
+
+ #include <string>
+ #include <unordered_map>
++#include <vector>
+
+ #include "../../../target/source/codegen_c.h"
+
+@@ -62,6 +63,21 @@ class CodeGenMetal final : public CodeGenC {
+   using CodeGenC::PrintType;
+
+  private:
++  // The Metal MPP realization supports FP32 destination tensors and non-owning
++  // A/B memory views. Contracts are collected before allocations are printed.
++  struct CooperativeTensorInfo {
++    int64_t m, n, k;
++    bool has_mma{false}, multiply_only{false}, transpose_a{false}, transpose_b{false};
++    size_t count{0};
++    std::string operation_type;
++    std::vector<std::string> fragments;
++  };
++  std::unordered_map<const VarNode*, CooperativeTensorInfo> cooperative_tensors_;
++  void CollectCooperativeTensors(const PrimFunc& f);
++  std::string CooperativeTensorRef(const Expr& data, const Expr& index);
++  std::string CooperativeMemoryView(const Expr& pointer, const Expr& stride, int64_t rows,
++                                    int64_t columns, bool column_major);
++  void PrintCooperativeCall(const CallNode* op, std::ostream& os);
+   std::unordered_map<const VarNode*, std::string> simdgroup_dtype_;
+   int thread_index_bits_{32};
+   int thread_work_dim_{0};
+diff --git a/src/tirx/op/builtin.cc b/src/tirx/op/builtin.cc
+index 737d857..e69eb59 100644
+--- a/src/tirx/op/builtin.cc
++++ b/src/tirx/op/builtin.cc
+@@ -297,6 +297,12 @@ TIR_DEFINE_BUILTIN_FUNC(cooperative_tensor_store)
+ TIR_DEFINE_BUILTIN_FUNC(cooperative_tensor_multiply_accumulate)
+     .set_attr<TCallEffectKind>("TCallEffectKind", static_cast<int64_t>(CallEffectKind::kOpaque));
+
++TIR_DEFINE_BUILTIN_FUNC(cooperative_tensor_multiply_from_memory)
++    .set_attr<TCallEffectKind>("TCallEffectKind", static_cast<int64_t>(CallEffectKind::kOpaque));
++
++TIR_DEFINE_BUILTIN_FUNC(cooperative_tensor_multiply_accumulate_from_memory)
++    .set_attr<TCallEffectKind>("TCallEffectKind", static_cast<int64_t>(CallEffectKind::kOpaque));
++
+ TIR_DEFINE_BUILTIN_FUNC(vectorhigh)
+     .set_attr<TCallEffectKind>("TCallEffectKind", static_cast<int64_t>(CallEffectKind::kPure))
+     .set_attr<TScriptDtypePrintLocation>("TScriptDtypePrintLocation",
+diff --git a/src/tirx/transform/storage_rewrite.cc b/src/tirx/transform/storage_rewrite.cc
+index 00116b9..6e5c4f3 100644
+--- a/src/tirx/transform/storage_rewrite.cc
++++ b/src/tirx/transform/storage_rewrite.cc
+@@ -36,6 +36,7 @@
+ #include <tvm/tirx/stmt_functor.h>
+ #include <tvm/tirx/transform.h>
+
++#include <limits>
+ #include <list>
+ #include <map>
+ #include <unordered_map>
+@@ -1489,8 +1490,14 @@ class VectorTypeAccessChecker : public StmtExprVisitor {
+       const PrimExpr last_dim_index = indices[indices.size() - 1];
+       if (last_dim_index.ty().lanes() == 1) {
+         arith::ModularSet me = analyzer_->modular_set(last_dim_index);
+-        var_info.scalar_read_dtype.emplace(access_dtype.WithLanes(me->coeff));
+-        return;
++        // The modular coefficient is an address stride, not a vector lane
++        // count. Large strides must not wrap the signed 16-bit DLPack lane
++        // encoding into a scalable vector (or truncate it to zero). Keeping
++        // a scalar access is conservative when this hint is unrepresentable.
++        if (me->coeff >= 0 && me->coeff <= std::numeric_limits<int16_t>::max()) {
++          var_info.scalar_read_dtype.emplace(access_dtype.WithLanes(me->coeff));
++          return;
++        }
+       }
+     }
+     var_info.access_dtype.insert(access_dtype.WithLanes(lanes_used));
