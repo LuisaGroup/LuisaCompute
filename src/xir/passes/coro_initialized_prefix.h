@@ -16,6 +16,8 @@ class CoroSemanticGraph;
 struct CoroInitializedPrefixProofResult {
     bool succeeded{false};
     Instruction *failing_read{nullptr};
+    BasicBlock *placement_block{nullptr};
+    Instruction *placement_instruction{nullptr};
     size_t block_evaluation_count{0u};
 };
 

@@ -1932,45 +1932,48 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
             auto visits = device.create_buffer<uint>(N);
             luisa::vector<uint> zero(N);
             for (auto compaction : {false, true}) {
-                stream << output.copy_from(luisa::span{zero})
-                       << visits.copy_from(luisa::span{zero})
-                       << synchronize();
+                for (auto fused_counts : {false, true}) {
+                    stream << output.copy_from(luisa::span{zero})
+                           << visits.copy_from(luisa::span{zero})
+                           << synchronize();
 
-                WavefrontCoroSchedulerConfig cfg{
-                    .thread_count = capacity,
-                    .global_memory_soa = true,
-                    .gather_by_sorting = true,
-                    .frame_buffer_compaction = compaction,
-                    .execution_block_size = 32u,
-                    .largest_continuation_first = true,
-                    .refill_continuations = {"refill"},
-                    .refill_threshold = capacity / 2u,
-                    .incremental_continuation_counts = true,
-                };
-                WavefrontCoroScheduler<Buffer<uint>, Buffer<uint>> scheduler{
-                    device, coro, cfg};
-                scheduler(output, visits).dispatch(N)(stream);
+                    WavefrontCoroSchedulerConfig cfg{
+                        .thread_count = capacity,
+                        .global_memory_soa = true,
+                        .gather_by_sorting = true,
+                        .frame_buffer_compaction = compaction,
+                        .execution_block_size = 32u,
+                        .largest_continuation_first = true,
+                        .refill_continuations = {"refill"},
+                        .refill_threshold = capacity / 2u,
+                        .incremental_continuation_counts = true,
+                        .fused_continuation_counts = fused_counts,
+                    };
+                    WavefrontCoroScheduler<Buffer<uint>, Buffer<uint>> scheduler{
+                        device, coro, cfg};
+                    scheduler(output, visits).dispatch(N)(stream);
 
-                luisa::vector<uint> host_output(N);
-                luisa::vector<uint> host_visits(N);
-                stream << output.copy_to(luisa::span{host_output})
-                       << visits.copy_to(luisa::span{host_visits})
-                       << synchronize();
+                    luisa::vector<uint> host_output(N);
+                    luisa::vector<uint> host_visits(N);
+                    stream << output.copy_to(luisa::span{host_output})
+                           << visits.copy_to(luisa::span{host_visits})
+                           << synchronize();
 
-                auto correct = true;
-                for (auto i = 0u; i < N; ++i) {
-                    auto expected = i * 17u + 3u +
-                                    (i % 3u == 0u ? 5u : 11u);
-                    for (auto r = i & 3u; r != 0u; --r) {
-                        expected += r;
+                    auto correct = true;
+                    for (auto i = 0u; i < N; ++i) {
+                        auto expected = i * 17u + 3u +
+                                        (i % 3u == 0u ? 5u : 11u);
+                        for (auto r = i & 3u; r != 0u; --r) {
+                            expected += r;
+                        }
+                        correct &= host_output[i] == expected;
+                        correct &= host_visits[i] == 1u;
                     }
-                    correct &= host_output[i] == expected;
-                    correct &= host_visits[i] == 1u;
+                    expect(correct)
+                        << "incremental queue counts must preserve every "
+                           "sparse-token branch and self-loop transition under "
+                           "refill, with or without frame relocation";
                 }
-                expect(correct)
-                    << "incremental queue counts must preserve every "
-                       "sparse-token branch and self-loop transition under "
-                       "refill, with or without frame relocation";
             }
         };
 
@@ -1999,10 +2002,14 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
             };
             auto incremental_config = config;
             incremental_config.incremental_continuation_counts = true;
+            auto fused_config = incremental_config;
+            fused_config.fused_continuation_counts = true;
             WavefrontCoroScheduler<Buffer<uint>> materialized{
                 device, coro, config};
             WavefrontCoroScheduler<Buffer<uint>> incremental{
                 device, coro, incremental_config};
+            WavefrontCoroScheduler<Buffer<uint>> fused{
+                device, coro, fused_config};
 
             auto materialized_infos = materialized.shader_infos();
             auto incremental_infos = incremental.shader_infos();
@@ -2041,6 +2048,34 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
                     return info.stage ==
                            "wavefront_advance_extension_stage";
                 });
+            auto fused_infos = fused.shader_infos();
+            auto fused_has_generated_publisher = std::any_of(
+                fused_infos.begin(), fused_infos.end(),
+                [](auto &&info) noexcept {
+                    return info.stage ==
+                           "wavefront_publish_generated_count";
+                });
+            auto fused_has_resumed_publisher = std::any_of(
+                fused_infos.begin(), fused_infos.end(),
+                [](auto &&info) noexcept {
+                    return info.stage ==
+                           "wavefront_publish_resumed_count";
+                });
+            auto fused_user_kernels_differ = true;
+            for (auto &&expected : incremental_infos) {
+                auto is_user_kernel =
+                    expected.stage.starts_with("wavefront_generate/") ||
+                    expected.stage.starts_with("wavefront_resume_");
+                if (!is_user_kernel) { continue; }
+                auto actual = std::find_if(
+                    fused_infos.begin(), fused_infos.end(),
+                    [&](auto &&info) noexcept {
+                        return info.stage == expected.stage;
+                    });
+                fused_user_kernels_differ &=
+                    actual != fused_infos.end() &&
+                    actual->structural_hash != expected.structural_hash;
+            }
             expect(user_kernel_count == coro.subroutine_count());
             expect(user_kernels_match)
                 << "incremental queue accounting must not alter a user "
@@ -2052,6 +2087,13 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
             expect(!has_unused_extension_kernel)
                 << "a coroutine without Extensions must not compile or bind "
                    "Extension routing infrastructure";
+            expect(!fused_has_generated_publisher);
+            expect(!fused_has_resumed_publisher)
+                << "fused transition accounting must eliminate both "
+                   "standalone token publication passes";
+            expect(fused_user_kernels_differ)
+                << "fused transition accounting must be represented in "
+                   "each producer kernel's structural cache identity";
         };
 
     "wavefront_extension_handler_chain_preserves_stage_dataflow"_test =
@@ -2098,7 +2140,8 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
                     .execution_block_size = 32u,
                     .largest_continuation_first = true,
                     .refill_threshold = capacity / 2u,
-                    .incremental_continuation_counts = true}};
+                    .incremental_continuation_counts = true,
+                    .fused_continuation_counts = true}};
             auto first =
                 luisa::make_shared<TestWavefrontExtensionFacade>(
                     "first-add-handler", true);

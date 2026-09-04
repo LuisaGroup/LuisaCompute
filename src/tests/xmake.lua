@@ -279,6 +279,7 @@ test_proj("test_dsl_autodiff", "unit/dsl/test_autodiff.cpp")
 
 -- unit/runtime
 test_proj("test_accel_build_modes", "unit/runtime/test_accel_build_modes.cpp")
+test_proj("test_accel_blas_lifetime", "unit/runtime/test_accel_blas_lifetime.cpp")
 test_proj("test_accel_visibility", "unit/runtime/test_accel_visibility.cpp")
 test_proj("test_atomic", "unit/runtime/test_atomic.cpp")
 test_proj("test_atomic_queue", "unit/runtime/test_atomic_queue.cpp")

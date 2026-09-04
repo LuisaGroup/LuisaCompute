@@ -454,9 +454,9 @@ Use the repository scripts rather than copying a desktop toolchain:
 
 ```bash
 scripts/build_ios_llvm.sh \
-  --host-llvm-prefix "$(brew --prefix llvm@21)"
+  --host-llvm-prefix "$(brew --prefix llvm@22)"
 scripts/build_ios_metal4.sh \
-  --llvm-dir cmake-build-llvm21-ios/lib/cmake/llvm \
+  --llvm-dir cmake-build-llvm22-ios/lib/cmake/llvm \
   --team <team-id> --mode tests
 ```
 

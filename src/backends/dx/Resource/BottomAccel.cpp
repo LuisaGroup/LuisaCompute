@@ -88,7 +88,15 @@ BottomAccel::BottomAccel(
 }
 BottomAccel::~BottomAccel() {
     for (auto &&i : handles) {
-        i->accel->allInstance[i->accelIndex].handle = nullptr;
+        auto accel = i->accel;
+        accel->allInstance[i->accelIndex].handle = nullptr;
+        // A mesh-refresh entry queued by the last BLAS recreate (SyncTopAccel)
+        // may still reference this handle; drop it so a later TLAS build never
+        // dereferences the destroyed handle.
+        if (auto ite = accel->setMap.find(i->accelIndex);
+            ite != accel->setMap.end() && ite->second == i) {
+            accel->setMap.erase(ite);
+        }
         MeshHandle::DestroyHandle(i);
     }
 }

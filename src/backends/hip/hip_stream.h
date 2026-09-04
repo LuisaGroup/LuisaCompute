@@ -48,6 +48,7 @@ private:
     hipDeviceptr_t _callback_semaphore_device{};
     std::atomic_uint64_t _current_ticket{0u};
     std::atomic_uint64_t _finished_ticket{0u};
+    std::atomic_bool _hiprt_build_pending{false};
     luisa::queue<CallbackPackage> _callback_lists{};
     spin_mutex _dispatch_mutex;
     using LogCallback = DeviceInterface::StreamLogCallback;
@@ -62,6 +63,7 @@ private:
     void _destroy_callback_semaphore() noexcept;
     void _spawn_callback_thread() noexcept;
     void _shutdown_callback_thread() noexcept;
+    void _notify_hiprt_build_completed_after_synchronize() noexcept;
 
 public:
     explicit HIPStream(HIPDevice *device) noexcept;
@@ -80,6 +82,10 @@ public:
     rt_global_stack_buffer(size_t required_thread_count) noexcept;
     void dispatch(CommandList &&command_list) noexcept;
     void synchronize() noexcept;
+    void mark_hiprt_build_submitted() noexcept {
+        // Completion is published only after this exact stream is drained.
+        _hiprt_build_pending.store(true, std::memory_order_release);
+    }
     void callback(CallbackContainer &&callbacks) noexcept;
     [[nodiscard]] LogCallback log_callback() const noexcept;
     void set_log_callback(LogCallback callback) noexcept;

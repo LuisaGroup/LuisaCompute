@@ -3063,34 +3063,37 @@ ShaderCreationInfo Device::_create_shader_hlsl(
             option.enable_fast_math,
             true,
             option.enable_debug_info);
-        comp_result.multi_visit(
-            [&](hlsl::ComUniquePtr<IDxcBlob> const &buffer) {
-                auto saved_args = ShaderSerializer::serialize_saved_args(kernel);
-                ShaderSerializer::serialize_bytecode(
-                    code.properties,
-                    saved_args,
-                    check_md5,
-                    code.typeMD5,
-                    kernel.block_size(),
-                    option.name,
-                    {reinterpret_cast<const uint *>(buffer->GetBufferPointer()),
-                     buffer->GetBufferSize() / sizeof(uint)},
-                    SerdeType::kByteCode,
-                    _binary_io,
-                    code.useTex2DBindless,
-                    code.useTex3DBindless,
-                    code.useBufferBindless,
-                    code.printers,
-                    code.validation_count,
-                    {},
-                    kernel.allowed_warp_size(),
-                    conservative_spirv_artifact_requirements(
-                        this, requires_sampler_anisotropy));
-            },
-            [](auto &&error) {
-                LUISA_ERROR("Compile Error: {}", error);
-                return nullptr;
-            });
+        if (comp_result.is_type_of<vstd::string>()) {
+            LUISA_WARNING("DXC compile error for Vulkan shader '{}': {}",
+                           option.name, comp_result.get<1>());
+            info.block_size = kernel.block_size();
+            info.compile_ok = false;
+            return info;
+        }
+        auto &buffer = comp_result.get<0>();
+        {
+            auto saved_args = ShaderSerializer::serialize_saved_args(kernel);
+            ShaderSerializer::serialize_bytecode(
+                code.properties,
+                saved_args,
+                check_md5,
+                code.typeMD5,
+                kernel.block_size(),
+                option.name,
+                {reinterpret_cast<const uint *>(buffer->GetBufferPointer()),
+                 buffer->GetBufferSize() / sizeof(uint)},
+                SerdeType::kByteCode,
+                _binary_io,
+                code.useTex2DBindless,
+                code.useTex3DBindless,
+                code.useBufferBindless,
+                code.printers,
+                code.validation_count,
+                {},
+                kernel.allowed_warp_size(),
+                conservative_spirv_artifact_requirements(
+                    this, requires_sampler_anisotropy));
+        }
     } else {
         vstd::string_view file_name;
         vstd::string cache_name;

@@ -657,6 +657,75 @@ void reg_coro_soa_layout(luisa::test::coro_test::Options options) {
                "logical-frame mapping, including a partial final block";
     };
 
+    "wavefront_continuation_block_size_is_local_structural"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
+        auto coro = Coroutine<void(Buffer<uint>)>([](BufferUInt output) {
+            auto tid = def(dispatch_x());
+            auto value = def(tid * 7u + 3u);
+            $suspend("wide");
+            value += 5u;
+            $suspend("narrow");
+            output.write(tid, value + 11u);
+        });
+        auto make_config = []() noexcept {
+            return WavefrontCoroSchedulerConfig{
+                .thread_count = 257u,
+                .global_memory_soa = true,
+                .gather_by_sorting = false,
+                .frame_buffer_compaction = true,
+                .execution_block_size = 32u};
+        };
+        auto mixed_config = make_config();
+        mixed_config.continuation_block_sizes = {{
+            .continuation = "wide",
+            .execution_block_size = 128u}};
+        WavefrontCoroScheduler<Buffer<uint>> uniform{
+            device, coro, make_config()};
+        WavefrontCoroScheduler<Buffer<uint>> mixed{
+            device, coro, mixed_config};
+
+        auto uniform_infos = uniform.shader_infos();
+        auto mixed_infos = mixed.shader_infos();
+        expect(uniform_infos.size() == mixed_infos.size());
+        auto changed = 0u;
+        auto isolated = true;
+        for (auto &&expected : uniform_infos) {
+            auto actual = std::find_if(
+                mixed_infos.begin(), mixed_infos.end(),
+                [&](auto &&info) noexcept {
+                    return info.stage == expected.stage;
+                });
+            isolated &= actual != mixed_infos.end();
+            if (actual == mixed_infos.end()) { continue; }
+            if (expected.stage.ends_with("/wide")) {
+                changed += actual->structural_hash !=
+                           expected.structural_hash;
+            } else {
+                isolated &= actual->structural_hash ==
+                            expected.structural_hash;
+            }
+        }
+        expect(changed == 1u);
+        expect(isolated)
+            << "a continuation block-size override must specialize only the "
+               "named resume kernel";
+
+        constexpr uint n = 257u;
+        auto output = device.create_buffer<uint>(n);
+        auto stream = device.create_stream();
+        mixed(output).dispatch(n)(stream);
+        luisa::vector<uint> host(n);
+        stream << output.copy_to(luisa::span{host}) << synchronize();
+        auto correct = true;
+        for (auto i = 0u; i < n; ++i) {
+            correct &= host[i] == i * 7u + 19u;
+        }
+        expect(correct)
+            << "mixed continuation block sizes must preserve logical frame "
+               "identity across partial final blocks";
+    };
+
     "soa_layout_constructs_and_has_correct_config"_test = [options] {
         auto dc = luisa::test::coro_test::create_device(options);
         auto &device = dc.device;

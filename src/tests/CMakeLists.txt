@@ -704,8 +704,9 @@ luisa_compute_add_test(test_async_copy_cuda        unit/runtime/test_async_copy_
 luisa_compute_add_test(test_cluster_launch_control  unit/runtime/test_cluster_launch_control.cpp)
 
 # --- unit/runtime: standalone tests (need backend, NOT auto-run via CTest) ---
-luisa_compute_add_test(test_accel_build_modes   unit/runtime/test_accel_build_modes.cpp)
-luisa_compute_add_test(test_accel_visibility    unit/runtime/test_accel_visibility.cpp)
+luisa_compute_add_test(test_accel_build_modes unit/runtime/test_accel_build_modes.cpp)
+luisa_compute_add_test(test_accel_blas_lifetime unit/runtime/test_accel_blas_lifetime.cpp)
+luisa_compute_add_test(test_accel_visibility unit/runtime/test_accel_visibility.cpp)
 luisa_compute_add_test(test_hip_rt_scratch_reuse unit/runtime/test_hip_rt_scratch_reuse.cpp)
 luisa_compute_add_test(test_hip_large_accel_instances unit/runtime/test_hip_large_accel_instances.cpp)
 luisa_compute_add_test(test_hip_shader_cache    unit/runtime/test_hip_shader_cache.cpp)
@@ -760,6 +761,50 @@ luisa_compute_add_test(test_warp_prefix_scan    unit/runtime/test_warp_prefix_sc
 luisa_compute_add_test(test_warp_sparse_collectives unit/runtime/test_warp_sparse_collectives.cpp)
 luisa_compute_add_test(test_hip_wave_size       unit/runtime/test_hip_wave_size.cpp)
 luisa_compute_add_test(test_mha_warp_reduction  unit/runtime/test_mha_warp_reduction.cpp)
+luisa_compute_add_test(test_ast_json_serde      unit/ast/test_ast_json_serde.cpp
+        LABELS "unit;unit_ast")
+if (LUISA_COMPUTE_ENABLE_REMOTE)
+    luisa_compute_add_test(test_remote_blob_cache
+            unit/runtime/test_remote_blob_cache.cpp
+            LABELS "unit;unit_runtime;remote")
+    target_link_libraries(test_remote_blob_cache PRIVATE
+            luisa-compute-remote-runtime)
+    luisa_compute_add_test(test_remote_protocol unit/runtime/test_remote_protocol.cpp
+            LABELS "unit;unit_runtime;remote")
+    target_link_libraries(test_remote_protocol PRIVATE
+            luisa-compute-remote-common)
+    luisa_compute_add_test(test_remote_transport unit/runtime/test_remote_transport.cpp
+            LABELS "unit;unit_runtime;remote")
+    target_link_libraries(test_remote_transport PRIVATE
+            luisa-compute-remote-common
+            luisa-compute-ext-asio)
+    luisa_compute_add_test(test_remote_backend_e2e
+            unit/runtime/test_remote_backend_e2e.cpp
+            LABELS "unit;unit_runtime;remote;integration")
+    target_link_libraries(test_remote_backend_e2e PRIVATE
+            luisa-compute-remote-runtime
+            luisa-compute-ext-asio)
+    add_dependencies(test_remote_backend_e2e
+            luisa-compute-backend-remote)
+    luisa_compute_add_test(test_remote_backend_native
+            unit/runtime/test_remote_backend_native.cpp)
+    add_dependencies(test_remote_backend_native
+            luisa-compute-backend-remote)
+    if (TARGET luisa-compute-backend-metal)
+        add_dependencies(test_remote_backend_native
+                luisa-compute-backend-metal)
+    endif ()
+    if (LUISA_COMPUTE_ENABLE_GUI)
+        luisa_compute_add_test(test_remote_backend_swapchain
+                unit/runtime/test_remote_backend_swapchain.cpp)
+        add_dependencies(test_remote_backend_swapchain
+                luisa-compute-backend-remote)
+        if (TARGET luisa-compute-backend-metal)
+            add_dependencies(test_remote_backend_swapchain
+                    luisa-compute-backend-metal)
+        endif ()
+    endif ()
+endif ()
 if (TARGET luisa-compute-backend-vk AND LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV)
     # Requires an explicit backend argument and a physical Vulkan device, so
     # build it for the native path but keep it out of unattended CTest runs.

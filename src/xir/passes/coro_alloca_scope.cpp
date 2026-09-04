@@ -1608,6 +1608,9 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
                     proof.succeeded = true;
                     proof.guarded = false;
                     proof.failing_read = nullptr;
+                    target = prefix_proof.placement_block;
+                    insertion.instruction =
+                        prefix_proof.placement_instruction;
                     ++info.initialized_prefix_proof_count;
                 } else if (prefix_proof.failing_read != nullptr) {
                     proof.failing_read = prefix_proof.failing_read;

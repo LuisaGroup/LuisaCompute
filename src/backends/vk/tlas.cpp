@@ -511,6 +511,19 @@ void Tlas::pre_build(
         vkCmdDispatch(cmdbuffer.cmdbuffer(), (modification_size + 255) / 256, 1, 1);
         } // end non-motion path
     }
+    // The TLAS build dereferences every referenced BLAS through the raw device
+    // addresses in the instance buffer (instance AABBs derive from child BLAS
+    // contents), so each child BLAS buffer must be synchronized with this build
+    // even when the instance list itself is untouched — an in-place BLAS update
+    // leaves both `modifications` and `_set_map` empty and would otherwise race
+    // with the BLAS build, letting the TLAS pick up stale geometry.
+    for (auto &inst : _all_instance) {
+        if (inst.handle != nullptr) {
+            resource_barrier->record(
+                BufferView{inst.handle->mesh->_accel_buffer.get()},
+                ResourceBarrier::Usage::kAccelInstanceBuffer);
+        }
+    }
     VkDeviceOrHostAddressConstKHR instance_data_device_address{};
     // When motion is enabled, TLAS build reads from the 160-byte stride motion instance buffer.
     // The 64-byte _instance_buffer is only for shader reads (StructuredBuffer<_MeshInst>).

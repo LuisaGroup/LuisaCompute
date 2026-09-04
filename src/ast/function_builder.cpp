@@ -282,6 +282,10 @@ void FunctionBuilder::_void_expr(const Expression *expr) noexcept {
     if (expr != nullptr) { _create_and_append_statement<ExprStmt>(expr); }
 }
 
+void FunctionBuilder::expression_statement(const Expression *expr) noexcept {
+    _void_expr(expr);
+}
+
 SwitchStmt *FunctionBuilder::switch_(const Expression *expr) noexcept {
     expr = _internalize(expr);
     return _create_and_append_statement<SwitchStmt>(expr);

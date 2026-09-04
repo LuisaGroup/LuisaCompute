@@ -62,6 +62,9 @@ struct SwapchainCreationInfo : public ResourceCreationInfo {
 
 struct ShaderCreationInfo : public ResourceCreationInfo {
     uint3 block_size;
+    /// Whether AOT compilation (compile_to) succeeded. Always true for JIT.
+    /// False only when DXC/HLSL compilation failed in compile_only mode.
+    bool compile_ok{true};
 
     [[nodiscard]] static auto make_invalid() noexcept {
         ShaderCreationInfo info{};

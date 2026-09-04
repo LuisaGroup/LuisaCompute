@@ -264,7 +264,7 @@ HIPShaderNative::HIPShaderNative(
 
 HIPShaderNative::~HIPShaderNative() noexcept {
     if (_module != nullptr) {
-        LUISA_CHECK_HIP(hipModuleUnload(_module));
+        _device->retire_shader_module(_module);
     }
 }
 

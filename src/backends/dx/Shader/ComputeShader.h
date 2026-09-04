@@ -51,7 +51,10 @@ public:
         bool enableUnsafeMath,
         bool debug,
         uint validation_count);
-    static void save_compute(
+    // Returns true if the bytecode file was written (or cache hit).
+    // Returns false if DXC compilation failed — the caller can continue
+    // instead of being killed by std::abort (which LUISA_ERROR does).
+    static bool save_compute(
         luisa::BinaryIO const *file_io,
         luisa::compute::Profiler *profiler,
         Function kernel,
