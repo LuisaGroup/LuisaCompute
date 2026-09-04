@@ -2,6 +2,7 @@
 // (native multidimensional subscript). Both must capture identical TileIR.
 #include "ut/ut.hpp"
 
+#include <luisa/core/mathematics.h>
 #include <luisa/tile.h>
 #include <type_traits>
 #include <utility>
@@ -108,6 +109,34 @@ void test_equivalent_read_syntax() {
     }
     for (auto i = 0u; i < 3u; i++) { expect(loads[i]->bounds_mode() == BoundsMode::ZERO); }
     expect(loads.back()->bounds_mode() == BoundsMode::ASSUME);
+}
+
+void test_minmax_with_host_math() {
+    using luisa::min;
+    using luisa::max;
+    static_assert(std::same_as<decltype(min(std::declval<Tile<float>>(), std::declval<Tile<float>>())), Tile<float>>);
+    static_assert(std::same_as<decltype(max(std::declval<const Tile<int32_t> &>(), std::declval<Tile<int32_t> &>())), Tile<int32_t>>);
+    auto definition = tile_kernel("minmax_host_interop", [](View out) {
+        auto m = axis("m", 2);
+        auto n = axis("n", 3);
+        auto x = full<float>(shape(m, n), -2.0f);
+        auto y = full<float>(shape(n), 3.0f);
+        // Both operands are Tile<float>, but still need dimension-identity
+        // broadcasting. Mixed scalar operands keep the generic overload.
+        auto lo = min(x, y);
+        auto hi = max(x, y);
+        out(coord(0, 0), shape(m, n)).store(lo + hi + min(x, 1.0f) + max(2.0f, y));
+    });
+    auto kernel = definition.capture(tensor_shape(2, 3));
+    expect(kernel.valid());
+    auto minima = 0u;
+    auto maxima = 0u;
+    for (auto operation : kernel.function().body().block(0)->operations()) {
+        minima += operation->elementwise_op() == ElementwiseOp::MIN;
+        maxima += operation->elementwise_op() == ElementwiseOp::MAX;
+    }
+    expect(eq(minima, 2u));
+    expect(eq(maxima, 2u));
 }
 
 void test_tile_pipeline_and_mma() {
@@ -349,6 +378,7 @@ void test_direct_assignment_yield() {
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     "tile_read_syntax_equivalence"_test = test_equivalent_read_syntax;
+    "tile_minmax_with_host_math"_test = test_minmax_with_host_math;
     "tile_pipeline_mma_and_implicit_carry"_test = test_tile_pipeline_and_mma;
     "tile_reduction_and_broadcast"_test = test_tile_reduction_and_broadcast;
     "tile_mma_ordered_policy"_test = test_mma_ordered_policy;

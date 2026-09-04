@@ -349,12 +349,19 @@ LUISA_TILE_UNARY(tanh, TANH)
 LUISA_TILE_UNARY(abs, ABS)
 #undef LUISA_TILE_UNARY
 
+// The Tile/Tile overload must outrank std::min/max when core mathematics
+// exposes those host functions through namespace luisa.
 #define LUISA_TILE_MINMAX(name, opcode)                                                                   \
     template<typename A, typename B>                                                                      \
         requires detail::tile_binary_operands<A, B>                                                       \
     [[nodiscard]] auto name(const A &a, const B &b) noexcept {                                            \
         using T = detail::binary_element_t<A, B>;                                                         \
         Value *operands[]{detail::operand_value<T>(a), detail::operand_value<T>(b)};                      \
+        return Tile<T>{detail::make_tile_elementwise(ElementwiseOp::opcode, operands, scalar_type_v<T>)}; \
+    }                                                                                                     \
+    template<scalar_cpp_type T>                                                                           \
+    [[nodiscard]] Tile<T> name(const Tile<T> &a, const Tile<T> &b) noexcept {                             \
+        Value *operands[]{a.ir_value(), b.ir_value()};                                                    \
         return Tile<T>{detail::make_tile_elementwise(ElementwiseOp::opcode, operands, scalar_type_v<T>)}; \
     }
 LUISA_TILE_MINMAX(min, MIN)
