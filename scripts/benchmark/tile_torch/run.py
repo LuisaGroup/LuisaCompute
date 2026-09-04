@@ -52,7 +52,7 @@ def make_cases(operations: list[str], quick: bool = False) -> list[Case]:
     for operation in operations:
         if operation == "gemm":
             cases.extend(Case(operation, *shape) for shape in gemm)
-        elif operation in ("add", "sum", "softmax", "rmsnorm"):
+        elif operation in ("add", "sum", "softmax", "rmsnorm", "layernorm", "cross_entropy"):
             cases.extend(Case(operation, *shape) for shape in (elementwise if operation == "add" else reduction))
         else:
             raise ValueError(f"unknown operation {operation!r}")
@@ -111,6 +111,8 @@ def tolerance(operation: str) -> tuple[float, float]:
         return 1e-4, 1e-4
     if operation == "sum":
         return 1e-5, 1e-5
+    if operation == "layernorm":
+        return 1e-5, 2e-5
     return 2e-6, 2e-5
 
 
@@ -404,8 +406,10 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
         return (((indices * seed + 17) % 127 - 63).float() / 64).reshape(rows, columns)
 
     a_host = inputs(case.m, case.k if case.operation == "gemm" else case.n, 5)
-    b_rows = case.k if case.operation == "gemm" else 1 if case.operation == "rmsnorm" else case.m
-    b_host = inputs(b_rows, case.n, 11) if case.operation in ("gemm", "add", "rmsnorm") else None
+    labels_host = (torch.arange(case.m, dtype=torch.int64) * 13 + 7) % case.n
+    b_rows = (case.k if case.operation == "gemm" else 1 if case.operation == "rmsnorm" else
+              2 if case.operation == "layernorm" else case.m)
+    b_host = inputs(b_rows, case.n, 11) if case.operation in ("gemm", "add", "rmsnorm", "layernorm") else None
     if case.operation == "gemm":
         reference = a_host.double() @ b_host.double()
     elif case.operation == "add":
@@ -415,6 +419,16 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
     elif case.operation == "rmsnorm":
         x = a_host.double()
         reference = x * torch.rsqrt((x * x).mean(dim=1, keepdim=True) + 1e-5) * b_host.double()
+    elif case.operation == "layernorm":
+        x = a_host.double()
+        mean = x.mean(dim=1, keepdim=True)
+        centered = x - mean
+        reference = centered * torch.rsqrt((centered * centered).mean(dim=1, keepdim=True) + 1e-5) * b_host[0].double() + b_host[1].double()
+    elif case.operation == "cross_entropy":
+        logits = a_host.double()
+        peak = logits.max(dim=1, keepdim=True).values
+        reference = torch.log(torch.exp(logits - peak).sum(dim=1)) + peak[:, 0] - logits[
+            torch.arange(case.m), labels_host]
     else:
         reference = a_host.double().softmax(dim=1)
 
@@ -496,7 +510,8 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
         start = time.perf_counter_ns()
         a = a_host.to(device)
         b = b_host.to(device) if b_host is not None else None
-        out = None if case.operation == "rmsnorm" else torch.empty(reference.shape, dtype=torch.float32, device=device)
+        labels = labels_host.to(device) if case.operation == "cross_entropy" else None
+        out = None if case.operation in ("rmsnorm", "layernorm", "cross_entropy") else torch.empty(reference.shape, dtype=torch.float32, device=device)
         synchronize()
         allocation_upload_ms = (time.perf_counter_ns() - start) / 1e6
         if case.operation == "gemm":
@@ -507,6 +522,10 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
             invoke = lambda: torch.sum(a, dim=1, out=out)
         elif case.operation == "rmsnorm":
             invoke = lambda: torch.nn.functional.rms_norm(a, (case.n,), b[0], eps=1e-5)
+        elif case.operation == "layernorm":
+            invoke = lambda: torch.nn.functional.layer_norm(a, (case.n,), b[0], b[1], eps=1e-5)
+        elif case.operation == "cross_entropy":
+            invoke = lambda: torch.nn.functional.cross_entropy(a, labels, reduction="none")
         else:
             invoke = lambda: torch.softmax(a, dim=1, out=out)
         measured = time_torch(invoke, synchronize, args)
@@ -627,7 +646,7 @@ def write_report(report: dict[str, Any], directory: Path) -> None:
              f"Hardware: {metadata['cpu']}; {metadata['platform']}. PyTorch {metadata['torch_version']}; FP32; {metadata['threads']} CPU threads.", "",
              f"Native root execution request: `{metadata.get('execution_scope', 'auto')}`. Explicit scopes fail on unsupported targets; `auto` uses the reference worker mapping.", "",
              f"Native TIRx vectorization: `{metadata.get('vectorize', 'unrecorded')}`; experimental automatic CPU packing: `{metadata.get('auto_vectorize', 'unrecorded')}`. Automatic packing is opt-in and preserves inner serial/reduction order. Disabling TIRx vectorization does not disable LLVM's own optimizations.", "",
-             "Both sides use device-resident inputs. Native outputs are preallocated. PyTorch uses preallocated `out=` storage where its operator exposes it; `functional.rms_norm` has no `out=` overload and its returned-output allocation remains inside warm timing. Warm timings include host dispatch/binding overhead, exclude transfers and compilation, and are NOT GPU hardware-event times. PyTorch is eager (no torch.compile).", "",
+             "Both sides use device-resident inputs. Native outputs are preallocated. PyTorch uses preallocated `out=` storage where its operator exposes it; the functional RMSNorm, LayerNorm, and cross-entropy calls used here return new outputs, so their allocation remains inside warm timing. Every row records its output policy. Warm timings include host dispatch/binding overhead, exclude transfers and compilation, and are NOT GPU hardware-event times. PyTorch is eager (no torch.compile).", "",
              f"Native GEMM retains an MMA in TileIR. CPU matrix realization: `{metadata.get('cpu_matrix_backend', 'reference')}`. CBLAS is selected only from a proved whole-kernel contract and is visible as one provider call in generated LLVM; reference keeps contraction loops. CPU array math: `{metadata.get('cpu_math_backend', 'reference')}`. Accelerate consumes only proved FP32 add/max/min recurrences and a versioned compiler-owned shared FP32 exp materialization; the DSL and execution hierarchy remain target-independent. Cooperative-matrix capability requested: `{metadata.get('cooperative_matrix', False)}`. Eligible Metal group MMA can use native FP32 SIMD-group matrices. Base pipeline window: `{metadata.get('pipeline_window', 'unspecified')}`; tuned choices appear per row. Window 1 retains ordered execution, 2 permits safe software prefetching. Neither mode claims hardware-asynchronous transfers. Sort is not included in this performance comparison.", "",
              "Ratio = native / PyTorch; greater than 1 means native is slower. P50 is per-call batched throughput; latency columns synchronize each individual call. All values are microseconds.", "",
              "| Device | Operator / M×N[×K] | Block / window | Matrix calls | Native p50 | Torch p50 | Native p90 | Torch p90 | Ratio | Native latency | Torch latency |",
@@ -762,8 +781,8 @@ def main() -> int:
     requested_operations = args.operations.split(",")
     if args.metal_subgroup_reductions and (backends != ["metal"] or args.execution_scope != "auto" or
                                            args.matrix_realization != "simdgroup" or args.cooperative_matrix or
-                                           any(operation not in ("sum", "softmax", "rmsnorm") for operation in requested_operations)):
-        parser.error("Metal SIMD-group reductions require only automatic Metal sum, softmax, or RMSNorm with the reference TIRx realization")
+                                           any(operation not in ("sum", "softmax", "rmsnorm", "layernorm", "cross_entropy") for operation in requested_operations)):
+        parser.error("Metal SIMD-group reductions require only automatic Metal sum, softmax, RMSNorm, LayerNorm, or cross-entropy with the reference TIRx realization")
     if any(backend not in ("cpu", "metal") for backend in backends):
         parser.error("backends must be cpu and/or metal")
     if args.matrix_realization != "simdgroup" and (backends != ["metal"] or args.operations != "gemm" or

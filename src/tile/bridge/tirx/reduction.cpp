@@ -615,6 +615,120 @@ public:
         : _analysis{analysis} {}
 };
 
+struct DistributedLocalAccess {
+    uint64_t allocations{0u};
+    uint64_t distributed_stores{0u};
+    uint64_t loads{0u};
+    bool stores_owned{true};
+    bool loads_owned{true};
+};
+
+// A local Tile is private to a physical worker. Once an element-domain store
+// is distributed, another worker cannot read that element from its own private
+// allocation. Prove the compact row-major address to be the current logical
+// owner for every later use. This deliberately rejects permutations and
+// opaque/dynamic ownership rather than silently compiling a cross-worker read.
+class DistributedLocalAudit final : public tvm::tirx::StmtExprVisitor {
+private:
+    const ReductionAnalysis &_reductions;
+    luisa::vector<const tvm::tirx::ForNode *> _domain;
+    std::optional<tvm::PrimExpr> _owner;
+    luisa::unordered_map<BufferKey, DistributedLocalAccess> _access;
+
+    [[nodiscard]] static bool _requires_ownership(
+        const tvm::tirx::BufferVar &buffer) noexcept {
+        if (buffer.scope() != "local" || buffer->shape.empty()) { return false; }
+        return std::any_of(
+            buffer->shape.begin(), buffer->shape.end(),
+            [](const tvm::PrimExpr &dimension) noexcept {
+                auto extent = dimension.as<tvm::IntImmNode>();
+                return extent == nullptr || extent->value != 1;
+            });
+    }
+
+    [[nodiscard]] bool _owned_access(
+        const tvm::tirx::BufferVar &buffer,
+        const tvm::ffi::Array<tvm::PrimExpr> &indices) const {
+        auto offset = buffer->elem_offset.as<tvm::IntImmNode>();
+        if (!_owner || indices.size() != buffer->shape.size() ||
+            !buffer->strides.empty() || buffer->layout ||
+            !buffer->allocated_addr.empty() || offset == nullptr ||
+            offset->value != 0) {
+            return false;
+        }
+        tvm::PrimExpr linear = tvm::IntImm::Int64(0);
+        for (auto i = size_t{0u}; i < indices.size(); i++) {
+            linear = linear * buffer->shape[i] + indices[i];
+        }
+        return prove_in_loop_domain(tvm::equal(linear, _owner.value()),
+                                    _domain);
+    }
+
+protected:
+    void VisitStmt_(const tvm::tirx::ForNode *loop) final {
+        _domain.emplace_back(loop);
+        auto previous_owner = _owner;
+        if (_reductions.reductions.contains(loop)) {
+            _owner = loop->loop_var - loop->min;
+        } else if (!_owner &&
+                   loop->annotations.count(independent_elements_annotation) &&
+                   !_reductions.replicated_elements.contains(loop)) {
+            if (auto element = element_domain(loop)) {
+                tvm::PrimExpr linear = tvm::IntImm::Int64(0);
+                for (auto axis : element->axes) {
+                    linear = linear * axis->extent +
+                             (axis->loop_var - axis->min);
+                }
+                _owner = std::move(linear);
+            }
+        }
+        StmtExprVisitor::VisitStmt_(loop);
+        _owner = std::move(previous_owner);
+        _domain.pop_back();
+    }
+
+    void VisitStmt_(const tvm::tirx::AllocBufferNode *allocation) final {
+        if (_requires_ownership(allocation->buffer)) {
+            _access[allocation->buffer.get()].allocations++;
+        }
+        StmtExprVisitor::VisitStmt_(allocation);
+    }
+
+    void VisitStmt_(const tvm::tirx::BufferStoreNode *store) final {
+        if (_requires_ownership(store->buffer) && _owner) {
+            auto &record = _access[store->buffer.get()];
+            record.distributed_stores++;
+            record.stores_owned &= _owned_access(store->buffer, store->indices);
+        }
+        StmtExprVisitor::VisitStmt_(store);
+    }
+
+    void VisitExpr_(const tvm::tirx::BufferLoadNode *load) final {
+        if (_requires_ownership(load->buffer)) {
+            auto &record = _access[load->buffer.get()];
+            record.loads++;
+            record.loads_owned &= _owned_access(load->buffer, load->indices);
+        }
+        StmtExprVisitor::VisitExpr_(load);
+    }
+
+public:
+    explicit DistributedLocalAudit(
+        const ReductionAnalysis &reductions) noexcept
+        : _reductions{reductions} {}
+
+    [[nodiscard]] bool valid() const noexcept {
+        return std::all_of(
+            _access.begin(), _access.end(),
+            [](const auto &item) noexcept {
+                auto &record = item.second;
+                return record.distributed_stores == 0u ||
+                       (record.allocations == 1u && record.stores_owned &&
+                        (record.loads == 0u || record.loads_owned));
+            });
+    }
+};
+
 class ReductionProgramMapper final : public tvm::tirx::StmtExprMutator {
 private:
     tvm::PrimExpr _worker;
@@ -886,6 +1000,9 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
     ProgramAudit audit{analysis};
     audit(loop->body);
     if (!audit.valid) { return {}; }
+    DistributedLocalAudit ownership{analysis};
+    ownership(loop->body);
+    if (!ownership.valid()) { return {}; }
     auto materializations = striped_materializations(loop->body, analysis);
 
     auto maximum_subgroups = std::max<uint64_t>(

@@ -339,10 +339,10 @@ cases do not. A call-site count is not a dynamic instruction counter.
 
 ### Metal SIMD-group reductions
 
-`--metal-subgroup-reductions` opts automatic Metal sum, softmax and RMSNorm
-into the proved FP32 add/max/min collective realization. It requires the
-ordinary `simdgroup` TIRx path, automatic root execution, no cooperative
-matrix option and only those operations. The option is also explicit
+`--metal-subgroup-reductions` opts automatic Metal sum, softmax, RMSNorm,
+LayerNorm and cross-entropy into the proved FP32 add/max/min collective
+realization. It requires the ordinary `simdgroup` TIRx path, automatic root
+execution, no cooperative matrix option and only those operations. The option is also explicit
 permission to replace the reference FP32 left fold with a tree order; it is
 never inferred merely because the target supports SIMD collectives.
 
@@ -362,7 +362,8 @@ uv run --no-project --python 3.13 --with torch --with numpy python \
   scripts/benchmark/tile_torch/run.py \
   --native cmake-build-tirx/bin/benchmark_tile_tirx \
   --output NEW_EMPTY_DIRECTORY --backends metal \
-  --operations sum,softmax,rmsnorm --metal-subgroup-reductions \
+  --operations sum,softmax,rmsnorm,layernorm,cross_entropy \
+  --metal-subgroup-reductions \
   --samples 11 --sample-ms 100 --warmup-ms 100 --capture-sources
 ```
 
@@ -387,9 +388,9 @@ Measurement contract:
   native Metal unavailability is an error, never a CPU fallback.
 - Inputs and native outputs are allocated before warm measurements. PyTorch
   uses eager `out=` operations under inference mode where the operator exposes
-  one. `torch.nn.functional.rms_norm` has no `out=` overload, so its returned
-  output allocation remains inside warm timing and is recorded as
-  `output_policy=framework_return_value`; other current operations report
+  one. The functional RMSNorm, LayerNorm and cross-entropy calls used here
+  return new outputs, so their output allocation remains inside warm timing.
+  Every row records either `output_policy=framework_return_value` or
   `preallocated_out`.
 - Capture, native compilation, allocation/upload, first invocation, and
   download are reported separately. First-call timings are not a claim of an

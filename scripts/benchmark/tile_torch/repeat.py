@@ -69,7 +69,7 @@ def load_plan(path: Path, operations: set[str]) -> dict[tuple[str, str], dict[st
             raise ValueError(f"{case.name} has an invalid Metal subgroup-reduction policy")
         if metal_subgroup_reductions:
             execution_plans = native.get("execution_plans")
-            if (row["backend"] != "metal" or case.operation not in ("sum", "softmax", "rmsnorm") or
+            if (row["backend"] != "metal" or case.operation not in ("sum", "softmax", "rmsnorm", "layernorm", "cross_entropy") or
                     native["execution_scope"] != "auto" or native.get("metal_mpp", False) is not False or
                     forwarding is not True or not isinstance(execution_plans, list) or not execution_plans or
                     any(plan.get("optimized") is not True or type(plan.get("threads")) is not int or
@@ -204,7 +204,7 @@ def main() -> int:
         parser.error("both native executables must already be built")
     try:
         operations = set(args.operations.split(","))
-        if not operations <= {"gemm", "add", "sum", "softmax", "rmsnorm"}:
+        if not operations <= {"gemm", "add", "sum", "softmax", "rmsnorm", "layernorm", "cross_entropy"}:
             raise ValueError("unknown operation in replay selection")
         plans = {"reference": load_plan(args.reference, operations), "candidate": load_plan(args.candidate, operations)}
         if plans["reference"].keys() != plans["candidate"].keys():

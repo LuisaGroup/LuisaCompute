@@ -141,6 +141,7 @@ class ConsumerBounds final : public tvm::tirx::StmtExprVisitor {
 private:
     tvm::tirx::BufferVar _buffer;
     Domain _domain;
+    tvm::PrimExpr _guard{tvm::IntImm::Bool(true)};
 
 protected:
     void VisitStmt_(const tvm::tirx::ForNode *loop) final {
@@ -151,9 +152,34 @@ protected:
     void VisitExpr_(const tvm::tirx::BufferLoadNode *load) final {
         if (load->buffer.same_as(_buffer)) {
             loads++;
-            valid &= !load->predicate && prove_in_loop_domain(in_bounds(_buffer, load->indices), _domain);
+            valid &= !load->predicate && load->indices.size() == _buffer->shape.size();
+            if (valid) {
+                for (auto i = 0u; i < load->indices.size(); i++) {
+                    auto lower = load->indices[i] >= 0;
+                    auto upper = load->indices[i] < _buffer->shape[i];
+                    valid &= (guard_contains(_guard, lower) || prove_in_loop_domain(lower, _domain) ||
+                              prove_in_loop_domain(!_guard || lower, _domain)) &&
+                             (guard_contains(_guard, upper) || prove_in_loop_domain(upper, _domain) ||
+                              prove_in_loop_domain(!_guard || upper, _domain));
+                }
+            }
         }
         StmtExprVisitor::VisitExpr_(load);
+    }
+    void VisitExpr_(const tvm::CallNode *call) final {
+        if (!call->op.same_as(tvm::tirx::builtin::if_then_else()) ||
+            call->args.size() != 3u) {
+            StmtExprVisitor::VisitExpr_(call);
+            return;
+        }
+        auto condition = call->args[0].as_or_throw<tvm::PrimExpr>();
+        VisitExpr(condition);
+        auto outer_guard = _guard;
+        _guard = outer_guard && condition;
+        VisitExpr(call->args[1].as_or_throw<tvm::PrimExpr>());
+        _guard = outer_guard && !condition;
+        VisitExpr(call->args[2].as_or_throw<tvm::PrimExpr>());
+        _guard = std::move(outer_guard);
     }
 
 public:

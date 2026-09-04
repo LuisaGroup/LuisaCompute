@@ -418,6 +418,12 @@ class RepeatContractTests(unittest.TestCase):
         self.assertIs(config["metal_subgroup_reductions"], True)
         self.assertEqual(config["matrix_realization"], "simdgroup")
         self.assertIs(config["cpu_input_views"], False)
+        layernorm = row | {
+            "case": {"operation": "layernorm", "m": 64, "n": 4096, "k": 1}}
+        with patch.object(Path, "read_text", return_value=json.dumps({"results": [layernorm]})):
+            config = REPEAT.load_plan(Path("unused.json"), {"layernorm"})[
+                "metal", "layernorm_64x4096"]
+        self.assertIs(config["metal_subgroup_reductions"], True)
         for changes in ({"metal_subgroup_reductions": 1},
                         {"forward_readonly_tile_loads": False},
                         {"metal_mpp": True},
@@ -451,10 +457,12 @@ class BenchmarkContractTests(unittest.TestCase):
         self.assertTrue(any(c.m % 8 and c.n % 8 and c.k % 16 for c in cases))
 
     def test_reduction_sizes_include_wide_and_single_row(self):
-        cases = MODULE.make_cases(["sum", "softmax", "rmsnorm"])
+        cases = MODULE.make_cases(["sum", "softmax", "rmsnorm", "layernorm", "cross_entropy"])
         self.assertTrue(any(c.m == 1 for c in cases))
         self.assertTrue(any(c.n == 4096 for c in cases))
         self.assertEqual(sum(c.operation == "rmsnorm" for c in cases), 4)
+        self.assertEqual(sum(c.operation == "layernorm" for c in cases), 4)
+        self.assertEqual(sum(c.operation == "cross_entropy" for c in cases), 4)
 
     def test_percentiles(self):
         self.assertEqual(MODULE.percentile([9, 1, 5], 0.5), 5)
@@ -465,6 +473,7 @@ class BenchmarkContractTests(unittest.TestCase):
     def test_tolerances_are_shared_and_add_is_exact(self):
         self.assertEqual(MODULE.tolerance("add"), (0.0, 0.0))
         self.assertEqual(MODULE.tolerance("gemm"), (1e-4, 1e-4))
+        self.assertEqual(MODULE.tolerance("layernorm"), (1e-5, 2e-5))
 
     def test_unknown_operation_is_not_silently_skipped(self):
         with self.assertRaises(ValueError):

@@ -13,6 +13,8 @@
 #include <tvm/tirx/stmt_functor.h>
 
 #include <luisa/core/mathematics.h>
+#include <luisa/tile/algorithms.h>
+#include <luisa/tile/memory.h>
 #include <luisa/tile/value.h>
 
 using namespace luisa::compute::tile;
@@ -170,6 +172,82 @@ void test_shared_exp_is_materialized_once() {
     });
     return definition.capture(tensor_shape(rows, columns),
                               tensor_shape(rows, columns));
+}
+
+[[nodiscard]] Kernel make_row_layernorm(int64_t rows, int64_t columns) {
+    auto definition = tile_kernel("metal_subgroup_layernorm", [=](TensorView<const float, 2> input,
+                                                                  TensorView<const float, 2> parameters,
+                                                                  TensorView<float, 2> output) {
+        auto rows = axis("rows", input.extent<0>());
+        auto one = axis("one", 1);
+        auto columns_axis = axis("columns", input.extent<1>());
+        for (auto &nest : parallel(shape(rows))) {
+            auto origin = coord(nest.index(), 0);
+            auto value = input[origin, shape(one, columns_axis)];
+            auto denominator = static_cast<float>(columns);
+            auto mean = reduce(value, columns_axis, add) / denominator;
+            auto centered = value - mean;
+            auto variance = reduce(centered * centered, columns_axis, add) / denominator;
+            auto gamma = parameters[coord(0, 0), shape(one, columns_axis)];
+            auto beta = parameters[coord(1, 0), shape(one, columns_axis)];
+            output(origin, shape(one, columns_axis))
+                .store(centered / sqrt(variance + 1e-5f) * gamma + beta);
+        }
+    });
+    return definition.capture(tensor_shape(rows, columns),
+                              tensor_shape(2, columns),
+                              tensor_shape(rows, columns));
+}
+
+[[nodiscard]] Kernel make_row_cross_entropy(int64_t rows, int64_t columns) {
+    auto definition = tile_kernel("metal_subgroup_cross_entropy", [](TensorView<const float, 2> logits,
+                                                                     TensorView<const int64_t, 1> labels,
+                                                                     TensorView<float, 1> losses) {
+        auto rows = axis("rows", logits.extent<0>());
+        auto one = axis("one", 1);
+        auto columns = axis("columns", logits.extent<1>());
+        for (auto &nest : parallel(shape(rows))) {
+            auto origin = coord(nest.index(), 0);
+            auto value = logits[origin, shape(one, columns)];
+            auto label = labels[coord(nest.index()), shape(one)];
+            auto peak = reduce(value, columns, maximum);
+            auto total = reduce(exp(value - peak), columns, add);
+            auto selected = gather(value, label, columns);
+            losses(coord(nest.index()), shape(one))
+                .store(luisa::compute::tile::log(total) + peak - selected);
+        }
+    });
+    return definition.capture(tensor_shape(rows, columns), tensor_shape(rows),
+                              tensor_shape(rows));
+}
+
+[[nodiscard]] Kernel make_row_derived_cross_entropy(int64_t rows,
+                                                    int64_t columns) {
+    auto definition = tile_kernel("metal_subgroup_derived_cross_entropy", [](TensorView<const float, 2> logits,
+                                                                             TensorView<const int64_t, 1> labels,
+                                                                             TensorView<float, 1> losses) {
+        auto rows = axis("rows", logits.extent<0>());
+        auto one = axis("one", 1);
+        auto columns = axis("columns", logits.extent<1>());
+        for (auto &nest : parallel(shape(rows))) {
+            auto origin = coord(nest.index(), 0);
+            // This explicitly materialized derived Tile cannot be forwarded
+            // to an immutable input. Its dynamic gather therefore crosses the
+            // distributed private ownership partition and must make the
+            // subgroup mapper decline.
+            auto storage = memory<float>(shape(one, columns), mem::private_);
+            storage.store(logits[origin, shape(one, columns)] * 1.25f + 0.125f);
+            auto value = storage.load();
+            auto label = labels[coord(nest.index()), shape(one)];
+            auto peak = reduce(value, columns, maximum);
+            auto total = reduce(exp(value - peak), columns, add);
+            auto selected = gather(value, label, columns);
+            losses(coord(nest.index()), shape(one))
+                .store(luisa::compute::tile::log(total) + peak - selected);
+        }
+    });
+    return definition.capture(tensor_shape(rows, columns), tensor_shape(rows),
+                              tensor_shape(rows));
 }
 
 [[nodiscard]] Kernel make_row_extrema(int64_t rows, int64_t columns) {
@@ -341,6 +419,154 @@ void test_metal_subgroup_striped_softmax(Runtime &runtime) {
                    2e-6 + 2e-5 * std::abs(expected))
                 << "row=" << row << " column=" << column;
         }
+    }
+}
+
+void test_metal_subgroup_layernorm(Runtime &runtime) {
+    if (runtime.target() != "metal") { return; }
+    constexpr auto rows = int64_t{3};
+    constexpr auto columns = int64_t{4096};
+    auto executable = runtime.build(
+        make_row_layernorm(rows, columns), true, false, true, false,
+        subgroup_reduction_options(), false, true);
+    expect(executable.ok()) << executable.error;
+    if (!executable.ok()) { return; }
+    expect(eq(executable.plans.size(), 1u));
+    if (executable.plans.empty()) { return; }
+    auto &plan = executable.plans.front();
+    expect(eq(plan.reduction_subgroups_per_program, 8u));
+    expect(eq(plan.reduction_operations, 2u));
+    expect(eq(plan.reduction_elements, 8192u));
+    expect(eq(plan.shared_memory_bytes, 64u));
+    expect(eq(plan.striped_storage_scalars_per_worker, 0u));
+    expect(!plan.independent_subgroups);
+    auto source = metal_source(executable.module.value());
+    auto code = std::string_view{source.data(), source.size()};
+    expect(code.find("simd_sum(") != std::string_view::npos) << source;
+
+    luisa::vector<float> values(static_cast<size_t>(rows * columns));
+    luisa::vector<float> parameters(static_cast<size_t>(2 * columns));
+    for (auto i = 0u; i < values.size(); i++) {
+        values[i] = static_cast<float>(static_cast<int64_t>((i * 5u + 17u) %
+                                                            127u) -
+                                       63) /
+                    64.0f;
+    }
+    for (auto column = int64_t{0}; column < columns; column++) {
+        parameters[static_cast<size_t>(column)] =
+            0.75f + static_cast<float>(column % 17) / 32.0f;
+        parameters[static_cast<size_t>(columns + column)] =
+            static_cast<float>(column % 13 - 6) / 64.0f;
+    }
+    auto input = runtime.upload<float>({rows, columns}, values);
+    auto parameter_tensor = runtime.upload<float>({2, columns}, parameters);
+    auto output = runtime.allocate<float>({rows, columns});
+    (*executable.entry)(input, parameter_tensor, output);
+    auto actual = runtime.download<float>(output, values.size());
+    for (auto row = int64_t{0}; row < rows; row++) {
+        auto mean = 0.0;
+        for (auto column = int64_t{0}; column < columns; column++) {
+            mean += values[static_cast<size_t>(row * columns + column)];
+        }
+        mean /= static_cast<double>(columns);
+        auto variance = 0.0;
+        for (auto column = int64_t{0}; column < columns; column++) {
+            auto centered =
+                static_cast<double>(values[static_cast<size_t>(
+                    row * columns + column)]) -
+                mean;
+            variance += centered * centered;
+        }
+        variance /= static_cast<double>(columns);
+        auto inverse_stddev = 1.0 / std::sqrt(variance + 1e-5);
+        for (auto column = int64_t{0}; column < columns; column++) {
+            auto index = static_cast<size_t>(row * columns + column);
+            auto expected =
+                (static_cast<double>(values[index]) - mean) * inverse_stddev *
+                    parameters[static_cast<size_t>(column)] +
+                parameters[static_cast<size_t>(columns + column)];
+            expect(std::abs(static_cast<double>(actual[index]) - expected) <=
+                   2e-6 + 2e-5 * std::abs(expected))
+                << "row=" << row << " column=" << column;
+        }
+    }
+}
+
+void test_metal_subgroup_cross_entropy(Runtime &runtime) {
+    if (runtime.target() != "metal") { return; }
+    constexpr auto rows = int64_t{7};
+    constexpr auto columns = int64_t{4096};
+    auto executable = runtime.build(
+        make_row_cross_entropy(rows, columns), true, false, true, false,
+        subgroup_reduction_options(), false, true);
+    expect(executable.ok()) << executable.error;
+    if (!executable.ok()) { return; }
+    expect(eq(executable.plans.size(), 1u));
+    if (executable.plans.empty()) { return; }
+    auto &plan = executable.plans.front();
+    expect(eq(plan.reduction_subgroups_per_program, 8u));
+    expect(eq(plan.reduction_operations, 2u));
+    expect(eq(plan.reduction_elements, 8192u));
+    expect(eq(plan.shared_memory_bytes, 64u));
+    expect(eq(plan.striped_storage_scalars_per_worker, 0u));
+    auto source = metal_source(executable.module.value());
+    auto code = std::string_view{source.data(), source.size()};
+    expect(code.find("simd_max(") != std::string_view::npos) << source;
+    expect(code.find("simd_sum(") != std::string_view::npos) << source;
+    expect(code.find("thread float tile_storage_0[4096]") ==
+           std::string_view::npos)
+        << source;
+
+    auto fallback = runtime.build(
+        make_row_derived_cross_entropy(3, 257), true, false, true, false,
+        subgroup_reduction_options(), false, true);
+    expect(fallback.ok()) << fallback.error;
+    if (fallback.ok()) {
+        expect(fallback.plans.empty());
+        auto fallback_source = metal_source(fallback.module.value());
+        auto fallback_code = std::string_view{fallback_source.data(),
+                                              fallback_source.size()};
+        expect(fallback_code.find("simd_sum(") == std::string_view::npos)
+            << fallback_source;
+    }
+
+    luisa::vector<float> values(static_cast<size_t>(rows * columns));
+    luisa::vector<int64_t> labels(static_cast<size_t>(rows));
+    for (auto i = 0u; i < values.size(); i++) {
+        values[i] = static_cast<float>(static_cast<int64_t>((i * 5u + 17u) %
+                                                            127u) -
+                                       63) /
+                    64.0f;
+    }
+    for (auto row = int64_t{0}; row < rows; row++) {
+        labels[static_cast<size_t>(row)] = (row * 13 + 7) % columns;
+    }
+    auto logits = runtime.upload<float>({rows, columns}, values);
+    auto label_tensor = runtime.upload<int64_t>({rows}, labels);
+    auto losses = runtime.allocate<float>({rows});
+    (*executable.entry)(logits, label_tensor, losses);
+    auto actual = runtime.download<float>(losses, rows);
+    for (auto row = int64_t{0}; row < rows; row++) {
+        auto begin = static_cast<size_t>(row * columns);
+        auto peak = -std::numeric_limits<double>::infinity();
+        for (auto column = int64_t{0}; column < columns; column++) {
+            peak = std::max(peak,
+                            static_cast<double>(values[begin +
+                                                       static_cast<size_t>(column)]));
+        }
+        auto total = 0.0;
+        for (auto column = int64_t{0}; column < columns; column++) {
+            total += std::exp(static_cast<double>(
+                                  values[begin + static_cast<size_t>(column)]) -
+                              peak);
+        }
+        auto expected = std::log(total) + peak -
+                        values[begin + static_cast<size_t>(
+                                           labels[static_cast<size_t>(row)])];
+        expect(std::abs(static_cast<double>(actual[static_cast<size_t>(row)]) -
+                        expected) <=
+               2e-6 + 2e-5 * std::abs(expected))
+            << "row=" << row;
     }
 }
 
@@ -741,6 +967,8 @@ int main(int argc, char *argv[]) {
     "tile_execution_metal_subgroup_reduction_contract"_test = [&] { test_metal_subgroup_reduction_contract(runtime); };
     "tile_execution_metal_subgroup_sum"_test = [&] { test_metal_subgroup_sum(runtime); };
     "tile_execution_metal_subgroup_striped_softmax"_test = [&] { test_metal_subgroup_striped_softmax(runtime); };
+    "tile_execution_metal_subgroup_layernorm"_test = [&] { test_metal_subgroup_layernorm(runtime); };
+    "tile_execution_metal_subgroup_cross_entropy"_test = [&] { test_metal_subgroup_cross_entropy(runtime); };
     "tile_execution_metal_subgroup_extrema"_test = [&] { test_metal_subgroup_extrema(runtime); };
     "tile_execution_cpu_accelerate_math"_test = [&] { test_cpu_accelerate_math(runtime); };
     "tile_execution_scope_preserved"_test = test_scope_survives_export;

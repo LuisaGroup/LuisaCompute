@@ -52,6 +52,27 @@ struct Configuration {
     uint32_t pipeline_window{2u};
 };
 
+[[nodiscard]] bool uses_auxiliary_input(std::string_view operation) noexcept {
+    return operation == "gemm" || operation == "add" ||
+           operation == "rmsnorm" || operation == "layernorm";
+}
+
+[[nodiscard]] bool uses_label_input(std::string_view operation) noexcept {
+    return operation == "cross_entropy";
+}
+
+[[nodiscard]] bool has_row_output(std::string_view operation) noexcept {
+    return operation == "sum" || operation == "cross_entropy";
+}
+
+[[nodiscard]] int64_t auxiliary_input_rows(
+    std::string_view operation, const Configuration &cfg) noexcept {
+    if (operation == "gemm") { return cfg.k; }
+    if (operation == "rmsnorm") { return 1; }
+    if (operation == "layernorm") { return 2; }
+    return cfg.m;
+}
+
 [[nodiscard]] exec::Scope parse_execution_scope(std::string_view name) {
     if (name == "auto") { return exec::Scope::AUTOMATIC; }
     if (name == "worker") { return exec::Scope::WORKER; }
@@ -318,13 +339,61 @@ void dump_source(const tvm::ffi::Module &module, std::string_view kind, const ch
         });
         return definition.capture(tensor_shape(cfg.m, cfg.n), tensor_shape(1, cfg.n), tensor_shape(cfg.m, cfg.n));
     }
-    throw std::invalid_argument{"operation must be gemm, add, sum, softmax, or rmsnorm"};
+    if (operation == "layernorm") {
+        auto definition = tile_kernel("benchmark_layernorm", [=](TensorView<const float, 2> X,
+                                                                 TensorView<const float, 2> Parameters,
+                                                                 TensorView<float, 2> Y) {
+            auto rows = axis("rows", X.extent<0>());
+            auto m = axis("m", 1);
+            auto n = axis("n", X.extent<1>());
+            for (auto &nest : parallel(shape(rows), cfg.execution_scope)) {
+                auto origin = coord(nest.index(), 0);
+                auto x = X[origin, shape(m, n)];
+                auto denominator = static_cast<float>(cfg.n);
+                auto mean = reduce(x, n, add) / denominator;
+                auto centered = x - mean;
+                auto variance = reduce(centered * centered, n, add) / denominator;
+                auto gamma = Parameters[coord(0, 0), shape(m, n)];
+                auto beta = Parameters[coord(1, 0), shape(m, n)];
+                Y(origin, shape(m, n)).store(centered / sqrt(variance + 1e-5f) * gamma + beta);
+            }
+        });
+        return definition.capture(tensor_shape(cfg.m, cfg.n), tensor_shape(2, cfg.n), tensor_shape(cfg.m, cfg.n));
+    }
+    if (operation == "cross_entropy") {
+        auto definition = tile_kernel("benchmark_cross_entropy", [=](TensorView<const float, 2> Logits,
+                                                                     TensorView<const int64_t, 1> Labels,
+                                                                     TensorView<float, 1> Losses) {
+            auto rows = axis("rows", Logits.extent<0>());
+            auto m = axis("m", 1);
+            auto n = axis("n", Logits.extent<1>());
+            for (auto &nest : parallel(shape(rows), cfg.execution_scope)) {
+                auto origin = coord(nest.index(), 0);
+                auto logits = Logits[origin, shape(m, n)];
+                auto label = Labels[coord(nest.index()), shape(m)];
+                auto peak = reduce(logits, n, maximum);
+                auto total = reduce(exp(logits - peak), n, add);
+                auto selected = gather(logits, label, n);
+                Losses(coord(nest.index()), shape(m)).store(luisa::compute::tile::log(total) + peak - selected);
+            }
+        });
+        return definition.capture(tensor_shape(cfg.m, cfg.n), tensor_shape(cfg.m), tensor_shape(cfg.m));
+    }
+    throw std::invalid_argument{"operation must be gemm, add, sum, softmax, rmsnorm, layernorm, or cross_entropy"};
 }
 
 [[nodiscard]] luisa::vector<float> input_values(size_t count, uint64_t seed) {
     luisa::vector<float> result(count);
     for (auto i = 0u; i < count; i++) {
         result[i] = static_cast<float>(static_cast<int64_t>((i * seed + 17u) % 127u) - 63) / 64.0f;
+    }
+    return result;
+}
+
+[[nodiscard]] luisa::vector<int64_t> label_values(int64_t rows, int64_t columns) {
+    luisa::vector<int64_t> result(static_cast<size_t>(rows));
+    for (auto row = int64_t{0}; row < rows; row++) {
+        result[static_cast<size_t>(row)] = (row * 13 + 7) % columns;
     }
     return result;
 }
@@ -374,25 +443,31 @@ void run_luisa(const char *program, const char *output_path, std::string_view op
         if (!file) { throw std::runtime_error{"cannot write generated source"}; }
     }
     auto columns_a = operation == "gemm" ? cfg.k : cfg.n;
-    auto rows_b = operation == "gemm" ? cfg.k : operation == "rmsnorm" ? 1 :
-                                                                         cfg.m;
-    auto binary = operation == "gemm" || operation == "add" || operation == "rmsnorm";
+    auto rows_b = auxiliary_input_rows(operation, cfg);
+    auto binary = uses_auxiliary_input(operation);
+    auto labeled = uses_label_input(operation);
     auto host_a = input_values(cfg.m * columns_a, 5);
     auto host_b = input_values(binary ? rows_b * cfg.n : 1, 11);
-    auto output_count = operation == "sum" ? cfg.m : cfg.m * cfg.n;
+    auto host_labels = label_values(cfg.m, cfg.n);
+    auto output_count = has_row_output(operation) ? cfg.m : cfg.m * cfg.n;
     luisa::vector<float> output(output_count, std::numeric_limits<float>::quiet_NaN());
     start = Clock::now();
     auto a = device.create_buffer<float>(host_a.size());
     auto b = device.create_buffer<float>(host_b.size());
+    auto labels = device.create_buffer<int64_t>(host_labels.size());
     auto c = device.create_buffer<float>(output.size());
-    stream << a.copy_from(host_a.data()) << b.copy_from(host_b.data()) << c.copy_from(output.data()) << synchronize();
+    stream << a.copy_from(host_a.data()) << b.copy_from(host_b.data())
+           << labels.copy_from(host_labels.data()) << c.copy_from(output.data())
+           << synchronize();
     auto upload_ms = milliseconds(start);
     auto invoke = [&](uint64_t repetitions) {
         stream.synchronize();
         auto before = Clock::now();
         CommandList commands;
         for (auto i = uint64_t{0}; i < repetitions; i++) {
-            if (binary) {
+            if (labeled) {
+                commands << shader(a, labels, c).dispatch();
+            } else if (binary) {
                 commands << shader(a, b, c).dispatch();
             } else {
                 commands << shader(a, c).dispatch();
@@ -464,7 +539,7 @@ void run_luisa(const char *program, const char *output_path, std::string_view op
 
 int main(int argc, char *argv[]) {
     if (argc < 13 || argc > 27) {
-        std::cerr << "Usage: benchmark_tile_tirx <cpu|metal> <gemm|add|sum|softmax|rmsnorm> M N K BM BN BK samples sample-ms warmup-ms output.f32 [auto|worker|group] [pipeline-window:1|2] [scalar|subgroup-reduce|matrix|mpp|mpp-views] [vectorize|no-vectorize|auto-vectorize] [group-threads:auto|N] [copy-batch:1..16] [tvm|luisa|luisa-fast] [retain-subgroup-fences|elide-subgroup-fences] [cpu-stack-bytes:0..65536] [cpu-vector-lanes:16|32|64|128] [retain-input-snapshots|forward-input-views] [cpu-model:generic|native] [cpu-matrix:reference|cblas] [cpu-math:reference|accelerate]\n";
+        std::cerr << "Usage: benchmark_tile_tirx <cpu|metal> <gemm|add|sum|softmax|rmsnorm|layernorm|cross_entropy> M N K BM BN BK samples sample-ms warmup-ms output.f32 [auto|worker|group] [pipeline-window:1|2] [scalar|subgroup-reduce|matrix|mpp|mpp-views] [vectorize|no-vectorize|auto-vectorize] [group-threads:auto|N] [copy-batch:1..16] [tvm|luisa|luisa-fast] [retain-subgroup-fences|elide-subgroup-fences] [cpu-stack-bytes:0..65536] [cpu-vector-lanes:16|32|64|128] [retain-input-snapshots|forward-input-views] [cpu-model:generic|native] [cpu-matrix:reference|cblas] [cpu-math:reference|accelerate]\n";
         return 1;
     }
     try {
@@ -498,8 +573,8 @@ int main(int argc, char *argv[]) {
         }
         if (metal_subgroup_reductions &&
             (backend != "metal" || cfg.execution_scope != exec::Scope::AUTOMATIC ||
-             (operation != "sum" && operation != "softmax" && operation != "rmsnorm"))) {
-            throw std::invalid_argument{"SIMD-group reduction benchmarking requires automatic Metal sum, softmax, or RMSNorm"};
+             (operation != "sum" && operation != "softmax" && operation != "rmsnorm" && operation != "layernorm" && operation != "cross_entropy"))) {
+            throw std::invalid_argument{"SIMD-group reduction benchmarking requires automatic Metal sum, softmax, RMSNorm, LayerNorm, or cross-entropy"};
         }
         auto vector_mode = argc >= 17 ? std::string_view{argv[16]} : std::string_view{"vectorize"};
         if (vector_mode != "vectorize" && vector_mode != "no-vectorize" && vector_mode != "auto-vectorize") { throw std::invalid_argument{"vector mode must be vectorize, no-vectorize, or auto-vectorize"}; }
@@ -628,20 +703,25 @@ int main(int argc, char *argv[]) {
             if (!std::filesystem::exists(path)) { throw std::runtime_error{"requested generated source is unavailable"}; }
         }
         auto columns_a = operation == "gemm" ? cfg.k : cfg.n;
-        auto rows_b = operation == "gemm" ? cfg.k : operation == "rmsnorm" ? 1 :
-                                                                             cfg.m;
-        auto binary = operation == "gemm" || operation == "add" || operation == "rmsnorm";
+        auto rows_b = auxiliary_input_rows(operation, cfg);
+        auto binary = uses_auxiliary_input(operation);
+        auto labeled = uses_label_input(operation);
         auto host_a = input_values(static_cast<size_t>(cfg.m * columns_a), 5);
         auto host_b = input_values(binary ? static_cast<size_t>(rows_b * cfg.n) : 0u, 11);
+        auto host_labels = label_values(cfg.m, cfg.n);
         start = Clock::now();
         auto a = runtime.upload<float>({cfg.m, columns_a}, host_a);
         tvm::runtime::Tensor b;
         if (binary) { b = runtime.upload<float>({rows_b, cfg.n}, host_b); }
-        auto out = operation == "sum" ? runtime.allocate<float>({cfg.m}) : runtime.allocate<float>({cfg.m, cfg.n});
+        tvm::runtime::Tensor labels;
+        if (labeled) { labels = runtime.upload<int64_t>({cfg.m}, host_labels); }
+        auto out = has_row_output(operation) ? runtime.allocate<float>({cfg.m}) : runtime.allocate<float>({cfg.m, cfg.n});
         runtime.synchronize();
         auto allocation_upload_ms = milliseconds(start);
         std::function<void()> invoke = [&] {
-            if (binary) {
+            if (labeled) {
+                (*executable.entry)(a, labels, out);
+            } else if (binary) {
                 (*executable.entry)(a, b, out);
             } else {
                 (*executable.entry)(a, out);
@@ -663,7 +743,7 @@ int main(int argc, char *argv[]) {
         for (auto i = 0; i < sample_count; i++) { throughput_us.emplace_back(1000.0 * batch(runtime, invoke, repetitions) / repetitions); }
         for (auto i = 0; i < sample_count; i++) { latency_us.emplace_back(1000.0 * batch(runtime, invoke, 1)); }
         start = Clock::now();
-        auto output_count = static_cast<size_t>(operation == "sum" ? cfg.m : cfg.m * cfg.n);
+        auto output_count = static_cast<size_t>(has_row_output(operation) ? cfg.m : cfg.m * cfg.n);
         auto output = runtime.download<float>(out, output_count);
         auto download_ms = milliseconds(start);
         std::ofstream file{argv[12], std::ios::binary};
