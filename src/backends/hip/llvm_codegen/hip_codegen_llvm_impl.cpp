@@ -1101,23 +1101,6 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
         }
     }
 
-    // Coroutine lowering introduces a tiny generated forwarding wrapper
-    // around each continuation. If both edges from a physical kernel to that
-    // continuation are unique, retaining the large inner body creates an ABI
-    // boundary that was absent in the source and can require a private
-    // argument-overflow record. Canonicalize only the exact argument-forwarding
-    // shape; shared or stateful callables remain governed by ordinary LLVM
-    // profitability.
-    const auto forwarded_callable_count =
-        mark_hip_single_use_forwarded_kernel_callables_for_inlining(
-            *_llvm_module);
-    if (forwarded_callable_count != 0u) {
-        LUISA_VERBOSE(
-            "Marked {} single-use generated kernel-forwarded callable(s) "
-            "for HIP inlining.",
-            forwarded_callable_count);
-    }
-
     // Resolve aliases to actual private functions. Attribute ownership follows
     // the aliasee exactly; the linker does not invent a separate inline policy.
     // HIPRT bitcode has C++ ctor/dtor delegation aliases (C1→C2, D1→D2) which the
