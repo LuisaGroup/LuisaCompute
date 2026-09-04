@@ -83,9 +83,16 @@ struct WavefrontCoroSchedulerConfig {
     // listed here. Overrides are keyed by semantic CoroGraph suspend name so
     // they are independent of graph node numbering. This is a host/JIT
     // specialization only; no selection enters generated device control flow.
-    // Kept last for positional aggregate source compatibility.
     luisa::vector<WavefrontCoroContinuationBlockSize>
         continuation_block_sizes;
+    // Publish incremental queue-count transitions in the entry and resume
+    // kernels which produce them. This preserves the same finite-state count
+    // conservation law as the standalone publisher kernels while avoiding a
+    // second index/token pass. It is meaningful only together with
+    // incremental_continuation_counts and is opt-in because it intentionally
+    // changes user-kernel structure and resource pressure. Kept last for
+    // positional aggregate source compatibility.
+    bool fused_continuation_counts = false;
 };
 
 /// Host-observed work executed by one coroutine graph node during the most
@@ -517,14 +524,18 @@ private:
         auto *frame_buffer = &_frame_buffer;
         _resume_index = device.create_buffer<uint>(_config.thread_count);
         _resume_count = device.create_buffer<uint>(_queue_count);
+        auto *resume_count_buffer = &_resume_count;
+        auto fuse_continuation_counts =
+            _config.incremental_continuation_counts &&
+            _config.fused_continuation_counts;
         // Incremental queue counts are scheduler-owned state. For
         // every nonterminal continuation t, C[t] is the cardinality of the
         // frames whose target token is t. Queue zero is derived from the
         // relevant slot domain minus sum(C[1..]) and is deliberately not
         // maintained.
-        // Only scheduler-owned publication kernels bind this buffer, keeping
-        // every user continuation's AST and argument ABI independent of the
-        // queue-accounting policy.
+        // The default policy binds this buffer only in scheduler-owned
+        // publication kernels. The explicitly fused policy instead binds it
+        // in producers so their transition atomics need no second pass.
         _resume_offset = device.create_buffer<uint>(_queue_count);
         _global_buffer = device.create_buffer<uint>(1u);
         if (!_extension_stages.empty()) {
@@ -615,11 +626,13 @@ private:
 
         if (auto entry_sub = coro[0u]) {
             Kernel1D k_gen = [&coro, frame_buffer, extension_route_buffer,
+                              resume_count_buffer,
                               routes = _extension_routes[0u],
                               layout = _frame_layout, output_fields = _frame_io_plan.transition_output_fields[0u],
                               soa = _config.global_memory_soa, compact = _config.frame_buffer_compaction,
                               execution_block_size = _continuation_block_sizes[0u],
-                              token_to_index](
+                              token_to_index, fuse_continuation_counts,
+                              queue_count = _queue_count](
                                  UInt frame_capacity,
                                  BufferUInt resume_index,
                                  UInt index_offset, UInt frame_offset, UInt global_start,
@@ -668,6 +681,13 @@ private:
                             false, false);
                     };
                 }
+                if (fuse_continuation_counts) {
+                    auto resume_count =
+                        Expr<Buffer<uint>>{*resume_count_buffer};
+                    $if ((next != 0u) & (next < queue_count)) {
+                        resume_count.atomic(next).fetch_add(1u);
+                    };
+                }
             };
             _gen_kernel = _compile_shader(
                 device,
@@ -681,11 +701,14 @@ private:
             auto cont_sub = coro[i];
             if (!cont_sub) continue;
             Kernel1D k_cont = [&coro, frame_buffer, extension_route_buffer,
+                               resume_count_buffer,
                                routes = _extension_routes[i],
                                layout = _frame_layout, input_fields = _frame_io_plan.input_fields[i], output_fields = _frame_io_plan.transition_output_fields[i],
                                soa = _config.global_memory_soa, i,
                                execution_block_size = _continuation_block_sizes[i],
-                               read_scheduler_token, token_to_index](
+                               read_scheduler_token, token_to_index,
+                               fuse_continuation_counts,
+                               queue_count = _queue_count](
                                   UInt frame_capacity,
                                   BufferUInt resume_index,
                                   UInt resume_offset, UInt count,
@@ -696,7 +719,22 @@ private:
                 $if (x >= count) { $return(); };
                 auto idx = resume_index.read(resume_offset + x);
                 auto tok = read_scheduler_token(idx, frame_buf, frame_capacity);
-                $if (tok != static_cast<uint>(i)) { $return(); };
+                if (fuse_continuation_counts) {
+                    auto resume_count_buffer_expr =
+                        Expr<Buffer<uint>>{*resume_count_buffer};
+                    $if (x == 0u) {
+                        resume_count_buffer_expr.atomic(
+                            static_cast<uint>(i)).fetch_sub(count);
+                    };
+                    $if (tok != static_cast<uint>(i)) {
+                        $if ((tok != 0u) & (tok < queue_count)) {
+                            resume_count_buffer_expr.atomic(tok).fetch_add(1u);
+                        };
+                        $return();
+                    };
+                } else {
+                    $if (tok != static_cast<uint>(i)) { $return(); };
+                }
                 auto frame = coro_frame_load(
                     &coro.frame(), frame_buf, idx, frame_capacity,
                     layout, soa, luisa::span{input_fields}, false, false);
@@ -736,6 +774,13 @@ private:
                             false, false);
                     };
                 }
+                if (fuse_continuation_counts) {
+                    auto resume_count_buffer_expr =
+                        Expr<Buffer<uint>>{*resume_count_buffer};
+                    $if ((next != 0u) & (next < queue_count)) {
+                        resume_count_buffer_expr.atomic(next).fetch_add(1u);
+                    };
+                }
             };
             _resume_kernels[i] = _compile_shader(
                 device,
@@ -751,7 +796,9 @@ private:
             Kernel1D advance_extension_stage =
                 [frame_buffer, layout = _frame_layout,
                  soa = _config.global_memory_soa,
-                 read_scheduler_token](
+                 read_scheduler_token, resume_count_buffer,
+                 fuse_continuation_counts,
+                 queue_count = _queue_count](
                     UInt frame_capacity, BufferUInt indices,
                     UInt index_offset, UInt count,
                     UInt current_queue, UInt next_queue) noexcept {
@@ -761,11 +808,29 @@ private:
                     auto frame_index = indices.read(index_offset + x);
                     auto token = read_scheduler_token(
                         frame_index, frame_buf, frame_capacity);
+                    if (fuse_continuation_counts) {
+                        auto resume_count =
+                            Expr<Buffer<uint>>{*resume_count_buffer};
+                        $if (x == 0u) {
+                            resume_count.atomic(current_queue)
+                                .fetch_sub(count);
+                        };
+                    }
                     $if (token == current_queue) {
                         coro_frame_write_field(
                             frame_buf, frame_index, frame_capacity,
                             layout, soa, 6u, next_queue);
                     };
+                    if (fuse_continuation_counts) {
+                        auto resume_count =
+                            Expr<Buffer<uint>>{*resume_count_buffer};
+                        auto final_token = select(
+                            token, next_queue, token == current_queue);
+                        $if ((final_token != 0u) &
+                             (final_token < queue_count)) {
+                            resume_count.atomic(final_token).fetch_add(1u);
+                        };
+                    }
                 };
             _advance_extension_stage_shader = _compile_shader(
                 device, advance_extension_stage,
@@ -831,7 +896,8 @@ private:
                 _config.shader_option, "wavefront_count"),
             "wavefront_count");
 
-        if (_config.incremental_continuation_counts) {
+        if (_config.incremental_continuation_counts &&
+            !_config.fused_continuation_counts) {
             // Queue cardinality is a scheduler concern, not continuation
             // state. Keep its atomics out of user coroutines so adding an
             // incremental scheduler cannot change a trace/shade kernel's
@@ -1573,7 +1639,8 @@ private:
                                       _host_offset[0u], frame_offset,
                                       dispatch_counter, gen_count, dispatch_size, args...)
                               .dispatch(gen_count);
-                if (_config.incremental_continuation_counts) {
+                if (_config.incremental_continuation_counts &&
+                    !_config.fused_continuation_counts) {
                     stream << _publish_generated_count_shader(
                                   _config.thread_count, _resume_index,
                                   _host_offset[0u], _resume_count,
@@ -1666,7 +1733,8 @@ private:
                                   0u, count, static_cast<uint>(i),
                                   registered.next_queue)
                                   .dispatch(count);
-                    if (_config.incremental_continuation_counts) {
+                    if (_config.incremental_continuation_counts &&
+                        !_config.fused_continuation_counts) {
                         stream << _publish_resumed_count_shader(
                                       _config.thread_count, indices, 0u,
                                       _resume_count,
@@ -1703,7 +1771,8 @@ private:
                                                      indices[sorted_index],
                                                      0u, count, args...)
                                       .dispatch(count);
-                        if (_config.incremental_continuation_counts) {
+                        if (_config.incremental_continuation_counts &&
+                            !_config.fused_continuation_counts) {
                             stream << _publish_resumed_count_shader(
                                           _config.thread_count,
                                           indices[sorted_index], 0u,
@@ -1716,7 +1785,8 @@ private:
                                                      _resume_index,
                                                      _host_offset[i], count, args...)
                                       .dispatch(count);
-                        if (_config.incremental_continuation_counts) {
+                        if (_config.incremental_continuation_counts &&
+                            !_config.fused_continuation_counts) {
                             stream << _publish_resumed_count_shader(
                                           _config.thread_count,
                                           _resume_index, _host_offset[i],
@@ -1908,6 +1978,11 @@ public:
                 _config.largest_continuation_first,
             "Incremental selected-queue scheduling requires greedy "
             "largest-continuation-first execution.");
+        LUISA_ASSERT(
+            !_config.fused_continuation_counts ||
+                _config.incremental_continuation_counts,
+            "Fused wavefront continuation counts require incremental "
+            "continuation accounting.");
         _create_shader(device, coro);
     }
     WavefrontCoroScheduler(Device &device, const Coro &coro) noexcept
