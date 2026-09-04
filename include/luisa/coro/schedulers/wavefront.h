@@ -24,6 +24,11 @@
 
 namespace luisa::compute::coro {
 
+struct WavefrontCoroContinuationBlockSize {
+    luisa::string continuation;
+    uint execution_block_size = 0u;
+};
+
 struct WavefrontCoroSchedulerConfig {
     uint thread_count = static_cast<uint>(2_M);
     bool global_memory_soa = true;
@@ -73,6 +78,14 @@ struct WavefrontCoroSchedulerConfig {
     // exported hint. The key operands remain runtime shader arguments; only
     // the maximum composite range affects sort scratch/pass structure.
     uint hint_partition_size = 0u;
+    // Optional per-continuation launch shapes. The default block size remains
+    // the exact structure of the entry kernel and every continuation not
+    // listed here. Overrides are keyed by semantic CoroGraph suspend name so
+    // they are independent of graph node numbering. This is a host/JIT
+    // specialization only; no selection enters generated device control flow.
+    // Kept last for positional aggregate source compatibility.
+    luisa::vector<WavefrontCoroContinuationBlockSize>
+        continuation_block_sizes;
 };
 
 /// Host-observed work executed by one coroutine graph node during the most
@@ -204,6 +217,7 @@ private:
     luisa::vector<uint> _extension_route_table;
     luisa::vector<uint64_t> _shader_structure_hashes;
     luisa::vector<WavefrontCoroShaderInfo> _shader_infos;
+    luisa::vector<uint> _continuation_block_sizes;
     WavefrontCoroDispatchStats _last_dispatch_stats;
     luisa::vector<RegisteredAuxiliaryWork> _auxiliary_work;
     Device *_device{nullptr};
@@ -278,6 +292,35 @@ private:
         _shader_infos.clear();
         auto nc = coro.subroutine_count();
         _continuation_count = static_cast<uint>(nc);
+        _continuation_block_sizes.assign(
+            nc, _config.execution_block_size);
+        luisa::vector<bool> overridden(nc, false);
+        for (auto &&override : _config.continuation_block_sizes) {
+            auto node = coro.graph().node_by_name(
+                override.continuation);
+            LUISA_ASSERT(
+                node != nullptr && node->index != 0u &&
+                    node->index < nc,
+                "Wavefront block-size override '{}' does not name a valid "
+                "non-entry coroutine suspension.",
+                override.continuation);
+            LUISA_ASSERT(
+                override.execution_block_size >= 32u &&
+                    override.execution_block_size <= 1024u &&
+                    override.execution_block_size % 32u == 0u,
+                "Wavefront continuation '{}' block size must be a multiple "
+                "of 32 in [32, 1024], but got {}.",
+                override.continuation,
+                override.execution_block_size);
+            LUISA_ASSERT(
+                !overridden[node->index],
+                "Wavefront continuation '{}' has more than one block-size "
+                "override.",
+                override.continuation);
+            overridden[node->index] = true;
+            _continuation_block_sizes[node->index] =
+                override.execution_block_size;
+        }
         _frame_layout = _config.global_memory_soa ?
                             CoroFrameStorageLayout::make_runtime_soa(coro.frame(), _config.thread_count) :
                             CoroFrameStorageLayout::make_aos(coro.frame(), _config.thread_count);
@@ -575,7 +618,7 @@ private:
                               routes = _extension_routes[0u],
                               layout = _frame_layout, output_fields = _frame_io_plan.transition_output_fields[0u],
                               soa = _config.global_memory_soa, compact = _config.frame_buffer_compaction,
-                              execution_block_size = _config.execution_block_size,
+                              execution_block_size = _continuation_block_sizes[0u],
                               token_to_index](
                                  UInt frame_capacity,
                                  BufferUInt resume_index,
@@ -641,7 +684,7 @@ private:
                                routes = _extension_routes[i],
                                layout = _frame_layout, input_fields = _frame_io_plan.input_fields[i], output_fields = _frame_io_plan.transition_output_fields[i],
                                soa = _config.global_memory_soa, i,
-                               execution_block_size = _config.execution_block_size,
+                               execution_block_size = _continuation_block_sizes[i],
                                read_scheduler_token, token_to_index](
                                   UInt frame_capacity,
                                   BufferUInt resume_index,
