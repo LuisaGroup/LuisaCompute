@@ -15,6 +15,7 @@
 #include <llvm/IR/Verifier.h>
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Support/SourceMgr.h>
+#include <llvm/Transforms/IPO/AlwaysInliner.h>
 
 using namespace luisa::compute::hip;
 using namespace boost::ut;
@@ -137,6 +138,104 @@ static auto suite = [] {
         // The global owner consumes this profitable edge and deletes the
         // private body; no annotation is needed to force the result.
         expect(module->getFunction("leaf") == nullptr);
+        expect(!llvm::verifyModule(*module));
+    };
+
+    "HIP inlining removes only exact single-use kernel forwarding chains"_test = [] {
+        llvm::LLVMContext context;
+        auto module = parse_module(context, R"(
+            define private void @selected_body(i32 %x, ptr %out) #0 {
+            entry:
+              store i32 %x, ptr %out
+              ret void
+            }
+            define private void @selected_wrapper(i32 %x, ptr %out) #0 {
+            entry:
+              br label %forward
+            forward:
+              call void @selected_body(i32 %x, ptr %out)
+              ret void
+            }
+            define amdgpu_kernel void @selected_kernel(i32 %x, ptr %out) {
+            entry:
+              call void @selected_wrapper(i32 %x, ptr %out)
+              ret void
+            }
+
+            define private void @stateful_body(i32 %x, ptr %out) #0 {
+            entry:
+              store i32 %x, ptr %out
+              ret void
+            }
+            define private void @stateful_wrapper(i32 %x, ptr %out) #0 {
+            entry:
+              %adjusted = add i32 %x, 1
+              call void @stateful_body(i32 %adjusted, ptr %out)
+              ret void
+            }
+            define amdgpu_kernel void @stateful_kernel(i32 %x, ptr %out) {
+            entry:
+              call void @stateful_wrapper(i32 %x, ptr %out)
+              ret void
+            }
+
+            define private void @shared_body(i32 %x, ptr %out) #0 {
+            entry:
+              store i32 %x, ptr %out
+              ret void
+            }
+            define private void @shared_wrapper(i32 %x, ptr %out) #0 {
+            entry:
+              call void @shared_body(i32 %x, ptr %out)
+              call void @shared_body(i32 %x, ptr %out)
+              ret void
+            }
+            define amdgpu_kernel void @shared_kernel(i32 %x, ptr %out) {
+            entry:
+              call void @shared_wrapper(i32 %x, ptr %out)
+              ret void
+            }
+            attributes #0 = { "luisa-generated-callable" }
+        )");
+        expect(module != nullptr);
+        if (!module) { return; }
+
+        auto marked =
+            mark_hip_single_use_forwarded_kernel_callables_for_inlining(
+                *module);
+        expect(marked == 1u);
+        expect(module->getFunction("selected_body")
+                   ->hasFnAttribute(llvm::Attribute::AlwaysInline));
+        expect(!module->getFunction("selected_wrapper")
+                    ->hasFnAttribute(llvm::Attribute::AlwaysInline));
+        expect(!module->getFunction("stateful_body")
+                    ->hasFnAttribute(llvm::Attribute::AlwaysInline));
+        expect(!module->getFunction("shared_body")
+                    ->hasFnAttribute(llvm::Attribute::AlwaysInline));
+
+        llvm::LoopAnalysisManager loop_analyses;
+        llvm::FunctionAnalysisManager function_analyses;
+        llvm::CGSCCAnalysisManager cgscc_analyses;
+        llvm::ModuleAnalysisManager module_analyses;
+        llvm::PassBuilder builder;
+        builder.registerModuleAnalyses(module_analyses);
+        builder.registerCGSCCAnalyses(cgscc_analyses);
+        builder.registerFunctionAnalyses(function_analyses);
+        builder.registerLoopAnalyses(loop_analyses);
+        builder.crossRegisterProxies(
+            loop_analyses, function_analyses,
+            cgscc_analyses, module_analyses);
+
+        llvm::ModulePassManager pipeline;
+        pipeline.addPass(llvm::AlwaysInlinerPass{});
+        pipeline.run(*module, module_analyses);
+
+        auto *selected_body = module->getFunction("selected_body");
+        auto *stateful_body = module->getFunction("stateful_body");
+        auto *shared_body = module->getFunction("shared_body");
+        expect(selected_body == nullptr || selected_body->use_empty());
+        expect(stateful_body != nullptr && !stateful_body->use_empty());
+        expect(shared_body != nullptr && !shared_body->use_empty());
         expect(!llvm::verifyModule(*module));
     };
 

@@ -1,10 +1,13 @@
 #pragma once
 
+#include <cstddef>
+
 #include <llvm/Analysis/InlineCost.h>
 #include <llvm/IR/PassManager.h>
 #include <llvm/Passes/OptimizationLevel.h>
 
 namespace llvm {
+class Module;
 struct PipelineTuningOptions;
 }// namespace llvm
 
@@ -38,5 +41,14 @@ void configure_hip_cgscc_canonicalization_inlining(
 void add_hip_module_priority_inliner(
     llvm::ModulePassManager &pipeline,
     llvm::OptimizationLevel level) noexcept;
+
+// Marks the inner body of a generated kernel -> forwarding wrapper -> body
+// chain as always-inline when every edge is a unique direct call and the
+// wrapper does nothing except forward all arguments. Such a wrapper is a
+// compiler representation detail, not a source-level optimization boundary.
+// Returns the number of marked inner bodies.
+[[nodiscard]] size_t
+mark_hip_single_use_forwarded_kernel_callables_for_inlining(
+    llvm::Module &module) noexcept;
 
 }// namespace luisa::compute::hip
