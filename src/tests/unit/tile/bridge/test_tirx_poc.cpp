@@ -13,6 +13,7 @@
 #include <tvm/ffi/string.h>
 #include <tvm/runtime/tensor.h>
 
+#include <luisa/core/mathematics.h>
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/tile/bridge/tirx/compiler.h>
@@ -252,9 +253,9 @@ void test_pipelined_gemm(Runtime &runtime) {
             constexpr auto bm = 4;
             constexpr auto bn = 4;
             constexpr auto bk = 4;
-            auto gm = axis("block_m", (a.extent<0>() + bm - 1) / bm);
-            auto gn = axis("block_n", (b.extent<1>() + bn - 1) / bn);
-            auto kt = axis("k_tiles", (a.extent<1>() + bk - 1) / bk);
+            auto gm = axis("block_m", ceil_div(a.extent<0>(), bm));
+            auto gn = axis("block_n", ceil_div(b.extent<1>(), bn));
+            auto kt = axis("k_tiles", ceil_div(a.extent<1>(), bk));
             auto m = axis("m", bm);
             auto n = axis("n", bn);
             auto k = axis("k", bk);

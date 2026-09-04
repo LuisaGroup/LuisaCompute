@@ -5,6 +5,7 @@
 #include "ut/ut.hpp"
 #include "tile_tirx_test_utils.h"
 
+#include <luisa/core/mathematics.h>
 #include <luisa/core/stl/format.h>
 
 #include <algorithm>
@@ -43,8 +44,8 @@ struct Shape {
     auto scope = runtime.target() == "metal" ? exec::Scope::GROUP : exec::Scope::WORKER;
     auto definition = tile_kernel("matrix_gemm", [=](TensorView<const float, 2> A, TensorView<const float, 2> B,
                                                      TensorView<const float, 2> C, TensorView<float, 2> D) {
-        auto gm = axis("gm", (cfg.m + cfg.bm - 1) / cfg.bm);
-        auto gn = axis("gn", (cfg.n + cfg.bn - 1) / cfg.bn);
+        auto gm = axis("gm", ceil_div(cfg.m, cfg.bm));
+        auto gn = axis("gn", ceil_div(cfg.n, cfg.bn));
         auto m = axis("m", cfg.bm);
         auto n = axis("n", cfg.bn);
         auto k = axis("k", cfg.bk);
@@ -52,7 +53,7 @@ struct Shape {
             auto m0 = nest.index(gm) * cfg.bm;
             auto n0 = nest.index(gn) * cfg.bn;
             auto acc = C.tile(coord(m0, n0), shape(m, n)).load();
-            for (auto &step : nest.pipeline(shape((cfg.k + cfg.bk - 1) / cfg.bk), {.stages = window})) {
+            for (auto &step : nest.pipeline(shape(ceil_div(cfg.k, cfg.bk)), {.stages = window})) {
                 step.stage("load");
                 auto k0 = step.index() * cfg.bk;
                 auto a = cfg.transpose_a ? A.tile(coord(k0, m0), shape(k, m)).load() : A.tile(coord(m0, k0), shape(m, k)).load();
@@ -529,8 +530,8 @@ void test_direct_accumulator_output(Runtime &runtime) {
         auto scope = runtime.target() == "metal" ? exec::Scope::GROUP : exec::Scope::WORKER;
         auto kernel = tile_kernel("matrix_direct_output", [=](TensorView<const float, 2> A, TensorView<const float, 2> B,
                                                               TensorView<float, 2> D, TensorView<float, 2> H) {
-                          auto gm = axis("gm", (cfg.m + cfg.bm - 1) / cfg.bm);
-                          auto gn = axis("gn", (cfg.n + cfg.bn - 1) / cfg.bn);
+                          auto gm = axis("gm", ceil_div(cfg.m, cfg.bm));
+                          auto gn = axis("gn", ceil_div(cfg.n, cfg.bn));
                           auto m = axis("m", cfg.bm);
                           auto n = axis("n", cfg.bn);
                           auto k = axis("k", cfg.bk);
@@ -538,7 +539,7 @@ void test_direct_accumulator_output(Runtime &runtime) {
                               auto m0 = nest.index(gm) * cfg.bm;
                               auto n0 = nest.index(gn) * cfg.bn;
                               auto acc = full<float>(shape(m, n), 0.375f);
-                              for (auto &step : nest.pipeline(shape((cfg.k + cfg.bk - 1) / cfg.bk), {.stages = 1u})) {
+                              for (auto &step : nest.pipeline(shape(ceil_div(cfg.k, cfg.bk)), {.stages = 1u})) {
                                   step.stage("load");
                                   auto a = A[coord(m0, step.index() * cfg.bk), shape(m, k)];
                                   auto b = B[coord(step.index() * cfg.bk, n0), shape(k, n)];
@@ -599,7 +600,7 @@ void test_direct_accumulator_output(Runtime &runtime) {
                     for (auto column = int64_t{0}; column < columns; column++) {
                         auto m = (test.transpose_output ? column : row) - test.row_offset;
                         auto n = (test.transpose_output ? row : column) - test.column_offset;
-                        auto written = m >= 0 && m < (cfg.m + cfg.bm - 1) / cfg.bm * cfg.bm && n >= 0 && n < (cfg.n + cfg.bn - 1) / cfg.bn * cfg.bn;
+                        auto written = m >= 0 && m < ceil_div(cfg.m, cfg.bm) * cfg.bm && n >= 0 && n < ceil_div(cfg.n, cfg.bn) * cfg.bn;
                         auto expected = written ? 0.375 : -17.25;
                         if (written && m < cfg.m && n < cfg.n) {
                             for (auto k = int64_t{0}; k < cfg.k; k++) { expected += static_cast<double>(a[m * input_k + k]) * b[k * cfg.n + n]; }

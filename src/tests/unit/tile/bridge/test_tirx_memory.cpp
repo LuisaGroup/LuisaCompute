@@ -5,6 +5,7 @@
 #include "ut/ut.hpp"
 #include "tile_tirx_test_utils.h"
 
+#include <luisa/core/mathematics.h>
 #include <luisa/tile/memory.h>
 
 #include <algorithm>
@@ -15,6 +16,7 @@
 #include <tvm/tirx/stmt_functor.h>
 
 using namespace luisa::compute::tile;
+using luisa::ceil_div;
 using namespace boost::ut;
 using namespace boost::ut::literals;
 using luisa::test::tile_tirx::Runtime;
@@ -186,8 +188,8 @@ void test_manual_gemm(Runtime &runtime) {
         auto definition = tile_kernel("manual_memory_gemm", [=](TensorView<const float, 2> a,
                                                                 TensorView<const float, 2> b,
                                                                 TensorView<float, 2> output) {
-            auto gm = axis("gm", (rows + 7) / 8);
-            auto gn = axis("gn", (columns + 7) / 8);
+            auto gm = axis("gm", ceil_div(rows, 8));
+            auto gn = axis("gn", ceil_div(columns, 8));
             auto m = axis("m", 8);
             auto n = axis("n", 8);
             auto k = axis("k", 8);
@@ -197,7 +199,7 @@ void test_manual_gemm(Runtime &runtime) {
                 auto as = memory<float>(layout(shape(m, k), stride(9, 1)), resource);
                 auto bs = memory<float>(layout(shape(k, n), stride(1, 10)), resource);
                 auto acc = zeros<float>(shape(m, n));
-                for (auto &step : nest.pipeline(shape((inner + 7) / 8))) {
+                for (auto &step : nest.pipeline(shape(ceil_div(inner, 8)))) {
                     step.stage("load");
                     as.store(a.tile(coord(m0, step.index() * 8), shape(m, k)).load());
                     bs.store(b.tile(coord(step.index() * 8, n0), shape(k, n)).load());

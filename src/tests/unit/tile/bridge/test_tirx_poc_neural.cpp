@@ -8,6 +8,7 @@
 #include <tvm/ffi/string.h>
 #include <tvm/runtime/tensor.h>
 
+#include <luisa/core/mathematics.h>
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/tile/bridge/tirx/compiler.h>
@@ -44,8 +45,8 @@ void test_bias_gelu_residual(Runtime &runtime) {
             TensorView<float, 2> y) {
             constexpr auto bm = 2;
             constexpr auto bn = 4;
-            auto gm = axis("block_m", (x.extent<0>() + bm - 1) / bm);
-            auto gn = axis("block_n", (x.extent<1>() + bn - 1) / bn);
+            auto gm = axis("block_m", ceil_div(x.extent<0>(), bm));
+            auto gn = axis("block_n", ceil_div(x.extent<1>(), bn));
             auto m = axis("m", bm);
             auto n = axis("n", bn);
             for (auto &nest : parallel(shape(gm, gn))) {
@@ -227,8 +228,8 @@ void test_flash_attention_online_softmax(Runtime &runtime) {
             constexpr auto bk = 3;
             auto batch = axis("batch", result.extent<0>());
             auto head = axis("head", result.extent<1>());
-            auto query_blocks = axis("query_blocks", (result.extent<2>() + bq - 1) / bq);
-            auto key_blocks = axis("key_blocks", (k.extent<2>() + bk - 1) / bk);
+            auto query_blocks = axis("query_blocks", ceil_div(result.extent<2>(), bq));
+            auto key_blocks = axis("key_blocks", ceil_div(k.extent<2>(), bk));
             auto b = axis("local_batch", 1);
             auto h = axis("local_head", 1);
             auto m = axis("query", bq);

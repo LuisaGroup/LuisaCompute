@@ -9,9 +9,11 @@
 #include <string_view>
 #include <tvm/tirx/stmt_functor.h>
 
+#include <luisa/core/mathematics.h>
 #include <luisa/tile/value.h>
 
 using namespace luisa::compute::tile;
+using luisa::ceil_div;
 using namespace luisa::compute::tile::bridge::tirx;
 using namespace boost::ut;
 using namespace boost::ut::literals;
@@ -136,7 +138,7 @@ void test_nested_worker_rejected(Runtime &runtime) {
 [[nodiscard]] Kernel make_vector_copy(int64_t count) {
     auto definition = tile_kernel("worker_vector_copy", [count](TensorView<const float, 1> input,
                                                                 TensorView<float, 1> output) {
-        for (auto &worker : parallel(shape((count + 3) / 4), exec::Scope::WORKER)) {
+        for (auto &worker : parallel(shape(ceil_div(count, 4)), exec::Scope::WORKER)) {
             for (auto &lane : worker.parallel(shape(4), exec::Scope::VECTOR)) {
                 auto origin = coord(worker.index() * 4 + lane.index());
                 output(origin, shape(1)).store(input.tile(origin, shape(1)).load() * 2.0f + 1.0f);
@@ -190,7 +192,7 @@ void test_vector_private_tiles_and_carries(Runtime &runtime) {
         auto rows = input.extent<0>();
         auto m = axis("m", 1);
         auto k = axis("k", input.extent<1>());
-        for (auto &worker : parallel(shape((rows + 3) / 4), exec::Scope::WORKER)) {
+        for (auto &worker : parallel(shape(ceil_div(rows, 4)), exec::Scope::WORKER)) {
             // An ancestor Tile is shared read-only by this worker's vector
             // lanes; it must not itself acquire another lane dimension.
             auto first = input.tile(coord(worker.index() * 4, 0), shape(4, 1)).load();

@@ -3,6 +3,7 @@
 // GPU hardware-event time. Every input/output allocation precedes warm timing.
 #include "tile_tirx_test_utils.h"
 
+#include <luisa/core/mathematics.h>
 #include <luisa/tile/algorithms.h>
 
 #include <algorithm>
@@ -20,6 +21,7 @@
 #include <vector>
 
 using namespace luisa::compute::tile;
+using luisa::ceil_div;
 using luisa::test::tile_tirx::Runtime;
 
 namespace {
@@ -131,9 +133,9 @@ void dump_source(const tvm::ffi::Module &module, std::string_view kind, const ch
         auto definition = tile_kernel("benchmark_gemm", [=](TensorView<const float, 2> A,
                                                             TensorView<const float, 2> B,
                                                             TensorView<float, 2> C) {
-            auto gm = axis("block_m", (A.extent<0>() + cfg.bm - 1) / cfg.bm);
-            auto gn = axis("block_n", (B.extent<1>() + cfg.bn - 1) / cfg.bn);
-            auto kt = axis("k_tiles", (A.extent<1>() + cfg.bk - 1) / cfg.bk);
+            auto gm = axis("block_m", ceil_div(A.extent<0>(), cfg.bm));
+            auto gn = axis("block_n", ceil_div(B.extent<1>(), cfg.bn));
+            auto kt = axis("k_tiles", ceil_div(A.extent<1>(), cfg.bk));
             auto m = axis("m", cfg.bm);
             auto n = axis("n", cfg.bn);
             auto k = axis("k", cfg.bk);
@@ -158,8 +160,8 @@ void dump_source(const tvm::ffi::Module &module, std::string_view kind, const ch
         auto definition = tile_kernel("benchmark_add", [=](TensorView<const float, 2> A,
                                                            TensorView<const float, 2> B,
                                                            TensorView<float, 2> C) {
-            auto gm = axis("block_m", (A.extent<0>() + cfg.bm - 1) / cfg.bm);
-            auto gn = axis("block_n", (A.extent<1>() + cfg.bn - 1) / cfg.bn);
+            auto gm = axis("block_m", ceil_div(A.extent<0>(), cfg.bm));
+            auto gn = axis("block_n", ceil_div(A.extent<1>(), cfg.bn));
             auto m = axis("m", cfg.bm);
             auto n = axis("n", cfg.bn);
             for (auto &nest : parallel(shape(gm, gn), cfg.execution_scope)) {
