@@ -242,6 +242,7 @@ class ShaderBase : public Resource {
 protected:
     size_t _uniform_size{};
     uint3 _block_size;
+    bool _compile_ok{true};
 
 public:
     explicit ShaderBase(DeviceInterface *device,
@@ -249,7 +250,8 @@ public:
                         size_t uniform_size) noexcept
         : Resource{device, Tag::SHADER, info},
           _uniform_size{uniform_size},
-          _block_size{info.block_size} {}
+          _block_size{info.block_size},
+          _compile_ok{info.compile_ok} {}
     explicit ShaderBase() = default;
     ~ShaderBase() noexcept override {
         if (*this) { device()->destroy_shader(handle()); }
@@ -270,10 +272,13 @@ public:
         _check_is_valid();
         return _uniform_size;
     }
+    /// True if AOT compile_to succeeded (or JIT shader created normally).
+    [[nodiscard]] auto compile_ok() const noexcept { return _compile_ok; }
     ShaderCreationInfo release() noexcept {
         return ShaderCreationInfo{
             Resource::release(),
-            _block_size
+            _block_size,
+            _compile_ok
         };
     }
 };

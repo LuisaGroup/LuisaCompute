@@ -375,7 +375,7 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
     };
     if (option.compile_only) {
         LUISA_ASSUME(!option.name.empty());
-        ComputeShader::save_compute(
+        bool ok = ComputeShader::save_compute(
             native_device.file_io,
             native_device.profiler,
             kernel,
@@ -387,6 +387,11 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
             option.enable_debug_info);
         info.invalidate();
         info.block_size = kernel.block_size();
+        info.compile_ok = ok;
+        if (!ok) {
+            LUISA_WARNING("AOT compile failed for shader '{}'; bytecode file not written.",
+                           option.name);
+        }
 
     } else {
         vstd::string_view file_name;
