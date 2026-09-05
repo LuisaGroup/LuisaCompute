@@ -199,6 +199,25 @@ opt-in proof-driven Metal SIMD-group realization without changing their DSL
 source; its formal mapping, storage proof and measured limits are in
 [TIRx Metal reductions](tile_tirx_reduction_report.md).
 
+### 5.1 Fused residual LayerNorm and shared SSA
+
+This benchmark kernel is also an executable syntax example. `combined` and
+`centered` are ordinary Tile SSA values with several consumers; the source
+does not declare a temporary `Memory` or a hardware scope:
+
+```{literalinclude} ../../src/tests/benchmark/benchmark_tile_tirx.cpp
+:language: cpp
+:start-at:     if (operation == "residual_layernorm") {
+:end-before:     if (operation == "cross_entropy") {
+```
+
+Preserving those definitions in structural IR keeps both target choices
+available. The Metal row mapper realizes compact worker stripes and avoids
+duplicated input reads; the measured LLVM CPU candidate recomputes the cheap
+expressions and fuses them into consumers. Both retain the same explicit final
+`store` and the same execution hierarchy. The complete cross-target evidence
+is in the [TIRx reduction report](tile_tirx_reduction_report.md).
+
 ## 6. Sparse cross entropy and gradient
 
 `gather` semantically indexes an already-loaded Tile. Its portable reference

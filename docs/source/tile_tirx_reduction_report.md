@@ -19,7 +19,7 @@ threadgroup, cooperates across up to eight SIMD groups for wide programs, and
 compacts eligible compiler-owned Tiles to worker-private stripes. The source
 C++ kernel and logical TileIR remain unchanged.
 
-Across the saved 20-case Apple M1 Max cohort, all complete FP64 checks pass and
+Across the saved 24-case Apple M1 Max row-program cohort, all complete FP64 checks pass and
 Tile/TIRx is faster than eager PyTorch MPS in every row. Tile/Torch ranges from
 0.032× to 0.902× in synchronized device-resident host-wall throughput. Sum and
 softmax use preallocated output on both sides; PyTorch's functional RMSNorm,
@@ -29,7 +29,14 @@ same-binary native A/B replays measure 21.19×--49.87× for RMSNorm and
 14.04×--75.54× for the LayerNorm/cross-entropy extension. Those causal
 native-to-native results are unaffected by PyTorch's output policy.
 
-These results close one identified structural gap. They do **not** establish
+The newest four cases are fused residual LayerNorm. They expose and repair a
+second structural gap: cloning a cheap shared Tile expression into each
+consumer duplicated device reads even after the execution hierarchy was
+mapped correctly. The structural exporter now preserves all multi-consumer
+pure Tile SSA by default, and the target mapper can compact it to bounded
+worker-private stripes. A staged/JIT candidate can still choose recomputation.
+
+These results close two identified structural gaps. They do **not** establish
 all-operator, all-shape, low-precision, cross-device or pure-kernel parity.
 
 ```{figure} ../_static/tile/tirx-subgroup-reduction.svg
@@ -311,8 +318,10 @@ auto shifted = exp(value - reduce(value, columns, maximum));
 output(...).store(shifted / reduce(shifted, columns, add));
 ```
 
-has two consumers, so the shared structural lowering materializes `shifted`
-once. Before execution mapping that logical object has `N` elements. Naively
+has two consumers, so the shared structural lowering preserves `shifted` as
+one logical definition. By default the same rule applies to every pure
+multi-consumer Tile, independent of whether the opcode is `exp`, `add` or
+`sub`. Before execution mapping that logical object has `N` elements. Naively
 allocating it after distributing rows but before distributing elements creates
 `N` private values per worker.
 
@@ -340,6 +349,49 @@ rejecting the old per-thread `[4096]` form. This is a resource-planning result,
 not a new source-level `Memory` declaration. Explicit manual `Memory` remains
 for deliberate expert placement and still requires explicit `.store()`.
 
+### 5.1 Shared SSA is not a physical allocation decision
+
+Fused residual LayerNorm makes the distinction observable:
+
+```cpp
+auto combined = X[origin, shape(one, columns)] +
+                residual[origin, shape(one, columns)];
+auto mean = reduce(combined, columns, add) / width;
+auto centered = combined - mean;
+auto variance = reduce(centered * centered, columns, add) / width;
+Y(origin, shape(one, columns))
+    .store(centered / sqrt(variance + 1e-5f));
+```
+
+`combined` and `centered` each have several consumers. Cloning their producer
+expressions makes generated Metal load every `X` and residual element four
+times. Preserving the two SSA definitions does **not** require two source-level
+`Memory` declarations. The Metal mapper proves element ownership and realizes
+them as two worker stripes, so each input element is loaded once.
+
+Structural `lower(function)` defaults to `SharedTileMaterialization::PRESERVE`
+because erasing sharing is irreversible and deprives later analyses of a legal
+choice. `EXPENSIVE_ONLY` is retained as an explicit lowering/JIT candidate: it
+preserves shared transcendental Tiles but recomputes cheap arithmetic. Neither
+mode changes TileIR semantics. On the measured M1 Max, Metal selects
+`PRESERVE`; LLVM CPU selects `EXPENSIVE_ONLY`. This is precisely why the
+decision belongs to target planning rather than the C++ DSL.
+
+Worker stripes also have an explicit software-state bound:
+
+```text
+stripe_scalars(S) = sum[t in materialized Tiles]
+                    ceil_div(elements(t), 32*S)
+stripe_scalars(S) <= max_reduction_striped_scalars_per_worker = 64.
+```
+
+The value is a compiler-created storage budget, not a claim about allocated
+hardware registers. A backend may scalarize or spill it. A candidate above the
+bound is rejected before code generation instead of silently creating an
+unbounded private array. At residual LayerNorm width 4096, 32- and 64-thread
+maps would require 256 and 128 scalars per worker and are rejected; 128/256
+threads require 64/32 and remain legal.
+
 ```{figure} ../_static/tile/reduction-model.svg
 :alt: A semantic reduction domain is factored into execution participants and local slots while its reducer contract and result remain target independent.
 :width: 86%
@@ -348,9 +400,9 @@ Reduction factorization changes participants and local slots. The semantic
 contribution set, grouping map, identity and merge contract remain intact.
 ```
 
-### 5.1 Guarded immutable views and dynamic gather
+### 5.2 Guarded immutable views and dynamic gather
 
-Cross-entropy revealed a second ownership case. Before mapping, a logical row
+Cross-entropy revealed another ownership case. Before mapping, a logical row
 snapshot can legally be consumed both as `V[e]` by reductions and as
 `V[label]` by a guarded gather. Mechanically distributing its initialization
 while retaining a private `V[N]` per worker is invalid:
@@ -421,12 +473,20 @@ The three terms represent worker stripe rounds, SIMD collective work and
 amortized program/threadgroup setup. They are dimensionless priors, not
 measured instructions, occupancy or nanoseconds. Ties retain the smaller `S`.
 
+The v1 score currently treats every scalar round alike. It does not yet count
+global loads duplicated by recomputation, expression depth, or the different
+service costs of local stripe access. The residual LayerNorm policy search
+therefore exposes up to 43.66% model regret on this finite candidate set. This
+is recorded as a model defect; correctness-checked staged/JIT measurement is
+the selection authority until those features are calibrated.
+
 Before scoring, a candidate is rejected if it violates any of:
 
 ```text
 S <= min(8, floor(target_max_threads / 32))
 threadgroup_threads <= target_max_threads
 shared_bytes(S) <= target_shared_memory
+stripe_scalars(S) <= max_reduction_striped_scalars_per_worker
 enumerated_widths <= max_thread_candidates
 finite, nonnegative coefficients
 supported exact thread constraint, when present.
@@ -443,7 +503,7 @@ constraint; for this realization it fixes the number of cooperating workers
 per program and must be a legal multiple of 32. It is not silently clamped and
 does not mean “pack this many unrelated workers however convenient.”
 
-### 6.1 Plans selected in the saved run
+### 6.1 Plans selected in the original 20-case run
 
 | Case | Threads/group | SIMD groups/program | Shared bytes | Private stripe/worker | Reductions | Model score |
 |---|---:|---:|---:|---:|---:|---:|
@@ -476,6 +536,12 @@ LayerNorm's independent element count is the row width because its affine
 output is distributed. Cross-entropy has only three scalar independent
 elements after immutable logits/label views are forwarded; its two width-sized
 loops are the reductions already counted in `R`.
+
+The table is retained as the exact historical plan report. The current
+default structural exporter additionally preserves LayerNorm's shared
+`centered` Tile, so a newly compiled width-4096 LayerNorm reports a 16-scalar
+worker stripe rather than zero. Saved artifacts are never rewritten to pretend
+they were produced by the newer policy.
 
 ## 7. Staged/JIT tuning is the outer authority
 
@@ -512,6 +578,23 @@ This cleanly separates three questions:
 Measured data may calibrate `alpha`, `beta`, `gamma` or a richer device
 profile. It must never make an illegal candidate legal.
 
+Materialization is another ordinary staged dimension:
+
+```bash
+uv run --no-project --python 3.13 --with torch --with numpy python \
+  scripts/benchmark/tile_torch/run.py \
+  --native cmake-build-tirx/bin/benchmark_tile_tirx \
+  --output NEW_EMPTY_DIRECTORY \
+  --backends metal --operations residual_layernorm \
+  --metal-subgroup-reductions \
+  --tune-shared-tile-materializations preserve,expensive-only
+```
+
+The runner includes this choice in the finite Cartesian product with tile,
+pipeline and execution-width candidates, enforces the global JIT budget,
+retains failed candidates, and recompiles/revalidates the measured winner.
+There is no capture-once super-kernel.
+
 ## 8. Correctness and structural verification
 
 The regression suite checks both generated structure and actual hardware
@@ -525,7 +608,12 @@ results:
   64 shared bytes, a 16-scalar private stripe, `simd_max`, `simd_sum`, and every
   output element against FP64;
 - LayerNorm at `3×4096`, requiring two reductions and checking all 12,288
-  affine outputs against an independent FP64 mean/variance formula;
+  affine outputs against an independent FP64 mean/variance formula; the
+  current policy also requires a 16-scalar compact stripe for its shared cheap
+  arithmetic Tile;
+- canonical multi-consumer arithmetic under both `PRESERVE` and
+  `EXPENSIVE_ONLY`, proving that the first retains the SSA boundary and the
+  second is a real recomputation candidate;
 - cross-entropy at `7×4096`, including two collectives, a guarded dynamic
   label gather, absence of the private `[4096]` input snapshot, and every loss
   against a stable FP64 log-sum-exp formula;
@@ -538,7 +626,7 @@ results:
 - uniform first collectives and guarded tails in generated Metal;
 - CPU fallback behavior and unchanged reference paths; and
 - benchmark/replay metadata, policy preservation, cooperating-subgroup facts
-  and staged/JIT winner revalidation.
+  and staged/JIT winner revalidation, including materialization policy.
 
 At the current checkpoint:
 
@@ -547,13 +635,18 @@ complete CTest /^test_tile_/:            32 / 32 tests passed
 guarded CPU view proof:               1,572 assertions passed
 Metal subgroup LayerNorm:            12,297 assertions passed
 Metal subgroup cross-entropy:            20 assertions passed
-Python benchmark contract discovery:    67 / 67 tests passed
+focused TIRx execution, CPU:          33,071 assertions passed
+focused TIRx execution, Metal:        38,363 assertions passed
+focused TIRx planner:                  5,891 assertions passed
+Python benchmark contract discovery:    69 / 69 tests passed
 ```
 
 The wider repository contains an unrelated local edit to Metal memory flags;
 the targeted subgroup hardware tests avoid attributing that user's change to
 this feature. The complete Tile cohort was also run with the submitted
 source value restored temporarily, then the user's local edit was restored.
+Commands and the full warning boundary are in the
+{download}`shared-Tile validation note <../../scripts/benchmark/tile_torch/results/m1-max-20260905-shared-tile-validation/notes.md>`.
 
 ## 9. Performance evidence
 
@@ -656,6 +749,45 @@ resource realization family rather than PyTorch output allocation or a
 different binary. The ranges are observed paired-round extrema, not confidence
 intervals.
 
+### 9.5 Fused residual LayerNorm and materialization choice
+
+The current
+{download}`Metal materialization search <../../scripts/benchmark/tile_torch/results/m1-max-20260905-residual-layernorm-materialization-search/notes.md>`
+JIT-compiles both shared-Tile policies for every shape. All measured winners
+use `PRESERVE`:
+
+| Rows×width | Tile µs | Eager Torch MPS µs | Tile/Torch | Stripe scalars/worker |
+|---|---:|---:|---:|---:|
+| 1×127 | 3.426 | 10.671 | 0.321× | 4 |
+| 17×257 | 3.655 | 11.705 | 0.312× | 6 |
+| 128×1024 | 6.321 | 18.592 | 0.340× | 8 |
+| 64×4096 | 8.324 | 27.046 | 0.308× | 32 |
+
+PyTorch evaluates eager `layer_norm(X + residual)` and allocates its returned
+output, so this is an API-level comparison. The clean policy attribution is
+the separate
+{download}`four-round A/B replay <../../scripts/benchmark/tile_torch/results/m1-max-20260905-residual-layernorm-materialization-replay/notes.md>`:
+
+| Rows×width | Expensive-only µs | Preserve µs | Paired preserve speedup [range] |
+|---|---:|---:|---:|
+| 1×127 | 3.692 | 3.506 | 1.057× [1.027, 1.137] |
+| 17×257 | 3.648 | 3.632 | 1.008× [0.957, 1.039] |
+| 128×1024 | 8.244 | 6.084 | 1.354× [1.313, 1.366] |
+| 64×4096 | 13.548 | 9.591 | 1.421× [1.392, 1.471] |
+
+All 32 native A/B measurements pass and use unchanged fingerprinted artifacts.
+The independent
+{download}`bounded thread search <../../scripts/benchmark/tile_torch/results/m1-max-20260905-residual-layernorm-bounded-thread-search/notes.md>`
+also records the 64-scalar legality bound and rejected wide-shape candidates.
+
+The
+{download}`CPU materialization search <../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-residual-layernorm-materialization-search/notes.md>`
+selects the other legal policy, `EXPENSIVE_ONLY`, with native/Torch ratios
+0.109×, 0.225×, 0.382× and 0.643×. That run includes native LLVM codegen,
+proved input views, automatic element packing and the explicit 64 KiB local
+stack budget. It demonstrates target-dependent resource planning, not a
+universal preference for either materialization policy.
+
 ## 10. What this closes, and what remains
 
 This work closes the specific defect “logical reduction hierarchy is exported
@@ -678,10 +810,11 @@ The next honest milestones are:
    Welford, argmax and online attention state;
 3. share target-independent reduction/ownership facts between the TIRx and XIR
    bridges rather than re-deriving them from target IR;
-4. calibrate the shortlist prior on held-out shapes and at least one other
-   Apple GPU, while retaining exact JIT overrides;
-5. measure fused residual-normalization, cross-entropy backward, decode and
-   prefill attention, Top-K/sort and representative end-to-end LLM blocks;
+4. add global/local traffic, expression-depth and live-state features to the
+   shortlist prior, then calibrate it on held-out shapes and at least one other
+   Apple GPU while retaining exact JIT overrides;
+5. measure cross-entropy backward, decode and prefill attention, Top-K/sort
+   and representative end-to-end LLM blocks;
 6. add equivalent CUDA and CPU realization families without pretending their
    binding, memory or collective costs are Metal's; and
 7. introduce a general Machine TileIR only when multiple backends need the
@@ -691,5 +824,5 @@ The next honest milestones are:
 Until those milestones are measured, the correct claim is narrow but useful:
 the TIRx route now has a proof-driven, cost-ranked, high-performance Metal
 reduction realization, and the previously measured RMSNorm, LayerNorm and
-forward cross-entropy structural gaps are closed on the recorded M1 Max
-cohort.
+forward cross-entropy gaps plus the fused residual LayerNorm shared-SSA defect
+are closed on the recorded M1 Max cohort.

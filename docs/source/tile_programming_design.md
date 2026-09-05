@@ -1,6 +1,6 @@
 # Luisa Tile DSL: A From-Scratch Design
 
-- Status: architecture proposal and executable core syntax contract, revision 16
+- Status: architecture proposal and executable core syntax contract, revision 17
 - Compatibility with the removed prototype: none
 - Primary workloads: GEMM, attention, convolution, normalization, quantized,
   sparse, grouped, and persistent neural-network kernels
@@ -1626,12 +1626,14 @@ a materialized edge it also chooses storage layout, resource class, lifetime,
 version count, and synchronization. Those are compiler decisions constrained by
 target capabilities and tuning, not mandatory source annotations.
 
-The current TIRx bridge demonstrates this boundary without adding syntax: a
-shared expensive elementwise Tile (`exp`, `log`, `sqrt`, or `tanh`) with more
-than one SSA use is materialized once, while cheap arithmetic stays fused. A
-versioned exp contract may later select a checked CPU array-math atom. This is
-an initial conservative policy, not part of the language semantics and not a
-reason for the programmer to declare `Memory`.
+The current TIRx bridge demonstrates this boundary without adding syntax. It
+preserves every pure multi-consumer Tile definition by default, leaving a
+target pass free to compact it, retain it or inline it later. An explicit
+`EXPENSIVE_ONLY` candidate preserves shared `exp`, `log`, `sqrt` and `tanh`
+but recomputes cheap arithmetic. A versioned exp contract may select a checked
+CPU array-math atom only after the target pass revalidates the exact
+expression. These are target-planning policies, not language semantics and not
+a reason for the programmer to declare `Memory`.
 
 `Memory` is an expert-only semantic escape hatch. It is requested only when the
 programmer intentionally needs stable address identity: a mailbox, explicit
@@ -2244,7 +2246,49 @@ Conditional assignment constructs merge values. A verifier rejects a value
 that is not definitely assigned on every required path, or carries the old
 definition when that is the declared semantics.
 
-### 8.3 Addressable storage uses explicit effects
+### 8.3 Shared SSA preserves a resource-planning choice
+
+A Tile SSA definition with several consumers is one logical value. That fact
+must survive canonicalization and structural bridge export because erasing it
+by cloning the producer is irreversible. It does **not** mean that the source
+declared an addressable allocation or that every backend must store the value.
+
+For a pure definition `%v = f(...)`, target planning may choose among:
+
+~~~text
+recompute(%v, use)     inline f at selected consumers
+retain(%v)             keep it in distributed registers/fragments
+materialize(%v, R)     assign a compiler-owned resource, layout and lifetime
+~~~
+
+The choices are equivalent only after checking purity, effects, aliasing,
+layout correspondence, active participants and the target arithmetic policy.
+`materialize` additionally needs an ownership map, address map, lifetime,
+capacity proof and legal target access. A later pass may still inline a
+preserved pure definition; it cannot reconstruct sharing that structural
+lowering already destroyed.
+
+```{figure} ../_static/tile/shared-tile-planning.svg
+:alt: A shared semantic Tile value remains one SSA definition while target planning chooses recomputation or bounded materialization.
+:width: 100%
+
+Sharing is semantic information. Storage, placement and recomputation are
+target-dependent resource decisions.
+```
+
+The implemented TIRx bridge therefore preserves every pure multi-consumer
+Tile by default. Its `EXPENSIVE_ONLY` mode is an explicit diagnostic/JIT
+candidate that keeps shared transcendentals but recomputes cheap arithmetic.
+The Metal row-program mapper can realize a preserved value as a bounded
+worker-private stripe after proving ownership; LLVM may instead profit from
+recomputation and fusion. Both modes keep the same Candidate TileIR semantics.
+
+This rule also explains why compiler-created materialization is not surfaced
+as `memory<T>(...)`. Manual `Memory` states that stable addressable identity is
+part of the requested schedule. It cannot be silently recomputed and every
+write remains an explicit effect.
+
+### 8.4 Addressable storage uses explicit effects
 
 Assignment is reserved for staged Scalar and Tile definitions. Addressable
 storage, including `Memory`, views, and scalar element references, exposes

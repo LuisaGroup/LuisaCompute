@@ -1,8 +1,10 @@
 # Execution mapping: constraints, cost model, and search
 
-Status: the Metal FP32 matrix realization described in sections 4--6 is
-implemented. The target-independent formulation and later search strategies
-describe the extension contract, not features already available on every target.
+Status: the Metal FP32 matrix realization described in sections 4--6, the
+Metal FP32 row-program family in section 3.7, and the bounded shared-Tile
+materialization choice in section 3.8 are implemented. The target-independent
+formulation and later search strategies describe the extension contract, not
+features already available on every target.
 
 The independent [XIR/SIMD CPU planner](tile_xir_design.md) now searches root
 axis order and Runtime worker packing using a separate relative-work model.
@@ -540,15 +542,61 @@ constraint; `run.py --tune-group-threads` recaptures/JITs each concrete width,
 validates it, and independently recompiles the winner. Measurement calibrates
 ranking but can never override legality.
 
-The current 20-case sum/softmax/RMSNorm/LayerNorm/cross-entropy reports select
-one, two, four and eight groups as widths grow, check every output, and are
-faster than eager Torch MPS in all saved rows. Balanced same-binary A/B replays
-attribute 21.19×--49.87× RMSNorm and 14.04×--75.54× LayerNorm/cross-entropy
-improvements to this mapping family. Sum and softmax use preallocated Torch
-outputs; the functional normalization/loss comparisons include returned-output
-allocation, while the native A/B does not. These facts validate the need for a
-structural execution plan; they do not establish the coefficient prior on
-held-out devices or a production LLM operator suite.
+The current 24-case sum/softmax/RMSNorm/LayerNorm/cross-entropy/residual-
+LayerNorm reports select one, two, four and eight groups as widths grow, check
+every output, and are faster than eager Torch MPS in all saved rows. Balanced
+same-binary A/B replays attribute 21.19×--49.87× RMSNorm and
+14.04×--75.54× LayerNorm/cross-entropy improvements to this mapping family.
+The residual-LayerNorm A/B separately attributes up to 1.421× to preserving
+and compacting shared Tile SSA instead of recomputing it. Sum and softmax use
+preallocated Torch outputs; the functional normalization/loss comparisons
+include returned-output allocation, while native A/B comparisons do not.
+These facts validate the need for a structural execution and resource plan;
+they do not establish the coefficient prior on held-out devices or a
+production LLM operator suite.
+
+### 3.8 Implemented shared-Tile materialization choice
+
+Use count is a semantic/dataflow fact, not a placement decision. Structural
+lowering now preserves every pure Tile SSA definition with multiple consumers
+by default. Target planning can subsequently retain it, assign it a physical
+resource, or prove that recomputation is preferable. The explicit
+`EXPENSIVE_ONLY` lowering candidate preserves shared transcendental results but
+recomputes cheap arithmetic, matching the earlier policy.
+
+For the Metal row-program family, a preserved logical Tile can become a
+worker-private stripe only after the element access proves the same affine
+owner as the active worker. Candidate `S` is also subject to:
+
+~~~text
+stripe_scalars(S) = sum[t in materialized Tiles]
+                    ceil_div(elements(t), 32*S)
+
+stripe_scalars(S) <= max_reduction_striped_scalars_per_worker
+~~~
+
+The default bound is 64 scalars. It is an explicit compiler-created
+software-state budget, not a measured register limit. At residual LayerNorm
+width 4096, 32- and 64-thread candidates would require 256 and 128 scalars per
+worker and fail before code generation; 128 and 256 threads require 64 and 32
+and remain legal.
+
+```{figure} ../_static/tile/shared-tile-planning.svg
+:alt: Structural Tile SSA sharing is preserved while a target planner chooses recomputation or bounded physical materialization.
+:width: 100%
+
+The logical definition survives export; the target owns its resource choice.
+```
+
+The existing v1 row score counts scalar rounds, collectives and group setup.
+It does not yet count duplicated global reads, expression depth, local stripe
+traffic or measured spills. Consequently it chose `EXPENSIVE_ONLY` for the
+four diagnostic residual-LayerNorm shapes and incurred 6.82%, 1.80%, 37.51%
+and 43.66% measured regret. The finite staged/JIT search independently
+captured, compiled and validated both policies, then selected `PRESERVE` on
+Metal. The equivalent CPU search selected `EXPENSIVE_ONLY` for every shape.
+That cross-target split is the intended architecture: shared SSA remains in
+the semantic IR, while resource/recomputation policy is target-specific.
 
 ## 4. Implemented matrix mapping family
 
@@ -1308,16 +1356,18 @@ task count, per-task work, provider overhead, thread-pool state and cache
 footprint. Tests cover the boundary, a transcendental body, explicit worker
 binding and the planner-disabled reference path.
 
-### Shared Tile SSA and CPU provider atoms
+### Shared Tile SSA, target materialization, and CPU provider atoms
 
-Lazy Tile expressions are valuable for fusion, but duplicating a shared
-transcendental into a reduction and a later consumer is structurally wrong for
-performance. During structural export, a shared `exp`, `log`, `sqrt` or `tanh`
-result with more than one SSA use receives one compiler-owned materialization.
-Cheap arithmetic remains fused. This decision is independent of memory scope:
-it creates an internal realization candidate, not a user-visible `Memory`.
-Only the exact shared FP32 `exp` form currently carries a versioned provider
-contract.
+Lazy Tile expressions are valuable for fusion, but structural export must not
+erase a shared SSA boundary by cloning its producer. The default exporter now
+preserves every pure multi-consumer Tile as one compiler-owned logical
+materialization. This is independent of memory scope and creates a target
+resource candidate, not a user-visible `Memory`. `EXPENSIVE_ONLY` remains an
+explicit diagnostic/JIT alternative that preserves `exp`, `log`, `sqrt` and
+`tanh` while allowing cheap arithmetic to fuse into consumers. Only the exact
+shared FP32 `exp` expression currently carries a versioned provider contract,
+and the target pass re-proves that expression rather than trusting the generic
+materialization annotation.
 
 The CPU provider proof is two-level:
 
@@ -1357,8 +1407,13 @@ reports 2.71--6.12× paired gains for row sums and 2.10--5.46× for softmax,
 while add controls remain approximately 1×. The
 {download}`CBLAS replay <../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-cblas-v2-replay/notes.md>`
 reports all eight shapes, direct CBLAS and eager Torch in all six execution
-orders. These results validate two reachable atom families; they do not imply
-that direct XIR or the portable reference loops have reached library parity.
+orders. The
+{download}`CPU residual-LayerNorm search <../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-residual-layernorm-materialization-search/notes.md>`
+selects recomputation for all four shapes while retaining structural SSA and
+holding its native LLVM/input-view/vectorization/64 KiB stack policies fixed.
+These results validate two reachable provider families and one target-specific
+materialization choice; they do not imply that direct XIR or the portable
+reference loops have reached library parity.
 
 ## 8. Validation and remaining work
 
@@ -1378,8 +1433,9 @@ eligible FP32 GEMM/sum/softmax cohorts. Neither result covers arbitrary
 dtypes/operators or the portable XIR/reference realization. Improvements over
 old lowering are reported separately from external comparisons.
 
-Remaining structural work includes broader synchronization planning, a general
-materialization cost model, layout-aware cooperative copies, combined software
+Remaining structural work includes broader synchronization planning, a
+calibrated materialization model with traffic/expression-depth/spill features,
+layout-aware cooperative copies, combined software
 pipeline/residency planning, general nested hierarchy binding, CPU task/SIMD,
 cache/packing and provider break-even planning, calibrated target models, and
 additional atom families. The current planners and provider proofs solve

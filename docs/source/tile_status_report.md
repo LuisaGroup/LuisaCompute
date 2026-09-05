@@ -8,12 +8,13 @@ evidence.
 
 ## Technical summary
 
-The packaged [evidence report](../../scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/report.html)
-contains the same bounded snapshot, charts, audit tables and canonical sources.
+The packaged [XIR pilot report](../../scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/report.html)
+is an earlier bounded snapshot with charts, audit tables and canonical sources.
 Its canonical validator and structural verifier pass. The packager found no
 compatible Chromium headless-shell, so responsive/source-dialog browser QA is
 not claimed; the self-contained semantic chart and table fallbacks remain in
-the file. This Markdown page remains the repository-native detailed report.
+the file. This Markdown page and its reading map are the current
+repository-native report across all Tile routes.
 
 The execution-first C++ Tile language now has three distinct working compiler
 routes: the maintained C++ TIRx bridge (including a typed Metal MPP contract),
@@ -55,14 +56,16 @@ eight 32-lane SIMD groups, packs independent short programs, and compacts
 eligible compiler-owned Tiles to worker-private stripes through an affine
 ownership proof. Path-sensitive guarded-view analysis and an independent
 distributed-local ownership audit now also make dynamic label gathers safe.
-Across the current 20-case sum/softmax/RMSNorm/LayerNorm/cross-entropy reports,
-every complete output passes and Tile/Torch host-wall throughput ranges from
-0.032× to 0.902×. Sum and softmax use preallocated output on both sides;
-PyTorch's functional normalization/loss calls include returned-output
-allocation. Same-binary four-round native A/B replays measure 21.19×--49.87×
-for RMSNorm and 14.04×--75.54× for LayerNorm/cross-entropy, unaffected by that
-PyTorch API asymmetry. This is a narrow M1 Max cohort, not a production
-LLM-suite or pure-GPU-event claim.
+Across the current 24-case sum/softmax/RMSNorm/LayerNorm/cross-entropy/residual-
+LayerNorm reports, every complete output passes and Tile/Torch host-wall
+throughput ranges from 0.032× to 0.902×. Sum and softmax use preallocated
+output on both sides; PyTorch's functional normalization/loss calls include
+returned-output allocation. Same-binary four-round native A/B replays measure
+21.19×--49.87× for RMSNorm, 14.04×--75.54× for LayerNorm/cross-entropy, and up
+to 1.421× for preserving shared arithmetic in residual LayerNorm. A paired
+CPU search selects the opposite recomputation policy, demonstrating that
+logical SSA sharing and physical storage must remain separate decisions. This
+is a narrow M1 Max cohort, not a production LLM suite or pure-GPU-event claim.
 
 **The general library-performance goal is still not complete.** These CPU
 wins are legal provider realizations for narrow proved contracts, not evidence
@@ -90,9 +93,14 @@ No Metal result is relabeled as XIR performance.
 | {download}`Balanced RMSNorm A/B <../../scripts/benchmark/tile_torch/results/m1-max-20260905-metal-subgroup-rmsnorm-replay/notes.md>` | Same-binary reference/subgroup causality check across four shapes and four balanced rounds |
 | {download}`Metal row-program extension <../../scripts/benchmark/tile_torch/results/m1-max-20260905-metal-subgroup-row-extensions/notes.md>` | LayerNorm and cross-entropy plans, guarded-gather repair, eight complete outputs and API-level timings |
 | {download}`Balanced row-program A/B <../../scripts/benchmark/tile_torch/results/m1-max-20260905-metal-subgroup-row-extensions-replay/notes.md>` | Same-binary LayerNorm/cross-entropy causality check: 64 valid native variants and unchanged artifacts |
+| {download}`Residual LayerNorm materialization search <../../scripts/benchmark/tile_torch/results/m1-max-20260905-residual-layernorm-materialization-search/notes.md>` | Separate preserve/recompute JIT candidates, complete Metal outputs and exposed v1 cost-model regret |
+| {download}`Residual LayerNorm materialization A/B <../../scripts/benchmark/tile_torch/results/m1-max-20260905-residual-layernorm-materialization-replay/notes.md>` | Four balanced same-binary rounds isolating the shared-SSA decision |
+| {download}`Bounded Metal thread search <../../scripts/benchmark/tile_torch/results/m1-max-20260905-residual-layernorm-bounded-thread-search/notes.md>` | Exact width candidates, rejected over-budget stripes and fresh winner validation |
+| {download}`CPU materialization search <../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-residual-layernorm-materialization-search/notes.md>` | Opposite target choice under fixed LLVM/input-view/vectorization/stack policies |
 | {download}`CPU CBLAS replay <../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-cblas-v2-replay/notes.md>` | Eight frozen GEMMs, six implementation orders, direct CBLAS overhead and Torch comparison |
 | {download}`CPU array-math replay <../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-accelerate-ops-replay/notes.md>` | Causal reference/Accelerate A/B over add controls, row reductions and softmax |
-| {download}`Final CPU/provider validation <../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-provider-validation/notes.md>` | Full rebuild, focused structural tests, 34/34 submitted-source Tile cohort, 64/64 Python checks and documentation QA |
+| {download}`Earlier CPU/provider validation <../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-provider-validation/notes.md>` | Historical provider checkpoint, with its then-current build/test counts and documentation QA |
+| {download}`Shared-Tile validation <../../scripts/benchmark/tile_torch/results/m1-max-20260905-shared-tile-validation/notes.md>` | Current full build, 32/32 submitted-source Tile cohort, focused CPU/Metal assertions, 69/69 benchmark contracts and clean Tile documentation links |
 
 ```{figure} ../_static/tile/xir-planning-pipeline.svg
 :alt: The same execution-first TileIR feeds XIR/SIMD, Metal-native MPP and TIRx compiler routes with separate ownership.
@@ -100,6 +108,35 @@ No Metal result is relabeled as XIR performance.
 
 One language and Runtime contract do not imply identical target schedules or interchangeable benchmark results.
 ```
+
+## Architecture decision ledger
+
+This table is the compact answer to the design discussion. Detailed proofs,
+syntax and implementation evidence live in the linked documents above.
+
+| Question | Decision | Consequence |
+|---|---|---|
+| Programming model | Execution structure first, not an algorithm graph with a schedule attached afterwards | Lexical Nest structure exists before target mapping; operations inherit anchor/frontier from it |
+| Core Nest vocabulary | `parallel`, `serial`, `pipeline`, `reduce` only | Elementwise, convolution, softmax, attention, Top-K and sort remain composable libraries unless irreducible target semantics justify an atom |
+| C++ surface | Luisa-style staged lambda parameters, range-for Nests, ordinary carried assignment, explicit memory effects | No `GemmSpec`, public builder prefix, symbolic-integer façade, `loop.result()` or kernel-specific `mma_team` entity |
+| Tensor and view | Tensor is storage plus a typed layout/view; `A[...]` loads a Tile, `A(...)` names a `MemoryRef` | Subtiles and bounds are explicit without baking execution or a memory hierarchy into Tensor |
+| Layout algebra | One typed mixed-radix/index-map composition algebra for execution binding, value distribution, views, addresses and atom operands | Domain/codomain and proof obligations prevent composing unrelated coordinate spaces; representability is broader than any one emitter |
+| Execution versus memory | Execution hierarchy chooses participants; resources attach independently to an owner prefix and access map | Several differently laid-out memories may serve one Nest; memory kinds are capabilities, not a fake total hierarchy |
+| Pipeline | A temporal producer/consumer Nest with lexical stage cuts and dependence distances | It may organize participant specialization, overlap and versions, but a stage name alone does not promise async hardware |
+| Reduction | An algebraic Nest with domain, grouping, identity/update/merge and numerical policy | Serial fold, subgroup tree, Welford and tuple states are realizations of one semantic contract, not unrelated source constructs |
+| Tile SSA versus `Memory` | Preserve semantic sharing; plan retain/recompute/materialize per target. Manual `Memory` means stable addressable identity | Compiler stripes/registers/workspace do not leak into ordinary kernels; manual writes always use `.store()` |
+| TileIR | Thin, typed, mutable SSA/region IR with managed intrusive ownership/use lists and analyses | It is transformable like XIR/LLVM, not a SPIR-V-style serialization schema and not an MLIR dependency |
+| Backend boundary | Public `tile::compile(device, TileIR)` calls the optional backend `DeviceInterface::create_tile_kernel` factory, which selects native lowering or `tile/bridge/{tirx,xir}` | TIRx and XIR remain comparable bootstrap paths while Metal/CUDA/CPU keep target-specific bindings and atoms |
+| Planning | Solve binding `B`, distribution `D`, atom `A`, resources `R` and schedule `Theta` under hard proofs, then rank | Enumeration/Pareto DP are implemented for bounded families; MILP, CP-SAT, beam or annealing are optional search engines, never legality oracles |
+| Autotuning | Ordinary concrete host configurations are recaptured and JIT-compiled as a finite product | No capture-once super-kernel is required; every candidate and the fresh winner receive the full correctness oracle |
+| Machine TileIR | Add it only when several backends/passes need a common scheduled atom/resource/protocol form | Current bridge-local plans remain honest stepping stones; no premature backend instruction serialization |
+
+“Layout completeness” therefore has three separate meanings. The algebra is
+closed over the admitted typed finite maps and can embed the CuTe-style
+mixed-radix constructions used here; proof procedures intentionally return
+unknown outside their decidable fragments; emitters support smaller target
+subsets and fail closed. A complete representation never licenses an
+unsupported lowering.
 
 ## What is implemented, and what remains design
 
@@ -109,11 +146,11 @@ One language and Runtime contract do not imply identical target schedules or int
 | Execution | `parallel`, `serial`, `pipeline`, `reduce`; scope constraints | The backend must realize the requested binding; unsupported bindings are errors |
 | Data/layout | Typed layout representation and proof mechanisms; Tensor as storage plus layout/view | Not every represented layout has an emitter on every bridge |
 | TileIR | Mutable typed SSA, regions and intrusive ownership/use structure | General Machine TileIR and its pass suite are not implemented |
-| TIRx | Native C++ export, shared structural lowering, CPU/Metal realizations; typed MPP v2 modes; proved Metal FP32 subgroup reductions; bounded target-specific cost/solvers | Held-out calibration, richer reduction policy and broader atoms/operators remain necessary |
+| TIRx | Native C++ export preserving pure multi-consumer SSA; target-selectable recomputation; CPU/Metal realizations; typed MPP v2 modes; proved Metal FP32 subgroup reductions; bounded target-specific cost/solvers | Materialization model lacks traffic/spill calibration; richer reduction policy and broader atoms/operators remain necessary |
 | Native Metal | Typed FP32 MMA/view-forwarding subset; ordinary Runtime shader and launch | Not general epilogues, K pipelines, manual Memory, all dtypes or arbitrary operators |
 | XIR/SIMD | Direct verified XIR; local Tile expansion; loop PHIs; ordinary CPU Runtime | No matrix-extension atom, packed GEMM microkernel or general Tile distribution |
 | CPU planner / realizations | Root-axis permutations × legal worker-block widths; bounded storage/SIMD/launch choices; proved CBLAS and Accelerate atoms | Provider selection is explicit; no fitted break-even model, whole-program optimum, general Tile partitioning or physical pipeline solver |
-| Autotuning | Recapture/JIT variants, exact Metal reduction-width sweeps and frozen-plan benchmarking | Broader search requires legal emitters and measured ranking; one capture is not mandatory |
+| Autotuning | Recapture/JIT variants, Cartesian execution/resource/materialization candidates, exact Metal reduction-width sweeps and frozen-plan benchmarking | Broader search requires legal emitters and measured ranking; one capture is not mandatory |
 
 The existing CuTe-derived mixed-radix/composition design is not a claim of a
 complete decision procedure over arbitrary programs. The language design
@@ -149,21 +186,20 @@ offsets, read/write snapshots, move-only shader lifetime, negative origins and
 signed-overflow rejection in the bounds proof. The dedicated SIMD PHI test
 uses widths 1/2/4/8/16 and every active-lane count, independent of TileIR.
 
-The submitted source preserves `metal::mem_flags(3)` and the final complete
-`test_tile_*` regression cohort is **34/34 passing**: all 31 `unit_tile` tests
-plus the three separately registered XIR/LLM/native Runtime integrations.
-For ownership auditing, the same cohort was first run against an unowned local
-`mem_flags(2)` edit and reported 32/34; the only two failures were the explicit
+The submitted source preserves `metal::mem_flags(3)` and the current complete
+`test_tile_*` regression cohort is **32/32 passing**: 30 unit-labeled tests plus
+two separately registered integration tests. The workspace contains an
+unowned local `mem_flags(2)` edit that intentionally disagrees with the
 generated-source assertions in `test_tile_tirx_cooperative_metal` and
-`test_tile_tirx_memory_metal`. Restoring the submitted value made the full
-31-test label pass without weakening either assertion. The local edit is not
-part of this source snapshot. The current Python benchmark-contract suite
-passes **67/67**. See the
-{download}`final validation note <../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-provider-validation/notes.md>`
+`test_tile_tirx_memory_metal`. The complete cohort was built and run with the
+submitted value restored temporarily; the user's `2` was then restored without
+weakening either assertion and is not part of this source snapshot. The
+current Python benchmark-contract suite passes **69/69**. See the
+{download}`current validation note <../../scripts/benchmark/tile_torch/results/m1-max-20260905-shared-tile-validation/notes.md>`
 for commands and scope; this is not a claim that every non-Tile repository
 test passed.
 
-## Four failure investigations changed the implementation
+## Five failure investigations changed the implementation
 
 ### LLVM coexistence is a build/runtime constraint
 
@@ -214,6 +250,26 @@ cross-platform guarded-view test and a negative explicitly materialized Tile
 test protect both decisions; the full explanation and diagram are in
 [the reduction report](tile_tirx_reduction_report.md).
 
+### Shared SSA must survive until target resource planning
+
+Fused residual LayerNorm exposed a different structural failure. The old
+exporter preserved shared transcendental expressions but cloned cheap shared
+arithmetic into every consumer. `combined = X + residual` was consequently
+expanded four times in generated Metal, multiplying global input reads even
+though the later subgroup mapper had enough ownership information to retain a
+compact value.
+
+The exporter now preserves every pure multi-consumer Tile definition by
+default. This is logical SSA, not a source-level `Memory` allocation. The
+Metal mapper may materialize it as bounded worker stripes after an affine
+ownership proof; a target may instead choose the explicit `EXPENSIVE_ONLY`
+recomputation candidate. A 64-scalar-per-worker software-state bound rejects
+pathological candidates before code generation. Metal selects preservation
+for all four measured shapes; LLVM CPU selects recomputation for all four.
+The [language/layout design](tile_programming_design.md) and
+[formal reduction report](tile_tirx_reduction_report.md) record the full
+contract and shared-Tile planning diagram.
+
 ## Performance: preserve the measurement basis
 
 Unless explicitly labeled otherwise, reported times are **warm synchronized
@@ -237,8 +293,8 @@ map. For softmax width 4096, a logical compiler-owned 4096-element Tile becomes
 16 private values per worker only after every access proves the same affine
 owner; the old per-thread `float[4096]` form is rejected by source tests.
 
-The two final current-binary cohorts use 11 samples, 100 ms calibrated sample
-windows and 100 ms warmup. All 20 complete FP64 checks pass:
+The two original current-binary cohorts use 11 samples, 100 ms calibrated
+sample windows and 100 ms warmup. All 20 complete FP64 checks pass:
 
 | Family | Shapes | Tile/Torch range | Fastest absolute Tile | Slowest relative Tile |
 |---|---|---:|---:|---:|
@@ -247,6 +303,17 @@ windows and 100 ms warmup. All 20 complete FP64 checks pass:
 | RMSNorm | same widths/row counts | 0.546×--0.902× | 3.904 µs | 0.902× |
 | LayerNorm | same widths/row counts | 0.511×--0.648× | 4.500 µs | 0.648× |
 | cross-entropy | same widths/row counts | 0.032×--0.052× | 3.449 µs | 0.052× |
+
+The four additional residual-LayerNorm cases search both shared-Tile policies
+with separate capture/JIT/full validation, then recapture the winner. Metal
+selects `PRESERVE` in every case:
+
+| Rows×width | Tile µs | eager Torch MPS µs | Tile/Torch | Worker stripe scalars |
+|---|---:|---:|---:|---:|
+| 1×127 | 3.426 | 10.671 | 0.321× | 4 |
+| 17×257 | 3.655 | 11.705 | 0.312× | 6 |
+| 128×1024 | 6.321 | 18.592 | 0.340× | 8 |
+| 64×4096 | 8.324 | 27.046 | 0.308× | 32 |
 
 The independent same-binary replays rotate variant and case order for four
 rounds. The subgroup path is 21.19×--49.87× faster for RMSNorm and
@@ -259,7 +326,16 @@ A/B is the clean causal comparison. The saved
 {download}`row extension <../../scripts/benchmark/tile_torch/results/m1-max-20260905-metal-subgroup-row-extensions/notes.md>`
 and
 {download}`extension replay <../../scripts/benchmark/tile_torch/results/m1-max-20260905-metal-subgroup-row-extensions-replay/notes.md>`
-retain every sample, plan, output error, artifact hash and exact command.
+and the
+{download}`residual materialization search <../../scripts/benchmark/tile_torch/results/m1-max-20260905-residual-layernorm-materialization-search/notes.md>`
+retain every sample, plan, output error, artifact hash and exact command. The
+separate
+{download}`materialization A/B <../../scripts/benchmark/tile_torch/results/m1-max-20260905-residual-layernorm-materialization-replay/notes.md>`
+isolates the Metal decision: median paired preservation speedup is 1.057×,
+1.008×, 1.354× and 1.421× from smallest to largest shape. The analytic v1
+model does not count duplicated global loads or expression depth and incurs up
+to 43.66% regret; the report preserves that miss rather than calling it a
+model success.
 
 This closes the diagnosed scalar-worker realization for the admitted subset.
 It is not production attention, training-loss/backward coverage,
@@ -353,11 +429,12 @@ not help.
 
 The new solution preserves the same TileIR semantics but adds a target
 realization boundary. Structural TileIR matching proves a whole compact FP32
-GEMM or an exact reduction recurrence; shared expensive Tile SSA is
-materialized once before export. The CPU pass then revalidates the actual TIRx
-body, buffer ABI, layout, alias contract and target policy before replacing it
-with a provider atom. It never matches a diagnostic operation name, and an
-explicit unsupported request fails rather than silently changing semantics.
+GEMM or an exact reduction recurrence; structural export preserves every pure
+multi-consumer Tile SSA by default. The CPU pass then revalidates the actual
+TIRx body, buffer ABI, layout, alias contract and target policy before choosing
+a resource or provider atom. It never matches a diagnostic operation name,
+and an explicit unsupported request fails rather than silently changing
+semantics.
 
 ```{figure} ../_static/tile/tirx-realization-pipeline.svg
 :alt: TileIR is structurally exported once, then portable, CPU-provider and Metal matrix families are selected behind a second proof firewall.
@@ -392,11 +469,13 @@ comparison against direct CBLAS answers a different question: wrapper and TVM
 packed-ABI overhead are visible, especially at 32³ and 128³. The wide 1024³
 range also shows why one lucky run must not be used as the headline.
 
-#### Shared transcendental and reduction realization
+#### Shared SSA and reduction realization
 
-The structural exporter now materializes a shared `exp` Tile once when its SSA
-result has multiple consumers, instead of expanding the lazy expression into
-both a reduction and an output consumer. The opt-in
+The structural exporter preserves a shared `exp` Tile once when its SSA result
+has multiple consumers, instead of expanding the lazy expression into both a
+reduction and an output consumer. The same default preserves cheap shared
+arithmetic, but only a structurally revalidated `exp` contract can select the
+provider below. The opt-in
 `CpuMathBackend::ACCELERATE` policy can then realize that exact compact map with
 vForce and exact FP32 add/max/min recurrence contracts with vDSP. The reference
 path remains available. Unrelated add kernels are a negative control.
@@ -434,6 +513,22 @@ and floating-exception behavior from scalar libm. The benchmark accepts it
 only through the explicit target option and checks all outputs with recorded
 tolerances; it is not silently enabled by the Tile DSL or execution hierarchy.
 
+#### Target-specific residual-LayerNorm materialization
+
+The
+{download}`CPU materialization search <../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-residual-layernorm-materialization-search/notes.md>`
+holds native LLVM code generation, input-view forwarding, automatic element
+packing, eight host threads and a 64 KiB compiler-local stack budget fixed.
+Every one of its four measured winners uses `EXPENSIVE_ONLY`: 0.252, 8.799,
+36.271 and 70.599 µs for widths 127, 257, 1024 and 4096. The corresponding
+Tile/Torch ratios are 0.109×, 0.225×, 0.382× and 0.643×.
+
+Metal selects `PRESERVE` on the identical semantic kernel because its mapped
+worker stripes avoid repeated global reads. CPU benefits from recomputation
+and LLVM fusion. This is direct evidence that preserving SSA in Candidate
+TileIR does not imply a universal physical allocation; materialization belongs
+beside binding, distribution and atom selection in the target plan.
+
 Two other CPU scheduling repairs matter independently of providers. Automatic
 roots below 64 cheap tasks stay serial unless the source explicitly requests a
 worker scope; small roots containing transcendental/opaque work retain
@@ -453,10 +548,11 @@ parallel semantics and have dedicated structural/numerical tests.
    trees, register blocking and cache/packing only with dependence, alias and
    numerical proofs. Provider parity must not hide the missing general SIMD
    and matrix realization family.
-3. **Calibrated cost and search:** use MPP v2 and the CPU launch threshold as
-   bootstrap priors, then measure emitted work, compile size, spills,
-   cache/coherence, provider overhead and dispatch. Evaluate on disjoint
-   shapes/operators; report held-out regret, top-K coverage and uncertainty.
+3. **Calibrated cost and search:** use MPP v2, the CPU launch threshold and the
+   exposed residual-LayerNorm regret as bootstrap evidence. Add duplicated
+   global/local traffic, expression depth, live-state and measured spill
+   features, then evaluate on disjoint shapes/operators; report held-out
+   regret, top-K coverage and uncertainty.
 4. **Production LLM coverage:** add hidden widths/context lengths, mask corner
    cases, dtypes and realistic prefill/decode sizes. Benchmark fused and
    unfused XIR/TIRx/Torch paths with identical inputs and explicit math policy.

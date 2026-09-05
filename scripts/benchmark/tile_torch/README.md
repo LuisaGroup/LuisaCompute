@@ -2,7 +2,8 @@
 
 This is an opt-in **correctness-checked, multi-shape** benchmark, not a CTest
 performance threshold. It compares FP32 GEMM, add, row sum, softmax, RMSNorm,
-LayerNorm and per-row cross-entropy on CPU and actual Metal / PyTorch MPS.
+LayerNorm, fused residual LayerNorm and per-row cross-entropy on CPU and actual
+Metal / PyTorch MPS.
 GEMM includes small/large squares, tall/wide matrices, and non-multiple tail
 sizes; reductions vary both row count and width.
 
@@ -10,6 +11,10 @@ Latest M1 Max evidence: [Metal subgroup sum/softmax/RMSNorm cohort](results/m1-m
 [balanced same-binary RMSNorm lowering A/B](results/m1-max-20260905-metal-subgroup-rmsnorm-replay/notes.md),
 [Metal subgroup LayerNorm/cross-entropy cohort](results/m1-max-20260905-metal-subgroup-row-extensions/notes.md),
 [balanced LayerNorm/cross-entropy lowering A/B](results/m1-max-20260905-metal-subgroup-row-extensions-replay/notes.md),
+[residual-LayerNorm materialization search](results/m1-max-20260905-residual-layernorm-materialization-search/notes.md),
+[balanced shared-Tile materialization A/B](results/m1-max-20260905-residual-layernorm-materialization-replay/notes.md),
+[bounded residual-LayerNorm thread search](results/m1-max-20260905-residual-layernorm-bounded-thread-search/notes.md),
+[CPU residual-LayerNorm materialization search](results/m1-max-20260905-cpu-residual-layernorm-materialization-search/notes.md),
 [MPP cost-model v1→v2 calibration-cohort study](results/m1-max-20260905-mpp-cost-v2-search/notes.md),
 [frozen seven-path MPP-v2 replay](results/m1-max-20260905-mpp-cost-v2-replay/notes.md),
 [proved CPU CBLAS plan](results/m1-max-20260905-cpu-cblas-v2-plan/notes.md),
@@ -212,6 +217,22 @@ Below it, cheap automatic roots stay serial; explicit worker roots and bodies
 with transcendental/opaque calls retain parallel mapping. This is a scheduling
 prior, not a change to the source `parallel` semantics.
 
+`--shared-tile-materialization preserve` is the structural TIRx default. It
+retains every pure multi-consumer Tile SSA definition so a target pass can
+still choose a compact resource realization. `expensive-only` is an explicit
+diagnostic/tuning candidate matching the earlier policy: shared
+transcendentals remain materialized while cheap arithmetic is cloned into its
+consumers. Neither spelling is a source-level `Memory`, and neither changes
+the TileIR computation.
+
+Use `--tune-shared-tile-materializations preserve,expensive-only` to recapture,
+JIT, fully validate and measure both candidates. The choice joins the same
+finite Cartesian product as block/window/thread/copy options and counts against
+`--max-tuning-candidates`; the winner is then recaptured and revalidated. The
+current Metal residual-LayerNorm cohort selects `preserve`, while its CPU LLVM
+counterpart selects `expensive-only`. This is why the runner records the
+policy in global metadata, every candidate and every frozen replay.
+
 `--capture-sources` archives both LLVM IR (`.ll`) and Metal (`.metal`) by SHA256.
 The repeat/system runners fingerprint both executables and their adjacent
 shared libraries; use repeatable `--compiler-artifact PATH` arguments to cover
@@ -259,9 +280,11 @@ uv run --no-project --python 3.13 --with torch --with numpy python \
 ```
 
 Metal group searches can also specify `--tune-group-threads '128,256'` and
-`--tune-copy-batches '1,4,8'`. These form a joint product with the block/window
-lists; they do not alter the frontend kernel semantics. Zero in the thread
-list invokes the planner's automatic choice, not a zero-thread launch.
+`--tune-copy-batches '1,4,8'`. Any backend may add
+`--tune-shared-tile-materializations preserve,expensive-only`. These form a
+joint product with the block/window lists; they do not alter the frontend
+kernel semantics. Zero in the thread list invokes the planner's automatic
+choice, not a zero-thread launch.
 Unspecified dimensions retain their ordinary command-line setting. Duplicate
 configurations are removed; a product exceeding `--max-tuning-candidates`
 (default 256 per shape) is rejected, never silently truncated. Include the
@@ -342,7 +365,8 @@ cases do not. A call-site count is not a dynamic instruction counter.
 ### Metal SIMD-group reductions
 
 `--metal-subgroup-reductions` opts automatic Metal sum, softmax, RMSNorm,
-LayerNorm and cross-entropy into the proved FP32 add/max/min collective
+LayerNorm, residual LayerNorm and cross-entropy into the proved FP32
+add/max/min collective
 realization. It requires the ordinary `simdgroup` TIRx path, automatic root
 execution, no cooperative matrix option and only those operations. The option is also explicit
 permission to replace the reference FP32 left fold with a tree order; it is
@@ -364,7 +388,7 @@ uv run --no-project --python 3.13 --with torch --with numpy python \
   scripts/benchmark/tile_torch/run.py \
   --native cmake-build-tirx/bin/benchmark_tile_tirx \
   --output NEW_EMPTY_DIRECTORY --backends metal \
-  --operations sum,softmax,rmsnorm,layernorm,cross_entropy \
+  --operations sum,softmax,rmsnorm,layernorm,residual_layernorm,cross_entropy \
   --metal-subgroup-reductions \
   --samples 11 --sample-ms 100 --warmup-ms 100 --capture-sources
 ```
@@ -374,13 +398,21 @@ realization. A measured staged/JIT sweep can instead use
 `--tune-group-threads '32,64,128,256'`. Each width is separately captured,
 compiled and fully validated; invalid trials remain in JSON. The measured
 winner is then captured/JIT-compiled and measured again, so the reported row
-is not a search minimum. GEMM block/pipeline and copy-batch tuning are rejected
+is not a search minimum. Preserved logical Tiles count against the default
+`max_reduction_striped_scalars_per_worker=64` compiler-state bound after
+ownership mapping; over-budget widths fail before code generation. This is
+not a claimed hardware-register count. Materialization and thread candidates
+may be searched jointly. GEMM block/pipeline and copy-batch tuning are rejected
 for this reduction mode.
 
 The saved [12-case base report](results/m1-max-20260905-metal-subgroup-reductions/notes.md),
 [eight-case LayerNorm/cross-entropy extension](results/m1-max-20260905-metal-subgroup-row-extensions/notes.md),
 [balanced RMSNorm A/B](results/m1-max-20260905-metal-subgroup-rmsnorm-replay/notes.md)
-and [balanced extension A/B](results/m1-max-20260905-metal-subgroup-row-extensions-replay/notes.md)
+and [balanced extension A/B](results/m1-max-20260905-metal-subgroup-row-extensions-replay/notes.md),
+plus the [residual-LayerNorm materialization search](results/m1-max-20260905-residual-layernorm-materialization-search/notes.md),
+[balanced materialization A/B](results/m1-max-20260905-residual-layernorm-materialization-replay/notes.md),
+[bounded exact-width search](results/m1-max-20260905-residual-layernorm-bounded-thread-search/notes.md)
+and [CPU target counterexample](results/m1-max-20260905-cpu-residual-layernorm-materialization-search/notes.md)
 document exact plans, commands, hashes, complete errors and interpretation
 limits. They are an M1 Max FP32 cohort, not all-device or production-LLM parity.
 
@@ -392,17 +424,19 @@ Measurement contract:
   native Metal unavailability is an error, never a CPU fallback.
 - Inputs and native outputs are allocated before warm measurements. PyTorch
   uses eager `out=` operations under inference mode where the operator exposes
-  one. The functional RMSNorm, LayerNorm and cross-entropy calls used here
-  return new outputs, so their output allocation remains inside warm timing.
+  one. The functional RMSNorm, LayerNorm, residual LayerNorm and cross-entropy
+  calls used here return new outputs, so their output allocation remains inside
+  warm timing.
   Every row records either `output_policy=framework_return_value` or
   `preallocated_out`.
 - Capture, native compilation, allocation/upload, first invocation, and
   download are reported separately. First-call timings are not a claim of an
   empty OS/driver cache, and PyTorch's process is reused across cases.
 - Warmup, calibrated batch duration and sample count are explicit command-line
-  inputs and recorded in JSON. The saved 20-case subgroup cohorts use 100 ms
-  warmup and 11 × 100 ms samples; their four-round causal replays use 80 ms
-  warmup and 7 or 9 × 60 ms samples. Native/PyTorch order alternates.
+  inputs and recorded in JSON. The original saved 20-case subgroup cohorts use
+  100 ms warmup and 11 × 100 ms samples. The four residual-LayerNorm search
+  rows use 100 ms warmup and 9 × 60 ms samples. Four-round causal replays use
+  80 ms warmup and 7 or 9 × 60 ms samples. Native/PyTorch order alternates.
 - Warm measurements use a host clock around dispatch plus synchronization.
   They exclude transfers but include C++/Python binding and launch overhead;
   they are **not pure GPU-event kernel timings**. Do not run alongside builds.

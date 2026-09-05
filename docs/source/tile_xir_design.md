@@ -226,6 +226,14 @@ arbitrary resource/address mappings and multi-launch programs remain outside
 the implemented subset. SIMD vectorization of workers is not tensor-core or
 matrix-extension lowering.
 
+Candidate TileIR still retains pure multi-consumer SSA definitions. The direct
+XIR bridge does not yet search recomputation versus a distributed physical
+materialization; its scalar expansion and the existing XIR/SIMD shared-SSA
+cleanup are one fixed realization. A future XIR resource candidate must use
+the same use/effect/ownership facts as TIRx, but may choose a different result
+for CPU SIMD. It must not infer a user `Memory` or mechanically copy Metal's
+worker-stripe policy.
+
 ## 6. Why not split every Tile into more workers?
 
 Changing the enumeration of independent root programs is safe. Introducing
@@ -267,7 +275,8 @@ algorithm's name to a cost model.
 
 Calibration should measure independent mechanisms and retain uncertainty:
 packet memory coherence, masked work, dispatch batching, arithmetic mix,
-working sets, compile size and spills. Evaluate top-choice regret, top-K
+working sets, duplicated loads/recomputation, live shared values, compile size
+and spills. Evaluate top-choice regret, top-K
 coverage and JIT cost on held-out shapes **and held-out operator families**.
 Do not fit a GEMM-only model and label it an LLM model. Cache keys must include
 IR specialization, plan schema, compiler/device identity, numerical policy and

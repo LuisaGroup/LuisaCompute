@@ -190,13 +190,17 @@ TileIR capture -> structural TIRx
         -> TVM C++ passes -> LLVM JIT module
 ~~~
 
-Shared expensive Tile SSA is materialized once when reused. This lets softmax
-feed both its reduction and normalization from one exp result instead of
-duplicating scalar/vector transcendental work. The vForce call uses a
-compiler-owned compact input/output pair; vDSP reductions consume a contiguous
-last dimension. The exported wrappers are synchronous and do not retain or
-alias their array pointers, so eligible scratch remains compatible with the
-bounded stack planner.
+Structural export preserves every pure multi-consumer Tile SSA definition by
+default. A target planner may later retain it, materialize it or choose the
+explicit `EXPENSIVE_ONLY` recomputation candidate. This lets softmax feed both
+its reduction and normalization from one exp result instead of duplicating
+scalar/vector transcendental work. Only a revalidated shared FP32 exp
+expression can become the vForce provider atom; a generic materialization
+annotation is insufficient. The vForce call uses a compiler-owned compact
+input/output pair; vDSP reductions consume a contiguous last dimension. The
+exported wrappers are synchronous and do not retain or alias their array
+pointers, so eligible scratch remains compatible with the bounded stack
+planner.
 
 `CpuMathBackend::ACCELERATE` is a different explicit numerical policy. vDSP
 may reassociate a reduction and vForce has documented denormal/exception
@@ -284,6 +288,12 @@ the subgroup map if a distributed private Tile would then be read by a
 different logical owner. Guarded gathers from immutable Tensor snapshots can
 instead be forwarded as lazy direct input reads. Explicit manual Memory is not
 inferred from this optimization and keeps its own placement/store contract.
+
+All compact stripes for one logical row program additionally obey
+`PlannerOptions::max_reduction_striped_scalars_per_worker` (64 by default).
+This is a bounded compiler-state policy, not a physical register claim. An
+over-budget execution width is rejected before source generation; another
+legal width or the reference realization may still be selected.
 
 The resulting `DeviceArtifact` uses the same direct-buffer ABI and ordinary
 Metal Runtime path described above. The standalone TVM runtime is retained as
