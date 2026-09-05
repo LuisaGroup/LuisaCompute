@@ -365,7 +365,8 @@ class RepeatContractTests(unittest.TestCase):
         return {"case": {"operation": "gemm", "m": 17, "n": 19, "k": 13}, "backend": "metal",
                 "valid": True, "block": [16, 32, 32], "native": {
                     "execution_scope": "group", "pipeline_window": 1, "cooperative_matrix": True,
-                    "vectorize": True, "auto_vectorize": False, "throughput_us_p50": 1.0}}
+                    "vectorize": True, "auto_vectorize": False, "throughput_us_p50": 1.0,
+                    "shared_tile_materialization": "preserve"}}
 
     def test_plan_uses_recorded_configuration_but_not_recorded_score(self):
         row = self.row()
@@ -457,11 +458,12 @@ class BenchmarkContractTests(unittest.TestCase):
         self.assertTrue(any(c.m % 8 and c.n % 8 and c.k % 16 for c in cases))
 
     def test_reduction_sizes_include_wide_and_single_row(self):
-        cases = MODULE.make_cases(["sum", "softmax", "rmsnorm", "layernorm", "cross_entropy"])
+        cases = MODULE.make_cases(["sum", "softmax", "rmsnorm", "layernorm", "residual_layernorm", "cross_entropy"])
         self.assertTrue(any(c.m == 1 for c in cases))
         self.assertTrue(any(c.n == 4096 for c in cases))
         self.assertEqual(sum(c.operation == "rmsnorm" for c in cases), 4)
         self.assertEqual(sum(c.operation == "layernorm" for c in cases), 4)
+        self.assertEqual(sum(c.operation == "residual_layernorm" for c in cases), 4)
         self.assertEqual(sum(c.operation == "cross_entropy" for c in cases), 4)
 
     def test_percentiles(self):
@@ -474,6 +476,22 @@ class BenchmarkContractTests(unittest.TestCase):
         self.assertEqual(MODULE.tolerance("add"), (0.0, 0.0))
         self.assertEqual(MODULE.tolerance("gemm"), (1e-4, 1e-4))
         self.assertEqual(MODULE.tolerance("layernorm"), (1e-5, 2e-5))
+        self.assertEqual(MODULE.tolerance("residual_layernorm"), (1e-5, 2e-5))
+
+    def test_shared_tile_materialization_is_explicit_and_padded(self):
+        self.assertEqual(
+            MODULE.optional_native_arguments(
+                argparse.Namespace(shared_tile_materialization="expensive-only")),
+            ["auto", "1", "tvm", "retain-subgroup-fences", "0", "16",
+             "retain-input-snapshots", "generic", "reference", "reference",
+             "expensive-only"])
+        MODULE.validate_shared_tile_materialization(
+            {"shared_tile_materialization": "preserve"}, "preserve")
+        for native, requested in (({}, "preserve"),
+                                  ({"shared_tile_materialization": "preserve"}, "expensive-only"),
+                                  ({"shared_tile_materialization": "preserve"}, "unknown")):
+            with self.assertRaises(ValueError):
+                MODULE.validate_shared_tile_materialization(native, requested)
 
     def test_unknown_operation_is_not_silently_skipped(self):
         with self.assertRaises(ValueError):
@@ -594,6 +612,15 @@ class BenchmarkContractTests(unittest.TestCase):
                 MODULE.parse_gemm_block(block)
         with self.assertRaises(ValueError):
             MODULE.tuning_candidates((8, 8, 16), 2, None, "0,2")
+        self.assertEqual(
+            MODULE.materialization_candidates(
+                "preserve", "preserve,expensive-only,preserve"),
+            ["preserve", "expensive-only"])
+        self.assertEqual(
+            MODULE.materialization_candidates("preserve", None), [])
+        for value in ("", "unknown", "preserve,unknown"):
+            with self.assertRaises(ValueError):
+                MODULE.materialization_candidates("preserve", value)
 
     def test_jit_search_revalidates_winner_instead_of_publishing_minimum(self):
         args = argparse.Namespace(tuning_candidates=[((8, 8, 16), 2), ((16, 32, 32), 1), ((64, 64, 64), 2)],
@@ -635,15 +662,26 @@ class BenchmarkContractTests(unittest.TestCase):
     def test_joint_candidate_product_and_compile_budget(self):
         args = argparse.Namespace(tuning_candidates=[((32, 64, 32), 1), ((64, 64, 32), 2)],
                                   mapping_tuning_candidates=[(128, 4), (256, 8)], max_tuning_candidates=4)
-        self.assertEqual(MODULE.joint_candidates(args), [((32, 64, 32), 1, 128, 4), ((32, 64, 32), 1, 256, 8),
-                                                       ((64, 64, 32), 2, 128, 4), ((64, 64, 32), 2, 256, 8)])
+        self.assertEqual(MODULE.joint_candidates(args), [((32, 64, 32), 1, 128, 4, "preserve"), ((32, 64, 32), 1, 256, 8, "preserve"),
+                                                       ((64, 64, 32), 2, 128, 4, "preserve"), ((64, 64, 32), 2, 256, 8, "preserve")])
         for budget in (0, 3):
             args.max_tuning_candidates = budget
             with self.assertRaisesRegex(ValueError, "budget"):
                 MODULE.joint_candidates(args)
         args = argparse.Namespace(tuning_candidates=[], gemm_block=(16, 32, 32), pipeline_window=1,
                                   mapping_tuning_candidates=[(128, 4), (256, 4)])
-        self.assertEqual(MODULE.joint_candidates(args), [((16, 32, 32), 1, 128, 4), ((16, 32, 32), 1, 256, 4)])
+        self.assertEqual(MODULE.joint_candidates(args), [((16, 32, 32), 1, 128, 4, "preserve"), ((16, 32, 32), 1, 256, 4, "preserve")])
+
+    def test_materialization_candidates_join_the_jit_product(self):
+        args = argparse.Namespace(
+            tuning_candidates=[], gemm_block=(8, 8, 16), pipeline_window=2,
+            mapping_tuning_candidates=[], group_threads=0, copy_batch=1,
+            materialization_tuning_candidates=["preserve", "expensive-only"],
+            max_tuning_candidates=2)
+        self.assertEqual(
+            MODULE.joint_candidates(args),
+            [((8, 8, 16), 2, 0, 1, "preserve"),
+             ((8, 8, 16), 2, 0, 1, "expensive-only")])
 
     def test_joint_search_revalidates_the_entire_selected_mapping(self):
         args = argparse.Namespace(tuning_candidates=[], gemm_block=(32, 64, 32), pipeline_window=1,

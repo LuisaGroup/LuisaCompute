@@ -237,7 +237,8 @@ protected:
             auto result = StmtMutator::VisitStmt_(loop);
             if (loop->annotations.count(independent_elements_annotation)) {
                 auto mapped = result.as_or_throw<tvm::tirx::For>();
-                mapped.CopyOnWrite()->annotations.erase(materialized_exp_annotation);
+                mapped.CopyOnWrite()->annotations.erase(
+                    materialized_pure_tile_annotation);
                 if (_binding == RootParallelBinding::CPU_THREADS && _auto_vectorize && _vector_depth == 0u) {
                     auto packed = vectorize_independent_elements(mapped, _planner.enabled ? _planner.max_cpu_vector_lanes : 16u);
                     if (packed.defined()) { return packed; }
@@ -249,7 +250,8 @@ protected:
             auto mapped = result.as_or_throw<tvm::tirx::For>();
             mapped.CopyOnWrite()->annotations.erase(deferred_pipeline_annotation);
             mapped.CopyOnWrite()->annotations.erase(reduction_contract_annotation);
-            mapped.CopyOnWrite()->annotations.erase(materialized_exp_annotation);
+            mapped.CopyOnWrite()->annotations.erase(
+                materialized_pure_tile_annotation);
             return mapped;
         }
         if (auto scope = loop->annotations.Get(execution_scope_annotation);

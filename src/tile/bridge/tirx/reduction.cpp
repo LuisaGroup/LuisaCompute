@@ -116,7 +116,8 @@ struct StripedMaterialization {
 
 [[nodiscard]] std::optional<StripedMaterialization>
 match_striped_materialization(const tvm::tirx::ForNode *outer) {
-    auto contract = outer->annotations.Get(materialized_exp_annotation);
+    auto contract =
+        outer->annotations.Get(materialized_pure_tile_annotation);
     auto version = contract ? contract.value().as<tvm::IntImmNode>() : nullptr;
     auto domain = element_domain(outer);
     if (version == nullptr || version->value != 1 || !domain ||
@@ -497,7 +498,7 @@ striped_materializations(const tvm::tirx::Stmt &body,
     tvm::tirx::PostOrderVisit(body, [&](const tvm::ffi::ObjectRef &node) {
         auto loop = node.as<tvm::tirx::ForNode>();
         if (loop == nullptr ||
-            !loop->annotations.count(materialized_exp_annotation)) {
+            !loop->annotations.count(materialized_pure_tile_annotation)) {
             return;
         }
         if (auto matched = match_striped_materialization(loop)) {
@@ -895,7 +896,7 @@ protected:
                               .as_or_throw<tvm::tirx::For>();
             auto node = result.CopyOnWrite();
             node->annotations.erase(independent_elements_annotation);
-            node->annotations.erase(materialized_exp_annotation);
+            node->annotations.erase(materialized_pure_tile_annotation);
             node->annotations.erase(mma_annotation);
             return result;
         }
@@ -904,7 +905,7 @@ protected:
         auto node = result.CopyOnWrite();
         node->annotations.erase(deferred_pipeline_annotation);
         node->annotations.erase(reduction_contract_annotation);
-        node->annotations.erase(materialized_exp_annotation);
+        node->annotations.erase(materialized_pure_tile_annotation);
         return result;
     }
 
@@ -986,7 +987,9 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
     auto scope = loop->annotations.Get(execution_scope_annotation);
     auto scope_name = scope ? scope.value().as<tvm::ffi::String>() :
                               tvm::ffi::Optional<tvm::ffi::String>{};
-    if (!options.metal_subgroup_reductions || !unit_serial_loop(loop.get()) ||
+    if (!options.metal_subgroup_reductions ||
+        options.max_reduction_striped_scalars_per_worker == 0u ||
+        !unit_serial_loop(loop.get()) ||
         !groups || minimum == nullptr || loop->loop_var.ty() != tvm::PrimType::Int(64) ||
         (scope && (!scope_name || scope_name.value() != "subgroup")) ||
         max_threads < subgroup_size) {
@@ -1021,6 +1024,7 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
         uint64_t packed_programs{0u};
         uint64_t threads{0u};
         uint64_t partial_bytes{0u};
+        uint64_t striped_storage_scalars{0u};
         double score{std::numeric_limits<double>::infinity()};
     };
     luisa::vector<uint64_t> widths;
@@ -1045,15 +1049,29 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
                                  analysis.reductions.size() * subgroups *
                                      sizeof(float) :
                                  0u;
+        auto workers = subgroups * subgroup_size;
+        auto striped_storage_scalars = uint64_t{0u};
+        auto striped_storage_valid = true;
+        auto striped_storage_budget = static_cast<uint64_t>(
+            options.max_reduction_striped_scalars_per_worker);
+        for (auto &&[key, materialization] : materializations) {
+            static_cast<void>(key);
+            auto slots = luisa::ceil_div(materialization.elements, workers);
+            if (slots > striped_storage_budget ||
+                striped_storage_scalars > striped_storage_budget - slots) {
+                striped_storage_valid = false;
+                break;
+            }
+            striped_storage_scalars += slots;
+        }
         if (subgroups == 0u || subgroups > maximum_subgroups ||
-            partial_bytes > shared_memory_limit) {
+            partial_bytes > shared_memory_limit || !striped_storage_valid) {
             candidates_rejected++;
             continue;
         }
         auto packed = !multi && options.threads_per_group == 0u ?
                           std::min(*groups, maximum_subgroups) :
                           uint64_t{1u};
-        auto workers = subgroups * subgroup_size;
         auto scalar_rounds = 0.0;
         for (auto elements : analysis.independent_domains) {
             scalar_rounds +=
@@ -1076,7 +1094,7 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
         if (score < best.score) {
             best = Candidate{subgroups, packed,
                              (multi ? subgroups : packed) * subgroup_size,
-                             partial_bytes, score};
+                             partial_bytes, striped_storage_scalars, score};
         }
     }
     if (best.subgroups == 0u) { return {}; }
@@ -1133,6 +1151,10 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
             materialization.buffer->dtype,
             materialization.buffer.name() + "_worker_stripe", "local");
         striped_buffers.emplace(key, std::move(buffer));
+    }
+    if (striped_storage_scalars != best.striped_storage_scalars) {
+        throw std::runtime_error{
+            "reduction stripe resource accounting changed after planning"};
     }
     auto body = ReductionProgramMapper{
         std::move(worker), lane, subgroup,

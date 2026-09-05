@@ -67,7 +67,7 @@ protected:
         for (auto &&[key, value] : loop->annotations) {
             opaque |= key != logical_parallel_annotation && key != execution_scope_annotation &&
                       key != independent_elements_annotation && key != mma_annotation &&
-                      key != materialized_exp_annotation && key != reduction_contract_annotation &&
+                      key != materialized_pure_tile_annotation && key != reduction_contract_annotation &&
                       key != logical_pipeline_annotation && key != pipeline_window_annotation && key != pipeline_interval_annotation;
         }
         StmtExprVisitor::VisitStmt_(loop);

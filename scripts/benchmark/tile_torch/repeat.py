@@ -69,7 +69,7 @@ def load_plan(path: Path, operations: set[str]) -> dict[tuple[str, str], dict[st
             raise ValueError(f"{case.name} has an invalid Metal subgroup-reduction policy")
         if metal_subgroup_reductions:
             execution_plans = native.get("execution_plans")
-            if (row["backend"] != "metal" or case.operation not in ("sum", "softmax", "rmsnorm", "layernorm", "cross_entropy") or
+            if (row["backend"] != "metal" or case.operation not in ("sum", "softmax", "rmsnorm", "layernorm", "residual_layernorm", "cross_entropy") or
                     native["execution_scope"] != "auto" or native.get("metal_mpp", False) is not False or
                     forwarding is not True or not isinstance(execution_plans, list) or not execution_plans or
                     any(plan.get("optimized") is not True or type(plan.get("threads")) is not int or
@@ -85,6 +85,9 @@ def load_plan(path: Path, operations: set[str]) -> dict[tuple[str, str], dict[st
         cpu_math = native.get("cpu_math_backend", "reference")
         if cpu_math not in ("reference", "accelerate") or (cpu_math == "accelerate" and row["backend"] != "cpu"):
             raise ValueError(f"{case.name} has an invalid CPU array-math realization")
+        shared_tiles = native.get("shared_tile_materialization")
+        if shared_tiles not in ("preserve", "expensive-only"):
+            raise ValueError(f"{case.name} has no explicit shared-Tile materialization policy")
         if cpu_views and native.get("metal_mpp", False) is not False:
             raise ValueError(f"{case.name} combines CPU input views with MPP")
         if key in plan:
@@ -104,6 +107,7 @@ def load_plan(path: Path, operations: set[str]) -> dict[tuple[str, str], dict[st
             "cpu_model": cpu_model,
             "cpu_matrix_backend": cpu_matrix,
             "cpu_math_backend": cpu_math,
+            "shared_tile_materialization": shared_tiles,
             "metal_subgroup_reductions": metal_subgroup_reductions,
             "expected_cpu_model": native.get("cpu_model") if row["backend"] == "cpu" else None,
             "elide_independent_subgroup_barriers": elide,
@@ -204,7 +208,7 @@ def main() -> int:
         parser.error("both native executables must already be built")
     try:
         operations = set(args.operations.split(","))
-        if not operations <= {"gemm", "add", "sum", "softmax", "rmsnorm", "layernorm", "cross_entropy"}:
+        if not operations <= {"gemm", "add", "sum", "softmax", "rmsnorm", "layernorm", "residual_layernorm", "cross_entropy"}:
             raise ValueError("unknown operation in replay selection")
         plans = {"reference": load_plan(args.reference, operations), "candidate": load_plan(args.candidate, operations)}
         if plans["reference"].keys() != plans["candidate"].keys():

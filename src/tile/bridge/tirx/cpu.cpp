@@ -265,7 +265,7 @@ void flatten_sequence(
 [[nodiscard]] std::optional<VectorExpMap> match_vector_exp_map(
     const tvm::tirx::For &outer) {
     static const auto exp_op = tvm::Op::Get("tirx.exp");
-    auto contract = outer->annotations.Get(materialized_exp_annotation);
+    auto contract = outer->annotations.Get(materialized_pure_tile_annotation);
     auto version = contract ? contract.value().as<tvm::IntImmNode>() : nullptr;
     if (version == nullptr || version->value != 1) { return std::nullopt; }
     tvm::ffi::Array<tvm::tirx::PrimVar> variables;
@@ -382,7 +382,8 @@ protected:
             "local");
         auto fill = ExpInputWriter{matched->store, input, matched->input}(loop);
         if (auto fill_loop = fill.as<tvm::tirx::For>()) {
-            fill_loop.value().CopyOnWrite()->annotations.erase(materialized_exp_annotation);
+            fill_loop.value().CopyOnWrite()->annotations.erase(
+                materialized_pure_tile_annotation);
             fill = fill_loop.value();
         }
         tvm::ffi::Array<tvm::Expr> arguments{

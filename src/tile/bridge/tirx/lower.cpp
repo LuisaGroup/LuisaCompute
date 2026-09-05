@@ -135,13 +135,16 @@ struct WholeGemmContract {
     switch (combine->elementwise_op()) {
         case ElementwiseOp::ADD:
             return is_zero_constant(operation.operand(0u)) ?
-                       std::optional<int64_t>{reduction_add_contract} : std::nullopt;
+                       std::optional<int64_t>{reduction_add_contract} :
+                       std::nullopt;
         case ElementwiseOp::MAX:
             return is_infinity_constant(operation.operand(0u), true) ?
-                       std::optional<int64_t>{reduction_max_contract} : std::nullopt;
+                       std::optional<int64_t>{reduction_max_contract} :
+                       std::nullopt;
         case ElementwiseOp::MIN:
             return is_infinity_constant(operation.operand(0u), false) ?
-                       std::optional<int64_t>{reduction_min_contract} : std::nullopt;
+                       std::optional<int64_t>{reduction_min_contract} :
+                       std::nullopt;
         default: return std::nullopt;
     }
 }
@@ -360,6 +363,7 @@ private:
     };
     using TileExpression = std::function<tvm::PrimExpr(const Indices &)>;
     const Function &_function;
+    LowerOptions _options;
     luisa::string _error;
     luisa::unordered_map<const Value *, tvm::PrimExpr> _expressions;
     luisa::unordered_map<const Value *, tvm::tirx::BufferVar> _views;
@@ -626,12 +630,10 @@ private:
         });
     }
 
-    [[nodiscard]] static bool _worth_materializing(ElementwiseOp op) noexcept {
-        // Shared cheap arithmetic normally benefits from fusion. Transcendentals
-        // are different: expanding the same lazy Tile expression into a reduce
-        // and a later consumer duplicates substantial work and can leave one
-        // copy scalar. Materialize only this conservative, target-independent
-        // class here; a target cost model may grow the policy later.
+    [[nodiscard]] bool _preserve_shared_tile(ElementwiseOp op) const noexcept {
+        if (_options.shared_tiles == SharedTileMaterialization::PRESERVE) {
+            return true;
+        }
         switch (op) {
             case ElementwiseOp::EXP:
             case ElementwiseOp::LOG:
@@ -654,17 +656,20 @@ private:
             for (auto &&input : inputs) { elements.emplace_back(input(indices)); }
             return _apply_elementwise(op, elements, type);
         };
-        if (_worth_materializing(op) && result->use_count() > 1u) {
+        // A multi-use Tile is one logical SSA definition. Preserve that
+        // sharing in structural TIRx instead of irreversibly cloning its
+        // producer into every consumer. Target planners may compact this
+        // logical storage or deliberately inline/recompute it later.
+        if (result->use_count() > 1u && _preserve_shared_tile(op)) {
             auto buffer = _new_storage(result->type(), statements);
             auto materialization = _for_each(*result->type().index_space(), [&](const Indices &indices) {
                 return tvm::tirx::BufferStore{buffer, expression(indices), indices};
             });
-            if (op == ElementwiseOp::EXP) {
-                if (auto loop = materialization.as<tvm::tirx::For>()) {
-                    loop.value().CopyOnWrite()->annotations.Set(
-                        materialized_exp_annotation, tvm::IntImm::Int32(1));
-                    materialization = loop.value();
-                }
+            if (auto loop = materialization.as<tvm::tirx::For>()) {
+                loop.value().CopyOnWrite()->annotations.Set(
+                    materialized_pure_tile_annotation,
+                    tvm::IntImm::Int32(1));
+                materialization = loop.value();
             }
             statements.push_back(std::move(materialization));
             _bind_storage(result, std::move(buffer));
@@ -1211,8 +1216,9 @@ private:
     }
 
 public:
-    explicit FunctionLowerer(const Function &function) noexcept
-        : _function{function} {}
+    explicit FunctionLowerer(const Function &function,
+                             const LowerOptions &options) noexcept
+        : _function{function}, _options{options} {}
 
     [[nodiscard]] NativeFunction run() {
         NativeFunction result;
@@ -1275,9 +1281,17 @@ public:
 
 }// namespace detail
 
-NativeFunction lower(const Function &function) noexcept {
+NativeFunction lower(const Function &function,
+                     const LowerOptions &options) noexcept {
     try {
-        return detail::FunctionLowerer{function}.run();
+        switch (options.shared_tiles) {
+            case SharedTileMaterialization::PRESERVE:
+            case SharedTileMaterialization::EXPENSIVE_ONLY: break;
+            default:
+                return NativeFunction{
+                    {}, "unknown shared-Tile materialization policy"};
+        }
+        return detail::FunctionLowerer{function, options}.run();
     } catch (const tvm::ffi::Error &error) {
         return NativeFunction{{}, luisa::string{error.what()}};
     } catch (const std::exception &error) {

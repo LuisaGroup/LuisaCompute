@@ -54,7 +54,8 @@ struct Configuration {
 
 [[nodiscard]] bool uses_auxiliary_input(std::string_view operation) noexcept {
     return operation == "gemm" || operation == "add" ||
-           operation == "rmsnorm" || operation == "layernorm";
+           operation == "rmsnorm" || operation == "layernorm" ||
+           operation == "residual_layernorm";
 }
 
 [[nodiscard]] bool uses_label_input(std::string_view operation) noexcept {
@@ -360,6 +361,25 @@ void dump_source(const tvm::ffi::Module &module, std::string_view kind, const ch
         });
         return definition.capture(tensor_shape(cfg.m, cfg.n), tensor_shape(2, cfg.n), tensor_shape(cfg.m, cfg.n));
     }
+    if (operation == "residual_layernorm") {
+        auto definition = tile_kernel("benchmark_residual_layernorm", [=](TensorView<const float, 2> X,
+                                                                          TensorView<const float, 2> Residual,
+                                                                          TensorView<float, 2> Y) {
+            auto rows = axis("rows", X.extent<0>());
+            auto m = axis("m", 1);
+            auto n = axis("n", X.extent<1>());
+            for (auto &nest : parallel(shape(rows), cfg.execution_scope)) {
+                auto origin = coord(nest.index(), 0);
+                auto combined = X[origin, shape(m, n)] + Residual[origin, shape(m, n)];
+                auto denominator = static_cast<float>(cfg.n);
+                auto mean = reduce(combined, n, add) / denominator;
+                auto centered = combined - mean;
+                auto variance = reduce(centered * centered, n, add) / denominator;
+                Y(origin, shape(m, n)).store(centered / sqrt(variance + 1e-5f));
+            }
+        });
+        return definition.capture(tensor_shape(cfg.m, cfg.n), tensor_shape(cfg.m, cfg.n), tensor_shape(cfg.m, cfg.n));
+    }
     if (operation == "cross_entropy") {
         auto definition = tile_kernel("benchmark_cross_entropy", [=](TensorView<const float, 2> Logits,
                                                                      TensorView<const int64_t, 1> Labels,
@@ -379,7 +399,7 @@ void dump_source(const tvm::ffi::Module &module, std::string_view kind, const ch
         });
         return definition.capture(tensor_shape(cfg.m, cfg.n), tensor_shape(cfg.m), tensor_shape(cfg.m));
     }
-    throw std::invalid_argument{"operation must be gemm, add, sum, softmax, rmsnorm, layernorm, or cross_entropy"};
+    throw std::invalid_argument{"operation must be gemm, add, sum, softmax, rmsnorm, layernorm, residual_layernorm, or cross_entropy"};
 }
 
 [[nodiscard]] luisa::vector<float> input_values(size_t count, uint64_t seed) {
@@ -514,10 +534,12 @@ void run_luisa(const char *program, const char *output_path, std::string_view op
               << ",\"cooperative_matrix\":" << (options.cooperative_matrix ? "true" : "false")
               << ",\"metal_mpp\":" << (options.metal_mpp ? "true" : "false")
               << ",\"metal_subgroup_reductions\":" << (options.planner.metal_subgroup_reductions ? "true" : "false")
+              << ",\"shared_tile_materialization\":\"preserve\""
               << ",\"forward_readonly_tile_loads\":" << (options.forward_readonly_tile_loads ? "true" : "false")
               << ",\"elide_independent_subgroup_barriers\":" << (options.planner.elide_independent_subgroup_barriers ? "true" : "false")
               << ",\"vectorize\":" << (options.vectorize ? "true" : "false")
               << ",\"auto_vectorize\":" << (options.auto_vectorize ? "true" : "false")
+              << ",\"max_reduction_striped_scalars_per_worker\":" << options.planner.max_reduction_striped_scalars_per_worker
               << ",\"planner_threads\":" << options.planner.threads_per_group << ",\"copy_batch\":" << options.planner.max_copy_batch
               << ",\"realized_threads\":" << shader.block_size().x * shader.block_size().y * shader.block_size().z
               << ",\"matrix_intrinsics\":" << matrix_calls + mpp_calls
@@ -538,8 +560,8 @@ void run_luisa(const char *program, const char *output_path, std::string_view op
 }// namespace
 
 int main(int argc, char *argv[]) {
-    if (argc < 13 || argc > 27) {
-        std::cerr << "Usage: benchmark_tile_tirx <cpu|metal> <gemm|add|sum|softmax|rmsnorm|layernorm|cross_entropy> M N K BM BN BK samples sample-ms warmup-ms output.f32 [auto|worker|group] [pipeline-window:1|2] [scalar|subgroup-reduce|matrix|mpp|mpp-views] [vectorize|no-vectorize|auto-vectorize] [group-threads:auto|N] [copy-batch:1..16] [tvm|luisa|luisa-fast] [retain-subgroup-fences|elide-subgroup-fences] [cpu-stack-bytes:0..65536] [cpu-vector-lanes:16|32|64|128] [retain-input-snapshots|forward-input-views] [cpu-model:generic|native] [cpu-matrix:reference|cblas] [cpu-math:reference|accelerate]\n";
+    if (argc < 13 || argc > 28) {
+        std::cerr << "Usage: benchmark_tile_tirx <cpu|metal> <gemm|add|sum|softmax|rmsnorm|layernorm|residual_layernorm|cross_entropy> M N K BM BN BK samples sample-ms warmup-ms output.f32 [auto|worker|group] [pipeline-window:1|2] [scalar|subgroup-reduce|matrix|mpp|mpp-views] [vectorize|no-vectorize|auto-vectorize] [group-threads:auto|N] [copy-batch:1..16] [tvm|luisa|luisa-fast] [retain-subgroup-fences|elide-subgroup-fences] [cpu-stack-bytes:0..65536] [cpu-vector-lanes:16|32|64|128] [retain-input-snapshots|forward-input-views] [cpu-model:generic|native] [cpu-matrix:reference|cblas] [cpu-math:reference|accelerate] [shared-tiles:preserve|expensive-only]\n";
         return 1;
     }
     try {
@@ -573,8 +595,8 @@ int main(int argc, char *argv[]) {
         }
         if (metal_subgroup_reductions &&
             (backend != "metal" || cfg.execution_scope != exec::Scope::AUTOMATIC ||
-             (operation != "sum" && operation != "softmax" && operation != "rmsnorm" && operation != "layernorm" && operation != "cross_entropy"))) {
-            throw std::invalid_argument{"SIMD-group reduction benchmarking requires automatic Metal sum, softmax, RMSNorm, LayerNorm, or cross-entropy"};
+             (operation != "sum" && operation != "softmax" && operation != "rmsnorm" && operation != "layernorm" && operation != "residual_layernorm" && operation != "cross_entropy"))) {
+            throw std::invalid_argument{"SIMD-group reduction benchmarking requires automatic Metal sum, softmax, RMSNorm, residual LayerNorm, LayerNorm, or cross-entropy"};
         }
         auto vector_mode = argc >= 17 ? std::string_view{argv[16]} : std::string_view{"vectorize"};
         if (vector_mode != "vectorize" && vector_mode != "no-vectorize" && vector_mode != "auto-vectorize") { throw std::invalid_argument{"vector mode must be vectorize, no-vectorize, or auto-vectorize"}; }
@@ -607,8 +629,9 @@ int main(int argc, char *argv[]) {
         if (std::filesystem::exists(argv[12])) { throw std::invalid_argument{"output path already exists"}; }
         auto runtime_choice = argc >= 20 ? std::string_view{argv[19]} : "tvm";
         auto cpu_model = argc >= 25 ? std::string_view{argv[24]} : "generic";
-        if ((cpu_model != "generic" && cpu_model != "native") || (argc >= 25 && (backend != "cpu" || runtime_choice != "tvm"))) {
-            throw std::invalid_argument{"CPU model must be generic/native and requires the CPU TVM runtime"};
+        if ((cpu_model != "generic" && cpu_model != "native") ||
+            (cpu_model == "native" && (backend != "cpu" || runtime_choice != "tvm"))) {
+            throw std::invalid_argument{"CPU model must be generic; native requires the CPU TVM runtime"};
         }
         auto cpu_matrix_name = argc >= 26 ? std::string_view{argv[25]} : "reference";
         auto cpu_matrix_backend = bridge::tirx::CpuMatrixBackend::REFERENCE;
@@ -629,6 +652,13 @@ int main(int argc, char *argv[]) {
             cpu_math_backend = bridge::tirx::CpuMathBackend::ACCELERATE;
         } else if (cpu_math_name != "reference") {
             throw std::invalid_argument{"CPU array-math realization must be reference or accelerate"};
+        }
+        auto shared_tiles_name = argc >= 28 ? std::string_view{argv[27]} : "preserve";
+        auto lower_options = bridge::tirx::LowerOptions{};
+        if (shared_tiles_name == "expensive-only") {
+            lower_options.shared_tiles = bridge::tirx::SharedTileMaterialization::EXPENSIVE_ONLY;
+        } else if (shared_tiles_name != "preserve") {
+            throw std::invalid_argument{"shared-Tile materialization must be preserve or expensive-only"};
         }
         if (argc >= 23) {
             auto lanes = positive_integer(argv[22]);
@@ -659,6 +689,9 @@ int main(int argc, char *argv[]) {
             if (backend != "metal" || (runtime_choice != "luisa" && runtime_choice != "luisa-fast")) {
                 throw std::invalid_argument{"Runtime must be tvm, or luisa/luisa-fast on Metal"};
             }
+            if (lower_options.shared_tiles != bridge::tirx::SharedTileMaterialization::PRESERVE) {
+                throw std::invalid_argument{"the Luisa Runtime benchmark currently requires preserved shared Tile SSA"};
+            }
             bridge::tirx::CompileOptions options;
             options.noalias = true;
             options.cooperative_matrix = cooperative_matrix;
@@ -684,14 +717,14 @@ int main(int argc, char *argv[]) {
         }
         if (auto path = std::getenv("LUISA_TILE_BENCH_DUMP_TIRX")) {
             if (std::filesystem::exists(path)) { throw std::runtime_error{"TIRx dump path already exists"}; }
-            auto native = bridge::tirx::lower(kernel.function());
+            auto native = bridge::tirx::lower(kernel.function(), lower_options);
             if (!native) { throw std::runtime_error{native.error.c_str()}; }
             std::ofstream file{path};
             file << tvm::Script(native.value);
             if (!file) { throw std::runtime_error{"cannot write native TIRx dump"}; }
         }
         start = Clock::now();
-        auto executable = runtime.build(kernel, true, cooperative_matrix, vectorize, auto_vectorize, planner, metal_mpp, forward_readonly_tile_loads, cpu_matrix_backend, cpu_math_backend);
+        auto executable = runtime.build(kernel, true, cooperative_matrix, vectorize, auto_vectorize, planner, metal_mpp, forward_readonly_tile_loads, cpu_matrix_backend, cpu_math_backend, lower_options);
         auto compile_ms = milliseconds(start);
         if (!executable.ok()) { throw std::runtime_error{executable.error.c_str()}; }
         auto matrix_calls = matrix_intrinsics(executable.module.value());
@@ -756,6 +789,7 @@ int main(int argc, char *argv[]) {
                   << ",\"cooperative_matrix\":" << (cooperative_matrix ? "true" : "false")
                   << ",\"metal_mpp\":" << (metal_mpp ? "true" : "false")
                   << ",\"metal_subgroup_reductions\":" << (metal_subgroup_reductions ? "true" : "false")
+                  << ",\"shared_tile_materialization\":" << std::quoted(shared_tiles_name)
                   << ",\"forward_readonly_tile_loads\":" << (forward_readonly_tile_loads ? "true" : "false")
                   << ",\"elide_independent_subgroup_barriers\":" << (planner.elide_independent_subgroup_barriers ? "true" : "false")
                   << ",\"vectorize\":" << (vectorize ? "true" : "false")
@@ -763,6 +797,7 @@ int main(int argc, char *argv[]) {
                   << ",\"cpu_stack_bytes\":" << planner.max_cpu_stack_bytes
                   << ",\"cpu_parallel_task_threshold\":" << planner.min_cpu_parallel_tasks
                   << ",\"cpu_vector_lanes\":" << planner.max_cpu_vector_lanes
+                  << ",\"max_reduction_striped_scalars_per_worker\":" << planner.max_reduction_striped_scalars_per_worker
                   << ",\"cpu_target_policy\":" << std::quoted(cpu_model)
                   << ",\"cpu_model\":" << std::quoted(runtime.cpu_model())
                   << ",\"cpu_matrix_backend\":" << std::quoted(cpu_matrix_name)

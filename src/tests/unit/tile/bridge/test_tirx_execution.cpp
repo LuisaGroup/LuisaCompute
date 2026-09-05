@@ -142,6 +142,76 @@ void test_shared_exp_is_materialized_once() {
     expect(eq(calls, 1u));
 }
 
+void test_shared_tanh_is_materialized_once() {
+    auto definition = tile_kernel("shared_tanh", [](TensorView<const float, 2> input,
+                                                    TensorView<float, 2> output) {
+        auto row = axis("row", input.extent<0>());
+        auto column = axis("column", input.extent<1>());
+        auto one = axis("one", 1);
+        for (auto &nest : parallel(shape(row))) {
+            auto origin = coord(nest.index(), 0);
+            auto value = input[origin, shape(one, column)];
+            auto activated = tanh(value);
+            output(origin, shape(one, column))
+                .store(activated + reduce(activated, column, add));
+        }
+    });
+    auto kernel = definition.capture(tensor_shape(3, 37),
+                                     tensor_shape(3, 37));
+    auto native = lower(kernel.function());
+    expect(native.ok()) << native.error;
+    if (!native) { return; }
+    auto tanh_op = tvm::Op::Get("tirx.tanh");
+    auto calls = 0u;
+    tvm::tirx::PostOrderVisit(
+        native.value->body, [&](const tvm::ffi::ObjectRef &node) {
+            if (auto call = node.as<tvm::CallNode>()) {
+                calls += call->op.same_as(tanh_op);
+            }
+        });
+    expect(eq(calls, 1u));
+}
+
+void test_shared_arithmetic_preserves_ssa() {
+    auto definition = tile_kernel("shared_arithmetic", [](TensorView<const float, 2> input,
+                                                          TensorView<float, 2> output) {
+        auto row = axis("row", input.extent<0>());
+        auto column = axis("column", input.extent<1>());
+        auto one = axis("one", 1);
+        for (auto &nest : parallel(shape(row))) {
+            auto origin = coord(nest.index(), 0);
+            auto combined = input[origin, shape(one, column)] + 1.0f;
+            output(origin, shape(one, column))
+                .store(combined + reduce(combined, column, add));
+        }
+    });
+    auto kernel = definition.capture(tensor_shape(3, 37),
+                                     tensor_shape(3, 37));
+    auto count_materializations = [](const NativeFunction &native) {
+        auto materializations = 0u;
+        tvm::tirx::PostOrderVisit(
+            native.value->body, [&](const tvm::ffi::ObjectRef &node) {
+                if (auto loop = node.as<tvm::tirx::ForNode>()) {
+                    materializations += loop->annotations.count(
+                        "luisa.tile.contract.materialized_pure_tile");
+                }
+            });
+        return materializations;
+    };
+    auto preserved = lower(kernel.function());
+    expect(preserved.ok()) << preserved.error;
+    if (preserved) { expect(eq(count_materializations(preserved), 1u)); }
+    auto recomputed = lower(
+        kernel.function(),
+        {.shared_tiles = SharedTileMaterialization::EXPENSIVE_ONLY});
+    expect(recomputed.ok()) << recomputed.error;
+    if (recomputed) { expect(eq(count_materializations(recomputed), 0u)); }
+    auto invalid = lower(
+        kernel.function(),
+        {.shared_tiles = static_cast<SharedTileMaterialization>(255u)});
+    expect(!invalid.ok());
+}
+
 [[nodiscard]] Kernel make_row_sum(int64_t rows, int64_t columns) {
     auto definition = tile_kernel("metal_subgroup_sum", [](TensorView<const float, 2> input,
                                                            TensorView<float, 1> output) {
@@ -196,6 +266,25 @@ void test_shared_exp_is_materialized_once() {
     });
     return definition.capture(tensor_shape(rows, columns),
                               tensor_shape(2, columns),
+                              tensor_shape(rows, columns));
+}
+
+[[nodiscard]] Kernel make_row_tanh_statistic(int64_t rows,
+                                             int64_t columns) {
+    auto definition = tile_kernel("metal_subgroup_tanh_statistic", [](TensorView<const float, 2> input,
+                                                                      TensorView<float, 2> output) {
+        auto rows = axis("rows", input.extent<0>());
+        auto one = axis("one", 1);
+        auto columns = axis("columns", input.extent<1>());
+        for (auto &nest : parallel(shape(rows))) {
+            auto origin = coord(nest.index(), 0);
+            auto value = input[origin, shape(one, columns)];
+            auto activated = tanh(value);
+            output(origin, shape(one, columns))
+                .store(activated + reduce(activated, columns, add));
+        }
+    });
+    return definition.capture(tensor_shape(rows, columns),
                               tensor_shape(rows, columns));
 }
 
@@ -438,11 +527,14 @@ void test_metal_subgroup_layernorm(Runtime &runtime) {
     expect(eq(plan.reduction_operations, 2u));
     expect(eq(plan.reduction_elements, 8192u));
     expect(eq(plan.shared_memory_bytes, 64u));
-    expect(eq(plan.striped_storage_scalars_per_worker, 0u));
+    expect(eq(plan.striped_storage_scalars_per_worker, 16u));
     expect(!plan.independent_subgroups);
     auto source = metal_source(executable.module.value());
     auto code = std::string_view{source.data(), source.size()};
     expect(code.find("simd_sum(") != std::string_view::npos) << source;
+    expect(code.find("_worker_stripe[16]") != std::string_view::npos)
+        << source;
+    expect(code.find("[4096]") == std::string_view::npos) << source;
 
     luisa::vector<float> values(static_cast<size_t>(rows * columns));
     luisa::vector<float> parameters(static_cast<size_t>(2 * columns));
@@ -487,6 +579,57 @@ void test_metal_subgroup_layernorm(Runtime &runtime) {
                 parameters[static_cast<size_t>(columns + column)];
             expect(std::abs(static_cast<double>(actual[index]) - expected) <=
                    2e-6 + 2e-5 * std::abs(expected))
+                << "row=" << row << " column=" << column;
+        }
+    }
+}
+
+void test_metal_subgroup_generic_striped_tile(Runtime &runtime) {
+    if (runtime.target() != "metal") { return; }
+    constexpr auto rows = int64_t{3};
+    constexpr auto columns = int64_t{4096};
+    auto executable = runtime.build(
+        make_row_tanh_statistic(rows, columns), true, false, true, false,
+        subgroup_reduction_options(), false, true);
+    expect(executable.ok()) << executable.error;
+    if (!executable.ok()) { return; }
+    expect(eq(executable.plans.size(), 1u));
+    if (executable.plans.empty()) { return; }
+    auto &plan = executable.plans.front();
+    expect(eq(plan.reduction_subgroups_per_program, 8u));
+    expect(eq(plan.reduction_operations, 1u));
+    expect(eq(plan.reduction_elements, 4096u));
+    expect(eq(plan.shared_memory_bytes, 32u));
+    expect(eq(plan.striped_storage_scalars_per_worker, 16u));
+    auto source = metal_source(executable.module.value());
+    auto code = std::string_view{source.data(), source.size()};
+    expect(code.find("simd_sum(") != std::string_view::npos) << source;
+    expect(code.find("_worker_stripe[16]") != std::string_view::npos)
+        << source;
+    expect(code.find("[4096]") == std::string_view::npos) << source;
+
+    luisa::vector<float> values(static_cast<size_t>(rows * columns));
+    for (auto i = 0u; i < values.size(); i++) {
+        values[i] = static_cast<float>(static_cast<int64_t>((i * 5u + 17u) %
+                                                            127u) -
+                                       63) /
+                    64.0f;
+    }
+    auto input = runtime.upload<float>({rows, columns}, values);
+    auto output = runtime.allocate<float>({rows, columns});
+    (*executable.entry)(input, output);
+    auto actual = runtime.download<float>(output, values.size());
+    for (auto row = int64_t{0}; row < rows; row++) {
+        auto sum = 0.0;
+        for (auto column = int64_t{0}; column < columns; column++) {
+            sum += std::tanh(static_cast<double>(
+                values[static_cast<size_t>(row * columns + column)]));
+        }
+        for (auto column = int64_t{0}; column < columns; column++) {
+            auto index = static_cast<size_t>(row * columns + column);
+            auto expected = std::tanh(static_cast<double>(values[index])) + sum;
+            expect(std::abs(static_cast<double>(actual[index]) - expected) <=
+                   2e-5 + 2e-5 * std::abs(expected))
                 << "row=" << row << " column=" << column;
         }
     }
@@ -964,10 +1107,13 @@ int main(int argc, char *argv[]) {
     "tile_execution_empty_domain"_test = [&] { test_empty_parallel(runtime); };
     "tile_execution_cpu_parallel_launch_cost"_test = [&] { test_cpu_parallel_launch_cost(runtime); };
     "tile_execution_shared_exp_materialization"_test = test_shared_exp_is_materialized_once;
+    "tile_execution_shared_tanh_materialization"_test = test_shared_tanh_is_materialized_once;
+    "tile_execution_shared_arithmetic_materialization"_test = test_shared_arithmetic_preserves_ssa;
     "tile_execution_metal_subgroup_reduction_contract"_test = [&] { test_metal_subgroup_reduction_contract(runtime); };
     "tile_execution_metal_subgroup_sum"_test = [&] { test_metal_subgroup_sum(runtime); };
     "tile_execution_metal_subgroup_striped_softmax"_test = [&] { test_metal_subgroup_striped_softmax(runtime); };
     "tile_execution_metal_subgroup_layernorm"_test = [&] { test_metal_subgroup_layernorm(runtime); };
+    "tile_execution_metal_subgroup_generic_striped_tile"_test = [&] { test_metal_subgroup_generic_striped_tile(runtime); };
     "tile_execution_metal_subgroup_cross_entropy"_test = [&] { test_metal_subgroup_cross_entropy(runtime); };
     "tile_execution_metal_subgroup_extrema"_test = [&] { test_metal_subgroup_extrema(runtime); };
     "tile_execution_cpu_accelerate_math"_test = [&] { test_cpu_accelerate_math(runtime); };

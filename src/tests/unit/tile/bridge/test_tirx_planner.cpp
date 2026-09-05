@@ -199,6 +199,9 @@ void test_multiple_contracts_and_model_separation() {
     bad.cost.preferred_subgroups = 4u;
     bad.max_fragment_scalars_per_lane = 5u;
     expect(!plan_group(work, limits, bad).ok());
+    bad.max_fragment_scalars_per_lane = 64u;
+    bad.max_reduction_striped_scalars_per_worker = 0u;
+    expect(!plan_group(work, limits, bad).ok());
     work.matrices[0].rows = 31u;
     expect(!plan_group(work, limits).ok());
 }

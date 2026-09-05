@@ -46,9 +46,11 @@ inline constexpr auto whole_gemm_m_annotation = "luisa.tile.contract.whole_gemm.
 inline constexpr auto whole_gemm_n_annotation = "luisa.tile.contract.whole_gemm.n";
 inline constexpr auto whole_gemm_k_annotation = "luisa.tile.contract.whole_gemm.k";
 inline constexpr auto cpu_matrix_realization_annotation = "luisa.tile.realization.cpu_matrix";
-// Versioned provenance for a compiler-owned shared exp Tile. It licenses only
-// the checked synchronous array-map realization; ordinary targets erase it.
-inline constexpr auto materialized_exp_annotation = "luisa.tile.contract.materialized_exp";
+// Versioned provenance for a compiler-owned, shared pure Tile materialization.
+// Each target consumer must still revalidate its complete typed expression
+// and access pattern; the annotation alone licenses no realization.
+inline constexpr auto materialized_pure_tile_annotation =
+    "luisa.tile.contract.materialized_pure_tile";
 inline constexpr auto reduction_contract_annotation = "luisa.tile.contract.reduction";
 inline constexpr int64_t reduction_add_contract = 1;
 inline constexpr int64_t reduction_max_contract = 2;

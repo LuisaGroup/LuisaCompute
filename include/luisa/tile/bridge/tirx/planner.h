@@ -104,6 +104,12 @@ struct PlannerOptions {
     uint32_t threads_per_group{0u};
     // A compiler search/code-size budget, not a claimed hardware register limit.
     uint32_t max_fragment_scalars_per_lane{64u};
+    // Bound compiler-created worker-private stripes for one logical row
+    // program. This is a software-state budget, not a hardware register count:
+    // the final backend may keep, spill, or scalarize these values. Candidates
+    // above the limit are rejected before code generation so wide reused Tiles
+    // cannot silently create pathological per-thread arrays.
+    uint32_t max_reduction_striped_scalars_per_worker{64u};
     // Bound compilation work independently of target capacity. If an automatic
     // search would exceed this many widths, require a larger budget or an exact
     // thread count instead of silently truncating the supposedly exact search.

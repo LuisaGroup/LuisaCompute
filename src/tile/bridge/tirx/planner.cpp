@@ -152,6 +152,7 @@ namespace {
     return cost.preferred_subgroups != 0u && cost.preferred_fragment_scalars_per_lane != 0u &&
            cost.preferred_concurrent_programs != 0u && cost.metal_mpp_concurrent_subgroups != 0u &&
            options.max_fragment_scalars_per_lane >= 6u && options.max_thread_candidates != 0u &&
+           options.max_reduction_striped_scalars_per_worker != 0u &&
            options.max_copy_batch != 0u && options.max_copy_batch <= 16u;
 }
 

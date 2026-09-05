@@ -112,7 +112,8 @@ public:
     [[nodiscard]] Executable build(const compute::tile::Kernel &kernel, bool noalias = false, bool cooperative_matrix = false, bool vectorize = true, bool auto_vectorize = false,
                                    const compute::tile::bridge::tirx::PlannerOptions &planner = {}, bool metal_mpp = false, bool forward_readonly_tile_loads = false,
                                    compute::tile::bridge::tirx::CpuMatrixBackend cpu_matrix_backend = compute::tile::bridge::tirx::CpuMatrixBackend::REFERENCE,
-                                   compute::tile::bridge::tirx::CpuMathBackend cpu_math_backend = compute::tile::bridge::tirx::CpuMathBackend::REFERENCE) const {
+                                   compute::tile::bridge::tirx::CpuMathBackend cpu_math_backend = compute::tile::bridge::tirx::CpuMathBackend::REFERENCE,
+                                   const compute::tile::bridge::tirx::LowerOptions &lower_options = {}) const {
         using namespace compute::tile::bridge::tirx;
         Executable result;
         if (!kernel.valid()) {
@@ -132,7 +133,7 @@ public:
             result.error = "operator POCs must access subtiles; scalar memory belongs in explicit low-level tests";
             return result;
         }
-        auto native = lower(kernel.function());
+        auto native = lower(kernel.function(), lower_options);
         if (!native) {
             result.error = std::move(native.error);
             return result;

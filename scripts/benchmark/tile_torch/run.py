@@ -52,7 +52,7 @@ def make_cases(operations: list[str], quick: bool = False) -> list[Case]:
     for operation in operations:
         if operation == "gemm":
             cases.extend(Case(operation, *shape) for shape in gemm)
-        elif operation in ("add", "sum", "softmax", "rmsnorm", "layernorm", "cross_entropy"):
+        elif operation in ("add", "sum", "softmax", "rmsnorm", "layernorm", "residual_layernorm", "cross_entropy"):
             cases.extend(Case(operation, *shape) for shape in (elementwise if operation == "add" else reduction))
         else:
             raise ValueError(f"unknown operation {operation!r}")
@@ -111,7 +111,7 @@ def tolerance(operation: str) -> tuple[float, float]:
         return 1e-4, 1e-4
     if operation == "sum":
         return 1e-5, 1e-5
-    if operation == "layernorm":
+    if operation in ("layernorm", "residual_layernorm"):
         return 1e-5, 2e-5
     return 2e-6, 2e-5
 
@@ -164,14 +164,27 @@ def mapping_candidates(threads: int, batch: int, thread_list: str | None,
     return list(dict.fromkeys((width, copies) for width in widths for copies in batches))
 
 
-def joint_candidates(args: argparse.Namespace) -> list[tuple[tuple[int, int, int], int, int, int]]:
+def materialization_candidates(policy: str, values: str | None) -> list[str]:
+    if values is None:
+        return []
+    candidates = values.split(",")
+    if not candidates or any(value not in ("preserve", "expensive-only") for value in candidates):
+        raise ValueError("shared-Tile tuning candidates must be preserve and/or expensive-only")
+    return list(dict.fromkeys(candidates))
+
+
+def joint_candidates(args: argparse.Namespace) -> list[tuple[tuple[int, int, int], int, int, int, str]]:
     blocks = args.tuning_candidates or [(args.gemm_block, args.pipeline_window)]
     mappings = getattr(args, "mapping_tuning_candidates", []) or [
         (getattr(args, "group_threads", 0), getattr(args, "copy_batch", 1))]
+    materializations = getattr(args, "materialization_tuning_candidates", []) or [
+        getattr(args, "shared_tile_materialization", "preserve")]
     budget = getattr(args, "max_tuning_candidates", 256)
-    if budget <= 0 or len(blocks) * len(mappings) > budget:
+    if budget <= 0 or len(blocks) * len(mappings) * len(materializations) > budget:
         raise ValueError("joint JIT candidate budget exceeded; constrain the lists or increase --max-tuning-candidates")
-    return [(block, window, threads, batch) for block, window in blocks for threads, batch in mappings]
+    return [(block, window, threads, batch, materialization)
+            for block, window in blocks for threads, batch in mappings
+            for materialization in materializations]
 
 
 def validate_native_metadata(native: dict[str, Any], case: Case, backend: str, execution_scope: str,
@@ -195,6 +208,8 @@ def validate_native_metadata(native: dict[str, Any], case: Case, backend: str, e
         raise RuntimeError("native automatic-vectorization metadata does not match the request")
     if native.get("metal_subgroup_reductions", False) is not metal_subgroup_reductions:
         raise RuntimeError("native Metal SIMD-group reduction policy does not match the request")
+    if native.get("max_reduction_striped_scalars_per_worker", 64) != 64:
+        raise RuntimeError("native reduction-stripe resource budget does not match the benchmark contract")
     if metal_subgroup_reductions:
         plans = native.get("execution_plans")
         if not isinstance(plans, list) or not plans or any(
@@ -366,6 +381,13 @@ def validate_cpu_math_policy(native: dict[str, Any], requested: str, backend: st
         raise ValueError("generated external-vector-math calls do not match the requested realization")
 
 
+def validate_shared_tile_materialization(native: dict[str, Any], requested: str) -> None:
+    if requested not in ("preserve", "expensive-only"):
+        raise ValueError("shared-Tile materialization must be preserve or expensive-only")
+    if native.get("shared_tile_materialization") != requested:
+        raise ValueError("native shared-Tile materialization differs from the requested policy")
+
+
 def optional_native_arguments(args: argparse.Namespace) -> list[str]:
     group_threads = getattr(args, "group_threads", 0)
     copy_batch = getattr(args, "copy_batch", 1)
@@ -376,27 +398,30 @@ def optional_native_arguments(args: argparse.Namespace) -> list[str]:
     cpu_model = getattr(args, "cpu_model", None)
     cpu_matrix = getattr(args, "cpu_matrix_backend", "reference")
     cpu_math = getattr(args, "cpu_math_backend", "reference")
+    shared_tiles = getattr(args, "shared_tile_materialization", "preserve")
     result = []
     # Do not send new options to frozen executables when no new policy was
     # requested. Later options require explicit padding of every prior slot.
-    if group_threads or copy_batch != 1 or elide or cpu_stack or cpu_lanes != 16 or cpu_views or cpu_model is not None or cpu_matrix != "reference" or cpu_math != "reference":
+    if group_threads or copy_batch != 1 or elide or cpu_stack or cpu_lanes != 16 or cpu_views or cpu_model is not None or cpu_matrix != "reference" or cpu_math != "reference" or shared_tiles != "preserve":
         result.append(str(group_threads) if group_threads else "auto")
-    if copy_batch != 1 or elide or cpu_stack or cpu_lanes != 16 or cpu_views or cpu_model is not None or cpu_matrix != "reference" or cpu_math != "reference":
+    if copy_batch != 1 or elide or cpu_stack or cpu_lanes != 16 or cpu_views or cpu_model is not None or cpu_matrix != "reference" or cpu_math != "reference" or shared_tiles != "preserve":
         result.append(str(copy_batch))
-    if elide or cpu_stack or cpu_lanes != 16 or cpu_views or cpu_model is not None or cpu_matrix != "reference" or cpu_math != "reference":
+    if elide or cpu_stack or cpu_lanes != 16 or cpu_views or cpu_model is not None or cpu_matrix != "reference" or cpu_math != "reference" or shared_tiles != "preserve":
         result.extend(("tvm", "elide-subgroup-fences" if elide else "retain-subgroup-fences"))
-    if cpu_stack or cpu_lanes != 16 or cpu_views or cpu_model is not None or cpu_matrix != "reference" or cpu_math != "reference":
+    if cpu_stack or cpu_lanes != 16 or cpu_views or cpu_model is not None or cpu_matrix != "reference" or cpu_math != "reference" or shared_tiles != "preserve":
         result.append(str(cpu_stack))
-    if cpu_lanes != 16 or cpu_views or cpu_model is not None or cpu_matrix != "reference" or cpu_math != "reference":
+    if cpu_lanes != 16 or cpu_views or cpu_model is not None or cpu_matrix != "reference" or cpu_math != "reference" or shared_tiles != "preserve":
         result.append(str(cpu_lanes))
-    if cpu_views or cpu_model is not None or cpu_matrix != "reference" or cpu_math != "reference":
+    if cpu_views or cpu_model is not None or cpu_matrix != "reference" or cpu_math != "reference" or shared_tiles != "preserve":
         result.append("forward-input-views" if cpu_views else "retain-input-snapshots")
-    if cpu_model is not None or cpu_matrix != "reference" or cpu_math != "reference":
+    if cpu_model is not None or cpu_matrix != "reference" or cpu_math != "reference" or shared_tiles != "preserve":
         result.append(cpu_model or "generic")
-    if cpu_matrix != "reference" or cpu_math != "reference":
+    if cpu_matrix != "reference" or cpu_math != "reference" or shared_tiles != "preserve":
         result.append(cpu_matrix)
-    if cpu_math != "reference":
+    if cpu_math != "reference" or shared_tiles != "preserve":
         result.append(cpu_math)
+    if shared_tiles != "preserve":
+        result.append(shared_tiles)
     return result
 
 
@@ -409,7 +434,7 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
     labels_host = (torch.arange(case.m, dtype=torch.int64) * 13 + 7) % case.n
     b_rows = (case.k if case.operation == "gemm" else 1 if case.operation == "rmsnorm" else
               2 if case.operation == "layernorm" else case.m)
-    b_host = inputs(b_rows, case.n, 11) if case.operation in ("gemm", "add", "rmsnorm", "layernorm") else None
+    b_host = inputs(b_rows, case.n, 11) if case.operation in ("gemm", "add", "rmsnorm", "layernorm", "residual_layernorm") else None
     if case.operation == "gemm":
         reference = a_host.double() @ b_host.double()
     elif case.operation == "add":
@@ -424,6 +449,11 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
         mean = x.mean(dim=1, keepdim=True)
         centered = x - mean
         reference = centered * torch.rsqrt((centered * centered).mean(dim=1, keepdim=True) + 1e-5) * b_host[0].double() + b_host[1].double()
+    elif case.operation == "residual_layernorm":
+        combined = a_host.double() + b_host.double()
+        mean = combined.mean(dim=1, keepdim=True)
+        centered = combined - mean
+        reference = centered * torch.rsqrt((centered * centered).mean(dim=1, keepdim=True) + 1e-5)
     elif case.operation == "cross_entropy":
         logits = a_host.double()
         peak = logits.max(dim=1, keepdim=True).values
@@ -492,6 +522,8 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
                                        getattr(args, "expected_cpu_model", None))
             validate_cpu_matrix_policy(native, cpu_matrix, backend, case.operation)
             validate_cpu_math_policy(native, cpu_math, backend, case.operation)
+            validate_shared_tile_materialization(
+                native, getattr(args, "shared_tile_materialization", "preserve"))
             validate_native_metadata(native, case, backend, args.execution_scope, args.pipeline_window,
                                      args.cooperative_matrix, args.gemm_block, not args.no_vectorize, args.auto_vectorize, group_threads, copy_batch,
                                      getattr(args, "metal_subgroup_reductions", False))
@@ -511,7 +543,7 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
         a = a_host.to(device)
         b = b_host.to(device) if b_host is not None else None
         labels = labels_host.to(device) if case.operation == "cross_entropy" else None
-        out = None if case.operation in ("rmsnorm", "layernorm", "cross_entropy") else torch.empty(reference.shape, dtype=torch.float32, device=device)
+        out = None if case.operation in ("rmsnorm", "layernorm", "residual_layernorm", "cross_entropy") else torch.empty(reference.shape, dtype=torch.float32, device=device)
         synchronize()
         allocation_upload_ms = (time.perf_counter_ns() - start) / 1e6
         if case.operation == "gemm":
@@ -524,6 +556,8 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
             invoke = lambda: torch.nn.functional.rms_norm(a, (case.n,), b[0], eps=1e-5)
         elif case.operation == "layernorm":
             invoke = lambda: torch.nn.functional.layer_norm(a, (case.n,), b[0], b[1], eps=1e-5)
+        elif case.operation == "residual_layernorm":
+            invoke = lambda: torch.nn.functional.layer_norm(a + b, (case.n,), eps=1e-5)
         elif case.operation == "cross_entropy":
             invoke = lambda: torch.nn.functional.cross_entropy(a, labels, reduction="none")
         else:
@@ -577,14 +611,16 @@ def run_tuned_case(torch: Any, np: Any, args: argparse.Namespace, case: Case,
     candidates = candidates[shift:] + candidates[:shift]
     trials: list[dict[str, Any]] = []
     start = time.perf_counter_ns()
-    for index, (block, window, threads, batch) in enumerate(candidates):
+    for index, (block, window, threads, batch, materialization) in enumerate(candidates):
         trial: dict[str, Any] = {"block": block, "pipeline_window": window,
-                                "group_threads": threads, "copy_batch": batch}
+                                "group_threads": threads, "copy_batch": batch,
+                                "shared_tile_materialization": materialization}
         candidate_args = argparse.Namespace(**vars(args))
         candidate_args.gemm_block, candidate_args.pipeline_window = block, window
         candidate_args.group_threads, candidate_args.copy_batch = threads, batch
+        candidate_args.shared_tile_materialization = materialization
         print(f"  JIT trial {index + 1}/{len(candidates)}: block={block}, window={window}, "
-              f"threads={threads or 'auto'}, copy_batch={batch}", flush=True)
+              f"threads={threads or 'auto'}, copy_batch={batch}, shared_tiles={materialization}", flush=True)
         try:
             measured = run_case(torch, np, candidate_args, case, backend, ordinal * len(candidates) + index)
             score = measured["native"]["throughput_us_p50"]
@@ -627,8 +663,10 @@ def run_tuned_case(torch: Any, np: Any, args: argparse.Namespace, case: Case,
     candidate_args.pipeline_window = winner["pipeline_window"]
     candidate_args.group_threads = winner["group_threads"]
     candidate_args.copy_batch = winner["copy_batch"]
+    candidate_args.shared_tile_materialization = winner["shared_tile_materialization"]
     print(f"  Selected block={winner['block']}, window={winner['pipeline_window']}, "
-          f"threads={winner['group_threads'] or 'auto'}, copy_batch={winner['copy_batch']}; fresh validation/timing", flush=True)
+          f"threads={winner['group_threads'] or 'auto'}, copy_batch={winner['copy_batch']}, "
+          f"shared_tiles={winner['shared_tile_materialization']}; fresh validation/timing", flush=True)
     try:
         # Keep the fresh comparison's framework order alternating across
         # shapes even when the candidate count is even.
@@ -646,8 +684,8 @@ def write_report(report: dict[str, Any], directory: Path) -> None:
              f"Hardware: {metadata['cpu']}; {metadata['platform']}. PyTorch {metadata['torch_version']}; FP32; {metadata['threads']} CPU threads.", "",
              f"Native root execution request: `{metadata.get('execution_scope', 'auto')}`. Explicit scopes fail on unsupported targets; `auto` uses the reference worker mapping.", "",
              f"Native TIRx vectorization: `{metadata.get('vectorize', 'unrecorded')}`; experimental automatic CPU packing: `{metadata.get('auto_vectorize', 'unrecorded')}`. Automatic packing is opt-in and preserves inner serial/reduction order. Disabling TIRx vectorization does not disable LLVM's own optimizations.", "",
-             "Both sides use device-resident inputs. Native outputs are preallocated. PyTorch uses preallocated `out=` storage where its operator exposes it; the functional RMSNorm, LayerNorm, and cross-entropy calls used here return new outputs, so their allocation remains inside warm timing. Every row records its output policy. Warm timings include host dispatch/binding overhead, exclude transfers and compilation, and are NOT GPU hardware-event times. PyTorch is eager (no torch.compile).", "",
-             f"Native GEMM retains an MMA in TileIR. CPU matrix realization: `{metadata.get('cpu_matrix_backend', 'reference')}`. CBLAS is selected only from a proved whole-kernel contract and is visible as one provider call in generated LLVM; reference keeps contraction loops. CPU array math: `{metadata.get('cpu_math_backend', 'reference')}`. Accelerate consumes only proved FP32 add/max/min recurrences and a versioned compiler-owned shared FP32 exp materialization; the DSL and execution hierarchy remain target-independent. Cooperative-matrix capability requested: `{metadata.get('cooperative_matrix', False)}`. Eligible Metal group MMA can use native FP32 SIMD-group matrices. Base pipeline window: `{metadata.get('pipeline_window', 'unspecified')}`; tuned choices appear per row. Window 1 retains ordered execution, 2 permits safe software prefetching. Neither mode claims hardware-asynchronous transfers. Sort is not included in this performance comparison.", "",
+             "Both sides use device-resident inputs. Native outputs are preallocated. PyTorch uses preallocated `out=` storage where its operator exposes it; the functional RMSNorm, LayerNorm, residual LayerNorm, and cross-entropy calls used here return new outputs, so their allocation remains inside warm timing. Every row records its output policy. Warm timings include host dispatch/binding overhead, exclude transfers and compilation, and are NOT GPU hardware-event times. PyTorch is eager (no torch.compile).", "",
+             f"Native GEMM retains an MMA in TileIR. CPU matrix realization: `{metadata.get('cpu_matrix_backend', 'reference')}`. CBLAS is selected only from a proved whole-kernel contract and is visible as one provider call in generated LLVM; reference keeps contraction loops. CPU array math: `{metadata.get('cpu_math_backend', 'reference')}`. Accelerate consumes only proved FP32 add/max/min recurrences and a versioned compiler-owned shared pure-Tile materialization whose expression is revalidated as exp; the DSL and execution hierarchy remain target-independent. Shared-Tile lowering policy: `{metadata.get('shared_tile_materialization', 'unrecorded')}`. Cooperative-matrix capability requested: `{metadata.get('cooperative_matrix', False)}`. Eligible Metal group MMA can use native FP32 SIMD-group matrices. Base pipeline window: `{metadata.get('pipeline_window', 'unspecified')}`; tuned choices appear per row. Window 1 retains ordered execution, 2 permits safe software prefetching. Neither mode claims hardware-asynchronous transfers. Sort is not included in this performance comparison.", "",
              "Ratio = native / PyTorch; greater than 1 means native is slower. P50 is per-call batched throughput; latency columns synchronize each individual call. All values are microseconds.", "",
              "| Device | Operator / M×N[×K] | Block / window | Matrix calls | Native p50 | Torch p50 | Native p90 | Torch p90 | Ratio | Native latency | Torch latency |",
              "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|"]
@@ -686,8 +724,10 @@ def write_report(report: dict[str, Any], directory: Path) -> None:
             if "model_selected_trial" in tuning:
                 model = trials[tuning["model_selected_trial"]]
                 measured = trials[tuning["selected_trial"]]
-                choices = (f"{'×'.join(map(str, model['block']))} @ {model['group_threads']}t / "
-                           f"{'×'.join(map(str, measured['block']))} @ {measured['group_threads']}t")
+                choices = (f"{'×'.join(map(str, model['block']))} @ {model['group_threads']}t, "
+                           f"{model.get('shared_tile_materialization', 'preserve')} / "
+                           f"{'×'.join(map(str, measured['block']))} @ {measured['group_threads']}t, "
+                           f"{measured.get('shared_tile_materialization', 'preserve')}")
                 regret = f"{100.0 * tuning['model_regret']:.2f}%"
             else:
                 choices, regret = "unavailable", "unavailable"
@@ -736,6 +776,10 @@ def main() -> int:
                         help="whole-GEMM CPU realization; cblas requires a proved TileIR contract and registered provider")
     parser.add_argument("--cpu-math-backend", choices=("reference", "accelerate"), default="reference",
                         help="CPU array math; Accelerate consumes proved FP32 reductions/shared exp materializations")
+    parser.add_argument("--shared-tile-materialization", choices=("preserve", "expensive-only"), default="preserve",
+                        help="TIRx lowering candidate: preserve all multi-consumer Tile SSA, or recompute cheap producers")
+    parser.add_argument("--tune-shared-tile-materializations",
+                        help="opt-in staged/JIT search over preserve,expensive-only; each candidate is recaptured and validated")
     parser.add_argument("--capture-sources", action="store_true", help="archive LLVM IR or Metal source by SHA256")
     parser.add_argument("--group-threads", type=int, default=0,
                         help="exact Metal group worker count; 0 lets the compiler planner choose (not CPU threads)")
@@ -759,6 +803,8 @@ def main() -> int:
                                                   args.tune_gemm_blocks, args.tune_pipeline_windows)
         args.mapping_tuning_candidates = mapping_candidates(args.group_threads, args.copy_batch,
                                                             args.tune_group_threads, args.tune_copy_batches)
+        args.materialization_tuning_candidates = materialization_candidates(
+            args.shared_tile_materialization, args.tune_shared_tile_materializations)
         candidates = joint_candidates(args)
     except ValueError as error:
         parser.error(str(error))
@@ -781,8 +827,8 @@ def main() -> int:
     requested_operations = args.operations.split(",")
     if args.metal_subgroup_reductions and (backends != ["metal"] or args.execution_scope != "auto" or
                                            args.matrix_realization != "simdgroup" or args.cooperative_matrix or
-                                           any(operation not in ("sum", "softmax", "rmsnorm", "layernorm", "cross_entropy") for operation in requested_operations)):
-        parser.error("Metal SIMD-group reductions require only automatic Metal sum, softmax, RMSNorm, LayerNorm, or cross-entropy with the reference TIRx realization")
+                                           any(operation not in ("sum", "softmax", "rmsnorm", "layernorm", "residual_layernorm", "cross_entropy") for operation in requested_operations)):
+        parser.error("Metal SIMD-group reductions require only automatic Metal sum, softmax, RMSNorm, LayerNorm, residual LayerNorm, or cross-entropy with the reference TIRx realization")
     if any(backend not in ("cpu", "metal") for backend in backends):
         parser.error("backends must be cpu and/or metal")
     if args.matrix_realization != "simdgroup" and (backends != ["metal"] or args.operations != "gemm" or
@@ -837,6 +883,7 @@ def main() -> int:
         "cooperative_matrix": args.cooperative_matrix,
         "matrix_realization": args.matrix_realization,
         "metal_subgroup_reductions": args.metal_subgroup_reductions,
+        "shared_tile_materialization": args.shared_tile_materialization,
         "vectorize": not args.no_vectorize,
         "auto_vectorize": args.auto_vectorize,
         "cpu_stack_bytes": args.cpu_stack_bytes, "capture_sources": args.capture_sources,
@@ -848,9 +895,11 @@ def main() -> int:
         "group_threads": args.group_threads,
         "copy_batch": args.copy_batch,
         "gemm_tuning_candidates": [{"block": block, "pipeline_window": window} for block, window in args.tuning_candidates],
-        "joint_tuning_candidates": [dict(block=block, pipeline_window=window, group_threads=width, copy_batch=batch)
-                                    for block, window, width, batch in candidates]
-                                   if args.tuning_candidates or args.mapping_tuning_candidates else [],
+        "joint_tuning_candidates": [dict(block=block, pipeline_window=window, group_threads=width,
+                                         copy_batch=batch, shared_tile_materialization=materialization)
+                                    for block, window, width, batch, materialization in candidates]
+                                   if args.tuning_candidates or args.mapping_tuning_candidates or
+                                   args.materialization_tuning_candidates else [],
         "max_tuning_candidates": args.max_tuning_candidates,
         "quick": args.quick, "timing": "synchronized device-resident host wall time including dispatch",
     }, "results": []}
@@ -863,7 +912,8 @@ def main() -> int:
                 tune = ((case.operation == "gemm" and
                          (args.tuning_candidates or args.mapping_tuning_candidates)) or
                         (args.metal_subgroup_reductions and
-                         bool(args.mapping_tuning_candidates)))
+                         bool(args.mapping_tuning_candidates)) or
+                        bool(args.materialization_tuning_candidates))
                 measure = run_tuned_case if tune else run_case
                 row = measure(torch, np, args, case, backend, len(report["results"]))
             except Exception as error:
