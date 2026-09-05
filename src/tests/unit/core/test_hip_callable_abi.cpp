@@ -474,6 +474,11 @@ static auto suite = [] {
             attributes #0 = { "luisa-generated-callable" }
         )");
         expect(module != nullptr);
+        auto inline_stats =
+            inline_unique_oversized_generated_callables(*module);
+        expect(inline_stats.inlined_function_count == 0u);
+        expect(inline_stats.removed_argument_locations == 0u);
+        expect(inline_stats.removed_return_locations == 0u);
         auto stats = demote_generated_callable_large_arguments(*module);
         expect(stats.rewritten_function_count == 0u);
         expect(stats.rewritten_call_count == 0u);
@@ -483,6 +488,93 @@ static auto suite = [] {
         expect(fits != nullptr);
         expect(fits->arg_size() == 1u);
         expect(fits->getArg(0u)->getType()->isArrayTy());
+    };
+
+    "HIP callable ABI late-inlines one-use oversized arguments"_test = [] {
+        constexpr auto argument_count = 33u;
+        auto ir = std::string{
+            "target datalayout = \"e-p:64:64-p5:32:32-i64:64-n32:64-A5\"\n"
+            "define private fastcc i32 @wide("};
+        for (auto i = 0u; i < argument_count; i++) {
+            if (i != 0u) { ir += ", "; }
+            ir += "i32 noundef %a" + std::to_string(i);
+        }
+        ir += ") #0 {\nentry:\n"
+              "  %result = add i32 %a0, %a32\n"
+              "  ret i32 %result\n}\n"
+              "define i32 @caller(i32 %seed) {\nentry:\n"
+              "  %result = call fastcc i32 @wide(";
+        for (auto i = 0u; i < argument_count; i++) {
+            if (i != 0u) { ir += ", "; }
+            ir += "i32 noundef %seed";
+        }
+        ir += ")\n"
+              "  ret i32 %result\n}\n"
+              "attributes #0 = { memory(none) "
+              "\"luisa-generated-callable\" }\n";
+
+        llvm::LLVMContext context;
+        auto module = parse_module(context, ir);
+        expect(module != nullptr);
+        if (!module) { return; }
+        auto stats =
+            inline_unique_oversized_generated_callables(*module);
+        expect(stats.inlined_function_count == 1u);
+        expect(stats.removed_argument_locations == argument_count);
+        expect(stats.removed_return_locations == 1u);
+        expect(module->getFunction("wide") == nullptr);
+        expect(!llvm::verifyModule(*module));
+
+        auto *caller = module->getFunction("caller");
+        expect(caller != nullptr);
+        auto call_count = 0u;
+        auto alloca_count = 0u;
+        for (auto &block : *caller) {
+            for (auto &instruction : block) {
+                call_count += llvm::isa<llvm::CallInst>(instruction);
+                alloca_count += llvm::isa<llvm::AllocaInst>(instruction);
+            }
+        }
+        expect(call_count == 0u);
+        expect(alloca_count == 0u);
+
+        auto argument_stats =
+            demote_generated_callable_large_arguments(*module);
+        expect(argument_stats.rewritten_function_count == 0u);
+        expect(argument_stats.shared_argument_slot_count == 0u);
+    };
+
+    "HIP callable ABI never late-inlines explicit noinline"_test = [] {
+        llvm::LLVMContext context;
+        auto module = parse_module(context, R"(
+            target datalayout = "e-p:64:64-p5:32:32-i64:64-n32:64-A5"
+            define private fastcc i32 @wide([33 x i32] %value) #0 {
+            entry:
+              %head = extractvalue [33 x i32] %value, 0
+              ret i32 %head
+            }
+            define i32 @caller([33 x i32] %actual) {
+            entry:
+              %result = call fastcc i32 @wide([33 x i32] %actual)
+              ret i32 %result
+            }
+            attributes #0 = { noinline "luisa-generated-callable"
+                              "luisa-explicit-noinline" }
+        )");
+        expect(module != nullptr);
+        if (!module) { return; }
+        auto stats =
+            inline_unique_oversized_generated_callables(*module);
+        expect(stats.inlined_function_count == 0u);
+        expect(stats.removed_argument_locations == 0u);
+        expect(stats.removed_return_locations == 0u);
+        auto *wide = module->getFunction("wide");
+        expect(wide != nullptr);
+        if (wide != nullptr) {
+            expect(wide->hasFnAttribute(llvm::Attribute::NoInline));
+            expect(!wide->use_empty());
+        }
+        expect(!llvm::verifyModule(*module));
     };
 
     "HIP callable ABI packs the maximal scalar suffix above 32 locations"_test = [] {

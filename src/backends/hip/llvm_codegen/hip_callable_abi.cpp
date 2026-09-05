@@ -9,7 +9,9 @@
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Module.h>
+#include <llvm/Passes/PassBuilder.h>
 #include <llvm/Transforms/IPO/MergeFunctions.h>
+#include <llvm/Transforms/Scalar/SROA.h>
 #include <llvm/Transforms/Utils/Cloning.h>
 #include <llvm/Transforms/Utils/Local.h>
 
@@ -819,6 +821,113 @@ specialize_generated_callable_aggregate_arguments(
         LUISA_ASSERT(function->use_empty());
         function->eraseFromParent();
         stats.rewritten_function_count++;
+    }
+    return stats;
+}
+
+UniqueOversizedCallableInliningStats
+inline_unique_oversized_generated_callables(
+    llvm::Module &module,
+    llvm::StringRef callable_attribute) noexcept {
+    const auto &data_layout = module.getDataLayout();
+    auto stats = UniqueOversizedCallableInliningStats{};
+    auto rejected = llvm::SmallPtrSet<llvm::Function *, 16>{};
+    auto modified_callers = llvm::SmallPtrSet<llvm::Function *, 16>{};
+    for (;;) {
+        llvm::Function *candidate = nullptr;
+        llvm::CallInst *call = nullptr;
+        auto argument_locations = size_t{};
+        auto return_locations = size_t{};
+        for (auto &function : module) {
+            if (rejected.contains(&function) || function.isDeclaration() ||
+                !function.hasFnAttribute(callable_attribute) ||
+                function.hasFnAttribute(llvm::Attribute::NoInline) ||
+                !function.hasLocalLinkage() || function.isVarArg() ||
+                !supported_generated_callable_calling_convention(
+                    function.getCallingConv()) ||
+                function.hasAddressTaken() || function.hasMetadata() ||
+                function.hasComdat() || function.hasGC() ||
+                function.hasPersonalityFn() || function.hasPrefixData() ||
+                function.hasPrologueData() ||
+                function.hasFnAttribute(llvm::Attribute::AllocSize) ||
+                !function.hasOneUse()) {
+                continue;
+            }
+            auto *unique_call =
+                llvm::dyn_cast<llvm::CallInst>(*function.user_begin());
+            if (unique_call == nullptr ||
+                unique_call->getCalledOperand() != &function ||
+                unique_call->getFunction() == &function ||
+                unique_call->getCallingConv() != function.getCallingConv() ||
+                unique_call->isMustTailCall() ||
+                unique_call->hasOperandBundles() ||
+                unique_call->hasFnAttr(llvm::Attribute::AllocSize)) {
+                continue;
+            }
+
+            auto modeled_argument_locations = size_t{};
+            auto modeled = true;
+            for (auto &argument : function.args()) {
+                auto locations = amdgpu_value_vgpr_count(
+                    argument.getType(), data_layout);
+                if (!locations ||
+                    *locations >
+                        std::numeric_limits<size_t>::max() -
+                            modeled_argument_locations) {
+                    modeled = false;
+                    break;
+                }
+                modeled_argument_locations += *locations;
+            }
+            auto modeled_return_locations = amdgpu_value_vgpr_count(
+                function.getReturnType(), data_layout);
+            if (!modeled || !modeled_return_locations ||
+                (modeled_argument_locations <=
+                     amdgpu_callable_argument_vgpr_limit &&
+                 *modeled_return_locations <=
+                     amdgpu_callable_return_vgpr_limit)) {
+                continue;
+            }
+            candidate = &function;
+            call = unique_call;
+            argument_locations = modeled_argument_locations;
+            return_locations = *modeled_return_locations;
+            break;
+        }
+        if (candidate == nullptr) { break; }
+
+        auto *caller = call->getFunction();
+        auto inline_info = llvm::InlineFunctionInfo{};
+        auto result = llvm::InlineFunction(*call, inline_info);
+        if (!result.isSuccess()) {
+            rejected.insert(candidate);
+            continue;
+        }
+        LUISA_ASSERT(candidate->use_empty(),
+                     "Unique generated callable still has uses after inlining.");
+        modified_callers.erase(candidate);
+        modified_callers.insert(caller);
+        candidate->eraseFromParent();
+        stats.inlined_function_count++;
+        stats.removed_argument_locations += argument_locations;
+        stats.removed_return_locations += return_locations;
+    }
+    if (!modified_callers.empty()) {
+        // IPO ran before this late CFG splice, while references passed to the
+        // retained callee still escaped the caller. Inlining exposes their
+        // complete access relation, but InlineFunction does not run SROA:
+        // even scalar counters can otherwise reach codegen as private memory.
+        // Re-form SSA only in surviving modified callers. Use LLVM's access
+        // proof, preserve the CFG, and leave escaped/volatile storage intact.
+        llvm::FunctionAnalysisManager analyses;
+        llvm::PassBuilder{}.registerFunctionAnalyses(analyses);
+        llvm::FunctionPassManager cleanup;
+        cleanup.addPass(llvm::SROAPass{llvm::SROAOptions::PreserveCFG});
+        for (auto &function : module) {
+            if (modified_callers.contains(&function)) {
+                cleanup.run(function, analyses);
+            }
+        }
     }
     return stats;
 }

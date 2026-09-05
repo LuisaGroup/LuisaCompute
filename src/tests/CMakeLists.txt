@@ -299,6 +299,7 @@ endif ()
 if (TARGET luisa-compute-backend-hip AND LLVM_FOUND)
     luisa_compute_add_test(test_hip_callable_abi unit/core/test_hip_callable_abi.cpp LABELS "unit;unit_core")
     target_sources(test_hip_callable_abi PRIVATE
+        unit/core/test_hip_late_inline.cpp
         ../backends/hip/llvm_codegen/hip_callable_abi.cpp
         ../backends/hip/llvm_codegen/hip_inlining_policy.cpp
         ../backends/hip/llvm_codegen/hip_private_memory.cpp)

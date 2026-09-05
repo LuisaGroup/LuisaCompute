@@ -1460,6 +1460,21 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
             callable_abi_stats.removed_aggregate_bytes);
     }
 
+    // A retained callable with one direct user and an ABI wider than the
+    // hardware callable window would otherwise materialize a private suffix
+    // record for a boundary that cannot share its body. Inline only this
+    // zero-duplication case after IPO has optimized the body independently.
+    auto unique_oversized_inline_stats =
+        inline_unique_oversized_generated_callables(*_llvm_module);
+    if (unique_oversized_inline_stats.inlined_function_count != 0u) {
+        LUISA_VERBOSE(
+            "Late-inlined {} unique oversized generated HIP callable(s), "
+            "removing {} argument and {} return VGPR location(s).",
+            unique_oversized_inline_stats.inlined_function_count,
+            unique_oversized_inline_stats.removed_argument_locations,
+            unique_oversized_inline_stats.removed_return_locations);
+    }
+
     // GlobalISel demotes a return wider than RetCC_AMDGPU_Func's 32 VGPRs to
     // one hidden private frame object per static call site. Make that ABI
     // explicit after IPO and share the result storage within each caller.
