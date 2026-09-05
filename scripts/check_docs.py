@@ -81,6 +81,14 @@ def check(root):
             page = pages.get(root / (destination + ".html"))
             if page is None or anchor not in page.ids:
                 errors.append(f"{old}#{old_anchor} -> {destination}#{anchor}: missing renamed anchor")
+    for source, mapping in redirects.SPLIT_FRAGMENTS.items():
+        if root / (source + ".html") not in pages:
+            errors.append(f"{source}: missing split-page overview")
+        for anchor, target in mapping.items():
+            fragments += 1
+            page = pages.get(root / (target + ".html"))
+            if page is None or anchor not in page.ids:
+                errors.append(f"{source}#{anchor} -> {target}: missing moved anchor")
     print(f"{len(pages)} HTML pages; {checked} local links/assets; {fragments} compatibility anchors")
     print("\n".join(errors) if errors else "PASS: all checked local targets and anchors exist")
     return bool(errors)

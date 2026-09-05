@@ -121,7 +121,8 @@ per-iteration resource: cross-phase dependencies keep its execution ordered.
 `test_tile_tirx_pipeline` exercises real versioned CPU/Metal execution, short
 and ragged loops, multiple carried values, possible input/output aliasing,
 late stores, and shared-capacity fallback. Hardware-asynchronous transfers and
-warp specialization remain separate work; see design section 7.3.
+warp specialization remain separate work; see the
+[implemented software-prefetch path](../internals/tile/lowering.md#implemented-native-software-prefetch-path).
 
 `test_tile_tirx_memory` runs ragged manual GEMMs, multiple independently updated
 resources, old-value snapshots, nested temporal regions, ancestor reads,

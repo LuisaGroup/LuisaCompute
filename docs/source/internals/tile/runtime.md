@@ -378,80 +378,11 @@ proved full packs and unchanged slow tails, including lane-dependent statement
 stores. An explicit Accelerate request on Metal must fail with a target
 diagnostic.
 
-The current CPU performance evidence has two independent replays. The
-{download}`CBLAS replay <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-cblas-v2-replay/notes.md>`
-contains 48 valid Tile/Torch/direct-CBLAS measurements over eight GEMMs. The
-{download}`array-math replay <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-accelerate-ops-replay/notes.md>`
-contains 144 valid reference/Accelerate measurements over add, row sum and
-softmax. Both use rotated/counterbalanced orders, complete outputs, source
-capture and stable artifact hashes. These are TIRx CPU results, not evidence
-for the direct XIR/SIMD route.
-
-The five-path benchmark runner is
-`scripts/benchmark/tile_torch/compare_lowerings.py`. It separately identifies
-Tile→native MPP, Tile→TIRx, handwritten MPP, direct MPSMatrixMultiplication,
-and eager Torch. Native and handwritten MPP reuse the same fixed atom/cohort
-configuration. TIRx uses its own recorded/frozen schedule; this is an
-equivalent-workload performance comparison, not necessarily identical TileIR.
-Each output is checked in full against the same FP64 oracle before accepting
-its measurements. See the
-{download}`benchmark instructions <../../../../scripts/benchmark/tile_torch/README.md>`.
-
-The common comparison is synchronized device-resident **host wall time**,
-including each runtime's dispatch costs, but excluding JIT, allocation and
-transfers. Native Runtime and TIRx do not currently report equivalent GPU
-intervals; MPS/handwritten MPP GPU timings must not be mixed into their ratios.
-Ten rounds balance implementation positions and pairwise precedence, retain
-every failure, and verify binary/shared-library hashes before and after.
-No performance threshold is installed as a noisy correctness-test assertion.
-
-`--tirx-runtime-controls` adds TIRx/Luisa with fast math off and on; **fourteen**
-rounds balance all seven paths. Every TIRx control must generate the identical
-Metal source hash and threadgroup width as the TVM-runtime route. This separates
-source-level lowering changes from downstream compilation/runtime differences,
-but does not isolate dispatch overhead from GPU compilation policy. TVMx's
-current Metal runtime source requests fast math on; native and handwritten MPP
-request it off. Keep all those policies explicit in conclusions.
-
-`--tirx-mpp` adds independent TIRx→MPP/TVM as a sixth path; **twelve** rounds
-balance it with the original five. Both TIRx variants use the same frozen
-geometry, while native/handwritten MPP retain their separately recorded
-configuration. Externally linked TVM compiler, Runtime and FFI libraries must
-be supplied with `--compiler-artifact` and are hashed alongside the Luisa
-binaries. Combining both optional comparisons produces eight paths and
-requires **sixteen** rounds for balanced ordering.
-
-`--tirx-view-plan` adds a separately frozen TIRx MPP read-only-view realization
-while retaining the non-forwarding MPP control. With the six-path comparison,
-this gives seven paths and **fourteen** balancing rounds. Unlike `--tirx-mpp`
-alone, it may use different block/K geometry. Default TIRx still stages snapshots;
-the new opt-in can prove immutable, in-bounds input forwarding before capacity
-planning and thereby admit full-K candidates. This does not claim support for
-all native MPP shapes/scopes or close the performance gap without measurements.
-
-The latest
-{download}`MPP-v2 frozen replay <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-mpp-cost-v2-replay/notes.md>`
-validates 784/784 complete outputs over eight square, rectangular and ragged
-FP32 GEMMs. Its separately searched schedules beat Torch and MPS on all eight
-shapes. At 1024³, TIRx MPP views measure 270.675 us versus handwritten MPP at
-266.105 us, MPS at 272.572 us and Torch at 284.654 us. The paired ratios are
-0.9938× versus MPS and 0.9513× versus Torch; the TIRx view path was slower than
-MPS in only 1/14 rounds. The complete raw samples and artifact fingerprints
-live beside the report.
-
-The accompanying
-{download}`cost-model study <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-mpp-cost-v2-search/notes.md>`
-retains the v1 failure and all invalid candidates. Replacing summed concurrent
-subgroup work with subgroup critical path plus whole-device waves reduces
-mean/median/max regret from 74.18/43.05/239.58% to 8.82/2.59/34.37% on the same
-finite cohort. Those short samples are in-cohort calibration, not held-out
-evidence. The remaining model misses still require cache/layout, edge, barrier
-and dispatch features; the 128×32 winner must not become a GEMM shape table.
-
-The historical
-{download}`v1 view replay <../../../../scripts/benchmark/tile_torch/results/m1-max-20260904-tirx-views/notes.md>`,
-{download}`staged-MPP replay <../../../../scripts/benchmark/tile_torch/results/m1-max-20260904-tirx-mpp/notes.md>`
-and {download}`subgroup-sync replay <../../../../scripts/benchmark/tile_torch/results/m1-max-20260904-subgroup-sync-lowerings/notes.md>`
-remain controls. They show why MPP selection, view forwarding and barrier
-elision are independent decisions; fence elision regressed a fixed 512³
-geometry and therefore remains default-off.
+Benchmark protocols and results have a separate owner. The
+[route report](../../performance/tile/results.md) retains CPU provider, native MPP,
+TIRx/MPP, MPS and Torch comparisons; the [validation record](../../performance/tile/validation.md)
+records executed test checkpoints. The
+{download}`benchmark guide <../../../../scripts/benchmark/tile_torch/README.md>`
+owns command-line variants, balanced replay orders, artifact hashes and timing
+modes. Keep GPU control, instrumented compute-pass and host-wall measurements
+separate, and never infer direct XIR performance from a TIRx provider result.

@@ -7,9 +7,12 @@
 source/
   getting_started.md, tutorials.md, gallery.md   learning
   dsl.md, resources.md                           established programming guides
-  tile/                                         Tile programming guide and syntax
+  tile/                                         Tile programming guide
+    design.md, execution.md, layouts.md          overview and formal model
+    values.md, memory.md, pipeline.md            operations and effects
+    staging.md, kernels.md                      capture/JIT surface and examples
   internals/                                    compiler and Runtime implementation
-    tile/                                       Tile planning and lowering references
+    tile/                                       TileIR, export, Runtime and target plans
   performance/                                  measured results and validation
     tile/                                       current status, route results, checkpoints
 ```
@@ -25,6 +28,15 @@ source/
 - Keep historical schedule tables and test-run counts with performance and
   validation evidence. Implementation references describe invariants and link
   to those records; they should not accumulate a second experiment diary.
+- Give a long reference a single responsibility before adding another section.
+  Tile syntax belongs in `source/tile/`; IR mutation/capture algorithms and
+  bridge realization belong in `source/internals/tile/`. The generic planner,
+  backend policy API, Metal matrix family, Metal reductions and TIRx CPU plans
+  have separate owners. Cross-link them instead of extending a monolithic
+  language or planner document.
+- Label pseudocode and proposed extensions at their reading entry point.
+  Keep the historical design checklist in the architecture decisions; it is
+  not the current implementation plan or evidence of completion.
 - Give long references a local contents list. After splitting a document,
   replace inherited cross-page chapter numbers with descriptive links, while
   preserving the published section anchors.
@@ -39,7 +51,9 @@ source/
   belongs to getting started; coroutine extensions belong to implementation.
 - Preserve published URLs when moving pages. `_ext/legacy_urls.py` and the
   redirect template generate legacy HTML routes without duplicate Markdown
-  pages. Split-page section links must also resolve to their new owner.
+  pages. `SPLIT_FRAGMENTS` preserves old section links when a landing page
+  remains in use; the shared layout redirects only those moved fragments.
+  Every old section must still exist or resolve to its new owner.
 
 Build from the repository root:
 
@@ -62,7 +76,8 @@ retain obsolete HTML from deleted source files. Check rendered navigation,
 diagrams, tables, example inclusions and old-URL redirects, not just the build
 exit code. Generated `_build/` content is not committed.
 
+The Sphinx extension rejects missing or multiple owning toctrees.
 `scripts/check_docs.py` checks local links, assets and published compatibility
-anchors in generated HTML. It does not check remote links or substitute for
-visual review and the Doxygen/API build. Run it on the same fresh output tree
-you intend to publish.
+anchors (including split references) in generated HTML. It does not check
+remote links or substitute for visual review and the Doxygen/API build. Run
+it on the same fresh output tree you intend to publish.

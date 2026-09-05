@@ -7,11 +7,23 @@ this section owns how that program is represented, planned and lowered.
 
 ```{toctree}
 :maxdepth: 1
+:caption: Representation and integration
 
 decisions
-planner
+ir
+lowering
 runtime
+```
+
+```{toctree}
+:maxdepth: 1
+:caption: Planning and target realization
+
+planner
+cost-policy
+matrix
 reductions
+cpu
 xir
 ```
 

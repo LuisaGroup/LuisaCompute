@@ -30,3 +30,128 @@ mixed-radix constructions used here; proof procedures intentionally return
 unknown outside their decidable fragments; emitters support smaller target
 subsets and fail closed. A complete representation never licenses an
 unsupported lowering.
+
+## Original design checklist
+
+The following preserves the revision-17 design rationale and bootstrap order. It is historical design material, **not the current task list or a completion checklist**. Use [implementation coverage and remaining work](../../performance/tile/implementation.md) for current status.
+
+## Minimal implementation plan
+
+### Phase A: algebra and IR skeleton
+
+- Dim, Space, ExecNest, ParallelMap/TemporalMap, and interned LayoutMap DAG;
+- stable ExecLevel/prefix identities and typed ExecRemap transactions;
+- IndexSet, LayoutCorr, mixed-radix, composition, product, projection,
+  permutation, translation;
+- Region/Block/Operation/Value/Use and rewriter;
+- parser/printer only for debugging and tests;
+- tri-state proof API, layout normalization, algebra-law property tests, and
+  exhaustive finite verifier.
+
+### Phase B: elegant C++ capture
+
+- scoped builder stack;
+- `tile_kernel`, `TensorView`, `Tile`, `Memory`, and MemorySSA state capture;
+- one-pass range-for `parallel` / `ExecScope::parallel` / `serial` / `pipeline`
+  / `reduce`, stage cursor cuts lowered to pipeline subregions,
+  inferred outer reduction states/contracts, view/load/store, lifted
+  elementwise ops, semantic `mma`, and expression-reduce shorthand;
+- a header-only reference Tile library for matmul/einsum, convolution, softmax,
+  normalization, Top-K, sort, scan, gather/scatter, and copy;
+- direct assignment capture with specified copy/move semantics;
+- structured control flow and immediate value-to-SSA promotion.
+
+### Phase C: scheduling core
+
+- distribution variables as LayoutMaps;
+- reduction-domain factorization, reducer-contract verification, and collective
+  realization selection;
+- prefix-preserving split/fuse/permute/reshape and execution binding;
+- explicit repartition;
+- pipeline dependence graph, version analysis, and memory planning;
+- target catalog interfaces.
+
+### Phase D: TVM bootstrap
+
+- Scheduled TileIR to native TIRx layout and execution export;
+- GEMM, convolution, softmax, attention, loss reduction, Top-K, sort,
+  elementwise, stencil, and copy coverage;
+- differential layout/address tests against the TileIR interpreter;
+- JIT cache and straightforward multi-variant autotuning.
+
+### Phase E: native optimization
+
+- target atom selection and precise cost models;
+- native pipeline/resource passes;
+- direct lowering to Luisa/XIR/LLVM/native paths where it pays off;
+- persistent, sparse, and architecture-specific expert features.
+
+## Final decisions
+
+- The language is execution-structure first: an open logical `ExecNest` and
+  anchored regions are the semantic skeleton, not a loop nest invented by a
+  late schedule or backend.
+- The C++ hierarchy is written as nested one-pass range-for scopes, so
+  parentage, lifetime, and local-to-prefix coordinate derivation are visible in
+  source.
+- `parallel`, `serial`, `pipeline`, and algebraic `reduce` are the complete core
+  structured-region kinds. Only `parallel` extends the spatial owner hierarchy;
+  a reduction domain may be mapped across space and time by scheduling.
+- Every range-for binding is a scope handle. `reduce(domain, contract?)` infers
+  its outer Tile states and built-in merge contracts from direct updates;
+  custom algebraic states provide only the otherwise-unprovable contract.
+- Public convenience does not imply a core IR entity. Neural-network,
+  collective, ordering, and copy APIs are reference libraries over the minimal
+  core; hardware acceleration normally adds a proved target atom, not syntax.
+  `mma(a, b, c)` is the one admitted tensor arithmetic primitive because
+  decomposition would discard its fused accumulation, precision, and operand-
+  layout legality contract; concrete MMA instructions remain target atoms.
+- Halide's separation of computation and storage placement is retained, but
+  both are expressed against that pre-existing execution structure.
+- Execution transforms are typed layout remaps whose prefix-cut preservation
+  is proved before dependent operations or memories are rewritten.
+- Execution binding is a layout map; hardware names are late target data.
+- A `parallel` region may carry a concise `exec::block/warp/thread/...`
+  constraint. Nested bindings are verified against the target's containment
+  poset and ancestor projections, never enum ordinal values.
+- A value's declaration scope constrains its logical anchor; the innermost
+  `parallel` supplies the default spatial frontier, and ancestor updates require
+  a proved assembly or explicit combiner.
+- Distribution is a typed layout map/correspondence, not a separate algebra.
+- Scalar pure operators lift directly to logical Tiles; `map` is only the custom
+  scalar-region escape hatch, and physical repartition remains explicit in IR.
+- Logical dimensions are fresh function-local `Dim` identities. Labels are
+  diagnostics only; there is no predefined neural-network axis vocabulary.
+- A reducer contract, semantic contribution domain, and grouping projection
+  define reduction meaning. Physical replicas never count twice, and common
+  expression reductions are shorthand for the same nest-like region.
+- Fixed-size Top-K uses a merge-and-truncate reducer under an explicit total
+  order. Full sort remains a logical Tile permutation and decomposes into
+  visible multi-pass structure when it cannot be realized in one target scope.
+- The layout core is CuTe-derived mixed-radix algebra with composition closure,
+  typed dimensions, explicit correspondence fibers, F2-linear import, pure index
+  expressions, and a finite fallback.
+- Memory is an explicit sibling resource owned by an execution prefix, never a
+  child execution level. It is an expert escape hatch for stable address
+  identity; ordinary Tile materialization is compiler-planned.
+- Explicit Memory uses `memory.store(tile)` and `memory.load()` effects.
+  Assignment remains exclusively Tile SSA syntax; `Memory = Tile`,
+  `Memory = View`, and implicit view loads are ill-formed.
+- Optional `mem::shared/private_/tensor/...` tags constrain resource class but
+  do not form a memory hierarchy; target legality is a general
+  execution-scope/resource/operation capability relation.
+- Ancestor execution plus participant-local access reaches physical memory
+  through the [execution-to-memory composition](../../tile/memory.md#the-execution-to-memory-equation).
+- Pipeline is a temporal producer/consumer nest. `k.stage(optional_name)` marks
+  source cuts inside its local stage namespace; memory versioning is derived
+  only for materialized edges.
+- Direct assignment is the C++ surface; region results exist only inside IR.
+- Ordinary repeated JIT of ordinary host configurations is the baseline
+  autotuning model.
+- TileIR is thin but fully transformable, with SSA use-def, owned regions,
+  rewriters, analyses, and verification.
+- TVM is a replaceable lowering backend, not the semantic owner.
+- MLIR is not required.
+
+The accompanying [GEMM sketch](../../tile/tile_programming_poc.cpp) and
+[kernel gallery](../../tile/kernels.md) exercise the proposed syntax.

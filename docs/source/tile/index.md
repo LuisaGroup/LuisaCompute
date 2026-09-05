@@ -15,7 +15,13 @@ that a layout or schedule represented by TileIR can be lowered on every target.
 :maxdepth: 1
 
 kernels
-design
+Language overview <design>
+execution
+layouts
+values
+memory
+pipeline
+staging
 ```
 
 ## Programming model
@@ -33,9 +39,15 @@ design
   storage or manual resource constraints, independent of execution mapping.
 
 The [kernel examples](kernels.md) use the same source included by the C++20 and
-C++23 capture tests. The [language reference](design.md) contains the full
-layout algebra, numerical contracts and verifier boundaries; it also marks
-features that remain design rather than implemented lowering.
+C++23 capture tests. Start there for executable syntax, then use the
+[language overview](design.md) for the common model. The topic references
+separate [execution coordinates](execution.md), [layout algebra](layouts.md),
+[Tile operations and reduction](values.md), [memory effects](memory.md),
+[pipeline stages](pipeline.md) and [staging/JIT](staging.md).
+
+Formal references also describe proposed extensions. They are not an API
+availability guarantee: check implementation coverage before treating a
+schematic overload, arbitrary layout or schedule as executable.
 
 ## Compilation and performance
 
