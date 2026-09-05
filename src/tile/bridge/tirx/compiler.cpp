@@ -469,6 +469,43 @@ public:
             }
         }
         auto forward_views = options.forward_readonly_tile_loads || subgroup_reductions;
+        if (options.metal_mpp && forward_views) {
+            auto bounded_k = tvm::ffi::Function::GetGlobal("target.metal.mpp_bounded_k_contract_version");
+            if (bounded_k && (*bounded_k)().cast<int64_t>() == 1) {
+                // Transactional forwarding: every reassociable MMA must still
+                // have a verified memory-atom realization. An extra mask,
+                // nonzero fill or unsupported M/N tail keeps the old snapshots,
+                // rather than silently turning an MPP request into scalar work.
+                auto trial = forward_readonly_tile_loads(mapped, options.noalias, true);
+                auto body = schedule_pipelines(std::move(trial.body), options.noalias, shared_memory_limit, false);
+                auto matrices = size_t{0u};
+                tvm::tirx::PostOrderVisit(body, [&](const tvm::ffi::ObjectRef &node) {
+                    if (auto loop = node.as<tvm::tirx::ForNode>()) {
+                        if (auto permission = loop->annotations.Get(mma_annotation)) {
+                            auto literal = permission->as<tvm::IntImmNode>();
+                            matrices += literal != nullptr && literal->value == 1;
+                        }
+                    }
+                });
+                if (matrices != 0u) {
+                    try {
+                        luisa::vector<GroupPlan> trial_plans;
+                        body = ExecutionMapper{binding, threads, group_thread_limit, shared_memory_limit, options.vectorize, options.auto_vectorize, cooperative_matrix, true, std::string{target->kind->name}, options.planner, trial_plans, trial.inputs}(body);
+                        auto realized = size_t{0u};
+                        for (auto &&plan : trial_plans) { realized += plan.matrices.size(); }
+                        if (realized == matrices) {
+                            mapped.CopyOnWrite()->body = std::move(body);
+                            for (auto &plan : trial_plans) { plans.emplace_back(std::move(plan)); }
+                            functions.Set(global, std::move(mapped));
+                            continue;
+                        }
+                    } catch (const std::exception &) {
+                        // This candidate is optional. Re-run the unchanged
+                        // strict path below, including its normal diagnostics.
+                    }
+                }
+            }
+        }
         // Ordinary CPU/GPU scalar consumers can preserve the original guarded
         // load expression. MPP memory atoms are the stricter exception: their
         // address contract requires a fully in-bounds view before mapping.

@@ -156,6 +156,7 @@ using AccumulatorLoops = luisa::unordered_map<const tvm::tirx::ForNode *, Accumu
 class GroupWorkloadAnalysis final : public tvm::tirx::StmtVisitor {
 private:
     bool _matrix;
+    bool _metal_mpp;
     uint32_t _lane_depth{0u};
     uint64_t _executions{1u};
     const tvm::tirx::ForNode *_root;
@@ -242,9 +243,7 @@ private:
             }
         }
         if (matrix == nullptr) { return; }
-        auto carry = metal_matrix_carry(tvm::ffi::GetRef<tvm::tirx::For>(matrix), [this](tvm::tirx::BufferVar buffer) {
-            return _matrix_buffer(std::move(buffer));
-        });
+        auto carry = metal_matrix_carry(tvm::ffi::GetRef<tvm::tirx::For>(matrix), [this](tvm::tirx::BufferVar buffer) { return _matrix_buffer(std::move(buffer)); }, _metal_mpp, _ancestors);
         if (!carry) { return; }
         const tvm::tirx::ForNode *update = nullptr;
         auto result_allocations = 0u;
@@ -326,10 +325,7 @@ protected:
             auto domain = element_domain(loop);
             workload.max_independent_elements = std::max(workload.max_independent_elements, domain.count);
             if (_lane_depth == 0u) {
-                auto matrix = _matrix ? metal_matrix_workload(tvm::ffi::GetRef<tvm::tirx::For>(loop), [this](tvm::tirx::BufferVar buffer) {
-                    return _matrix_buffer(std::move(buffer));
-                }) :
-                                        std::nullopt;
+                auto matrix = _matrix ? metal_matrix_workload(tvm::ffi::GetRef<tvm::tirx::For>(loop), [this](tvm::tirx::BufferVar buffer) { return _matrix_buffer(std::move(buffer)); }, _metal_mpp, _ancestors) : std::nullopt;
                 if (matrix) {
                     matrix->executions = _executions;
                     matrices.emplace(loop, workload.matrices.size());
@@ -349,8 +345,8 @@ protected:
             }
             _ancestors.emplace_back(loop);
             StmtVisitor::VisitStmt_(loop);
-            _ancestors.pop_back();
             if (_lane_depth == 0u && _matrix) { _find_accumulator_loop(loop); }
+            _ancestors.pop_back();
             _executions = previous;
         }
     }
@@ -359,14 +355,15 @@ public:
     GroupWorkload workload;
     MatrixPlanIndices matrices;
     AccumulatorLoops accumulators;
-    GroupWorkloadAnalysis(bool matrix, const tvm::tirx::ForNode *root, luisa::span<const tvm::tirx::BufferVar> readonly_inputs)
-        : _matrix{matrix}, _root{root}, _ancestors{root}, _readonly_inputs{readonly_inputs} {}
+    GroupWorkloadAnalysis(bool matrix, bool metal_mpp, const tvm::tirx::ForNode *root, luisa::span<const tvm::tirx::BufferVar> readonly_inputs)
+        : _matrix{matrix}, _metal_mpp{metal_mpp}, _root{root}, _ancestors{root}, _readonly_inputs{readonly_inputs} {}
 };
 
 class CooperativeGroupMapper final : public tvm::tirx::StmtExprMutator {
 
 private:
     tvm::tirx::PrimVar _thread;
+    luisa::vector<const tvm::tirx::ForNode *> _ancestors;
     uint64_t _threads;
     uint64_t _shared_memory_limit;
     uint64_t _shared_memory_used{0u};
@@ -510,6 +507,11 @@ private:
 
 protected:
     [[nodiscard]] tvm::tirx::Stmt VisitStmt_(const tvm::tirx::ForNode *loop) final {
+        _ancestors.emplace_back(loop);
+        struct PopDomain {
+            luisa::vector<const tvm::tirx::ForNode *> &domain;
+            ~PopDomain() noexcept { domain.pop_back(); }
+        } pop{_ancestors};
         if (_elided_initializers.contains(loop)) { return tvm::tirx::Evaluate{tvm::IntImm::Int32(0)}; }
         if (auto iter = _direct_stores.find(loop); iter != _direct_stores.end()) {
             auto store = std::move(iter->second);
@@ -587,7 +589,7 @@ protected:
                                                // read-only inputs can authorize a matrix access.
                                                if (auto iter = _buffers.find(buffer.get()); iter != _buffers.end()) { return iter->second; }
                                                for (auto &&input : _readonly_inputs) { if (buffer.same_as(input)) { return buffer; } }
-                                               return tvm::tirx::BufferVar{}; }, distribution, emission, _plan.metal_mpp);
+                                               return tvm::tirx::BufferVar{}; }, distribution, emission, _plan.metal_mpp, _ancestors);
             if (emission != nullptr && !matrix.defined()) { throw std::runtime_error{"planned matrix recurrence failed emission verification"}; }
             if (matrix.defined()) { return _synchronize(std::move(matrix)); }
         }
@@ -684,8 +686,8 @@ protected:
 public:
     CooperativeGroupMapper(tvm::tirx::PrimVar thread, uint64_t threads, uint64_t shared_memory_limit, bool cooperative_matrix,
                            const MatrixPlanIndices &matrix_indices, GroupPlan &plan, const AccumulatorLoops &accumulators, uint32_t prefetch_budget,
-                           luisa::span<const tvm::tirx::BufferVar> readonly_inputs)
-        : _thread{std::move(thread)}, _threads{threads}, _shared_memory_limit{shared_memory_limit}, _prefetch_budget{prefetch_budget},
+                           luisa::span<const tvm::tirx::BufferVar> readonly_inputs, const tvm::tirx::ForNode *root)
+        : _thread{std::move(thread)}, _ancestors{root}, _threads{threads}, _shared_memory_limit{shared_memory_limit}, _prefetch_budget{prefetch_budget},
           _cooperative_matrix{cooperative_matrix}, _matrix_indices{matrix_indices}, _plan{plan}, _accumulators{accumulators}, _readonly_inputs{readonly_inputs} {
         for (auto &&[loop, accumulator] : _accumulators) {
             if (_plan.matrices[accumulator.matrix_index].direct_accumulator_store) {
@@ -711,7 +713,7 @@ tvm::tirx::Stmt map_metal_cooperative_group(const tvm::tirx::For &loop, uint32_t
                                             luisa::span<const tvm::tirx::BufferVar> readonly_inputs) {
     validate_domain(loop.get());
     auto groups = static_extent(loop->extent);
-    GroupWorkloadAnalysis analysis{cooperative_matrix, loop.get(), readonly_inputs};
+    GroupWorkloadAnalysis analysis{cooperative_matrix, metal_mpp, loop.get(), readonly_inputs};
     analysis.workload.programs = groups;
     analysis(loop->body);
     auto planned = plan_group(analysis.workload, ExecutionLimits{max_threads, 32u, shared_memory_limit}, options,
@@ -724,7 +726,7 @@ tvm::tirx::Stmt map_metal_cooperative_group(const tvm::tirx::For &loop, uint32_t
     auto thread = tvm::tirx::PrimVar{loop->loop_var->name + "_worker", tvm::PrimType::Int(64)};
     auto group = tvm::tirx::PrimVar{loop->loop_var->name + "_group", tvm::PrimType::Int(64)};
     auto body = CooperativeGroupMapper{thread, threads, shared_memory_limit, cooperative_matrix, analysis.matrices, plan, analysis.accumulators,
-                                       options.enabled && !metal_mpp ? options.max_pipeline_prefetch_scalars_per_lane : 0u, readonly_inputs}
+                                       options.enabled && !metal_mpp ? options.max_pipeline_prefetch_scalars_per_lane : 0u, readonly_inputs, loop.get()}
                     .map(loop->body, options);
     plans.emplace_back(std::move(plan));
     // Empty domains are no-ops, but must not hide unsupported descendants.

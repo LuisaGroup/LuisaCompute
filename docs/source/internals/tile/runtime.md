@@ -254,6 +254,11 @@ immutable compiler snapshots with memory inputs before resource planning.
 Forwarding iterates to a fixed point so anonymous-axis relabeling does not
 leave a second materialized copy. Each round rechecks effects, bounds,
 dominance and escapes; explicit manual memory stays materialized.
+The optional bounded-K capability also forwards a proved common zero-padded
+K suffix using a positive actual memory extent, while M/N stay in bounds.
+It retains the same Runtime artifact and falls back to strict snapshot
+planning when the atom proof is unavailable; see
+[bounded K views](matrix.md#bounded-k-views-avoid-nominal-padding-storage).
 
 Independent subgroup execution is a separate realization proof. When the
 whole group has only private MPP state, immutable inputs and one partitioned

@@ -1,0 +1,114 @@
+diff --git a/src/backend/metal/codegen/codegen_metal.cc b/src/backend/metal/codegen/codegen_metal.cc
+index 55aec5e72..2c2d8df47 100644
+--- a/src/backend/metal/codegen/codegen_metal.cc
++++ b/src/backend/metal/codegen/codegen_metal.cc
+@@ -120,7 +120,7 @@ void CodeGenMetal::CollectCooperativeTensors(const PrimFunc& f) {
+     const auto* call = node.as<CallNode>();
+     if (!call) return;
+     if (call->op.same_as(builtin::cooperative_tensor_multiply_from_memory())) {
+-      TVM_FFI_ICHECK_EQ(call->args.size(), 11);
++      TVM_FFI_ICHECK(call->args.size() == 11 || call->args.size() == 12);
+       int64_t m = CooperativeConstant(call->args[6], "M");
+       int64_t n = CooperativeConstant(call->args[7], "N");
+       int64_t k = CooperativeConstant(call->args[8], "K");
+@@ -135,7 +135,7 @@ void CodeGenMetal::CollectCooperativeTensors(const PrimFunc& f) {
+       info.transpose_a = ta;
+       info.transpose_b = tb;
+     } else if (call->op.same_as(builtin::cooperative_tensor_multiply_accumulate_from_memory())) {
+-      TVM_FFI_ICHECK_EQ(call->args.size(), 13);
++      TVM_FFI_ICHECK(call->args.size() == 13 || call->args.size() == 14);
+       int64_t m = CooperativeConstant(call->args[8], "M");
+       int64_t n = CooperativeConstant(call->args[9], "N");
+       int64_t k = CooperativeConstant(call->args[10], "K");
+@@ -181,17 +181,24 @@ std::string CodeGenMetal::CooperativeTensorRef(const Expr& data, const Expr& ind
+ }
+ 
+ std::string CodeGenMetal::CooperativeMemoryView(const Expr& pointer, const Expr& stride,
+-                                                int64_t rows, int64_t columns, bool column_major) {
+-  CheckCooperativeMemory(pointer, stride, rows, columns, column_major);
++                                                int64_t rows, int64_t columns, bool column_major,
++                                                const Expr& actual_k, bool k_row) {
++  int64_t checked_k = 1;
++  if (const auto* literal = actual_k.as<IntImmNode>()) checked_k = literal->value;
++  CheckCooperativeMemory(pointer, stride, actual_k.defined() && k_row ? checked_k : rows,
++                         actual_k.defined() && !k_row ? checked_k : columns, column_major);
+   std::string scope = pointer->ty.as<PointerTypeNode>()->storage_scope;
+   int64_t ld = CooperativeConstant(stride, "leading stride");
+   // tensor_inline uses (column, row) coordinates. This helper also serves
+   // transfers; MMA inputs use physical row-major views plus descriptor flags.
+   std::ostringstream os;
+-  std::string extents =
+-      "extents<int, " + std::to_string(columns) + ", " + std::to_string(rows) + ">";
++  std::string extents = "extents<int, " +
++      (actual_k.defined() && !k_row ? "dynamic_extent" : std::to_string(columns)) + ", " +
++      (actual_k.defined() && k_row ? "dynamic_extent" : std::to_string(rows)) + ">";
+   os << "tensor<" << (scope == "global" ? "device" : "threadgroup") << " float, " << extents
+-     << ", tensor_inline>(" << PrintExpr(pointer) << ", " << extents << "{}, array<int, 2>{"
++     << ", tensor_inline>(" << PrintExpr(pointer) << ", " << extents << "{";
++  if (actual_k.defined()) os << "int(" << PrintExpr(actual_k) << ")";
++  os << "}, array<int, 2>{"
+      << (column_major ? ld : 1) << ", " << (column_major ? 1 : ld) << "})";
+   return os.str();
+ }
+@@ -201,7 +208,9 @@ void CodeGenMetal::PrintCooperativeCall(const CallNode* op, std::ostream& os) {
+   bool load = op->op.same_as(builtin::cooperative_tensor_load());
+   bool store = op->op.same_as(builtin::cooperative_tensor_store());
+   bool multiply = op->op.same_as(builtin::cooperative_tensor_multiply_from_memory());
+-  TVM_FFI_ICHECK_EQ(op->args.size(), fill ? 5 : (load || store || multiply ? 11 : 13));
++  size_t ordinary_count = fill ? 5 : (load || store || multiply ? 11 : 13);
++  bool bounded_k = !fill && !load && !store && op->args.size() == ordinary_count + 1;
++  TVM_FFI_ICHECK(op->args.size() == ordinary_count || bounded_k);
+   std::string d = CooperativeTensorRef(op->args[0], op->args[1]);
+   const auto& info = cooperative_tensors_.at(GetSimdgroupBufferVar(op->args[0]).get());
+   if (fill) {
+@@ -235,16 +244,26 @@ void CodeGenMetal::PrintCooperativeCall(const CallNode* op, std::ostream& os) {
+          << CooperativeMemoryView(op->args[2], op->args[3], info.m, info.n, false) << ")";
+     }
+   } else {
++    Expr actual_k;
++    if (bounded_k) {
++      actual_k = op->args[ordinary_count];
++      TVM_FFI_ICHECK(actual_k->ty == PrimType::Int(32) || actual_k->ty == PrimType::Int(64))
++          << "Metal MPP bounded K requires a scalar signed integer";
++      if (const auto* literal = actual_k.as<IntImmNode>()) {
++        TVM_FFI_ICHECK(literal->value > 0 && literal->value <= info.k)
++            << "Metal MPP bounded K must be positive and no greater than nominal K";
++      }
++    }
+     std::string c;
+     if (!multiply) c = CooperativeTensorRef(op->args[6], op->args[7]);
+     // The MPP matmul ABI requires its transpose in the operation descriptor.
+     // Merely exchanging tensor strides does not implement a transposed MMA.
+     std::string av =
+         CooperativeMemoryView(op->args[2], op->args[3], info.transpose_a ? info.k : info.m,
+-                              info.transpose_a ? info.m : info.k, false);
++                              info.transpose_a ? info.m : info.k, false, actual_k, info.transpose_a);
+     std::string bv =
+         CooperativeMemoryView(op->args[4], op->args[5], info.transpose_b ? info.n : info.k,
+-                              info.transpose_b ? info.k : info.n, false);
++                              info.transpose_b ? info.k : info.n, false, actual_k, !info.transpose_b);
+     std::string a = name_supply_->FreshName("mpp_left");
+     std::string b = name_supply_->FreshName("mpp_right");
+     os << "{ ";
+@@ -791,6 +810,7 @@ void RegisterMetalCodegen() {
+   namespace refl = tvm::ffi::reflection;
+   refl::GlobalDef().def("target.build.metal", BuildMetal);
+   refl::GlobalDef().def("target.metal.mpp_memory_contract_version", []() { return 2; });
++  refl::GlobalDef().def("target.metal.mpp_bounded_k_contract_version", []() { return 1; });
+ }
+ }  // namespace codegen
+ }  // namespace tvm
+diff --git a/src/backend/metal/codegen/codegen_metal.h b/src/backend/metal/codegen/codegen_metal.h
+index f1c0cb2bc..ff97e7941 100644
+--- a/src/backend/metal/codegen/codegen_metal.h
++++ b/src/backend/metal/codegen/codegen_metal.h
+@@ -76,7 +76,8 @@ class CodeGenMetal final : public CodeGenC {
+   void CollectCooperativeTensors(const PrimFunc& f);
+   std::string CooperativeTensorRef(const Expr& data, const Expr& index);
+   std::string CooperativeMemoryView(const Expr& pointer, const Expr& stride, int64_t rows,
+-                                    int64_t columns, bool column_major);
++                                    int64_t columns, bool column_major,
++                                    const Expr& actual_k = Expr(), bool k_row = false);
+   void PrintCooperativeCall(const CallNode* op, std::ostream& os);
+   std::unordered_map<const VarNode*, std::string> simdgroup_dtype_;
+   int thread_index_bits_{32};

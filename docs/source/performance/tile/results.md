@@ -260,9 +260,10 @@ The two rejected view requests have K tails. MPP's unguarded address contract
 prevents forwarding a region that is not proved fully in bounds; materializing
 the fixed large tiles then fails the bounded resource/geometry planner.
 This is a fixed-schedule admission failure, not general MPP unavailability:
-the other six paths validate both shapes. A bounded full/tail realization and
-a shape-aware resource search remain work to do; no substitute block hides
-the rejection. The {download}`loader preflight
+the other six paths validate both shapes. At that checkpoint, bounded full/tail
+realization and shape-aware resource search remained open; no substitute block
+hid the rejection. The later bounded-K result below does not rewrite those
+historical failures. The {download}`loader preflight
 <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-large-matrices/environment-preflight.md>`
 also preserves the initial unpatched-TVM capability failures separately.
 
@@ -275,6 +276,65 @@ timing metrics. These deterministic FP32 tests are not low-precision or
 end-to-end model coverage. The separate
 [wide-row reduction cohort](reductions.md#wide-rows-and-large-working-sets)
 extends normalization to width 16384 and a 512 MiB input/output payload.
+
+### Bounded-K MPP views: legal tails, remaining library gap
+
+The September 6 [bounded-K proof](../../internals/tile/matrix.md#bounded-k-views-avoid-nominal-padding-storage)
+admits a common zero-padded K suffix as two immutable physical input views.
+The previously fixed 128×32×1024 schedule now needs **zero shared allocation**
+in these cases, instead of nominal 640 KiB A/B staging. The frozen old v2
+binary rejects the three K-tail requests; there is no old execution time to
+divide by. M/N tails, extra masks, nonzero fill and unequal A/B K intervals
+remain outside this forwarding capability. No model coefficients or DSL
+entities change.
+
+The fixed four-shape, seven-route, 14-order replay validates **392/392 full
+outputs** (8,325,201,920 checked elements) and 26 unchanged artifacts. The
+small shape wins all host-throughput pairs against MPS/Torch, but has mixed
+GPU pairs against MPS. Every nontrivial shape still has a paired GPU time
+ratio above one against both libraries. **This is not general library parity.**
+
+```{table} Bounded-K cohort: GPU command-buffer batch microseconds
+:class: benchmark-table
+
+| M×N×K | TIRx MPP views µs | MPS µs | Torch µs | Paired view/MPS | Paired view/Torch |
+|---|---:|---:|---:|---:|---:|
+| 128×128×61 | 8.592 | 8.938 | 13.889 | 0.962 | 0.658 |
+| 1024×1024×1537 | 511.423 | 433.547 | 437.150 | 1.180 | 1.171 |
+| 4096×4096×11008 | 60221.083 | 53208.125 | 54887.771 | 1.097 | 1.124 |
+| 8192³ | 241151.958 | 220077.896 | 210055.750 | 1.075 | 1.182 |
+```
+
+Views lose 5/14, 14/14, 10/14 and 8/14 GPU-throughput pairs to MPS, and
+0/14, 14/14, 12/14 and 12/14 to Torch, respectively. At 8192³ the generated
+view source is **identical to the earlier scale cohort**. Its current
+192.820–285.891 ms range and cross-session differences are not a compiler
+speedup or evidence of a particular thermal/cache cause.
+
+Separate **batched E2E** view times are 8.845, 521.213, 57790.291 and
+193842.396 µs. Paired view/MPS ratios are 0.889/1.169/1.119/1.204;
+view/Torch ratios are 0.302/1.141/1.141/1.161. Single-call latency remains
+separate and retains regressions. The no-counter GPU interval includes
+command-buffer work/gaps, not isolated shader instruction time; instrumented
+compute-pass samples remain diagnostic.
+
+Against the retained **materialized 32×32×32 TIRx MPP** control, paired GPU
+ratios are 0.677/0.439/0.739/0.776, all 14 pairs improving at every shape.
+This comparison includes both view realization and different geometry;
+it is not a same-schedule ablation of the new proof. The large K-tail case
+still has one host-throughput regression against that control.
+
+The {download}`complete seven-route report
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260906-mpp-bounded-k/notes.md>`
+and {download}`independent audit
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260906-mpp-bounded-k/audit.json>`
+retain every path, all four metrics, ranges, orders, source hashes and old
+admission failures. A separate 36-output
+{download}`operation-scope screen
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260906-mpp-scope/notes.md>`
+finds no universally better collective width; no single-order minimum becomes
+a default. M/N-edge atoms, physical K chunking, reuse and distribution remain
+the next realization work, followed by independent model/search validation.
 
 ### CPU TIRx: reference gaps and proved provider realizations
 

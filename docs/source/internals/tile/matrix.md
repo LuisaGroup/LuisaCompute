@@ -152,6 +152,54 @@ staged MPP controls and selects/replays forwarding candidates separately. A
 measured choice belongs to the specialized configuration, not to a hard-coded
 shape dispatch in the bridge.
 
+## Bounded K views avoid nominal padding storage
+
+The optional `metal-mpp-bounded-k-v1.patch`, applied after MPP memory v2,
+adds a separately checked capability without changing the DSL or TileIR.
+It distinguishes the **logical** contraction tile BK from the **physical**
+input interval `actual_k = min(BK, source_k - origin_k)`. M/N still have to
+be fully in bounds; this is not yet a general masked tensor atom.
+
+~~~text
+logical A[BM, BK] / B[BK, BN]
+              |
+ immutable + noalias + dominance
+              |
+ canonical zero fill + unit K map
+              |
+equal positive actual_k; full M/N
+              |
+ A[BM, actual_k] / B[actual_k, BN]
+              |
+     MPP / pipeline / store
+
+missing proof -> strict snapshots
+~~~
+
+The matcher derives this from native expression identities and enclosing
+execution domains, not kernel names. It omits only a common **zero×zero**
+suffix; a one-sided mask could multiply zero by an unmasked value and is
+not interchangeable. A/B transposes retain their descriptor flags and
+physical leading strides. The backend receives a positive signed actual-K
+extent in both inline tensors; the nominal M/N/K and cooperative accumulator
+contract remain unchanged.
+
+Guarded forwarding is transactional. Every reassociable MMA in the candidate
+must still receive a verified atom plan; otherwise the compiler retries the
+original strict path, including its usual resource errors. Missing TVM
+capability, M/N tails, additional masks, nonzero fills and unequal A/B K
+intervals do not create a scalar fallback disguised as a successful MPP view
+plan. Existing noalias, mutation, escape, manual-memory and recurrence gates
+remain in force.
+
+For BM=128, BN=32, BK=1024, this can remove the nominal 640 KiB A/B staging
+requirement even when the final contraction is short. The existing resource
+solver sees the resulting physical allocations; its work score still charges
+nominal K conservatively. This extends legality, not the cost model's accuracy
+or a claim of MPS parity. M/N edge atoms and automatic physical K retiming
+remain separate work. The patch ABI and build order are documented in
+[the TVM patch README](https://github.com/LuisaGroup/LuisaCompute/blob/codex/tile-programming-design/src/tile/bridge/tirx/patches/README.md).
+
 ## Implemented matrix mapping family
 
 The current planner targets a proved Metal group-level FP32 MMA with a
@@ -471,8 +519,8 @@ realized body + immutable-input / partition / participation facts
 ~~~
 
 `GroupPlan::independent_subgroups` records the proof independently of the
-profitability choice. `PlannerOptions::elide_independent_subgroup_barriers`
-is default-off and also requires the planner and `coalesce_group_barriers`
+profitability choice. The `elide_independent_subgroup_barriers` option in
+`PlannerOptions` is default-off and also requires the planner and `coalesce_group_barriers`
 enabled. Selecting it never supplies missing proof facts. The fixed-geometry
 {download}`A/B replay <../../../../scripts/benchmark/tile_torch/results/m1-max-20260904-subgroup-sync-replay/results.md>`
 is a counterexample to pricing each removed fence as a guaranteed benefit:

@@ -72,14 +72,15 @@ struct CompileOptions {
     bool cooperative_matrix{false};
     // Experimental Metal 4 / MPP memory-input realization through TVM's own
     // codegen, not the native backend. Requires the versioned TVM extension;
-    // unsupported installations fail closed. The existing solver selects the
-    // same legal geometry using SIMD-group reference costs, not MPP timings.
+    // unsupported installations fail closed. The solver scores its bounded
+    // geometry family with MPP-specific relative-work features, not timings.
     bool metal_mpp{false};
     // Optional snapshot-to-view forwarding before resource planning. Requires
     // noalias and proves immutable input, complete initialization, lexical
     // dominance, non-escape, and bounds. Ordinary CPU/GPU consumers retain
-    // guarded/zero-fill read expressions; Metal MPP requires fully in-bounds
-    // memory-input views.
+    // guarded/zero-fill read expressions. Metal MPP requires in-bounds physical
+    // rectangles; its optional bounded-K extension can omit a proved common
+    // zero-padded suffix while preserving the logical Tile shape.
     // No materialization policy is inferred from an external buffer's scope.
     bool forward_readonly_tile_loads{false};
     PlannerOptions planner;

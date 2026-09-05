@@ -104,6 +104,8 @@ struct MatrixView {
     uint64_t stride;
     bool transpose;
     tvm::tirx::BufferVar source;
+    // Present only for a proved zero-padded K suffix. M/N remain in bounds.
+    tvm::PrimExpr reduction_length;
 };
 
 [[nodiscard]] std::optional<MatrixView> matrix_projection(
@@ -152,6 +154,58 @@ struct MatrixView {
     // authority. Writable accumulators still require owned shared storage.
     if (!buffer.defined() || (buffer.scope() != "shared" && (writable || buffer.scope() != "global"))) { return {}; }
     return matrix_projection(std::move(buffer), load->indices, axes, row_axis, column_axis, rows, columns, load->buffer);
+}
+
+[[nodiscard]] std::optional<MatrixView> matrix_input(
+    const tvm::PrimExpr &value, const Axes &axes, uint32_t row_axis, uint32_t column_axis,
+    uint64_t rows, uint64_t columns,
+    const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer,
+    bool bounded_k, luisa::span<const tvm::tirx::ForNode *const> domain) {
+    if (auto direct = matrix_view(value.as<tvm::tirx::BufferLoadNode>(), axes, row_axis, column_axis, rows, columns, map_buffer)) { return direct; }
+    auto conditional = value.as<tvm::CallNode>();
+    if (!bounded_k || conditional == nullptr || !conditional->op.same_as(tvm::tirx::builtin::if_then_else()) ||
+        conditional->args.size() != 3u || !is_positive_zero(conditional->args[2].as_or_throw<tvm::PrimExpr>())) { return {}; }
+    auto capability = tvm::ffi::Function::GetGlobal("target.metal.mpp_bounded_k_contract_version");
+    if (!capability || (*capability)().cast<int64_t>() != 1) { return {}; }
+    auto load = conditional->args[1].as<tvm::tirx::BufferLoadNode>();
+    if (load == nullptr || load->predicate || load->indices.size() != 2u || load->buffer->shape.size() != 2u) { return {}; }
+    auto buffer = map_buffer(load->buffer);
+    // Bounded memory inputs must be explicitly authorized immutable globals;
+    // this is not permission to omit padding of shared/manual storage.
+    if (!buffer.defined() || buffer.scope() != "global") { return {}; }
+    tvm::PrimExpr bounds = tvm::IntImm::Bool(true);
+    tvm::PrimExpr length;
+    auto outer = row_axis == 2u ? column_axis : row_axis;
+    auto outer_extent = row_axis == 2u ? columns : rows;
+    auto reduction_extent = row_axis == 2u ? rows : columns;
+    auto outer_dimensions = 0u;
+    for (auto i = 0u; i < 2u; i++) {
+        auto index = affine_index(load->indices[i], axes);
+        auto extent = buffer->shape[i].as<tvm::IntImmNode>();
+        if (!index || extent == nullptr || extent->value <= 0 || extent->value > std::numeric_limits<int32_t>::max()) { return {}; }
+        std::array<uint64_t, 3u> k_stride{}, outer_stride{};
+        k_stride[2u] = 1u;
+        outer_stride[outer] = 1u;
+        if (index->strides == k_stride) {
+            if (length.defined() || !prove_in_loop_domain(index->base >= 0 && index->base < buffer->shape[i], domain)) { return {}; }
+            length = tvm::min(buffer->shape[i] - index->base, tvm::IntImm::Int64(static_cast<int64_t>(reduction_extent)));
+        } else if (index->strides == outer_stride) {
+            outer_dimensions++;
+            auto last = index->base + tvm::IntImm::Int64(static_cast<int64_t>(outer_extent));
+            if (!prove_in_loop_domain(index->base >= 0 && last <= buffer->shape[i], domain)) { return {}; }
+        } else {
+            return {};
+        }
+        bounds = bounds && load->indices[i] >= 0 && load->indices[i] < buffer->shape[i];
+    }
+    if (!length.defined() || outer_dimensions != 1u ||
+        !prove_in_loop_domain(tvm::equal(conditional->args[0].as_or_throw<tvm::PrimExpr>(), bounds), domain)) { return {}; }
+    // The actual K suffix can be shorter than the nominal tile/leading stride.
+    // Only that dimension relaxes the full-rectangle projection check.
+    auto result = matrix_projection(buffer, load->indices, axes, row_axis, column_axis,
+                                    row_axis == 2u ? 1u : rows, column_axis == 2u ? 1u : columns, load->buffer);
+    if (result) { result->reduction_length = std::move(length); }
+    return result;
 }
 
 }// namespace
@@ -231,6 +285,7 @@ struct MatchedMatrix {
     std::optional<MatrixView> c;
     tvm::PrimExpr initial;
     int64_t m, n, k;
+    tvm::PrimExpr reduction_length;
 };
 
 [[gnu::noinline]] int32_t native_fragment_index(const tvm::tirx::Layout &layout,
@@ -246,7 +301,8 @@ struct MatchedMatrix {
 
 [[nodiscard]] std::optional<MatchedMatrix> match_metal_matrix(
     const tvm::tirx::For &loop,
-    const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer) {
+    const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer,
+    bool bounded_k = false, luisa::span<const tvm::tirx::ForNode *const> ancestors = {}) {
     auto permission = loop->annotations.Get(mma_annotation);
     auto independent = loop->annotations.Get(independent_elements_annotation);
     if (!permission || !independent || loop->annotations.size() != 2u) { return {}; }
@@ -272,19 +328,29 @@ struct MatchedMatrix {
     auto product = sum->b.as<tvm::tirx::MulNode>();
     if (accumulator == nullptr || product == nullptr || accumulator->predicate ||
         !accumulator->buffer.same_as(update->buffer) || !tvm::ffi::StructuralEqual{}(accumulator->indices, update->indices)) { return {}; }
-    auto a_load = product->a.as<tvm::tirx::BufferLoadNode>();
-    auto b_load = product->b.as<tvm::tirx::BufferLoadNode>();
     Axes axes{loop->loop_var, column_loop->loop_var, contraction->loop_var};
-    auto a = matrix_view(a_load, axes, 0u, 2u, m, k, map_buffer);
-    auto b = matrix_view(b_load, axes, 2u, 1u, k, n, map_buffer);
+    luisa::vector<const tvm::tirx::ForNode *> domain{ancestors.begin(), ancestors.end()};
+    for (auto axis : {loop.get(), column_loop, contraction}) {
+        if (std::find(domain.begin(), domain.end(), axis) == domain.end()) { domain.emplace_back(axis); }
+    }
+    auto a = matrix_input(product->a, axes, 0u, 2u, m, k, map_buffer, bounded_k, domain);
+    auto b = matrix_input(product->b, axes, 2u, 1u, k, n, map_buffer, bounded_k, domain);
     auto d = matrix_view(accumulator, axes, 0u, 1u, m, n, map_buffer, true);
     if (!a || !b || !d || d->buffer.same_as(a->buffer) || d->buffer.same_as(b->buffer)) { return {}; }
+    tvm::PrimExpr reduction_length;
+    if (a->reduction_length.defined() || b->reduction_length.defined()) {
+        auto ak = a->reduction_length.defined() ? a->reduction_length : tvm::IntImm::Int64(k);
+        auto bk = b->reduction_length.defined() ? b->reduction_length : tvm::IntImm::Int64(k);
+        // Omit only a common zero*zero suffix, never 0*an unmasked operand.
+        if (!prove_in_loop_domain(tvm::equal(ak, bk), domain)) { return {}; }
+        reduction_length = std::move(ak);
+    }
     // Initialization is either one uniform literal or an independent C tile.
     auto fill = init->value.as<tvm::FloatImmNode>();
     auto c = matrix_view(init->value.as<tvm::tirx::BufferLoadNode>(), axes, 0u, 1u, m, n, map_buffer);
     if ((fill == nullptr || init->value.ty() != tvm::PrimType::Float(32)) && !c) { return {}; }
     if (c && d->buffer.same_as(c->buffer)) { return {}; }
-    return MatchedMatrix{axes, *a, *b, *d, c, init->value, m, n, k};
+    return MatchedMatrix{axes, *a, *b, *d, c, init->value, m, n, k, std::move(reduction_length)};
 }
 
 [[nodiscard]] tvm::tirx::Stmt rectangular_matrix(
@@ -414,6 +480,7 @@ struct MatchedMatrix {
     mma_args.push_back(tvm::IntImm::Int64(k));
     mma_args.push_back(tvm::IntImm::Bool(matrix.a.transpose));
     mma_args.push_back(tvm::IntImm::Bool(matrix.b.transpose));
+    if (matrix.reduction_length.defined()) { mma_args.push_back(matrix.reduction_length); }
     auto multiply = tvm::tirx::Evaluate{tvm::Call{tvm::PrimType::Void(), mma_op, std::move(mma_args)}};
     auto destination = loop_emission == nullptr ? matrix.d : *matrix.c;
     if (direct) {
@@ -440,8 +507,9 @@ struct MatchedMatrix {
 
 std::optional<MatrixWorkload> metal_matrix_workload(
     const tvm::tirx::For &loop,
-    const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer) {
-    if (auto matched = match_metal_matrix(loop, map_buffer)) {
+    const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer,
+    bool bounded_k, luisa::span<const tvm::tirx::ForNode *const> ancestors) {
+    if (auto matched = match_metal_matrix(loop, map_buffer, bounded_k, ancestors)) {
         return MatrixWorkload{static_cast<uint64_t>(matched->m), static_cast<uint64_t>(matched->n), static_cast<uint64_t>(matched->k)};
     }
     return {};
@@ -449,8 +517,9 @@ std::optional<MatrixWorkload> metal_matrix_workload(
 
 std::optional<MatrixCarry> metal_matrix_carry(
     const tvm::tirx::For &loop,
-    const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer) {
-    auto matrix = match_metal_matrix(loop, map_buffer);
+    const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer,
+    bool bounded_k, luisa::span<const tvm::tirx::ForNode *const> ancestors) {
+    auto matrix = match_metal_matrix(loop, map_buffer, bounded_k, ancestors);
     if (!matrix || !matrix->c) { return {}; }
     // A valid MMA may use C as A or B. Such a recurrence needs its newly
     // produced elements visible to the next multiply, not only to CF. Keeping
@@ -503,11 +572,12 @@ std::optional<MatrixLoopEmission::Output> metal_matrix_output(
 tvm::tirx::Stmt try_metal_matrix(
     const tvm::tirx::For &loop, const tvm::tirx::PrimVar &thread, uint64_t threads,
     const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer,
-    const MatrixDistribution &distribution, MatrixLoopEmission *loop_emission, bool metal_mpp) {
+    const MatrixDistribution &distribution, MatrixLoopEmission *loop_emission, bool metal_mpp,
+    luisa::span<const tvm::tirx::ForNode *const> ancestors) {
     if (threads < 32u || threads % 32u != 0u) { return {}; }
-    auto matched = match_metal_matrix(loop, map_buffer);
+    auto matched = match_metal_matrix(loop, map_buffer, metal_mpp, ancestors);
     if (!matched) { return {}; }
-    auto &[axes, a_view, b_view, d_view, c, initial, m, n, k] = *matched;
+    auto &[axes, a_view, b_view, d_view, c, initial, m, n, k, reduction_length] = *matched;
     auto a = &a_view;
     auto b = &b_view;
     auto d = &d_view;
@@ -517,7 +587,7 @@ tvm::tirx::Stmt try_metal_matrix(
         workload.has_direct_output = loop_emission != nullptr && loop_emission->output.has_value();
         if (threads > std::numeric_limits<uint32_t>::max() ||
             !verify_matrix_distribution(workload, distribution, static_cast<uint32_t>(threads), 32u)) { return {}; }
-        if (loop_emission != nullptr && (!distribution.persistent_accumulator || !metal_matrix_carry(loop, map_buffer))) { return {}; }
+        if (loop_emission != nullptr && (!distribution.persistent_accumulator || !metal_matrix_carry(loop, map_buffer, metal_mpp, ancestors))) { return {}; }
         if (distribution.direct_accumulator_store &&
             (loop_emission == nullptr || !loop_emission->output || loop_emission->initial.as<tvm::FloatImmNode>() == nullptr ||
              loop_emission->initial.ty() != tvm::PrimType::Float(32))) { return {}; }

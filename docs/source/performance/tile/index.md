@@ -44,13 +44,23 @@ also retain output-allocation, fusion and fast-math differences.
 
 ## Results by route
 
-**Large Metal GEMM still falls short.** The new 14-round
+**Large Metal GEMM still falls short.** The earlier 14-round
 [scale test](results.md#larger-matrices-the-1024-cubed-win-does-not-generalize)
 covers 2048³/4096³/8192³, two large rectangles and a ragged shape. At 8192³,
 native MPP's paired GPU/Torch time ratio is 1.985; TIRx→MPP views reaches
 1.125 but loses all 14 GPU pairs. Two tail shapes reject the frozen large-view
 schedule, while the other paths validate them. No new per-shape tuning is
 claimed. There are 560 passing complete outputs and 28 retained rejections.
+
+The subsequent [bounded-K view extension](results.md#bounded-k-mpp-views-legal-tails-remaining-library-gap)
+admits three fixed K-tail requests, including 4096×4096×11008, without nominal
+A/B shared staging. Its four-shape, seven-path replay passes 392 complete
+outputs. Paired GPU view/MPS ratios for 1024×1024×1537, 4096×4096×11008 and
+8192³ are 1.180/1.097/1.075; view/Torch ratios are 1.171/1.124/1.182.
+Small-shape host throughput wins, but large shapes still lack parity and
+retain substantial variation. The 8192³ view source is unchanged, so this
+new session is not evidence of a compiler speedup at that shape. M/N-tail
+forwarding and broader physical K/reuse choices remain open.
 
 The earlier result remains historical, not a scale guarantee. In its 14-round
 FP32 1024³ replay, TIRx-to-MPP views take 270.675 µs, native MPP 287.137 µs,
@@ -132,7 +142,13 @@ unrelated worktree's broader CTest status. The new 8192³ MPS capture is saved
 locally; Xcode inspection timed out, leaving large-shape counter attribution
 open rather than inferred from the old 1024³ profile.
 
-The next milestone is bounded full/tail matrix realization and mapping/resource
+The bounded-K checkpoint adds 1,857 passing Metal matrix assertions in 28
+tests, old-v2 compatibility, five selected CTests and 95 passing Python tests.
+Its independent audit checks 392 full-output receipts, 26 unchanged artifacts
+and eight deliberately corrupted evidence cases. This does not change the
+unrelated barrier-assertion boundary described above.
+
+The next milestone is M/N-edge matrix realization, physical K/reuse choices and mapping/resource
 selection that scales beyond 1024³, with independently replayed acceptance and
 explicit GPU/E2E objectives. Broader dtypes, layouts, production LLM workloads, native MPP coverage
 and direct XIR performance remain open. A small cohort win is not the acceptance

@@ -52,16 +52,17 @@ Thus memory orientation does not redefine the execution distribution. Each
 materialized fragment currently requires one consistent M/N/K and A/B layout
 contract across its MMA uses; incompatible uses are rejected.
 
-The MPP option uses the existing exact rectangular distribution selected by the
-SIMD-group planner. `GroupPlan::cost` therefore remains a **reference geometry
-estimate**, not MPP instruction work, measured register usage, or a calibrated
-MPP cost model. Late worker-private prefetching is disabled for this realization.
+The MPP option searches the existing exact rectangular distribution family with
+`MatrixCostBasis::METAL_MPP_MEMORY`: MPP-specific relative-work features and
+backend-overridable coefficients. `GroupPlan::cost` is not a time prediction
+or measured register usage, and the earlier small-shape calibration does not
+establish large-shape accuracy. Late worker-private prefetching is disabled for this realization.
 Ordered/rejected MMA patterns still retain their semantic reference expansion.
 An otherwise matched MMA with a nonrectangular plan is rejected, not silently
 passed off as an MPP kernel.
 
 `CompileOptions::forward_readonly_tile_loads` is a separate, default-off option
-requiring `metal_mpp`. Before pipeline/resource planning, the bridge can forward
+also used by non-MPP paths. Before pipeline/resource planning, the bridge can forward
 compiler-local snapshots to immutable parameter views. It requires the caller's
 `noalias` contract, audits the entire function for writes/escapes/unknown effects,
 matches a complete independent-element copy, proves its guard and indices with
@@ -74,13 +75,47 @@ accepts only explicitly authorized input identities; `global` alone grants no
 alias permission. Writable accumulators still require owned storage.
 
 This makes a full-K memory-input MPP candidate possible without allocating full-K
-A/B shared tiles. It does not establish profitability or replace the reference
-cost model. The patch also fixes a TVM `PointerValueTypeRewrite` bug exposed by
+A/B shared tiles. It does not establish profitability or replace the MPP cost
+policy. The patch also fixes a TVM `PointerValueTypeRewrite` bug exposed by
 these large global strides: an address modular coefficient must not overflow the
 signed 16-bit lane encoding. Unrepresentable vectorization hints conservatively
 remain scalar, rather than turning into accidental scalable-vector types.
 
 ## Build in isolation
+
+### Optional bounded-K extension
+
+Apply `metal-mpp-bounded-k-v1.patch` **after** the v2 patch. It retains the
+original v2 ABI and separately advertises
+`target.metal.mpp_bounded_k_contract_version() == 1`. An installation without
+this capability keeps the strict, fully-in-bounds forwarding behavior.
+
+The memory multiply and multiply-accumulate calls may append one signed
+scalar integer `actual_k` (12 or 14 arguments respectively). Their nominal
+static M/N/K and destination layout contracts do not change. The caller
+must prove `0 < actual_k <= K`, uniform participation, immutable inputs, and
+valid full M×actual_k / actual_k×N memory rectangles at the supplied pointers.
+Strides must fit those **actual** rectangles. Dynamic values are caller
+preconditions, not runtime assertions; malformed literal extents, scalar
+types and known leading strides are rejected before launching.
+
+The code generator builds inline tensors with a dynamic K extent while M/N
+remain static. Transposes still belong to the descriptor. No extra buffer,
+CPU fallback, padding copy, precision reduction or Python source is involved.
+The bridge only omits a common zero×zero suffix: it proves canonical zero
+padding, equal actual A/B K lengths, nonnegative origins, positive lengths, unit-stride
+logical projections and fully in-bounds M/N under enclosing execution domains.
+It commits guarded forwarding only if every reassociable MMA still receives
+a verified atom plan; otherwise it retries the unchanged strict path. M/N
+tails, extra masks, nonzero fills and mismatched reduction intervals therefore
+retain snapshots. Accumulator lifetime, overwrite/accumulate mode, stage
+ordering and synchronization continue to use the existing proofs.
+
+This removes the nominal A/B shared allocation from eligible K-tail programs.
+The cost model still charges nominal K work conservatively; it is not a new
+calibration or a claim that the selected schedule beats MPS.
+
+### Commands
 
 Use a clean checkout at the pinned commit; initialize its `3rdparty/tvm-ffi`
 submodule recursively. Set these paths to separate, task-owned directories:
@@ -93,6 +128,9 @@ LUISA_BUILD=/path/to/luisa-mpp-build
 
 git -C "$TVM_SRC" apply --check "$LUISA_SRC/src/tile/bridge/tirx/patches/metal-mpp-memory-v2.patch"
 git -C "$TVM_SRC" apply "$LUISA_SRC/src/tile/bridge/tirx/patches/metal-mpp-memory-v2.patch"
+# Optional: enable proved zero-padded K suffixes without nominal shared tiles.
+git -C "$TVM_SRC" apply --check "$LUISA_SRC/src/tile/bridge/tirx/patches/metal-mpp-bounded-k-v1.patch"
+git -C "$TVM_SRC" apply "$LUISA_SRC/src/tile/bridge/tirx/patches/metal-mpp-bounded-k-v1.patch"
 
 cmake -S "$TVM_SRC" -B "$TVM_BUILD" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DUSE_LLVM=/opt/homebrew/opt/llvm@21/bin/llvm-config \
@@ -169,4 +207,4 @@ schedules and artifact fingerprints, including the remaining MPS gap.
 
 Keep native and TIRx schedules independently recorded. Do not infer a speedup
 from compilation success, compare GPU-event time with host-wall time, or call
-the SIMD-group reference cost a measured MPP cost.
+an analytic MPP cost a measured time.

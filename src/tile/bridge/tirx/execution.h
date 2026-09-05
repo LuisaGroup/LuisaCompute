@@ -80,8 +80,9 @@ struct ReadonlyViews {
 };
 
 // CPU scalar/SIMD consumers can retain the original guarded read expression.
-// Cooperative memory-input atoms currently require an unconditionally valid
-// address, so their default remains the stricter fully-in-bounds view policy.
+// Cooperative memory-input atoms require valid physical rectangles. The MPP
+// bounded-K candidate transactionally checks preserved guards against that
+// stronger atom contract; otherwise it retains strict snapshot forwarding.
 [[nodiscard]] ReadonlyViews forward_readonly_tile_loads(const tvm::tirx::PrimFunc &function, bool noalias, bool preserve_guards = false, bool cache_reused_inputs = false);
 
 // Fuse one automatic root and a same-domain, pointwise SSA chain into a
@@ -150,7 +151,8 @@ struct ReadonlyViews {
 // annotation or coincidentally named buffer alone cannot authorize an MMA.
 [[nodiscard]] std::optional<MatrixWorkload> metal_matrix_workload(
     const tvm::tirx::For &loop,
-    const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer);
+    const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer,
+    bool bounded_k = false, luisa::span<const tvm::tirx::ForNode *const> ancestors = {});
 
 struct MatrixCarry {
     tvm::tirx::BufferVar initial;
@@ -160,7 +162,8 @@ struct MatrixCarry {
 
 [[nodiscard]] std::optional<MatrixCarry> metal_matrix_carry(
     const tvm::tirx::For &loop,
-    const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer);
+    const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer,
+    bool bounded_k = false, luisa::span<const tvm::tirx::ForNode *const> ancestors = {});
 
 struct MatrixLoopEmission {
     tvm::tirx::Stmt before;
@@ -198,6 +201,6 @@ struct MatrixLoopEmission {
     const tvm::tirx::For &loop, const tvm::tirx::PrimVar &thread, uint64_t threads,
     const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer,
     const MatrixDistribution &distribution = {}, MatrixLoopEmission *loop_emission = nullptr,
-    bool metal_mpp = false);
+    bool metal_mpp = false, luisa::span<const tvm::tirx::ForNode *const> ancestors = {});
 
 }// namespace luisa::compute::tile::bridge::tirx::detail

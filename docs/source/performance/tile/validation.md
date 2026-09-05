@@ -3,6 +3,35 @@
 This record distinguishes executed correctness checks from performance claims.
 See [current status](index.md) for the latest bounded conclusion.
 
+## Bounded-K MPP input-view checks
+
+The September 6 bridge extension removes only a proved common zero-padded K
+suffix from immutable A/B views. The full selected build passes the Metal
+matrix suite: **1,857 assertions in 28 tests**. The same current binary also
+passes with the frozen older TVM v2 libraries: **1,548 assertions in 28
+registered tests**; optional bounded-K cases are skipped without the new
+capability. Five related CPU/execution/pipeline/planner/target CTests and all
+95 Python benchmark tests pass. These are selected tests, not a new
+whole-worktree all-green claim.
+
+The focused extension checks 69 complete outputs: 32 positive configurations
+run with two changed non-dyadic input sets; one two-stage pipeline
+configuration runs twice; and three semantic counterexamples run once each.
+All A/B transpose combinations, nonzero initial accumulators, K=7/61/1033/11008,
+nominal BK=1024, and physical K strides shorter than BK are covered. The
+FP64 oracle uses `atol=1e-4, rtol=2e-5`. Nonzero fill, an extra K mask and
+unequal A/B effective K intervals retain materialization and their original
+numerical results. Malformed actual-K types, zero/oversized lengths and known
+invalid leading strides fail before launch. Existing alias/manual-memory,
+M/N-tail and recurrence regressions remain in the full matrix suite.
+
+The prior local barrier-flag change remains present in both tested old and
+new binaries but is not part of this patch. The two older source assertions
+described below still prevent a general all-green-worktree claim. The
+[matrix reference](../../internals/tile/matrix.md#bounded-k-views-avoid-nominal-padding-storage)
+documents the capability and fallback boundary; fixed-request performance
+is reported separately from these regression checks.
+
 ## Larger-matrix benchmark coverage
 
 The September 5–6 scale cohort adds 560 passing complete GEMM replay outputs

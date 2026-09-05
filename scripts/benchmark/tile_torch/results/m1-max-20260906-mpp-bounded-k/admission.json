@@ -1,0 +1,135 @@
+{
+  "timestamp": "2026-09-05T18:23:24.300923+00:00",
+  "purpose": "admission only; no validated baseline execution or speed ratio",
+  "loader_environment": {
+    "DYLD_LIBRARY_PATH": "/private/tmp/luisa-mpp-bounds-baseline.398l4W/tvm-lib"
+  },
+  "artifacts_sha256": {
+    "/private/tmp/luisa-mpp-bounds-baseline.398l4W/bin/benchmark_tile_tirx": "eac5c905ac1698ff630cde103a7856b8f11fc26e3bc17aabe80886343b5d55ab",
+    "/private/tmp/luisa-mpp-bounds-baseline.398l4W/bin/libSPIRV.16.3.0.dylib": "b7be78508871167f76051de75b6ba56b519b96492c60155e8b6453b7838f23a6",
+    "/private/tmp/luisa-mpp-bounds-baseline.398l4W/bin/libglslang-default-resource-limits.16.3.0.dylib": "a722bbd9db115f842367af935597674cd2a74ad73fabfac8df715a3b6cbbca9d",
+    "/private/tmp/luisa-mpp-bounds-baseline.398l4W/bin/libglslang.16.3.0.dylib": "f864c25ca330cb53a2d755a50a73579b61f8940829ecf35494f235d6f659ca33",
+    "/private/tmp/luisa-mpp-bounds-baseline.398l4W/bin/libluisa-ast.dylib": "c14765aeee8490c28ae0ae7a47d5a5d4f871f00e86f1ab02bbc76e23efe4e49c",
+    "/private/tmp/luisa-mpp-bounds-baseline.398l4W/bin/libluisa-backend-metal.so": "75523e48d50df752e70e147a02963ed8876533eb8ec5432798d3451def4e2a4d",
+    "/private/tmp/luisa-mpp-bounds-baseline.398l4W/bin/libluisa-backend-simd.so": "c96c0e3c2645d33030dbd1ed877cb7d69811a42ee64fbce4bc3c50b9e94b27c9",
+    "/private/tmp/luisa-mpp-bounds-baseline.398l4W/bin/libluisa-benchmark-metal-timing.dylib": "01fc5fde7cf4fc531b6a96b0223f98965741652cf4068477f1691fee2aa60ef1",
+    "/private/tmp/luisa-mpp-bounds-baseline.398l4W/bin/libluisa-core.dylib": "dde51f1ec8a0816aa2caa5575a7354ecd4d70fad4717cdbdeddccef40cc6caa1",
+    "/private/tmp/luisa-mpp-bounds-baseline.398l4W/bin/libluisa-coro.dylib": "09310d529e2b780a83b23d3624b0f5b53828d914f49644985e19d1f1174dced0",
+    "/private/tmp/luisa-mpp-bounds-baseline.398l4W/bin/libluisa-dsl.dylib": "9281e93f08720f798b7cc282bbb72dc845a42efac08b7be287856d7c7b99025d",
+    "/private/tmp/luisa-mpp-bounds-baseline.398l4W/bin/libluisa-osl.dylib": "a9d317aad4a4138783e09944c6bf114351b2590b52d70f6a37cdd01b8451ba53",
+    "/private/tmp/luisa-mpp-bounds-baseline.398l4W/bin/libluisa-runtime.dylib": "c029a94ad23c52f32a802262be7d9a2da99b106a46c0021ba2214e2c15b263b1",
+    "/private/tmp/luisa-mpp-bounds-baseline.398l4W/bin/libluisa-tile-bridge-tirx.dylib": "e72d8f1f46ea9a723fe48a815619da2e26af23d9674023dc1cb516d2dce34407",
+    "/private/tmp/luisa-mpp-bounds-baseline.398l4W/bin/libluisa-tile-bridge-xir.dylib": "86a4f5d2e0029ffa4315763a1153ba64117ff5e09325e0df48bae1a77c738815",
+    "/private/tmp/luisa-mpp-bounds-baseline.398l4W/bin/libluisa-tile.dylib": "4b0b3cec0d41b3d36682b77b21743dbc95ee83f7926474a662ecf3a291664947",
+    "/private/tmp/luisa-mpp-bounds-baseline.398l4W/bin/libluisa-validation-layer.so": "1623432c278c2a9bbaeab4c0328cd572f4eadc03dff34a6288a9bcc5427aefa3",
+    "/private/tmp/luisa-mpp-bounds-baseline.398l4W/bin/libluisa-xir.dylib": "44851a00ea7e2d7d55cc986f07eb62f2699aefb4f14e299d2478683ad86bf0a6",
+    "/private/tmp/luisa-mpp-bounds-baseline.398l4W/tvm-lib/libtvm_compiler.dylib": "934f1bfea9246c6411bb88f6f07d571f3f84b6fe90b838c779092f845392b0fe",
+    "/private/tmp/luisa-mpp-bounds-baseline.398l4W/tvm-lib/libtvm_ffi.dylib": "e72520e54e941928b785dacd8c640a05dd750b7ba6c012ae025c65ee2df11517",
+    "/private/tmp/luisa-mpp-bounds-baseline.398l4W/tvm-lib/libtvm_ffi_testing.dylib": "93326fbd4681bbe82813c83aeb0eb48fa0ed688261a7a01199a2349e75f3b6cf",
+    "/private/tmp/luisa-mpp-bounds-baseline.398l4W/tvm-lib/libtvm_runtime.dylib": "be1104055e5df1851c51bc33185688f50bb35bba39f777aa28102559d0a888d0",
+    "/private/tmp/luisa-mpp-bounds-baseline.398l4W/tvm-lib/libtvm_runtime_extra.dylib": "c26fe7f8d3652b68288141e6df8dc68ff373a0f5994236b36bfd078f561d3b03",
+    "/private/tmp/luisa-mpp-bounds-baseline.398l4W/tvm-lib/libtvm_runtime_metal.dylib": "cbc039feb969c9c1b414bac6a668ccee6af045b47933700a844d83cd3ab9201d"
+  },
+  "results": [
+    {
+      "shape": [
+        128,
+        128,
+        61
+      ],
+      "command": [
+        "/private/tmp/luisa-mpp-bounds-baseline.398l4W/bin/benchmark_tile_tirx",
+        "metal",
+        "gemm",
+        "128",
+        "128",
+        "61",
+        "128",
+        "32",
+        "1024",
+        "1",
+        "1",
+        "1",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/tile-bounded-k-admission-qk0vm1rf/output.f32",
+        "group",
+        "1",
+        "mpp-views",
+        "vectorize",
+        "128",
+        "1"
+      ],
+      "returncode": 2,
+      "admitted": false,
+      "output_validated": false,
+      "stdout": "",
+      "stderr": "no legal Metal MPP group plan: each local matrix requires M or N to be a multiple of 16 and must fit shared-memory capacity and cost bounds\n"
+    },
+    {
+      "shape": [
+        1024,
+        1024,
+        1537
+      ],
+      "command": [
+        "/private/tmp/luisa-mpp-bounds-baseline.398l4W/bin/benchmark_tile_tirx",
+        "metal",
+        "gemm",
+        "1024",
+        "1024",
+        "1537",
+        "128",
+        "32",
+        "1024",
+        "1",
+        "1",
+        "1",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/tile-bounded-k-admission-qk0vm1rf/output.f32",
+        "group",
+        "1",
+        "mpp-views",
+        "vectorize",
+        "128",
+        "1"
+      ],
+      "returncode": 2,
+      "admitted": false,
+      "output_validated": false,
+      "stdout": "",
+      "stderr": "no legal Metal MPP group plan: each local matrix requires M or N to be a multiple of 16 and must fit shared-memory capacity and cost bounds\n"
+    },
+    {
+      "shape": [
+        4096,
+        4096,
+        11008
+      ],
+      "command": [
+        "/private/tmp/luisa-mpp-bounds-baseline.398l4W/bin/benchmark_tile_tirx",
+        "metal",
+        "gemm",
+        "4096",
+        "4096",
+        "11008",
+        "128",
+        "32",
+        "1024",
+        "1",
+        "1",
+        "1",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/tile-bounded-k-admission-qk0vm1rf/output.f32",
+        "group",
+        "1",
+        "mpp-views",
+        "vectorize",
+        "128",
+        "1"
+      ],
+      "returncode": 2,
+      "admitted": false,
+      "output_validated": false,
+      "stdout": "",
+      "stderr": "no legal Metal MPP group plan: each local matrix requires M or N to be a multiple of 16 and must fit shared-memory capacity and cost bounds\n"
+    }
+  ],
+  "artifacts_unchanged": true
+}

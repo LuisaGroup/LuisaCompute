@@ -482,6 +482,119 @@ void test_mpp_readonly_views(Runtime &runtime) {
     }
 }
 
+class BoundedKGuardTest final : public tvm::tirx::StmtExprMutator {
+private:
+    tvm::tirx::BufferVar _input;
+    uint32_t _kind;
+
+protected:
+    [[nodiscard]] tvm::Expr VisitExpr_(const tvm::CallNode *call) final {
+        if (call->op.same_as(tvm::tirx::builtin::if_then_else()) && call->args.size() == 3u) {
+            if (auto load = call->args[1].as<tvm::tirx::BufferLoadNode>(); load != nullptr && load->buffer.same_as(_input)) {
+                replacements++;
+                auto args = call->args;
+                if (_kind == 0u) {
+                    args.Set(2u, tvm::FloatImm{tvm::PrimType::Float(32), 1.0});
+                } else if (_kind == 1u) {
+                    args.Set(0u, args[0u].as_or_throw<tvm::PrimExpr>() &&
+                                     tvm::equal(tvm::floormod(load->indices[1u], tvm::IntImm::Int64(2)), tvm::IntImm::Int64(0)));
+                } else {
+                    auto indices = load->indices;
+                    indices.Set(1u, indices[1u] + tvm::IntImm::Int64(1));
+                    auto predicate = tvm::IntImm::Bool(true).as_or_throw<tvm::PrimExpr>();
+                    for (auto i = 0u; i < 2u; i++) { predicate = predicate && indices[i] >= 0 && indices[i] < _input->shape[i]; }
+                    args.Set(0u, predicate);
+                    args.Set(1u, tvm::tirx::BufferLoad{_input, std::move(indices)});
+                }
+                return tvm::Call{call->ty, call->op, std::move(args)};
+            }
+        }
+        return StmtExprMutator::VisitExpr_(call);
+    }
+
+public:
+    uint32_t replacements{0u};
+    BoundedKGuardTest(tvm::tirx::BufferVar input, uint32_t kind) : _input{std::move(input)}, _kind{kind} {}
+};
+
+void test_mpp_bounded_k_views(Runtime &runtime) {
+    if (runtime.target() != "metal" || !tvm::ffi::Function::GetGlobal("target.metal.mpp_bounded_k_contract_version")) { return; }
+    bridge::tirx::PlannerOptions planner;
+    planner.threads_per_group = 128u;
+    // Every candidate's nominal A/B staging exceeds the device's capacity.
+    // Include a short K tail, very short K, a long nondivisible K, and
+    // all physical A/B orientations. Inputs are non-dyadic; C is nonzero.
+    for (auto base : {Shape{32, 64, 7, 32, 32, 1024}, Shape{32, 64, 61, 32, 32, 1024},
+                      Shape{128, 64, 1033, 128, 32, 1024}, Shape{32, 64, 11008, 32, 32, 1024}}) {
+        for (auto ta : {false, true}) {
+            for (auto tb : {false, true}) {
+                for (auto literal : {false, true}) {
+                    auto cfg = base;
+                    cfg.transpose_a = ta;
+                    cfg.transpose_b = tb;
+                    auto kernel = gemm(runtime, cfg, 1u, 1u, literal, 0.0f);
+                    auto reference = runtime.build(kernel, true, true, true, false, planner, true);
+                    expect(!reference.ok());
+                    auto executable = runtime.build(kernel, true, true, true, false, planner, true, true);
+                    expect(executable.ok()) << cfg.k << " transpose=" << ta << '/' << tb << ": " << executable.error;
+                    if (!executable.ok()) { continue; }
+                    auto source = metal_source(executable.module.value());
+                    auto code = std::string_view{source.data(), source.size()};
+                    expect(code.find("dynamic_extent") != std::string_view::npos) << code;
+                    expect(code.find("{}.run(") != std::string_view::npos) << code;
+                    for (auto &plan : executable.plans) {
+                        expect(plan.metal_mpp && !plan.matrices.empty());
+                        expect(plan.shared_memory_bytes <= 32768u);
+                    }
+                    check_gemm(runtime, executable, cfg, 1.0, literal, false, false, 0.0f);
+                }
+            }
+        }
+    }
+    // Software-pipeline annotations must not erase the K-origin proof.
+    auto cfg = Shape{32, 64, 1033, 32, 32, 1024};
+    auto executable = runtime.build(gemm(runtime, cfg, 2u), true, true, true, false, planner, true, true);
+    expect(executable.ok()) << executable.error;
+    if (executable.ok()) { check_gemm(runtime, executable, cfg); }
+    // No zero-suffix rewrite for nonzero padding, extra masks, or different
+    // effective A/B reduction intervals. Validate the preserved computations.
+    for (auto kind : {0u, 1u, 2u}) {
+        auto shape = Shape{32, 64, 61, 32, 32, 16};
+        auto kernel = gemm(runtime, shape, 1u);
+        auto native = bridge::tirx::lower(kernel.function());
+        expect(static_cast<bool>(native));
+        if (!native) { continue; }
+        BoundedKGuardTest mutation{native.value->params[0u].as_or_throw<tvm::tirx::BufferVar>(), kind};
+        native.value.CopyOnWrite()->body = mutation(native.value->body);
+        expect(eq(mutation.replacements, 1u));
+        bridge::tirx::CompileOptions options;
+        options.target = R"({"kind":"metal","thread_warp_size":32})";
+        options.noalias = true;
+        options.cooperative_matrix = true;
+        options.metal_mpp = true;
+        options.forward_readonly_tile_loads = true;
+        options.planner = planner;
+        auto compiled = bridge::tirx::compile(native.value, kernel.function().name(), options);
+        expect(static_cast<bool>(compiled)) << compiled.error();
+        if (!compiled) { continue; }
+        auto source = metal_source(compiled.module().value());
+        expect(std::string_view{source.data(), source.size()}.find("dynamic_extent") == std::string_view::npos) << source;
+        auto entry = compiled.module().value()->GetFunction("matrix_gemm", true);
+        expect(entry.has_value());
+        if (!entry) { continue; }
+        auto a = runtime.upload<float>({32, 61}, vector<float>(32 * 61, 0.5f));
+        auto b = runtime.upload<float>({61, 64}, vector<float>(61 * 64, -0.25f));
+        auto c = runtime.upload<float>({32, 64}, vector<float>(32 * 64, 0.375f));
+        auto d = runtime.allocate<float>({32, 64});
+        (*entry)(a, b, c, d);
+        auto actual = runtime.download<float>(d, 32 * 64);
+        auto valid_k = kind == 0u ? 61u : kind == 1u ? 31u :
+                                                       60u;
+        auto expected = 0.375f - 0.125f * static_cast<float>(valid_k);
+        expect(std::all_of(actual.begin(), actual.end(), [&](float x) { return std::isfinite(x) && std::abs(x - expected) < 1e-5f; }));
+    }
+}
+
 void test_mpp_subgroup_isolation(Runtime &runtime) {
     if (runtime.target() != "metal" || !tvm::ffi::Function::GetGlobal("target.metal.mpp_memory_contract_version")) { return; }
     for (auto [cfg, window] : {std::pair{Shape{32, 64, 32, 32, 64, 16}, 1u},
@@ -596,17 +709,24 @@ void test_mpp_typed_contract(Runtime &runtime) {
                     return tvm::tirx::Evaluate{tvm::Call{tvm::PrimType::Void(), tvm::Op::Get(name), std::move(arguments)}};
                 };
                 // Bad cases are compile-only and must not reach a Metal launch.
-                for (auto bad : {0, 1, 2, 3}) {
+                for (auto bad : {0, 1, 2, 3, 4, 5, 6, 7}) {
                     if (bad != 0 && cd_layout != 0) { continue; }
+                    if (bad >= 4 && !tvm::ffi::Function::GetGlobal("target.metal.mpp_bounded_k_contract_version")) { continue; }
                     tvm::ffi::Array<tvm::tirx::Stmt> statements{tvm::tirx::AllocBuffer{cf}, tvm::tirx::AllocBuffer{df}};
                     statements.push_back(call("tirx.cooperative_tensor_load",
                                               {cf, i64(1), address(c), i64(column_major_c ? 16 : 8), i64(16), i64(8), tvm::IntImm::Bool(column_major_c),
                                                i64(16), i64(8), i64(24), i64(bad == 3 ? 0 : 2)}));
-                    statements.push_back(call("tirx.cooperative_tensor_multiply_accumulate_from_memory",
-                                              {df, i64(bad == 1 ? 1 : 0), address(a), i64(bad == 2 ? 1 : transpose_a ? 16 :
-                                                                                                                       24),
-                                               address(b), i64(transpose_b ? 24 : 8), cf, i64(1), i64(16), i64(8), i64(24),
-                                               tvm::IntImm::Bool(transpose_a), tvm::IntImm::Bool(transpose_b)}));
+                    tvm::ffi::Array<tvm::Expr> mma_args{
+                        df, i64(bad == 1 ? 1 : 0), address(a), i64(bad == 2 || bad == 7 ? 1 : transpose_a ? 16 :
+                                                                                                            24),
+                        address(b), i64(transpose_b ? 24 : 8), cf, i64(1), i64(16), i64(8), i64(24),
+                        tvm::IntImm::Bool(transpose_a), tvm::IntImm::Bool(transpose_b)};
+                    if (bad >= 4) {
+                        mma_args.push_back(bad == 6 ? tvm::Expr{tvm::FloatImm{tvm::PrimType::Float(32), 24.0}} :
+                                                      tvm::Expr{i64(bad == 4 ? 0 : bad == 5 ? 25 :
+                                                                                              24)});
+                    }
+                    statements.push_back(call("tirx.cooperative_tensor_multiply_accumulate_from_memory", std::move(mma_args)));
                     statements.push_back(call("tirx.cooperative_tensor_store",
                                               {df, i64(0), address(d), i64(column_major_d ? 16 : 8), i64(16), i64(8), tvm::IntImm::Bool(column_major_d),
                                                i64(16), i64(8), i64(24), i64(2)}));
@@ -624,8 +744,10 @@ void test_mpp_typed_contract(Runtime &runtime) {
                     if (bad == 0 && executable.ok()) {
                         check_gemm(runtime, executable, cfg, 1.0, false, column_major_c, column_major_d);
                     } else if (bad != 0) {
-                        auto expected = bad == 1 ? "fragment index out of range" : bad == 2 ? "leading stride" :
-                                                                                              "destination tensors";
+                        auto expected = bad == 1 ? "fragment index out of range" : bad == 2 || bad == 7 ? "leading stride" :
+                                                                               bad == 3                 ? "destination tensors" :
+                                                                               bad == 6                 ? "scalar signed integer" :
+                                                                                                          "positive";
                         expect(executable.error.find(expected) != luisa::string::npos) << executable.error;
                     }
                 }
@@ -1915,6 +2037,7 @@ int main(int argc, char *argv[]) {
     "tile_matrix_mpp_memory_inputs_and_nonzero_accumulator"_test = [&] { test_mpp_memory_realization(runtime); };
     "tile_matrix_mpp_typed_contract_and_rejections"_test = [&] { test_mpp_typed_contract(runtime); };
     "tile_matrix_mpp_readonly_view_proofs"_test = [&] { test_mpp_readonly_views(runtime); };
+    "tile_matrix_mpp_bounded_k_views"_test = [&] { test_mpp_bounded_k_views(runtime); };
     "tile_matrix_mpp_independent_subgroups_and_sync_boundaries"_test = [&] { test_mpp_subgroup_isolation(runtime); };
     "tile_matrix_stale_marker_does_not_tensorize"_test = [&] { test_stale_matrix_marker(runtime); };
     "tile_matrix_literal_initial_and_zero_contraction"_test = [&] { test_literal_initial_and_zero_contraction(runtime); };
