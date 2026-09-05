@@ -26,6 +26,7 @@ struct InlineInfo {
     size_t skipped_recursive_callable_count{0u};
     size_t skipped_structured_call_count{0u};
     size_t skipped_constrained_call_count{0u};
+    size_t skipped_noinline_call_count{0u};
     size_t skipped_metadata_call_count{0u};
     // Mandatory lowering may consume source-only metadata on a call because
     // the call itself has no one-to-one replacement after inlining. Semantic
@@ -73,18 +74,22 @@ struct InlineOptions {
     // explicitly consume them after the complete selected-call-site plan has
     // passed preflight. All other metadata remains unmappable.
     bool consume_call_site_diagnostic_metadata{false};
+    // A noinline marker is an optimization boundary rather than an execution
+    // semantic. Mandatory backend ABI legalization may explicitly override it;
+    // ordinary and inline-all optimization preserve it by default.
+    bool override_noinline{false};
 };
 
 // Single-block callees can be inlined into structured callers without changing
 // their CFG. By default, multi-block inlining is unstructured-CFG-only. The
 // opt-in option permits only a retained caller-side autodiff scope after the
 // caller and callee's ordinary structured CFG has already been destructured.
-// Signature-constrained callees and calls whose metadata cannot be assigned to
-// one replacement owner are rejected without mutation. An explicit mandatory
-// lowering option may consume only source-diagnostic call metadata after
-// atomic preflight; semantic metadata is always rejected. Bodyless callable
-// declarations are valid references but are never inline candidates. Callee
-// instruction and basic-block metadata is cloned one-to-one;
+// Signature-constrained and noinline callees, and calls whose metadata cannot
+// be assigned to one replacement owner, are rejected without mutation. An
+// explicit mandatory lowering option may consume only source-diagnostic call
+// metadata after atomic preflight; semantic metadata is always rejected.
+// Bodyless callable declarations are valid references but are never inline
+// candidates. Callee instruction and basic-block metadata is cloned one-to-one;
 // function/argument names are debug declarations and are not materialized into
 // the inline region.
 [[nodiscard]] LUISA_XIR_API InlineInfo inline_pass_run_on_module(Module *module, PassReport *report = nullptr) noexcept;

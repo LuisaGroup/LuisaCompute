@@ -17,8 +17,22 @@ namespace luisa::compute::hip {
 
 inline constexpr auto llvm_generated_callable_attribute =
     "luisa-generated-callable";
+inline constexpr auto llvm_explicit_noinline_attribute =
+    "luisa-explicit-noinline";
 inline constexpr auto llvm_constant_argument_specialization_attribute =
     "luisa-specialize-constant-argument";
+
+// Marks a generated callable and applies its source-owned inlining policy.
+// The explicit marker survives IPO so final cleanup can distinguish a
+// semantic noinline request from incidental policy on an ordinary Callable.
+void mark_hip_generated_callable(
+    llvm::Function &function,
+    bool requires_noinline) noexcept;
+
+// Removes optimizer-owned inline policy before IPO while preserving an
+// explicit source noinline request on generated callables.
+void prepare_hip_generated_callable_for_ipo(
+    llvm::Function &function) noexcept;
 
 // RetCC_AMDGPU_Func assigns at most VGPR0--VGPR31 to returned legalized
 // values. A larger return is demoted by GlobalISel to a caller-owned stack
@@ -34,9 +48,10 @@ inline constexpr size_t amdgpu_callable_argument_vgpr_limit = 32u;
 
 // Finalizes the attributes of an IPO-optimized function without discarding
 // any semantic, ABI, or optimizer-proven facts. Luisa's temporary provenance
-// marker and any inlining directive attached to a generated Callable are
-// removed; source-owned low-level wrapper attributes are preserved. Target
-// controls are replaced by the final shader configuration for every definition.
+// marker and optimizer-owned inlining directives attached to an ordinary
+// generated Callable are removed; an explicit source noinline request and
+// source-owned low-level wrapper attributes are preserved. Target controls are
+// replaced by the final shader configuration for every definition.
 void finalize_hip_function_attributes(
     llvm::Function &function,
     llvm::StringRef target_cpu,

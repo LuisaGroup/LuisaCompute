@@ -955,6 +955,7 @@ void CallableLibrary::deserialize_func_builder(detail::FunctionBuilder &builder,
     builder._tag = deser_value<Function::Tag>(ptr, pack);
     builder._requires_atomic_float = deser_value<bool>(ptr, pack);
     builder._requires_printing = deser_value<bool>(ptr, pack);
+    builder._requires_noinline = deser_value<bool>(ptr, pack);
     builder._block_size = deser_value<uint3>(ptr, pack);
     deser_ptr<Statement *>(&builder._body, ptr, pack);
     auto popped = callable_library_function_builder_deserialize_stack_pop();
@@ -1017,6 +1018,8 @@ void CallableLibrary::serialize_func_builder(detail::FunctionBuilder const &buil
     ser_value(builder._requires_atomic_float, vec);
     // requires printing
     ser_value(builder._requires_printing, vec);
+    // requires a retained call boundary
+    ser_value(builder._requires_noinline, vec);
     ser_value(builder._block_size, vec);
     // body
     ser_value(static_cast<Statement const &>(builder._body), vec);

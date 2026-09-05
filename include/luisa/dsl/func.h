@@ -624,6 +624,7 @@ namespace detail {
 
 struct CallableOutliner {
     luisa::string _name;
+    bool _requires_noinline{false};
     template<typename F>
     void operator%(F &&body) && noexcept;
 };
@@ -646,6 +647,21 @@ template<typename S>
     comment(std::forward<S>(s));
     CallableOutliner out{};
     out._name = name;
+    return out;
+}
+template<typename S>
+[[nodiscard]] inline auto outliner_noinline_with_comment(S &&s) noexcept {
+    comment(std::forward<S>(s));
+    CallableOutliner out{};
+    out._requires_noinline = true;
+    return out;
+}
+template<typename S>
+[[nodiscard]] inline auto outliner_noinline_with_comment(luisa::string_view name, S &&s) noexcept {
+    comment(std::forward<S>(s));
+    CallableOutliner out{};
+    out._name = name;
+    out._requires_noinline = true;
     return out;
 }
 }// namespace detail
@@ -704,13 +720,14 @@ Lambda(S &&, F &&) -> Lambda<detail::canonical_signature_t<std::remove_cvref_t<F
 namespace detail {
 template<typename F>
 inline void CallableOutliner::operator%(F &&body) && noexcept {
-    if (_name.empty())
-        return Callable{std::forward<F>(body)}();
-    else {
-        Callable c{std::forward<F>(body)};
-        c.set_name(_name);
-        return c();
-    }
+    Callable c{[&body, requires_noinline = _requires_noinline]() noexcept {
+        if (requires_noinline) {
+            FunctionBuilder::current()->mark_noinline();
+        }
+        body();
+    }};
+    if (!_name.empty()) { c.set_name(_name); }
+    c();
 }
 }// namespace detail
 }// namespace luisa::compute

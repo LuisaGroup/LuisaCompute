@@ -15,6 +15,7 @@
 #include <luisa/xir/metadata/curve_basis.h>
 #include <luisa/xir/metadata/location.h>
 #include <luisa/xir/metadata/name.h>
+#include <luisa/xir/metadata/no_inline.h>
 #include <luisa/xir/metadata/reg2mem_spill.h>
 #include <luisa/xir/metadata/signature_constraint.h>
 #include <luisa/xir/translators/xir_interchange.h>
@@ -1542,7 +1543,8 @@ struct MetadataRecord {
                        COMMENT,
                        CURVE_BASIS,
                        SIGNATURE_CONSTRAINT,
-                       REG2MEM_SPILL } kind;
+                       REG2MEM_SPILL,
+                       NO_INLINE } kind;
     luisa::string text;
     int64_t number{0};
 };
@@ -1633,6 +1635,8 @@ decode_reg2mem_spill_wire_kind(uint64_t kind) noexcept {
             } else {
                 return parser.fail("Unknown XIR reg2mem-spill metadata kind.");
             }
+        } else if (kind == "no_inline") {
+            record.kind = MetadataRecord::Kind::NO_INLINE;
         } else {
             return parser.fail("Unknown XIR metadata kind.");
         }
@@ -1665,6 +1669,9 @@ void apply_metadata_records(
             case MetadataRecord::Kind::REG2MEM_SPILL:
                 metadata = luisa::make_managed<Reg2MemSpillMD>(
                     static_cast<Reg2MemSpillKind>(iter->number));
+                break;
+            case MetadataRecord::Kind::NO_INLINE:
+                metadata = luisa::make_managed<NoInlineMD>();
                 break;
         }
         owner.metadata_list().push_front(std::move(metadata));
@@ -1732,6 +1739,9 @@ void apply_metadata_records(
                 }
                 break;
             }
+            case DerivedMetadataTag::NO_INLINE:
+                text.append("no_inline");
+                break;
             default:
                 error = "XIR contains an unknown metadata kind.";
                 return false;
@@ -2208,6 +2218,7 @@ binary_instruction_tag(uint64_t id) noexcept {
                 case MetadataRecord::Kind::CURVE_BASIS:
                 case MetadataRecord::Kind::SIGNATURE_CONSTRAINT:
                 case MetadataRecord::Kind::REG2MEM_SPILL:
+                case MetadataRecord::Kind::NO_INLINE:
                     break;
             }
         }
@@ -2343,6 +2354,9 @@ public:
                         _error = "XIR binary reg2mem-spill metadata has an unknown kind.";
                         return false;
                     }
+                    break;
+                case MetadataRecord::Kind::NO_INLINE:
+                    integer(6u);
                     break;
             }
         }
@@ -2587,6 +2601,9 @@ public:
                     record.number = static_cast<int64_t>(*kind);
                     break;
                 }
+                case 6u:
+                    record.kind = MetadataRecord::Kind::NO_INLINE;
+                    break;
                 default: return _reader.fail("Unknown XIR binary metadata kind.");
             }
             records.emplace_back(std::move(record));

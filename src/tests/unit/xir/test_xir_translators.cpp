@@ -17,8 +17,11 @@
 #include <luisa/xir/instructions/resource.h>
 #include <luisa/xir/instructions/switch.h>
 #include <luisa/xir/metadata/reg2mem_spill.h>
+#include <luisa/xir/metadata/no_inline.h>
 #include <luisa/xir/metadata/signature_constraint.h>
+#include <luisa/xir/passes/inline.h>
 #include <luisa/xir/translators/ast2xir.h>
+#include <luisa/xir/translators/xir2ast.h>
 #include <luisa/xir/translators/xir2text.h>
 #include <luisa/xir/translators/xir2json.h>
 #include <luisa/xir/verifier.h>
@@ -86,6 +89,91 @@ find_kernel_definition(const Module *module) noexcept {
 }// namespace
 
 void reg_ast2xir() {
+
+    "noinline_outline_survives_ast_xir_and_blocks_inlining"_test = [] {
+        auto ordinary = compute::detail::FunctionBuilder::define_callable([] {
+            auto *builder = compute::detail::FunctionBuilder::current();
+            auto *argument = builder->argument(Type::of<float>());
+            builder->return_(argument);
+        });
+        auto retained = compute::detail::FunctionBuilder::define_callable([] {
+            auto *builder = compute::detail::FunctionBuilder::current();
+            builder->mark_noinline();
+            auto *argument = builder->argument(Type::of<float>());
+            builder->return_(argument);
+        });
+        expect(!ordinary->requires_noinline());
+        expect(retained->requires_noinline());
+        expect(ordinary->body()->hash() == retained->body()->hash());
+        expect(ordinary->hash() != retained->hash())
+            << "a required call boundary must participate in callable identity";
+        retained->set_name("retained_outline");
+
+        CallableLibrary source_library;
+        source_library.add_callable("retained", retained);
+        CallableLibrary loaded_library;
+        loaded_library.load(source_library.serialize());
+        expect(loaded_library.get_function_builder("retained")
+                   ->requires_noinline())
+            << "CallableLibrary must preserve the call-boundary policy";
+
+        Kernel1D kernel = [](BufferFloat buffer) {
+            auto index = dispatch_id().x;
+            $outline_noinline_with_name("retained_outline") {
+                buffer.write(index, buffer.read(index) + 1.0f);
+            };
+        };
+        expect(kernel.function()->custom_callables().size() == 1u);
+        if (kernel.function()->custom_callables().size() == 1u) {
+            expect((*kernel.function()->custom_callables().begin())
+                       ->requires_noinline())
+                << "$outline_noinline must mark the outlined callable";
+        }
+        auto module = ast_to_xir_translate(
+            kernel.function()->function(), {});
+        expect(module != nullptr);
+        if (module == nullptr) { return; }
+        expect(xir_verify_module(module.get()).succeeded());
+        auto *callable = find_only_callable(module.get());
+        auto *kernel_definition = find_kernel_definition(module.get());
+        expect(callable != nullptr);
+        expect(kernel_definition != nullptr);
+        if (callable == nullptr || kernel_definition == nullptr) { return; }
+        expect(callable->name().value_or("") == "retained_outline");
+        expect(callable->find_metadata<NoInlineMD>() != nullptr)
+            << "AST-to-XIR must transport the required call boundary";
+
+        auto restored = xir_to_ast_translate(*callable, {});
+        expect(restored != nullptr);
+        if (restored != nullptr) {
+            expect(restored->requires_noinline())
+                << "XIR-to-AST must restore the required call boundary";
+        }
+
+        auto info = inline_all_pass_run_on_module(
+            module.get(),
+            InlineOptions{
+                .consume_call_site_diagnostic_metadata = true});
+        expect(info.inlined_call_count == 0u);
+        expect(info.skipped_noinline_call_count == 1u);
+        expect(count_functions(
+                   module.get(), [](auto *function) noexcept {
+                       return function->template isa<CallableFunction>();
+                   }) == 1u)
+            << "even explicit inline-all must retain a noinline callable";
+
+        auto forced = inline_all_pass_run_on_module(
+            module.get(),
+            InlineOptions{
+                .consume_call_site_diagnostic_metadata = true,
+                .override_noinline = true});
+        expect(forced.inlined_call_count == 1u)
+            << "mandatory backend legalization must be able to override it";
+        expect(count_functions(
+                   module.get(), [](auto *function) noexcept {
+                       return function->template isa<CallableFunction>();
+                   }) == 0u);
+    };
 
     "xir_ast_to_xir_preserves_undefined_aggregate"_test = [] {
         using Bank = std::array<float4, 3u>;

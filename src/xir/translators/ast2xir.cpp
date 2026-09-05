@@ -9,6 +9,7 @@
 #include <luisa/xir/special_register.h>
 #include <luisa/xir/metadata/comment.h>
 #include <luisa/xir/metadata/curve_basis.h>
+#include <luisa/xir/metadata/no_inline.h>
 #include <luisa/xir/translators/ast2xir.h>
 
 #include "ast2xir_inline_ray_query.h"
@@ -1952,6 +1953,9 @@ public:
         }();
         if (auto name = f.name(); !name.empty()) {
             def->set_name(name);
+        }
+        if (f.requires_noinline()) {
+            static_cast<void>(def->create_metadata<NoInlineMD>());
         }
         iter->second = def;
         if (f.tag() == ASTFunction::Tag::CALLABLE) {

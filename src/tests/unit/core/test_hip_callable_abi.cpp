@@ -33,7 +33,63 @@ namespace {
     return module;
 }
 
+void run_hip_ipo_pipeline(llvm::Module &module) {
+    llvm::PipelineTuningOptions options;
+    configure_hip_cgscc_canonicalization_inlining(options);
+    llvm::LoopAnalysisManager loop_analyses;
+    llvm::FunctionAnalysisManager function_analyses;
+    llvm::CGSCCAnalysisManager cgscc_analyses;
+    llvm::ModuleAnalysisManager module_analyses;
+    llvm::PassInstrumentationCallbacks instrumentation;
+    llvm::PassBuilder builder{
+        nullptr, options, std::nullopt, &instrumentation};
+    builder.registerModuleAnalyses(module_analyses);
+    builder.registerCGSCCAnalyses(cgscc_analyses);
+    builder.registerFunctionAnalyses(function_analyses);
+    builder.registerLoopAnalyses(loop_analyses);
+    builder.crossRegisterProxies(
+        loop_analyses, function_analyses,
+        cgscc_analyses, module_analyses);
+
+    llvm::ModulePassManager pipeline;
+    add_hip_module_priority_inliner(
+        pipeline, llvm::OptimizationLevel::O3);
+    pipeline.addPass(builder.buildPerModuleDefaultPipeline(
+        llvm::OptimizationLevel::O3));
+    pipeline.run(module, module_analyses);
+}
+
 static auto suite = [] {
+    "HIP final attributes preserve explicit generated noinline"_test = [] {
+        llvm::LLVMContext context;
+        auto module = parse_module(context, R"(
+            define private fastcc float @retained(float %x) {
+            entry:
+              ret float %x
+            }
+        )");
+        expect(module != nullptr);
+        if (!module) { return; }
+        auto *retained = module->getFunction("retained");
+        expect(retained != nullptr);
+        if (retained == nullptr) { return; }
+        mark_hip_generated_callable(*retained, true);
+        expect(retained->hasFnAttribute(llvm::Attribute::NoInline));
+        expect(retained->hasFnAttribute(
+            llvm_generated_callable_attribute));
+        expect(retained->hasFnAttribute(
+            llvm_explicit_noinline_attribute));
+        finalize_hip_function_attributes(
+            *retained, "gfx1201", "+wavefrontsize32", "");
+        expect(retained->hasFnAttribute(llvm::Attribute::NoInline));
+        expect(!retained->hasFnAttribute(llvm::Attribute::AlwaysInline));
+        expect(!retained->hasFnAttribute(llvm::Attribute::InlineHint));
+        expect(!retained->hasFnAttribute(
+            llvm_generated_callable_attribute));
+        expect(!retained->hasFnAttribute(
+            llvm_explicit_noinline_attribute));
+    };
+
     "HIP final attributes remove only generated callable inline policy"_test = [] {
         llvm::LLVMContext context;
         auto module = parse_module(context, R"(
@@ -112,31 +168,63 @@ static auto suite = [] {
         expect(module != nullptr);
         if (!module) { return; }
 
-        llvm::LoopAnalysisManager loop_analyses;
-        llvm::FunctionAnalysisManager function_analyses;
-        llvm::CGSCCAnalysisManager cgscc_analyses;
-        llvm::ModuleAnalysisManager module_analyses;
-        llvm::PassInstrumentationCallbacks instrumentation;
-        llvm::PassBuilder builder{
-            nullptr, options, std::nullopt, &instrumentation};
-        builder.registerModuleAnalyses(module_analyses);
-        builder.registerCGSCCAnalyses(cgscc_analyses);
-        builder.registerFunctionAnalyses(function_analyses);
-        builder.registerLoopAnalyses(loop_analyses);
-        builder.crossRegisterProxies(
-            loop_analyses, function_analyses,
-            cgscc_analyses, module_analyses);
-
-        llvm::ModulePassManager pipeline;
-        add_hip_module_priority_inliner(
-            pipeline, llvm::OptimizationLevel::O3);
-        pipeline.addPass(builder.buildPerModuleDefaultPipeline(
-            llvm::OptimizationLevel::O3));
-        pipeline.run(*module, module_analyses);
+        run_hip_ipo_pipeline(*module);
 
         // The global owner consumes this profitable edge and deletes the
         // private body; no annotation is needed to force the result.
         expect(module->getFunction("leaf") == nullptr);
+        expect(!llvm::verifyModule(*module));
+    };
+
+    "HIP IPO retains an explicit generated noinline boundary"_test = [] {
+        llvm::LLVMContext context;
+        auto module = parse_module(context, R"(
+            define private fastcc float @retained(float %x) {
+            entry:
+              %a = fadd float %x, 1.000000e+00
+              ret float %a
+            }
+            define float @root(float %x) {
+            entry:
+              %a = call fastcc float @retained(float %x)
+              ret float %a
+            }
+        )");
+        expect(module != nullptr);
+        if (!module) { return; }
+        auto *retained = module->getFunction("retained");
+        expect(retained != nullptr);
+        if (retained == nullptr) { return; }
+        mark_hip_generated_callable(*retained, true);
+        prepare_hip_generated_callable_for_ipo(*retained);
+        run_hip_ipo_pipeline(*module);
+
+        retained = module->getFunction("retained");
+        expect(retained != nullptr)
+            << "the complete HIP IPO pipeline must not absorb the callee";
+        if (retained == nullptr) { return; }
+        expect(retained->hasFnAttribute(llvm::Attribute::NoInline));
+        expect(retained->hasFnAttribute(
+            llvm_explicit_noinline_attribute));
+        auto *root = module->getFunction("root");
+        expect(root != nullptr);
+        if (root == nullptr) { return; }
+        auto retained_call_count = 0u;
+        for (auto &block : *root) {
+            for (auto &instruction : block) {
+                if (auto *call = llvm::dyn_cast<llvm::CallInst>(
+                        &instruction)) {
+                    retained_call_count +=
+                        call->getCalledFunction() == retained;
+                }
+            }
+        }
+        expect(retained_call_count == 1u);
+        finalize_hip_function_attributes(
+            *retained, "gfx1201", "+wavefrontsize32", "");
+        expect(retained->hasFnAttribute(llvm::Attribute::NoInline));
+        expect(!retained->hasFnAttribute(
+            llvm_explicit_noinline_attribute));
         expect(!llvm::verifyModule(*module));
     };
 

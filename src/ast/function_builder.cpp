@@ -834,7 +834,8 @@ void FunctionBuilder::_compute_hash() noexcept {
     begin_group(Field::semantic_flags, 1u);
     hashes.emplace_back(static_cast<uint64_t>(_requires_atomic_float) |
                         static_cast<uint64_t>(_requires_printing) << 1u |
-                        static_cast<uint64_t>(_use_cooperative_operations) << 2u);
+                        static_cast<uint64_t>(_use_cooperative_operations) << 2u |
+                        static_cast<uint64_t>(_requires_noinline) << 3u);
 
     _hash = hash64(hashes.data(), hashes.size() * sizeof(uint64_t), function_builder_seed);
     _hash_computed = true;
@@ -1153,6 +1154,16 @@ void FunctionBuilder::set_name(luisa::string_view name) const noexcept {
             c = '_';
         }
     }
+}
+
+void FunctionBuilder::mark_noinline() noexcept {
+    LUISA_ASSERT(!_hash_computed,
+                 "Cannot change the noinline policy after computing the function hash.");
+    _requires_noinline = true;
+}
+
+bool FunctionBuilder::requires_noinline() const noexcept {
+    return _requires_noinline;
 }
 
 bool FunctionBuilder::requires_raytracing() const noexcept {

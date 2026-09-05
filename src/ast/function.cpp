@@ -139,6 +139,10 @@ bool Function::requires_printing() const noexcept {
     return _builder->requires_printing();
 }
 
+bool Function::requires_noinline() const noexcept {
+    return _builder->requires_noinline();
+}
+
 CurveBasisSet Function::required_curve_bases() const noexcept {
     return _builder->required_curve_bases();
 }

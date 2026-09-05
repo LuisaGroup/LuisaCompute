@@ -916,6 +916,9 @@ void CUDACodegenXIR::_emit_metadata(const xir::MetadataList &md_list, int indent
                 _scratch << "reg2mem spill: " << xir::to_string(spill->kind());
                 break;
             }
+            case xir::DerivedMetadataTag::NO_INLINE:
+                _scratch << "no inline";
+                break;
         }
         _scratch << "\n";
     }

@@ -55,6 +55,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         metadata/curve_basis.cpp
         metadata/signature_constraint.cpp
         metadata/reg2mem_spill.cpp
+        metadata/no_inline.cpp
 
         # translators
         translators/ast2xir.cpp

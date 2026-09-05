@@ -126,6 +126,7 @@ private:
     bool _requires_atomic_float{false};
     bool _requires_printing{false};
     bool _use_cooperative_operations{false};
+    bool _requires_noinline{false};
     uint32_t _next_coro_suspend_token{1u};
     // Codegen Comment
     mutable luisa::string _name;
@@ -268,6 +269,8 @@ public:
     [[nodiscard]] bool requires_autodiff() const noexcept;
     /// Return if uses printing.
     [[nodiscard]] bool requires_printing() const noexcept;
+    /// Return whether this function requires a retained call boundary.
+    [[nodiscard]] bool requires_noinline() const noexcept;
 
     // build primitives
     /// Define a kernel function with given definition
@@ -301,6 +304,8 @@ public:
 
     /// Set name
     void set_name(luisa::string_view name) const noexcept;
+    /// Require backends to retain calls to this function.
+    void mark_noinline() noexcept;
     void set_variable_name(uint32_t id, luisa::string_view name) const noexcept;
     luisa::string_view get_variable_name(uint32_t uid) const noexcept;
 

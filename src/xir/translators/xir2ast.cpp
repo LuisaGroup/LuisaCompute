@@ -63,6 +63,7 @@
 #include <luisa/xir/passes/sroa.h>
 #include <luisa/xir/passes/unused_callable_removal.h>
 #include <luisa/xir/translators/xir2ast.h>
+#include <luisa/xir/metadata/no_inline.h>
 #include <luisa/xir/translators/coro_xir2ast.h>
 #include <luisa/xir/verifier.h>
 
@@ -1572,6 +1573,9 @@ private:
 
     [[nodiscard]] luisa::shared_ptr<const ASTFunctionBuilder> _translate(const FunctionDefinition &f) noexcept {
         auto build = [&] {
+            if (f.find_metadata<NoInlineMD>() != nullptr) {
+                _current_builder()->mark_noinline();
+            }
             _declare_arguments(f);
             if (f.derived_function_tag() == DerivedFunctionTag::KERNEL) { _current_builder()->set_block_size(static_cast<const KernelFunction &>(f).block_size()); }
             _predeclare_allocas(f.body_block());

@@ -709,6 +709,8 @@ void add_inline_spirv_pointer_args(xir::PassPipeline &pipeline) noexcept {
                            i.inline_info.skipped_structured_call_count);
                      r.set("skipped_constrained_call",
                            i.inline_info.skipped_constrained_call_count);
+                     r.set("skipped_noinline_call",
+                           i.inline_info.skipped_noinline_call_count);
                      r.set("skipped_metadata_call",
                            i.inline_info.skipped_metadata_call_count);
                      r.set("skipped_declaration_call",

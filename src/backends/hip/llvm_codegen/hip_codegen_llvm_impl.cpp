@@ -1092,12 +1092,7 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
             // on linked low-level wrapper definitions remain source-owned;
             // those are explicit implementation contracts, not a name-based
             // policy inferred here after the fact.
-            if (func.hasFnAttribute(
-                    llvm_generated_callable_attribute)) {
-                func.removeFnAttr(llvm::Attribute::AlwaysInline);
-                func.removeFnAttr(llvm::Attribute::NoInline);
-                func.removeFnAttr(llvm::Attribute::InlineHint);
-            }
+            prepare_hip_generated_callable_for_ipo(func);
         }
     }
 

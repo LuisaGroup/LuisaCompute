@@ -23,19 +23,41 @@
 
 namespace luisa::compute::hip {
 
+void mark_hip_generated_callable(
+    llvm::Function &function,
+    bool requires_noinline) noexcept {
+    function.addFnAttr(llvm_generated_callable_attribute);
+    if (requires_noinline) {
+        function.removeFnAttr(llvm::Attribute::AlwaysInline);
+        function.removeFnAttr(llvm::Attribute::InlineHint);
+        function.addFnAttr(llvm::Attribute::NoInline);
+        function.addFnAttr(llvm_explicit_noinline_attribute);
+    }
+}
+
+void prepare_hip_generated_callable_for_ipo(
+    llvm::Function &function) noexcept {
+    if (!function.hasFnAttribute(
+            llvm_generated_callable_attribute)) {
+        return;
+    }
+    const auto is_explicit_noinline =
+        function.hasFnAttribute(llvm_explicit_noinline_attribute);
+    function.removeFnAttr(llvm::Attribute::AlwaysInline);
+    if (!is_explicit_noinline) {
+        function.removeFnAttr(llvm::Attribute::NoInline);
+    }
+    function.removeFnAttr(llvm::Attribute::InlineHint);
+}
+
 void finalize_hip_function_attributes(
     llvm::Function &function,
     llvm::StringRef target_cpu,
     llvm::StringRef target_features,
     llvm::StringRef max_vgpr_count) noexcept {
-    const auto is_generated_callable =
-        function.hasFnAttribute(llvm_generated_callable_attribute);
-    if (is_generated_callable) {
-        function.removeFnAttr(llvm::Attribute::AlwaysInline);
-        function.removeFnAttr(llvm::Attribute::NoInline);
-        function.removeFnAttr(llvm::Attribute::InlineHint);
-    }
+    prepare_hip_generated_callable_for_ipo(function);
     function.removeFnAttr(llvm_generated_callable_attribute);
+    function.removeFnAttr(llvm_explicit_noinline_attribute);
     if (function.isDeclaration()) { return; }
 
     function.removeFnAttr("target-cpu");

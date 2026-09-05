@@ -18,6 +18,7 @@
 #include <luisa/xir/metadata/curve_basis.h>
 #include <luisa/xir/metadata/location.h>
 #include <luisa/xir/metadata/name.h>
+#include <luisa/xir/metadata/no_inline.h>
 #include <luisa/xir/metadata/reg2mem_spill.h>
 #include <luisa/xir/metadata/signature_constraint.h>
 #include <luisa/xir/module.h>
@@ -45,6 +46,7 @@ namespace {
 }
 
 void attach_all_metadata(MetadataListMixin &owner, luisa::string_view prefix) {
+    owner.metadata_list().push_front(luisa::make_managed<NoInlineMD>());
     owner.metadata_list().push_front(luisa::make_managed<SignatureConstraintMD>());
     owner.metadata_list().push_front(luisa::make_managed<CurveBasisMD>(
         CurveBasisSet::make(CurveBasis::PIECEWISE_LINEAR,
@@ -63,7 +65,8 @@ void expect_all_metadata(const MetadataListMixin &owner, luisa::string_view pref
         DerivedMetadataTag::LOCATION,
         DerivedMetadataTag::COMMENT,
         DerivedMetadataTag::CURVE_BASIS,
-        DerivedMetadataTag::SIGNATURE_CONSTRAINT};
+        DerivedMetadataTag::SIGNATURE_CONSTRAINT,
+        DerivedMetadataTag::NO_INLINE};
     size_t index = 0u;
     for (auto metadata : owner.metadata_list()) {
         expect(index < expected_tags.size());
@@ -118,6 +121,9 @@ void expect_all_metadata(const MetadataListMixin &owner, luisa::string_view pref
             }
             case 5u:
                 expect(metadata->isa<SignatureConstraintMD>());
+                break;
+            case 6u:
+                expect(metadata->isa<NoInlineMD>());
                 break;
             default: break;
         }
