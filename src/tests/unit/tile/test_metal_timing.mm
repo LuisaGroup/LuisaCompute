@@ -51,7 +51,8 @@ int main(int argc, char *argv[]) {
         auto original = class_getMethodImplementation(command_class, selector);
 
         "metal_compute_pass_timing"_test = [&] {
-            expect(luisa_metal_timing_version() == 1);
+            std::memset(storage.contents, 0, storage.length);
+            expect(luisa_metal_timing_version() == 2);
             expect(luisa_metal_timing_begin(16u) == 1) << luisa_metal_timing_error() << fatal;
             auto first = [queue commandBuffer];
             encode(first, 0u);
@@ -77,6 +78,41 @@ int main(int argc, char *argv[]) {
             expect(class_getMethodImplementation(command_class, selector) == original);
             std::cout << "GPU compute " << result.compute_ns / 1000.0
                       << " us, command buffers " << result.command_buffer_ns / 1000.0 << " us\n";
+        };
+        "metal_timing_control_has_no_encoder_probes"_test = [&] {
+            std::memset(storage.contents, 0, storage.length);
+            auto typed = @selector(computeCommandEncoderWithDispatchType:);
+            auto described = @selector(computeCommandEncoderWithDescriptor:);
+            auto typed_original = class_getMethodImplementation(command_class, typed);
+            auto described_original = class_getMethodImplementation(command_class, described);
+            auto commit_selector = @selector(commit);
+            auto commit_original = class_getMethodImplementation(command_class, commit_selector);
+            expect(luisa_metal_timing_begin_control() == 1) << luisa_metal_timing_error() << fatal;
+            expect(class_getMethodImplementation(command_class, selector) == original);
+            expect(class_getMethodImplementation(command_class, typed) == typed_original);
+            expect(class_getMethodImplementation(command_class, described) == described_original);
+            auto first = [queue commandBuffer];
+            encode(first, 0u);
+            encode(first, 1u);
+            [first commit];
+            auto second = [queue commandBuffer];
+            encode(second, 2u);
+            [second commit];
+            [first waitUntilCompleted];
+            [second waitUntilCompleted];
+            LuisaMetalTimingResult result{};
+            expect(luisa_metal_timing_end(&result) == 1) << luisa_metal_timing_error() << fatal;
+            expect(result.compute_passes == 0u && result.command_buffers == 2u);
+            expect(result.compute_ns == 0.0 && result.calibration_gpu_ticks == 0.0);
+            expect(std::isfinite(result.command_buffer_ns) && result.command_buffer_ns > 0.0);
+            auto values = static_cast<const uint32_t *>(storage.contents);
+            auto correct = true;
+            for (auto i = 0u; i < elements; i++) { correct &= values[i] == 3u; }
+            expect(correct);
+            expect(class_getMethodImplementation(command_class, commit_selector) == commit_original);
+            expect(luisa_metal_timing_begin_control() == 1) << fatal;
+            expect(luisa_metal_timing_end(&result) == 0);
+            expect(class_getMethodImplementation(command_class, commit_selector) == commit_original);
         };
         "metal_timing_capacity_fails_closed"_test = [&] {
             expect(luisa_metal_timing_begin(1u) == 1) << fatal;

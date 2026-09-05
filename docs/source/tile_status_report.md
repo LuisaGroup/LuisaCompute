@@ -93,6 +93,18 @@ per-dispatch counters, so multi-dispatch passes are labeled batch time. No
 existing result has been relabeled as pure kernel time. The helper uses public
 Metal APIs without changing the pinned TVMx build or Runtime interfaces.
 
+The follow-up **audits the observer itself**: same-sized, alternating-order
+samples also collect command-buffer GPU timestamps with no encoder probes or
+counter attachments. Torch softmax's counter/control GPU time ratio reaches
+3.08–5.85× in the diagnostic cohort. Accordingly, counter samples are retained
+as diagnostics, not used as an uninstrumented kernel-speed ranking. Reports
+now show the no-counter GPU control beside E2E timing for native/Torch/MPS.
+This control includes all GPU work/gaps inside each command buffer, not just
+one kernel. Six reduction cases, three SIMD-group/Torch/MPS GEMMs and three
+native-MPP GEMMs pass complete output validation with the new control. Current
+background-load variability rules out a stable ranking or cost-model update
+from this cohort; prior host-wall A/B results keep their original scope.
+
 Reduction collaboration width, independent-program packing and ordered stripe
 unrolling are now separately controllable and jointly searchable through
 ordinary staged/JIT runs. The TIRx cost model has a backend-overridable abstract
@@ -143,7 +155,8 @@ No Metal result is relabeled as XIR performance.
 | {download}`Execution-map validation <../../scripts/benchmark/tile_torch/results/m1-max-20260905-execution-map-validation/notes.md>` | Latest build, exact-constraint failures, CPU/Metal regressions, benchmark contracts and documented limitations |
 | {download}`Shared element-SSA A/B <../../scripts/benchmark/tile_torch/results/m1-max-20260905-shared-element-replay/notes.md>` | Four balanced GELU(A+B) rounds, same-binary fusion isolation, complete outputs and eager-graph caveats |
 | {download}`GPU/dispatch integration smoke <../../scripts/benchmark/tile_torch/results/m1-max-20260905-device-timing-smoke-v2/notes.md>` | Real pass-boundary GPU counters versus uninstrumented host dispatch; raw calibration and explicitly preliminary evidence |
-| {download}`Dual-timing validation <../../scripts/benchmark/tile_torch/results/m1-max-20260905-dual-timing-validation/notes.md>` | Current 33-test Tile cohort, 77 Python contracts, timestamp tests and submitted/worktree distinction |
+| {download}`Dual-timing validation <../../scripts/benchmark/tile_torch/results/m1-max-20260905-dual-timing-validation/notes.md>` | Full 33-test Tile checkpoint, then-77 Python contracts, timestamp tests and submitted/worktree distinction |
+| {download}`GPU timing observer audit <../../scripts/benchmark/tile_torch/results/m1-max-20260905-device-timing-counter-control/notes.md>` | No-counter GPU control, probe perturbation, reduction/GEMM/native-MPP integration, current 80 Python tests and no new speed-ranking claim |
 
 ```{figure} ../_static/tile/xir-planning-pipeline.svg
 :alt: The same execution-first TileIR feeds XIR/SIMD, Metal-native MPP and TIRx compiler routes with separate ownership.
@@ -229,7 +242,7 @@ offsets, read/write snapshots, move-only shader lifetime, negative origins and
 signed-overflow rejection in the bounds proof. The dedicated SIMD PHI test
 uses widths 1/2/4/8/16 and every active-lane count, independent of TileIR.
 
-The submitted source preserves `metal::mem_flags(3)` and the current complete
+The submitted source preserves `metal::mem_flags(3)` and the last full
 `test_tile_*` regression cohort is **33/33 passing**: 30 unit-labeled tests plus
 three separately registered integration tests. The workspace contains an
 unowned local `mem_flags(2)` edit that intentionally disagrees with the
@@ -237,8 +250,11 @@ generated-source assertions in `test_tile_tirx_cooperative_metal` and
 `test_tile_tirx_memory_metal`. The complete cohort was built and run with the
 submitted value restored temporarily; the user's `2` was then restored without
 weakening either assertion and is not part of this source snapshot. The
-current Python benchmark-contract suite passes **77/77**. See the
-{download}`current validation note <../../scripts/benchmark/tile_torch/results/m1-max-20260905-dual-timing-validation/notes.md>`
+current Python benchmark-contract suite passes **80/80**. The timing-control
+follow-up passed a fresh full build and its seven affected/focused CTests;
+it did not rerun the complete cohort or modify the unowned barrier edit. See the
+{download}`full-cohort checkpoint <../../scripts/benchmark/tile_torch/results/m1-max-20260905-dual-timing-validation/notes.md>`
+and {download}`latest observer audit <../../scripts/benchmark/tile_torch/results/m1-max-20260905-device-timing-counter-control/notes.md>`
 for commands and scope; this is not a claim that every non-Tile repository
 test passed.
 

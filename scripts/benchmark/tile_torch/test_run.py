@@ -103,6 +103,17 @@ class SystemBaselineTests(unittest.TestCase):
 
 
 class DeviceTimingTests(unittest.TestCase):
+    @classmethod
+    def controlled_timing(cls):
+        result = cls.timing()
+        control = dict(method="metal_command_buffer_timestamps_v1", scope="sum_of_command_buffer_gpu_intervals",
+                       encoder_instrumentation=False, repetitions=4)
+        for phase in ("throughput", "latency"):
+            control[phase] = [dict(command_buffer_ns=s["command_buffer_ns"] / 2, command_buffers=s["command_buffers"])
+                              for s in result[phase]]
+        result["control"] = control
+        return result
+
     @staticmethod
     def timing():
         sample = dict(compute_ns=2000., compute_span_ns=2100., command_buffer_ns=3000.,
@@ -137,6 +148,52 @@ class DeviceTimingTests(unittest.TestCase):
                 result = copy.deepcopy(self.timing())
                 result["throughput"][0][key] = value
                 MODULE.summarize_device_timing(result, 2)
+
+    def test_no_counter_control_keeps_distinct_scope_and_detects_probe_cost(self):
+        result = self.controlled_timing()
+        MODULE.summarize_device_timing(result, 2)
+        self.assertEqual(result["control"]["command_buffer_throughput_us_p50"], .5625)
+        self.assertEqual(result["control"]["command_buffer_latency_us_p50"], 1.5)
+        self.assertEqual(result["counter_control_throughput_ratio"], 2.)
+        for key, value in (("scope", "single_kernel"), ("encoder_instrumentation", True),
+                           ("repetitions", True), ("repetitions", 8), ("throughput", [])):
+            invalid = self.controlled_timing()
+            invalid["control"][key] = value
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                MODULE.summarize_device_timing(invalid, 2)
+        for key, value in (("command_buffer_ns", float("nan")), ("command_buffers", True)):
+            invalid = self.controlled_timing()
+            invalid["control"]["latency"][0][key] = value
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                MODULE.summarize_device_timing(invalid, 2)
+
+    def test_control_report_includes_system_and_never_substitutes_probe_values(self):
+        measured = dict(throughput_us=[10., 20.], latency_us=[100., 200.], device_timing=self.controlled_timing())
+        MODULE.summarize(measured)
+        lines = MODULE.device_control_report_lines([dict(name="example", valid=True, native=measured, torch=measured, system=measured)])
+        for provider in ("native", "torch", "system"):
+            self.assertIn(f"| example / {provider} | 0.562 | 1.500 | 15.000 | 150.000 | 2.000× |", lines)
+        self.assertEqual(MODULE.device_control_report_lines([dict(name="bad", valid=False)]), [])
+
+    def test_replay_gpu_report_uses_paired_ratios_and_withholds_missing_controls(self):
+        def measurement(gpu, host):
+            return dict(throughput_us_p50=host, latency_us_p50=host * 10,
+                        device_timing=dict(control=dict(command_buffer_throughput_us_p50=gpu,
+                                                        command_buffer_latency_us_p50=gpu + 1)))
+        rows = [dict(backend="metal", name="example", round=i, variant=variant, valid=True,
+                     native=measurement(value, 10), torch=measurement(5, 20))
+                for i, values in enumerate(((8, 2), (80, 40)))
+                for variant, value in zip(("reference", "candidate"), values)]
+        report = dict(metadata=dict(rounds=2, metal_device_timing="helper"), results=rows)
+        with patch.object(Path, "write_text") as write:
+            REPEAT.write_report(report, Path("unused"))
+        markdown = write.call_args_list[-1].args[0]
+        self.assertIn("2/2 | 44.000 | 21.000 | 3.000× [2.000, 4.000] | 5.000", markdown)
+        self.assertIn("| metal / example | 22.000 | 100.000 | 6.000 | 200.000 |", markdown)
+        del rows[-1]["native"]["device_timing"]["control"]
+        with patch.object(Path, "write_text") as write:
+            REPEAT.write_report(report, Path("unused"))
+        self.assertIn("1/2 | INCOMPLETE", write.call_args_list[-1].args[0])
 
 
 class RepeatContractTests(unittest.TestCase):

@@ -126,6 +126,29 @@ def summarize_device_timing(result: dict[str, Any], samples: int) -> None:
             result[key] = [row[field] / (1000 * count) for row in rows]
             result[key + "_p50"] = percentile(result[key], 0.5)
             result[key + "_p90"] = percentile(result[key], 0.9)
+    if "control" in result:
+        control = result["control"]
+        if (control.get("method") != "metal_command_buffer_timestamps_v1" or
+                control.get("scope") != "sum_of_command_buffer_gpu_intervals" or
+                control.get("encoder_instrumentation") is not False or
+                type(control.get("repetitions")) is not int or control["repetitions"] != repetitions):
+            raise ValueError("invalid Metal timing control scope or repetitions")
+        for phase, count in (("throughput", repetitions), ("latency", 1)):
+            rows = control.get(phase)
+            if not isinstance(rows, list) or len(rows) != samples:
+                raise ValueError("invalid Metal timing control coverage")
+            for row in rows:
+                value, buffers = row.get("command_buffer_ns"), row.get("command_buffers")
+                if (type(value) not in (float, int) or not math.isfinite(value) or value <= 0 or
+                        type(buffers) is not int or buffers <= 0):
+                    raise ValueError("invalid Metal timing control sample")
+            key = f"command_buffer_{phase}_us"
+            control[key] = [row["command_buffer_ns"] / (1000 * count) for row in rows]
+            control[key + "_p50"] = percentile(control[key], .5)
+            control[key + "_p90"] = percentile(control[key], .9)
+            ratios = [probe["command_buffer_ns"] / baseline["command_buffer_ns"]
+                      for probe, baseline in zip(result[phase], rows)]
+            result[f"counter_control_{phase}_ratio"] = percentile(ratios, .5)
 
 
 def time_metal_device(invoke: Callable[[], Any], synchronize: Callable[[], None],
@@ -133,18 +156,20 @@ def time_metal_device(invoke: Callable[[], Any], synchronize: Callable[[], None]
     library = ctypes.CDLL(str(args.metal_device_timing))
     library.luisa_metal_timing_version.argtypes = []
     library.luisa_metal_timing_version.restype = ctypes.c_int
-    if library.luisa_metal_timing_version() != 1:
+    if library.luisa_metal_timing_version() != 2:
         raise RuntimeError("incompatible Metal benchmark timing library")
     library.luisa_metal_timing_begin.argtypes = [ctypes.c_uint32]
     library.luisa_metal_timing_begin.restype = ctypes.c_int
+    library.luisa_metal_timing_begin_control.argtypes = []
+    library.luisa_metal_timing_begin_control.restype = ctypes.c_int
     library.luisa_metal_timing_end.argtypes = [ctypes.POINTER(MetalTimingResult)]
     library.luisa_metal_timing_end.restype = ctypes.c_int
     library.luisa_metal_timing_error.argtypes = []
     library.luisa_metal_timing_error.restype = ctypes.c_char_p
 
-    def sample(count: int) -> dict[str, float | int]:
+    def sample(count: int, counters: bool) -> dict[str, float | int]:
         synchronize()
-        if not library.luisa_metal_timing_begin(1024):
+        if not (library.luisa_metal_timing_begin(1024) if counters else library.luisa_metal_timing_begin_control()):
             raise RuntimeError(library.luisa_metal_timing_error().decode())
         result = MetalTimingResult()
         try:
@@ -155,13 +180,22 @@ def time_metal_device(invoke: Callable[[], Any], synchronize: Callable[[], None]
             success = library.luisa_metal_timing_end(ctypes.byref(result))
         if not success:
             raise RuntimeError(library.luisa_metal_timing_error().decode())
-        return {name: getattr(result, name) for name, _ in MetalTimingResult._fields_}
+        names = [name for name, _ in MetalTimingResult._fields_] if counters else ["command_buffer_ns", "command_buffers"]
+        return {name: getattr(result, name) for name in names}
 
     count = min(repetitions, 64)
+    control = dict(method="metal_command_buffer_timestamps_v1", scope="sum_of_command_buffer_gpu_intervals",
+                   encoder_instrumentation=False, repetitions=count)
     result = dict(method="metal_compute_pass_timestamps_v1", scope="sum_of_compute_encoder_gpu_intervals",
-                  host_samples_instrumented=False, repetitions=count,
-                  throughput=[sample(count) for _ in range(args.samples)],
-                  latency=[sample(1) for _ in range(args.samples)])
+                  host_samples_instrumented=False, repetitions=count, control=control)
+    for phase, batch in (("throughput", count), ("latency", 1)):
+        result[phase], control[phase] = [], []
+        for index in range(args.samples):
+            if index % 2 == 0:
+                control[phase].append(sample(batch, False))
+            result[phase].append(sample(batch, True))
+            if index % 2:
+                control[phase].append(sample(batch, False))
     summarize_device_timing(result, args.samples)
     return result
 
@@ -854,6 +888,25 @@ def run_tuned_case(torch: Any, np: Any, args: argparse.Namespace, case: Case,
     return result
 
 
+def device_control_report_lines(rows: list[dict[str, Any]]) -> list[str]:
+    measured = [(row["name"], provider, row[provider]) for row in rows if row.get("valid")
+                for provider in ("native", "torch", "system")
+                if "control" in row.get(provider, {}).get("device_timing", {})]
+    if not measured:
+        return []
+    lines = ["", "## GPU command-buffer control (no encoder probes)", "",
+             "These samples collect completed command-buffer GPUStartTime/GPUEndTime without encoder hooks or counter attachments. They include GPU work and gaps inside each command buffer (including any blits), not CPU encoding or completion notification. They are not individual-kernel timestamps. Probe/control ratios compare identical batch sizes in alternating-order samples; they diagnose timing perturbation, not a correction factor. Prefer this no-counter control for cross-framework GPU comparisons when counters perturb execution.", "",
+             "| Case / path | GPU batch µs/op | GPU single µs | E2E batch µs/op | E2E single µs | Counter / control GPU batch |",
+             "|---|---:|---:|---:|---:|---:|"]
+    for name, provider, measurement in measured:
+        device = measurement["device_timing"]
+        control = device["control"]
+        lines.append(f"| {name} / {provider} | {control['command_buffer_throughput_us_p50']:.3f} | "
+                     f"{control['command_buffer_latency_us_p50']:.3f} | {measurement['throughput_us_p50']:.3f} | "
+                     f"{measurement['latency_us_p50']:.3f} | {device['counter_control_throughput_ratio']:.3f}× |")
+    return lines
+
+
 def write_report(report: dict[str, Any], directory: Path) -> None:
     (directory / "results.json").write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
     metadata = report["metadata"]
@@ -881,15 +934,17 @@ def write_report(report: dict[str, Any], directory: Path) -> None:
             lines.append(f"| {row['backend']} / {row['name']} | {a['capture_ms']:.3f} | {a['compile_ms']:.3f} | {a['allocation_upload_ms']:.3f} | {b['allocation_upload_ms']:.3f} | {a['cold_call_ms']:.3f} | {b['cold_call_ms']:.3f} | {a['download_ms']:.3f} | {b['download_ms']:.3f} |")
     tuned = [row for row in report["results"] if "tuning" in row]
     device_rows = [row for row in report["results"] if row.get("valid") and "device_timing" in row["native"]]
+    lines += device_control_report_lines(report["results"])
     if device_rows:
-        lines.extend(["", "## GPU execution versus end-to-end dispatch", "",
+        lines.extend(["", "## Instrumented compute-pass diagnostics versus end-to-end dispatch", "",
                       "Device numbers use real Metal compute-pass start/end counters, calibrated to nanoseconds. They exclude CPU encoding, queue wait before GPU execution, and completion notification. Host-wall numbers above are separate, uninstrumented samples. A pass may contain multiple dispatches: batched GPU time is divided by its own recorded repetition count (at most 64), and a multi-kernel eager operator is not mislabeled as one kernel. Compute-pass time includes GPU dispatch/barrier work inside the pass, not only arithmetic instructions. Do not subtract independently sampled medians to infer CPU cost.", "",
-                      "| Case | Native GPU batch µs/op | Torch GPU batch µs/op | Native / Torch GPU | Native GPU single µs | Torch GPU single µs | Native E2E single µs | Torch E2E single µs |",
-                      "|---|---:|---:|---:|---:|---:|---:|---:|"])
+                      "Counter attachments can perturb execution substantially. Compare against the command-buffer control above; without that control, instrumentation overhead is unvalidated. These probe samples are diagnostics, not an uninstrumented kernel-speed ranking.", "",
+                      "| Case | Native probe batch µs/op | Torch probe batch µs/op | Native probe single µs | Torch probe single µs | Native E2E single µs | Torch E2E single µs |",
+                      "|---|---:|---:|---:|---:|---:|---:|"])
         for row in device_rows:
             native, torch = row["native"], row["torch"]
             nd, td = native["device_timing"], torch["device_timing"]
-            lines.append(f"| {row['name']} | {nd['compute_throughput_us_p50']:.3f} | {td['compute_throughput_us_p50']:.3f} | {row['device_compute_slowdown']:.3f}× | {nd['compute_latency_us_p50']:.3f} | {td['compute_latency_us_p50']:.3f} | {native['latency_us_p50']:.3f} | {torch['latency_us_p50']:.3f} |")
+            lines.append(f"| {row['name']} | {nd['compute_throughput_us_p50']:.3f} | {td['compute_throughput_us_p50']:.3f} | {nd['compute_latency_us_p50']:.3f} | {td['compute_latency_us_p50']:.3f} | {native['latency_us_p50']:.3f} | {torch['latency_us_p50']:.3f} |")
     if any("system" in row for row in report["results"]):
         lines.extend(["", "## Direct system-library GEMM baselines", "",
                       "Same FP32 inputs, compact row-major strides, alpha=1, beta=0, no transpose or reduced-precision option. CPU uses classic LP64 Accelerate cblas_sgemm; Metal uses MPSMatrixMultiplication (not MPSGraph) with private buffers and one command buffer per timed batch. Timings include API/encoding/submission costs, not setup or uploads. Complete outputs pass the same FP64 oracle. Raw samples and each case's implementation order are recorded in JSON; use compare_system.py for per-case six-order balance.", "",

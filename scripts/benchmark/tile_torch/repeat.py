@@ -166,6 +166,7 @@ def write_report(report: dict[str, Any], output: Path) -> None:
              "| Backend / case | Valid pairs | Reference µs | Candidate µs | Paired speedup median [range] | Candidate-run PyTorch µs |",
              "|---|---:|---:|---:|---:|---:|"]
     keys = list(dict.fromkeys((r["backend"], r["name"]) for r in report["results"]))
+    paired_rows = {}
     for backend, name in keys:
         rows = [r for r in report["results"] if (r["backend"], r["name"]) == (backend, name)]
         pairs = []
@@ -173,6 +174,7 @@ def write_report(report: dict[str, Any], output: Path) -> None:
             pair = {r["variant"]: r for r in rows if r["round"] == round_index}
             if len(pair) == 2 and all(r.get("valid") for r in pair.values()):
                 pairs.append(pair)
+        paired_rows[backend, name] = pairs
         if not pairs:
             lines.append(f"| {backend} / {name} | 0 | — | — | — | — |")
             continue
@@ -183,6 +185,36 @@ def write_report(report: dict[str, Any], output: Path) -> None:
         median = lambda values: percentile(values, 0.5)
         lines.append(f"| {backend} / {name} | {len(pairs)} | {median(reference):.3f} | {median(candidate):.3f} | "
                      f"{median(ratios):.3f}× [{min(ratios):.3f}, {max(ratios):.3f}] | {median(torch):.3f} |")
+    if report["metadata"].get("metal_device_timing") or any(
+            "device_timing" in row.get("native", {}) for row in report["results"]):
+        lines += ["", "## Separately sampled GPU execution", "",
+                  "Completed command-buffer GPU timestamps, with no encoder hooks or counter attachments. This includes GPU work/gaps inside each command buffer, not CPU encoding or completion notification, and is not individual-kernel time. Each GPU phase uses its own repetition count. Values are medians of per-round p50 times. Speedups are medians of paired round ratios, with min–max ranges, not confidence intervals. Incomplete GPU control pairs withhold statistics; instrumented compute-pass samples remain diagnostics in JSON.", "",
+                  "| Backend / case | GPU pairs | Reference GPU µs/op | Candidate GPU µs/op | Paired GPU speedup [range] | Candidate-run Torch GPU µs/op |",
+                  "|---|---:|---:|---:|---:|---:|"]
+        latency_lines = ["", "## Single-call GPU versus end-to-end dispatch", "",
+                         "These are separate phases; host samples are uninstrumented. Do not subtract their medians to estimate CPU cost. Torch remains the recorded eager operator sequence, not a compiled fused graph.", "",
+                         "| Backend / case | Candidate GPU µs | Candidate E2E µs | Candidate-run Torch GPU µs | Candidate-run Torch E2E µs |",
+                         "|---|---:|---:|---:|---:|"]
+        for key, pairs in paired_rows.items():
+            gpu_pairs = [p for p in pairs if all("control" in p[variant][provider].get("device_timing", {})
+                                               for variant in ("reference", "candidate") for provider in ("native", "torch"))]
+            label = " / ".join(key)
+            if len(gpu_pairs) != report["metadata"]["rounds"]:
+                lines.append(f"| {label} | {len(gpu_pairs)}/{report['metadata']['rounds']} | INCOMPLETE | — | — | — |")
+                latency_lines.append(f"| {label} | INCOMPLETE | — | — | — |")
+                continue
+            median = lambda values: percentile(values, 0.5)
+            reference = [p["reference"]["native"]["device_timing"]["control"]["command_buffer_throughput_us_p50"] for p in gpu_pairs]
+            candidate = [p["candidate"]["native"]["device_timing"]["control"]["command_buffer_throughput_us_p50"] for p in gpu_pairs]
+            ratios = [a / b for a, b in zip(reference, candidate)]
+            torch = [p["candidate"]["torch"]["device_timing"]["control"]["command_buffer_throughput_us_p50"] for p in gpu_pairs]
+            lines.append(f"| {label} | {len(gpu_pairs)}/{report['metadata']['rounds']} | {median(reference):.3f} | "
+                         f"{median(candidate):.3f} | {median(ratios):.3f}× [{min(ratios):.3f}, {max(ratios):.3f}] | {median(torch):.3f} |")
+            single = [median([p["candidate"][provider]["device_timing"]["control"]["command_buffer_latency_us_p50"] for p in gpu_pairs])
+                      for provider in ("native", "torch")]
+            host = [median([p["candidate"][provider]["latency_us_p50"] for p in gpu_pairs]) for provider in ("native", "torch")]
+            latency_lines.append(f"| {label} | {single[0]:.3f} | {host[0]:.3f} | {single[1]:.3f} | {host[1]:.3f} |")
+        lines += latency_lines
     failures = [r for r in report["results"] if not r.get("valid")]
     lines += ["", f"Failed measurements: {len(failures)}. Raw samples, frozen schedules, hashes, ordering, and errors are in `results.json`.", ""]
     (output / "results.md").write_text("\n".join(lines))

@@ -22,6 +22,10 @@ typedef struct LuisaMetalTimingResult {
 
 int luisa_metal_timing_version(void);
 int luisa_metal_timing_begin(uint32_t max_compute_passes);
+// Control: collect completed command-buffer GPUStartTime/GPUEndTime only.
+// No encoder hooks or GPU counter attachments; compute/calibration fields
+// in the result remain zero. Use the same workload/batch to audit probe cost.
+int luisa_metal_timing_begin_control(void);
 int luisa_metal_timing_end(LuisaMetalTimingResult *result);
 const char *luisa_metal_timing_error(void);
 

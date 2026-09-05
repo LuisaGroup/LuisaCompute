@@ -28,6 +28,7 @@ struct Hook {
 struct Capture {
     std::mutex mutex;
     bool active{false};
+    bool compute_counters{true};
     bool failed{false};
     std::string error;
     id<MTLDevice> device;
@@ -143,11 +144,11 @@ void restore() {
 
 }// namespace
 
-extern "C" int luisa_metal_timing_version() { return 1; }
+extern "C" int luisa_metal_timing_version() { return 2; }
 
 extern "C" const char *luisa_metal_timing_error() { return capture.error.c_str(); }
 
-extern "C" int luisa_metal_timing_begin(uint32_t max_compute_passes) {
+static int begin(uint32_t max_compute_passes, bool compute_counters) {
     std::lock_guard lock{capture.mutex};
     @autoreleasepool {
         if (capture.active) {
@@ -157,55 +158,61 @@ extern "C" int luisa_metal_timing_begin(uint32_t max_compute_passes) {
         capture.failed = false;
         capture.error.clear();
         capture.passes = 0u;
+        capture.compute_counters = compute_counters;
         capture.buffers.clear();
         capture.hooks.clear();
-        if (max_compute_passes == 0u || max_compute_passes > 65536u) {
+        if (compute_counters && (max_compute_passes == 0u || max_compute_passes > 65536u)) {
             fail("Metal timing capacity must be in [1,65536] compute passes");
             return 0;
         }
         capture.device = MTLCreateSystemDefaultDevice();
-        if (capture.device == nil || ![capture.device supportsCounterSampling:MTLCounterSamplingPointAtStageBoundary]) {
+        if (capture.device == nil || (compute_counters && ![capture.device supportsCounterSampling:MTLCounterSamplingPointAtStageBoundary])) {
             fail("Metal compute-pass timestamp sampling is unavailable");
             return 0;
         }
-        id<MTLCounterSet> timestamps = nil;
-        for (id<MTLCounterSet> set in capture.device.counterSets) {
-            if ([set.name isEqualToString:MTLCommonCounterSetTimestamp]) {
-                timestamps = set;
-                break;
+        if (compute_counters) {
+            id<MTLCounterSet> timestamps = nil;
+            for (id<MTLCounterSet> set in capture.device.counterSets) {
+                if ([set.name isEqualToString:MTLCommonCounterSetTimestamp]) {
+                    timestamps = set;
+                    break;
+                }
             }
-        }
-        if (timestamps == nil) {
-            fail("Metal timestamp counter set is unavailable");
-            return 0;
-        }
-        auto descriptor = [MTLCounterSampleBufferDescriptor new];
-        descriptor.counterSet = timestamps;
-        descriptor.storageMode = MTLStorageModeShared;
-        descriptor.sampleCount = 2u * max_compute_passes;
-        descriptor.label = @"Luisa benchmark GPU timestamps";
-        NSError *error = nil;
-        capture.samples = [capture.device newCounterSampleBufferWithDescriptor:descriptor error:&error];
-        if (capture.samples == nil) {
-            fail(error.localizedDescription.UTF8String ?: "Metal timestamp allocation failed");
-            return 0;
+            if (timestamps == nil) {
+                fail("Metal timestamp counter set is unavailable");
+                return 0;
+            }
+            auto descriptor = [MTLCounterSampleBufferDescriptor new];
+            descriptor.counterSet = timestamps;
+            descriptor.storageMode = MTLStorageModeShared;
+            descriptor.sampleCount = 2u * max_compute_passes;
+            descriptor.label = @"Luisa benchmark GPU timestamps";
+            NSError *error = nil;
+            capture.samples = [capture.device newCounterSampleBufferWithDescriptor:descriptor error:&error];
+            if (capture.samples == nil) {
+                fail(error.localizedDescription.UTF8String ?: "Metal timestamp allocation failed");
+                return 0;
+            }
         }
         auto queue = [capture.device newCommandQueue];
         auto probe = [queue commandBuffer];
         capture.command_class = object_getClass(probe);
-        if (!hook(@selector(computeCommandEncoder), reinterpret_cast<IMP>(encoder)) ||
-            !hook(@selector(computeCommandEncoderWithDispatchType:), reinterpret_cast<IMP>(encoder_with_type)) ||
-            !hook(@selector(computeCommandEncoderWithDescriptor:), reinterpret_cast<IMP>(encoder_with_descriptor)) ||
+        if ((compute_counters && (!hook(@selector(computeCommandEncoder), reinterpret_cast<IMP>(encoder)) ||
+                                  !hook(@selector(computeCommandEncoderWithDispatchType:), reinterpret_cast<IMP>(encoder_with_type)) ||
+                                  !hook(@selector(computeCommandEncoderWithDescriptor:), reinterpret_cast<IMP>(encoder_with_descriptor)))) ||
             !hook(@selector(commit), reinterpret_cast<IMP>(commit))) {
             restore();
             fail("Metal command-buffer API cannot be instrumented");
             return 0;
         }
-        [capture.device sampleTimestamps:&capture.cpu_start gpuTimestamp:&capture.gpu_start];
+        if (compute_counters) { [capture.device sampleTimestamps:&capture.cpu_start gpuTimestamp:&capture.gpu_start]; }
         capture.active = true;
         return 1;
     }
 }
+
+extern "C" int luisa_metal_timing_begin(uint32_t max_compute_passes) { return begin(max_compute_passes, true); }
+extern "C" int luisa_metal_timing_begin_control() { return begin(0u, false); }
 
 extern "C" int luisa_metal_timing_end(LuisaMetalTimingResult *result) {
     std::lock_guard lock{capture.mutex};
@@ -216,11 +223,11 @@ extern "C" int luisa_metal_timing_end(LuisaMetalTimingResult *result) {
         }
         restore();
         MTLTimestamp cpu_end = 0u, gpu_end = 0u;
-        [capture.device sampleTimestamps:&cpu_end gpuTimestamp:&gpu_end];
-        if (result == nullptr || capture.passes == 0u || capture.buffers.empty()) {
-            fail("Metal timing captured no compute passes or has no result storage");
+        if (capture.compute_counters) { [capture.device sampleTimestamps:&cpu_end gpuTimestamp:&gpu_end]; }
+        if (result == nullptr || (capture.compute_counters && capture.passes == 0u) || capture.buffers.empty()) {
+            fail("Metal timing captured no required work or has no result storage");
         }
-        if (cpu_end <= capture.cpu_start || gpu_end <= capture.gpu_start) {
+        if (capture.compute_counters && (cpu_end <= capture.cpu_start || gpu_end <= capture.gpu_start)) {
             fail("invalid Metal CPU/GPU timestamp calibration");
         }
         auto command_ns = 0.0;
@@ -240,6 +247,11 @@ extern "C" int luisa_metal_timing_end(LuisaMetalTimingResult *result) {
         if (capture.failed) {
             capture.buffers.clear();
             return 0;
+        }
+        if (!capture.compute_counters) {
+            *result = LuisaMetalTimingResult{0.0, 0.0, command_ns, 0.0, 0.0, 0u, capture.buffers.size()};
+            capture.buffers.clear();
+            return 1;
         }
         auto resolved = [capture.samples resolveCounterRange:NSMakeRange(0u, 2u * capture.passes)];
         if (resolved == nil || resolved.length != 2u * capture.passes * sizeof(MTLCounterResultTimestamp)) {

@@ -505,6 +505,23 @@ span, command-buffer GPU duration, pass/buffer counts, raw clock calibration,
 and its own repetition count (at most 64). The JSON preserves every sample;
 the report shows both GPU execution and end-to-end dispatch.
 
+The current helper ABI is **2**. Every device phase also measures a matched
+**command-buffer control with no encoder hooks or GPU counter attachments**.
+It reads completed `GPUStartTime`/`GPUEndTime` through a commit-only observer.
+Probe/control order alternates at the same batch size. The primary GPU table
+uses this control; the compute-pass table is diagnostic. The control includes
+GPU work and gaps inside each command buffer, including any blits, so it is
+not an individual-kernel timestamp. Both scopes exclude host API time itself,
+but still reflect GPU scheduling/contention. Neither guarantees an idle device.
+
+This distinction is necessary: in the M1 Max integration probe, eager Torch
+softmax's instrumented/control GPU command-buffer ratio was 3.08–5.85×. The
+probe path is therefore **not transparent for performance**, even though it
+preserves numerical output and encoder boundaries. Raw paired ratios diagnose
+observer effects; do not use them to subtract or normalize counter time into
+an imagined uninstrumented kernel time. The current diagnostic cohort also
+has background-load variability and is not a stable speed ranking.
+
 This M1 Max supports stage-boundary counters, not per-dispatch counters.
 A single-kernel pass gives that kernel's device interval. A multi-dispatch
 pass gives batch time divided by repetitions; a multi-kernel eager operator
@@ -516,7 +533,8 @@ estimate CPU overhead. The tuning winner remains the explicitly documented
 host-wall metric; collecting counters does not silently change that objective.
 
 The benchmark-only library temporarily intercepts public Metal command-buffer
-encoder factories and commit on the concrete class discovered from the
+encoder factories and commit for counter samples, and **only commit for the
+control**, on the concrete class discovered from the
 system-default device. It preserves dispatch type, existing counter
 attachments and encoder boundaries, then restores the methods on success or
 failure. No Runtime, private TVM/PyTorch ABI, Python source export, or TVMx

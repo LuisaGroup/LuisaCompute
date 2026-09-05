@@ -4,6 +4,12 @@ September 5, 2026; M1 Max; macOS 26.6.2; PyTorch 2.14.0.
 Assessment: **integration smoke only, not stable comparative performance**.
 The complete inputs/outputs passed the same FP64 oracle for native and Torch.
 
+Follow-up qualification: this ABI-1 capture did not include a no-counter
+control. The subsequent [observer audit](../m1-max-20260905-device-timing-counter-control/notes.md)
+found substantial probe perturbation on other operators. These historical
+counter samples remain unchanged and must not be treated as uninstrumented
+kernel times. Current ABI-2 reports expose the separate command-buffer control.
+
 | Case | Native GPU single µs | Torch GPU single µs | Native E2E single µs | Torch E2E single µs |
 |---|---:|---:|---:|---:|
 | add 17×257 | 4.334 | 6.917 | 194.333 | 212.125 |
