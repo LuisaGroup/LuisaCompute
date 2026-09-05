@@ -35,3 +35,14 @@ wheel environment and records its own artifact boundary separately.
 This environment correction is recorded before the corrected pilot or replay;
 it does not change the predeclared dimensions, mapping choices, round count,
 math policy, tolerances or failure-retention rule.
+
+## Pilot admission and replay representation
+
+The corrected pilot validates four shapes (including 8192³), but the fixed
+128×32×1024 MPP-view request has no legal plan for 4096×4096×11008 or
+2049×4097×1025. These have K tails and cannot be silently omitted by a replay
+loader that imports only successful pilot rows. The replay therefore uses the
+explicit `--tirx-view-block 128,32,1024` request with the same baseline launch
+options (128 threads, window 1, copy batch 1). This permits retrying the exact
+predeclared request and retaining each rejection alongside the other six
+paths; it does not fabricate a successful plan or select replacement geometry.

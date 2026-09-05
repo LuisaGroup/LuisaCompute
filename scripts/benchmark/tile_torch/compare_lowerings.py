@@ -20,7 +20,7 @@ from typing import Any
 
 from compare_mpp import DEFAULT_SHAPES, oracle, parse_config, parse_shape, validate_metadata, validate_output
 from repeat import load_plan
-from run import (Case, percentile, summarize, summarize_device_timing, time_metal_device, time_torch,
+from run import (Case, parse_gemm_block, percentile, summarize, summarize_device_timing, time_metal_device, time_torch,
                  validate_native_metadata, validate_tirx_realization, validate_subgroup_policy)
 
 PATHS = ("tile_native_mpp", "tile_tirx", "handwritten_mpp", "mps", "torch")
@@ -306,7 +306,10 @@ def main() -> int:
     parser.add_argument("--tirx-plan", type=Path, help="frozen run.py report; otherwise use group 32x32x32, window 1")
     parser.add_argument("--tirx-runtime-controls", action="store_true", help="add Luisa Runtime TIRx with fast math off/on; require matching device source")
     parser.add_argument("--tirx-mpp", action="store_true", help="add independent TVM MPP codegen with the same frozen TIRx geometry")
-    parser.add_argument("--tirx-view-plan", type=Path, help="add read-only-forwarding TIRx MPP with this separately frozen run.py schedule")
+    view = parser.add_mutually_exclusive_group()
+    view.add_argument("--tirx-view-plan", type=Path, help="add read-only-forwarding TIRx MPP with this separately frozen run.py schedule")
+    view.add_argument("--tirx-view-block", type=parse_gemm_block,
+                      help="add fixed MPP-view BM,BN,BK with baseline TIRx launch options; retain rejected shapes without requiring a successful pilot")
     parser.add_argument("--tirx-view-subgroup-fences", choices=("reported", "retain", "elide"), default="reported",
                         help="explicit synchronization policy override, only for the MPP-view path")
     parser.add_argument("--compiler-artifact", type=Path, action="append", default=[], help="also fingerprint externally linked compiler/runtime libraries")
@@ -318,19 +321,20 @@ def main() -> int:
     parser.add_argument("--timeout", type=int, default=180)
     parser.add_argument("--threads", type=int, default=8)
     args = parser.parse_args()
+    view_requested = args.tirx_view_plan is not None or args.tirx_view_block is not None
     if args.metal_device_timing is not None:
         args.metal_device_timing = args.metal_device_timing.resolve(strict=True)
         args.compiler_artifact.append(args.metal_device_timing)
-    if args.tirx_view_subgroup_fences != "reported" and not args.tirx_view_plan:
-        parser.error("subgroup-fence override requires --tirx-view-plan")
+    if args.tirx_view_subgroup_fences != "reported" and not view_requested:
+        parser.error("subgroup-fence override requires a view plan or block")
     paths = PATHS + RUNTIME_PATHS if args.tirx_runtime_controls else PATHS
     if args.tirx_mpp:
         paths += MPP_PATHS
         if not args.compiler_artifact:
             parser.error("--tirx-mpp requires --compiler-artifact entries for the patched TVM libraries")
-    if args.tirx_view_plan:
+    if view_requested:
         if not args.tirx_mpp:
-            parser.error("--tirx-view-plan requires --tirx-mpp so the non-forwarding control remains present")
+            parser.error("MPP views require --tirx-mpp so the non-forwarding control remains present")
         paths += VIEW_PATHS
     if args.rounds is None:
         args.rounds = 2 * len(paths)
@@ -349,6 +353,8 @@ def main() -> int:
         parser.error("TIRx MPP requires frozen cooperative group schedules")
     view_plan = load_plan(args.tirx_view_plan, {"gemm"}) if args.tirx_view_plan else {}
     view_schedules = {s: view_plan["metal", Case("gemm", *s).name] for s in shapes} if view_plan else {}
+    if args.tirx_view_block is not None:
+        view_schedules = {s: dict(schedules[s], gemm_block=args.tirx_view_block, matrix_realization="mpp-views") for s in shapes}
     if args.tirx_view_subgroup_fences != "reported":
         for config in view_schedules.values():
             config["elide_independent_subgroup_barriers"] = args.tirx_view_subgroup_fences == "elide"
