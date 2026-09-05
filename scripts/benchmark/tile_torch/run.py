@@ -1313,6 +1313,7 @@ def main() -> int:
         "platform": platform.platform(), "python": sys.version, "torch_version": torch.__version__,
         "torch_config": torch.__config__.show(), "threads": torch.get_num_threads(),
         "thread_environment": {key: os.environ[key] for key in ("TVM_NUM_THREADS", "OMP_NUM_THREADS", "VECLIB_MAXIMUM_THREADS")},
+        "loader_environment": {key: os.environ.get(key) for key in ("DYLD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH", "LD_LIBRARY_PATH")},
         "git_revision": revision, "worktree_dirty": dirty,
         "native_binary": str(args.native), "native_sha256": hashlib.sha256(args.native.read_bytes()).hexdigest(),
         "metal_device_timing": {"library": str(args.metal_device_timing),

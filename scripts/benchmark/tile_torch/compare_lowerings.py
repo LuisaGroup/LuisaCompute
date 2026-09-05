@@ -383,6 +383,7 @@ def main() -> int:
         timestamp=dt.datetime.now(dt.timezone.utc).isoformat(), platform=platform.platform(),
         torch_version=torch.__version__, torch_config=torch.__config__.show(), torch_git_version=torch.version.git_version,
         numpy_version=np.__version__, removed_environment=removed, threads=args.threads,
+        loader_environment={key: os.environ.get(key) for key in ("DYLD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH", "LD_LIBRARY_PATH")},
         tirx_view_subgroup_fences=args.tirx_view_subgroup_fences,
         git_revision=subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(),
         worktree_dirty=bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=root)),
