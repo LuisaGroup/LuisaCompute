@@ -729,6 +729,31 @@ objective explicit. This experiment changes no default scoring coefficients
 and provides no held-out model calibration. The current small candidate
 family still favors exact enumeration, not a more complex search algorithm.
 
+The optional `cache_reduction_inputs` extends the materialization choice to
+proved immutable inputs reused across distinct consumer domains. It is a
+bridge/planner policy, not a Tile DSL memory declaration. It retains only
+compiler snapshots admitted by the immutable-view audit; the existing
+same-worker audit and cumulative private-stripe budget still decide legality.
+An exact cache request rejects cross-worker gather or excess live allocation
+instead of silently falling back. Same-domain `x*x` alone is not reuse.
+
+The
+{download}`fixed-width cache/reload replay <../../scripts/benchmark/tile_torch/results/m1-max-20260905-input-cache-validation/notes.md>`
+holds W=512/V=4/U=1/P=1 and validates all 25 cases in four paired rounds.
+1024×4096 softmax/RMSNorm/LayerNorm gain 1.378×/1.265×/1.221× GPU
+throughput, with positive E2E gains. Ten identical-source controls and three
+smaller changed-source cases with mixed individual GPU pairs are retained.
+This is a materialization A/B, not width tuning or held-out model fitting.
+
+The default score ranks 4096-column RMSNorm's cached plan as more expensive
+(72 versus 64), and softmax/LayerNorm as 120 versus 112: a private copy adds
+scalar rounds, but the model has no access-resource/traffic feature to reward
+eliminated input reloads. Using that score to prune cache candidates would
+miss these measured wins. Distinct global/private service, unique same-phase
+loads, private live state and whole-device demand belong in backend policy
+features; proof and budget checks remain bridge-owned. No fitted coefficient
+or cache default is installed from this finite cohort.
+
 ## 4. Implemented matrix mapping family
 
 The current planner targets a proved Metal group-level FP32 MMA with a

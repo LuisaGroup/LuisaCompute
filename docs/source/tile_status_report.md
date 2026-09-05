@@ -162,12 +162,22 @@ means command-buffer execution, not an isolated kernel timestamp. Default V
 and scoring coefficients remain unchanged; independent incumbent acceptance
 and a calibrated full-device cost policy remain necessary.
 
-A new opt-in input-reuse candidate retains proved immutable snapshots across
-distinct reduction/element domains, using the existing private-stripe
-ownership proof and cumulative budget. It does not cache repeated occurrences
-inside one domain or expose new Tile DSL syntax. The default stays reload;
-four-round GPU/E2E acceptance of the fixed-width 25-case cohort is pending at
-this implementation checkpoint. See Section 9.7 of the reduction report.
+The
+{download}`input-reuse checkpoint <../../scripts/benchmark/tile_torch/results/m1-max-20260905-input-cache-validation/notes.md>`
+retains proved immutable snapshots across reduction/element domains using
+the existing private-stripe ownership proof and cumulative budget, with no
+new Tile DSL syntax. A 25-case, four-round cache/reload replay fixes
+W=512/V=4/U=1/P=1. At 1024×4096 softmax/RMSNorm/LayerNorm gain
+**1.378× / 1.265× / 1.221× GPU throughput** and
+**1.381× / 1.279× / 1.229× E2E throughput**, with all four pairs positive.
+RMSNorm GPU time is 55.863 µs versus Torch 69.108 µs; paired native/Torch
+time ratio is 0.807. This is not a comparison with earlier tuned widths.
+Three smaller changed-source cases have mixed individual GPU pairs; ten
+identical-source controls are retained. All 400 replay and 100 pilot outputs
+pass executed validation and the independent timing/source audit. The default
+stays reload: the current score counts extra private traversals but cannot
+price reduced global reads, so joint mapping/resource cost calibration is
+still needed. GPU here remains command-buffer, not isolated-kernel timing.
 
 **The general library-performance goal is still not complete.** These CPU
 wins are legal provider realizations for narrow proved contracts, not evidence
@@ -300,16 +310,16 @@ uses widths 1/2/4/8/16 and every active-lane count, independent of TileIR.
 The submitted source preserves `metal::mem_flags(3)`. The earlier
 {download}`submitted-value checkpoint <../../scripts/benchmark/tile_torch/results/m1-max-20260905-dual-timing-validation/notes.md>`
 passed **33/33** `test_tile_*` entries: 30 unit-labeled tests and three
-integration tests. The latest target-complete-width follow-up rebuilt
+integration tests. The latest input-reuse follow-up rebuilt
 the full selected tree and reran all 33 entries without touching the user's
 pre-existing local `mem_flags(2)` edit: **31/33 passed**. The two failures
 are generated-source assertions requiring `3` in
 `test_tile_tirx_cooperative_metal` and `test_tile_tirx_memory_metal`; their
 numerical checks pass. Neither assertion was weakened and the local edit is
-not submitted. Current benchmark Python contracts pass **83/83**; the prior
-24 ownership-layout cases and 14 new wider/non-power-of-two layouts also pass
-in the execution test. The
-{download}`current validation and full log <../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-width-validation/notes.md>`
+not submitted. Current benchmark Python contracts pass **84/84**; the prior
+24 ownership-layout cases, 14 wider/non-power-of-two layouts and 22 new
+input-reuse numeric configurations also pass in the execution test. The
+{download}`current validation and full log <../../scripts/benchmark/tile_torch/results/m1-max-20260905-input-cache-validation/notes.md>`
 keeps this dirty-worktree result separate from the earlier submitted-value
 checkpoint. No whole-repository test pass is claimed.
 

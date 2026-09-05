@@ -40,7 +40,11 @@ These results close two identified structural gaps. They do **not** establish
 all-operator, all-shape, low-precision, cross-device or pure-kernel parity.
 The later target-width experiment (Section 9.6)
 adds separately measured GPU and E2E evidence, including search winners that
-regress in independent replay.
+regress in independent replay. The fixed-width input-reuse experiment
+(Section 9.7) then isolates a resource-planning improvement: caching audited
+immutable inputs improves the three large normalization cases in every
+paired round, while smaller mixed results and identical-source controls
+remain visible. Input caching stays opt-in.
 
 ```{figure} ../_static/tile/tirx-subgroup-reduction.svg
 :alt: A logical TileIR reduction passes fail-closed proofs and a bounded cost solver before becoming either packed independent SIMD groups or several cooperating SIMD groups, with memory resources planned separately.
@@ -707,14 +711,20 @@ source value restored temporarily, then the user's local edit was restored.
 Commands and the full warning boundary are in the
 {download}`shared-Tile validation note <../../scripts/benchmark/tile_torch/results/m1-max-20260905-shared-tile-validation/notes.md>`.
 
-The latest target-width checkpoint instead runs the full current 33-test
+The target-width checkpoint instead runs the full 33-test
 Tile suite without modifying that local edit: 31/33 pass, with only the two
 known cooperative/memory source-assertion conflicts; their numerical checks
 pass. All 83 Python benchmark contract tests and the 14 new ragged Metal
 layouts pass. The
-{download}`current validation log and boundary <../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-width-validation/notes.md>`
+{download}`target-width validation log and boundary <../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-width-validation/notes.md>`
 retain the exact build/test provenance; the older 32/32 counts above are not
 relabeled as a new clean-source run.
+
+The subsequent input-reuse checkpoint adds 22 Metal numeric configurations
+and passes all 84 Python contracts. It rebuilds the full selected tree and
+again runs all 33 Tile tests without touching the local memory-flag edit:
+31/33 pass with the same two source-assertion failures. Section 9.7 and its
+linked validation note retain this latest run separately.
 
 ## 9. Performance evidence
 
@@ -915,7 +925,7 @@ choice that unconditional input forwarding erased: a proved immutable input
 Tile used in distinct element/reduction domains may remain materialized.
 The existing reduction ownership audit then maps it to worker-private
 stripes and charges the same cumulative scalar budget as computed Tiles.
-This does not add a DSL entity, change execution coordinates, or ask the user
+This does not add a DSL entity, change logical execution coordinates, or ask the user
 to place input memory manually. The default remains reload/forward.
 
 The view analysis still requires noalias, immutable source/address/guard/fill,
@@ -928,11 +938,40 @@ enabling this option is an exact request for the reduction mapping family,
 not permission to silently fall back to a replicated Tile.
 
 The benchmark switch `--cache-reduction-inputs` and frozen replay preserve
-this choice explicitly. A fixed W=512, V=4, U=1, P=1 cohort compares sum,
-softmax, RMSNorm, LayerNorm and residual LayerNorm at five shapes. Four-round
-counterbalanced acceptance is pending at this implementation checkpoint;
-initial sequential measurements are not a performance claim. Defaults and
-cost coefficients are unchanged.
+this choice explicitly. The
+{download}`complete input-cache evidence <../../scripts/benchmark/tile_torch/results/m1-max-20260905-input-cache-validation/notes.md>`
+contains a fixed W=512, V=4, U=1, P=1 experiment for sum, softmax, RMSNorm,
+LayerNorm and residual LayerNorm at five shapes. Four-round counterbalanced
+replay validates all 400 outputs; the two unscreened pilots add 100 outputs.
+All realized source hashes and complete plans match their frozen pilots.
+
+At 1024×4096 the cache candidate reduces GPU execution time for all three
+affected normalizations in every paired round. GPU means no-counter
+command-buffer time, not an isolated kernel timestamp. Times are medians of
+per-round p50s; gain is the paired ratio median, with observed min–max:
+
+| Op | Reload µs | Cache µs | Gain [min, max] | Torch µs |
+|---|---:|---:|---:|---:|
+| softmax | 74.198 | 53.949 | 1.378× [1.373, 1.395] | 121.715 |
+| RMSNorm | 70.668 | 55.863 | 1.265× [1.246, 1.345] | 69.108 |
+| LayerNorm | 79.150 | 64.704 | 1.221× [1.213, 1.251] | 206.598 |
+
+E2E-throughput gains are 1.381×, 1.279× and 1.229× in the same order.
+These compare cache/reload at the **same fixed mapping**, not the default
+planner, earlier tuned widths or an exhaustive hardware optimum. Torch uses
+the recorded eager/output-allocation policy. All 15 changed-source cases
+have positive median GPU gains, but RMSNorm 17×257/64×4096 and LayerNorm
+17×257 include an individual pair at or below parity. All ten unchanged
+sum/residual LayerNorm cases are retained as identical-source controls;
+their timing variation is not credited as an optimization.
+
+The unchanged analytic score exposes the next problem concretely: caching
+raises the 4096-column RMSNorm score from 64 to 72 because it adds a private
+copy traversal, while the measured GPU time falls. It does not distinguish
+global from private access service or price eliminated cross-phase input
+reads. Cache/reload candidates must not be pruned by that uncalibrated score.
+Resource-sensitive features and held-out ranking validation remain necessary;
+defaults and cost coefficients are unchanged.
 
 The implementation checkpoint passes 22 new Metal numeric configurations
 (including packed-program tails, V=1/V=4, three-way unrolling, non-power-of-two
