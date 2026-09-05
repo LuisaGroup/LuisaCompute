@@ -289,6 +289,12 @@ class RepeatContractTests(unittest.TestCase):
         native = {"reduction_cost_profile": profile, "metal_subgroup_reductions": True,
                   "backend": "metal", "execution_plans": [plan]}
         MODULE.validate_reduction_cost_profile(native, profile)
+        packed = plan | {"programs": 5, "reduction_threadgroups": 2,
+                         "reduction_programs_per_group": 3, "reduction_subgroups_per_program": 2,
+                         "normalized_cost": 51, "concurrent_waves": 1, "normalized_kernel_cost": 338}
+        MODULE.validate_reduction_cost_profile(native | {"execution_plans": [packed]}, profile)
+        with self.assertRaisesRegex(ValueError, "objective mismatch"):
+            MODULE.validate_reduction_cost_profile(native | {"execution_plans": [packed | {"normalized_kernel_cost": 306}]}, profile)
         for changes in ({"normalized_kernel_cost": 49735 * 16}, {"normalized_cost": True},
                         {"concurrent_waves": 16}, {"reduction_payload_accesses_known": False},
                         {"cost_basis": "metal_subgroup_reduction_v1"}):
@@ -869,6 +875,12 @@ class BenchmarkContractTests(unittest.TestCase):
                       cooperative_matrix=False, matrix_intrinsics=0, vectorize=True, auto_vectorize=False,
                       metal_subgroup_reductions=True, metal_max_threads=1024, execution_plans=[plan])
         MODULE.validate_native_metadata(native, case, "metal", "auto", metal_subgroup_reductions=True)
+        # Several cooperating subgroups per row and several independent rows
+        # per physical group are independent factors, including a packed tail.
+        packed = plan | dict(threads=288, reduction_programs_per_group=3,
+                             reduction_threadgroups=6)
+        MODULE.validate_native_metadata(native | {"execution_plans": [packed]}, case,
+                                        "metal", "auto", metal_subgroup_reductions=True)
         for field, value in (("reduction_threadgroups", 3), ("reduction_threadgroups", True),
                              ("reduction_programs_per_group", 2), ("reduction_subgroups_per_program", 2),
                              ("threads", 1056), ("reduction_scalar_rounds", float("nan")),

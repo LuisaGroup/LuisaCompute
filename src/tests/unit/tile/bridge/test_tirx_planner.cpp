@@ -494,6 +494,14 @@ void test_reduction_machine_cost() {
     candidate.subgroups_per_program = 1u;
     model.concurrent_subgroups = 4u;
     expect(eq(ServiceExecutionCostPolicy{model}.reduction_cost(candidate, prior).concurrent_waves, 1.5));
+    // Two cooperating subgroups per program: the sixth physical program
+    // replays an input row but does not write an extra output row.
+    candidate.subgroups_per_program = 2u;
+    auto packed_cost = ServiceExecutionCostPolicy{model}.reduction_cost(candidate, prior);
+    expect(eq(packed_cost.concurrent_waves, 3.0));
+    expect(eq(packed_cost.kernel_score, 440.0));
+    candidate.programs = 6u;
+    expect(eq(ServiceExecutionCostPolicy{model}.reduction_cost(candidate, prior).kernel_score, 456.0));
     candidate.payload_accesses_known = false;
     expect(!std::isfinite(policy.reduction_cost(candidate, prior).kernel_score));
     model.concurrent_subgroups = 0u;

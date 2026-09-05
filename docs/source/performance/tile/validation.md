@@ -31,22 +31,72 @@ offsets, read/write snapshots, move-only shader lifetime, negative origins and
 signed-overflow rejection in the bounds proof. The dedicated SIMD PHI test
 uses widths 1/2/4/8/16 and every active-lane count, independent of TileIR.
 
+## Metal reduction validation checkpoints
+
+The latest cooperating-packing checkpoint completes a full build, all 89
+Python benchmark tests and 31/33 Tile CTests. CPU/Metal execution and planner
+tests pass, including 36 new numerical configurations and six typed raw-IR
+admission/fence cases. Outputs are checked against independent FP64 formulas;
+guard rows and unused output columns must retain sentinels after three
+dispatches. The independent benchmark audit checks 240 executed output
+validation records, frozen plans/sources and 21 unchanged binary artifacts.
+The {download}`packing validation note and full CTest log
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-cooperating-packing/notes.md>`
+retain the same two unrelated source-assertion failures, not an all-green result.
+
+### Earlier submitted-value and service-policy checkpoints
+
 The submitted source preserves `metal::mem_flags(3)`. The earlier
 {download}`submitted-value checkpoint <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-dual-timing-validation/notes.md>`
 passed **33/33** `test_tile_*` entries: 30 unit-labeled tests and three
-integration tests. The latest service-policy follow-up rebuilt
+integration tests. The service-policy follow-up rebuilt
 the full selected tree and reran all 33 entries without touching the user's
 pre-existing local `mem_flags(2)` edit: **31/33 passed**. The two failures
 are generated-source assertions requiring `3` in
 `test_tile_tirx_cooperative_metal` and `test_tile_tirx_memory_metal`; their
 numerical checks pass. Neither assertion was weakened and the local edit is
-not submitted. Current benchmark Python contracts pass **89/89**; the planner
+not submitted. At that checkpoint, benchmark Python contracts pass **89/89**; the planner
 passes **5,988 assertions in ten tests**. The prior
 24 ownership-layout cases, 14 wider/non-power-of-two layouts and 22 new
 input-reuse numeric configurations also pass in the execution test. The
-{download}`current validation and full log <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-service-policy-validation/notes.md>`
+{download}`service-policy validation and full log <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-service-policy-validation/notes.md>`
 keeps this dirty-worktree result separate from the earlier submitted-value
 checkpoint. No whole-repository test pass is claimed.
+
+### Earlier shared-Tile and resource checkpoints
+
+The original shared-Tile run reported the following historical counts:
+
+```text
+complete CTest /^test_tile_/:            32 / 32 tests passed
+guarded CPU view proof:               1,572 assertions passed
+Metal subgroup LayerNorm:            12,297 assertions passed
+Metal subgroup cross-entropy:            20 assertions passed
+focused TIRx execution, CPU:          33,071 assertions passed
+focused TIRx execution, Metal:        38,363 assertions passed
+focused TIRx planner:                  5,891 assertions passed
+Python benchmark contract discovery:    69 / 69 tests passed
+```
+
+That checkpoint temporarily tested the submitted memory-flag value and then
+restored the local edit; the current run does not alter it. The
+{download}`shared-Tile note <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-shared-tile-validation/notes.md>`
+retains exact commands and the warning boundary. Do not relabel those counts
+as a new clean-source run.
+
+The subsequent target-width checkpoint adds 14 ragged Metal layouts and
+passes 83 Python tests; input reuse adds 22 numerical configurations and
+passes 84 Python tests. Access-demand validation then passes 87 Python tests,
+89,942 focused input-reuse assertions and 5,941 planner assertions in nine
+tests. Each rebuilds the selected tree and retains the 31/33 CTest boundary
+without changing the local flag. The
+{download}`target-width record <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-width-validation/notes.md>`,
+[input-reuse evidence](reductions.md#budgeted-immutable-input-reuse) and
+[joint mapping evidence](reductions.md#joint-resource-and-execution-mapping)
+own their original logs. Later tail-pack validation adds 28 full/partial-pack
+configurations with 89 Python contracts and the same CTest boundary; its
+[fixed replay](reductions.md#tail-packs-a-structural-repair-after-width-reuse-ablation)
+separately validates 192 benchmark outputs.
 
 ## Five failure investigations changed the implementation
 

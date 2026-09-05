@@ -401,8 +401,8 @@ uv run --no-project --python 3.13 --with torch --with numpy python \
   --samples 11 --sample-ms 100 --warmup-ms 100 --capture-sources
 ```
 
-`--group-threads 128` is an exact cooperating-worker constraint for this
-realization. A measured staged/JIT sweep can instead use
+Without explicit packing, `--group-threads 128` is an exact cooperating-worker
+constraint for this realization. A measured staged/JIT sweep can instead use
 `--tune-group-threads '32,64,128,256'`. Each width is separately captured,
 compiled and fully validated; invalid trials remain in JSON. The measured
 winner is then captured/JIT-compiled and measured again, so the reported row
@@ -414,8 +414,16 @@ may be searched jointly. GEMM block/pipeline and copy-batch tuning are rejected
 for this reduction mode.
 
 `--reduction-programs-per-group P` independently fixes program packing.
-`P>1` currently uses one SIMD group per program; an explicit thread count
-must then be `32*P`. `--reduction-unroll U` partially unrolls ordered worker
+`P>1` can use one or several SIMD groups per program. An explicit thread count
+is the **total** group size `32*S*P`; for example, `--group-threads 512
+--reduction-programs-per-group 2` assigns 256 workers to each program, not 512.
+With `--group-threads 0`, the solver searches fitting cooperating widths for
+that P. Automatic packing (`P=0`) retains its existing single-subgroup packing
+family. Cooperating packed tails require a uniform-fence/read-write proof;
+unsupported cases and over-budget resources fail before timing. The
+[fixed packing experiment](results/m1-max-20260905-cooperating-packing/notes.md)
+retains substantial regressions, so this is an explicit candidate, not a
+default promotion. `--reduction-unroll U` partially unrolls ordered worker
 stripes without changing their accumulation order. Its default remains one;
 the legal range is 1..16. Both policies and their realized values are recorded
 and checked before accepting an output or replaying a plan.

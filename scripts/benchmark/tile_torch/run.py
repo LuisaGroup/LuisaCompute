@@ -390,7 +390,7 @@ def validate_native_metadata(native: dict[str, Any], case: Case, backend: str, e
                 rounds = plan.get("reduction_scalar_rounds")
                 utilization = plan.get("reduction_lane_utilization")
                 if (any(type(value) is not int or value <= 0 for value in (programs, packing, subgroups, groups)) or
-                        subgroups > 32 or packing > 8 or (subgroups > 1 and packing != 1) or
+                        subgroups > 32 or packing > 8 or
                         plan["threads"] != 32 * subgroups * packing or plan["threads"] > limit or
                         groups != (programs - 1) // packing + 1 or
                         any(type(value) not in (int, float) or not math.isfinite(value)
@@ -646,7 +646,9 @@ def validate_reduction_cost_profile(native: dict[str, Any], requested: str) -> N
         local = (plan["reduction_scalar_rounds"] * scalar + plan["reduction_operations"] * plan["reduction_subgroups_per_program"] * collective +
                  (worker["private_read_bytes"] + worker["private_write_bytes"]) * private)
         waves = max(1.0, plan["reduction_threadgroups"] * plan["reduction_subgroups_per_program"] * plan["reduction_programs_per_group"] / capacity)
-        total = (dispatch + local * waves + plan["programs"] * (program["global_read_bytes"] + program["global_write_bytes"]) * global_program +
+        read_programs = (plan["reduction_threadgroups"] * plan["reduction_programs_per_group"]
+                         if plan["reduction_subgroups_per_program"] > 1 and plan["reduction_programs_per_group"] > 1 else plan["programs"])
+        total = (dispatch + local * waves + (read_programs * program["global_read_bytes"] + plan["programs"] * program["global_write_bytes"]) * global_program +
                  (worker["global_read_bytes"] + worker["global_write_bytes"]) * global_worker)
         for key, expected in (("normalized_cost", local), ("concurrent_waves", waves), ("normalized_kernel_cost", total)):
             actual = plan.get(key)

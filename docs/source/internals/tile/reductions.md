@@ -8,6 +8,11 @@ This page owns the mapping, proof, resource and intrinsic contracts.
 Performance measurements and regressions are maintained separately in
 [Metal reduction measurements](../../performance/tile/reductions.md).
 
+```{contents} On this page
+:local:
+:depth: 2
+```
+
 ```{figure} ../../../_static/tile/tirx-subgroup-reduction.svg
 :alt: A logical TileIR reduction passes fail-closed proofs and a bounded cost solver before becoming either packed independent SIMD groups or several cooperating SIMD groups, with memory resources planned separately.
 :width: 100%
@@ -148,10 +153,14 @@ generated structure is equivalent to:
 
 ```cpp
 float partial = simd_sum(local_sum);
-if (lane == 0) { shared_partials[simd_group] = partial; }
+if (lane == 0) { shared_partials[program_base + simd_group] = partial; }
 threadgroup_barrier(mem_flags::mem_threadgroup);
-float total = simd_sum(lane < S ? shared_partials[lane] : 0.0f);
+float total = simd_sum(lane < S ? shared_partials[program_base + lane] : 0.0f);
 ```
+
+`program_base` is zero for a one-program group. With explicit cooperating
+program packing it is `packed_program * S`, isolating each program's partials
+while all physical threads participate in the same barrier.
 
 The second collective is replicated across participating groups so subsequent
 distributed consumers have the result without an additional broadcast barrier.
@@ -217,9 +226,10 @@ For a candidate using `S` cooperating SIMD groups per logical program, define
 ```text
 L = 32                         lanes per SIMD group
 W = L * S                      workers per logical program
-s = floor(thread / L)          SIMD-group coordinate
-l = thread mod L               lane coordinate
-w = L * s + l                  worker coordinate within a program
+q = floor(thread / W)          program coordinate within a group
+w = thread mod W               worker coordinate within a program
+s = floor(w / L)               SIMD-group coordinate within a program
+l = w mod L                    lane coordinate
 ```
 
 The planner considers every integer `S` from 1 through
@@ -238,7 +248,7 @@ independent logical programs, where
 blocks = ceil_div(P, Q)
 threadgroup_threads = 32 * Q
 
-p = block * Q + subgroup
+p = block * Q + q
 e = 32 * chunk + lane
 ```
 
@@ -254,7 +264,7 @@ using all 256 workers.
 
 ### 4.2 Several SIMD groups per program: cooperative striping
 
-When `S > 1`, one threadgroup owns one logical program:
+When `S > 1`, automatic packing retains one logical program per threadgroup:
 
 ```text
 blocks = P
@@ -293,7 +303,60 @@ execution count. Cooperating subgroups report
 `independent_subgroups=false`; the existing barrier-elision proof cannot
 misclassify them as independent programs.
 
-### 4.3 Coverage and ancestry
+### 4.3 Explicit packing of cooperating programs
+
+An explicit `reduction_programs_per_group=Q>1` can also pack programs that
+each use `S>1` SIMD groups. Collaboration within one program and packing
+independent programs are separate factors; neither is a memory hierarchy.
+
+```text
+T = 32 * S * Q                 total physical threads per group
+W = 32 * S                     workers cooperating on one program
+q = floor(thread / W)          packed program coordinate
+w = thread mod W               worker coordinate within that program
+s = floor(w / 32), l = w % 32   local subgroup and lane coordinates
+p = block * Q + q              logical program coordinate before loop min
+partial[r, q*S + s]            shared slot written by local subgroup s
+blocks = ceil_div(P, Q)         P is the logical program count
+
+one physical threadgroup, Q=2, S=2
+  program q=0                   program q=1
+    subgroup 0 -> partial[0]      subgroup 0 -> partial[2]
+    subgroup 1 -> partial[1]      subgroup 1 -> partial[3]
+  ------------------ one uniform group barrier ------------------
+    read partial[0:2]             read partial[2:4]
+    both groups get result 0      both groups get result 1
+```
+
+Shared storage grows to `|R| * Q * S * sizeof(float)`. Worker-private stripes
+are still derived from **W**, not T; packing does not give a worker twice the
+private capacity or another program's elements. An exact thread request fixes
+T and must be divisible by `32*Q`. Without one, the bounded solver searches
+fitting cooperating widths for that explicit Q. Thread, shared-memory and
+private-state checks are applied before cost ranking.
+
+For a partial final group, a whole-program `if (p<P)` would put the group
+barrier under divergent control. Instead, inactive programs replay the last
+valid row (`min(p,P-1)`, plus the original loop minimum) and suppress only
+external stores. Their input addresses remain valid even for guarded,
+data-dependent gathers; they still perform reads and arithmetic. Active
+programs retain unique element coverage and store ownership.
+
+This requires an additional conservative proof: reduction-containing enclosing
+loops must have constant minimum, unit extent and unit serial step. Repeated
+or dynamic enclosing loops are rejected, including fully packed cases: scratch
+reuse across iterations needs a read-before-next-write fence proof. A packed
+tail also rejects any external buffer observed both read and written, under
+the existing noalias and pure-effect admission checks. Replay must not race
+with a valid program's writes. Unknown proofs decline this realization.
+
+The automatic `Q=0` option keeps the established candidate family; it does
+not begin choosing cooperating packed groups. The
+[fixed packing replay](../../performance/tile/reductions.md#cooperating-program-packing)
+finds substantial regressions as well as two narrow gains, so the extension
+remains explicit/JIT-only, without a new default or fitted coefficient.
+
+### 4.4 Coverage and ancestry
 
 For every distributed domain of count `N`, the default V=1 mapper enumerates
 
@@ -486,7 +549,8 @@ independent fail-closed correctness boundary.
 Legality is decided before profitability. Let `D` be the independent element
 domains, `R` the reductions, `I_d` and `N_r` their counts, `S` the candidate
 subgroups per program, `W=32S`, and `Q` the separately searched packed-program
-count (`Q>1` only for `S=1`). At V=1 the bootstrap score is
+count (automatic `Q>1` only for `S=1`; explicit Q can also use cooperating
+groups). At V=1 the bootstrap score is
 
 ```text
 rounds(S) = sum[d in D] ceil_div(I_d, W)
@@ -531,14 +595,14 @@ Before scoring, a candidate is rejected if it violates any of:
 ```text
 S <= min(32, floor(target_max_threads / 32))
 threadgroup_threads <= target_max_threads
-shared_bytes(S) <= target_shared_memory
+shared_bytes(S, Q) <= target_shared_memory
 stripe_scalars(S) <= max_reduction_striped_scalars_per_worker
 enumerated_widths <= max_thread_candidates
 finite, nonnegative coefficients
 supported exact thread constraint, when present.
 ```
 
-There are at most 39 automatic `(S,Q)` candidates (eight `Q` choices for
+There are at most 39 unconstrained automatic `(S,Q)` candidates (eight `Q` choices for
 `S=1`, 31 wider single-program choices), so exhaustive enumeration is
 clearer and more exact than integer programming or simulated annealing here.
 Those methods become relevant only when later planners jointly choose tile
@@ -548,9 +612,16 @@ much larger discrete space.
 `threads_per_group=0` means automatic choice. A nonzero value is an exact JIT
 constraint and must be a legal multiple of 32. Without an exact packing
 request it fixes cooperating workers per program, retaining the original
-interface. `reduction_programs_per_group>1` instead explicitly chooses packed
-one-subgroup programs; any simultaneous thread request must equal `32*Q`.
+interface. `reduction_programs_per_group>1` instead explicitly fixes Q;
+any simultaneous thread request must equal `32*S*Q` for a supported S.
 Constraints are never silently clamped or reinterpreted.
+
+The optional service policy prices packed-tail replay reads for all
+`ceil_div(P,Q)*Q` cooperating program slots, but global writes only for the
+P active programs. Payload facts per program remain useful work, not padded
+launch totals. The analytic prior has no such service term and currently
+rewards packing's setup amortization without its occupancy/synchronization
+costs; the fixed packing measurements expose that limitation.
 
 The bridge now exposes a backend-owned cost-policy interface and bounded
 ordered stripe unrolling. See [the implemented policy and search contract](planner.md).
@@ -565,44 +636,11 @@ and E2E scopes separately in frozen replay reports.
 
 ### 6.1 Plans selected in the original 20-case run
 
-| Case | Threads/group | SIMD groups/program | Shared bytes | Private stripe/worker | Reductions | Model score |
-|---|---:|---:|---:|---:|---:|---:|
-| sum 1×127 | 32 | 1 | 0 | 0 | 1 | 23 |
-| sum 17×257 | 256 | 1 | 0 | 0 | 1 | 14 |
-| sum 128×1024 | 128 | 4 | 16 | 0 | 1 | 33 |
-| sum 64×4096 | 256 | 8 | 32 | 0 | 1 | 49 |
-| softmax 1×127 | 64 | 2 | 16 | 2 | 2 | 32 |
-| softmax 17×257 | 256 | 1 | 0 | 9 | 2 | 42 |
-| softmax 128×1024 | 128 | 4 | 32 | 8 | 2 | 64 |
-| softmax 64×4096 | 256 | 8 | 64 | 16 | 2 | 112 |
-| RMSNorm 1×127 | 64 | 2 | 8 | 0 | 1 | 24 |
-| RMSNorm 17×257 | 256 | 1 | 0 | 0 | 1 | 22 |
-| RMSNorm 128×1024 | 128 | 4 | 16 | 0 | 1 | 40 |
-| RMSNorm 64×4096 | 256 | 8 | 32 | 0 | 1 | 64 |
-| LayerNorm 1×127 | 64 | 2 | 16 | 0 | 2 | 30 |
-| LayerNorm 17×257 | 256 | 1 | 0 | 0 | 2 | 33 |
-| LayerNorm 128×1024 | 128 | 4 | 32 | 0 | 2 | 56 |
-| LayerNorm 64×4096 | 256 | 8 | 64 | 0 | 2 | 96 |
-| cross-entropy 1×127 | 32 | 1 | 0 | 0 | 2 | 31 |
-| cross-entropy 17×257 | 256 | 1 | 0 | 0 | 2 | 27 |
-| cross-entropy 128×1024 | 128 | 4 | 32 | 0 | 2 | 51 |
-| cross-entropy 64×4096 | 256 | 8 | 64 | 0 | 2 | 83 |
-
-`threads/group` is the whole threadgroup width. For the 17-row `S=1` plans,
-256 threads mean eight independently packed row programs, not eight groups
-cooperating on one row.
-
-LayerNorm's independent element count is the row width because its affine
-output is distributed. Cross-entropy has only three scalar independent
-elements after immutable logits/label views are forwarded; its two width-sized
-loops are the reductions already counted in `R`.
-
-The table is retained as the exact historical plan report. The current
-default structural exporter additionally preserves LayerNorm's shared
-`centered` Tile, so a newly compiled width-4096 LayerNorm reports a bounded
-worker stripe rather than zero. Its exact size follows the selected width,
-not this historical 256-thread entry. Saved artifacts are never rewritten to
-pretend they were produced by the newer policy.
+The [historical launch-plan table](../../performance/tile/reductions.md#historical-launch-plans)
+now lives with the measurements that produced it. It is not the current
+automatic schedule contract: later shared-SSA preservation, target-width and
+resource policies change the candidate facts. This link retains the original
+section anchor without duplicating experiment data in the lowering reference.
 
 ## 7. Staged/JIT tuning is the outer authority
 
@@ -689,47 +727,20 @@ results:
   guard is safely forwarded;
 - minimum and maximum together at `7×1024`;
 - uniform first collectives and guarded tails in generated Metal;
+- 36 cooperating-packing configurations for sum, softmax, no-affine LayerNorm
+  and paired min/max, including non-power-of-two widths, cached/ragged inputs,
+  a 1024-thread group, automatic width selection and sentinel guard rows;
+- six raw-IR packing admission cases: direct/unit-wrapper success and repeated,
+  row-varying, read/write-tail and over-limit rejection, with a typed check that
+  the accepted group fence is not nested under a conditional;
 - CPU fallback behavior and unchanged reference paths; and
 - benchmark/replay metadata, policy preservation, cooperating-subgroup facts
   and staged/JIT winner revalidation, including materialization policy.
 
-At the earlier shared-Tile checkpoint (historical counts retained):
-
-```text
-complete CTest /^test_tile_/:            32 / 32 tests passed
-guarded CPU view proof:               1,572 assertions passed
-Metal subgroup LayerNorm:            12,297 assertions passed
-Metal subgroup cross-entropy:            20 assertions passed
-focused TIRx execution, CPU:          33,071 assertions passed
-focused TIRx execution, Metal:        38,363 assertions passed
-focused TIRx planner:                  5,891 assertions passed
-Python benchmark contract discovery:    69 / 69 tests passed
-```
-
-The wider repository contains an unrelated local edit to Metal memory flags;
-the targeted subgroup hardware tests avoid attributing that user's change to
-this feature. The complete Tile cohort was also run with the submitted
-source value restored temporarily, then the user's local edit was restored.
-Commands and the full warning boundary are in the
-{download}`shared-Tile validation note <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-shared-tile-validation/notes.md>`.
-
-The target-width checkpoint instead runs the full 33-test
-Tile suite without modifying that local edit: 31/33 pass, with only the two
-known cooperative/memory source-assertion conflicts; their numerical checks
-pass. All 83 Python benchmark contract tests and the 14 new ragged Metal
-layouts pass. The
-{download}`target-width validation log and boundary <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-width-validation/notes.md>`
-retain the exact build/test provenance; the older 32/32 counts above are not
-relabeled as a new clean-source run.
-
-The subsequent input-reuse checkpoint adds 22 Metal numeric configurations
-and passes all 84 Python contracts. It rebuilds the full selected tree and
-again runs all 33 Tile tests without touching the local memory-flag edit:
-31/33 pass with the same two source-assertion failures. The
-[input-reuse measurements](../../performance/tile/reductions.md#budgeted-immutable-input-reuse) and their
-linked validation note retain that run separately. The access-demand follow-up
-in the [joint mapping measurements](../../performance/tile/reductions.md#joint-resource-and-execution-mapping)
-again builds the full tree and reports the same 31/33 boundary,
-while all 87 Python contracts pass. Its focused input-reuse run passes 89,942
-assertions including the new resource facts; the planner passes 5,941
-assertions in nine tests.
+Executed counts, historical checkpoints and the two known local
+source-assertion failures belong to the
+[validation record](../../performance/tile/validation.md#metal-reduction-validation-checkpoints).
+The [cooperating-packing measurements](../../performance/tile/reductions.md#cooperating-program-packing)
+link the latest full CTest log, independent audit and retained negative results.
+The contracts above describe required coverage, not a claim that every current
+worktree or target passes all tests.

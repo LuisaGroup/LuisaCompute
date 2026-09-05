@@ -251,8 +251,14 @@ ReductionCost ServiceExecutionCostPolicy::reduction_cost(const ReductionCandidat
     // floating-point products to avoid overflowing integer feature counters.
     auto waves = std::max(1.0, static_cast<double>(candidate.threadgroups) * candidate.subgroups_per_program *
                                    candidate.programs_per_group / _model.concurrent_subgroups);
+    // Cooperating packed tails replay a valid row to keep data-dependent
+    // addresses safe and all group fences uniform. Only external writes are
+    // suppressed; price those extra reads rather than claiming masked work.
+    auto read_programs = candidate.subgroups_per_program > 1u && candidate.programs_per_group > 1u ?
+                             static_cast<double>(candidate.threadgroups) * candidate.programs_per_group :
+                             static_cast<double>(candidate.programs);
     auto kernel_score = _model.dispatch + score * waves +
-                        static_cast<double>(candidate.programs) * (program.global_read_bytes + program.global_write_bytes) * _model.global_program_byte +
+                        (read_programs * program.global_read_bytes + static_cast<double>(candidate.programs) * program.global_write_bytes) * _model.global_program_byte +
                         (worker.global_read_bytes + worker.global_write_bytes) * _model.global_worker_byte;
     return {score, waves, kernel_score};
 }

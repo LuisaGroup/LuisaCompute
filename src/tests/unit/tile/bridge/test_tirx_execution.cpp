@@ -9,6 +9,7 @@
 #include <cmath>
 #include <limits>
 #include <string_view>
+#include <tvm/tirx/builtin.h>
 #include <tvm/tirx/op.h>
 #include <tvm/tirx/stmt_functor.h>
 
@@ -727,7 +728,7 @@ void test_metal_reduction_packing_and_policy(Runtime &runtime) {
     auto conflict = runtime.build(kernel, true, false, true, false, planner, false, true);
     expect(!conflict.ok());
     expect(conflict.error.find("packing") != luisa::string::npos) << conflict.error;
-    planner.threads_per_group = 0u;
+    planner.threads_per_group = 96u;
     auto over_budget = runtime.build(make_row_softmax(rows, 4096), true, false, true, false, planner, false, true);
     expect(!over_budget.ok());
     expect(over_budget.error.find("packing") != luisa::string::npos) << over_budget.error;
@@ -812,6 +813,7 @@ void test_reduction_lane_elements(Runtime &runtime) {
             planner.cost_policy = &policy;
             if (columns <= 257) {
                 planner.reduction_programs_per_group = 3u;
+                planner.threads_per_group = 96u;
             } else {
                 planner.threads_per_group = 256u;
             }
@@ -858,6 +860,182 @@ void test_reduction_lane_elements(Runtime &runtime) {
     auto over_budget = runtime.build(make_row_softmax(rows, 33), true, false, true, false, planner, false, true);
     expect(!over_budget.ok());
     expect(over_budget.error.find("exact reduction mapping") != luisa::string::npos) << over_budget.error;
+}
+
+void test_metal_cooperating_program_packing(Runtime &runtime) {
+    if (runtime.target() != "metal") { return; }
+    for (auto dimensions : {std::array<uint32_t, 7u>{1u, 1u, 64u, 2u, 1u, 1u, 0u},
+                            {1u, 33u, 96u, 3u, 4u, 3u, 1u},
+                            {5u, 257u, 64u, 2u, 4u, 1u, 0u},
+                            {6u, 257u, 64u, 2u, 4u, 1u, 1u},
+                            {7u, 1537u, 96u, 3u, 4u, 3u, 1u},
+                            {5u, 1537u, 416u, 2u, 4u, 1u, 0u},
+                            {1u, 1665u, 512u, 2u, 8u, 1u, 1u},
+                            {9u, 1537u, 128u, 8u, 4u, 3u, 1u},
+                            {5u, 4096u, 0u, 3u, 4u, 1u, 1u}}) {
+        auto [rows, columns, workers, packing, lanes, unroll, cache] = dimensions;
+        auto automatic_width = workers == 0u;
+        if (workers * packing > runtime.metal_max_threads()) { continue; }
+        for (auto mode = 0u; mode != 4u; mode++) {
+            auto definition = tile_kernel("packed_cooperating_rows", [=](TensorView<const float, 2> input, TensorView<float, 2> output) {
+                auto one = axis("one", 1), feature = axis("feature", columns);
+                auto scalar_column = axis("scalar_column", 1);
+                for (auto &nest : parallel(shape(rows))) {
+                    auto origin = coord(nest.index() + 1, 0);
+                    auto x = input[origin, shape(one, feature)];
+                    if (mode == 0u) {
+                        output(origin, shape(one, scalar_column)).store(reduce(x, feature, add));
+                    } else if (mode == 1u) {
+                        auto shifted = exp(x - reduce(x, feature, maximum));
+                        output(origin, shape(one, feature)).store(shifted / reduce(shifted, feature, add));
+                    } else if (mode == 2u) {
+                        auto mean = reduce(x, feature, add) / static_cast<float>(columns);
+                        auto centered = x - mean;
+                        auto variance = reduce(centered * centered, feature, add) / static_cast<float>(columns);
+                        output(origin, shape(one, feature)).store(centered / sqrt(variance + 1e-5f));
+                    } else {
+                        output(origin, shape(one, scalar_column)).store(reduce(x, feature, minimum) + reduce(x, feature, maximum));
+                    }
+                }
+            });
+            auto kernel = definition.capture(tensor_shape(rows + 2u, columns), tensor_shape(rows + 2u, columns));
+            auto planner = subgroup_reduction_options();
+            planner.threads_per_group = automatic_width ? 0u : workers * packing;
+            planner.reduction_programs_per_group = packing;
+            planner.reduction_lane_elements = lanes;
+            planner.reduction_unroll_factor = unroll;
+            planner.cache_reduction_inputs = cache != 0u;
+            auto executable = runtime.build(kernel, true, false, true, false, planner);
+            expect(executable.ok()) << "rows=" << rows << " columns=" << columns << " W=" << workers << " P=" << packing << " mode=" << mode << " " << executable.error;
+            if (!executable.ok() || executable.plans.empty()) { continue; }
+            auto &plan = executable.plans.front();
+            if (automatic_width) {
+                expect(plan.reduction_subgroups_per_program > 1u);
+                workers = plan.reduction_subgroups_per_program * 32u;
+            }
+            auto reductions = mode == 0u ? 1u : 2u;
+            expect(eq(plan.threads, workers * packing));
+            expect(eq(plan.reduction_subgroups_per_program, workers / 32u));
+            expect(eq(plan.reduction_programs_per_group, packing));
+            expect(eq(plan.reduction_threadgroups, static_cast<uint64_t>(ceil_div(rows, packing))));
+            expect(eq(plan.shared_memory_bytes, reductions * workers / 32u * packing * sizeof(float)));
+            expect(eq(plan.group_barrier_sites_after, reductions));
+            expect(!plan.independent_subgroups);
+            expect(eq(plan.candidates_considered, automatic_width ? std::min(32u, runtime.metal_max_threads() / 32u) / packing : 1u));
+            auto source = metal_source(executable.module.value());
+            auto code = std::string_view{source.data(), source.size()};
+            expect(code.find("threadgroup_barrier(") != std::string_view::npos);
+            expect(code.find(mode == 3u ? "simd_min(" : "simd_sum(") != std::string_view::npos);
+            luisa::vector<float> values(static_cast<size_t>(rows + 2u) * columns);
+            for (auto row = 0u; row < rows + 2u; row++) {
+                for (auto column = 0u; column < columns; column++) {
+                    values[row * columns + column] = static_cast<float>(row) * 0.17f +
+                                                     static_cast<float>(static_cast<int32_t>((column * 13u + row * 29u) % 127u) - 63) / 41.0f;
+                }
+            }
+            auto input = runtime.upload<float>({rows + 2u, columns}, values);
+            auto output = runtime.upload<float>({rows + 2u, columns}, luisa::vector<float>(values.size(), -19.0f));
+            for (auto repeat = 0u; repeat != 3u; repeat++) { (*executable.entry)(input, output); }
+            auto actual = runtime.download<float>(output, values.size());
+            // Guard rows and unused scalar-output columns must remain intact.
+            for (auto row = 0u; row < rows + 2u; row++) {
+                auto sum = 0.0, exponential_sum = 0.0;
+                auto lowest = std::numeric_limits<double>::infinity();
+                auto highest = -std::numeric_limits<double>::infinity();
+                for (auto column = 0u; column < columns; column++) {
+                    auto value = static_cast<double>(values[row * columns + column]);
+                    sum += value;
+                    exponential_sum += std::exp(value);
+                    lowest = std::min(lowest, value);
+                    highest = std::max(highest, value);
+                }
+                auto mean = sum / columns;
+                auto variance = 0.0;
+                for (auto column = 0u; column < columns; column++) {
+                    auto centered = values[row * columns + column] - mean;
+                    variance += centered * centered / columns;
+                }
+                for (auto column = 0u; column < columns; column++) {
+                    auto expected = -19.0;
+                    if (row != 0u && row != rows + 1u) {
+                        auto value = static_cast<double>(values[row * columns + column]);
+                        if (mode == 0u && column == 0u) { expected = sum; }
+                        if (mode == 1u) { expected = std::exp(value) / exponential_sum; }
+                        if (mode == 2u) { expected = (value - mean) / std::sqrt(variance + 1e-5); }
+                        if (mode == 3u && column == 0u) { expected = lowest + highest; }
+                    }
+                    expect(std::abs(actual[row * columns + column] - expected) <= 2e-6 + 2e-5 * std::abs(expected))
+                        << "mode=" << mode << " row=" << row << " column=" << column;
+                }
+            }
+        }
+    }
+}
+
+void test_metal_cooperating_packing_proofs(Runtime &runtime) {
+    if (runtime.target() != "metal") { return; }
+    auto i64 = [](int64_t value) { return tvm::IntImm::Int64(value); };
+    auto f32 = [](float value) { return tvm::FloatImm{tvm::PrimType::Float(32), value}; };
+    for (auto mode = 0u; mode != 6u; mode++) {
+        auto input = tvm::tirx::decl_buffer({i64(5), i64(257)}, tvm::PrimType::Float(32), "input");
+        auto output = tvm::tirx::decl_buffer({i64(5)}, tvm::PrimType::Float(32), "output");
+        auto carry = tvm::tirx::decl_buffer({i64(1)}, tvm::PrimType::Float(32), "carry", "local");
+        auto temporary = tvm::tirx::decl_buffer({i64(1)}, tvm::PrimType::Float(32), "next", "local");
+        auto p = tvm::tirx::PrimVar{"program", tvm::PrimType::Int(64)};
+        auto k = tvm::tirx::PrimVar{"reduction", tvm::PrimType::Int(64)};
+        auto e = tvm::tirx::PrimVar{"output_element", tvm::PrimType::Int(64)};
+        auto step = tvm::tirx::PrimVar{"step", tvm::PrimType::Int(64)};
+        auto update = tvm::tirx::SeqStmt::Flatten(tvm::ffi::Array<tvm::tirx::Stmt>{
+            tvm::tirx::AllocBuffer{temporary},
+            tvm::tirx::BufferStore{temporary, tvm::tirx::BufferLoad{carry, {i64(0)}} + tvm::tirx::BufferLoad{input, {p - i64(2), k}}, {i64(0)}},
+            tvm::tirx::BufferStore{carry, tvm::tirx::BufferLoad{temporary, {i64(0)}}, {i64(0)}}});
+        auto reduction = tvm::tirx::For{k, i64(0), i64(257), tvm::tirx::ForKind::kSerial, std::move(update), {}, {{"luisa.tile.contract.reduction", i64(1)}}};
+        auto destination = mode == 4u ? input : output;
+        auto indices = mode == 4u ? tvm::ffi::Array<tvm::PrimExpr>{p - i64(2), e} : tvm::ffi::Array<tvm::PrimExpr>{p - i64(2) + e};
+        auto store = tvm::tirx::For{e, i64(0), i64(1), tvm::tirx::ForKind::kSerial, tvm::tirx::BufferStore{destination, tvm::tirx::BufferLoad{carry, {i64(0)}}, indices}, {}, {{"luisa.tile.independent_elements", i64(1)}}};
+        tvm::tirx::Stmt body = tvm::tirx::SeqStmt::Flatten(tvm::ffi::Array<tvm::tirx::Stmt>{
+            tvm::tirx::AllocBuffer{carry}, tvm::tirx::BufferStore{carry, f32(0.0f), {i64(0)}}, reduction, store});
+        if (mode >= 1u && mode <= 3u) {
+            // A unit wrapper is safe. Repeated partial reuse and row-varying
+            // fence counts are distinct proof failures, even without a tail.
+            tvm::PrimExpr count = mode == 3u ? p - i64(1) : i64(mode);
+            body = tvm::tirx::For{step, i64(0), count, tvm::tirx::ForKind::kSerial, std::move(body)};
+        }
+        body = tvm::tirx::For{p, i64(2), i64(5), tvm::tirx::ForKind::kSerial, std::move(body), {}, {{"luisa.tile.logical_parallel", i64(1)}}};
+        CompileOptions options;
+        options.target = R"({"kind":"metal","thread_warp_size":32,"max_num_threads":1024,"max_threads_per_block":1024})";
+        options.noalias = true;
+        options.planner = subgroup_reduction_options();
+        options.planner.reduction_programs_per_group = 3u;
+        options.planner.threads_per_group = mode == 5u ? 1056u : 288u;
+        auto compiled = compile_device(tvm::tirx::PrimFunc{{input, output}, body}, "packing_proof", options);
+        expect(eq(static_cast<bool>(compiled), mode <= 1u)) << "mode=" << mode << " " << compiled.error;
+        if (!compiled) { continue; }
+        class FenceAudit final : public tvm::tirx::StmtExprVisitor {
+        private:
+            uint32_t _branch_depth{0u};
+            void VisitStmt_(const tvm::tirx::IfThenElseNode *branch) final {
+                _branch_depth++;
+                StmtExprVisitor::VisitStmt_(branch);
+                _branch_depth--;
+            }
+            void VisitExpr_(const tvm::CallNode *call) final {
+                if (call->op.same_as(tvm::tirx::builtin::tvm_storage_sync())) {
+                    fences++;
+                    uniform &= _branch_depth == 0u;
+                }
+                StmtExprVisitor::VisitExpr_(call);
+            }
+        public:
+            uint32_t fences{0u};
+            bool uniform{true};
+        } audit;
+        audit(compiled.artifact.function->body);
+        expect(eq(audit.fences, 1u));
+        expect(audit.uniform);
+        expect(eq(compiled.artifact.block[0u], 288u));
+        expect(eq(compiled.artifact.grid[0u], 2u));
+    }
 }
 
 // Full packs, all-tail domains, each residual element count, and a complete
@@ -1790,6 +1968,8 @@ int main(int argc, char *argv[]) {
     "tile_execution_element_grid_exact_reduction"_test = [&] { test_element_grid_respects_exact_reduction(runtime); };
     "tile_execution_element_grid_producer_contract"_test = [&] { test_element_grid_producer_contract(runtime); };
     "tile_execution_reduction_packing_and_policy"_test = [&] { test_metal_reduction_packing_and_policy(runtime); };
+    "tile_execution_cooperating_program_packing"_test = [&] { test_metal_cooperating_program_packing(runtime); };
+    "tile_execution_cooperating_packing_proofs"_test = [&] { test_metal_cooperating_packing_proofs(runtime); };
     "tile_execution_reduction_lane_elements"_test = [&] { test_reduction_lane_elements(runtime); };
     "tile_execution_reduction_tail_packs"_test = [&] { test_reduction_tail_packs(runtime); };
     "tile_execution_reduction_input_cache"_test = [&] { test_reduction_input_cache(runtime); };

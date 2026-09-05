@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="650" viewBox="0 0 1200 650" role="img" aria-labelledby="title desc">
   <title id="title">TIRx Metal subgroup reduction planning and realization</title>
-  <desc id="desc">A logical row program passes semantic and ownership proofs, then a bounded cost solver chooses packed independent subgroups or several cooperating subgroups. Global tensor views, worker-private stripes, shared reduction partials and the final output remain separate resources.</desc>
+  <desc id="desc">A logical row program passes semantic and ownership proofs, then a bounded cost solver chooses collaboration and packing. Automatic packing uses independent single-subgroup programs; explicit packing can combine cooperating programs with separate partials and uniform barriers. Tensor views, private stripes and shared partials remain separate resources.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L0,6 L9,3 z" fill="#52606d"/>
@@ -23,20 +23,20 @@
   <text x="145" y="103" text-anchor="middle" class="head">TileIR row program</text>
   <text x="55" y="132" class="text">P independent programs</text>
   <text x="55" y="156" class="text">N elements per row</text>
-  <text x="55" y="178" class="small">reduce / element domains / effects</text>
+  <text x="55" y="178" class="small">reductions + elements</text>
 
   <rect x="310" y="65" width="255" height="136" class="box" fill="#e8f5e9" stroke="#36b37e"/>
   <text x="438" y="94" text-anchor="middle" class="head">Fail-closed proof gates</text>
   <text x="330" y="121" class="text">exact FP32 add / max / min</text>
-  <text x="330" y="145" class="text">pure contribution + uniform control</text>
-  <text x="330" y="169" class="text">partitioned stores + noalias views</text>
-  <text x="330" y="191" class="small">affine owner equality for cached Tiles</text>
+  <text x="330" y="145" class="text">pure inputs + uniform control</text>
+  <text x="330" y="169" class="text">disjoint stores + noalias views</text>
+  <text x="330" y="191" class="small">cached Tile owner equality</text>
 
   <rect x="620" y="75" width="235" height="116" class="box" fill="#fff3e0" stroke="#ff991f"/>
   <text x="738" y="103" text-anchor="middle" class="head">Bounded cost solver</text>
-  <text x="640" y="132" class="small">S ∈ {1, 2, 4, 8}</text>
+  <text x="640" y="132" class="small">S = 1..32, target-bounded</text>
   <text x="640" y="155" class="text">hard limits before ranking</text>
-  <text x="640" y="178" class="small">rounds + collective + group setup</text>
+  <text x="640" y="178" class="small">stripe / collective / setup</text>
   <rect x="910" y="75" width="255" height="116" class="box" fill="#f3e5f5" stroke="#8777d9"/>
   <text x="1038" y="103" text-anchor="middle" class="head">Verified execution plan</text>
   <text x="930" y="132" class="text">threads, blocks, S/program</text>
@@ -62,19 +62,19 @@
   <text x="448" y="418" text-anchor="middle" class="small">…</text>
 
   <rect x="660" y="260" width="475" height="190" class="box" fill="#fff8e6" stroke="#ff991f"/>
-  <text x="898" y="291" text-anchor="middle" class="head">S &gt; 1: cooperate on one program</text>
-  <text x="685" y="322" class="small">worker w = subgroup · 32 + lane</text>
-  <text x="685" y="348" class="small">element e = chunk · (32S) + w</text>
-  <text x="685" y="374" class="text">local fold → SIMD collective → shared partial[S]</text>
+  <text x="898" y="291" text-anchor="middle" class="head">S &gt; 1: cooperate within each program</text>
+  <text x="685" y="322" class="small">Q=1 automatic; explicit Q&gt;1 requires proof</text>
+  <text x="685" y="348" class="small">q = thread / (32S); w = thread % (32S)</text>
+  <text x="685" y="374" class="text">Example Q=2, S=2: isolated shared partials</text>
   <rect x="690" y="397" width="95" height="32" rx="7" fill="#ffe0b2" stroke="#ff991f"/>
   <rect x="800" y="397" width="95" height="32" rx="7" fill="#ffe0b2" stroke="#ff991f"/>
   <rect x="910" y="397" width="95" height="32" rx="7" fill="#ffe0b2" stroke="#ff991f"/>
   <rect x="1020" y="397" width="85" height="32" rx="7" fill="#ffe0b2" stroke="#ff991f"/>
-  <text x="738" y="418" text-anchor="middle" class="small">partial 0</text>
-  <text x="848" y="418" text-anchor="middle" class="small">partial 1</text>
-  <text x="958" y="418" text-anchor="middle" class="small">partial 2</text>
-  <text x="1063" y="418" text-anchor="middle" class="small">…</text>
-  <text x="898" y="445" text-anchor="middle" class="small">barrier → one uniform collective over S partials</text>
+  <text x="738" y="418" text-anchor="middle" class="small">q0 / s0</text>
+  <text x="848" y="418" text-anchor="middle" class="small">q0 / s1</text>
+  <text x="958" y="418" text-anchor="middle" class="small">q1 / s0</text>
+  <text x="1063" y="418" text-anchor="middle" class="small">q1 / s1</text>
+  <text x="898" y="445" text-anchor="middle" class="small">uniform barrier → each q combines its S partials</text>
 
   <path d="M1038 191 C1038 225 303 220 303 260" class="thin"/>
   <path d="M1038 191 V260" class="thin"/>
@@ -86,11 +86,11 @@
   <rect x="385" y="558" width="210" height="36" rx="8" fill="#c6f6d5" stroke="#36b37e"/>
   <text x="490" y="581" text-anchor="middle" class="text">worker-private stripe[k]</text>
   <rect x="675" y="558" width="190" height="36" rx="8" fill="#ffe0b2" stroke="#ff991f"/>
-  <text x="770" y="581" text-anchor="middle" class="text">shared partial[S]</text>
+  <text x="770" y="581" text-anchor="middle" class="text">shared partial[Q·S]</text>
   <rect x="945" y="558" width="140" height="36" rx="8" fill="#e1d5f7" stroke="#8777d9"/>
   <text x="1015" y="581" text-anchor="middle" class="text">global output</text>
   <path d="M305 576 H385" class="arrow"/>
   <path d="M595 576 H675" class="arrow"/>
   <path d="M865 576 H945" class="arrow"/>
-  <text x="600" y="637" text-anchor="middle" class="small">A logical Tile is compacted only after proving flatten(index) = distributed element; its local slot is floor(element / 32S).</text>
+  <text x="600" y="637" text-anchor="middle" class="small">V=1: private slot = floor(element / 32S), after an ownership proof. Packing Q does not enlarge a worker's stripe.</text>
 </svg>

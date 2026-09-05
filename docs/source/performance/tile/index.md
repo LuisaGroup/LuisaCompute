@@ -70,8 +70,11 @@ improves 37×1537 Softmax/RMSNorm/LayerNorm batched E2E throughput by
 1.134×/1.207×/1.210× against the previous emitter in four paired rounds.
 GPU pairs for the two norms are mixed, and identical-source controls expose
 background variability. No noisy labels were used to refit the model; the
-new cost profile and input caching remain opt-in. These are separate
-experiments, not gains that can be multiplied together.
+new cost profile and input caching remain opt-in. Explicit packing now also
+admits several cooperating programs per group, but the fixed 12-case replay
+regresses in every GPU pair for eight cases and improves for only two.
+Automatic packing is unchanged. These are separate experiments, not gains
+that can be multiplied together.
 
 **CPU provider wins do not close the native XIR gap.** Proved TIRx CBLAS GEMMs
 beat eager Torch on seven of eight replayed shapes; Accelerate array operations
@@ -84,10 +87,11 @@ The [CPU route evidence](results.md) keeps provider and direct-XIR results separ
 
 The latest reduction implementation checkpoint completed a full build, 89
 Python benchmark tests and 31 of 33 Tile CTests. CPU and Metal execution tests
-pass, including 28 new tail/cache configurations. Two generated-source
+pass, including 36 new cooperating-packing configurations and six typed
+admission/fence cases. Two generated-source
 assertions still conflict with an unrelated local barrier-flag edit; this is
-not an all-green worktree. The width/cache experiment validates 120 outputs;
-the frozen old/new tail replay validates 192. Their complete records are
+not an all-green worktree. The fixed packing experiment validates 240 outputs
+across parameter pilots and the independent replay. Its complete records are
 linked from [reduction measurements](reductions.md).
 
 The next milestone is stable, held-out mapping/resource selection after the

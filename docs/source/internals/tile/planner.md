@@ -15,6 +15,11 @@ The planner chooses an implementation of the existing execution structure. It
 does not introduce a second programming language, infer a new meaning for
 `parallel`, or let a fast candidate override memory and numerical semantics.
 
+```{contents} On this page
+:local:
+:depth: 2
+```
+
 ```{figure} ../../../_static/tile/execution-planner.svg
 :alt: Semantic facts and target capabilities define legal candidates. A cost model and search rank them; realization is verified again before JIT. Correctness-checked measurements calibrate ranking, never legality.
 :width: 100%
@@ -707,11 +712,18 @@ coefficient model; this change does not advertise an arbitrary nonlinear
 matrix objective, a calibrated universal policy, or an XIR policy interface.
 
 Reduction search now treats packing independently from collaboration.
-`reduction_programs_per_group=0` searches the legal packing choices; a
-positive value fixes packing. `P>1` currently requires `S=1`, avoiding
-threadgroup barriers under a partial-program tail. With `P=1`, exact thread
-count still chooses the cooperating width. Invalid combinations fail instead
-of silently falling back. `reduction_unroll_factor` in `[1,16]` controls
+`reduction_programs_per_group=0` keeps automatic packing of single-subgroup
+programs. A positive value fixes packing P and now also admits `S>1` with
+per-program partial slots and a proved uniform fence sequence. An exact
+thread count is the whole physical group, `T=32*S*P`; without one, fitting
+cooperating widths are searched. Packed tails replay a valid program and
+suppress external stores, so the service policy counts their extra reads.
+Repeated reduction-containing enclosing loops and unsafe read/write replay
+are rejected. The [reduction mapping reference](reductions.md#explicit-packing-of-cooperating-programs)
+owns the exact admission and ownership contract. This remains an explicit
+candidate family: the [fixed replay](../../performance/tile/reductions.md#cooperating-program-packing)
+does not justify expanding automatic defaults. Invalid combinations fail
+instead of silently falling back. `reduction_unroll_factor` in `[1,16]` controls
 bounded partial unrolling of ordered worker stripes, with a separate tail;
 it creates no extra accumulators and does not reassociate their recurrence.
 The default remains one because measurements show mixed effects.

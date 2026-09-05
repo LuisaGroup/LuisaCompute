@@ -99,9 +99,12 @@ struct PlannerOptions {
     // the numerical permission and the planner candidate switch; it is never
     // inferred from a target name or a coincidental loop annotation.
     bool metal_subgroup_reductions{false};
-    // Zero retains automatic packing. Nonzero fixes independent logical
-    // programs per group, separately from threads_per_group. More than one
-    // program currently requires one subgroup per program (no group fences).
+    // Zero retains the automatic family's incumbent (packing only single-
+    // subgroup programs). Nonzero fixes independent logical programs per
+    // group; threads_per_group is the TOTAL physical group width and must be
+    // divisible by programs * subgroup size. Each program can use several
+    // subgroups with isolated partials and a proved uniform fence sequence.
+    // With no exact thread count, search all fitting cooperating widths.
     uint32_t reduction_programs_per_group{0u};
     // Partial unrolling of each worker's ordered stripe. Does not introduce
     // independent accumulators or change its floating-point recurrence order.

@@ -5,6 +5,17 @@
 - Primary workloads: GEMM, attention, convolution, normalization, quantized,
   sparse, grouped, and persistent neural-network kernels
 
+For a first kernel, start with the [programming guide](index.md) and
+[executable examples](kernels.md). This longer reference owns the language
+contract; [lowering coverage](../performance/tile/implementation.md) and
+[compiler internals](../internals/tile/index.md) separately describe what is
+implemented. A proposed layout or scheduling contract is not a performance claim.
+
+```{contents} On this page
+:local:
+:depth: 1
+```
+
 ## 1. The design in one page
 
 The central architectural choice is **execution-structure first**. The logical

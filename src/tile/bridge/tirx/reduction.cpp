@@ -788,6 +788,51 @@ public:
         : _analysis{analysis} {}
 };
 
+// Packing cooperating programs introduces group fences between otherwise
+// independent rows. Every program must execute the same fence sequence. For
+// a packed tail, inactive programs replay the last valid coordinate and only
+// suppress external stores: this keeps even data-dependent input addresses
+// valid, without ever placing a group fence inside a program predicate.
+// Replay is safe only when external writes cannot feed a subsequent read.
+// Only unit enclosing loops are admitted here: reusing a partial allocation
+// across iterations needs an additional read-before-next-write fence proof.
+class PackedProgramAudit final : public tvm::tirx::StmtExprVisitor {
+private:
+    const ReductionAnalysis &_analysis;
+    luisa::unordered_set<BufferKey> _reads;
+    luisa::unordered_set<BufferKey> _writes;
+
+protected:
+    void VisitStmt_(const tvm::tirx::ForNode *loop) final {
+        if (contains_reduction(loop->body, _analysis)) {
+            uniform_fences &= loop->min.as<tvm::IntImmNode>() != nullptr &&
+                              static_extent(loop->extent) == 1u &&
+                              unit_serial_loop(loop);
+        }
+        StmtExprVisitor::VisitStmt_(loop);
+    }
+
+    void VisitExpr_(const tvm::tirx::BufferLoadNode *load) final {
+        if (load->buffer.scope() != "local") { _reads.emplace(load->buffer.get()); }
+        StmtExprVisitor::VisitExpr_(load);
+    }
+
+    void VisitStmt_(const tvm::tirx::BufferStoreNode *store) final {
+        if (store->buffer.scope() != "local") { _writes.emplace(store->buffer.get()); }
+        StmtExprVisitor::VisitStmt_(store);
+    }
+
+public:
+    bool uniform_fences{true};
+    explicit PackedProgramAudit(const ReductionAnalysis &analysis) noexcept
+        : _analysis{analysis} {}
+
+    [[nodiscard]] bool replayable_tail() const noexcept {
+        return std::none_of(_writes.begin(), _writes.end(),
+                            [&](auto buffer) noexcept { return _reads.contains(buffer); });
+    }
+};
+
 struct DistributedLocalAccess {
     uint64_t allocations{0u};
     uint64_t distributed_stores{0u};
@@ -907,6 +952,8 @@ private:
     tvm::PrimExpr _worker;
     tvm::PrimExpr _lane;
     tvm::PrimExpr _subgroup;
+    tvm::PrimExpr _partial_base;
+    tvm::ffi::Optional<tvm::PrimExpr> _program_active;
     uint64_t _workers;
     uint64_t _subgroups;
     uint32_t _unroll_factor;
@@ -1048,11 +1095,11 @@ private:
                 partial,
                 tvm::tirx::BufferLoad{
                     match.carry, {tvm::IntImm::Int64(0)}},
-                {_subgroup}}});
+                {_partial_base + _subgroup}}});
         statements.push_back(shared_barrier());
         auto input = tvm::if_then_else(
             _lane < tvm::IntImm::Int64(static_cast<int64_t>(_subgroups)),
-            tvm::tirx::BufferLoad{partial, {_lane}},
+            tvm::tirx::BufferLoad{partial, {_partial_base + _lane}},
             reduction_identity(match.kind));
         auto total = tvm::Call{
             tvm::PrimType::Float(32),
@@ -1173,7 +1220,11 @@ protected:
             return tvm::tirx::BufferStore{
                 iter->second, VisitPrimExpr(store->value), {_striped_slot.value()}, _predicate(store->predicate), store->span};
         }
-        return StmtExprMutator::VisitStmt_(store);
+        auto result = StmtExprMutator::VisitStmt_(store);
+        if (_program_active && store->buffer.scope() != "local") {
+            result = tvm::tirx::IfThenElse{_program_active.value(), std::move(result)};
+        }
+        return result;
     }
 
     [[nodiscard]] tvm::Expr VisitExpr_(
@@ -1188,14 +1239,17 @@ protected:
 public:
     ReductionProgramMapper(
         tvm::PrimExpr worker, tvm::PrimExpr lane,
-        tvm::PrimExpr subgroup, uint64_t workers, uint64_t subgroups, uint32_t unroll_factor, uint32_t lane_elements,
+        tvm::PrimExpr subgroup, tvm::PrimExpr partial_base,
+        tvm::ffi::Optional<tvm::PrimExpr> program_active,
+        uint64_t workers, uint64_t subgroups, uint32_t unroll_factor, uint32_t lane_elements,
         const ReductionAnalysis &analysis,
         const luisa::unordered_map<const tvm::tirx::ForNode *,
                                    tvm::tirx::BufferVar> &partials,
         const luisa::unordered_map<BufferKey,
                                    tvm::tirx::BufferVar> &striped_buffers) noexcept
         : _worker{std::move(worker)}, _lane{std::move(lane)},
-          _subgroup{std::move(subgroup)}, _workers{workers},
+          _subgroup{std::move(subgroup)}, _partial_base{std::move(partial_base)},
+          _program_active{std::move(program_active)}, _workers{workers},
           _subgroups{subgroups}, _unroll_factor{unroll_factor}, _lane_elements{lane_elements}, _analysis{analysis}, _partials{partials},
           _striped_buffers{striped_buffers} {}
 };
@@ -1227,6 +1281,8 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
     ProgramAudit audit{analysis};
     audit(loop->body);
     if (!audit.valid) { return {}; }
+    PackedProgramAudit packing_audit{analysis};
+    packing_audit(loop->body);
     DistributedLocalAudit ownership{analysis};
     ownership(loop->body);
     if (!ownership.valid()) { return {}; }
@@ -1268,25 +1324,21 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
     };
     luisa::vector<uint64_t> widths;
     auto exact_packing = options.reduction_programs_per_group;
-    if (exact_packing > 1u) {
-        if (exact_packing > maximum_subgroups ||
-            (options.threads_per_group != 0u &&
-             options.threads_per_group != exact_packing * subgroup_size)) {
-            return {};
-        }
-        widths.emplace_back(1u);
-    } else if (options.threads_per_group != 0u) {
+    auto requested_packing = std::max<uint64_t>(1u, exact_packing);
+    auto maximum_program_subgroups = maximum_subgroups / requested_packing;
+    if (maximum_program_subgroups == 0u) { return {}; }
+    if (options.threads_per_group != 0u) {
         if (options.threads_per_group > max_threads ||
-            options.threads_per_group % subgroup_size != 0u) {
+            options.threads_per_group % (subgroup_size * requested_packing) != 0u) {
             return {};
         }
-        widths.emplace_back(options.threads_per_group / subgroup_size);
+        widths.emplace_back(options.threads_per_group / (subgroup_size * requested_packing));
     } else {
-        if (maximum_subgroups > options.max_thread_candidates) {
+        if (maximum_program_subgroups > options.max_thread_candidates) {
             throw std::runtime_error{"reduction thread candidate budget exceeded; increase the budget or request an exact width"};
         }
         for (auto subgroups = uint64_t{1u};
-             subgroups <= maximum_subgroups; subgroups++) {
+             subgroups <= maximum_program_subgroups; subgroups++) {
             widths.emplace_back(subgroups);
         }
     }
@@ -1332,9 +1384,9 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
             scalar_rounds +=
                 static_cast<double>(stripe_slots(elements, workers, options.reduction_lane_elements));
         }
-        // Packing independent programs is a separate search dimension from
-        // the cooperating width of one program. Multiple-subgroup programs
-        // retain a whole group: their barriers must not be guarded by a tail.
+        // Packing and cooperating width are independent dimensions. Retain
+        // the automatic family's incumbent while explicit packing/JIT search
+        // can explore several cooperating programs in one physical group.
         auto packing_begin = exact_packing ? static_cast<uint64_t>(exact_packing) : 1u;
         auto packing_end = !multi && !exact_packing && options.threads_per_group == 0u ?
                                std::min({*groups, maximum_subgroups, uint64_t{8u}}) :
@@ -1342,12 +1394,21 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
         auto lane_utilization = scalar_rounds == 0.0 ? 0.0 :
                                                        scalar_elements / (scalar_rounds * static_cast<double>(workers));
         for (auto packed = packing_begin; packed <= packing_end; packed++) {
+            auto threads = subgroups * packed * subgroup_size;
+            if (threads > max_threads ||
+                partial_bytes > shared_memory_limit / packed ||
+                (multi && packed > 1u &&
+                 (!packing_audit.uniform_fences ||
+                  (*groups % packed != 0u && !packing_audit.replayable_tail())))) {
+                candidates_rejected++;
+                continue;
+            }
             candidates_considered++;
-            auto threads = (multi ? subgroups : packed) * subgroup_size;
+            auto group_partial_bytes = partial_bytes * packed;
             auto features = ReductionCandidate{
                 *groups, static_cast<uint32_t>(threads),
                 static_cast<uint32_t>(subgroups), static_cast<uint32_t>(packed),
-                partial_bytes, striped_storage_scalars, analysis.reductions.size(), scalar_rounds, options.reduction_unroll_factor, options.reduction_lane_elements,
+                group_partial_bytes, striped_storage_scalars, analysis.reductions.size(), scalar_rounds, options.reduction_unroll_factor, options.reduction_lane_elements,
                 luisa::ceil_div(*groups, packed), scalar_elements, lane_utilization,
                 accesses.known, accesses.demand(), accesses.demand(workers, options.reduction_lane_elements)};
             auto cost = policy.reduction_cost(features, model);
@@ -1358,7 +1419,7 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
             }
             if (cost.kernel_score < best.cost.kernel_score) {
                 best = Candidate{subgroups, packed, threads,
-                                 partial_bytes, striped_storage_scalars, scalar_rounds, lane_utilization, cost};
+                                 group_partial_bytes, striped_storage_scalars, scalar_rounds, lane_utilization, cost};
             }
         }
     }
@@ -1368,23 +1429,28 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
     auto partial_bytes = best.partial_bytes;
     auto packed_programs = best.packed_programs;
     auto threads = best.threads;
-    auto blocks = multi_subgroup ?
-                      *groups :
-                      luisa::ceil_div(*groups, packed_programs);
+    auto blocks = luisa::ceil_div(*groups, packed_programs);
+    auto program_workers = subgroups_per_program * subgroup_size;
     auto block = tvm::tirx::PrimVar{
         loop->loop_var->name + "_subgroup_block", tvm::PrimType::Int(64)};
     auto thread = tvm::tirx::PrimVar{
         loop->loop_var->name + "_subgroup_thread", tvm::PrimType::Int(64)};
     auto lane = tvm::tirx::PrimVar{
         loop->loop_var->name + "_subgroup_lane", tvm::PrimType::Int(64)};
-    auto subgroup = tvm::floordiv(
-        thread, tvm::IntImm::Int64(static_cast<int64_t>(subgroup_size)));
-    tvm::PrimExpr logical = block;
-    if (!multi_subgroup) {
-        logical = block *
-                      tvm::IntImm::Int64(
-                          static_cast<int64_t>(packed_programs)) +
-                  subgroup;
+    auto packed_index = tvm::floordiv(thread, tvm::IntImm::Int64(static_cast<int64_t>(program_workers)));
+    tvm::PrimExpr worker = multi_subgroup ?
+                               tvm::floormod(thread, tvm::IntImm::Int64(static_cast<int64_t>(program_workers))) :
+                               tvm::PrimExpr{lane};
+    auto subgroup = tvm::floordiv(worker, tvm::IntImm::Int64(static_cast<int64_t>(subgroup_size)));
+    auto partial_base = packed_index * tvm::IntImm::Int64(static_cast<int64_t>(subgroups_per_program));
+    auto logical = block * tvm::IntImm::Int64(static_cast<int64_t>(packed_programs)) + packed_index;
+    auto packed_tail = blocks * packed_programs != *groups;
+    auto replay_tail = multi_subgroup && packed_tail;
+    tvm::ffi::Optional<tvm::PrimExpr> program_active;
+    tvm::PrimExpr mapped_logical = logical;
+    if (replay_tail) {
+        program_active = logical < loop->extent;
+        mapped_logical = tvm::min(logical, loop->extent - tvm::IntImm::Int64(1));
     }
     luisa::unordered_map<const tvm::tirx::ForNode *, tvm::tirx::BufferVar>
         partials;
@@ -1393,7 +1459,7 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
         for (auto reduction : analysis.reduction_order) {
             auto partial = tvm::tirx::decl_buffer(
                 {tvm::IntImm::Int64(
-                    static_cast<int64_t>(subgroups_per_program))},
+                    static_cast<int64_t>(subgroups_per_program * packed_programs))},
                 tvm::PrimType::Float(32),
                 loop->loop_var->name + "_subgroup_partials_" +
                     std::to_string(partials.size()),
@@ -1402,9 +1468,6 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
             allocations.push_back(tvm::tirx::AllocBuffer{std::move(partial)});
         }
     }
-    tvm::PrimExpr worker = multi_subgroup ? tvm::PrimExpr{thread} :
-                                            tvm::PrimExpr{lane};
-    auto program_workers = multi_subgroup ? threads : subgroup_size;
     luisa::unordered_map<BufferKey, tvm::tirx::BufferVar> striped_buffers;
     auto striped_storage_scalars = uint64_t{0u};
     for (auto &&[key, materialization] : materializations) {
@@ -1422,7 +1485,7 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
             "reduction stripe resource accounting changed after planning"};
     }
     auto body = ReductionProgramMapper{
-        std::move(worker), lane, subgroup,
+        std::move(worker), lane, subgroup, partial_base, program_active,
         program_workers, multi_subgroup ? subgroups_per_program : 1u, options.reduction_unroll_factor, options.reduction_lane_elements,
         analysis, partials, striped_buffers}(loop->body);
     if (!allocations.empty()) {
@@ -1432,12 +1495,12 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
     body = tvm::tirx::Substitute(
         std::move(body),
         tvm::ffi::Map<tvm::tirx::Var, tvm::Expr>{
-            {loop->loop_var, loop->min + logical},
+            {loop->loop_var, loop->min + mapped_logical},
             {lane, tvm::floormod(
                        thread,
                        tvm::IntImm::Int64(
                            static_cast<int64_t>(subgroup_size)))}});
-    if (!multi_subgroup && blocks * packed_programs != *groups) {
+    if (!multi_subgroup && packed_tail) {
         body = tvm::tirx::IfThenElse{
             logical < loop->extent, std::move(body)};
     }
