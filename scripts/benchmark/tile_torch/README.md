@@ -94,6 +94,17 @@ The first saved pilot is
 It is intentionally a negative-result report: a narrow mapping search does
 not replace packed/register-blocked CPU matrix realization.
 
+For a compiler A/B instead of a mapping A/B, add
+`--baseline FROZEN_BUILD/bin/benchmark_tile_xir`. Copy its complete adjacent
+backend/library set before rebuilding; copying only the executable still loads
+the new backend. Both arms then request `planned`, and six orders balance the
+old compiler, new compiler and Torch. Repeat `--shape M,N,K` to cover larger
+or ragged matrices, and use `--block M,N,K` to fix the same Tile specialization
+for both arms. Do not choose a new block during the frozen replay. The
+[packet-index proof report](results/m1-max-20260906-xir-packet/notes.md)
+also independently checks the plans, source/output hashes and both dispatch
+metrics; its CPU timings are not kernel-only durations.
+
 ## Direct BLAS and MPS GEMM baselines
 
 On macOS the build also creates `benchmark_tile_system`, an independent

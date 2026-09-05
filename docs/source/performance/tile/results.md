@@ -79,7 +79,8 @@ timing. In particular, the very large cross-entropy advantage includes
 PyTorch's general eager API and returned-output overhead; it is not presented
 as an isolated MPS-kernel ratio.
 
-### New XIR/SIMD planner pilot
+(new-xir-simd-planner-pilot)=
+### Initial XIR/SIMD planner pilot
 
 The {download}`XIR pilot <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/notes.md>`
 compares automatic planning, fixed `{order=[0,1], block=64}`, and eager
@@ -105,6 +106,50 @@ rounds respectively. The fixed comparison therefore shows a modest, noisy
 mapping effect, while the 38–55× Torch gap diagnoses a missing realization
 family. This is direct evidence for Tile/lane distribution, register blocking,
 cache-aware reuse and vector/matrix microkernels before cost-model polishing.
+
+### SIMD packet-index proof closes a codegen disconnect
+
+The September 6 [bounded packet proof](../../internals/tile/xir.md#proven-packet-accesses-not-estimated-slopes)
+lets Schedule retain value-preserving integer casts and prove aligned
+quotient/remainder relationships. The existing memory emitter now uses eight
+A broadcasts and eight contiguous B reads per static 1×1×8 K chunk, instead
+of sixteen gathers. The Tile program, root plan, cost coefficients and strict
+math policy are unchanged. This is an index-analysis/codegen change, not a
+new GEMM DSL primitive or a BLAS substitution.
+
+The final six-round frozen old/new/Torch comparison validates all 108 full
+outputs and 38 unchanged artifacts. Values below are synchronized host-wall
+batched dispatch microseconds; they are **not CPU kernel-only timings**.
+
+```{table} Final SIMD compiler comparison, fixed Tile 1×1×8 and eight CPU workers
+:class: benchmark-table
+
+| M×N×K | Old µs | New µs | Torch µs | Paired new/old | New slower rounds | New/Torch |
+|---|---:|---:|---:|---:|---:|---:|
+| 32³ | 51.739 | 38.913 | 0.978 | 0.756 | 0/6 | 39.986 |
+| 128³ | 301.521 | 118.771 | 4.936 | 0.398 | 0/6 | 24.215 |
+| 512³ | 12528.875 | 4142.333 | 146.611 | 0.326 | 0/6 | 28.267 |
+| 1024³ | 109013.021 | 39793.646 | 985.279 | 0.367 | 0/6 | 40.493 |
+| 128×2048×512 | 13117.948 | 5592.222 | 158.803 | 0.427 | 0/6 | 35.075 |
+| 127×193×61 | 246.743 | 247.816 | 6.549 | 1.006 | 5/6 | 38.045 |
+```
+
+The four nontrivial aligned shapes improve in every throughput and single-call
+latency pair; small-shape latency is mixed. The ragged control has identical
+LLVM in both arms and retains its small throughput regression and mixed
+latency, rather than being dropped. The
+{download}`complete report <../../../../scripts/benchmark/tile_torch/results/m1-max-20260906-xir-packet/notes.md>`
+keeps both metrics, observed ranges, compile times, the earlier replay and
+source/binary boundaries. These gains are relative to the old implementation:
+**every final shape still loses to Torch**, with aligned nontrivial throughput
+ratios of 24.2–40.5. Cache/register blocking and local-Tile/lane distribution
+remain the larger CPU realization gap. Multi-operator correctness tests pass;
+this cohort makes no new LLM-operator performance claim.
+
+A separate new 8192³ MPS capture passes complete FP64 validation. Xcode window
+inspection timed out, so its launch/counter attribution is not available yet;
+the capture is excluded from performance rankings. No Metal default changes
+follow from this CPU checkpoint.
 
 ### Balanced Metal evidence: MPP cost v2 closes this GEMM cohort
 

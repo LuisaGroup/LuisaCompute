@@ -211,6 +211,13 @@ int main(int argc, char *argv[]) {
             rows(device, width, true);
         }
     };
+    "tile_xir_runtime_aligned_and_ragged_packet_gemm"_test = [&] {
+        for (auto columns : {32, 33, 128}) {
+            for (auto rows_per_tile : {1, 4}) {
+                gemm(device, {19, columns, 65, rows_per_tile, 1, 8}, false);
+            }
+        }
+    };
     "tile_xir_runtime_loop_carries_and_load_snapshot"_test = [&] {
         for (auto iterations : {0, 1, 5}) {
             recurrence(device, iterations, false);

@@ -1,7 +1,7 @@
 # TileIR → XIR: execution planning and SIMD realization
 
-Status: first executable CPU realization, September 5, 2026. The finite
-root-mapping solver below is implemented. General Tile distribution, packed
+Status: executable CPU realization with bounded packet-index proofs,
+September 6, 2026. The finite root-mapping solver below is implemented. General Tile distribution, packed
 matrix atoms, software pipelining and measured cost calibration are not.
 
 This document complements the [language/layout design](../../tile/design.md),
@@ -130,6 +130,38 @@ signed overflow keep the guard. This proof is separate from the cost model's
 floating-point address-slope estimate. It neither asserts noalias nor moves a
 load across an effect. LLVM simplification alone is too late to prevent
 unnecessary per-element branches from inflating the earlier SIMD Schedule.
+
+### Proven packet accesses, not estimated slopes
+
+The SIMD Schedule projection separately recognizes a bounded nonnegative
+integer expression of the form `x[lane] = W*q + lane`. Its initial seeds are
+packet-aligned dispatch/thread x coordinates or the lane index. Only
+power-of-two widths and packets contained in one x row receive this proof.
+Value-preserving integer casts, aligned constant offsets and supported
+quotient/remainder compositions retain it; unknown expressions fail closed.
+
+For positive `d` divisible by W, an aligned packet cannot straddle a d-sized
+boundary. Therefore `x/d` is cohort-equal and `x%d` is consecutive. Division
+by one preserves x; remainder by one is equal to zero. A truncated cast,
+unaligned offset, ragged divisor, negative/unknown divisor or cross-row packet
+does not satisfy this rule. Same-width signed/unsigned i64 casts preserve
+address bits; they do not authorize narrow wrap followed by extension.
+
+```text
+uint32 dispatch x → proved value-preserving i64 cast
+                           ├── / aligned row width → same row → broadcast A
+                           └── % aligned row width → adjacent columns → load B
+                                      ↓
+                         existing masked SIMD memory emitter
+```
+
+These annotations reach the existing nonvolatile buffer broadcast/contiguous
+load/store implementation. Active masks, first-active-lane addressing and
+tail guards remain in force. They neither move memory effects nor relax MMA
+arithmetic. This closes a specific disconnect where the planner estimated
+coherent accesses but the emitter still generated gathers; it does not add
+cache blocking or a packed matrix atom. See the
+[frozen compiler comparison](../../performance/tile/results.md#simd-packet-index-proof-closes-a-codegen-disconnect).
 
 ## 4. The implemented solver
 

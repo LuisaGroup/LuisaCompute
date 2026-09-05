@@ -1,7 +1,8 @@
 import copy
+import argparse
 import unittest
 
-from compare_xir import check_metadata
+from compare_xir import check_metadata, positive_triple
 
 
 class XIRMetadataTests(unittest.TestCase):
@@ -14,6 +15,18 @@ class XIRMetadataTests(unittest.TestCase):
 
     def test_accepts_exact_contract(self):
         check_metadata(self.row(), (32, 32, 32), "canonical", 2)
+
+    def test_explicit_tile_contract(self):
+        row = self.row() | {"block": [4, 1, 8], "planner_policy": "planned"}
+        check_metadata(row, (32, 32, 32), "planned", 2, (4, 1, 8))
+        with self.assertRaises(ValueError):
+            check_metadata(row, (32, 32, 32), "planned", 2)
+
+    def test_shape_parser(self):
+        self.assertEqual(positive_triple("127,193,61"), (127, 193, 61))
+        for text in ("", "1,2", "1,2,3,4", "1,0,3", "-1,2,3", "1,x,3"):
+            with self.subTest(text=text), self.assertRaises(argparse.ArgumentTypeError):
+                positive_triple(text)
 
     def test_rejects_wrong_realization(self):
         for key, value in {"implementation": "tile_tirx", "fast_math": True, "m": 31,

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Balanced XIR/SIMD planner pilot against a fixed execution map and eager Torch.
 
-This is not the TIRx benchmark. Both XIR paths use the same 1x1x8 Tile program;
-only root execution order/block packing may differ. No timing-based tuning.
+This is not the TIRx benchmark. Both XIR paths use the same Tile program.
+By default compare planned/canonical maps; --baseline instead compares two
+frozen compilers with the same planned map. No timing-based tuning.
 """
 from __future__ import annotations
 
@@ -22,9 +23,20 @@ from repeat import artifact_hashes
 from run import summarize, time_torch
 
 
-def check_metadata(row: dict, shape: tuple[int, int, int], policy: str, samples: int) -> None:
+def positive_triple(text: str) -> tuple[int, int, int]:
+    try:
+        values = tuple(int(v) for v in text.split(","))
+        if len(values) != 3 or min(values) <= 0:
+            raise ValueError
+    except ValueError:
+        raise argparse.ArgumentTypeError("expected three positive integers separated by commas") from None
+    return values
+
+
+def check_metadata(row: dict, shape: tuple[int, int, int], policy: str, samples: int,
+                   block: tuple[int, int, int] = (1, 1, 8)) -> None:
     expected = {"implementation": "tile_xir_simd", "backend": "cpu", "precision": "fp32",
-                "fast_math": False, "relaxed_precision": False, "block": [1, 1, 8],
+                "fast_math": False, "relaxed_precision": False, "block": list(block),
                 "m": shape[0], "n": shape[1], "k": shape[2], "planner_policy": policy,
                 "timing": "synchronized_host_wall", "batch_policy": "one_runtime_command_list_per_batch"}
     if any(type(row.get(k)) is not type(v) or row[k] != v for k, v in expected.items()):
@@ -45,6 +57,9 @@ def check_metadata(row: dict, shape: tuple[int, int, int], policy: str, samples:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--native", required=True, type=Path)
+    parser.add_argument("--baseline", type=Path, help="frozen prior executable and its adjacent backend libraries")
+    parser.add_argument("--shape", type=positive_triple, action="append", help="repeatable M,N,K; defaults to the original three cases")
+    parser.add_argument("--block", type=positive_triple, default=(1, 1, 8), help="fixed Tile M,N,K for both XIR paths")
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--compiler-artifact", action="append", type=Path, default=[])
     parser.add_argument("--rounds", type=int, default=6)
@@ -56,6 +71,15 @@ def main() -> int:
     if args.rounds <= 0 or args.rounds % 6 or min(args.samples, args.sample_ms, args.warmup_ms, args.threads) <= 0:
         parser.error("positive settings and a multiple of six rounds required")
     args.native = args.native.resolve(strict=True)
+    if args.baseline:
+        args.baseline = args.baseline.resolve(strict=True)
+        if args.baseline == args.native:
+            parser.error("baseline and candidate must be different executable paths")
+    shapes = args.shape or [(32, 32, 32), (128, 128, 128), (127, 193, 61)]
+    if len(set(shapes)) != len(shapes) or any(max(shape) > 16384 for shape in shapes) or max(args.block) > 64:
+        parser.error("duplicate/oversized shapes or oversized Tile block")
+    binaries = [args.native] + ([args.baseline] if args.baseline else [])
+    control = "baseline" if args.baseline else "canonical"
     args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=False)
     for key in ("TVM_NUM_THREADS", "OMP_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "LUISA_SIMD_WORKER_COUNT"):
@@ -69,19 +93,20 @@ def main() -> int:
     import torch
     torch.set_num_threads(args.threads)
     torch.set_num_interop_threads(1)
-    hashes = artifact_hashes([args.native], args.compiler_artifact)
+    hashes = artifact_hashes(binaries, args.compiler_artifact)
     digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
     root = Path(__file__).resolve().parents[3]
     report = {"metadata": {"timestamp": dt.datetime.now(dt.timezone.utc).isoformat(), "platform": platform.platform(),
                             "git_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(),
                             "worktree_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=root)),
-                            "torch_version": torch.__version__, "torch_config": torch.__config__.show(), "numpy_version": np.__version__,
+                            "torch_version": torch.__version__, "torch_git_version": torch.version.git_version,
+                            "torch_config": torch.__config__.show(), "numpy_version": np.__version__,
                             "rounds": args.rounds, "samples": args.samples, "sample_ms": args.sample_ms, "warmup_ms": args.warmup_ms,
                             "requested_threads": args.threads, "removed_environment": removed,
+                            "shapes": shapes, "block": args.block, "control": control,
                             "artifacts_sha256": hashes, "script_sha256": digest(Path(__file__)),
                             "timing": "warm synchronized host wall including each path's dispatch; no JIT/allocation/upload"}, "results": []}
-    shapes = [(32, 32, 32), (128, 128, 128), (127, 193, 61)]
-    orders = list(itertools.permutations(("planned", "canonical", "torch")))
+    orders = list(itertools.permutations(("planned", control, "torch")))
     failed = False
     for round_index in range(args.rounds):
         shift = round_index % len(shapes)
@@ -104,8 +129,10 @@ def main() -> int:
                         actual.tofile(output)
                     else:
                         source = args.output / f"{stem}.ll"
-                        command = [str(args.native), "fp32", str(m), str(n), str(k), str(args.samples), str(args.sample_ms),
-                                   str(args.warmup_ms), str(output), "1", "1", "8", policy]
+                        binary = args.baseline if policy == "baseline" else args.native
+                        requested_policy = "planned" if policy == "baseline" else policy
+                        command = [str(binary), "fp32", str(m), str(n), str(k), str(args.samples), str(args.sample_ms),
+                                   str(args.warmup_ms), str(output), *map(str, args.block), requested_policy]
                         if policy == "canonical":
                             command.append("64")
                         row["command"] = command
@@ -114,7 +141,7 @@ def main() -> int:
                         (args.output / f"{stem}.log").write_text(completed.stdout + completed.stderr)
                         completed.check_returncode()
                         result = json.loads(completed.stdout)
-                        check_metadata(result, shape, policy, args.samples)
+                        check_metadata(result, shape, requested_policy, args.samples, args.block)
                         summarize(result)
                         row["source"] = source.name
                         row["source_sha256"] = digest(source)
@@ -130,7 +157,7 @@ def main() -> int:
                 report["results"].append(row)
                 (args.output / "results.json").write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
                 print(stem, "PASS" if row["valid"] else row["error"], flush=True)
-    after = artifact_hashes([args.native], args.compiler_artifact)
+    after = artifact_hashes(binaries, args.compiler_artifact)
     report["metadata"]["artifacts_unchanged"] = hashes == after
     failed |= hashes != after
     report["summary"] = []
@@ -142,8 +169,9 @@ def main() -> int:
         ratios = []
         for index in range(args.rounds):
             paired = {r["policy"]: r["measurement"]["throughput_us_p50"] for r in rows if r["round"] == index}
-            ratios.append(paired["planned"] / paired["canonical"])
+            ratios.append(paired["planned"] / paired[control])
         report["summary"].append({"shape": list(shape), "median_us": times,
+                                  "control": control,
                                   "paired_planned_over_fixed": {"median": statistics.median(ratios), "min": min(ratios), "max": max(ratios)},
                                   "planned_slower_rounds": sum(v > 1 for v in ratios)})
     (args.output / "results.json").write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")

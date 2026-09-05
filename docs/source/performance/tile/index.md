@@ -101,6 +101,12 @@ beat eager Torch on seven of eight replayed shapes; Accelerate array operations
 also improve the admitted reduction/softmax families. Direct XIR/SIMD has a
 working execution-map solver and multi-operator correctness coverage, but lacks
 a general high-performance matrix microkernel and Tile distribution family.
+The latest [packet-index proof](results.md#simd-packet-index-proof-closes-a-codegen-disconnect)
+closes one codegen disconnect: four aligned GEMMs improve in every one of six
+old/new throughput and latency pairs, with paired throughput time ratios
+0.326–0.427. The ragged control retains identical LLVM and mixed results.
+All six shapes still lose to Torch; this is not CPU parity or a new
+multi-operator performance result.
 The [CPU route evidence](results.md) keeps provider and direct-XIR results separate.
 
 ## Validation and next milestone
@@ -117,6 +123,14 @@ linked from [reduction measurements](reductions.md).
 The new scale-benchmark orchestration passes 93 Python tests; it reuses those
 same binaries and does not add a build/CTest claim. GEMM and reduction compiler
 inventories are checked separately because the MPP path loads patched TVM.
+
+The subsequent SIMD packet-proof checkpoint passes its four selected
+Schedule/JIT/Tile Runtime/LLM CTests and all 95 Python benchmark tests. Its
+final compiler replay validates 108 complete outputs, independently auditing
+29,066,094 elements and 38 unchanged artifacts. It does not change the
+unrelated worktree's broader CTest status. The new 8192³ MPS capture is saved
+locally; Xcode inspection timed out, leaving large-shape counter attribution
+open rather than inferred from the old 1024³ profile.
 
 The next milestone is bounded full/tail matrix realization and mapping/resource
 selection that scales beyond 1024³, with independently replayed acceptance and

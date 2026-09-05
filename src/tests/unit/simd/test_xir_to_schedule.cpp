@@ -818,6 +818,75 @@ void register_diagnostic_tests() {
 }
 
 void register_memory_layout_tests() {
+    "simd_xir_lowering_proves_bounded_packet_quotient_remainder"_test = [] {
+        auto check = [](uint32_t width, uint32_t block_x, int64_t divisor, int64_t offset,
+                        const Type *cast_type, bool bitcast, bool dynamic_divisor,
+                        size_t equal_count, size_t consecutive_count) {
+            Module module;
+            auto *kernel = module.create_kernel();
+            kernel->set_block_size(luisa::make_uint3(block_x, block_x < 32u ? 64u / block_x : 1u, 1u));
+            auto *buffer = kernel->create_resource_argument(Type::buffer(Type::of<float>()));
+            auto *dynamic = kernel->create_value_argument(Type::of<int64_t>());
+            auto *entry = kernel->create_body_block();
+            XIRBuilder builder;
+            builder.set_insertion_point(entry);
+            auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+            auto *x = builder.call(Type::of<uint32_t>(), ArithmeticOp::EXTRACT, {module.create_dispatch_id(), zero});
+            xir::Value *index = builder.static_cast_(Type::of<int64_t>(), x);
+            if (offset != 0) {
+                index = builder.call(Type::of<int64_t>(), ArithmeticOp::BINARY_ADD,
+                                     {index, module.create_constant(Type::of<int64_t>(), &offset)});
+            }
+            if (cast_type != nullptr) {
+                index = builder.cast_(cast_type, bitcast ? xir::CastOp::BITWISE_CAST : xir::CastOp::STATIC_CAST, index);
+                index = builder.static_cast_(Type::of<int64_t>(), index);
+            }
+            xir::Value *d = dynamic_divisor ? static_cast<xir::Value *>(dynamic) : module.create_constant(Type::of<int64_t>(), &divisor);
+            for (auto op : {ArithmeticOp::BINARY_DIV, ArithmeticOp::BINARY_MOD}) {
+                auto *coordinate = builder.call(Type::of<int64_t>(), op, {index, d});
+                auto *address = builder.static_cast_(Type::of<uint64_t>(), coordinate);
+                builder.call(Type::of<float>(), ResourceReadOp::BUFFER_READ, {buffer, address});
+            }
+            builder.return_void();
+            auto lowered = lower_xir_to_schedule(kernel, {.logical_warp_width = width});
+            expect(lowered.succeeded()) << diagnostics_text(lowered);
+            if (!lowered.succeeded()) { return; }
+            size_t equal = 0u, consecutive = 0u;
+            for (auto &&block : lowered.function->blocks()) {
+                for (auto &&instruction : block.instructions) {
+                    if (instruction.opcode == Opcode::resource_read) {
+                        equal += instruction.cohort_uniform_operand_index == 1u;
+                        consecutive += instruction.lane_consecutive_operand_index == 1u;
+                    }
+                }
+            }
+            expect(eq(equal, equal_count)) << "equal: W=" << width << " divisor=" << divisor << " offset=" << offset;
+            expect(eq(consecutive, consecutive_count)) << "consecutive: W=" << width << " divisor=" << divisor << " offset=" << offset;
+            expect(verify(*lowered.function).succeeded());
+        };
+        for (auto width : {2u, 4u, 8u, 16u}) {
+            for (auto divisor : {1, 32, 128}) {
+                check(width, 64u, divisor, 0, nullptr, false, false, 1u, 1u);
+                check(width, 64u, divisor, 32, nullptr, false, false, 1u, 1u);
+            }
+            // Neither an unaligned offset nor a ragged dimension provides a
+            // packet-wide quotient/remainder relation, even after widening.
+            check(width, 64u, 32, 1, nullptr, false, false, 0u, 0u);
+            check(width, 64u, 33, 0, nullptr, false, false, 0u, 0u);
+            check(width, 1u, 32, 0, nullptr, false, false, 0u, 0u);
+            check(width, 64u, 0, 0, nullptr, false, false, 0u, 0u);
+            check(width, 64u, -32, 0, nullptr, false, false, 0u, 0u);
+            check(width, 64u, 32, -32, nullptr, false, false, 0u, 0u);
+            check(width, 64u, 32, 0, nullptr, false, true, 0u, 0u);
+            check(width, 64u, 32, 0, Type::of<int32_t>(), false, false, 0u, 0u);
+            check(width, 64u, 32, 0, Type::of<uint16_t>(), false, false, 0u, 0u);
+            check(width, 64u, 32, 0, Type::of<uint64_t>(), true, false, 0u, 0u);
+            check(width, 64u, 32, 0, Type::of<uint64_t>(), false, false, 1u, 1u);
+        }
+        // Schedule IR permits non-power-of-two symbolic specializations;
+        // they do not inherit the uint32 wrap/alignment proof of W2/4/8/16.
+        check(3u, 96u, 96, 0, nullptr, false, false, 0u, 0u);
+    };
     "simd_xir_lowering_proves_packet_lane_buffer_layout"_test = [] {
         auto lower = [](luisa::uint3 block_size) {
             Module module;

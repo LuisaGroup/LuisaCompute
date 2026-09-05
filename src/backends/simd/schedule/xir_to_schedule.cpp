@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <limits>
 #include <queue>
 #include <string_view>
 #include <unordered_map>
@@ -1028,6 +1029,70 @@ private:
                block_size.x % _options.logical_warp_width == 0u;
     }
 
+    // A deliberately small, exact proof of x[lane] = W * q + lane with
+    // nonnegative, non-wrapping values. The upper bound also proves that an
+    // integer cast is value-preserving. Do not infer this from a cost-model
+    // slope: an arbitrary offset, ragged row or narrowing cast can cross a
+    // quotient/remainder boundary within a packet.
+    [[nodiscard]] std::optional<uint64_t> _aligned_packet_index_max(
+        const xir::Value *value, uint32_t depth = 0u) const noexcept {
+        auto width = _options.logical_warp_width;
+        if (value == nullptr || depth >= 64u || width <= 1u || (width & (width - 1u)) != 0u ||
+            value->type() == nullptr || !value->type()->is_scalar() ||
+            (!value->type()->is_int() && !value->type()->is_uint())) {
+            return std::nullopt;
+        }
+        if (value->isa<xir::SpecialRegister>()) {
+            auto tag = static_cast<const xir::SpecialRegister *>(value)->derived_special_register_tag();
+            if (tag == xir::DerivedSpecialRegisterTag::WARP_LANE_ID) { return width - 1u; }
+        }
+        if (value->isa<xir::CastInst>()) {
+            auto *cast = static_cast<const xir::CastInst *>(value);
+            if (cast->op() != xir::CastOp::STATIC_CAST) { return std::nullopt; }
+            auto maximum = _aligned_packet_index_max(cast->value(), depth + 1u);
+            return maximum && _nonnegative_integer_fits(value->type(), *maximum) ? maximum : std::nullopt;
+        }
+        if (!value->isa<xir::ArithmeticInst>()) { return std::nullopt; }
+        auto *arithmetic = static_cast<const xir::ArithmeticInst *>(value);
+        if (arithmetic->operand_count() != 2u) { return std::nullopt; }
+        auto *lhs = arithmetic->operand(0u);
+        auto *rhs = arithmetic->operand(1u);
+        uint64_t constant = 0u;
+        if (!xir::try_decode_constant_nonnegative_integer(rhs, constant)) { return std::nullopt; }
+        if (arithmetic->op() == xir::ArithmeticOp::EXTRACT && constant == 0u &&
+            _packet_stays_in_x_row() && lhs->isa<xir::SpecialRegister>()) {
+            auto tag = static_cast<const xir::SpecialRegister *>(lhs)->derived_special_register_tag();
+            if (tag == xir::DerivedSpecialRegisterTag::DISPATCH_ID) { return std::numeric_limits<uint32_t>::max(); }
+            if (tag == xir::DerivedSpecialRegisterTag::THREAD_ID) {
+                return static_cast<const xir::KernelFunction *>(_source)->block_size().x - 1u;
+            }
+        }
+        auto maximum = _aligned_packet_index_max(lhs, depth + 1u);
+        if (!maximum) { return std::nullopt; }
+        switch (arithmetic->op()) {
+            case xir::ArithmeticOp::BINARY_MOD:
+                if (constant != 0u && constant % width == 0u) { return std::min(*maximum, constant - 1u); }
+                break;
+            case xir::ArithmeticOp::BINARY_DIV:
+            case xir::ArithmeticOp::BINARY_MUL:
+                if (constant == 1u) { return maximum; }
+                break;
+            case xir::ArithmeticOp::BINARY_ADD:
+                if (constant % width == 0u && constant <= std::numeric_limits<uint64_t>::max() - *maximum &&
+                    _nonnegative_integer_fits(value->type(), *maximum + constant)) { return *maximum + constant; }
+                break;
+            default: break;
+        }
+        return std::nullopt;
+    }
+
+    [[nodiscard]] static bool _nonnegative_integer_fits(const Type *type, uint64_t maximum) noexcept {
+        // Packed four-bit types do not use size()*8 value bits.
+        if (type->is_int4()) { return false; }
+        auto bits = type->size() * 8u - (type->is_int() ? 1u : 0u);
+        return bits == 64u || (bits < 64u && maximum <= (uint64_t{1u} << bits) - 1u);
+    }
+
     [[nodiscard]] LaneIndexStep _lane_index_step(
         const xir::Value *value,
         const xir::BasicBlock *use_block,
@@ -1062,11 +1127,23 @@ private:
                                         instruction->operand(0u), use_block,
                                         visiting) :
                                     LaneIndexStep::unknown;
-            // A cast of equal lane values stays equal. Consecutive casts need
-            // a separate no-wrap/range proof and deliberately remain unknown.
             result = operand_step == LaneIndexStep::equal ?
                          LaneIndexStep::equal :
                          LaneIndexStep::unknown;
+            auto *cast = static_cast<const xir::CastInst *>(instruction);
+            if (result == LaneIndexStep::unknown && cast->op() == xir::CastOp::STATIC_CAST) {
+                auto maximum = _aligned_packet_index_max(cast->value());
+                if (maximum && _nonnegative_integer_fits(value->type(), *maximum)) {
+                    result = LaneIndexStep::consecutive;
+                } else if (operand_step == LaneIndexStep::consecutive &&
+                           value->type()->size() == 8u && cast->value()->type()->size() == 8u) {
+                    // Signed/unsigned i64 casts preserve all address bits.
+                    // Contiguous address formation uses the same modulo-2^64
+                    // arithmetic. This does NOT authorize a narrower wrap
+                    // followed by a zero/sign extension to pointer width.
+                    result = LaneIndexStep::consecutive;
+                }
+            }
             leave();
             return result;
         }
@@ -1116,7 +1193,19 @@ private:
         } else if (operand_steps.size() == 2u) {
             auto lhs = operand_steps[0u];
             auto rhs = operand_steps[1u];
-            if (op == xir::ArithmeticOp::BINARY_ADD) {
+            uint64_t divisor = 0u;
+            if ((op == xir::ArithmeticOp::BINARY_DIV || op == xir::ArithmeticOp::BINARY_MOD) &&
+                xir::try_decode_constant_nonnegative_integer(arithmetic->operand(1u), divisor) && divisor != 0u &&
+                _aligned_packet_index_max(arithmetic->operand(0u))) {
+                if (divisor == 1u) {
+                    result = op == xir::ArithmeticOp::BINARY_DIV ? LaneIndexStep::consecutive : LaneIndexStep::equal;
+                } else if (divisor % _options.logical_warp_width == 0u) {
+                    result = op == xir::ArithmeticOp::BINARY_DIV ? LaneIndexStep::equal : LaneIndexStep::consecutive;
+                }
+            } else if (op == xir::ArithmeticOp::BINARY_MUL &&
+                       xir::try_decode_constant_nonnegative_integer(arithmetic->operand(1u), divisor) && divisor == 1u) {
+                result = lhs;
+            } else if (op == xir::ArithmeticOp::BINARY_ADD) {
                 if ((lhs == LaneIndexStep::consecutive &&
                      rhs == LaneIndexStep::equal) ||
                     (lhs == LaneIndexStep::equal &&
