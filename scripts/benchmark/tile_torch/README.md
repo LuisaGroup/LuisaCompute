@@ -7,7 +7,8 @@ Metal / PyTorch MPS.
 GEMM includes small/large squares, tall/wide matrices, and non-multiple tail
 sizes; reductions vary both row count and width.
 
-Latest M1 Max evidence: [joint resource/width GPU and E2E acceptance](results/m1-max-20260905-access-demand-validation/notes.md),
+Latest M1 Max evidence: [shape-held-out service policy, including small-case regressions](results/m1-max-20260905-service-policy-validation/notes.md),
+[joint resource/width GPU and E2E acceptance](results/m1-max-20260905-access-demand-validation/notes.md),
 [Metal subgroup sum/softmax/RMSNorm cohort](results/m1-max-20260905-metal-subgroup-reductions/notes.md),
 [balanced same-binary RMSNorm lowering A/B](results/m1-max-20260905-metal-subgroup-rmsnorm-replay/notes.md),
 [Metal subgroup LayerNorm/cross-entropy cohort](results/m1-max-20260905-metal-subgroup-row-extensions/notes.md),

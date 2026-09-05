@@ -814,6 +814,32 @@ microsecond prediction. New shapes in a tuned replay are not held-out model
 validation; full-device service, private live state and independent incumbent
 acceptance remain necessary before the model can safely prune the search.
 
+#### Whole-launch service policy and shape-held-out check
+
+`ServiceExecutionCostPolicy` prices local scalar/collective/private-access
+work, a continuous subgroup-demand saturation factor, whole-launch global
+payload and per-worker global access. Its coefficients and capacity belong to
+the caller's typed profile; they are neither queried occupancy limits nor
+measured physical traffic. An explicit profile with unavailable access facts
+fails rather than mixing fallback units. The complete returned kernel score
+drives both the C++ width solver and optional model-only staged/JIT selection.
+
+The first six-coefficient nonnegative fit was frozen in `47314e616` before
+measuring softmax/RMSNorm/LayerNorm at 37×1537, 256×3072, 768×6144 and
+64×12289. It uses no kernel-name or per-shape winner table. The independent
+audit reconstructs all 32 candidate widths and confirms that input caching
+was selected by model score, not new timing labels. At 768×6144 the four-round
+replay gains 1.360×/1.287×/1.231× GPU and 1.372×/1.280×/1.233× E2E throughput
+over the legacy automatic width/reload plan, with all pairs positive.
+
+The same holdout rejects promotion to default: 37×1537 softmax and LayerNorm
+regress in every GPU/E2E-throughput pair, and small RMSNorm GPU is mixed.
+All three small plans change W=192/reload to W=416/cache, so the current
+comparison cannot isolate width versus reuse. The next diagnostic is a fixed
+2×2 ablation, retaining the profile and all negative results. See the
+{download}`full service-policy evidence <../../scripts/benchmark/tile_torch/results/m1-max-20260905-service-policy-validation/notes.md>`
+for all 288 validated outputs, separate GPU/E2E scopes and unchanged artifacts.
+
 ## 4. Implemented matrix mapping family
 
 The current planner targets a proved Metal group-level FP32 MMA with a

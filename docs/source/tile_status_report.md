@@ -199,14 +199,20 @@ executed validation and the independent raw-timing/source/plan audit. GPU is
 command-buffer, not isolated-kernel time. Defaults remain unchanged; this
 demonstrates joint JIT selection, not a fitted replacement cost model.
 
-The next {download}`whole-launch cost-policy checkpoint <../../scripts/benchmark/tile_torch/results/m1-max-20260905-service-policy-validation/notes.md>`
+The {download}`whole-launch cost-policy checkpoint <../../scripts/benchmark/tile_torch/results/m1-max-20260905-service-policy-validation/notes.md>`
 separates local program work from the complete machine objective. Backends can
 override the latter without a hidden program-wave multiplication; an optional
 typed service model combines subgroup launch demand and payload access facts.
 The old policy remains the default. Six nonnegative coefficients are frozen
-from the preceding 101 valid trials, with four disjoint shapes predeclared for
-model-only resource selection and independent replay. Calibration diagnostics
-are not yet held-out acceptance or permission to change the defaults.
+from the preceding 101 valid trials before four disjoint shapes are measured.
+Model-only resource selection and independent four-round replay now validate
+all 288 outputs, with unchanged implementation/calibration artifacts. At
+768×6144, softmax/RMSNorm/LayerNorm gain **1.360×/1.287×/1.231× GPU** and
+**1.372×/1.280×/1.233× E2E throughput** over the old automatic planner.
+Nine cases improve in every GPU pair, but 37×1537 softmax and LayerNorm regress
+in every GPU/E2E-throughput pair; small RMSNorm GPU is mixed and approximately
+Torch parity. This is shape-held-out, not operator/device-held-out evidence.
+The profile remains opt-in; small-program width/reuse ablation is next.
 
 **The general library-performance goal is still not complete.** These CPU
 wins are legal provider realizations for narrow proved contracts, not evidence

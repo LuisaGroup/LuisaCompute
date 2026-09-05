@@ -50,6 +50,12 @@ than a fixed width. The three 1024×4096 cases gain 1.200×/1.214×/1.234×
 GPU throughput, while seven stable changed-source cases, four mixed cases
 and one unchanged-source control remain separated. Input caching stays opt-in.
 
+The frozen whole-launch model (Section 9.9) then tests four disjoint shapes
+without using their timings for selection. At 768×6144 it improves GPU
+throughput by 1.360×/1.287×/1.231× over the old automatic planner. However,
+37×1537 softmax and LayerNorm regress in every GPU/E2E-throughput pair.
+These held-out failures keep the new cost profile opt-in as well.
+
 ```{figure} ../_static/tile/tirx-subgroup-reduction.svg
 :alt: A logical TileIR reduction passes fail-closed proofs and a bounded cost solver before becoming either packed independent SIMD groups or several cooperating SIMD groups, with memory resources planned separately.
 :width: 100%
@@ -1048,6 +1054,64 @@ old score cannot reward that service change. The optional resource terms
 enable calibrated backend policy, but full-device demand, live state and
 independent acceptance still need to guide any future pruning/default.
 
+### 9.9 Whole-launch policy: shape-held-out gains and small-case failures
+
+The {download}`service-policy report
+<../../scripts/benchmark/tile_torch/results/m1-max-20260905-service-policy-validation/notes.md>`
+records the first shape-held-out check of a calibrated reduction objective.
+`reduction_cost` separates local program work from the complete machine
+score, which the solver now minimizes without a hidden second wave multiplier.
+An optional typed service model prices subgroup launch demand and the new
+payload-access facts; the legacy policy remains default.
+
+The implementation, six-coefficient nonnegative fit and protocol were frozen
+in `47314e616` before measuring 37×1537, 256×3072, 768×6144 and 64×12289.
+The same three operators run on M1 Max, so this is not an operator/device
+holdout. Reference: legacy automatic width with reload. Candidate: automatic
+service-policy width plus separately captured reload/cache choices selected
+only by model cost. V=4/U=1/P=1 is fixed on both sides. No new timing label is
+used to select the candidate, and no per-shape winner table enters the model.
+
+All 96 plan-collection and 192 replay outputs pass executed validation. An
+independent audit reconstructs all 32 width scores and verifies exact plans,
+source hashes and 21 unchanged compiler/runtime/calibration artifacts. The
+four-round GPU results below are no-counter command-buffer execution, **not
+isolated-kernel time**. Gains are paired-ratio medians with observed min–max,
+not confidence intervals; displayed times are medians of per-round p50s.
+
+| 768×6144 op | Old GPU µs | Model GPU µs | GPU gain [range] | E2E gain |
+|---|---:|---:|---:|---:|
+| softmax | 78.017 | 57.414 | 1.360× [1.353, 1.364] | 1.372× |
+| RMSNorm | 78.097 | 60.753 | 1.287× [1.279, 1.289] | 1.280× |
+| LayerNorm | 92.931 | 75.251 | 1.231× [1.218, 1.243] | 1.233× |
+
+All anchor pairs improve; W changes from 384 to 192/256/256 with caching.
+Across the full cohort, nine cases improve in every GPU pair and ten in
+every E2E-throughput pair. But **37×1537 softmax and LayerNorm regress in every
+GPU and E2E-throughput pair**: GPU gains are 0.904× [0.846, 0.932] and
+0.876× [0.818, 0.928]. Both change W=192/reload to W=416/cache. Small RMSNorm
+GPU is mixed, 0.987× [0.894, 1.043], and its native/Torch time ratio is
+1.024 [0.949, 1.070]. These failures prevent promoting the profile to default.
+The current A/B does not isolate width, reuse or their interaction; a fixed
+2×2 ablation is needed before proposing a revision.
+
+Eleven of twelve candidates beat eager Torch GPU throughput in every pair;
+all twelve beat its E2E batch throughput. Torch softmax uses preallocated
+output, while its functional norms allocate returned output inside timing.
+At 768×6144, native/Torch E2E batch times are 58.321/136.194,
+62.432/83.321 and 76.873/290.837 µs. Synchronized single-call E2E times are
+285.563/439.895, 321.375/338.583 and 340.417/532.854 µs. Large batch gains
+do not establish equivalent single-call improvements: only one case improves
+E2E single-call latency in every A/B pair. Do not subtract independently
+sampled GPU/host medians. Instrumented probe/control throughput ratios span
+0.895–4.357 for Torch, so those probe samples remain diagnostic only.
+
+This is a useful whole-launch planning improvement with explicit negative
+evidence, not a general reduction scheduler or production-network claim.
+The code checkpoint passes 89 Python contracts, 5,988 planner assertions and
+the same 31/33 Tile CTest boundary: two untouched local `mem_flags(2)` source
+assertion conflicts, with the new execution/numerical tests passing.
+
 ## 10. What this closes, and what remains
 
 This work closes the specific defect “logical reduction hierarchy is exported
@@ -1070,9 +1134,9 @@ The next honest milestones are:
    Welford, argmax and online attention state;
 3. share target-independent reduction/ownership facts between the TIRx and XIR
    bridges rather than re-deriving them from target IR;
-4. calibrate the new global/private payload-demand features together with
-   expression-depth, live-state and whole-device service on held-out shapes
-   and at least one other Apple GPU while retaining exact JIT overrides;
+4. isolate the small-program service-policy regressions with fixed width/reuse
+   ablations, then add missing issue/live-state features and validate a revised
+   profile on a new holdout and another Apple GPU; retain exact JIT overrides;
 5. measure cross-entropy backward, decode and prefill attention, Top-K/sort
    and representative end-to-end LLM blocks;
 6. add equivalent CUDA and CPU realization families without pretending their
