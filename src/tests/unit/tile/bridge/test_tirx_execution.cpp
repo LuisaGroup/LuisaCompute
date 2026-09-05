@@ -574,6 +574,25 @@ void test_shared_arithmetic_preserves_ssa() {
     return planner;
 }
 
+// Independently enumerate the current scalar-round objective, using the
+// runtime's target limit rather than baking the old eight-subgroup cap into
+// source/stripe assertions. All domains in these V=1 fixtures have width N.
+[[nodiscard]] uint32_t expected_reduction_subgroups(Runtime &runtime, uint64_t rows,
+                                                    uint64_t columns, uint32_t domains, uint32_t reductions) {
+    auto best = std::numeric_limits<double>::infinity();
+    auto chosen = uint32_t{0u};
+    for (auto groups = 1u; groups <= std::min(32u, runtime.metal_max_threads() / 32u); groups++) {
+        auto packing = groups == 1u ? std::min<uint64_t>(rows, 8u) : 1u;
+        auto score = static_cast<double>(domains * ceil_div(columns, uint64_t{groups * 32u})) +
+                     reductions * groups * 2.0 + 16.0 / static_cast<double>(packing);
+        if (score < best) {
+            best = score;
+            chosen = groups;
+        }
+    }
+    return chosen;
+}
+
 void test_metal_subgroup_reduction_contract(Runtime &runtime) {
     auto planner = subgroup_reduction_options();
     auto kernel = make_row_sum(3, 37);
@@ -803,6 +822,91 @@ void test_reduction_lane_elements(Runtime &runtime) {
     expect(over_budget.error.find("exact reduction mapping") != luisa::string::npos) << over_budget.error;
 }
 
+void test_reduction_complete_width_search(Runtime &runtime) {
+    if (runtime.target() != "metal") { return; }
+    class Policy final : public AnalyticExecutionCostPolicy {
+    public:
+        mutable std::array<bool, 32u> widths{};
+        mutable bool features_valid{true};
+        double reduction_score(const ReductionCandidate &candidate, const ExecutionCostModel &model) const noexcept override {
+            widths[candidate.subgroups_per_program - 1u] = true;
+            features_valid &= candidate.threadgroups == ceil_div(candidate.programs, uint64_t{candidate.programs_per_group});
+            features_valid &= candidate.lane_utilization > 0.0 && candidate.lane_utilization <= 1.0;
+            auto workers = candidate.subgroups_per_program * 32u;
+            features_valid &= std::abs(candidate.lane_utilization * candidate.scalar_rounds * workers - candidate.scalar_elements) < 1e-8;
+            // Deliberately choose a non-power-of-two width from the automatic
+            // family, independently of the default coefficient ranking.
+            return candidate.subgroups_per_program == 3u ? 0.0 :
+                                                           1.0 + AnalyticExecutionCostPolicy::reduction_score(candidate, model);
+        }
+    } policy;
+    constexpr auto rows = int64_t{5};
+    for (auto threads : {0u, 96u, 160u, 224u, 288u, 512u, 1024u}) {
+        if (threads > runtime.metal_max_threads()) { continue; }
+        for (auto width : {1u, 4u}) {
+            auto planner = subgroup_reduction_options();
+            planner.threads_per_group = threads;
+            planner.reduction_lane_elements = width;
+            planner.reduction_unroll_factor = 3u;
+            planner.cost_policy = &policy;
+            auto columns = int64_t{threads ? threads * 4u + 3u : 1031u};
+            auto executable = runtime.build(make_row_softmax(rows, columns), true, false, true, false, planner, false, true);
+            expect(executable.ok()) << "threads=" << threads << " width=" << width << " " << executable.error;
+            if (!executable.ok()) { continue; }
+            expect(eq(executable.plans.size(), 1u));
+            if (executable.plans.empty()) { continue; }
+            auto &plan = executable.plans.front();
+            auto workers = threads ? threads : 96u;
+            expect(eq(plan.threads, workers));
+            expect(eq(plan.reduction_subgroups_per_program, workers / 32u));
+            expect(eq(plan.reduction_programs_per_group, 1u));
+            expect(eq(plan.reduction_threadgroups, static_cast<uint64_t>(rows)));
+            // Enumerate ownership independently, including the ragged final
+            // worker and the 32-partial boundary of the second collective.
+            luisa::vector<uint64_t> counts(workers, 0u);
+            for (auto i = int64_t{0}; i < columns; i++) { counts[(i / width) % workers]++; }
+            auto slots = *std::max_element(counts.begin(), counts.end());
+            expect(eq(plan.striped_storage_scalars_per_worker, slots));
+            expect(std::abs(plan.reduction_scalar_rounds - 4.0 * slots) < 1e-8);
+            expect(std::abs(plan.reduction_lane_utilization - static_cast<double>(columns) / static_cast<double>(slots * workers)) < 1e-8);
+            expect(eq(plan.shared_memory_bytes, 2u * workers / 32u * sizeof(float)));
+            auto source = metal_source(executable.module.value());
+            auto code = std::string_view{source.data(), source.size()};
+            expect(code.find("subgroup_partials_0[" + std::to_string(workers / 32u) + "]") != std::string_view::npos) << source;
+            luisa::vector<float> values(static_cast<size_t>(rows * columns));
+            for (size_t i = 0u; i < values.size(); i++) { values[i] = static_cast<float>(static_cast<int32_t>(i % 127u) - 63) / 31.0f; }
+            auto input = runtime.upload<float>({rows, columns}, values);
+            auto output = runtime.allocate<float>({rows, columns});
+            (*executable.entry)(input, output);
+            auto actual = runtime.download<float>(output, values.size());
+            for (int64_t row = 0; row < rows; row++) {
+                auto denominator = 0.0;
+                for (int64_t column = 0; column < columns; column++) { denominator += std::exp(static_cast<double>(values[row * columns + column])); }
+                for (int64_t column = 0; column < columns; column++) {
+                    auto i = row * columns + column;
+                    auto expected = std::exp(static_cast<double>(values[i])) / denominator;
+                    expect(std::abs(actual[i] - expected) < 2e-6 + 2e-5 * expected) << "threads=" << threads << " width=" << width << " index=" << i;
+                }
+            }
+        }
+    }
+    expect(policy.features_valid);
+    auto legal_widths = std::min(32u, runtime.metal_max_threads() / 32u);
+    for (auto i = 0u; i < legal_widths; i++) { expect(policy.widths[i]) << "missing candidate=" << (i + 1u) * 32u; }
+    auto planner = subgroup_reduction_options();
+    planner.max_thread_candidates = legal_widths - 1u;
+    auto rejected = runtime.build(make_row_sum(rows, 257), true, false, true, false, planner, false, true);
+    expect(!rejected.ok());
+    expect(rejected.error.find("candidate budget") != luisa::string::npos) << rejected.error;
+    planner.threads_per_group = 96u;
+    auto exact = runtime.build(make_row_sum(rows, 257), true, false, true, false, planner, false, true);
+    expect(exact.ok()) << exact.error;
+    planner.threads_per_group = runtime.metal_max_threads() + 32u;
+    auto over_limit = runtime.build(make_row_sum(rows, 257), true, false, true, false, planner, false, true);
+    expect(!over_limit.ok());
+    expect(over_limit.error.find("exact reduction mapping") != luisa::string::npos) << over_limit.error;
+}
+
 void test_metal_subgroup_striped_softmax(Runtime &runtime) {
     if (runtime.target() != "metal") { return; }
     constexpr auto rows = int64_t{3};
@@ -817,14 +921,16 @@ void test_metal_subgroup_striped_softmax(Runtime &runtime) {
     expect(eq(executable.plans.size(), 1u));
     if (executable.plans.empty()) { return; }
     auto &plan = executable.plans.front();
-    expect(eq(plan.reduction_subgroups_per_program, 8u));
+    auto expected_subgroups = expected_reduction_subgroups(runtime, rows, columns, 4u, 2u);
+    auto expected_slots = ceil_div(static_cast<uint64_t>(columns), uint64_t{expected_subgroups * 32u});
+    expect(eq(plan.reduction_subgroups_per_program, expected_subgroups));
     expect(eq(plan.reduction_operations, 2u));
     expect(eq(plan.reduction_elements, 8192u));
-    expect(eq(plan.striped_storage_scalars_per_worker, 16u));
+    expect(eq(plan.striped_storage_scalars_per_worker, expected_slots));
     expect(!plan.independent_subgroups);
     auto source = metal_source(executable.module.value());
     auto code = std::string_view{source.data(), source.size()};
-    expect(code.find("_worker_stripe[16]") != std::string_view::npos) << source;
+    expect(code.find("_worker_stripe[" + std::to_string(expected_slots) + "]") != std::string_view::npos) << source;
     expect(code.find("thread float tile_storage_7[4096]") ==
            std::string_view::npos)
         << source;
@@ -881,16 +987,18 @@ void test_metal_subgroup_layernorm(Runtime &runtime) {
     expect(eq(executable.plans.size(), 1u));
     if (executable.plans.empty()) { return; }
     auto &plan = executable.plans.front();
-    expect(eq(plan.reduction_subgroups_per_program, 8u));
+    auto expected_subgroups = expected_reduction_subgroups(runtime, rows, columns, 4u, 2u);
+    auto expected_slots = ceil_div(static_cast<uint64_t>(columns), uint64_t{expected_subgroups * 32u});
+    expect(eq(plan.reduction_subgroups_per_program, expected_subgroups));
     expect(eq(plan.reduction_operations, 2u));
     expect(eq(plan.reduction_elements, 8192u));
-    expect(eq(plan.shared_memory_bytes, 64u));
-    expect(eq(plan.striped_storage_scalars_per_worker, 16u));
+    expect(eq(plan.shared_memory_bytes, 2u * expected_subgroups * sizeof(float)));
+    expect(eq(plan.striped_storage_scalars_per_worker, expected_slots));
     expect(!plan.independent_subgroups);
     auto source = metal_source(executable.module.value());
     auto code = std::string_view{source.data(), source.size()};
     expect(code.find("simd_sum(") != std::string_view::npos) << source;
-    expect(code.find("_worker_stripe[16]") != std::string_view::npos)
+    expect(code.find("_worker_stripe[" + std::to_string(expected_slots) + "]") != std::string_view::npos)
         << source;
     expect(code.find("[4096]") == std::string_view::npos) << source;
 
@@ -954,15 +1062,17 @@ void test_metal_subgroup_generic_striped_tile(Runtime &runtime) {
     expect(eq(executable.plans.size(), 1u));
     if (executable.plans.empty()) { return; }
     auto &plan = executable.plans.front();
-    expect(eq(plan.reduction_subgroups_per_program, 8u));
+    auto expected_subgroups = expected_reduction_subgroups(runtime, rows, columns, 3u, 1u);
+    auto expected_slots = ceil_div(static_cast<uint64_t>(columns), uint64_t{expected_subgroups * 32u});
+    expect(eq(plan.reduction_subgroups_per_program, expected_subgroups));
     expect(eq(plan.reduction_operations, 1u));
     expect(eq(plan.reduction_elements, 4096u));
-    expect(eq(plan.shared_memory_bytes, 32u));
-    expect(eq(plan.striped_storage_scalars_per_worker, 16u));
+    expect(eq(plan.shared_memory_bytes, expected_subgroups * sizeof(float)));
+    expect(eq(plan.striped_storage_scalars_per_worker, expected_slots));
     auto source = metal_source(executable.module.value());
     auto code = std::string_view{source.data(), source.size()};
     expect(code.find("simd_sum(") != std::string_view::npos) << source;
-    expect(code.find("_worker_stripe[16]") != std::string_view::npos)
+    expect(code.find("_worker_stripe[" + std::to_string(expected_slots) + "]") != std::string_view::npos)
         << source;
     expect(code.find("[4096]") == std::string_view::npos) << source;
 
@@ -1470,6 +1580,7 @@ int main(int argc, char *argv[]) {
     "tile_execution_element_grid_producer_contract"_test = [&] { test_element_grid_producer_contract(runtime); };
     "tile_execution_reduction_packing_and_policy"_test = [&] { test_metal_reduction_packing_and_policy(runtime); };
     "tile_execution_reduction_lane_elements"_test = [&] { test_reduction_lane_elements(runtime); };
+    "tile_execution_reduction_complete_width_search"_test = [&] { test_reduction_complete_width_search(runtime); };
     "tile_execution_cpu_parallel_launch_cost"_test = [&] { test_cpu_parallel_launch_cost(runtime); };
     "tile_execution_shared_exp_materialization"_test = test_shared_exp_is_materialized_once;
     "tile_execution_shared_tanh_materialization"_test = test_shared_tanh_is_materialized_once;

@@ -24,7 +24,7 @@ struct ExecutionCostModel {
     double shared_fragment_transfer{2.0};
     double independent_element{0.0078125};
     double subgroup_setup{8.0};
-    // Metal reduction planner v1 scores discrete 1/2/4/8-SIMD-group
+    // Metal reduction planner v1 scores discrete SIMD-group
     // realizations in abstract issue rounds. The first term prices one scalar
     // stripe round, the second prices each reduction collective per
     // participating SIMD-group, and the third prices a cooperative
@@ -86,7 +86,8 @@ struct PlannerOptions {
     bool fuse_gpu_elementwise{true};
     // Opt-in Metal realization for proved FP32 add/max/min reductions.
     // Independent short programs may share one threadgroup; wider programs
-    // search one, two, four, or eight cooperating SIMD-groups. Element domains
+    // search every whole-SIMD-group width within the target limit and the
+    // two-level collective's capacity (at most 32 subgroups). Element domains
     // are striped over workers and reducers use native collectives plus proved
     // shared partials when necessary. Floating-point addition therefore uses
     // a tree order rather than the reference left fold. This policy is both
@@ -162,6 +163,14 @@ struct ReductionCandidate {
     double scalar_rounds{0.0};
     uint32_t unroll_factor{1u};
     uint32_t lane_elements{1u};
+    // Exact launch/ownership features, not measured occupancy. Packed tails
+    // may leave some programs inactive in the last physical threadgroup.
+    uint64_t threadgroups{0u};
+    // Sum over separately distributed domains (including reduction inputs).
+    // Dividing by scalar_rounds * cooperating workers gives useful lane work
+    // relative to the maximum per-worker scalar recurrence length.
+    double scalar_elements{0.0};
+    double lane_utilization{0.0};
 };
 
 // Bridge-owned proofs and candidate generation precede these read-only
@@ -269,6 +278,9 @@ struct GroupPlan {
     uint32_t elementwise_scalar_temporaries{0u};
     uint32_t reduction_unroll_factor{1u};
     uint32_t reduction_lane_elements{1u};
+    uint64_t reduction_threadgroups{0u};
+    double reduction_scalar_rounds{0.0};
+    double reduction_lane_utilization{0.0};
     // Static emitted synchronization sites, not dynamic barrier executions.
     // Filled by realization; the bootstrap ranking does not yet price them.
     uint64_t group_barrier_sites_before{0u};

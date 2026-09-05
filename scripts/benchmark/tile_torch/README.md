@@ -372,13 +372,19 @@ execution, no cooperative matrix option and only those operations. The option is
 permission to replace the reference FP32 left fold with a tree order; it is
 never inferred merely because the target supports SIMD collectives.
 
-The planner enumerates one, two, four and eight SIMD groups per logical row.
+The planner enumerates every whole-SIMD-group width per logical row, up to
+the target's thread limit and the two-level collective's 32-subgroup bound.
+The TVM test/benchmark adapter queries the physical Metal thread limit and
+sets both target thread-capacity attributes instead of inheriting TVM's
+conservative 256-thread default. This is a device bound; compilation and
+dispatch must still respect each generated pipeline's resource constraints.
 One-group programs may be packed independently into a wider threadgroup;
 multi-group programs use uniform SIMD collectives, small shared partial arrays
 and a group barrier. Eligible reused compiler-owned Tiles are compacted to
 worker-private stripes only after an affine access/ownership proof. Native JSON
 records groups per program, whole-group threads, shared bytes, private stripe
-size, reduction counts, barrier sites and the separately versioned
+size, reduction counts, barrier sites, queried device limit, physical group
+count, scalar rounds, useful lane-work fraction and the separately versioned
 `metal_subgroup_reduction_v1` score.
 
 Run the automatic planner with:

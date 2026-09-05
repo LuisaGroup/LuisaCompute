@@ -122,6 +122,9 @@ void print_plans(luisa::span<const bridge::tirx::GroupPlan> plans) {
                   << ",\"reduction_programs_per_group\":" << plan.reduction_programs_per_group
                   << ",\"reduction_unroll_factor\":" << plan.reduction_unroll_factor
                   << ",\"reduction_lane_elements\":" << plan.reduction_lane_elements
+                  << ",\"reduction_threadgroups\":" << plan.reduction_threadgroups
+                  << ",\"reduction_scalar_rounds\":" << plan.reduction_scalar_rounds
+                  << ",\"reduction_lane_utilization\":" << plan.reduction_lane_utilization
                   << ",\"striped_storage_scalars_per_worker\":" << plan.striped_storage_scalars_per_worker
                   << ",\"reduction_operations\":" << plan.reduction_operations
                   << ",\"reduction_elements\":" << plan.reduction_elements
@@ -840,6 +843,7 @@ int main(int argc, char *argv[]) {
                   << ",\"cooperative_matrix\":" << (cooperative_matrix ? "true" : "false")
                   << ",\"metal_mpp\":" << (metal_mpp ? "true" : "false")
                   << ",\"metal_subgroup_reductions\":" << (metal_subgroup_reductions ? "true" : "false")
+                  << ",\"metal_max_threads\":" << runtime.metal_max_threads()
                   << ",\"reduction_programs_per_group\":" << planner.reduction_programs_per_group
                   << ",\"reduction_unroll_factor\":" << planner.reduction_unroll_factor
                   << ",\"reduction_lane_elements\":" << planner.reduction_lane_elements

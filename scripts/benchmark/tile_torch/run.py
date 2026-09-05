@@ -363,6 +363,28 @@ def validate_native_metadata(native: dict[str, Any], case: Case, backend: str, e
                 type(plan.get("threads")) is not int or plan["threads"] < 32 or plan["threads"] % 32
                 for plan in plans):
             raise RuntimeError("Metal SIMD-group reduction request was not realized by a valid execution plan")
+        # Older archived executables predate these exact mapping facts. Once
+        # the device limit is reported, require the complete feature contract;
+        # never interpret a missing/invalid occupancy proxy as zero cost.
+        if "metal_max_threads" in native:
+            limit = native["metal_max_threads"]
+            if type(limit) is not int or limit < 32:
+                raise RuntimeError("invalid Metal device thread limit")
+            for plan in plans:
+                programs = plan.get("programs")
+                packing = plan.get("reduction_programs_per_group")
+                subgroups = plan.get("reduction_subgroups_per_program")
+                groups = plan.get("reduction_threadgroups")
+                rounds = plan.get("reduction_scalar_rounds")
+                utilization = plan.get("reduction_lane_utilization")
+                if (any(type(value) is not int or value <= 0 for value in (programs, packing, subgroups, groups)) or
+                        subgroups > 32 or packing > 8 or (subgroups > 1 and packing != 1) or
+                        plan["threads"] != 32 * subgroups * packing or plan["threads"] > limit or
+                        groups != (programs - 1) // packing + 1 or
+                        any(type(value) not in (int, float) or not math.isfinite(value)
+                            for value in (rounds, utilization)) or
+                        rounds <= 0 or not 0 < utilization <= 1):
+                    raise RuntimeError("inconsistent reduction launch/ownership features")
     requested_threads = native.get("planner_threads", 0)
     if type(requested_threads) is not int or requested_threads != group_threads:
         raise RuntimeError("native group-thread constraint does not match the request")

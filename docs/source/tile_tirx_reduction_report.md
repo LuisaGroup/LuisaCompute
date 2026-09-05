@@ -15,7 +15,7 @@ thread. Launch-width tuning could not repair that execution structure.
 
 The new lowering proves the reduction program, then maps one logical program
 to one or more 32-lane SIMD groups. It packs independent short programs into a
-threadgroup, cooperates across up to eight SIMD groups for wide programs, and
+threadgroup, cooperates across up to 32 SIMD groups for wide programs, and
 compacts eligible compiler-owned Tiles to worker-private stripes. The source
 C++ kernel and logical TileIR remain unchanged.
 
@@ -213,9 +213,11 @@ l = thread mod L               lane coordinate
 w = L * s + l                  worker coordinate within a program
 ```
 
-The planner considers `S in {1, 2, 4, 8}`, restricted by the target's maximum
-thread count and shared-memory capacity. This is a finite realization set,
-not a claim that four values form a complete universal schedule space.
+The planner considers every integer `S` from 1 through
+`min(32, floor(target_max_threads/32))`, restricted by shared/private capacity
+and the explicit search budget. Non-power-of-two widths are legal. The
+32-subgroup algorithmic bound comes from the second collective: one lane
+reads each subgroup's partial. It is not a universal schedule space.
 
 ### 4.1 One SIMD group per program: spatial packing
 
@@ -223,7 +225,7 @@ When `S = 1` wins under automatic planning, a threadgroup can contain `Q`
 independent logical programs, where
 
 ```text
-Q = min(P, floor(max_threads / 32))
+1 <= Q <= min(P, 8, floor(max_threads / 32))
 blocks = ceil_div(P, Q)
 threadgroup_threads = 32 * Q
 
@@ -510,7 +512,7 @@ the selection authority until those features are calibrated.
 Before scoring, a candidate is rejected if it violates any of:
 
 ```text
-S <= min(8, floor(target_max_threads / 32))
+S <= min(32, floor(target_max_threads / 32))
 threadgroup_threads <= target_max_threads
 shared_bytes(S) <= target_shared_memory
 stripe_scalars(S) <= max_reduction_striped_scalars_per_worker
@@ -519,8 +521,8 @@ finite, nonnegative coefficients
 supported exact thread constraint, when present.
 ```
 
-There are at most eleven automatic `(S,Q)` candidates (eight `Q` choices for
-`S=1`, three wider single-program choices), so exhaustive enumeration is
+There are at most 39 automatic `(S,Q)` candidates (eight `Q` choices for
+`S=1`, 31 wider single-program choices), so exhaustive enumeration is
 clearer and more exact than integer programming or simulated annealing here.
 Those methods become relevant only when later planners jointly choose tile
 factorizations, layouts, atoms, storage versions and pipeline schedules over a
@@ -645,13 +647,17 @@ results:
   default;
 - row sums at widths 127, 257, 1024 and 4096, including expected
   one/one/four/eight-group plans;
-- softmax at `3×4096`, requiring two reductions, 256 threads, eight groups,
-  64 shared bytes, a 16-scalar private stripe, `simd_max`, `simd_sum`, and every
-  output element against FP64;
+- softmax at `3×4096`, requiring two reductions, an independently enumerated
+  minimum-cost width, the corresponding exact private stripe, `simd_max`,
+  `simd_sum`, and every output element against FP64;
 - LayerNorm at `3×4096`, requiring two reductions and checking all 12,288
   affine outputs against an independent FP64 mean/variance formula; the
-  current policy also requires a 16-scalar compact stripe for its shared cheap
+  test independently checks the selected compact stripe for its shared cheap
   arithmetic Tile;
+- 14 additional V=1/4 softmax layouts, automatic and exact widths
+  96/160/224/288/512/1024 on a capable device, ragged domains, both collectives,
+  complete outputs, every legal candidate reaching the backend policy and
+  rejection of insufficient search budgets;
 - canonical multi-consumer arithmetic under both `PRESERVE` and
   `EXPENSIVE_ONLY`, proving that the first retains the SSA boundary and the
   second is a real recomputation candidate;

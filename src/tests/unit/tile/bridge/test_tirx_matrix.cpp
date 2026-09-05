@@ -1345,6 +1345,9 @@ void test_planned_fragment_reuse(Runtime &runtime) {
     for (auto enabled : {false, true}) {
         bridge::tirx::PlannerOptions planner;
         planner.enabled = enabled;
+        // Keep this reference fixture multi-wave even when the queried device
+        // supports 1024 threads; its assertions exercise atom-by-atom waves.
+        if (!enabled) { planner.threads_per_group = 256u; }
         auto executable = runtime.build(kernel, false, true, true, false, planner);
         expect(executable.ok()) << executable.error;
         if (!executable.ok()) { continue; }
@@ -1803,8 +1806,8 @@ void test_interrupted_accumulator_update(Runtime &runtime) {
 [[nodiscard]] Kernel whole_gemm_kernel(Shape cfg, exec::Scope scope = exec::Scope::AUTOMATIC,
                                        bool epilogue = false) {
     auto definition = tile_kernel("whole_matrix_gemm", [=](TensorView<const float, 2> A,
-                                                            TensorView<const float, 2> B,
-                                                            TensorView<float, 2> C) {
+                                                           TensorView<const float, 2> B,
+                                                           TensorView<float, 2> C) {
         auto gm = axis("whole_gm", ceil_div(cfg.m, cfg.bm));
         auto gn = axis("whole_gn", ceil_div(cfg.n, cfg.bn));
         auto m = axis("whole_m", cfg.bm);

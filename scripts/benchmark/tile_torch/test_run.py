@@ -738,6 +738,30 @@ class BenchmarkContractTests(unittest.TestCase):
                 MODULE.validate_native_metadata(native | {"execution_plans": plans}, case, "metal", "auto",
                                                 metal_subgroup_reductions=True)
 
+    def test_reduction_device_limit_and_ownership_features(self):
+        case = MODULE.Case("rmsnorm", 17, 257)
+        plan = dict(optimized=True, threads=96, independent_subgroups=False,
+                    programs=17, reduction_programs_per_group=1, reduction_subgroups_per_program=3,
+                    reduction_threadgroups=17, reduction_scalar_rounds=8.0, reduction_lane_utilization=257 / 384)
+        native = dict(backend="metal", operation="rmsnorm", execution_scope="auto", pipeline_window=2,
+                      cooperative_matrix=False, matrix_intrinsics=0, vectorize=True, auto_vectorize=False,
+                      metal_subgroup_reductions=True, metal_max_threads=1024, execution_plans=[plan])
+        MODULE.validate_native_metadata(native, case, "metal", "auto", metal_subgroup_reductions=True)
+        for field, value in (("reduction_threadgroups", 3), ("reduction_threadgroups", True),
+                             ("reduction_programs_per_group", 2), ("reduction_subgroups_per_program", 2),
+                             ("threads", 1056), ("reduction_scalar_rounds", float("nan")),
+                             ("reduction_lane_utilization", 1.1), ("reduction_lane_utilization", False)):
+            with self.assertRaisesRegex(RuntimeError, "ownership features"):
+                MODULE.validate_native_metadata(native | {"execution_plans": [plan | {field: value}]}, case,
+                                                "metal", "auto", metal_subgroup_reductions=True)
+        for limit in (None, True, 16):
+            with self.assertRaisesRegex(RuntimeError, "device thread limit"):
+                MODULE.validate_native_metadata(native | {"metal_max_threads": limit}, case,
+                                                "metal", "auto", metal_subgroup_reductions=True)
+        with self.assertRaisesRegex(RuntimeError, "ownership features"):
+            MODULE.validate_native_metadata(native | {"metal_max_threads": 64}, case,
+                                            "metal", "auto", metal_subgroup_reductions=True)
+
     def test_copy_batch_request_and_plan_are_both_checked(self):
         case = MODULE.Case("gemm", 17, 19, 13)
         native = dict(backend="metal", operation="gemm", execution_scope="group", pipeline_window=2,

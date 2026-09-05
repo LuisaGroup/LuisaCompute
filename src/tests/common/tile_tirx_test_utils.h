@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <initializer_list>
+#include <limits>
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
@@ -78,6 +79,7 @@ private:
     tvm::Device _device{kDLCPU, 0};
     luisa::string _target{"llvm"};
     luisa::string _cpu_model{"generic"};
+    uint32_t _metal_max_threads{0u};
 
 public:
     explicit Runtime(luisa::string_view backend, bool native_cpu = false) {
@@ -103,11 +105,21 @@ public:
         if (exists.cast<int64_t>() == 0) {
             throw std::runtime_error{"requested TVMx physical device is unavailable"};
         }
+        if (_device.device_type == kDLMetal) {
+            tvm::ffi::Any maximum;
+            api->GetAttr(_device, tvm::runtime::DeviceAttrKind::kMaxThreadsPerBlock, &maximum);
+            auto threads = maximum.cast<int64_t>();
+            if (threads <= 0 || threads > std::numeric_limits<uint32_t>::max()) {
+                throw std::runtime_error{"Metal runtime did not report a valid threadgroup limit"};
+            }
+            _metal_max_threads = static_cast<uint32_t>(threads);
+        }
     }
 
     [[nodiscard]] tvm::Device device() const noexcept { return _device; }
     [[nodiscard]] luisa::string_view target() const noexcept { return _target; }
     [[nodiscard]] luisa::string_view cpu_model() const noexcept { return _cpu_model; }
+    [[nodiscard]] uint32_t metal_max_threads() const noexcept { return _metal_max_threads; }
 
     [[nodiscard]] Executable build(const compute::tile::Kernel &kernel, bool noalias = false, bool cooperative_matrix = false, bool vectorize = true, bool auto_vectorize = false,
                                    const compute::tile::bridge::tirx::PlannerOptions &planner = {}, bool metal_mpp = false, bool forward_readonly_tile_loads = false,
@@ -146,7 +158,9 @@ public:
         if ((cooperative_matrix || planner.metal_subgroup_reductions) && _target == "metal") {
             // Opt-in tests/benchmarks require an Apple-family-7+ device, not
             // merely the existence of an arbitrary Metal runtime.
-            options.target = R"({"kind":"metal","thread_warp_size":32})";
+            options.target = luisa::string{R"({"kind":"metal","thread_warp_size":32,"max_num_threads":)"} +
+                             std::to_string(_metal_max_threads) + R"(,"max_threads_per_block":)" +
+                             std::to_string(_metal_max_threads) + "}";
         }
         options.noalias = noalias;
         options.cooperative_matrix = cooperative_matrix;

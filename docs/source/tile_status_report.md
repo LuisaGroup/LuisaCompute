@@ -51,8 +51,8 @@ policy A/B shows no systematic add change, 2.71--6.12× reduction speedups and
 oracles and the fingerprinted artifacts remain unchanged.
 
 The TIRx Metal route now has a third, non-library realization family for
-proved FP32 row reductions. It maps one logical program to one, two, four or
-eight 32-lane SIMD groups, packs independent short programs, and compacts
+proved FP32 row reductions. It maps one logical program to a target-legal
+number of 32-lane SIMD groups, packs independent short programs, and compacts
 eligible compiler-owned Tiles to worker-private stripes through an affine
 ownership proof. Path-sensitive guarded-view analysis and an independent
 distributed-local ownership audit now also make dynamic label gathers safe.
@@ -138,6 +138,17 @@ cross-operator optimum. All figures keep no-counter GPU, instrumented probe
 and E2E scopes distinct. Default V and coefficients remain unchanged pending
 held-out mapping-model validation.
 
+The
+{download}`target-complete width checkpoint <../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-width-validation/notes.md>`
+also repairs two omitted parts of the candidate space: TVM's benchmark target
+inherited a 256-thread default, and the bridge restricted automatic
+cooperation to powers of two through eight subgroups. The adapter now queries
+the device limit and the solver includes every legal subgroup count up to the
+32-partial collective bound. Fourteen new ragged softmax configurations pass,
+including 96 and 1024 threads on this device. Physical group counts and useful
+lane-work fractions reach backend cost policies and reports. Default scoring
+coefficients are unchanged; the independent performance comparison is separate.
+
 **The general library-performance goal is still not complete.** These CPU
 wins are legal provider realizations for narrow proved contracts, not evidence
 that the portable loop family or direct XIR route has acquired BLAS-class
@@ -180,6 +191,7 @@ No Metal result is relabeled as XIR performance.
 | {download}`Dual-timing validation <../../scripts/benchmark/tile_torch/results/m1-max-20260905-dual-timing-validation/notes.md>` | Full 33-test Tile checkpoint, then-77 Python contracts, timestamp tests and submitted/worktree distinction |
 | {download}`GPU timing observer audit <../../scripts/benchmark/tile_torch/results/m1-max-20260905-device-timing-counter-control/notes.md>` | No-counter GPU control, probe perturbation, reduction/GEMM/native-MPP integration and the preceding 80-test Python checkpoint |
 | {download}`Consecutive-worker reduction layout <../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-lane-validation/notes.md>` | Generic ownership map, GPU-objective JIT, four-round RMSNorm GPU/E2E replay, six-operator coverage and current verification boundaries |
+| {download}`Target-complete reduction widths <../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-width-validation/notes.md>` | Queried device limit, all whole-subgroup widths, immutable cost-policy features, 14 new GPU layouts and current 83-test Python checkpoint |
 
 ```{figure} ../_static/tile/xir-planning-pipeline.svg
 :alt: The same execution-first TileIR feeds XIR/SIMD, Metal-native MPP and TIRx compiler routes with separate ownership.
@@ -268,15 +280,16 @@ uses widths 1/2/4/8/16 and every active-lane count, independent of TileIR.
 The submitted source preserves `metal::mem_flags(3)`. The earlier
 {download}`submitted-value checkpoint <../../scripts/benchmark/tile_torch/results/m1-max-20260905-dual-timing-validation/notes.md>`
 passed **33/33** `test_tile_*` entries: 30 unit-labeled tests and three
-integration tests. The latest consecutive-worker layout follow-up rebuilt
+integration tests. The latest target-complete-width follow-up rebuilt
 the full selected tree and reran all 33 entries without touching the user's
 pre-existing local `mem_flags(2)` edit: **31/33 passed**. The two failures
 are generated-source assertions requiring `3` in
 `test_tile_tirx_cooperative_metal` and `test_tile_tirx_memory_metal`; their
 numerical checks pass. Neither assertion was weakened and the local edit is
-not submitted. Current benchmark Python contracts pass **82/82**; 24 new
-Metal ownership-layout cases also pass in the execution test. The
-{download}`current validation and full log <../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-lane-validation/notes.md>`
+not submitted. Current benchmark Python contracts pass **83/83**; the prior
+24 ownership-layout cases and 14 new wider/non-power-of-two layouts also pass
+in the execution test. The
+{download}`current validation and full log <../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-width-validation/notes.md>`
 keeps this dirty-worktree result separate from the earlier submitted-value
 checkpoint. No whole-repository test pass is claimed.
 
@@ -369,10 +382,10 @@ intervals. No slow or failed row is discarded to improve the headline.
 
 The [formal design and evidence report](tile_tirx_reduction_report.md)
 documents the new opt-in TIRx Metal realization. It structurally revalidates
-canonical FP32 add/max/min reductions, searches one/two/four/eight cooperating
-SIMD groups, and derives private/shared storage from the selected execution
+canonical FP32 add/max/min reductions, searches whole-SIMD-group cooperating
+widths, and derives private/shared storage from the selected execution
 map. For softmax width 4096, a logical compiler-owned 4096-element Tile becomes
-16 private values per worker only after every access proves the same affine
+a compact private stripe (16 values at 256 threads) only after every access proves the same affine
 owner; the old per-thread `float[4096]` form is rejected by source tests.
 
 The two original current-binary cohorts use 11 samples, 100 ms calibrated

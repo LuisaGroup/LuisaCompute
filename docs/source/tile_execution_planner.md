@@ -506,7 +506,8 @@ coefficients and does not reuse MPP's opaque resource assumptions. The complete
 formal mapping, ownership proof, tests and evidence are in
 [TIRx Metal reductions](tile_tirx_reduction_report.md).
 
-For `S in {1,2,4,8}` SIMD groups per logical program, `W=32S` workers stripe
+For `1 <= S <= min(32, target_max_threads/32)` SIMD groups per logical program,
+`W=32S` workers stripe
 every reduction and independent element domain. `S=1` may pack several source
 `parallel` programs into one threadgroup; `S>1` assigns one program per group
 and combines subgroup results through a proved shared partial array. A reused
@@ -538,12 +539,14 @@ The default coefficients `1, 2, 16` are abstract M1-class priors, not measured
 nanoseconds or occupancy. Each independent domain is rounded separately so
 two softmax passes cannot share a fictitious tail round. Exhaustive enumeration
 is exact for the admitted `(S, P)` family: up to eight packed-program choices
-at `S=1`, plus the three wider, single-program choices. A nonzero `threads_per_group` is an exact
+at `S=1`, plus every target-legal single-program width up to 32 subgroups.
+An insufficient width-search budget fails explicitly, never silently truncates
+the family. A nonzero `threads_per_group` is an exact
 constraint; `run.py --tune-group-threads` recaptures/JITs each concrete width,
 validates it, and independently recompiles the winner. Measurement calibrates
 ranking but can never override legality.
 
-The current 24-case sum/softmax/RMSNorm/LayerNorm/cross-entropy/residual-
+The original 24-case sum/softmax/RMSNorm/LayerNorm/cross-entropy/residual-
 LayerNorm reports select one, two, four and eight groups as widths grow, check
 every output, and are faster than eager Torch MPS in all saved rows. Balanced
 same-binary A/B replays attribute 21.19×--49.87× RMSNorm and
@@ -674,7 +677,11 @@ Bridge: prove -> enumerate legal -> score -> select -> realize
 reduction planning. `reduction_score(candidate, model)` may replace the whole
 reduction objective. Its immutable feature record includes logical programs,
 threads, subgroups/program, programs/group, shared bytes, private stripe
-scalars, reduction count, scalar rounds and ordered unroll factor. A backend
+scalars, reduction count, scalar rounds, ordered unroll factor and consecutive
+elements per worker. It also includes the exact physical threadgroup count,
+useful scalar element count and useful lane-work fraction
+`elements / (scalar_rounds * cooperating_workers)`. These are ownership and
+launch facts, not profiler measurements of occupancy or SIMD issue. A backend
 can inherit the analytic policy and override either method. No TVM type or
 RTTI crosses this interface.
 
