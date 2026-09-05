@@ -15,6 +15,7 @@
 #include <llvm/IR/Verifier.h>
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Support/SourceMgr.h>
+#include <llvm/Transforms/Scalar/EarlyCSE.h>
 
 using namespace luisa::compute::hip;
 using namespace boost::ut;
@@ -566,6 +567,125 @@ static auto suite = [] {
         expect(alloca_count == 1u);
         expect(store_count == 4u);
         expect(call_count == 2u);
+    };
+
+    "HIP packed pointer arguments preserve indirect memory effects"_test = [] {
+        llvm::LLVMContext context;
+        auto module = parse_module(context, R"(
+            target datalayout = "e-p:64:64-p5:32:32-i64:64-n32:64-A5"
+            define private void @wide([32 x i32] %padding, ptr addrspace(5) %out) #0 {
+            entry:
+              store i32 42, ptr addrspace(5) %out
+              ret void
+            }
+            define i32 @caller([32 x i32] %padding) {
+            entry:
+              %slot = alloca i32, addrspace(5)
+              store i32 7, ptr addrspace(5) %slot
+              call void @wide([32 x i32] %padding, ptr addrspace(5) %slot) #1
+              %result = load i32, ptr addrspace(5) %slot
+              ret i32 %result
+            }
+            attributes #0 = { noinline nounwind memory(argmem: write) "luisa-generated-callable" }
+            attributes #1 = { memory(argmem: write) }
+        )");
+        expect(module != nullptr);
+        if (!module) { return; }
+        const auto stats = demote_generated_callable_large_arguments(*module);
+        expect(stats.rewritten_function_count == 1u);
+        expect(stats.packed_argument_count == 2u);
+        expect(!llvm::verifyModule(*module));
+
+        // The record itself is ArgMem, but %out is now loaded from it.
+        // Writing through that indirect pointer is an Other-memory effect.
+        using Location = llvm::MemoryEffects::Location;
+        auto *wide = module->getFunction("wide");
+        expect(wide->getMemoryEffects().getModRef(Location::Other) ==
+               llvm::ModRefInfo::Mod);
+        for (auto &instruction : module->getFunction("caller")->getEntryBlock()) {
+            if (auto *call = llvm::dyn_cast<llvm::CallInst>(&instruction)) {
+                expect(call->getMemoryEffects().getModRef(Location::Other) ==
+                       llvm::ModRefInfo::Mod);
+            }
+        }
+
+        llvm::LoopAnalysisManager loop_analyses;
+        llvm::FunctionAnalysisManager function_analyses;
+        llvm::CGSCCAnalysisManager cgscc_analyses;
+        llvm::ModuleAnalysisManager module_analyses;
+        llvm::PassBuilder builder;
+        builder.registerModuleAnalyses(module_analyses);
+        builder.registerCGSCCAnalyses(cgscc_analyses);
+        builder.registerFunctionAnalyses(function_analyses);
+        builder.registerLoopAnalyses(loop_analyses);
+        builder.crossRegisterProxies(
+            loop_analyses, function_analyses, cgscc_analyses, module_analyses);
+        llvm::EarlyCSEPass{true}.run(
+            *module->getFunction("caller"), function_analyses);
+        expect(!llvm::verifyModule(*module));
+        // Caller-local optimization must not forward the pre-call 7 through
+        // a call which writes 42 to the slot through a packed pointer.
+        for (auto &block : *module->getFunction("caller")) {
+            if (auto *ret = llvm::dyn_cast<llvm::ReturnInst>(block.getTerminator())) {
+                auto *value = llvm::dyn_cast<llvm::ConstantInt>(ret->getReturnValue());
+                expect(llvm::isa<llvm::LoadInst>(ret->getReturnValue()) ||
+                       (value != nullptr && value->getZExtValue() == 42u))
+                    << "packed pointer write disappeared across the call";
+            }
+        }
+    };
+
+    "HIP packed memory summaries preserve location and access precision"_test = [] {
+        for (auto suffix_type : {"i32", "ptr addrspace(5)",
+                                 "{ i32, [2 x ptr] }", "<2 x ptr>"}) {
+            for (auto access : {llvm::ModRefInfo::NoModRef, llvm::ModRefInfo::Ref,
+                                llvm::ModRefInfo::Mod, llvm::ModRefInfo::ModRef}) {
+                llvm::LLVMContext context;
+                const auto type = std::string{suffix_type};
+                auto module = parse_module(context,
+                                           "target datalayout = \"e-p:64:64-p5:32:32-i64:64-n32:64-A5\"\n"
+                                           "define private void @wide([32 x i32] %padding, " +
+                                               type +
+                                               " %suffix) #0 { ret void }\n"
+                                               "define void @caller([32 x i32] %padding, " +
+                                               type +
+                                               " %suffix) { call void @wide([32 x i32] %padding, " + type +
+                                               " %suffix) ret void }\n"
+                                               "attributes #0 = { nounwind \"luisa-generated-callable\" }\n");
+                expect(module != nullptr);
+                if (!module) { continue; }
+                const auto function_effects =
+                    llvm::MemoryEffects::argMemOnly(access) |
+                    llvm::MemoryEffects::otherMemOnly(llvm::ModRefInfo::Ref) |
+                    llvm::MemoryEffects::inaccessibleMemOnly(llvm::ModRefInfo::Mod);
+                // A call-site summary may be more precise than the function
+                // summary; each must be remapped independently.
+                const auto call_effects = llvm::MemoryEffects::argMemOnly(access);
+                module->getFunction("wide")->setMemoryEffects(function_effects);
+                auto *caller = module->getFunction("caller");
+                llvm::cast<llvm::CallInst>(&caller->getEntryBlock().front())
+                    ->setMemoryEffects(call_effects);
+                const auto stats = demote_generated_callable_large_arguments(*module);
+                expect(stats.rewritten_function_count == 1u);
+                expect(!llvm::verifyModule(*module));
+                const auto has_pointer = type != "i32";
+                const auto expected_effects = [=](llvm::MemoryEffects original) {
+                    auto expected = original |
+                                    llvm::MemoryEffects::argMemOnly(llvm::ModRefInfo::Ref);
+                    if (has_pointer) {
+                        expected |= llvm::MemoryEffects::otherMemOnly(access);
+                    }
+                    return expected;
+                };
+                expect(module->getFunction("wide")->getMemoryEffects() ==
+                       expected_effects(function_effects));
+                for (auto &instruction : caller->getEntryBlock()) {
+                    if (auto *call = llvm::dyn_cast<llvm::CallInst>(&instruction)) {
+                        expect(call->getMemoryEffects() == expected_effects(call_effects));
+                    }
+                }
+            }
+        }
     };
 
     "HIP callable ABI charges an explicit return pointer to the input budget"_test = [] {

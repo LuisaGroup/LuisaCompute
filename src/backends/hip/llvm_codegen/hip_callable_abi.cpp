@@ -284,6 +284,39 @@ void simplify_constant_argument_clone(
         parameter_attributes);
 }
 
+[[nodiscard]] bool contains_pointer(llvm::Type *type) noexcept {
+    if (type->isPointerTy()) { return true; }
+    if (auto *structure = llvm::dyn_cast<llvm::StructType>(type)) {
+        return std::any_of(structure->element_begin(), structure->element_end(),
+                           contains_pointer);
+    }
+    if (auto *array = llvm::dyn_cast<llvm::ArrayType>(type)) {
+        return array->getNumElements() != 0u &&
+               contains_pointer(array->getElementType());
+    }
+    if (auto *vector = llvm::dyn_cast<llvm::VectorType>(type)) {
+        return contains_pointer(vector->getElementType());
+    }
+    return false;
+}
+
+[[nodiscard]] llvm::MemoryEffects pack_suffix_memory_effects(
+    llvm::MemoryEffects effects, llvm::StructType *record_type) noexcept {
+    // The record load adds an ArgMem read. An old pointer formal loaded from
+    // that record is no longer based on a pointer argument of the replacement:
+    // its pointee accesses are Other memory, not ArgMem. Preserve both kinds
+    // because the old summary also covers any unchanged direct arguments.
+    // Apply the same remapping to call-site summaries; LLVM intersects them
+    // with the callee's effects. Scalar-only records need no Other widening.
+    using Location = llvm::MemoryEffects::Location;
+    if (contains_pointer(record_type)) {
+        effects = effects.getWithModRef(
+            Location::Other, effects.getModRef(Location::Other) |
+                                 effects.getModRef(Location::ArgMem));
+    }
+    return effects | llvm::MemoryEffects::argMemOnly(llvm::ModRefInfo::Ref);
+}
+
 [[nodiscard]] bool has_packed_argument_abi_attribute(
     llvm::AttributeList attributes, size_t first_packed,
     size_t parameter_count) noexcept {
@@ -1134,10 +1167,8 @@ LargeArgumentDemotionStats demote_generated_callable_large_arguments(
         replacement->setAttributes(pack_suffix_argument_attributes(
             module.getContext(), function->getAttributes(),
             plan.direct_argument_count));
-        replacement->setMemoryEffects(
-            function->getMemoryEffects() |
-            llvm::MemoryEffects::argMemOnly(
-                llvm::ModRefInfo::Ref));
+        replacement->setMemoryEffects(pack_suffix_memory_effects(
+            function->getMemoryEffects(), plan.record_type));
         replacement->setCallingConv(function->getCallingConv());
         replacement->splice(replacement->end(), function);
 
@@ -1248,10 +1279,8 @@ LargeArgumentDemotionStats demote_generated_callable_large_arguments(
             new_call->setAttributes(pack_suffix_argument_attributes(
                 module.getContext(), call->getAttributes(),
                 plan.direct_argument_count));
-            new_call->setMemoryEffects(
-                call->getMemoryEffects() |
-                llvm::MemoryEffects::argMemOnly(
-                    llvm::ModRefInfo::Ref));
+            new_call->setMemoryEffects(pack_suffix_memory_effects(
+                call->getMemoryEffects(), plan.record_type));
             new_call->setDebugLoc(call->getDebugLoc());
             new_call->copyMetadata(*call);
             new_call->setFastMathFlags(call->getFastMathFlags());

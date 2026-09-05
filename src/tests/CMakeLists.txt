@@ -566,6 +566,15 @@ luisa_compute_add_test(test_hip_rt_scratch_reuse unit/runtime/test_hip_rt_scratc
 luisa_compute_add_test(test_hip_large_accel_instances unit/runtime/test_hip_large_accel_instances.cpp)
 luisa_compute_add_test(test_hip_shader_cache    unit/runtime/test_hip_shader_cache.cpp)
 luisa_compute_add_test(test_hip_callable_boundary unit/runtime/test_hip_callable_boundary.cpp)
+luisa_compute_add_test(test_hip_packed_pointer_effects unit/runtime/test_hip_packed_pointer_effects.cpp)
+foreach (_packed_pointer_backend hip fallback)
+    if (TARGET luisa-compute-backend-${_packed_pointer_backend})
+        add_test(NAME test_hip_packed_pointer_effects_${_packed_pointer_backend}
+                COMMAND test_hip_packed_pointer_effects ${_packed_pointer_backend})
+        set_tests_properties(test_hip_packed_pointer_effects_${_packed_pointer_backend}
+                PROPERTIES LABELS "unit;unit_runtime;${_packed_pointer_backend}")
+    endif ()
+endforeach ()
 luisa_compute_add_test(test_hip_float_atomic_memory_model unit/runtime/test_hip_float_atomic_memory_model.cpp)
 luisa_compute_add_test(test_counted_local_array unit/runtime/test_counted_local_array.cpp)
 luisa_compute_add_test(test_atomic              unit/runtime/test_atomic.cpp)
