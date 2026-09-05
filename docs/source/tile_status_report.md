@@ -8,6 +8,16 @@ evidence.
 
 ## Technical summary
 
+**Overall verdict: the architecture is executable and several bounded cohorts
+beat Torch or MPS, but the general performance objective is not complete.**
+The strongest recorded Metal GEMM result is the TIRx-to-MPP view path, not
+the native MPP route. In the same 14-round FP32 1024³ replay, their median
+host-wall batch times are 270.675 and 287.137 µs respectively, versus MPS at
+272.572 µs and Torch at 284.654 µs. The paired TIRx-view/MPS ratio is 0.9938:
+near parity with a small measured advantage, not broad MPS dominance. These
+historical host-wall measurements have different recorded fast-math settings
+across routes and must not be presented as matched pure-kernel timings.
+
 The packaged [XIR pilot report](../../scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/report.html)
 is an earlier bounded snapshot with charts, audit tables and canonical sources.
 Its canonical validator and structural verifier pass. The packager found no
@@ -345,16 +355,17 @@ uses widths 1/2/4/8/16 and every active-lane count, independent of TileIR.
 The submitted source preserves `metal::mem_flags(3)`. The earlier
 {download}`submitted-value checkpoint <../../scripts/benchmark/tile_torch/results/m1-max-20260905-dual-timing-validation/notes.md>`
 passed **33/33** `test_tile_*` entries: 30 unit-labeled tests and three
-integration tests. The latest access-demand follow-up rebuilt
+integration tests. The latest service-policy follow-up rebuilt
 the full selected tree and reran all 33 entries without touching the user's
 pre-existing local `mem_flags(2)` edit: **31/33 passed**. The two failures
 are generated-source assertions requiring `3` in
 `test_tile_tirx_cooperative_metal` and `test_tile_tirx_memory_metal`; their
 numerical checks pass. Neither assertion was weakened and the local edit is
-not submitted. Current benchmark Python contracts pass **87/87**; the prior
+not submitted. Current benchmark Python contracts pass **89/89**; the planner
+passes **5,988 assertions in ten tests**. The prior
 24 ownership-layout cases, 14 wider/non-power-of-two layouts and 22 new
 input-reuse numeric configurations also pass in the execution test. The
-{download}`current validation and full log <../../scripts/benchmark/tile_torch/results/m1-max-20260905-access-demand-validation/notes.md>`
+{download}`current validation and full log <../../scripts/benchmark/tile_torch/results/m1-max-20260905-service-policy-validation/notes.md>`
 keeps this dirty-worktree result separate from the earlier submitted-value
 checkpoint. No whole-repository test pass is claimed.
 
