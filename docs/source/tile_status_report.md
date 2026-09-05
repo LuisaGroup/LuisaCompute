@@ -179,6 +179,16 @@ stays reload: the current score counts extra private traversals but cannot
 price reduced global reads, so joint mapping/resource cost calibration is
 still needed. GPU here remains command-buffer, not isolated-kernel timing.
 
+The subsequent {download}`access-demand implementation checkpoint
+<../../scripts/benchmark/tile_torch/results/m1-max-20260905-access-demand-validation/notes.md>`
+adds per-program/per-worker global and private payload access facts to the
+backend-overridable policy, plus joint cache/reload × execution-mapping JIT
+search. Optional access coefficients remain zero until calibrated. These are
+conservative logical IR features, not physical traffic measurements. Tests
+verify same-expression load deduplication, cross-phase accounting, budget
+rejections and fresh-winner capture. This checkpoint makes no new speedup claim;
+independent joint-search replay is the next acceptance step.
+
 **The general library-performance goal is still not complete.** These CPU
 wins are legal provider realizations for narrow proved contracts, not evidence
 that the portable loop family or direct XIR route has acquired BLAS-class
@@ -310,16 +320,16 @@ uses widths 1/2/4/8/16 and every active-lane count, independent of TileIR.
 The submitted source preserves `metal::mem_flags(3)`. The earlier
 {download}`submitted-value checkpoint <../../scripts/benchmark/tile_torch/results/m1-max-20260905-dual-timing-validation/notes.md>`
 passed **33/33** `test_tile_*` entries: 30 unit-labeled tests and three
-integration tests. The latest input-reuse follow-up rebuilt
+integration tests. The latest access-demand follow-up rebuilt
 the full selected tree and reran all 33 entries without touching the user's
 pre-existing local `mem_flags(2)` edit: **31/33 passed**. The two failures
 are generated-source assertions requiring `3` in
 `test_tile_tirx_cooperative_metal` and `test_tile_tirx_memory_metal`; their
 numerical checks pass. Neither assertion was weakened and the local edit is
-not submitted. Current benchmark Python contracts pass **84/84**; the prior
+not submitted. Current benchmark Python contracts pass **87/87**; the prior
 24 ownership-layout cases, 14 wider/non-power-of-two layouts and 22 new
 input-reuse numeric configurations also pass in the execution test. The
-{download}`current validation and full log <../../scripts/benchmark/tile_torch/results/m1-max-20260905-input-cache-validation/notes.md>`
+{download}`current validation and full log <../../scripts/benchmark/tile_torch/results/m1-max-20260905-access-demand-validation/notes.md>`
 keeps this dirty-worktree result separate from the earlier submitted-value
 checkpoint. No whole-repository test pass is claimed.
 

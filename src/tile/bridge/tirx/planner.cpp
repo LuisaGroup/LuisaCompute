@@ -142,6 +142,7 @@ namespace {
     auto &cost = options.cost;
     for (auto coefficient : {cost.matrix_issue, cost.shared_fragment_transfer, cost.independent_element, cost.subgroup_setup,
                              cost.subgroup_reduction_scalar_round, cost.subgroup_reduction_collective,
+                             cost.subgroup_reduction_global_access_byte, cost.subgroup_reduction_private_access_byte,
                              cost.subgroup_reduction_group_setup,
                              cost.metal_mpp_memory_fragment, cost.metal_mpp_lhs_footprint, cost.metal_mpp_rhs_footprint,
                              cost.metal_mpp_output_fragment, cost.metal_mpp_tensor_operation, cost.metal_mpp_accumulator_init,
@@ -219,7 +220,12 @@ bool verify_matrix_distribution(const MatrixWorkload &workload, const MatrixDist
 }
 
 double AnalyticExecutionCostPolicy::reduction_score(const ReductionCandidate &candidate, const ExecutionCostModel &model) const noexcept {
-    return candidate.scalar_rounds * model.subgroup_reduction_scalar_round +
+    auto &access = candidate.payload_accesses_per_worker;
+    auto access_score = candidate.payload_accesses_known ?
+                            (access.global_read_bytes + access.global_write_bytes) * model.subgroup_reduction_global_access_byte +
+                                (access.private_read_bytes + access.private_write_bytes) * model.subgroup_reduction_private_access_byte :
+                            0.0;
+    return access_score + candidate.scalar_rounds * model.subgroup_reduction_scalar_round +
            static_cast<double>(candidate.reductions) * candidate.subgroups_per_program * model.subgroup_reduction_collective +
            model.subgroup_reduction_group_setup / candidate.programs_per_group;
 }

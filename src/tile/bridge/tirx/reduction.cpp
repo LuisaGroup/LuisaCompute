@@ -406,6 +406,168 @@ public:
     }
 };
 
+void add_access_demand(ReductionAccessDemand &total,
+                       const ReductionAccessDemand &value, double scale) noexcept {
+    total.global_read_bytes += value.global_read_bytes * scale;
+    total.global_write_bytes += value.global_write_bytes * scale;
+    total.private_read_bytes += value.private_read_bytes * scale;
+    total.private_write_bytes += value.private_write_bytes * scale;
+}
+
+// Cost facts only: this does not rewrite/CSE code or grant memory legality.
+// Loads are deduplicated within one evaluation, never across a store or a
+// traversal. Both sides of lazy branches count as potential demand. Unknown
+// constructs leave the feature unavailable instead of reporting partial data.
+class PayloadAccessCounter {
+private:
+    void _access(const tvm::tirx::BufferVar &buffer, bool read) {
+        auto type = buffer->dtype;
+        if (type.IsScalableVector() || type.lanes() != 1 || type.bits() == 0 || type.bits() % 8 != 0) {
+            known = false;
+            return;
+        }
+        auto bytes = static_cast<double>(type.bits() / 8);
+        if (buffer.scope() == "global") {
+            (read ? demand.global_read_bytes : demand.global_write_bytes) += bytes;
+        } else if (buffer.scope() == "local") {
+            (read ? demand.private_read_bytes : demand.private_write_bytes) += bytes;
+        } else {
+            known = false;
+        }
+    }
+
+    void _reads(const tvm::ffi::Array<tvm::PrimExpr> &expressions) {
+        luisa::vector<tvm::tirx::BufferLoad> seen;
+        auto equal = tvm::ffi::StructuralEqual{};
+        for (auto &&expression : expressions) {
+            tvm::tirx::PostOrderVisit(expression, [&](const tvm::ffi::ObjectRef &node) {
+                if (auto load = node.as<tvm::tirx::BufferLoadNode>()) {
+                    auto value = tvm::ffi::GetRef<tvm::tirx::BufferLoad>(load);
+                    if (value.ty() != load->buffer->dtype) { known = false; }
+                    if (std::none_of(seen.begin(), seen.end(), [&](const auto &other) { return equal(value, other); })) {
+                        seen.emplace_back(value);
+                        _access(load->buffer, true);
+                    }
+                } else if (node.as<tvm::tirx::ProducerLoadNode>()) {
+                    known = false;
+                }
+            });
+        }
+    }
+
+public:
+    ReductionAccessDemand demand;
+    bool known{true};
+
+    void expression(const tvm::Expr &value) {
+        if (auto primitive = value.as<tvm::PrimExpr>()) {
+            _reads({primitive.value()});
+        } else {
+            known = false;
+        }
+    }
+
+    void statement(const tvm::tirx::Stmt &value) {
+        if (auto sequence = value.as<tvm::tirx::SeqStmtNode>()) {
+            for (auto &&child : sequence->seq) { statement(child); }
+        } else if (auto store = value.as<tvm::tirx::BufferStoreNode>()) {
+            auto expressions = store->indices;
+            expressions.push_back(store->value);
+            if (store->predicate) { expressions.push_back(store->predicate.value()); }
+            _reads(expressions);
+            if (store->value.ty() != store->buffer->dtype) { known = false; }
+            _access(store->buffer, false);
+        } else if (auto evaluate = value.as<tvm::tirx::EvaluateNode>()) {
+            expression(evaluate->value);
+        } else if (auto bind = value.as<tvm::tirx::BindNode>()) {
+            expression(bind->value);
+        } else if (auto branch = value.as<tvm::tirx::IfThenElseNode>()) {
+            expression(branch->condition);
+            statement(branch->then_case);
+            if (branch->else_case) { statement(branch->else_case.value()); }
+        } else if (auto loop = value.as<tvm::tirx::ForNode>()) {
+            auto count = static_extent(loop->extent);
+            if (!count || !unit_serial_loop(loop)) {
+                known = false;
+                return;
+            }
+            PayloadAccessCounter body;
+            body.statement(loop->body);
+            known &= body.known;
+            add_access_demand(demand, body.demand, static_cast<double>(*count));
+        } else if (!value.as<tvm::tirx::AllocBufferNode>()) {
+            known = false;
+        }
+    }
+};
+
+class DistributedAccessAnalysis final : public tvm::tirx::StmtVisitor {
+private:
+    const ReductionAnalysis &_analysis;
+    struct Domain {
+        uint64_t elements;
+        double repetitions;
+        ReductionAccessDemand accesses;
+    };
+    luisa::vector<Domain> _domains;
+    double _repetitions{1.0};
+
+    void VisitStmt_(const tvm::tirx::ForNode *loop) final {
+        PayloadAccessCounter counter;
+        auto elements = uint64_t{0u};
+        if (auto iter = _analysis.reductions.find(loop); iter != _analysis.reductions.end()) {
+            elements = iter->second.elements;
+            // Carry traffic is part of scalar recurrence/collective service,
+            // not a load from the logical payload. Do not count its scaffolding.
+            counter.expression(iter->second.contribution);
+        } else if (loop->annotations.count(independent_elements_annotation) &&
+                   !_analysis.replicated_elements.contains(loop)) {
+            auto domain = element_domain(loop);
+            if (!domain) {
+                known = false;
+                return;
+            }
+            elements = domain->count;
+            counter.statement(domain->body);
+        } else {
+            auto count = static_extent(loop->extent);
+            if (!count || !unit_serial_loop(loop)) {
+                known = false;
+                return;
+            }
+            auto previous = _repetitions;
+            _repetitions *= static_cast<double>(*count);
+            if (!std::isfinite(_repetitions)) { known = false; }
+            StmtVisitor::VisitStmt_(loop);
+            _repetitions = previous;
+            return;
+        }
+        known &= counter.known;
+        _domains.emplace_back(Domain{elements, _repetitions, counter.demand});
+    }
+
+public:
+    bool known{true};
+    explicit DistributedAccessAnalysis(const ReductionAnalysis &analysis) noexcept : _analysis{analysis} {}
+
+    void finish() noexcept {
+        auto value = demand();
+        known &= std::isfinite(value.global_read_bytes) && std::isfinite(value.global_write_bytes) &&
+                 std::isfinite(value.private_read_bytes) && std::isfinite(value.private_write_bytes);
+    }
+
+    [[nodiscard]] ReductionAccessDemand demand(uint64_t workers = 0u, uint64_t lane_elements = 1u) const noexcept {
+        ReductionAccessDemand result;
+        if (known) {
+            for (auto &&domain : _domains) {
+                auto elements = workers ? stripe_slots(domain.elements, workers, lane_elements) : domain.elements;
+                add_access_demand(result, domain.accesses, static_cast<double>(elements) * domain.repetitions);
+            }
+        }
+        return result;
+    }
+};
+
 struct StripedAccess {
     uint64_t allocations{0u};
     uint64_t stores{0u};
@@ -1059,6 +1221,9 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
     ownership(loop->body);
     if (!ownership.valid()) { return {}; }
     auto materializations = striped_materializations(loop->body, analysis);
+    DistributedAccessAnalysis accesses{analysis};
+    accesses(loop->body);
+    accesses.finish();
 
     // The second collective reads one partial per lane, so it can combine
     // up to subgroup_size subgroups. This is an algorithmic bound, distinct
@@ -1076,6 +1241,8 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
     if (!std::isfinite(scalar_round_cost) || scalar_round_cost < 0.0 ||
         !std::isfinite(collective_cost) || collective_cost < 0.0 ||
         !std::isfinite(group_setup_cost) || group_setup_cost < 0.0 ||
+        !std::isfinite(model.subgroup_reduction_global_access_byte) || model.subgroup_reduction_global_access_byte < 0.0 ||
+        !std::isfinite(model.subgroup_reduction_private_access_byte) || model.subgroup_reduction_private_access_byte < 0.0 ||
         options.max_thread_candidates == 0u) {
         throw std::runtime_error{"invalid reduction cost coefficients or search budget"};
     }
@@ -1171,7 +1338,8 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
                 *groups, static_cast<uint32_t>(threads),
                 static_cast<uint32_t>(subgroups), static_cast<uint32_t>(packed),
                 partial_bytes, striped_storage_scalars, analysis.reductions.size(), scalar_rounds, options.reduction_unroll_factor, options.reduction_lane_elements,
-                luisa::ceil_div(*groups, packed), scalar_elements, lane_utilization};
+                luisa::ceil_div(*groups, packed), scalar_elements, lane_utilization,
+                accesses.known, accesses.demand(), accesses.demand(workers, options.reduction_lane_elements)};
             auto score = policy.reduction_score(features, model);
             if (!std::isfinite(score) || score < 0.0) {
                 throw std::runtime_error{"reduction cost policy returned a nonfinite or negative score"};
@@ -1292,6 +1460,9 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
     plan.reduction_threadgroups = blocks;
     plan.reduction_scalar_rounds = best.scalar_rounds;
     plan.reduction_lane_utilization = best.lane_utilization;
+    plan.reduction_payload_accesses_known = accesses.known;
+    plan.reduction_payload_accesses_per_program = accesses.demand();
+    plan.reduction_payload_accesses_per_worker = accesses.demand(program_workers, options.reduction_lane_elements);
     plan.striped_storage_scalars_per_worker = striped_storage_scalars;
     plan.reduction_operations = analysis.reductions.size();
     plan.reduction_elements = analysis.reduction_elements;

@@ -857,7 +857,16 @@ void test_reduction_input_cache(Runtime &runtime) {
                 auto executable = runtime.build(make_row_softmax(rows, columns), true, false, true, false, planner);
                 expect(executable.ok()) << "cache=" << cache << " columns=" << columns << " width=" << width << " " << executable.error;
                 if (!executable.ok()) { continue; }
-                expect(eq(executable.plans.front().striped_storage_scalars_per_worker, slots * (cache ? 2u : 1u)));
+                auto &plan = executable.plans.front();
+                expect(eq(plan.striped_storage_scalars_per_worker, slots * (cache ? 2u : 1u)));
+                expect(plan.reduction_payload_accesses_known);
+                // Same-row input loads in max and exponentiation are distinct
+                // traversals. Caching replaces these by one global traversal.
+                expect(eq(plan.reduction_payload_accesses_per_program.global_read_bytes,
+                          static_cast<double>(columns) * (cache ? 4.0 : 8.0)));
+                expect(eq(plan.reduction_payload_accesses_per_worker.global_read_bytes,
+                          static_cast<double>(slots) * (cache ? 4.0 : 8.0)));
+                expect(eq(plan.reduction_payload_accesses_per_program.global_write_bytes, static_cast<double>(columns) * 4.0));
                 (*executable.entry)(input, output);
                 auto actual = runtime.download<float>(output, values.size());
                 for (auto row = int64_t{0}; row < rows; row++) {
@@ -891,6 +900,9 @@ void test_reduction_input_cache(Runtime &runtime) {
     expect(guarded.ok()) << guarded.error;
     if (guarded.ok()) {
         expect(eq(guarded.plans.front().striped_storage_scalars_per_worker, uint64_t{9u}));
+        expect(guarded.plans.front().reduction_payload_accesses_known);
+        // Predicated zero-fill counts potential IR loads, not actual traffic.
+        expect(eq(guarded.plans.front().reduction_payload_accesses_per_program.global_read_bytes, 260.0 * 4.0));
         luisa::vector<float> values(static_cast<size_t>(rows * 257), 0.25f);
         auto input = runtime.upload<float>({rows, 257}, values);
         auto output = runtime.allocate<float>({rows, 260});
@@ -928,6 +940,10 @@ void test_reduction_input_cache(Runtime &runtime) {
     expect(single_phase.ok()) << single_phase.error;
     if (single_phase.ok()) {
         expect(eq(single_phase.plans.front().striped_storage_scalars_per_worker, uint64_t{0u}));
+        expect(single_phase.plans.front().reduction_payload_accesses_known);
+        // x*x is one unique load in one evaluation, not two input traversals.
+        expect(eq(single_phase.plans.front().reduction_payload_accesses_per_program.global_read_bytes, 257.0 * 4.0));
+        expect(eq(single_phase.plans.front().reduction_payload_accesses_per_worker.global_read_bytes, 9.0 * 4.0));
         luisa::vector<float> values(static_cast<size_t>(rows * 257), 0.25f);
         auto input = runtime.upload<float>({rows, 257}, values);
         auto output = runtime.allocate<float>({rows});

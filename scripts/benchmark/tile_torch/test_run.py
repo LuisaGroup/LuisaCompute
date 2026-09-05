@@ -277,12 +277,51 @@ class RepeatContractTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 MODULE.parse_row_shapes(text)
 
+    def test_reduction_payload_access_schema_is_complete_or_unavailable(self):
+        demand = dict(global_read_bytes=32, global_write_bytes=16, private_read_bytes=8, private_write_bytes=4)
+        plan = dict(reduction_payload_accesses_known=True, reduction_payload_accesses_per_program=demand,
+                    reduction_payload_accesses_per_worker=demand)
+        args = argparse.Namespace()
+        MODULE.validate_element_reduction_mapping({"execution_plans": [plan]}, args)
+        MODULE.validate_element_reduction_mapping({"execution_plans": [{}]}, args)
+        for unknown in (None, 1, False):
+            with self.assertRaisesRegex(ValueError, "payload access"):
+                MODULE.validate_element_reduction_mapping({"execution_plans": [plan | {"reduction_payload_accesses_known": unknown}]}, args)
+        for invalid in ({}, demand | {"extra": 0}, demand | {"global_read_bytes": float("nan")},
+                        demand | {"private_write_bytes": -1}, demand | {"global_write_bytes": True}):
+            with self.assertRaisesRegex(ValueError, "payload access"):
+                MODULE.validate_element_reduction_mapping({"execution_plans": [plan | {"reduction_payload_accesses_per_worker": invalid}]}, args)
+        zero = dict.fromkeys(demand, 0)
+        MODULE.validate_element_reduction_mapping({"execution_plans": [dict(reduction_payload_accesses_known=False,
+            reduction_payload_accesses_per_program=zero, reduction_payload_accesses_per_worker=zero)]}, args)
+
+    def test_input_cache_search_is_deduplicated_bounded_and_explicit(self):
+        self.assertEqual(MODULE.input_cache_candidates(None), [])
+        self.assertEqual(MODULE.input_cache_candidates("reload,cache,reload"), [False, True])
+        self.assertEqual(MODULE.input_cache_candidates("cache,reload"), [True, False])
+        for value in ("", "true", "reload,", "cache,unknown"):
+            with self.assertRaisesRegex(ValueError, "input-cache"):
+                MODULE.input_cache_candidates(value)
+        args = argparse.Namespace(tuning_candidates=[], gemm_block=(8, 8, 16), pipeline_window=2,
+                                  mapping_tuning_candidates=[(32, 1), (128, 1)], lane_tuning_candidates=[1, 4],
+                                  input_cache_tuning_candidates=[False, True], max_tuning_candidates=8)
+        choices = MODULE.program_candidates(args)
+        self.assertEqual(len(choices), 8)
+        self.assertEqual({(choice[2], choice[-2], choice[-1]) for choice in choices},
+                         {(w, v, c) for w in (32, 128) for v in (1, 4) for c in (False, True)})
+        args.max_tuning_candidates = 7
+        with self.assertRaisesRegex(ValueError, "budget"):
+            MODULE.program_candidates(args)
+        args.input_cache_tuning_candidates = [1]
+        with self.assertRaisesRegex(ValueError, "Boolean"):
+            MODULE.program_candidates(args)
+
     def test_reduction_search_product_is_bounded(self):
         args = argparse.Namespace(tuning_candidates=[], gemm_block=(8, 8, 16), pipeline_window=2,
                                   packing_tuning_candidates=[0, 4], unroll_tuning_candidates=[1, 4],
                                   max_tuning_candidates=4)
         choices = MODULE.program_candidates(args)
-        self.assertEqual([choice[-3:] for choice in choices], [(0, 1, 1), (0, 4, 1), (4, 1, 1), (4, 4, 1)])
+        self.assertEqual([choice[-4:] for choice in choices], [(0, 1, 1, False), (0, 4, 1, False), (4, 1, 1, False), (4, 4, 1, False)])
         args.max_tuning_candidates = 3
         with self.assertRaisesRegex(ValueError, "budget"):
             MODULE.program_candidates(args)
@@ -982,6 +1021,32 @@ class BenchmarkContractTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 MODULE.tuning_score({"valid": True, "native": {"throughput_us_p50": 1.0,
                                                                "device_timing": {"control": control}}}, "gpu-control")
+
+    def test_joint_cache_search_keeps_rejections_and_revalidates_worse_model_pick(self):
+        args = argparse.Namespace(tuning_candidates=[], gemm_block=(8, 8, 16), pipeline_window=1,
+                                  cache_reduction_inputs=False, input_cache_tuning_candidates=[False, True],
+                                  mapping_tuning_candidates=[(32, 1), (512, 1)], tuning_metric="gpu-control")
+        calls = []
+
+        def measure(torch, np, candidate, case, backend, ordinal):
+            calls.append((candidate.group_threads, candidate.cache_reduction_inputs))
+            if calls[-1] == (32, True):
+                raise RuntimeError("private stripe budget exhausted")
+            gpu = 100.0 if len(calls) == 5 else 1.0 if calls[-1] == (512, True) else 3.0
+            return {"valid": True, "native": {"throughput_us_p50": 10.0,
+                "execution_plans": [{"normalized_kernel_cost": 20.0 if candidate.cache_reduction_inputs else 1.0}],
+                "device_timing": {"control": {"encoder_instrumentation": False,
+                    "method": "metal_command_buffer_timestamps_v1", "command_buffer_throughput_us_p50": gpu}}}}
+
+        with patch.object(MODULE, "run_case", side_effect=measure), contextlib.redirect_stdout(io.StringIO()):
+            result = MODULE.run_tuned_case(None, None, args, MODULE.Case("softmax", 64, 4096, 1), "metal", 0)
+        self.assertEqual(calls, [(32, False), (32, True), (512, False), (512, True), (512, True)])
+        self.assertFalse(result["tuning"]["trials"][1]["valid"])
+        self.assertEqual(result["tuning"]["selected_trial"], 3)
+        self.assertEqual(result["tuning"]["model_selected_trial"], 0)
+        self.assertEqual(result["tuning"]["model_regret"], 2.0)
+        self.assertEqual(MODULE.tuning_score(result, "gpu-control"), 100.0)
+        self.assertIs(args.cache_reduction_inputs, False)
 
     def test_jit_search_reports_model_regret_without_overriding_measurement(self):
         args = argparse.Namespace(tuning_candidates=[((32, 128, 1024), 1), ((128, 32, 1024), 1)],

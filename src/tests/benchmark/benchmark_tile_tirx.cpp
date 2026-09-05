@@ -96,6 +96,13 @@ struct Configuration {
     return std::chrono::duration<double, std::milli>{Clock::now() - start}.count();
 }
 
+void print_access_demand(const bridge::tirx::ReductionAccessDemand &demand) {
+    std::cout << "{\"global_read_bytes\":" << demand.global_read_bytes
+              << ",\"global_write_bytes\":" << demand.global_write_bytes
+              << ",\"private_read_bytes\":" << demand.private_read_bytes
+              << ",\"private_write_bytes\":" << demand.private_write_bytes << '}';
+}
+
 void print_plans(luisa::span<const bridge::tirx::GroupPlan> plans) {
     std::cout << "\"execution_plans\":[";
     auto separator = "";
@@ -125,7 +132,12 @@ void print_plans(luisa::span<const bridge::tirx::GroupPlan> plans) {
                   << ",\"reduction_threadgroups\":" << plan.reduction_threadgroups
                   << ",\"reduction_scalar_rounds\":" << plan.reduction_scalar_rounds
                   << ",\"reduction_lane_utilization\":" << plan.reduction_lane_utilization
-                  << ",\"striped_storage_scalars_per_worker\":" << plan.striped_storage_scalars_per_worker
+                  << ",\"reduction_payload_accesses_known\":" << (plan.reduction_payload_accesses_known ? "true" : "false")
+                  << ",\"reduction_payload_accesses_per_program\":";
+        print_access_demand(plan.reduction_payload_accesses_per_program);
+        std::cout << ",\"reduction_payload_accesses_per_worker\":";
+        print_access_demand(plan.reduction_payload_accesses_per_worker);
+        std::cout << ",\"striped_storage_scalars_per_worker\":" << plan.striped_storage_scalars_per_worker
                   << ",\"reduction_operations\":" << plan.reduction_operations
                   << ",\"reduction_elements\":" << plan.reduction_elements
                   << ",\"elementwise_elements_per_program\":" << plan.elementwise_elements_per_program

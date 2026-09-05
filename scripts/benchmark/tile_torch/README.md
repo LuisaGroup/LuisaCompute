@@ -430,8 +430,10 @@ codegen, but do **not** promise hardware vector instructions. Resource bounds
 use the maximum live private slots under this layout, not the old V=1 count.
 
 The JIT product can include `--tune-reduction-packing '0,4'` and
-`--tune-reduction-unroll '1,4'`, `--tune-reduction-lane-elements '1,2,4'` together with
-`--tune-group-threads '0,128'`. Zero includes the automatic planner as a
+`--tune-reduction-unroll '1,4'`, `--tune-reduction-lane-elements '1,2,4'` and
+`--tune-reduction-input-caches 'reload,cache'` together with
+`--tune-group-threads '0,128'`. Each input-reuse choice is a separate capture
+and JIT, not a mutation of a captured function. Zero includes the automatic planner as a
 candidate; do not accidentally exclude its packed short-row realization by
 searching only exact cooperating widths. Illegal/resource-heavy combinations
 remain rejected trials, and the full Cartesian product is budgeted. An
@@ -446,6 +448,14 @@ host time or instrumented compute-pass time if the control is absent. Raw
 trials record the objective and score; model regret uses that same objective.
 The selected layout is recaptured and measured afresh, then can be independently
 replayed with GPU and E2E measurements retained side by side.
+
+Reduction plans also export an availability flag and per-program/per-worker
+global/private payload read/write demand. These are conservative IR access
+features, not measured DRAM traffic or physical register/spill counts. The
+backend policy's optional access coefficients default to zero until calibrated.
+See the [access-demand checkpoint](results/m1-max-20260905-access-demand-validation/notes.md)
+for the precise scope and tests; the legacy score does not prune joint JIT
+resource candidates.
 
 Automatic GPU elementwise programs now also admit a fused program/element
 grid. `--element-grid reference` disables this family for same-binary A/B;

@@ -33,6 +33,11 @@ struct ExecutionCostModel {
     double subgroup_reduction_scalar_round{1.0};
     double subgroup_reduction_collective{2.0};
     double subgroup_reduction_group_setup{16.0};
+    // Optional resource-service terms for the distributed payload. Zero
+    // preserves the historical round prior until a backend calibrates them.
+    // Input is IR access bytes, NOT DRAM traffic or physical register spills.
+    double subgroup_reduction_global_access_byte{0.0};
+    double subgroup_reduction_private_access_byte{0.0};
     // MPP reads A/B from memory inside each tensor operation. These terms are
     // expressed in logical 8x8 fragments. The footprint terms distinguish the
     // two row-major operands without pretending to be byte-accurate cache
@@ -158,6 +163,17 @@ struct ExecutionLimits {
     uint64_t shared_memory_bytes{0u};
 };
 
+// Source-level payload access demand: identical loads are counted once per
+// statement/expression, never across statements or traversals. Both lazy
+// branches are included conservatively; scalar setup/collectives are excluded.
+// These are logical access bytes, not cache-line transactions or emitted ISA.
+struct ReductionAccessDemand {
+    double global_read_bytes{0.0};
+    double global_write_bytes{0.0};
+    double private_read_bytes{0.0};
+    double private_write_bytes{0.0};
+};
+
 struct ReductionCandidate {
     uint64_t programs{0u};
     uint32_t threads{0u};
@@ -177,6 +193,11 @@ struct ReductionCandidate {
     // relative to the maximum per-worker scalar recurrence length.
     double scalar_elements{0.0};
     double lane_utilization{0.0};
+    bool payload_accesses_known{false};
+    ReductionAccessDemand payload_accesses_per_program;
+    // Sum of the longest worker stripe's demand for each distributed domain.
+    // Domains are rounded independently, using this candidate's ownership map.
+    ReductionAccessDemand payload_accesses_per_worker;
 };
 
 // Bridge-owned proofs and candidate generation precede these read-only
@@ -287,6 +308,9 @@ struct GroupPlan {
     uint64_t reduction_threadgroups{0u};
     double reduction_scalar_rounds{0.0};
     double reduction_lane_utilization{0.0};
+    bool reduction_payload_accesses_known{false};
+    ReductionAccessDemand reduction_payload_accesses_per_program;
+    ReductionAccessDemand reduction_payload_accesses_per_worker;
     // Static emitted synchronization sites, not dynamic barrier executions.
     // Filled by realization; the bootstrap ranking does not yet price them.
     uint64_t group_barrier_sites_before{0u};

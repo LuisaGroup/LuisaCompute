@@ -754,6 +754,34 @@ loads, private live state and whole-device demand belong in backend policy
 features; proof and budget checks remain bridge-owned. No fitted coefficient
 or cache default is installed from this finite cohort.
 
+The next implementation checkpoint adds **resource-sensitive payload access
+demand** to `ReductionCandidate` and the realized `GroupPlan`. Each has an
+availability flag and separate global/private read/write bytes, both per
+logical program and per maximum worker stripe. Worker demand rounds each
+distributed domain independently with the candidate's ownership map. Identical
+loads count once within one statement/expression, but not across statements
+or phases; both lazy branches and zero-filled tails contribute conservative
+potential demand. Scalar carry/setup and collective scaffolding are excluded.
+These are logical IR facts, **not measured DRAM traffic, register accesses or
+spills**. Unsupported payload constructs make the whole feature unavailable
+and zero-valued, rather than exposing misleading partial counts.
+
+The analytic policy can optionally add global/private byte-service terms to
+its historical scalar/collective/setup prior. Both coefficients default to
+zero pending calibration; a backend can instead use the complete program and
+worker demands in its overridden objective. Ownership, immutability and
+resource-budget proofs remain separate from scoring.
+
+The staged/JIT driver now includes `reload,cache` as a Cartesian dimension
+alongside width, packing, unrolling, worker ownership and shared-Tile
+materialization. Every combination is separately captured and compiled;
+invalid candidates stay in the search record and the winner is freshly JITed
+and validated. The old analytic score does not prune this measured search.
+The {download}`access-demand checkpoint
+<../../scripts/benchmark/tile_torch/results/m1-max-20260905-access-demand-validation/notes.md>`
+records implementation tests; new joint-search performance evidence is still
+pending at this checkpoint, not implied by the interface or synthetic weights.
+
 ## 4. Implemented matrix mapping family
 
 The current planner targets a proved Metal group-level FP32 MMA with a

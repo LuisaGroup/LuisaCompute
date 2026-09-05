@@ -430,6 +430,36 @@ void test_backend_cost_policy() {
     expect(!plan_group(work, limits, options));
 }
 
+void test_reduction_access_service_policy() {
+    ReductionCandidate candidate;
+    candidate.scalar_rounds = 12.0;
+    candidate.reductions = 2u;
+    candidate.subgroups_per_program = 4u;
+    candidate.programs_per_group = 1u;
+    candidate.payload_accesses_known = true;
+    candidate.payload_accesses_per_worker = {64.0, 32.0, 96.0, 16.0};
+    ExecutionCostModel model;
+    AnalyticExecutionCostPolicy policy;
+    auto historical = policy.reduction_score(candidate, model);
+    expect(eq(historical, 44.0));
+    // Deliberately synthetic units test independent service coefficients, not
+    // a calibrated GPU profile. The default remains exactly the old score.
+    model.subgroup_reduction_global_access_byte = 0.25;
+    model.subgroup_reduction_private_access_byte = 0.0625;
+    expect(eq(policy.reduction_score(candidate, model), 75.0));
+    candidate.payload_accesses_known = false;
+    expect(eq(policy.reduction_score(candidate, model), historical));
+    PlannerOptions options;
+    for (auto invalid : {-1.0, std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity()}) {
+        options.cost.subgroup_reduction_global_access_byte = invalid;
+        expect(!plan_group(workload(32u, 64u, 32u), ExecutionLimits{256u, 32u, 1u << 20u}, options));
+        options.cost.subgroup_reduction_global_access_byte = 0.0;
+        options.cost.subgroup_reduction_private_access_byte = invalid;
+        expect(!plan_group(workload(32u, 64u, 32u), ExecutionLimits{256u, 32u, 1u << 20u}, options));
+        options.cost.subgroup_reduction_private_access_byte = 0.0;
+    }
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -442,4 +472,5 @@ int main(int argc, char *argv[]) {
     "tile_planner_mpp_cost_basis_and_shape_ranking"_test = [] { test_mpp_cost_basis_and_shape_ranking(); };
     "tile_planner_mpp_subgroup_critical_path_and_machine_waves"_test = [] { test_mpp_subgroup_critical_path_and_machine_waves(); };
     "tile_planner_backend_cost_policy"_test = [] { test_backend_cost_policy(); };
+    "tile_planner_reduction_access_service_policy"_test = [] { test_reduction_access_service_policy(); };
 }
