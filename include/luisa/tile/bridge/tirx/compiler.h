@@ -77,8 +77,9 @@ struct CompileOptions {
     bool metal_mpp{false};
     // Optional snapshot-to-view forwarding before resource planning. Requires
     // noalias and proves immutable input, complete initialization, lexical
-    // dominance, non-escape, and bounds. LLVM retains guarded/zero-fill read
-    // expressions; Metal MPP requires fully in-bounds memory-input views.
+    // dominance, non-escape, and bounds. Ordinary CPU/GPU consumers retain
+    // guarded/zero-fill read expressions; Metal MPP requires fully in-bounds
+    // memory-input views.
     // No materialization policy is inferred from an external buffer's scope.
     bool forward_readonly_tile_loads{false};
     PlannerOptions planner;

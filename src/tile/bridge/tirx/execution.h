@@ -84,6 +84,13 @@ struct ReadonlyViews {
 // address, so their default remains the stricter fully-in-bounds view policy.
 [[nodiscard]] ReadonlyViews forward_readonly_tile_loads(const tvm::tirx::PrimFunc &function, bool noalias, bool preserve_guards = false);
 
+// Fuse one automatic root and one independent element domain into a bijective
+// GPU grid. The input must have a checked noalias contract. Undefined retains
+// the original function, including its input snapshots and scope constraints.
+[[nodiscard]] tvm::tirx::Stmt try_map_gpu_elementwise(
+    const tvm::tirx::Stmt &body, uint32_t max_threads, const PlannerOptions &options,
+    luisa::vector<GroupPlan> &plans);
+
 // Preserve stage cuts until dependence and storage planning. The current
 // planner uses TVMx's native software-pipeline pass for safe two-phase
 // prefetching, and leaves other pipelines ordered.

@@ -8,6 +8,8 @@
 
 namespace luisa::compute::tile::bridge::tirx {
 
+class ExecutionCostPolicy;
+
 enum class MatrixCostBasis : uint8_t {
     SIMDGROUP_REFERENCE,
     METAL_MPP_MEMORY,
@@ -78,6 +80,10 @@ struct PlannerOptions {
     // serial recurrence. Requires CPU auto-vectorization when non-default.
     uint32_t max_cpu_vector_lanes{16u};
     bool enabled{true};
+    // Fuse an automatic root program with its sole independent element map.
+    // Requires immutable input forwarding and disjoint output effects. This
+    // is a physical mapping choice; explicit worker/group bindings stay exact.
+    bool fuse_gpu_elementwise{true};
     // Opt-in Metal realization for proved FP32 add/max/min reductions.
     // Independent short programs may share one threadgroup; wider programs
     // search one, two, four, or eight cooperating SIMD-groups. Element domains
@@ -87,6 +93,14 @@ struct PlannerOptions {
     // the numerical permission and the planner candidate switch; it is never
     // inferred from a target name or a coincidental loop annotation.
     bool metal_subgroup_reductions{false};
+    // Zero retains automatic packing. Nonzero fixes independent logical
+    // programs per group, separately from threads_per_group. More than one
+    // program currently requires one subgroup per program (no group fences).
+    uint32_t reduction_programs_per_group{0u};
+    // Partial unrolling of each worker's ordered stripe. Does not introduce
+    // independent accumulators or change its floating-point recurrence order.
+    // A bounded code-size choice, not a hardware vector-width promise.
+    uint32_t reduction_unroll_factor{1u};
     bool retain_accumulators{true};
     // Elide the initial/final shared accumulator only when its literal fill
     // and sole, fully in-bounds global store have been proved by analysis.
@@ -122,12 +136,50 @@ struct PlannerOptions {
     // Zero disables late prefetching; pipeline window one is always ordered.
     uint32_t max_pipeline_prefetch_scalars_per_lane{32u};
     ExecutionCostModel cost;
+    // Borrowed for synchronous planning/compilation only; never retained in a
+    // shader or serialized. The backend owns device calibration and policy.
+    const ExecutionCostPolicy *cost_policy{nullptr};
 };
 
 struct ExecutionLimits {
     uint32_t max_threads{256u};
     uint32_t subgroup_size{32u};
     uint64_t shared_memory_bytes{0u};
+};
+
+struct ReductionCandidate {
+    uint64_t programs{0u};
+    uint32_t threads{0u};
+    uint32_t subgroups_per_program{0u};
+    uint32_t programs_per_group{0u};
+    uint64_t shared_memory_bytes{0u};
+    uint64_t striped_scalars_per_worker{0u};
+    uint64_t reductions{0u};
+    double scalar_rounds{0.0};
+    uint32_t unroll_factor{1u};
+};
+
+// Bridge-owned proofs and candidate generation precede these read-only
+// profitability hooks. Hard device limits and numerical permissions are not
+// overridable by a score. No TVM types, RTTI or cross-module ownership.
+class LUISA_TILE_TIRX_BRIDGE_API ExecutionCostPolicy {
+public:
+    virtual ~ExecutionCostPolicy() noexcept = default;
+    [[nodiscard]] virtual ExecutionCostModel coefficients(
+        const ExecutionLimits &limits, MatrixCostBasis basis,
+        const ExecutionCostModel &prior) const noexcept = 0;
+    [[nodiscard]] virtual double reduction_score(
+        const ReductionCandidate &candidate, const ExecutionCostModel &model) const noexcept = 0;
+};
+
+// Existing deterministic prior. Backends can inherit and override either
+// calibration or the complete row-program objective independently of search.
+class LUISA_TILE_TIRX_BRIDGE_API AnalyticExecutionCostPolicy : public ExecutionCostPolicy {
+public:
+    [[nodiscard]] ExecutionCostModel coefficients(
+        const ExecutionLimits &, MatrixCostBasis, const ExecutionCostModel &prior) const noexcept override { return prior; }
+    [[nodiscard]] double reduction_score(
+        const ReductionCandidate &candidate, const ExecutionCostModel &model) const noexcept override;
 };
 
 struct MatrixWorkload {
@@ -203,9 +255,12 @@ struct GroupPlan {
     // subgroup-reduction plan. Striped storage is compiler-local state after
     // logical Tile materializations are compacted to each worker's ownership.
     uint32_t reduction_subgroups_per_program{0u};
+    uint32_t reduction_programs_per_group{0u};
     uint64_t striped_storage_scalars_per_worker{0u};
     uint64_t reduction_operations{0u};
     uint64_t reduction_elements{0u};
+    uint64_t elementwise_elements_per_program{0u};
+    uint32_t reduction_unroll_factor{1u};
     // Static emitted synchronization sites, not dynamic barrier executions.
     // Filled by realization; the bootstrap ranking does not yet price them.
     uint64_t group_barrier_sites_before{0u};

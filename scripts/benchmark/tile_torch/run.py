@@ -39,7 +39,22 @@ class Case:
         return f"{self.operation}_{shape}x{self.k}" if self.operation == "gemm" else f"{self.operation}_{shape}"
 
 
-def make_cases(operations: list[str], quick: bool = False) -> list[Case]:
+def parse_row_shapes(specification: str) -> list[tuple[int, int]]:
+    result = []
+    for item in specification.split(","):
+        if not re.fullmatch(r"[1-9][0-9]*x[1-9][0-9]*", item):
+            raise ValueError("row shapes must be comma-separated MxN pairs")
+        rows, columns = map(int, item.split("x"))
+        if max(rows, columns) > 16384:
+            raise ValueError("row dimensions must not exceed 16384")
+        if (rows, columns) in result:
+            raise ValueError("duplicate row shape")
+        result.append((rows, columns))
+    return result
+
+
+def make_cases(operations: list[str], quick: bool = False,
+               row_shapes: list[tuple[int, int]] | None = None) -> list[Case]:
     gemm = [(32, 32, 32), (128, 128, 128), (512, 512, 512), (1024, 1024, 1024),
             (256, 1024, 128), (1024, 128, 256), (127, 193, 61), (513, 257, 129)]
     elementwise = [(1, 127), (17, 257), (128, 1024), (4096, 256)]
@@ -48,6 +63,8 @@ def make_cases(operations: list[str], quick: bool = False) -> list[Case]:
         gemm = [gemm[0], gemm[1], gemm[-2]]
         elementwise = elementwise[:2]
         reduction = reduction[:2]
+    if row_shapes is not None:
+        elementwise = reduction = row_shapes
     cases: list[Case] = []
     for operation in operations:
         if operation == "gemm":
@@ -185,6 +202,24 @@ def joint_candidates(args: argparse.Namespace) -> list[tuple[tuple[int, int, int
     return [(block, window, threads, batch, materialization)
             for block, window in blocks for threads, batch in mappings
             for materialization in materializations]
+
+
+def reduction_candidates(values: str | None, lower: int, upper: int) -> list[int]:
+    if values is None:
+        return []
+    parts = values.split(",")
+    if any(not re.fullmatch(r"[0-9]+", part) or not lower <= int(part) <= upper for part in parts):
+        raise ValueError(f"reduction candidates must be comma-separated integers in [{lower},{upper}]")
+    return list(dict.fromkeys(map(int, parts)))
+
+
+def program_candidates(args: argparse.Namespace) -> list[tuple]:
+    base = joint_candidates(args)
+    packing = getattr(args, "packing_tuning_candidates", []) or [getattr(args, "reduction_programs_per_group", 0)]
+    unroll = getattr(args, "unroll_tuning_candidates", []) or [getattr(args, "reduction_unroll", 1)]
+    if len(base) * len(packing) * len(unroll) > getattr(args, "max_tuning_candidates", 256):
+        raise ValueError("joint JIT candidate budget exceeded by reduction packing/unroll product")
+    return [(*candidate, p, u) for candidate in base for p in packing for u in unroll]
 
 
 def validate_native_metadata(native: dict[str, Any], case: Case, backend: str, execution_scope: str,
@@ -399,30 +434,51 @@ def optional_native_arguments(args: argparse.Namespace) -> list[str]:
     cpu_matrix = getattr(args, "cpu_matrix_backend", "reference")
     cpu_math = getattr(args, "cpu_math_backend", "reference")
     shared_tiles = getattr(args, "shared_tile_materialization", "preserve")
-    result = []
+    packing = getattr(args, "reduction_programs_per_group", 0)
+    element_grid = getattr(args, "element_grid", None)
+    unroll = getattr(args, "reduction_unroll", 1)
     # Do not send new options to frozen executables when no new policy was
     # requested. Later options require explicit padding of every prior slot.
-    if group_threads or copy_batch != 1 or elide or cpu_stack or cpu_lanes != 16 or cpu_views or cpu_model is not None or cpu_matrix != "reference" or cpu_math != "reference" or shared_tiles != "preserve":
-        result.append(str(group_threads) if group_threads else "auto")
-    if copy_batch != 1 or elide or cpu_stack or cpu_lanes != 16 or cpu_views or cpu_model is not None or cpu_matrix != "reference" or cpu_math != "reference" or shared_tiles != "preserve":
-        result.append(str(copy_batch))
-    if elide or cpu_stack or cpu_lanes != 16 or cpu_views or cpu_model is not None or cpu_matrix != "reference" or cpu_math != "reference" or shared_tiles != "preserve":
-        result.extend(("tvm", "elide-subgroup-fences" if elide else "retain-subgroup-fences"))
-    if cpu_stack or cpu_lanes != 16 or cpu_views or cpu_model is not None or cpu_matrix != "reference" or cpu_math != "reference" or shared_tiles != "preserve":
-        result.append(str(cpu_stack))
-    if cpu_lanes != 16 or cpu_views or cpu_model is not None or cpu_matrix != "reference" or cpu_math != "reference" or shared_tiles != "preserve":
-        result.append(str(cpu_lanes))
-    if cpu_views or cpu_model is not None or cpu_matrix != "reference" or cpu_math != "reference" or shared_tiles != "preserve":
-        result.append("forward-input-views" if cpu_views else "retain-input-snapshots")
-    if cpu_model is not None or cpu_matrix != "reference" or cpu_math != "reference" or shared_tiles != "preserve":
-        result.append(cpu_model or "generic")
-    if cpu_matrix != "reference" or cpu_math != "reference" or shared_tiles != "preserve":
-        result.append(cpu_matrix)
-    if cpu_math != "reference" or shared_tiles != "preserve":
-        result.append(cpu_math)
-    if shared_tiles != "preserve":
-        result.append(shared_tiles)
-    return result
+    slots = [
+        (str(group_threads) if group_threads else "auto", bool(group_threads)),
+        (str(copy_batch), copy_batch != 1),
+        ("tvm", False),
+        ("elide-subgroup-fences" if elide else "retain-subgroup-fences", elide),
+        (str(cpu_stack), bool(cpu_stack)),
+        (str(cpu_lanes), cpu_lanes != 16),
+        ("forward-input-views" if cpu_views else "retain-input-snapshots", cpu_views),
+        (cpu_model or "generic", cpu_model is not None),
+        (cpu_matrix, cpu_matrix != "reference"),
+        (cpu_math, cpu_math != "reference"),
+        (shared_tiles, shared_tiles != "preserve"),
+        (str(packing) if packing else "auto", bool(packing)),
+        (element_grid or "auto", element_grid is not None),
+        (str(unroll), unroll != 1),
+    ]
+    count = max((i + 1 for i, (_, requested) in enumerate(slots) if requested), default=0)
+    return [value for value, _ in slots[:count]]
+
+
+def validate_element_reduction_mapping(native: dict[str, Any], args: argparse.Namespace) -> None:
+    unroll = getattr(args, "reduction_unroll", 1)
+    actual_unroll = native.get("reduction_unroll_factor", 1)
+    if type(actual_unroll) is not int or actual_unroll != unroll:
+        raise ValueError("native reduction unroll factor differs from the request")
+    if unroll != 1:
+        plans = native.get("execution_plans")
+        if not plans or any(plan.get("reduction_unroll_factor") != unroll for plan in plans):
+            raise ValueError("reduction unrolling was not realized")
+    packing = getattr(args, "reduction_programs_per_group", 0)
+    actual_packing = native.get("reduction_programs_per_group", 0)
+    if type(actual_packing) is not int or actual_packing != packing:
+        raise ValueError("native reduction program packing differs from the request")
+    if packing:
+        plans = native.get("execution_plans")
+        if not plans or any(plan.get("reduction_programs_per_group") != packing for plan in plans):
+            raise ValueError("exact reduction packing was not realized")
+    element_grid = getattr(args, "element_grid", None)
+    if element_grid is not None and native.get("fuse_gpu_elementwise") is not (element_grid == "auto"):
+        raise ValueError("native element-grid mapping policy differs from the request")
 
 
 def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend: str, ordinal: int) -> dict[str, Any]:
@@ -524,6 +580,7 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
             validate_cpu_math_policy(native, cpu_math, backend, case.operation)
             validate_shared_tile_materialization(
                 native, getattr(args, "shared_tile_materialization", "preserve"))
+            validate_element_reduction_mapping(native, args)
             validate_native_metadata(native, case, backend, args.execution_scope, args.pipeline_window,
                                      args.cooperative_matrix, args.gemm_block, not args.no_vectorize, args.auto_vectorize, group_threads, copy_batch,
                                      getattr(args, "metal_subgroup_reductions", False))
@@ -606,21 +663,25 @@ def run_tuned_case(torch: Any, np: Any, args: argparse.Namespace, case: Case,
                    backend: str, ordinal: int) -> dict[str, Any]:
     # Each candidate is ordinary host configuration: recapture and native JIT
     # happen again in run_case. No symbolic super-kernel or capture-once graph.
-    candidates = joint_candidates(args)
+    candidates = program_candidates(args)
     shift = ordinal % len(candidates)
     candidates = candidates[shift:] + candidates[:shift]
     trials: list[dict[str, Any]] = []
     start = time.perf_counter_ns()
-    for index, (block, window, threads, batch, materialization) in enumerate(candidates):
+    for index, (block, window, threads, batch, materialization, packing, unroll) in enumerate(candidates):
         trial: dict[str, Any] = {"block": block, "pipeline_window": window,
                                 "group_threads": threads, "copy_batch": batch,
-                                "shared_tile_materialization": materialization}
+                                "shared_tile_materialization": materialization,
+                                "reduction_programs_per_group": packing, "reduction_unroll": unroll}
         candidate_args = argparse.Namespace(**vars(args))
         candidate_args.gemm_block, candidate_args.pipeline_window = block, window
         candidate_args.group_threads, candidate_args.copy_batch = threads, batch
         candidate_args.shared_tile_materialization = materialization
+        candidate_args.reduction_programs_per_group = packing
+        candidate_args.reduction_unroll = unroll
         print(f"  JIT trial {index + 1}/{len(candidates)}: block={block}, window={window}, "
-              f"threads={threads or 'auto'}, copy_batch={batch}, shared_tiles={materialization}", flush=True)
+              f"threads={threads or 'auto'}, copy_batch={batch}, shared_tiles={materialization}, "
+              f"row_packing={packing or 'auto'}, unroll={unroll}", flush=True)
         try:
             measured = run_case(torch, np, candidate_args, case, backend, ordinal * len(candidates) + index)
             score = measured["native"]["throughput_us_p50"]
@@ -664,9 +725,13 @@ def run_tuned_case(torch: Any, np: Any, args: argparse.Namespace, case: Case,
     candidate_args.group_threads = winner["group_threads"]
     candidate_args.copy_batch = winner["copy_batch"]
     candidate_args.shared_tile_materialization = winner["shared_tile_materialization"]
+    candidate_args.reduction_programs_per_group = winner["reduction_programs_per_group"]
+    candidate_args.reduction_unroll = winner["reduction_unroll"]
     print(f"  Selected block={winner['block']}, window={winner['pipeline_window']}, "
           f"threads={winner['group_threads'] or 'auto'}, copy_batch={winner['copy_batch']}, "
-          f"shared_tiles={winner['shared_tile_materialization']}; fresh validation/timing", flush=True)
+          f"shared_tiles={winner['shared_tile_materialization']}, "
+          f"row_packing={winner['reduction_programs_per_group'] or 'auto'}, unroll={winner['reduction_unroll']}; "
+          "fresh validation/timing", flush=True)
     try:
         # Keep the fresh comparison's framework order alternating across
         # shapes even when the candidate count is even.
@@ -682,7 +747,7 @@ def write_report(report: dict[str, Any], directory: Path) -> None:
     metadata = report["metadata"]
     lines = ["# TileIR/TVMx vs PyTorch", "", f"Generated: {metadata['timestamp']}", "",
              f"Hardware: {metadata['cpu']}; {metadata['platform']}. PyTorch {metadata['torch_version']}; FP32; {metadata['threads']} CPU threads.", "",
-             f"Native root execution request: `{metadata.get('execution_scope', 'auto')}`. Explicit scopes fail on unsupported targets; `auto` uses the reference worker mapping.", "",
+             f"Native root execution request: `{metadata.get('execution_scope', 'auto')}`. Explicit scopes fail on unsupported targets; `auto` admits proved target mapping families and otherwise retains the reference worker mapping. Inspect each row's execution plans for actual realization.", "",
              f"Native TIRx vectorization: `{metadata.get('vectorize', 'unrecorded')}`; experimental automatic CPU packing: `{metadata.get('auto_vectorize', 'unrecorded')}`. Automatic packing is opt-in and preserves inner serial/reduction order. Disabling TIRx vectorization does not disable LLVM's own optimizations.", "",
              "Both sides use device-resident inputs. Native outputs are preallocated. PyTorch uses preallocated `out=` storage where its operator exposes it; the functional RMSNorm, LayerNorm, residual LayerNorm, and cross-entropy calls used here return new outputs, so their allocation remains inside warm timing. Every row records its output policy. Warm timings include host dispatch/binding overhead, exclude transfers and compilation, and are NOT GPU hardware-event times. PyTorch is eager (no torch.compile).", "",
              f"Native GEMM retains an MMA in TileIR. CPU matrix realization: `{metadata.get('cpu_matrix_backend', 'reference')}`. CBLAS is selected only from a proved whole-kernel contract and is visible as one provider call in generated LLVM; reference keeps contraction loops. CPU array math: `{metadata.get('cpu_math_backend', 'reference')}`. Accelerate consumes only proved FP32 add/max/min recurrences and a versioned compiler-owned shared pure-Tile materialization whose expression is revalidated as exp; the DSL and execution hierarchy remain target-independent. Shared-Tile lowering policy: `{metadata.get('shared_tile_materialization', 'unrecorded')}`. Cooperative-matrix capability requested: `{metadata.get('cooperative_matrix', False)}`. Eligible Metal group MMA can use native FP32 SIMD-group matrices. Base pipeline window: `{metadata.get('pipeline_window', 'unspecified')}`; tuned choices appear per row. Window 1 retains ordered execution, 2 permits safe software prefetching. Neither mode claims hardware-asynchronous transfers. Sort is not included in this performance comparison.", "",
@@ -724,10 +789,12 @@ def write_report(report: dict[str, Any], directory: Path) -> None:
             if "model_selected_trial" in tuning:
                 model = trials[tuning["model_selected_trial"]]
                 measured = trials[tuning["selected_trial"]]
-                choices = (f"{'×'.join(map(str, model['block']))} @ {model['group_threads']}t, "
-                           f"{model.get('shared_tile_materialization', 'preserve')} / "
-                           f"{'×'.join(map(str, measured['block']))} @ {measured['group_threads']}t, "
-                           f"{measured.get('shared_tile_materialization', 'preserve')}")
+                choices = (f"{'×'.join(map(str, model['block']))} @ {model['group_threads'] or 'auto'}t, "
+                           f"{model.get('shared_tile_materialization', 'preserve')}, "
+                           f"P={model.get('reduction_programs_per_group', 0) or 'auto'}, U={model.get('reduction_unroll', 1)} / "
+                           f"{'×'.join(map(str, measured['block']))} @ {measured['group_threads'] or 'auto'}t, "
+                           f"{measured.get('shared_tile_materialization', 'preserve')}, "
+                           f"P={measured.get('reduction_programs_per_group', 0) or 'auto'}, U={measured.get('reduction_unroll', 1)}")
                 regret = f"{100.0 * tuning['model_regret']:.2f}%"
             else:
                 choices, regret = "unavailable", "unavailable"
@@ -759,6 +826,14 @@ def main() -> int:
                         help="independent TIRx realization; MPP options require a patched compiler and Metal group GEMM")
     parser.add_argument("--metal-subgroup-reductions", action="store_true",
                         help="opt in to proved Metal SIMD-group add/max/min reduction mapping and its FP32 tree order")
+    parser.add_argument("--reduction-programs-per-group", type=int, default=0,
+                        help="exact independent row programs per group (1..8); 0 searches automatically")
+    parser.add_argument("--element-grid", choices=("auto", "reference"),
+                        help="fuse automatic GPU program/element coordinates, or retain program-per-worker mapping")
+    parser.add_argument("--reduction-unroll", type=int, default=1,
+                        help="partially unroll ordered worker stripes (1..16); does not reorder accumulation")
+    parser.add_argument("--tune-reduction-packing", help="staged/JIT search over programs/group, comma-separated 0..8; zero includes the automatic solver")
+    parser.add_argument("--tune-reduction-unroll", help="staged/JIT search over ordered stripe unroll factors, comma-separated 1..16")
     parser.add_argument("--elide-independent-subgroup-barriers", action="store_true",
                         help="opt-in synchronization candidate; only proved independent MPP-view groups can elide fences")
     vectorization = parser.add_mutually_exclusive_group()
@@ -790,6 +865,7 @@ def main() -> int:
     parser.add_argument("--warmup-ms", type=int, default=150)
     parser.add_argument("--timeout", type=float, default=180)
     parser.add_argument("--quick", action="store_true", help="smoke run; omits the large shape cases")
+    parser.add_argument("--row-shapes", help="replace non-GEMM shapes with comma-separated MxN pairs; overrides --quick for these cases")
     args = parser.parse_args()
     if args.elide_independent_subgroup_barriers and args.matrix_realization != "mpp-views":
         parser.error("subgroup-fence elision currently requires mpp-views")
@@ -798,6 +874,7 @@ def main() -> int:
         args.system_baseline = args.system_baseline.resolve(strict=True)
     args.output = args.output.resolve()
     try:
+        row_shapes = parse_row_shapes(args.row_shapes) if args.row_shapes is not None else None
         args.gemm_block = parse_gemm_block(args.gemm_block)
         args.tuning_candidates = tuning_candidates(args.gemm_block, args.pipeline_window,
                                                   args.tune_gemm_blocks, args.tune_pipeline_windows)
@@ -805,7 +882,9 @@ def main() -> int:
                                                             args.tune_group_threads, args.tune_copy_batches)
         args.materialization_tuning_candidates = materialization_candidates(
             args.shared_tile_materialization, args.tune_shared_tile_materializations)
-        candidates = joint_candidates(args)
+        args.packing_tuning_candidates = reduction_candidates(args.tune_reduction_packing, 0, 8)
+        args.unroll_tuning_candidates = reduction_candidates(args.tune_reduction_unroll, 1, 16)
+        candidates = program_candidates(args)
     except ValueError as error:
         parser.error(str(error))
     if min(args.threads, args.samples, args.sample_ms, args.warmup_ms) <= 0:
@@ -829,6 +908,12 @@ def main() -> int:
                                            args.matrix_realization != "simdgroup" or args.cooperative_matrix or
                                            any(operation not in ("sum", "softmax", "rmsnorm", "layernorm", "residual_layernorm", "cross_entropy") for operation in requested_operations)):
         parser.error("Metal SIMD-group reductions require only automatic Metal sum, softmax, RMSNorm, LayerNorm, residual LayerNorm, or cross-entropy with the reference TIRx realization")
+    if not 0 <= args.reduction_programs_per_group <= 8 or (args.reduction_programs_per_group and not args.metal_subgroup_reductions):
+        parser.error("exact reduction packing requires Metal subgroup reductions and 1..8 programs")
+    if not 1 <= args.reduction_unroll <= 16 or (args.reduction_unroll != 1 and not args.metal_subgroup_reductions):
+        parser.error("reduction unrolling requires 1..16 and Metal subgroup reductions when non-default")
+    if (args.packing_tuning_candidates or args.unroll_tuning_candidates) and not args.metal_subgroup_reductions:
+        parser.error("reduction packing/unroll tuning requires Metal subgroup reductions")
     if any(backend not in ("cpu", "metal") for backend in backends):
         parser.error("backends must be cpu and/or metal")
     if args.matrix_realization != "simdgroup" and (backends != ["metal"] or args.operations != "gemm" or
@@ -883,6 +968,9 @@ def main() -> int:
         "cooperative_matrix": args.cooperative_matrix,
         "matrix_realization": args.matrix_realization,
         "metal_subgroup_reductions": args.metal_subgroup_reductions,
+        "reduction_programs_per_group": args.reduction_programs_per_group,
+        "element_grid": args.element_grid,
+        "reduction_unroll": args.reduction_unroll,
         "shared_tile_materialization": args.shared_tile_materialization,
         "vectorize": not args.no_vectorize,
         "auto_vectorize": args.auto_vectorize,
@@ -896,14 +984,15 @@ def main() -> int:
         "copy_batch": args.copy_batch,
         "gemm_tuning_candidates": [{"block": block, "pipeline_window": window} for block, window in args.tuning_candidates],
         "joint_tuning_candidates": [dict(block=block, pipeline_window=window, group_threads=width,
-                                         copy_batch=batch, shared_tile_materialization=materialization)
-                                    for block, window, width, batch, materialization in candidates]
+                                         copy_batch=batch, shared_tile_materialization=materialization,
+                                         reduction_programs_per_group=packing, reduction_unroll=unroll)
+                                    for block, window, width, batch, materialization, packing, unroll in candidates]
                                    if args.tuning_candidates or args.mapping_tuning_candidates or
-                                   args.materialization_tuning_candidates else [],
+                                   args.materialization_tuning_candidates or args.packing_tuning_candidates or args.unroll_tuning_candidates else [],
         "max_tuning_candidates": args.max_tuning_candidates,
         "quick": args.quick, "timing": "synchronized device-resident host wall time including dispatch",
     }, "results": []}
-    cases = make_cases(args.operations.split(","), args.quick)
+    cases = make_cases(args.operations.split(","), args.quick, row_shapes)
     failed = False
     for backend in backends:
         for case in cases:
@@ -912,7 +1001,7 @@ def main() -> int:
                 tune = ((case.operation == "gemm" and
                          (args.tuning_candidates or args.mapping_tuning_candidates)) or
                         (args.metal_subgroup_reductions and
-                         bool(args.mapping_tuning_candidates)) or
+                         bool(args.mapping_tuning_candidates or args.packing_tuning_candidates or args.unroll_tuning_candidates)) or
                         bool(args.materialization_tuning_candidates))
                 measure = run_tuned_case if tune else run_case
                 row = measure(torch, np, args, case, backend, len(report["results"]))

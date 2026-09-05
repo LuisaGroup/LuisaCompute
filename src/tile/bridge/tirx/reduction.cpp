@@ -737,6 +737,7 @@ private:
     tvm::PrimExpr _subgroup;
     uint64_t _workers;
     uint64_t _subgroups;
+    uint32_t _unroll_factor;
     const ReductionAnalysis &_analysis;
     const luisa::unordered_map<const tvm::tirx::ForNode *,
                                tvm::tirx::BufferVar> &_partials;
@@ -744,6 +745,29 @@ private:
         &_striped_buffers;
     std::optional<tvm::PrimExpr> _striped_slot;
     uint32_t _lane_depth{0u};
+
+    [[nodiscard]] tvm::tirx::Stmt _stripe_loop(const tvm::tirx::PrimVar &chunk, uint64_t chunks,
+                                               tvm::tirx::Stmt body) const {
+        auto zero = tvm::IntImm::Int64(0);
+        if (chunks == 0u) { return tvm::tirx::Evaluate{zero}; }
+        if (_unroll_factor == 1u) {
+            return tvm::tirx::For{chunk, zero, tvm::IntImm::Int64(static_cast<int64_t>(chunks)),
+                                  tvm::tirx::ForKind::kSerial, std::move(body)};
+        }
+        auto factor = std::min<uint64_t>(_unroll_factor, chunks);
+        auto pack = tvm::tirx::PrimVar{chunk->name + "_pack", tvm::PrimType::Int(64)};
+        auto slot = tvm::tirx::PrimVar{chunk->name + "_slot", tvm::PrimType::Int(64)};
+        auto width = tvm::IntImm::Int64(static_cast<int64_t>(factor));
+        auto inner = tvm::tirx::Substitute(body, tvm::ffi::Map<tvm::tirx::Var, tvm::Expr>{{chunk, pack * width + slot}});
+        inner = tvm::tirx::For{slot, zero, width, tvm::tirx::ForKind::kUnrolled, std::move(inner)};
+        inner = tvm::tirx::For{pack, zero, tvm::IntImm::Int64(static_cast<int64_t>(chunks / factor)),
+                               tvm::tirx::ForKind::kSerial, std::move(inner)};
+        if (chunks % factor == 0u) { return inner; }
+        auto tail = tvm::tirx::For{chunk, tvm::IntImm::Int64(static_cast<int64_t>(chunks / factor * factor)),
+                                   tvm::IntImm::Int64(static_cast<int64_t>(chunks % factor)),
+                                   tvm::tirx::ForKind::kUnrolled, std::move(body)};
+        return tvm::tirx::SeqStmt::Flatten(tvm::ffi::Array<tvm::tirx::Stmt>{std::move(inner), std::move(tail)});
+    }
 
     [[nodiscard]] tvm::ffi::Optional<tvm::PrimExpr> _predicate(
         const tvm::ffi::Optional<tvm::PrimExpr> &predicate) {
@@ -785,10 +809,7 @@ private:
                              static_cast<int64_t>(match.elements)),
                 std::move(update)};
         }
-        auto striped = tvm::tirx::For{
-            chunk, tvm::IntImm::Int64(0),
-            tvm::IntImm::Int64(static_cast<int64_t>(chunks)),
-            tvm::tirx::ForKind::kSerial, std::move(update)};
+        auto striped = _stripe_loop(chunk, chunks, std::move(update));
         auto intrinsic = match.kind == reduction_add_contract ?
                              "simd_sum" :
                          match.kind == reduction_max_contract ?
@@ -869,10 +890,7 @@ private:
                              static_cast<int64_t>(domain.count)),
                 std::move(body)};
         }
-        return tvm::tirx::For{
-            chunk, tvm::IntImm::Int64(0),
-            tvm::IntImm::Int64(static_cast<int64_t>(chunks)),
-            tvm::tirx::ForKind::kSerial, std::move(body)};
+        return _stripe_loop(chunk, chunks, std::move(body));
     }
 
 protected:
@@ -964,7 +982,7 @@ protected:
 public:
     ReductionProgramMapper(
         tvm::PrimExpr worker, tvm::PrimExpr lane,
-        tvm::PrimExpr subgroup, uint64_t workers, uint64_t subgroups,
+        tvm::PrimExpr subgroup, uint64_t workers, uint64_t subgroups, uint32_t unroll_factor,
         const ReductionAnalysis &analysis,
         const luisa::unordered_map<const tvm::tirx::ForNode *,
                                    tvm::tirx::BufferVar> &partials,
@@ -972,7 +990,7 @@ public:
                                    tvm::tirx::BufferVar> &striped_buffers) noexcept
         : _worker{std::move(worker)}, _lane{std::move(lane)},
           _subgroup{std::move(subgroup)}, _workers{workers},
-          _subgroups{subgroups}, _analysis{analysis}, _partials{partials},
+          _subgroups{subgroups}, _unroll_factor{unroll_factor}, _analysis{analysis}, _partials{partials},
           _striped_buffers{striped_buffers} {}
 };
 
@@ -1010,14 +1028,19 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
 
     auto maximum_subgroups = std::max<uint64_t>(
         1u, std::min<uint64_t>(8u, max_threads / subgroup_size));
-    auto scalar_round_cost = options.cost.subgroup_reduction_scalar_round;
-    auto collective_cost = options.cost.subgroup_reduction_collective;
-    auto group_setup_cost = options.cost.subgroup_reduction_group_setup;
+    auto default_policy = AnalyticExecutionCostPolicy{};
+    auto &policy = options.cost_policy ? *options.cost_policy : default_policy;
+    auto model = policy.coefficients(
+        ExecutionLimits{max_threads, subgroup_size, shared_memory_limit},
+        MatrixCostBasis::SIMDGROUP_REFERENCE, options.cost);
+    auto scalar_round_cost = model.subgroup_reduction_scalar_round;
+    auto collective_cost = model.subgroup_reduction_collective;
+    auto group_setup_cost = model.subgroup_reduction_group_setup;
     if (!std::isfinite(scalar_round_cost) || scalar_round_cost < 0.0 ||
         !std::isfinite(collective_cost) || collective_cost < 0.0 ||
         !std::isfinite(group_setup_cost) || group_setup_cost < 0.0 ||
         options.max_thread_candidates == 0u) {
-        return {};
+        throw std::runtime_error{"invalid reduction cost coefficients or search budget"};
     }
     struct Candidate {
         uint64_t subgroups{0u};
@@ -1028,7 +1051,15 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
         double score{std::numeric_limits<double>::infinity()};
     };
     luisa::vector<uint64_t> widths;
-    if (options.threads_per_group != 0u) {
+    auto exact_packing = options.reduction_programs_per_group;
+    if (exact_packing > 1u) {
+        if (exact_packing > maximum_subgroups ||
+            (options.threads_per_group != 0u &&
+             options.threads_per_group != exact_packing * subgroup_size)) {
+            return {};
+        }
+        widths.emplace_back(1u);
+    } else if (options.threads_per_group != 0u) {
         if (options.threads_per_group > max_threads ||
             options.threads_per_group % subgroup_size != 0u) {
             return {};
@@ -1042,6 +1073,7 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
         if (widths.size() > options.max_thread_candidates) { return {}; }
     }
     auto best = Candidate{};
+    auto candidates_considered = uint64_t{0u};
     auto candidates_rejected = uint64_t{0u};
     for (auto subgroups : widths) {
         auto multi = subgroups > 1u;
@@ -1069,9 +1101,6 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
             candidates_rejected++;
             continue;
         }
-        auto packed = !multi && options.threads_per_group == 0u ?
-                          std::min(*groups, maximum_subgroups) :
-                          uint64_t{1u};
         auto scalar_rounds = 0.0;
         for (auto elements : analysis.independent_domains) {
             scalar_rounds +=
@@ -1082,19 +1111,28 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
             scalar_rounds +=
                 static_cast<double>(luisa::ceil_div(elements, workers));
         }
-        auto score = scalar_rounds * scalar_round_cost +
-                     static_cast<double>(analysis.reductions.size() *
-                                         subgroups) *
-                         collective_cost +
-                     group_setup_cost / static_cast<double>(packed);
-        if (!std::isfinite(score)) {
-            candidates_rejected++;
-            continue;
-        }
-        if (score < best.score) {
-            best = Candidate{subgroups, packed,
-                             (multi ? subgroups : packed) * subgroup_size,
-                             partial_bytes, striped_storage_scalars, score};
+        // Packing independent programs is a separate search dimension from
+        // the cooperating width of one program. Multiple-subgroup programs
+        // retain a whole group: their barriers must not be guarded by a tail.
+        auto packing_begin = exact_packing ? static_cast<uint64_t>(exact_packing) : 1u;
+        auto packing_end = !multi && !exact_packing && options.threads_per_group == 0u ?
+                               std::min(*groups, maximum_subgroups) :
+                               packing_begin;
+        for (auto packed = packing_begin; packed <= packing_end; packed++) {
+            candidates_considered++;
+            auto threads = (multi ? subgroups : packed) * subgroup_size;
+            auto features = ReductionCandidate{
+                *groups, static_cast<uint32_t>(threads),
+                static_cast<uint32_t>(subgroups), static_cast<uint32_t>(packed),
+                partial_bytes, striped_storage_scalars, analysis.reductions.size(), scalar_rounds, options.reduction_unroll_factor};
+            auto score = policy.reduction_score(features, model);
+            if (!std::isfinite(score) || score < 0.0) {
+                throw std::runtime_error{"reduction cost policy returned a nonfinite or negative score"};
+            }
+            if (score < best.score) {
+                best = Candidate{subgroups, packed, threads,
+                                 partial_bytes, striped_storage_scalars, score};
+            }
         }
     }
     if (best.subgroups == 0u) { return {}; }
@@ -1158,7 +1196,7 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
     }
     auto body = ReductionProgramMapper{
         std::move(worker), lane, subgroup,
-        program_workers, multi_subgroup ? subgroups_per_program : 1u,
+        program_workers, multi_subgroup ? subgroups_per_program : 1u, options.reduction_unroll_factor,
         analysis, partials, striped_buffers}(loop->body);
     if (!allocations.empty()) {
         allocations.push_back(std::move(body));
@@ -1197,10 +1235,12 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
     plan.programs = *groups;
     plan.threads = static_cast<uint32_t>(threads);
     plan.shared_memory_bytes = partial_bytes;
-    plan.candidates_considered = widths.size();
+    plan.candidates_considered = candidates_considered + candidates_rejected;
     plan.candidates_rejected = candidates_rejected;
     plan.reduction_subgroups_per_program =
         static_cast<uint32_t>(subgroups_per_program);
+    plan.reduction_programs_per_group = static_cast<uint32_t>(packed_programs);
+    plan.reduction_unroll_factor = options.reduction_unroll_factor;
     plan.striped_storage_scalars_per_worker = striped_storage_scalars;
     plan.reduction_operations = analysis.reductions.size();
     plan.reduction_elements = analysis.reduction_elements;
@@ -1214,7 +1254,7 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
     plan.cost.score = best.score;
     plan.cost.concurrent_waves = std::max(
         1.0, std::ceil(static_cast<double>(*groups) /
-                       std::max(1u, options.cost.preferred_concurrent_programs)));
+                       std::max(1u, model.preferred_concurrent_programs)));
     plan.cost.kernel_score = plan.cost.score * plan.cost.concurrent_waves;
     plans.emplace_back(std::move(plan));
     return body;

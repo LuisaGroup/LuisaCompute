@@ -529,15 +529,16 @@ After hard target/effect/alias/control constraints, the finite v1 score is:
 rounds(S) = sum[d] ceil_div(independent_domain[d], 32S)
           + sum[r] ceil_div(reduction_extent[r], 32S)
 
-score(S) = scalar_round_cost * rounds(S)
+score(S, P) = scalar_round_cost * rounds(S)
          + collective_cost * reduction_count * S
-         + group_setup_cost / packed_programs(S)
+         + group_setup_cost / P
 ~~~
 
 The default coefficients `1, 2, 16` are abstract M1-class priors, not measured
 nanoseconds or occupancy. Each independent domain is rounded separately so
 two softmax passes cannot share a fictitious tail round. Exhaustive enumeration
-is exact for four candidates. A nonzero `threads_per_group` is an exact
+is exact for the admitted `(S, P)` family: up to eight packed-program choices
+at `S=1`, plus the three wider, single-program choices. A nonzero `threads_per_group` is an exact
 constraint; `run.py --tune-group-threads` recaptures/JITs each concrete width,
 validates it, and independently recompiles the winner. Measurement calibrates
 ranking but can never override legality.
@@ -597,6 +598,88 @@ captured, compiled and validated both policies, then selected `PRESERVE` on
 Metal. The equivalent CPU search selected `EXPENSIVE_ONLY` for every shape.
 That cross-target split is the intended architecture: shared SSA remains in
 the semantic IR, while resource/recomputation policy is target-specific.
+
+### 3.9 Automatic GPU element grids
+
+An independent Tile element domain must not accidentally become serial just
+because it lives inside a logical program. The bridge now admits a second
+automatic physical map, after immutable-input forwarding:
+
+```text
+Logical coordinates:       program p × local element e
+Old worker realization:    thread p; serial e
+Fused realization:         i = p * tile_volume + linear(e)
+                           block = i / threads; worker = i % threads
+```
+
+This is a coordinate factorization of execution, not a new memory level or a
+kernel-specific DSL primitive. The inverse reconstructs the original program
+and local coordinates before evaluating the original guarded load/store.
+Consequently ragged tiles, negative input origins and zero-fill retain their
+semantics. A nondivisible physical grid gets an additional tail predicate.
+
+The current family requires one automatic static root and one perfect static
+element nest ending in a single compact-global-buffer store. Inputs must be
+proved immutable under `noalias`; each nontrivial local axis must independently
+appear with unit coefficient in a distinct output coordinate. Opaque effects,
+overlapping read/write snapshots, custom output strides/layouts, allocations,
+multiple effects and any explicit execution binding decline this family.
+The root's inter-program independence comes from `parallel`, not a new user
+proof obligation. `fuse_gpu_elementwise=false` retains the old mapping.
+
+The first implementation has one linear ordering and a bounded default launch
+width (at most 256, subject to target capacity). It is not yet a general
+layout-permutation/coalescing solver. Explicit `threads_per_group` is checked
+against the actual target capacity. Plans report
+`elementwise_elements_per_program`; they do not pretend this is an MMA or a
+reduction. Its four-shape M1 Max A/B is linked from the status report.
+
+### 3.10 Backend-owned execution cost policy
+
+The TIRx bridge now exports a C++ `ExecutionCostPolicy` interface, with an
+`AnalyticExecutionCostPolicy` default implementation. Backend code can
+override calibration or the row-program objective without changing candidate
+generation, proofs, IR or the solver:
+
+```text
+Backend: device limits + calibration/policy
+                  |                  |
+Bridge: prove -> enumerate legal -> score -> select -> realize
+          |           |               ^
+          +-- hard constraints        +-- overridable policy
+```
+
+`coefficients(limits, basis, prior)` returns the model used by matrix and
+reduction planning. `reduction_score(candidate, model)` may replace the whole
+reduction objective. Its immutable feature record includes logical programs,
+threads, subgroups/program, programs/group, shared bytes, private stripe
+scalars, reduction count, scalar rounds and ordered unroll factor. A backend
+can inherit the analytic policy and override either method. No TVM type or
+RTTI crosses this interface.
+
+The policy is borrowed through `PlannerOptions::cost_policy` only for the
+synchronous compile call; it is not retained by a shader or serialized.
+Nonfinite/negative row scores and invalid coefficients fail compilation. A
+cheap score cannot waive ownership, numerical permission, resource limits or
+an exact mapping constraint. Matrix Pareto DP still requires its additive
+coefficient model; this change does not advertise an arbitrary nonlinear
+matrix objective, a calibrated universal policy, or an XIR policy interface.
+
+Reduction search now treats packing independently from collaboration.
+`reduction_programs_per_group=0` searches the legal packing choices; a
+positive value fixes packing. `P>1` currently requires `S=1`, avoiding
+threadgroup barriers under a partial-program tail. With `P=1`, exact thread
+count still chooses the cooperating width. Invalid combinations fail instead
+of silently falling back. `reduction_unroll_factor` in `[1,16]` controls
+bounded partial unrolling of ordered worker stripes, with a separate tail;
+it creates no extra accumulators and does not reassociate their recurrence.
+The default remains one because measurements show mixed effects.
+
+The benchmark's staged/JIT Cartesian product can now include thread count,
+packing, unrolling and materialization. Every candidate and fresh winner is
+checked in full; a separate frozen-plan replay is required before claiming a
+speedup. The default analytic prior is intentionally unchanged by these
+in-cohort trials: it does not yet price unrolling or full-machine row waves.
 
 ## 4. Implemented matrix mapping family
 

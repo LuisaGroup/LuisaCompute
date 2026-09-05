@@ -67,6 +67,25 @@ CPU search selects the opposite recomputation policy, demonstrating that
 logical SSA sharing and physical storage must remain separate decisions. This
 is a narrow M1 Max cohort, not a production LLM suite or pure-GPU-event claim.
 
+Automatic TIRx GPU elementwise mapping now fuses a logical program and its
+independent Tile element coordinates into a physical thread grid. A four-round
+frozen-binary add A/B validates all 32 outputs and measures 34.49×, 79.17×,
+8.50× and 4.20× over the previous program-per-worker realization at 1×127,
+17×257, 128×1024 and 4096×256. New times are 2.55, 2.74, 5.20 and 18.62 µs;
+paired new/Torch time ratios are 0.704--0.832. This combines proved immutable
+input forwarding with coordinate fusion; it is not just a launch-width tweak.
+
+Reduction collaboration width, independent-program packing and ordered stripe
+unrolling are now separately controllable and jointly searchable through
+ordinary staged/JIT runs. The TIRx cost model has a backend-overridable abstract
+policy, while proofs and candidate legality remain bridge-owned. A separate
+four-round, 80-output replay finds stable 1.107× for 1024×4096 sum, 1.062× for
+1024×4096 softmax and 1.051× for 1024×257 softmax over the existing automatic
+reduction mapper. The other seven shapes are flat/noisy or slightly worse;
+the unchanged 17×257 sum is a noise control. Therefore the default unrolling
+factor and coefficient prior remain unchanged. Sixteen additional norm/loss
+outputs validate the new unrolled codegen, not a universal performance win.
+
 **The general library-performance goal is still not complete.** These CPU
 wins are legal provider realizations for narrow proved contracts, not evidence
 that the portable loop family or direct XIR route has acquired BLAS-class
@@ -100,7 +119,10 @@ No Metal result is relabeled as XIR performance.
 | {download}`CPU CBLAS replay <../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-cblas-v2-replay/notes.md>` | Eight frozen GEMMs, six implementation orders, direct CBLAS overhead and Torch comparison |
 | {download}`CPU array-math replay <../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-accelerate-ops-replay/notes.md>` | Causal reference/Accelerate A/B over add controls, row reductions and softmax |
 | {download}`Earlier CPU/provider validation <../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-provider-validation/notes.md>` | Historical provider checkpoint, with its then-current build/test counts and documentation QA |
-| {download}`Shared-Tile validation <../../scripts/benchmark/tile_torch/results/m1-max-20260905-shared-tile-validation/notes.md>` | Current full build, 32/32 submitted-source Tile cohort, focused CPU/Metal assertions, 69/69 benchmark contracts and clean Tile documentation links |
+| {download}`Shared-Tile validation <../../scripts/benchmark/tile_torch/results/m1-max-20260905-shared-tile-validation/notes.md>` | Previous shared-SSA checkpoint, its 32/32 submitted-source Tile cohort and 69/69 benchmark contracts |
+| {download}`Element-grid A/B <../../scripts/benchmark/tile_torch/results/m1-max-20260905-element-grid-replay/notes.md>` | Frozen old/new binaries, four balanced rounds, complete add outputs and the combined forwarding/fusion gain |
+| {download}`Reduction joint-map replay <../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-joint-map-replay/notes.md>` | Collaboration/packing/unrolling choices, three stable gains, seven qualified outcomes and raw per-round evidence |
+| {download}`Execution-map validation <../../scripts/benchmark/tile_torch/results/m1-max-20260905-execution-map-validation/notes.md>` | Latest build, exact-constraint failures, CPU/Metal regressions, benchmark contracts and documented limitations |
 
 ```{figure} ../_static/tile/xir-planning-pipeline.svg
 :alt: The same execution-first TileIR feeds XIR/SIMD, Metal-native MPP and TIRx compiler routes with separate ownership.

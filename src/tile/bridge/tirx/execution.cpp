@@ -8,10 +8,12 @@
 #include <tvm/tirx/analysis.h>
 #include <tvm/tirx/buffer.h>
 #include <tvm/tirx/builtin.h>
+#include <tvm/tirx/op.h>
 #include <tvm/tirx/stmt_functor.h>
 
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/vector.h>
+#include <luisa/core/mathematics.h>
 
 #include "execution.h"
 
@@ -391,6 +393,177 @@ tvm::tirx::Stmt vectorize_independent_elements(const tvm::tirx::For &loop, uint3
         body = tvm::tirx::For{outer->loop_var, outer->min, outer->extent, tvm::tirx::ForKind::kSerial, std::move(body), std::nullopt, std::move(annotations), outer->step, outer->span};
     }
     return VectorGuardSpecializer{}(body);
+}
+
+namespace {
+
+// Strip only empty structural-export placeholders. An allocation, stage cut,
+// second effect domain, or lexical definition keeps the reference mapping.
+[[nodiscard]] tvm::tirx::Stmt sole_effect(const tvm::tirx::Stmt &body) {
+    if (auto evaluate = body.as<tvm::tirx::EvaluateNode>();
+        evaluate && (evaluate->value.as<tvm::IntImmNode>() || evaluate->value.as<tvm::FloatImmNode>())) { return {}; }
+    if (auto sequence = body.as<tvm::tirx::SeqStmtNode>()) {
+        tvm::tirx::Stmt result;
+        for (auto &child : sequence->seq) {
+            auto effect = sole_effect(child);
+            if (!effect.defined()) { continue; }
+            if (result.defined()) { return body; }
+            result = std::move(effect);
+        }
+        return result;
+    }
+    return body;
+}
+
+class ElementGridAudit final : public tvm::tirx::StmtExprVisitor {
+private:
+    const luisa::vector<const tvm::tirx::ForNode *> &_axes;
+    luisa::vector<const tvm::tirx::ForNode *> _domain;
+    luisa::unordered_set<const tvm::tirx::VarNode *> _reads, _writes, _escaped;
+    uint32_t _stores{0u};
+
+protected:
+    void VisitStmt(const tvm::tirx::Stmt &statement) final {
+        if (!statement.as<tvm::tirx::BufferStoreNode>() && !statement.as<tvm::tirx::IfThenElseNode>() &&
+            !statement.as<tvm::tirx::SeqStmtNode>() && !statement.as<tvm::tirx::EvaluateNode>()) {
+            valid = false;
+            return;
+        }
+        StmtExprVisitor::VisitStmt(statement);
+    }
+    void VisitExpr_(const tvm::tirx::VarNode *variable) final { _escaped.emplace(variable); }
+    void VisitExpr_(const tvm::tirx::ProducerLoadNode *) final { valid = false; }
+    void VisitExpr_(const tvm::CallNode *call) final {
+        static auto effects = tvm::Op::GetAttrMap<tvm::tirx::TCallEffectKind>("TCallEffectKind");
+        auto op = call->op.as<tvm::Op>();
+        valid &= !call->op.same_as(tvm::tirx::builtin::address_of()) && op && effects.count(op.value()) &&
+                 effects[op.value()] <= static_cast<int64_t>(tvm::tirx::CallEffectKind::kPure);
+        StmtExprVisitor::VisitExpr_(call);
+    }
+    void VisitExpr_(const tvm::tirx::BufferLoadNode *load) final {
+        valid &= load->buffer.scope() == "global";
+        _reads.emplace(load->buffer.get());
+        StmtExprVisitor::VisitExpr_(load);
+        if (load->predicate) { VisitExpr(load->predicate.value()); }
+    }
+    void VisitStmt_(const tvm::tirx::BufferStoreNode *store) final {
+        valid &= ++_stores == 1u;
+        valid &= store->buffer.scope() == "global";
+        // Coordinate injectivity implies address injectivity only for this
+        // compact buffer family. Arbitrary strides/layouts need their own
+        // address-map proof before they may participate in fusion.
+        valid &= store->buffer->strides.empty() && !store->buffer->layout &&
+                 store->buffer->allocated_addr.empty() &&
+                 store->indices.size() == store->buffer->shape.size();
+        auto offset = store->buffer->elem_offset.as<tvm::IntImmNode>();
+        valid &= offset && offset->value == 0;
+        auto output_volume = uint64_t{1u};
+        for (auto &extent : store->buffer->shape) {
+            auto size = extent.as<tvm::IntImmNode>();
+            if (!size || size->value <= 0 || output_volume > INT64_MAX / static_cast<uint64_t>(size->value)) {
+                valid = false;
+                break;
+            }
+            output_volume *= static_cast<uint64_t>(size->value);
+        }
+        _writes.emplace(store->buffer.get());
+        tvm::ffi::Map<tvm::tirx::Var, tvm::Expr> origin;
+        for (auto axis : _axes) { origin.Set(axis->loop_var, axis->min); }
+        // Prove injectivity inside one logical program independently of the
+        // annotation: every nontrivial local coordinate has its own output
+        // coordinate, with coefficient one and no other local dependence.
+        for (auto axis : _axes) {
+            if (axis->extent.as<tvm::IntImmNode>()->value == 1) { continue; }
+            auto covered = false;
+            for (auto &index : store->indices) {
+                auto base = tvm::tirx::Substitute(index, origin);
+                covered |= prove_in_loop_domain(index - base == axis->loop_var - axis->min, _domain);
+            }
+            valid &= covered;
+        }
+        StmtExprVisitor::VisitStmt_(store);
+        if (store->predicate) { VisitExpr(store->predicate.value()); }
+    }
+
+public:
+    bool valid{true};
+    ElementGridAudit(const tvm::tirx::ForNode *root, const luisa::vector<const tvm::tirx::ForNode *> &axes)
+        : _axes{axes}, _domain{root} { _domain.insert(_domain.end(), axes.begin(), axes.end()); }
+    [[nodiscard]] bool run(const tvm::tirx::Stmt &body) {
+        VisitStmt(body);
+        for (auto buffer : _writes) { valid &= !_reads.contains(buffer) && !_escaped.contains(buffer); }
+        for (auto buffer : _reads) { valid &= !_escaped.contains(buffer); }
+        return valid && !_writes.empty();
+    }
+};
+
+}// namespace
+
+tvm::tirx::Stmt try_map_gpu_elementwise(const tvm::tirx::Stmt &body, uint32_t max_threads,
+                                        const PlannerOptions &options, luisa::vector<GroupPlan> &plans) {
+    auto root_statement = sole_effect(body);
+    auto root = root_statement.as<tvm::tirx::ForNode>();
+    auto unit_domain = [](const tvm::tirx::ForNode *loop) {
+        if (!loop || loop->kind != tvm::tirx::ForKind::kSerial || loop->thread_binding || loop->step ||
+            loop->loop_var.ty() != tvm::PrimType::Int(64)) { return false; }
+        auto extent = loop->extent.as<tvm::IntImmNode>();
+        auto minimum = loop->min.as<tvm::IntImmNode>();
+        return extent && minimum && extent->value > 0 && minimum->value <= INT64_MAX - extent->value;
+    };
+    if (!unit_domain(root) || root->annotations.size() != 1u || !root->annotations.count(logical_parallel_annotation) ||
+        max_threads == 0u || options.threads_per_group > max_threads) { return {}; }
+    auto elements = sole_effect(root->body);
+    auto outer = elements.as<tvm::tirx::ForNode>();
+    if (!outer || outer->annotations.size() != 1u) { return {}; }
+    auto rank_attribute = outer->annotations.Get(independent_elements_annotation);
+    auto rank = rank_attribute ? rank_attribute.value().as<tvm::IntImmNode>() : nullptr;
+    if (!rank || rank->value <= 0 || rank->value > 16) { return {}; }
+    luisa::vector<const tvm::tirx::ForNode *> axes;
+    auto volume = uint64_t{1u};
+    for (auto i = int64_t{0}; i < rank->value; i++) {
+        auto axis = elements.as<tvm::tirx::ForNode>();
+        if (!unit_domain(axis) || (i != 0 && !axis->annotations.empty())) { return {}; }
+        auto extent = static_cast<uint64_t>(axis->extent.as<tvm::IntImmNode>()->value);
+        if (volume > INT64_MAX / extent) { return {}; }
+        volume *= extent;
+        axes.emplace_back(axis);
+        elements = axis->body;
+    }
+    auto programs = static_cast<uint64_t>(root->extent.as<tvm::IntImmNode>()->value);
+    if (programs > INT64_MAX / volume || !ElementGridAudit{root, axes}.run(elements)) { return {}; }
+    auto count = programs * volume;
+    auto threads = options.threads_per_group ? options.threads_per_group : std::min<uint64_t>(count, std::min(max_threads, 256u));
+    auto blocks = luisa::ceil_div(count, threads);
+    if (blocks > INT64_MAX / threads) { return {}; }
+    auto zero = tvm::IntImm::Int64(0);
+    auto block = tvm::tirx::PrimVar{root->loop_var->name + "_element_block", tvm::PrimType::Int(64)};
+    auto worker = tvm::tirx::PrimVar{root->loop_var->name + "_element_worker", tvm::PrimType::Int(64)};
+    auto width = tvm::IntImm::Int64(static_cast<int64_t>(threads));
+    auto linear = block * width + worker;
+    auto tile_volume = tvm::IntImm::Int64(static_cast<int64_t>(volume));
+    tvm::ffi::Map<tvm::tirx::Var, tvm::Expr> coordinates{{root->loop_var, root->min + tvm::floordiv(linear, tile_volume)}};
+    auto local = tvm::floormod(linear, tile_volume);
+    for (auto i = axes.size(); i != 0u; i--) {
+        auto axis = axes[i - 1u];
+        coordinates.Set(axis->loop_var, axis->min + tvm::floormod(local, axis->extent));
+        local = tvm::floordiv(local, axis->extent);
+    }
+    auto result = tvm::tirx::Substitute(elements, coordinates);
+    if (count % threads) { result = tvm::tirx::IfThenElse{linear < tvm::IntImm::Int64(static_cast<int64_t>(count)), std::move(result)}; }
+    auto thread_axis = tvm::tirx::IterVar{tvm::Range::FromMinExtent(zero, width), worker, tvm::tirx::IterVarType::kThreadIndex, "threadIdx.x"};
+    result = tvm::tirx::For{worker, zero, width, tvm::tirx::ForKind::kThreadBinding, std::move(result), thread_axis};
+    auto block_count = tvm::IntImm::Int64(static_cast<int64_t>(blocks));
+    auto block_axis = tvm::tirx::IterVar{tvm::Range::FromMinExtent(zero, block_count), block, tvm::tirx::IterVarType::kThreadIndex, "blockIdx.x"};
+    result = tvm::tirx::For{block, zero, block_count, tvm::tirx::ForKind::kThreadBinding, std::move(result), block_axis};
+    GroupPlan plan;
+    plan.name = std::string{root->loop_var->name};
+    plan.programs = programs;
+    plan.threads = static_cast<uint32_t>(threads);
+    plan.elementwise_elements_per_program = volume;
+    plan.candidates_considered = 1u;
+    plan.optimized = true;
+    plans.emplace_back(std::move(plan));
+    return result;
 }
 
 }// namespace luisa::compute::tile::bridge::tirx::detail

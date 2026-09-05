@@ -67,6 +67,15 @@ def load_plan(path: Path, operations: set[str]) -> dict[tuple[str, str], dict[st
         metal_subgroup_reductions = native.get("metal_subgroup_reductions", False)
         if type(metal_subgroup_reductions) is not bool:
             raise ValueError(f"{case.name} has an invalid Metal subgroup-reduction policy")
+        packing = native.get("reduction_programs_per_group", 0)
+        unroll = native.get("reduction_unroll_factor", 1)
+        if type(unroll) is not int or not 1 <= unroll <= 16 or (unroll != 1 and not metal_subgroup_reductions):
+            raise ValueError(f"{case.name} has an invalid reduction unroll factor")
+        if type(packing) is not int or not 0 <= packing <= 8 or (packing and not metal_subgroup_reductions):
+            raise ValueError(f"{case.name} has an invalid reduction program packing")
+        element_grid = native.get("fuse_gpu_elementwise")
+        if element_grid is not None and type(element_grid) is not bool:
+            raise ValueError(f"{case.name} has an invalid element-grid mapping policy")
         if metal_subgroup_reductions:
             execution_plans = native.get("execution_plans")
             if (row["backend"] != "metal" or case.operation not in ("sum", "softmax", "rmsnorm", "layernorm", "residual_layernorm", "cross_entropy") or
@@ -75,6 +84,10 @@ def load_plan(path: Path, operations: set[str]) -> dict[tuple[str, str], dict[st
                     any(plan.get("optimized") is not True or type(plan.get("threads")) is not int or
                         plan["threads"] < 32 or plan["threads"] % 32 for plan in execution_plans)):
                 raise ValueError(f"{case.name} has an unrealized Metal subgroup-reduction policy")
+            if packing and any(item.get("reduction_programs_per_group") != packing for item in execution_plans):
+                raise ValueError(f"{case.name} has an unrealized reduction program packing")
+            if unroll != 1 and any(item.get("reduction_unroll_factor") != unroll for item in execution_plans):
+                raise ValueError(f"{case.name} has an unrealized reduction unroll factor")
         cpu_views = row["backend"] == "cpu" and forwarding
         cpu_model = native.get("cpu_target_policy") if row["backend"] == "cpu" else None
         validate_cpu_target_policy(native, cpu_model, row["backend"])
@@ -109,6 +122,9 @@ def load_plan(path: Path, operations: set[str]) -> dict[tuple[str, str], dict[st
             "cpu_math_backend": cpu_math,
             "shared_tile_materialization": shared_tiles,
             "metal_subgroup_reductions": metal_subgroup_reductions,
+            "reduction_programs_per_group": packing,
+            "reduction_unroll": unroll,
+            "element_grid": None if element_grid is None else "auto" if element_grid else "reference",
             "expected_cpu_model": native.get("cpu_model") if row["backend"] == "cpu" else None,
             "elide_independent_subgroup_barriers": elide,
             "matrix_realization": "mpp-views" if forwarding and not cpu_views and not metal_subgroup_reductions else

@@ -138,6 +138,45 @@ class RepeatContractTests(unittest.TestCase):
                          ["auto", "1", "tvm", "retain-subgroup-fences", "0", "16",
                           "retain-input-snapshots", "generic", "reference", "accelerate"])
 
+    def test_element_reduction_mapping_options(self):
+        prefix = ["auto", "1", "tvm", "retain-subgroup-fences", "0", "16",
+                  "retain-input-snapshots", "generic", "reference", "reference", "preserve"]
+        self.assertEqual(MODULE.optional_native_arguments(argparse.Namespace(reduction_programs_per_group=3)), prefix + ["3"])
+        self.assertEqual(MODULE.optional_native_arguments(argparse.Namespace(element_grid="reference")), prefix + ["auto", "reference"])
+        self.assertEqual(MODULE.optional_native_arguments(argparse.Namespace(reduction_unroll=4)), prefix + ["auto", "auto", "4"])
+        MODULE.validate_element_reduction_mapping({}, argparse.Namespace())
+        args = argparse.Namespace(reduction_programs_per_group=3, element_grid="auto")
+        native = {"reduction_programs_per_group": 3, "fuse_gpu_elementwise": True,
+                  "execution_plans": [{"reduction_programs_per_group": 3}]}
+        MODULE.validate_element_reduction_mapping(native, args)
+        for change in ({"reduction_programs_per_group": 0}, {"fuse_gpu_elementwise": False},
+                       {"execution_plans": []}, {"execution_plans": [{"reduction_programs_per_group": 1}]}):
+            with self.assertRaises(ValueError):
+                MODULE.validate_element_reduction_mapping(native | change, args)
+
+    def test_row_shapes_cover_independent_width_and_program_count(self):
+        shapes = MODULE.parse_row_shapes("1x4096,1024x4096,1024x127")
+        cases = MODULE.make_cases(["sum", "add"], True, shapes)
+        self.assertEqual([(c.m, c.n) for c in cases], shapes * 2)
+        for text in ("", "0x8", "8x", "1x2,1x2", "1x16385", "1x2x3"):
+            with self.assertRaises(ValueError):
+                MODULE.parse_row_shapes(text)
+
+    def test_reduction_search_product_is_bounded(self):
+        args = argparse.Namespace(tuning_candidates=[], gemm_block=(8, 8, 16), pipeline_window=2,
+                                  packing_tuning_candidates=[0, 4], unroll_tuning_candidates=[1, 4],
+                                  max_tuning_candidates=4)
+        choices = MODULE.program_candidates(args)
+        self.assertEqual([choice[-2:] for choice in choices], [(0, 1), (0, 4), (4, 1), (4, 4)])
+        args.max_tuning_candidates = 3
+        with self.assertRaisesRegex(ValueError, "budget"):
+            MODULE.program_candidates(args)
+        self.assertEqual(MODULE.reduction_candidates("0,4,0", 0, 8), [0, 4])
+        self.assertEqual(MODULE.reduction_candidates(None, 1, 16), [])
+        for value in ("", "0", "17", "1,,4", "-1", "x"):
+            with self.assertRaises(ValueError):
+                MODULE.reduction_candidates(value, 1, 16)
+
     def test_cpu_matrix_policy_requires_realized_external_call(self):
         MODULE.validate_cpu_matrix_policy({}, "reference", "cpu", "gemm")
         MODULE.validate_cpu_matrix_policy({"cpu_matrix_backend": "cblas", "external_matrix_calls": 1},

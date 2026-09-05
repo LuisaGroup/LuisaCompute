@@ -405,6 +405,30 @@ not a claimed hardware-register count. Materialization and thread candidates
 may be searched jointly. GEMM block/pipeline and copy-batch tuning are rejected
 for this reduction mode.
 
+`--reduction-programs-per-group P` independently fixes program packing.
+`P>1` currently uses one SIMD group per program; an explicit thread count
+must then be `32*P`. `--reduction-unroll U` partially unrolls ordered worker
+stripes without changing their accumulation order. Its default remains one;
+the legal range is 1..16. Both policies and their realized values are recorded
+and checked before accepting an output or replaying a plan.
+
+The JIT product can include `--tune-reduction-packing '0,4'` and
+`--tune-reduction-unroll '1,4'` together with
+`--tune-group-threads '0,128'`. Zero includes the automatic planner as a
+candidate; do not accidentally exclude its packed short-row realization by
+searching only exact cooperating widths. Illegal/resource-heavy combinations
+remain rejected trials, and the full Cartesian product is budgeted. An
+independent `repeat.py` replay—not the search minimum—is the performance
+claim. `--row-shapes '1x4096,64x4096,1024x4096,17x257,1024x257'` replaces the
+non-GEMM shape set and separates program-count scaling from reduction width.
+
+Automatic GPU elementwise programs now also admit a fused program/element
+grid. `--element-grid reference` disables this family for same-binary A/B;
+`--element-grid auto` permits it, subject to proof and explicit-scope rules.
+Plans report `elementwise_elements_per_program`; an enabled option alone is
+not evidence that a particular function used the map. Older frozen binaries
+receive no new CLI slots unless a new option is requested.
+
 The saved [12-case base report](results/m1-max-20260905-metal-subgroup-reductions/notes.md),
 [eight-case LayerNorm/cross-entropy extension](results/m1-max-20260905-metal-subgroup-row-extensions/notes.md),
 [balanced RMSNorm A/B](results/m1-max-20260905-metal-subgroup-rmsnorm-replay/notes.md)

@@ -452,14 +452,14 @@ independent fail-closed correctness boundary.
 
 Legality is decided before profitability. Let `D` be the independent element
 domains, `R` the reductions, `I_d` and `N_r` their counts, `S` the candidate
-subgroups per program, `W=32S`, and `Q` the packed-program count (`Q>1` only
-for automatic `S=1`). The bootstrap v1 score is
+subgroups per program, `W=32S`, and `Q` the separately searched packed-program
+count (`Q>1` only for `S=1`). The bootstrap v1 score is
 
 ```text
 rounds(S) = sum[d in D] ceil_div(I_d, W)
           + sum[r in R] ceil_div(N_r, W)
 
-score(S) = alpha * rounds(S)
+score(S, Q) = alpha * rounds(S)
          + beta  * |R| * S
          + gamma / Q
 
@@ -492,16 +492,25 @@ finite, nonnegative coefficients
 supported exact thread constraint, when present.
 ```
 
-There are at most four automatic candidates, so exhaustive enumeration is
+There are at most eleven automatic `(S,Q)` candidates (eight `Q` choices for
+`S=1`, three wider single-program choices), so exhaustive enumeration is
 clearer and more exact than integer programming or simulated annealing here.
 Those methods become relevant only when later planners jointly choose tile
 factorizations, layouts, atoms, storage versions and pipeline schedules over a
 much larger discrete space.
 
 `threads_per_group=0` means automatic choice. A nonzero value is an exact JIT
-constraint; for this realization it fixes the number of cooperating workers
-per program and must be a legal multiple of 32. It is not silently clamped and
-does not mean “pack this many unrelated workers however convenient.”
+constraint and must be a legal multiple of 32. Without an exact packing
+request it fixes cooperating workers per program, retaining the original
+interface. `reduction_programs_per_group>1` instead explicitly chooses packed
+one-subgroup programs; any simultaneous thread request must equal `32*Q`.
+Constraints are never silently clamped or reinterpreted.
+
+The bridge now exposes a backend-owned cost-policy interface and bounded
+ordered stripe unrolling. See [the implemented policy and search contract](tile_execution_planner.md).
+The JIT harness can search `--tune-reduction-packing` and
+`--tune-reduction-unroll` alongside exact thread widths. The original model
+remains an uncalibrated prior; it does not price the unrolling choice.
 
 ### 6.1 Plans selected in the original 20-case run
 

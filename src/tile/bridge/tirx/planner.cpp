@@ -218,8 +218,16 @@ bool verify_matrix_distribution(const MatrixWorkload &workload, const MatrixDist
            distribution.atom_columns == workload.columns / 8u / distribution.subgroups_n;
 }
 
-PlanningResult plan_group(const GroupWorkload &workload, const ExecutionLimits &limits, const PlannerOptions &options,
+double AnalyticExecutionCostPolicy::reduction_score(const ReductionCandidate &candidate, const ExecutionCostModel &model) const noexcept {
+    return candidate.scalar_rounds * model.subgroup_reduction_scalar_round +
+           static_cast<double>(candidate.reductions) * candidate.subgroups_per_program * model.subgroup_reduction_collective +
+           model.subgroup_reduction_group_setup / candidate.programs_per_group;
+}
+
+PlanningResult plan_group(const GroupWorkload &workload, const ExecutionLimits &limits, const PlannerOptions &requested,
                           MatrixCostBasis cost_basis) noexcept {
+    auto options = requested;
+    if (options.cost_policy) { options.cost = options.cost_policy->coefficients(limits, cost_basis, options.cost); }
     PlanningResult result;
     auto &plan = result.plan;
     plan.programs = workload.programs;

@@ -392,6 +392,44 @@ void test_mpp_subgroup_critical_path_and_machine_waves() {
     }
 }
 
+void test_backend_cost_policy() {
+    class Policy final : public AnalyticExecutionCostPolicy {
+    public:
+        mutable uint32_t calls{0u};
+        bool invalid{false};
+        ExecutionCostModel coefficients(const ExecutionLimits &, MatrixCostBasis,
+                                        const ExecutionCostModel &prior) const noexcept override {
+            calls++;
+            auto model = prior;
+            model.matrix_issue = invalid ? std::numeric_limits<double>::quiet_NaN() : 10.0;
+            model.preferred_subgroups = 1u;
+            return model;
+        }
+    } policy;
+    auto work = workload(32u, 64u, 32u);
+    auto limits = ExecutionLimits{256u, 32u, 1024u * 1024u};
+    PlannerOptions options;
+    options.cost_policy = &policy;
+    auto customized = plan_group(work, limits, options);
+    expect(eq(policy.calls, 1u));
+    PlannerOptions explicit_profile;
+    explicit_profile.cost.matrix_issue = 10.0;
+    explicit_profile.cost.preferred_subgroups = 1u;
+    auto expected = plan_group(work, limits, explicit_profile);
+    expect(customized.ok() && expected.ok());
+    if (customized && expected) {
+        expect(eq(customized.plan.threads, expected.plan.threads));
+        expect(eq(customized.plan.cost.score, expected.plan.cost.score));
+        check_coverage(work.matrices[0], customized.plan.matrices[0], customized.plan.threads);
+    }
+    // A backend's preferred score cannot waive resource limits or invalid
+    // coefficients, and the caller's prior is not mutated by calibration.
+    expect(eq(options.cost.matrix_issue, ExecutionCostModel{}.matrix_issue));
+    expect(!plan_group(work, ExecutionLimits{256u, 32u, 0u}, options));
+    policy.invalid = true;
+    expect(!plan_group(work, limits, options));
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -403,4 +441,5 @@ int main(int argc, char *argv[]) {
     "tile_planner_direct_output_proof_and_storage_accounting"_test = [] { test_direct_output_requires_proof_and_releases_both_buffers(); };
     "tile_planner_mpp_cost_basis_and_shape_ranking"_test = [] { test_mpp_cost_basis_and_shape_ranking(); };
     "tile_planner_mpp_subgroup_critical_path_and_machine_waves"_test = [] { test_mpp_subgroup_critical_path_and_machine_waves(); };
+    "tile_planner_backend_cost_policy"_test = [] { test_backend_cost_policy(); };
 }

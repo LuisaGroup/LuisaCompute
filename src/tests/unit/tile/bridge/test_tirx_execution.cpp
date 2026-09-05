@@ -79,6 +79,67 @@ void test_empty_parallel(Runtime &runtime) {
     if (runtime.target() == "metal") { check_copy(runtime, exec::Scope::GROUP, 0); }
 }
 
+void test_fused_element_grid(Runtime &runtime) {
+    for (auto dims : {std::array<int64_t, 4>{1, 127, 8, 8}, {17, 257, 3, 7}, {35, 63, 8, 8}}) {
+        auto [rows, columns, bm, bn] = dims;
+        for (auto mode = 0; mode != 3; mode++) {
+            auto scope = mode == 2 ? exec::Scope::WORKER : exec::Scope::AUTOMATIC;
+            auto definition = tile_kernel("element_grid", [=](TensorView<const float, 2> x, TensorView<float, 2> y) {
+                auto gr = axis("gr", ceil_div(rows, bm)), gc = axis("gc", ceil_div(columns, bn));
+                auto r = axis("r", bm), c = axis("c", bn);
+                for (auto &nest : parallel(shape(gr, gc), scope)) {
+                    auto r0 = nest.index(gr) * bm, c0 = nest.index(gc) * bn;
+                    auto value = x[coord(r0 - 2, c0 - 3), shape(r, c)];
+                    y(coord(r0, c0), shape(r, c)).store(tanh(value * 0.3f) + value * value);
+                }
+            });
+            auto kernel = definition.capture(tensor_shape(rows, columns), tensor_shape(rows, columns));
+            PlannerOptions planner;
+            planner.fuse_gpu_elementwise = mode != 1;
+            auto executable = runtime.build(kernel, true, false, true, false, planner);
+            expect(executable.ok()) << executable.error;
+            if (!executable.ok()) { continue; }
+            auto fused = runtime.target() == "metal" && mode == 0;
+            expect(eq(executable.plans.size(), fused ? size_t{1} : size_t{0}));
+            if (fused && !executable.plans.empty()) {
+                expect(eq(executable.plans.front().elementwise_elements_per_program, static_cast<uint64_t>(bm * bn)));
+                auto source = metal_source(executable.module.value());
+                expect(std::string_view{source.data(), source.size()}.find("tile_storage_") == std::string_view::npos);
+            }
+            luisa::vector<float> input(static_cast<size_t>(rows * columns));
+            for (size_t i = 0; i < input.size(); i++) { input[i] = static_cast<float>(static_cast<int64_t>(i % 43u) - 21) / 17.0f; }
+            auto source = runtime.upload<float>({rows, columns}, input);
+            auto output = runtime.upload<float>({rows, columns}, luisa::vector<float>(input.size(), -19.0f));
+            (*executable.entry)(source, output);
+            auto actual = runtime.download<float>(output, input.size());
+            for (int64_t r = 0; r < rows; r++) {
+                for (int64_t c = 0; c < columns; c++) {
+                    auto x = r >= 2 && c >= 3 ? input[(r - 2) * columns + c - 3] : 0.0f;
+                    auto expected = std::tanh(x * 0.3f) + x * x;
+                    expect(std::abs(actual[r * columns + c] - expected) < 5e-6f);
+                }
+            }
+        }
+    }
+}
+
+void test_element_grid_retains_snapshot(Runtime &runtime) {
+    auto kernel = tile_kernel("overlapping_snapshot", [](TensorView<float, 1> x) {
+                      for (auto &nest : parallel(shape(1))) {
+                          auto old = x[coord(0), shape(8)];
+                          x(coord(1), shape(8)).store(old);
+                      }
+                  }).capture(tensor_shape(9));
+    auto executable = runtime.build(kernel, true);
+    expect(executable.ok()) << executable.error;
+    if (!executable.ok()) { return; }
+    expect(executable.plans.empty());
+    auto buffer = runtime.upload<float>({9}, luisa::vector<float>{0.0f, 1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f});
+    (*executable.entry)(buffer);
+    auto actual = runtime.download<float>(buffer, 9);
+    for (size_t i = 0; i < actual.size(); i++) { expect(eq(actual[i], static_cast<float>(i ? i - 1 : 0))); }
+}
+
 [[nodiscard]] bool has_cpu_parallel_launch(const luisa::test::tile_tirx::Executable &executable) {
     if (!executable.module) { return false; }
     auto source = executable.module.value()->InspectSource("ll");
@@ -212,13 +273,13 @@ void test_shared_arithmetic_preserves_ssa() {
     expect(!invalid.ok());
 }
 
-[[nodiscard]] Kernel make_row_sum(int64_t rows, int64_t columns) {
-    auto definition = tile_kernel("metal_subgroup_sum", [](TensorView<const float, 2> input,
-                                                           TensorView<float, 1> output) {
+[[nodiscard]] Kernel make_row_sum(int64_t rows, int64_t columns, exec::Scope scope = exec::Scope::AUTOMATIC) {
+    auto definition = tile_kernel("metal_subgroup_sum", [scope](TensorView<const float, 2> input,
+                                                                TensorView<float, 1> output) {
         auto rows = axis("rows", input.extent<0>());
         auto one = axis("one", 1);
         auto columns = axis("columns", input.extent<1>());
-        for (auto &nest : parallel(shape(rows))) {
+        for (auto &nest : parallel(shape(rows), scope)) {
             auto value = input[coord(nest.index(), 0), shape(one, columns)];
             output(coord(nest.index()), shape(one)).store(reduce(value, columns, add));
         }
@@ -443,6 +504,77 @@ void test_metal_subgroup_sum(Runtime &runtime) {
                 << "columns=" << columns << " row=" << row;
         }
     }
+}
+
+void test_metal_reduction_packing_and_policy(Runtime &runtime) {
+    if (runtime.target() != "metal") { return; }
+    class Policy final : public AnalyticExecutionCostPolicy {
+    public:
+        mutable uint32_t candidates{0u};
+        bool invalid{false};
+        double reduction_score(const ReductionCandidate &candidate, const ExecutionCostModel &) const noexcept override {
+            candidates++;
+            if (invalid) { return std::numeric_limits<double>::quiet_NaN(); }
+            return candidate.subgroups_per_program == 1u && candidate.programs_per_group == 2u ? 0.0 : 1.0;
+        }
+    } policy;
+    constexpr auto rows = int64_t{5}, columns = int64_t{257};
+    auto kernel = make_row_sum(rows, columns);
+    for (auto [packing, unroll] : {std::pair{0u, 1u}, {1u, 3u}, {3u, 4u}, {8u, 16u}}) {
+        auto planner = subgroup_reduction_options();
+        planner.reduction_programs_per_group = packing;
+        planner.reduction_unroll_factor = unroll;
+        planner.cost_policy = &policy;
+        if (packing == 1u) { planner.threads_per_group = 32u; }
+        auto executable = runtime.build(kernel, true, false, true, false, planner, false, true);
+        expect(executable.ok()) << executable.error;
+        if (!executable.ok()) { continue; }
+        auto expected_packing = packing ? packing : 2u;
+        expect(eq(executable.plans.size(), 1u));
+        if (executable.plans.empty()) { continue; }
+        auto &plan = executable.plans.front();
+        expect(eq(plan.reduction_programs_per_group, expected_packing));
+        expect(eq(plan.reduction_unroll_factor, unroll));
+        expect(eq(plan.reduction_subgroups_per_program, 1u));
+        expect(eq(plan.threads, expected_packing * 32u));
+        expect(eq(plan.group_barrier_sites_after, 0u));
+        luisa::vector<float> values(static_cast<size_t>(rows * columns));
+        for (size_t i = 0u; i < values.size(); i++) { values[i] = static_cast<float>(static_cast<int>(i % 53u) - 26) / 19.0f; }
+        auto input = runtime.upload<float>({rows, columns}, values);
+        auto output = runtime.allocate<float>({rows});
+        (*executable.entry)(input, output);
+        auto actual = runtime.download<float>(output, rows);
+        for (int64_t row = 0; row < rows; row++) {
+            auto expected = 0.0;
+            for (int64_t column = 0; column < columns; column++) { expected += values[row * columns + column]; }
+            expect(std::abs(actual[row] - expected) < 2e-5 * std::max(1.0, std::abs(expected)));
+        }
+    }
+    expect(policy.candidates > 4u);
+    auto planner = subgroup_reduction_options();
+    planner.reduction_programs_per_group = 3u;
+    planner.threads_per_group = 64u;
+    auto conflict = runtime.build(kernel, true, false, true, false, planner, false, true);
+    expect(!conflict.ok());
+    expect(conflict.error.find("packing") != luisa::string::npos) << conflict.error;
+    planner.threads_per_group = 0u;
+    auto over_budget = runtime.build(make_row_softmax(rows, 4096), true, false, true, false, planner, false, true);
+    expect(!over_budget.ok());
+    expect(over_budget.error.find("packing") != luisa::string::npos) << over_budget.error;
+    auto bound_worker = runtime.build(make_row_sum(rows, columns, exec::Scope::WORKER), true, false, true, false, planner, false, true);
+    expect(!bound_worker.ok());
+    expect(bound_worker.error.find("conflicts") != luisa::string::npos) << bound_worker.error;
+    planner.reduction_programs_per_group = 0u;
+    planner.threads_per_group = 32u;
+    auto exact_over_budget = runtime.build(make_row_softmax(rows, 4096), true, false, true, false, planner, false, true);
+    expect(!exact_over_budget.ok());
+    expect(exact_over_budget.error.find("exact reduction mapping") != luisa::string::npos) << exact_over_budget.error;
+    planner.threads_per_group = 0u;
+    planner.cost_policy = &policy;
+    policy.invalid = true;
+    auto bad_cost = runtime.build(kernel, true, false, true, false, planner, false, true);
+    expect(!bad_cost.ok());
+    expect(bad_cost.error.find("nonfinite") != luisa::string::npos) << bad_cost.error;
 }
 
 void test_metal_subgroup_striped_softmax(Runtime &runtime) {
@@ -1105,6 +1237,9 @@ int main(int argc, char *argv[]) {
                                                     const_cast<const char **>(argc > 1 ? argv + 1 : argv));
     "tile_execution_explicit_worker"_test = [&] { test_explicit_worker(runtime); };
     "tile_execution_empty_domain"_test = [&] { test_empty_parallel(runtime); };
+    "tile_execution_fused_element_grid"_test = [&] { test_fused_element_grid(runtime); };
+    "tile_execution_element_grid_snapshot"_test = [&] { test_element_grid_retains_snapshot(runtime); };
+    "tile_execution_reduction_packing_and_policy"_test = [&] { test_metal_reduction_packing_and_policy(runtime); };
     "tile_execution_cpu_parallel_launch_cost"_test = [&] { test_cpu_parallel_launch_cost(runtime); };
     "tile_execution_shared_exp_materialization"_test = test_shared_exp_is_materialized_once;
     "tile_execution_shared_tanh_materialization"_test = test_shared_tanh_is_materialized_once;
