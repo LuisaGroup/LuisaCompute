@@ -1,4 +1,4 @@
-# Luisa Tile DSL: A From-Scratch Design
+# Tile language and layout
 
 - Status: architecture proposal and executable core syntax contract, revision 17
 - Compatibility with the removed prototype: none
@@ -25,7 +25,7 @@ The language has three first-class dimensions:
 
 They meet through checked composition; none is encoded inside another.
 
-```{figure} ../_static/tile/execution-first-overview.svg
+```{figure} ../../_static/tile/execution-first-overview.svg
 :alt: Execution structure as the skeleton connecting dataflow, memory, layouts, pipelines, scheduling, and lowering.
 :width: 100%
 
@@ -202,7 +202,7 @@ The initial reference library has explicit desugarings:
 This table is a test obligation: the target-independent expansion must run in
 the TileIR interpreter, and every atom replacement is checked against it.
 
-```{figure} ../_static/tile/primitive-layers.svg
+```{figure} ../../_static/tile/primitive-layers.svg
 :alt: Rich Tile library calls expand into a minimal TileIR core, while target atoms replace only proved equivalent subgraphs.
 :width: 100%
 
@@ -399,7 +399,7 @@ What lowering must check is its own realization: coordinate coverage, layout
 and resource constraints, storage reuse, and target capabilities. It must not
 reinterpret an inner `serial`/reduction recurrence as another independent axis.
 
-```{figure} ../_static/tile/nest-calculus.svg
+```{figure} ../../_static/tile/nest-calculus.svg
 :alt: Parallel extends space, serial and pipeline extend time, and reduce introduces an algebraic fold domain.
 :width: 100%
 
@@ -445,7 +445,7 @@ same `subnest` may bind to different resource kinds. A value-materialization or
 Memory-resource constraint therefore targets that value/object in the schedule;
 it is never a blanket field of `parallel`.
 
-```{figure} ../_static/tile/binding-relations.svg
+```{figure} ../../_static/tile/binding-relations.svg
 :alt: Nested logical execution bindings are checked against a target containment poset, while memory resources use an independent capability relation.
 :width: 100%
 
@@ -688,7 +688,7 @@ distributed. It does not duplicate a whole result per `subnest`. Conversely,
 an expression depending on `subnest.index()`, or an explicit
 `per(subnest, expression)`, creates a distinct logical value per subnest.
 
-```{figure} ../_static/tile/anchor-frontier.svg
+```{figure} ../../_static/tile/anchor-frontier.svg
 :alt: One ancestor-anchored value updated collectively through a deeper spatial frontier.
 :width: 100%
 
@@ -799,7 +799,7 @@ rewrite it either; it adds the temporal coordinate and issue policy described
 in Section 7. Keeping these three operations distinct is what makes the system
 execution-structure first without becoming hardware-structure first.
 
-```{figure} ../_static/tile/execution-transform.svg
+```{figure} ../../_static/tile/execution-transform.svg
 :alt: A legal split below a memory-owner cut and an illegal silent permutation across that cut.
 :width: 100%
 
@@ -962,7 +962,7 @@ multicast, or an ownership choice. Every copy has a coordinate identity, while
 ordinary non-injective maps still represent cases where several physical slots
 hold the same logical value without requiring a special node.
 
-```{figure} ../_static/tile/layout-correspondence.svg
+```{figure} ../../_static/tile/layout-correspondence.svg
 :alt: A layout correspondence with an occurrence fiber representing two physical replicas per logical element.
 :width: 100%
 
@@ -1499,7 +1499,7 @@ horizontal operation, a serial loop, or a spatial/temporal hybrid without
 changing the source. The remaining logical axes determine the result shape;
 their distribution may stay sharded or acquire explicit replica fibers.
 
-```{figure} ../_static/tile/reduction-model.svg
+```{figure} ../../_static/tile/reduction-model.svg
 :alt: A reduction region groups semantic contributions while its schedule independently maps the reduction domain to participants and serial steps.
 :width: 100%
 
@@ -1510,7 +1510,7 @@ catalog decide the physical collective.
 The first proof-driven realization of this factoring is now implemented for
 Metal FP32 add/max/min row programs. It maps a logical reduction to one or more
 SIMD groups and derives worker-private/shared storage from the selected owner
-map; see [TIRx Metal reductions](tile_tirx_reduction_report.md). In that bounded
+map; see [TIRx Metal reductions](../internals/tile/reductions.md). In that bounded
 implementation, the explicit `metal_subgroup_reductions` compile option is the
 floating-point tree-order permission. A richer per-reducer accuracy,
 determinism, NaN and signed-zero policy remains part of this language design,
@@ -1855,7 +1855,7 @@ final pair selects a resource instance and a byte inside it. Unlike a general
 placement query, this composed access must be proved total and single-valued
 for every active event.
 
-```{figure} ../_static/tile/execution-to-memory.svg
+```{figure} ../../_static/tile/execution-to-memory.svg
 :alt: Separate maps select a resource instance and a byte offset for each execution event.
 :width: 100%
 
@@ -1970,7 +1970,7 @@ Because a cursor call does not open a C++ block, `a` and `b` remain naturally
 visible after the cut. Their cross-stage SSA edges are explicit in TileIR. This
 is why a cursor cut is preferable to a stage-specific C++ brace scope.
 
-```{figure} ../_static/tile/pipeline-stage-flow.svg
+```{figure} ../../_static/tile/pipeline-stage-flow.svg
 :alt: C++ stage cursor cuts become pipeline subregions and a dependence graph whose participant and engine bindings are chosen later.
 :width: 100%
 
@@ -2017,7 +2017,7 @@ The compiler derives:
 Only a materialized edge's `VersionCoord` enters its `AddressMap`. Pure SSA
 edges do not acquire fictitious memory versions.
 
-```{figure} ../_static/tile/pipeline-timeline.svg
+```{figure} ../../_static/tile/pipeline-timeline.svg
 :alt: Three pipeline iterations overlap across load, compute, and store engines while their memory versions remain live.
 :width: 100%
 
@@ -2268,7 +2268,7 @@ capacity proof and legal target access. A later pass may still inline a
 preserved pure definition; it cannot reconstruct sharing that structural
 lowering already destroyed.
 
-```{figure} ../_static/tile/shared-tile-planning.svg
+```{figure} ../../_static/tile/shared-tile-planning.svg
 :alt: A shared semantic Tile value remains one SSA definition while target planning chooses recomputation or bounded materialization.
 :width: 100%
 
@@ -2617,7 +2617,7 @@ new hardware device. Validation wraps this factory like ordinary shader
 creation, and launches use existing shader handles and Stream commands.
 
 Metal MPP and the optional TIRx device-artifact route are implemented through
-this factory, described in [Independent Tile Runtime](tile_native_runtime.md).
+this factory, described in [Independent Tile Runtime](../internals/tile/runtime.md).
 `tile::Lowering::NATIVE` and `tile::Lowering::TIRX` select explicitly. TIRx
 retains its independent CPU/Metal TVM-runtime regression and comparison path;
 the new device artifact preserves a typed PrimFunc, argument binding map and
@@ -2864,7 +2864,7 @@ its initial coefficients are priors, not measured nanoseconds or hardware
 occupancy. Pareto dynamic programming preserves shared-memory/cost tradeoffs
 between multiple matrix operations. The exact solver is exact only for this
 implemented finite family and this model, not for all GPU programs. The
-[execution planner design](tile_execution_planner.md) specifies the constraints,
+[execution planner design](../internals/tile/planner.md) specifies the constraints,
 layout correspondence, objective, solver, calibration, and extension boundary.
 
 Shared-memory budgeting remains the conservative sum of compact group
@@ -3134,4 +3134,4 @@ Before backend export, at minimum verify:
 - MLIR is not required.
 
 The accompanying [GEMM sketch](tile_programming_poc.cpp) and
-[kernel gallery](tile_programming_poc_kernels.md) exercise the proposed syntax.
+[kernel gallery](kernels.md) exercise the proposed syntax.

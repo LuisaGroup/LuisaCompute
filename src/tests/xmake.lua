@@ -233,7 +233,7 @@ end)
 for _, standard in ipairs({20, 23}) do
     test_proj("test_tile_values_cpp" .. standard, "unit/tile/test_tile_values.cpp", false, function()
         add_deps("lc-tile")
-        add_includedirs("$(projectdir)/docs/source")
+        add_includedirs("$(projectdir)/docs/source/tile")
         -- Keep the C++23 compatibility target opt-in on older toolchains.
         if standard == 23 then
             set_default(false)

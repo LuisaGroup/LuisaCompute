@@ -170,7 +170,7 @@ uv run --no-project --python 3.13 --with torch --with numpy python \
 
 Use a new output directory and do not overlap performance runs with builds,
 tests, or profiling. These negative results supplement the
-[planner design](../../../../docs/source/tile_execution_planner.md); they do not
+[planner design](../../../../docs/source/internals/tile/planner.md); they do not
 close the remaining CPU/Metal performance gaps to PyTorch.
 
 To replay the independent copy-layout trial, use the same command and reference,

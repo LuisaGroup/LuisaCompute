@@ -4,9 +4,9 @@ Status: first executable CPU realization, September 5, 2026. The finite
 root-mapping solver below is implemented. General Tile distribution, packed
 matrix atoms, software pipelining and measured cost calibration are not.
 
-This document complements the [language/layout design](tile_programming_design.md),
-[target-independent planner formulation](tile_execution_planner.md) and
-[Runtime integration](tile_native_runtime.md). It does not redefine the DSL for
+This document complements the [language/layout design](../../tile/design.md),
+[target-independent planner formulation](planner.md) and
+[Runtime integration](runtime.md). It does not redefine the DSL for
 the CPU backend.
 
 ## 1. Preserve the execution-first program
@@ -45,7 +45,7 @@ program. Several independent resources may be used by the same Nest.
 
 ## 2. Module and ownership boundaries
 
-```{figure} ../_static/tile/xir-planning-pipeline.svg
+```{figure} ../../../_static/tile/xir-planning-pipeline.svg
 :alt: One TileIR program feeds the planned XIR/SIMD path and separate Metal-native and TIRx routes.
 :width: 100%
 
@@ -258,7 +258,7 @@ with a safe fallback. Shape alone is insufficient.
 
 ## 7. Extension plan: richer plans, not more DSL entities
 
-```{figure} ../_static/tile/xir-mapping-roadmap.svg
+```{figure} ../../../_static/tile/xir-mapping-roadmap.svg
 :alt: The implemented root-order and packing search precedes future Tile partitioning, collective atoms, resource planning and physical pipelining.
 :width: 100%
 
@@ -306,5 +306,5 @@ intermediate representation already exists.
   realized plan and LLVM identity, with planned/canonical/reversed controls.
 
 These are validation mechanisms, not by themselves performance results. See
-the [status and evidence report](tile_status_report.md) for actual runs,
+the [status and evidence report](../../performance/tile/index.md) for actual runs,
 limitations and links to raw evidence.

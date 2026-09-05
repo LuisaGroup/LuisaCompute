@@ -4,6 +4,10 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
 import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent / '_ext'))
 
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
@@ -25,7 +29,13 @@ extensions = [
     'sphinx.ext.mathjax',
     'breathe',
     'myst_parser',
+    'legacy_urls',
 ]
+
+# Resolve Markdown section links using the same ids rendered by Docutils,
+# including numbered reference headings moved between pages.
+myst_heading_anchors = 6
+myst_heading_slug_func = 'docutils.nodes.make_id'
 
 # Breathe configuration
 breathe_projects = { "LuisaCompute": "output/xml" }

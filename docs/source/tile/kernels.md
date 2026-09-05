@@ -1,4 +1,4 @@
-# Luisa Tile DSL: Executable Kernel Gallery
+# Tile kernel examples
 
 These examples are the actual C++ test definitions, included directly from the
 test sources so the documented syntax cannot drift into a second DSL.
@@ -160,7 +160,7 @@ fallback is not reported as a matrix-hardware measurement.
 Two-dimensional blocks load once. The one-dimensional bias broadcasts by its
 shared column axis; neither loads nor stores are hidden in assignment.
 
-```{literalinclude} ../../src/tests/unit/tile/bridge/test_tirx_poc_neural.cpp
+```{literalinclude} ../../../src/tests/unit/tile/bridge/test_tirx_poc_neural.cpp
 :language: cpp
 :start-after: void test_bias_gelu_residual(Runtime &runtime) {
 :end-before:     auto kernel = definition.capture(
@@ -173,7 +173,7 @@ compose the same Tile operations. `reduce(value, axis, add)` is a library
 expression; it expands into an element region and the existing reduction nest.
 The region form still yields a Nest, not a different kind of iterator element.
 
-```{literalinclude} ../../src/tests/unit/tile/bridge/test_tirx_poc.cpp
+```{literalinclude} ../../../src/tests/unit/tile/bridge/test_tirx_poc.cpp
 :language: cpp
 :start-after: void test_row_statistics_and_losses(Runtime &runtime) {
 :end-before:     auto kernel = definition.capture(
@@ -185,7 +185,7 @@ invented. The current small whole-tensor test uses the former.
 
 ## 5. Softmax, LayerNorm, and RMSNorm
 
-```{literalinclude} ../../src/tests/unit/tile/bridge/test_tirx_poc.cpp
+```{literalinclude} ../../../src/tests/unit/tile/bridge/test_tirx_poc.cpp
 :language: cpp
 :start-after: void test_softmax_layernorm_rmsnorm(Runtime &runtime) {
 :end-before:     auto kernel = definition.capture(
@@ -197,7 +197,7 @@ claim that this reference formula is suitable for every input distribution.
 The same concise row-sum, softmax, RMSNorm and LayerNorm shapes now have an
 opt-in proof-driven Metal SIMD-group realization without changing their DSL
 source; its formal mapping, storage proof and measured limits are in
-[TIRx Metal reductions](tile_tirx_reduction_report.md).
+[TIRx Metal reductions](../internals/tile/reductions.md).
 
 ### 5.1 Fused residual LayerNorm and shared SSA
 
@@ -205,7 +205,7 @@ This benchmark kernel is also an executable syntax example. `combined` and
 `centered` are ordinary Tile SSA values with several consumers; the source
 does not declare a temporary `Memory` or a hardware scope:
 
-```{literalinclude} ../../src/tests/benchmark/benchmark_tile_tirx.cpp
+```{literalinclude} ../../../src/tests/benchmark/benchmark_tile_tirx.cpp
 :language: cpp
 :start-at:     if (operation == "residual_layernorm") {
 :end-before:     if (operation == "cross_entropy") {
@@ -216,7 +216,7 @@ available. The Metal row mapper realizes compact worker stripes and avoids
 duplicated input reads; the measured LLVM CPU candidate recomputes the cheap
 expressions and fuses them into consumers. Both retain the same explicit final
 `store` and the same execution hierarchy. The complete cross-target evidence
-is in the [TIRx reduction report](tile_tirx_reduction_report.md).
+is in the [TIRx reduction measurements](../performance/tile/reductions.md).
 
 ## 6. Sparse cross entropy and gradient
 
@@ -226,7 +226,7 @@ immutable input snapshot with a guarded direct Tensor read only after proving
 source immutability, path bounds and distributed worker ownership; this is an
 optimization, not a different source operation.
 
-```{literalinclude} ../../src/tests/unit/tile/bridge/test_tirx_poc_neural.cpp
+```{literalinclude} ../../../src/tests/unit/tile/bridge/test_tirx_poc_neural.cpp
 :language: cpp
 :start-after: void test_sparse_softmax_cross_entropy(Runtime &runtime) {
 :end-before:     auto kernel = definition.capture(
@@ -239,7 +239,7 @@ forms scores with one MMA, rescales the carried row state, and applies the
 second MMA. Query/key and feature dimensions are explicit local identities.
 The causal mask and key-tail mask are separate from memory bounds.
 
-```{literalinclude} ../../src/tests/unit/tile/bridge/test_tirx_poc_neural.cpp
+```{literalinclude} ../../../src/tests/unit/tile/bridge/test_tirx_poc_neural.cpp
 :language: cpp
 :start-after: void test_flash_attention_online_softmax(Runtime &runtime) {
 :end-before:     auto kernel = definition.capture(
@@ -252,7 +252,7 @@ logical filter taps to that loaded window; multiplying by a weight Tile and
 reducing the tap/input-channel axes is the direct-convolution library form.
 A later im2col/MMA schedule need not change the memory-access syntax.
 
-```{literalinclude} ../../src/tests/unit/tile/bridge/test_tirx_poc.cpp
+```{literalinclude} ../../../src/tests/unit/tile/bridge/test_tirx_poc.cpp
 :language: cpp
 :start-after: void test_padded_strided_conv2d(Runtime &runtime) {
 :end-before:     auto kernel = definition.capture(
@@ -260,7 +260,7 @@ A later im2col/MMA schedule need not change the memory-access syntax.
 
 ## 9. Depthwise convolution and pooling
 
-```{literalinclude} ../../src/tests/unit/tile/bridge/test_tirx_poc_algorithms.cpp
+```{literalinclude} ../../../src/tests/unit/tile/bridge/test_tirx_poc_algorithms.cpp
 :language: cpp
 :start-after: void test_depthwise_convolution_and_max_pool(Runtime &runtime) {
 :end-before:     auto kernel = definition.capture(
@@ -271,7 +271,7 @@ negative-infinity-padded max pool would use an explicit fallback on its load.
 
 ## 10. Traditional filters: Sobel and median
 
-```{literalinclude} ../../src/tests/unit/tile/bridge/test_tirx_poc_algorithms.cpp
+```{literalinclude} ../../../src/tests/unit/tile/bridge/test_tirx_poc_algorithms.cpp
 :language: cpp
 :start-after: void test_sobel_and_ordered_median(Runtime &runtime) {
 :end-before:     auto kernel = definition.capture(
@@ -287,7 +287,7 @@ quadratic composition orders finite values and breaks ties by source index.
 A tuned network, radix sort, and a documented NaN policy remain future library
 work; these are not hidden behind a claim of hardware-optimized sorting.
 
-```{literalinclude} ../../src/tests/unit/tile/bridge/test_tirx_poc_algorithms.cpp
+```{literalinclude} ../../../src/tests/unit/tile/bridge/test_tirx_poc_algorithms.cpp
 :language: cpp
 :start-after: void test_stable_sort_and_topk(Runtime &runtime) {
 :end-before:     auto kernel = definition.capture(
@@ -299,7 +299,7 @@ This reference uses one program per bucket and a masked Tile reduction,
 including empty buckets. It is deterministic and needs no atomics. An atomic
 scatter implementation is a different schedule/library choice.
 
-```{literalinclude} ../../src/tests/unit/tile/bridge/test_tirx_poc_algorithms.cpp
+```{literalinclude} ../../../src/tests/unit/tile/bridge/test_tirx_poc_algorithms.cpp
 :language: cpp
 :start-after: void test_segmented_accumulation(Runtime &runtime) {
 :end-before:     auto kernel = definition.capture(
@@ -311,7 +311,7 @@ This test combines parallel → serial → pipeline → reduction. A single oute
 Tile variable is assigned inside the nested regions, exercising inferred
 state at each lexical boundary.
 
-```{literalinclude} ../../src/tests/unit/tile/bridge/test_tirx_poc_algorithms.cpp
+```{literalinclude} ../../../src/tests/unit/tile/bridge/test_tirx_poc_algorithms.cpp
 :language: cpp
 :start-after: void test_all_structured_regions(Runtime &runtime) {
 :end-before:     auto kernel = definition.capture(

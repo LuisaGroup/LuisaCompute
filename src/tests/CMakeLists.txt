@@ -570,7 +570,7 @@ foreach (_tile_cpp_standard IN LISTS _tile_test_cpp_standards)
     luisa_compute_add_test(test_tile_values_cpp${_tile_cpp_standard}
             unit/tile/test_tile_values.cpp LABELS "unit;unit_tile")
     target_include_directories(test_tile_values_cpp${_tile_cpp_standard}
-            PRIVATE ${PROJECT_SOURCE_DIR}/docs/source)
+            PRIVATE ${PROJECT_SOURCE_DIR}/docs/source/tile)
     set_target_properties(test_tile_values_cpp${_tile_cpp_standard} PROPERTIES
             CXX_STANDARD ${_tile_cpp_standard} CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
 endforeach ()

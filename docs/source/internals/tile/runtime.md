@@ -16,7 +16,7 @@ depends only on Core. Runtime and TileIR have no TVM dependency. When the
 optional TIRx bridge is enabled, Metal privately links it as a second compiler
 route; without that build option, requesting TIRx fails explicitly.
 
-```{figure} ../_static/tile/xir-planning-pipeline.svg
+```{figure} ../../../_static/tile/xir-planning-pipeline.svg
 :alt: TileIR reaches the SIMD backend through XIR, while native Metal MPP and TIRx remain independent compiler routes behind the same Runtime factory.
 :width: 100%
 
@@ -78,7 +78,7 @@ SIMD backend and XIR targets; it does not add incomplete XMake substitutes.
 The backend first calls `bridge::xir::plan()` to choose root axis order and
 workers per block. It then passes the exact selected map to the lowerer.
 The finite exhaustive solver and its uncalibrated cost breakdown are described
-in [XIR execution planning](tile_xir_design.md). Fixed constraints can be
+in [XIR execution planning](xir.md). Fixed constraints can be
 supplied through `CompileOptions::xir`; conflicting constraints fail explicitly.
 This is a bounded first mapping space, not general Tile partitioning.
 
@@ -126,7 +126,7 @@ assembly; `LUISA_SIMD_DUMP_ASSEMBLY_DIR` captures the native artifact for audit.
 `test_tile_xir_llm` additionally covers RMSNorm, LayerNorm, SwiGLU,
 GELU+residual, RoPE, masked softmax and online prefill/decode/GQA against an
 independent FP64 oracle, through both bridges when TIRx is enabled. The
-[evidence report](tile_status_report.md) records actual validation status.
+[evidence report](../../performance/tile/index.md) records actual validation status.
 When both compiler stacks load LLVM into one process, configure them against
 the same LLVM major version; the tested setup uses LLVM 21.1.8 for both.
 
@@ -207,14 +207,14 @@ may reassociate a reduction and vForce has documented denormal/exception
 differences from scalar libm. It is never enabled implicitly by `parallel`, a
 pipeline stage or a memory placement. The benchmark report records the policy,
 static provider call sites, complete-output error and tolerances. See the
-[implementation/evidence report](tile_status_report.md) for the balanced A/B.
+[implementation/evidence report](../../performance/tile/index.md) for the balanced A/B.
 
 ### Optional MPP realization inside TVM
 
 TIRx retains its existing SIMD-group lowering as the default. An independent,
 opt-in `bridge::tirx::CompileOptions::metal_mpp` path uses TVM's own Metal
 code generator, not the native emitter above. It requires the versioned
-{download}`C++ TVM extension <../../src/tile/bridge/tirx/patches/README.md>`;
+{download}`C++ TVM extension <../../../../src/tile/bridge/tirx/patches/README.md>`;
 unpatched TVM
 continues to work normally and rejects an explicit MPP request. Neither path
 uses Python to generate source or hides an MPS library call.
@@ -300,7 +300,7 @@ Metal Runtime path described above. The standalone TVM runtime is retained as
 an independent comparison. Both routes consume scheduled TIRx; no source-level
 warp role or new Runtime resource type is introduced. The exact mapping,
 finite cost model, staged/JIT controls and measured evidence are documented in
-[TIRx Metal reductions](tile_tirx_reduction_report.md).
+[TIRx Metal reductions](reductions.md).
 
 ## First native realization, not a complete Machine TileIR
 
@@ -379,9 +379,9 @@ stores. An explicit Accelerate request on Metal must fail with a target
 diagnostic.
 
 The current CPU performance evidence has two independent replays. The
-{download}`CBLAS replay <../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-cblas-v2-replay/notes.md>`
+{download}`CBLAS replay <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-cblas-v2-replay/notes.md>`
 contains 48 valid Tile/Torch/direct-CBLAS measurements over eight GEMMs. The
-{download}`array-math replay <../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-accelerate-ops-replay/notes.md>`
+{download}`array-math replay <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-accelerate-ops-replay/notes.md>`
 contains 144 valid reference/Accelerate measurements over add, row sum and
 softmax. Both use rotated/counterbalanced orders, complete outputs, source
 capture and stable artifact hashes. These are TIRx CPU results, not evidence
@@ -395,7 +395,7 @@ configuration. TIRx uses its own recorded/frozen schedule; this is an
 equivalent-workload performance comparison, not necessarily identical TileIR.
 Each output is checked in full against the same FP64 oracle before accepting
 its measurements. See the
-{download}`benchmark instructions <../../scripts/benchmark/tile_torch/README.md>`.
+{download}`benchmark instructions <../../../../scripts/benchmark/tile_torch/README.md>`.
 
 The common comparison is synchronized device-resident **host wall time**,
 including each runtime's dispatch costs, but excluding JIT, allocation and
@@ -430,7 +430,7 @@ planning and thereby admit full-K candidates. This does not claim support for
 all native MPP shapes/scopes or close the performance gap without measurements.
 
 The latest
-{download}`MPP-v2 frozen replay <../../scripts/benchmark/tile_torch/results/m1-max-20260905-mpp-cost-v2-replay/notes.md>`
+{download}`MPP-v2 frozen replay <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-mpp-cost-v2-replay/notes.md>`
 validates 784/784 complete outputs over eight square, rectangular and ragged
 FP32 GEMMs. Its separately searched schedules beat Torch and MPS on all eight
 shapes. At 1024³, TIRx MPP views measure 270.675 us versus handwritten MPP at
@@ -440,7 +440,7 @@ MPS in only 1/14 rounds. The complete raw samples and artifact fingerprints
 live beside the report.
 
 The accompanying
-{download}`cost-model study <../../scripts/benchmark/tile_torch/results/m1-max-20260905-mpp-cost-v2-search/notes.md>`
+{download}`cost-model study <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-mpp-cost-v2-search/notes.md>`
 retains the v1 failure and all invalid candidates. Replacing summed concurrent
 subgroup work with subgroup critical path plus whole-device waves reduces
 mean/median/max regret from 74.18/43.05/239.58% to 8.82/2.59/34.37% on the same
@@ -449,9 +449,9 @@ evidence. The remaining model misses still require cache/layout, edge, barrier
 and dispatch features; the 128×32 winner must not become a GEMM shape table.
 
 The historical
-{download}`v1 view replay <../../scripts/benchmark/tile_torch/results/m1-max-20260904-tirx-views/notes.md>`,
-{download}`staged-MPP replay <../../scripts/benchmark/tile_torch/results/m1-max-20260904-tirx-mpp/notes.md>`
-and {download}`subgroup-sync replay <../../scripts/benchmark/tile_torch/results/m1-max-20260904-subgroup-sync-lowerings/notes.md>`
+{download}`v1 view replay <../../../../scripts/benchmark/tile_torch/results/m1-max-20260904-tirx-views/notes.md>`,
+{download}`staged-MPP replay <../../../../scripts/benchmark/tile_torch/results/m1-max-20260904-tirx-mpp/notes.md>`
+and {download}`subgroup-sync replay <../../../../scripts/benchmark/tile_torch/results/m1-max-20260904-subgroup-sync-lowerings/notes.md>`
 remain controls. They show why MPP selection, view forwarding and barrier
 elision are independent decisions; fence elision regressed a fixed 512³
 geometry and therefore remains default-off.

@@ -134,7 +134,7 @@ input repetitions, as well as alias/control-flow regressions. The optional
 bridge-off build and its six Tile tests also passed; no default TVM dependency
 was introduced. Per-file syntax checks and `git diff --check` passed.
 
-The [planner design](../../../../docs/source/tile_execution_planner.md) separates
+The [planner design](../../../../docs/source/internals/tile/planner.md) separates
 hard eligibility/resource constraints from ranking, and retains exact finite
 enumeration/Pareto DP as the reference solver. A more elaborate solver cannot
 correct an uncalibrated cost model or select an implementation the emitter

@@ -4,7 +4,7 @@ This is an initial, uncalibrated relative-work model, not a claim of
 PyTorch-equivalent performance. The implemented solver is exact only for its
 supported rectangular matrix realization family and stated additive objective.
 
-Design and formulas: [execution planner](../../../../docs/source/tile_execution_planner.md).
+Design and formulas: [execution planner](../../../../docs/source/internals/tile/planner.md).
 The implementation checkpoint is `91332e038`; measurements were collected
 before committing, so their metadata correctly records a dirty worktree based
 on `0fc45b943` and fingerprints the actual executable and Tile libraries.

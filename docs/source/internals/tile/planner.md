@@ -6,7 +6,7 @@ materialization choice in section 3.8 are implemented. The target-independent
 formulation and later search strategies describe the extension contract, not
 features already available on every target.
 
-The independent [XIR/SIMD CPU planner](tile_xir_design.md) now searches root
+The independent [XIR/SIMD CPU planner](xir.md) now searches root
 axis order and Runtime worker packing using a separate relative-work model.
 It does not reuse GPU occupancy equations or claim that Tile partitioning,
 cache blocking and physical pipelining are already implemented.
@@ -15,7 +15,7 @@ The planner chooses an implementation of the existing execution structure. It
 does not introduce a second programming language, infer a new meaning for
 `parallel`, or let a fast candidate override memory and numerical semantics.
 
-```{figure} ../_static/tile/execution-planner.svg
+```{figure} ../../../_static/tile/execution-planner.svg
 :alt: Semantic facts and target capabilities define legal candidates. A cost model and search rank them; realization is verified again before JIT. Correctness-checked measurements calibrate ranking, never legality.
 :width: 100%
 
@@ -183,7 +183,7 @@ replaceable prior, not queried occupancy, and fractional waves are deliberately
 a smooth ranking heuristic. All quantities and the selected score are emitted
 in the compilation/benchmark report.
 
-```{figure} ../_static/tile/mpp-cost-model.svg
+```{figure} ../../../_static/tile/mpp-cost-model.svg
 :alt: Metal MPP planning separates semantic and target facts, hard legality, target-specific cost features, bounded exact search, and authoritative staged JIT measurement.
 :width: 100%
 
@@ -297,7 +297,7 @@ have separate budgets. Never average an invalid result into the training set
 or silently replace a failed final validation with its earlier search timing.
 
 Equal modeled cost is not an equivalence proof between realizations. The
-{download}`M1 Max equal-score layout experiment <../../scripts/benchmark/tile_torch/results/m1-max-20260903-layout-tie.md>`
+{download}`M1 Max equal-score layout experiment <../../../../scripts/benchmark/tile_torch/results/m1-max-20260903-layout-tie.md>`
 swaps the subgroup/local-fragment rectangle while keeping all reported work,
 resource, and synchronization features identical. The alternative is about
 3.7% slower on 1024-cubed across four rounds. The default tie order happens to
@@ -314,14 +314,14 @@ experimental default changes were reverted; neither is a calibrated universal
 layout policy. A future shortlist and plan fingerprint must retain the actual
 copy participant/local-value map, not just a maximum batch size.
 
-The {download}`subsequent structural experiments <../../scripts/benchmark/tile_torch/results/m1-max-20260904-tirx-structure.md>`
+The {download}`subsequent structural experiments <../../../../scripts/benchmark/tile_torch/results/m1-max-20260904-tirx-structure.md>`
 also reject blanket contraction unrolling, direct global fragment loading,
 shared-row padding, and double staging as universal defaults. Similar output
 ownership to the MPP cohort did not reproduce its performance with the 8x8
 atom family. These measurements constrain proposed defaults; they do not
 identify a specific hardware bottleneck from elapsed time alone.
 
-The {download}`MPP cost-model study <../../scripts/benchmark/tile_torch/results/m1-max-20260905-mpp-cost-v2-replay/notes.md>`
+The {download}`MPP cost-model study <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-mpp-cost-v2-replay/notes.md>`
 records the correction rather than hiding the failed model. On the same
 8-shape × 45-candidate calibration cohort, v1 summed work from concurrent
 subgroups and systematically overvalued narrow threadgroups. Replacing that
@@ -359,7 +359,7 @@ on CPU and [MPSMatrixMultiplication](https://developer.apple.com/documentation/m
 on Metal, alongside eager PyTorch. The native system-library executable does
 not link TileIR or TVM and cannot silently replace a candidate's lowering.
 See the direct BLAS and MPS GEMM baseline section in the
-{download}`measurement protocol <../../scripts/benchmark/tile_torch/README.md>`.
+{download}`measurement protocol <../../../../scripts/benchmark/tile_torch/README.md>`.
 
 These comparisons answer a different question from model regret: how far is
 our best *tested realization* from an optimized external implementation of
@@ -451,7 +451,7 @@ operation is subgroup-scoped and its entire subgroup is inactive.
 **Integration contract:**
 
 The backend-local native realization and an optional independent TIRx MPP
-emitter now exist; see [Tile Runtime](tile_native_runtime.md). TIRx MPP contract
+emitter now exist; see [Tile Runtime](runtime.md). TIRx MPP contract
 v2 has separate typed `D=A*B` and `D=A*B+C` operations and fails closed on
 mixed allocation modes. `plan_group` now has a separate MPP basis, enumerates
 legal thread widths and exact rectangular subgroup factorizations, and ranks
@@ -491,7 +491,7 @@ planner.
    still absent. The independent native emitter has its own capability gate.
 
 The benchmark runner is
-[`compare_mpp.py`](../../scripts/benchmark/tile_torch/compare_mpp.py). It separates
+[`compare_mpp.py`](../../../../scripts/benchmark/tile_torch/compare_mpp.py). It separates
 search from six-order replay and records host and GPU batch times. Inline
 tensors use a tracked classic Metal queue, as does MPS. The optional tensor
 handle probe uses a Metal 4 queue with explicit dispatch barriers and commit
@@ -504,7 +504,7 @@ The TIRx bridge now implements a separate, opt-in planner for structurally
 proved FP32 add/max/min row programs. It is not an MMA plan with different
 coefficients and does not reuse MPP's opaque resource assumptions. The complete
 formal mapping, ownership proof, tests and evidence are in
-[TIRx Metal reductions](tile_tirx_reduction_report.md).
+[TIRx Metal reductions](reductions.md).
 
 For `1 <= S <= min(32, target_max_threads/32)` SIMD groups per logical program,
 `W=32S` workers stripe
@@ -585,7 +585,7 @@ width 4096, 32- and 64-thread candidates would require 256 and 128 scalars per
 worker and fail before code generation; 128 and 256 threads require 64 and 32
 and remain legal.
 
-```{figure} ../_static/tile/shared-tile-planning.svg
+```{figure} ../../../_static/tile/shared-tile-planning.svg
 :alt: Structural Tile SSA sharing is preserved while a target planner chooses recomputation or bounded physical materialization.
 :width: 100%
 
@@ -695,7 +695,7 @@ over subgroup launch demand and global/private payload access; a typed
 `ReductionServiceModel` supplies its coefficients without device-name tests
 inside the solver. Missing access facts reject an explicit service profile
 instead of mixing incompatible fallback units. The
-{download}`frozen calibration and held-out protocol <../../scripts/benchmark/tile_torch/results/m1-max-20260905-service-policy-validation/notes.md>`
+{download}`frozen calibration and held-out protocol <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-service-policy-validation/notes.md>`
 records the current experiment; this profile is not a new default.
 
 The policy is borrowed through `PlannerOptions::cost_policy` only for the
@@ -723,7 +723,7 @@ speedup. The default analytic prior is intentionally unchanged by these
 in-cohort trials: it does not yet price unrolling or full-machine row waves.
 
 The
-{download}`target-width replay <../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-width-validation/notes.md>`
+{download}`target-width replay <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-width-validation/notes.md>`
 is a concrete test of that boundary. Expanding the six-width measured
 subfamily beyond the restricted {32,128,256} reference yields 1.051×,
 1.141× and 1.101× no-counter GPU gains for 1024×4096 sum, softmax and
@@ -751,7 +751,7 @@ An exact cache request rejects cross-worker gather or excess live allocation
 instead of silently falling back. Same-domain `x*x` alone is not reuse.
 
 The
-{download}`fixed-width cache/reload replay <../../scripts/benchmark/tile_torch/results/m1-max-20260905-input-cache-validation/notes.md>`
+{download}`fixed-width cache/reload replay <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-input-cache-validation/notes.md>`
 holds W=512/V=4/U=1/P=1 and validates all 25 cases in four paired rounds.
 1024×4096 softmax/RMSNorm/LayerNorm gain 1.378×/1.265×/1.221× GPU
 throughput, with positive E2E gains. Ten identical-source controls and three
@@ -791,7 +791,7 @@ materialization. Every combination is separately captured and compiled;
 invalid candidates stay in the search record and the winner is freshly JITed
 and validated. The old analytic score does not prune this measured search.
 The {download}`access-demand checkpoint
-<../../scripts/benchmark/tile_torch/results/m1-max-20260905-access-demand-validation/notes.md>`
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-access-demand-validation/notes.md>`
 records implementation tests and the subsequent 12-case joint search. It
 retains 101 valid trials, 19 rejections and 12 freshly JITed winners. A frozen
 four-round replay then compares the best joint candidate against the best
@@ -834,10 +834,14 @@ over the legacy automatic width/reload plan, with all pairs positive.
 
 The same holdout rejects promotion to default: 37×1537 softmax and LayerNorm
 regress in every GPU/E2E-throughput pair, and small RMSNorm GPU is mixed.
-All three small plans change W=192/reload to W=416/cache, so the current
-comparison cannot isolate width versus reuse. The next diagnostic is a fixed
-2×2 ablation, retaining the profile and all negative results. See the
-{download}`full service-policy evidence <../../scripts/benchmark/tile_torch/results/m1-max-20260905-service-policy-validation/notes.md>`
+All three small plans change W=192/reload to W=416/cache, so that comparison
+does not isolate width versus reuse. The subsequent fixed 2×2 ablation finds
+the wider mapping slower at fixed reuse; the worker-pack tail repair then
+improves small-case E2E throughput at fixed plans. Neither result establishes
+a new optimum or justifies fitting noisy GPU labels. The
+[reduction measurements](../../performance/tile/reductions.md#tail-packs-a-structural-repair-after-width-reuse-ablation)
+retain both follow-ups and their controls. See the original
+{download}`full service-policy evidence <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-service-policy-validation/notes.md>`
 for all 288 validated outputs, separate GPU/E2E scopes and unchanged artifacts.
 
 ## 4. Implemented matrix mapping family
@@ -1055,7 +1059,7 @@ outer machine demand once. The default concurrent-subgroup prior is 512 for the
 tested M1-class profile. It is deliberately replaceable and fractional—neither
 a target query nor a claim about physical residency boundaries.
 
-The {download}`v1→v2 study <../../scripts/benchmark/tile_torch/results/m1-max-20260905-mpp-cost-v2-search/notes.md>`
+The {download}`v1→v2 study <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-mpp-cost-v2-search/notes.md>`
 shows why both terms matter and retains every invalid candidate. The v2 score
 reduces in-cohort mean regret from 74.18% to 8.82%, but the 34.37% maximum miss
 and absence of held-out data keep measured Staged/JIT ranking authoritative.
@@ -1079,7 +1083,7 @@ This choice is currently explicit, not included in the matrix model's search
 or calibrated score. Four-round same-binary measurements at 64x64x32 tiles show
 substantial improvements on two ragged GEMMs, but essentially no improvement
 on 512-cubed or 1024-cubed. No universal speedup or default change follows from
-those observations. The {download}`copy-plan report <../../scripts/benchmark/tile_torch/results/m1-max-20260903-copy-plan.md>`
+those observations. The {download}`copy-plan report <../../../../scripts/benchmark/tile_torch/results/m1-max-20260903-copy-plan.md>`
 keeps all shapes, timing distributions, and correctness checks.
 
 ### Dependence-aware group synchronization
@@ -1121,7 +1125,7 @@ dependencies, non-subgroup-multiple worker counts, aliased global parameters,
 and aliased output read on the next pipeline iteration. A Metal native-IR test
 also distinguishes an explicit barrier from compiler-owned barriers.
 
-The {download}`M1 Max synchronization report <../../scripts/benchmark/tile_torch/results/m1-max-20260903-barrier-plan.md>`
+The {download}`M1 Max synchronization report <../../../../scripts/benchmark/tile_torch/results/m1-max-20260903-barrier-plan.md>`
 holds the tile, worker count, fragment layout, and resource realization fixed.
 Four counterbalanced rounds show modest, shape-dependent gains, including one
 1024-cubed regression. Fewer barrier sites are not a proportional latency model
@@ -1162,7 +1166,7 @@ realized body + immutable-input / partition / participation facts
 profitability choice. `PlannerOptions::elide_independent_subgroup_barriers`
 is default-off and also requires the planner and `coalesce_group_barriers`
 enabled. Selecting it never supplies missing proof facts. The fixed-geometry
-{download}`A/B replay <../../scripts/benchmark/tile_torch/results/m1-max-20260904-subgroup-sync-replay/results.md>`
+{download}`A/B replay <../../../../scripts/benchmark/tile_torch/results/m1-max-20260904-subgroup-sync-replay/results.md>`
 is a counterexample to pricing each removed fence as a guaranteed benefit:
 512³ got slower in all four rounds, despite six interior cases having no
 cross-subgroup communication. Apple's [MPP programming guide, §2.3.4](https://developer.apple.com/download/files/Metal-Performance-Primitives-Programming-Guide.pdf)
@@ -1376,9 +1380,9 @@ these allocation calls is not by itself a CPU GEMM microkernel: operand packing,
 multi-row register reuse, temporal accumulator residency, and task/cache
 partitioning still need independent models and measurements.
 
-The {download}`first CPU storage replay <../../scripts/benchmark/tile_torch/results/m1-max-20260904-cpu-stack-replay/notes.md>`
+The {download}`first CPU storage replay <../../../../scripts/benchmark/tile_torch/results/m1-max-20260904-cpu-stack-replay/notes.md>`
 improves paired medians over the previous lowering but also has per-round
-regressions. The {download}`direct Torch/BLAS follow-up <../../scripts/benchmark/tile_torch/results/m1-max-20260904-cpu-stack-system/notes.md>`
+regressions. The {download}`direct Torch/BLAS follow-up <../../../../scripts/benchmark/tile_torch/results/m1-max-20260904-cpu-stack-system/notes.md>`
 still shows an approximately 11× 1024³ gap. This is a legal realization
 candidate, not evidence of a solved CPU mapping/cost model.
 
@@ -1427,9 +1431,9 @@ without rewriting LLVM text or calling a GEMM library. It is still an opt-in
 candidate: code size, tail work, packing traffic, and register pressure must be
 measured, independently of the stack-allocation budget.
 
-The {download}`four-round fixed-geometry replay <../../scripts/benchmark/tile_torch/results/m1-max-20260904-cpu-cartesian-replay/notes.md>`
+The {download}`four-round fixed-geometry replay <../../../../scripts/benchmark/tile_torch/results/m1-max-20260904-cpu-cartesian-replay/notes.md>`
 improves seven paired median ratios but regresses 32³; the default remains 16.
-The {download}`six-order CPU/Torch/BLAS comparison <../../scripts/benchmark/tile_torch/results/m1-max-20260904-cpu-cartesian-system/notes.md>`
+The {download}`six-order CPU/Torch/BLAS comparison <../../../../scripts/benchmark/tile_torch/results/m1-max-20260904-cpu-cartesian-system/notes.md>`
 still shows about an 8× 1024³ gap. Larger packs alone are not a complete CPU
 mapping model.
 
@@ -1486,11 +1490,11 @@ direct global strides and repeated predicates; compact packing may still win
 through cache reuse or vectorization. Candidate selection must measure that
 tradeoff at fixed geometry, thread request, stack budget, and pack budget.
 
-The {download}`four-round forwarding A/B <../../scripts/benchmark/tile_torch/results/m1-max-20260904-cpu-views-replay/notes.md>`
+The {download}`four-round forwarding A/B <../../../../scripts/benchmark/tile_torch/results/m1-max-20260904-cpu-views-replay/notes.md>`
 confirms staging-array removal and 1.45–1.76× paired median improvements for
 five regular shapes. In that historical revision both ragged GEMMs kept the same snapshot code;
 their timing differences are not evidence of forwarding's guard cost.
-The {download}`six-order CPU/Torch/BLAS comparison <../../scripts/benchmark/tile_torch/results/m1-max-20260904-cpu-views-system/notes.md>`
+The {download}`six-order CPU/Torch/BLAS comparison <../../../../scripts/benchmark/tile_torch/results/m1-max-20260904-cpu-views-system/notes.md>`
 measures 5.541 ms versus 0.982/0.989 ms at 1024³. The cost model must record
 actual realization and fallback coverage, not merely the requested switch.
 
@@ -1504,7 +1508,7 @@ guard. Association/order and extra masks do not matter; an OR arm is never
 treated as an assumption. All existing immutability/dominance checks remain.
 
 Second, **legally forwarded does not mean efficiently vectorized**. The
-{download}`retained failed experiment <../../scripts/benchmark/tile_torch/results/m1-max-20260904-cpu-guard-plan/notes.md>`
+{download}`retained failed experiment <../../../../scripts/benchmark/tile_torch/results/m1-max-20260904-cpu-guard-plan/notes.md>`
 eliminated A/B storage but emitted only scalar input loads and scalar FMAs
 for both ragged benchmark shapes. A lazy per-lane bounds check had scalarized
 the contraction. More aggressive copy elimination alone was much slower.
@@ -1566,11 +1570,11 @@ removal and vector FMA emission, plus nonzero padding, interior masks,
 negative offsets, nonzero loop minima, dynamic/zero-trip recurrences, and
 untaken expressions that would overflow or divide by zero if speculated.
 
-The {download}`fixed-geometry, frozen-binary A/B <../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-guards-replay/notes.md>`
+The {download}`fixed-geometry, frozen-binary A/B <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-guards-replay/notes.md>`
 measures 1.279×/1.818× paired median improvements for the two ragged GEMMs,
 with all four pairs improving for each. The six regular shapes have unchanged
 LLVM instructions and remain no-op timing controls. The independent
-{download}`six-order library comparison <../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-guards-system/notes.md>`
+{download}`six-order library comparison <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-guards-system/notes.md>`
 still measures 5.919 ms Tile versus 1.021/1.028 ms Torch/BLAS at 1024³; this
 repair is not the end of CPU execution/target planning.
 
@@ -1622,7 +1626,7 @@ The CPU provider proof is two-level:
    CBLAS requires three compact rank-two FP32 parameters with matching extents
    and `noalias`. A stale annotation cannot rescue a mismatching body.
 
-```{figure} ../_static/tile/tirx-realization-pipeline.svg
+```{figure} ../../../_static/tile/tirx-realization-pipeline.svg
 :alt: Structural TileIR export creates versioned proof contracts; target-specific passes revalidate them before choosing portable, CPU-provider, or Metal matrix atoms.
 :width: 100%
 
@@ -1644,13 +1648,13 @@ Reference remains the default. On a build/target without the provider, an
 explicit request fails. On a supported target, an unrecognized local pattern
 stays in reference TIRx; it is never approximately matched by an opcode label.
 
-The {download}`array-math replay <../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-accelerate-ops-replay/notes.md>`
+The {download}`array-math replay <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-accelerate-ops-replay/notes.md>`
 reports 2.71--6.12× paired gains for row sums and 2.10--5.46× for softmax,
 while add controls remain approximately 1×. The
-{download}`CBLAS replay <../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-cblas-v2-replay/notes.md>`
+{download}`CBLAS replay <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-cblas-v2-replay/notes.md>`
 reports all eight shapes, direct CBLAS and eager Torch in all six execution
 orders. The
-{download}`CPU residual-LayerNorm search <../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-residual-layernorm-materialization-search/notes.md>`
+{download}`CPU residual-LayerNorm search <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-residual-layernorm-materialization-search/notes.md>`
 selects recomputation for all four shapes while retaining structural SSA and
 holding its native LLVM/input-view/vectorization/64 KiB stack policies fixed.
 These results validate two reachable provider families and one target-specific

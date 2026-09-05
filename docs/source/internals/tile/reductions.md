@@ -1,62 +1,14 @@
-# TileIR to TIRx Metal reductions: design and evidence
+# TIRx Metal reduction lowering
 
-Status: implemented, opt-in, and exercised on Apple M1 Max as of September 5,
-2026. This document specifies the current FP32 Metal subset, its proof
-obligations, mapping algebra, finite solver, generated resource plan and
-performance evidence. It deliberately separates measured facts from the
-general Tile-language design.
+The bridge proves a semantic FP32 row reduction before assigning it to
+one or more SIMD groups and deriving worker-private storage. This is a
+target realization of execution-first TileIR, not a warp-specific DSL.
 
-## Outcome at a glance
+This page owns the mapping, proof, resource and intrinsic contracts.
+Performance measurements and regressions are maintained separately in
+[Metal reduction measurements](../../performance/tile/reductions.md).
 
-The old TIRx Metal path mapped one logical row program to one scalar worker.
-A width-4096 RMSNorm therefore performed a serial 4096-element recurrence in
-one thread; softmax could additionally allocate one private `float[4096]` per
-thread. Launch-width tuning could not repair that execution structure.
-
-The new lowering proves the reduction program, then maps one logical program
-to one or more 32-lane SIMD groups. It packs independent short programs into a
-threadgroup, cooperates across up to 32 SIMD groups for wide programs, and
-compacts eligible compiler-owned Tiles to worker-private stripes. The source
-C++ kernel and logical TileIR remain unchanged.
-
-Across the saved 24-case Apple M1 Max row-program cohort, all complete FP64 checks pass and
-Tile/TIRx is faster than eager PyTorch MPS in every row. Tile/Torch ranges from
-0.032× to 0.902× in synchronized device-resident host-wall throughput. Sum and
-softmax use preallocated output on both sides; PyTorch's functional RMSNorm,
-LayerNorm and cross-entropy allocate returned outputs inside timing, so those
-external comparisons are explicitly qualified below. Separate four-round,
-same-binary native A/B replays measure 21.19×--49.87× for RMSNorm and
-14.04×--75.54× for the LayerNorm/cross-entropy extension. Those causal
-native-to-native results are unaffected by PyTorch's output policy.
-
-The final four cases in that cohort are fused residual LayerNorm. They expose
-and repair a second structural gap: cloning a cheap shared Tile expression into each
-consumer duplicated device reads even after the execution hierarchy was
-mapped correctly. The structural exporter now preserves all multi-consumer
-pure Tile SSA by default, and the target mapper can compact it to bounded
-worker-private stripes. A staged/JIT candidate can still choose recomputation.
-
-These results close two identified structural gaps. They do **not** establish
-all-operator, all-shape, low-precision, cross-device or pure-kernel parity.
-The later target-width experiment (Section 9.6)
-adds separately measured GPU and E2E evidence, including search winners that
-regress in independent replay. The fixed-width input-reuse experiment
-(Section 9.7) then isolates a resource-planning improvement: caching audited
-immutable inputs improves the three large normalization cases in every
-paired round, while smaller mixed results and identical-source controls
-remain visible. The subsequent joint resource/width replay (Section 9.8)
-compares against the best measured reload width in the same family, rather
-than a fixed width. The three 1024×4096 cases gain 1.200×/1.214×/1.234×
-GPU throughput, while seven stable changed-source cases, four mixed cases
-and one unchanged-source control remain separated. Input caching stays opt-in.
-
-The frozen whole-launch model (Section 9.9) then tests four disjoint shapes
-without using their timings for selection. At 768×6144 it improves GPU
-throughput by 1.360×/1.287×/1.231× over the old automatic planner. However,
-37×1537 softmax and LayerNorm regress in every GPU/E2E-throughput pair.
-These held-out failures keep the new cost profile opt-in as well.
-
-```{figure} ../_static/tile/tirx-subgroup-reduction.svg
+```{figure} ../../../_static/tile/tirx-subgroup-reduction.svg
 :alt: A logical TileIR reduction passes fail-closed proofs and a bounded cost solver before becoming either packed independent SIMD groups or several cooperating SIMD groups, with memory resources planned separately.
 :width: 100%
 
@@ -138,7 +90,7 @@ fold with a tree order. A user who requires the exact serial recurrence keeps
 the option disabled or spells an ordered `serial` computation. The current
 surface does not yet expose richer accuracy/deterministic-tree policies.
 
-```{figure} ../_static/tile/execution-to-memory.svg
+```{figure} ../../../_static/tile/execution-to-memory.svg
 :alt: Logical execution coordinates and memory coordinates are related by explicit maps rather than by treating a memory tile as a hardware execution level.
 :width: 88%
 
@@ -179,6 +131,46 @@ arbitrary operation names.
 The same scheduled TIRx can be compiled by the standalone TVM route or
 extracted as a typed `DeviceArtifact` for the ordinary Luisa Metal Runtime.
 Backend compilation and launch ownership remain outside the bridge.
+
+### Warp and SIMD-group intrinsics in the generated code
+
+**The Metal path uses `simd_sum`, `simd_max` and `simd_min`.** They are present
+in emitted MSL, not merely listed as future planner capabilities. Each worker
+first accumulates its own ordered stripe; the intrinsic then combines the
+32 lanes of its SIMD group. For a single-group program, the result is already
+available to every lane and no threadgroup scratch or barrier is needed.
+
+With `S > 1` cooperating SIMD groups, each group's lane zero writes one
+partial to shared memory. One threadgroup barrier makes those partials visible.
+Every participating SIMD group then performs a second collective over the
+`S` partials, padding unused lanes with the reducer's identity. For sum, the
+generated structure is equivalent to:
+
+```cpp
+float partial = simd_sum(local_sum);
+if (lane == 0) { shared_partials[simd_group] = partial; }
+threadgroup_barrier(mem_flags::mem_threadgroup);
+float total = simd_sum(lane < S ? shared_partials[lane] : 0.0f);
+```
+
+The second collective is replicated across participating groups so subsequent
+distributed consumers have the result without an additional broadcast barrier.
+This implementation uses the native collective rather than an explicit
+shuffle-down loop. It does not currently need ballot, match or scan intrinsics;
+using more intrinsics is not itself an optimization objective. Generated MSL
+does not by itself prove a particular final machine-instruction sequence.
+
+The scope is the admitted **Metal FP32 add/max/min** family. The explicit
+`metal_subgroup_reductions` option also permits floating-point reassociation;
+disabled or unproved automatic cases retain the reference path, and an
+unrealizable explicit subgroup binding is rejected. This is not a claim that
+the CPU, CUDA or arbitrary reducer path has the same collective optimization.
+
+The implementation is `ReductionProgramMapper::_reduction` in
+{download}`reduction.cpp <../../../../src/tile/bridge/tirx/reduction.cpp>`.
+The {download}`execution tests <../../../../src/tests/unit/tile/bridge/test_tirx_execution.cpp>`
+check the generated intrinsic names, one-/multi-group barrier/storage counts,
+numerical outputs and disabled/fallback behavior.
 
 ## 3. Semantic domain and fail-closed admission
 
@@ -334,7 +326,7 @@ bounds predicate; no invalid load/store is speculatively evaluated. V changes
 the worker-local FP32 recurrence and requires the existing reduction-tree
 permission, unlike ordered stripe unrolling. It is not a vector-instruction
 promise. The
-{download}`layout and GPU/E2E evidence <../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-lane-validation/notes.md>`
+{download}`layout and GPU/E2E evidence <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-lane-validation/notes.md>`
 records the generic implementation, resource checks and frozen replay.
 
 This is the concrete instance of the more general relationship
@@ -433,7 +425,7 @@ unbounded private array. At residual LayerNorm width 4096, 32- and 64-thread
 maps would require 256 and 128 scalars per worker and are rejected; 128/256
 threads require 64/32 and remain legal.
 
-```{figure} ../_static/tile/reduction-model.svg
+```{figure} ../../../_static/tile/reduction-model.svg
 :alt: A semantic reduction domain is factored into execution participants and local slots while its reducer contract and result remain target independent.
 :width: 86%
 
@@ -481,7 +473,7 @@ distributed store. The current proof intentionally rejects otherwise safe but
 unrecognized permutations. Automatic execution then falls back to the
 reference map; an explicit subgroup request reports that it is unrealizable.
 
-```{figure} ../_static/tile/guarded-view-ownership.svg
+```{figure} ../../../_static/tile/guarded-view-ownership.svg
 :alt: A guarded dynamic gather cannot read a logically distributed Tile from one worker's private full array. Path-sensitive immutable view forwarding removes that array, while a separate ownership audit rejects unsupported maps.
 :width: 100%
 
@@ -561,7 +553,7 @@ one-subgroup programs; any simultaneous thread request must equal `32*Q`.
 Constraints are never silently clamped or reinterpreted.
 
 The bridge now exposes a backend-owned cost-policy interface and bounded
-ordered stripe unrolling. See [the implemented policy and search contract](tile_execution_planner.md).
+ordered stripe unrolling. See [the implemented policy and search contract](planner.md).
 The JIT harness can search `--tune-reduction-packing`,
 `--tune-reduction-unroll` and `--tune-reduction-lane-elements` alongside exact
 thread widths. The original model remains an uncalibrated prior; it does not
@@ -719,434 +711,25 @@ the targeted subgroup hardware tests avoid attributing that user's change to
 this feature. The complete Tile cohort was also run with the submitted
 source value restored temporarily, then the user's local edit was restored.
 Commands and the full warning boundary are in the
-{download}`shared-Tile validation note <../../scripts/benchmark/tile_torch/results/m1-max-20260905-shared-tile-validation/notes.md>`.
+{download}`shared-Tile validation note <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-shared-tile-validation/notes.md>`.
 
 The target-width checkpoint instead runs the full 33-test
 Tile suite without modifying that local edit: 31/33 pass, with only the two
 known cooperative/memory source-assertion conflicts; their numerical checks
 pass. All 83 Python benchmark contract tests and the 14 new ragged Metal
 layouts pass. The
-{download}`target-width validation log and boundary <../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-width-validation/notes.md>`
+{download}`target-width validation log and boundary <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-width-validation/notes.md>`
 retain the exact build/test provenance; the older 32/32 counts above are not
 relabeled as a new clean-source run.
 
 The subsequent input-reuse checkpoint adds 22 Metal numeric configurations
 and passes all 84 Python contracts. It rebuilds the full selected tree and
 again runs all 33 Tile tests without touching the local memory-flag edit:
-31/33 pass with the same two source-assertion failures. Section 9.7 and its
+31/33 pass with the same two source-assertion failures. The
+[input-reuse measurements](../../performance/tile/reductions.md#budgeted-immutable-input-reuse) and their
 linked validation note retain that run separately. The access-demand follow-up
-in Section 9.8 again builds the full tree and reports the same 31/33 boundary,
+in the [joint mapping measurements](../../performance/tile/reductions.md#joint-resource-and-execution-mapping)
+again builds the full tree and reports the same 31/33 boundary,
 while all 87 Python contracts pass. Its focused input-reuse run passes 89,942
 assertions including the new resource facts; the planner passes 5,941
 assertions in nine tests.
-
-## 9. Performance evidence
-
-### 9.1 Base reductions versus eager PyTorch
-
-The complete report is
-{download}`Metal subgroup reductions <../../scripts/benchmark/tile_torch/results/m1-max-20260905-metal-subgroup-reductions/notes.md>`;
-raw samples are in its adjacent `results.json`.
-
-| Operator / rows×width | Tile µs | Torch µs | Tile/Torch |
-|---|---:|---:|---:|
-| sum 1×127 | 3.268 | 7.211 | 0.453× |
-| sum 17×257 | 3.106 | 4.340 | 0.716× |
-| sum 128×1024 | 3.387 | 5.604 | 0.604× |
-| sum 64×4096 | 4.721 | 16.119 | 0.293× |
-| softmax 1×127 | 3.578 | 26.111 | 0.137× |
-| softmax 17×257 | 3.305 | 26.594 | 0.124× |
-| softmax 128×1024 | 5.385 | 30.376 | 0.177× |
-| softmax 64×4096 | 8.881 | 31.029 | 0.286× |
-| RMSNorm 1×127 | 3.904 | 7.155 | 0.546× |
-| RMSNorm 17×257 | 5.335 | 6.154 | 0.867× |
-| RMSNorm 128×1024 | 6.673 | 8.707 | 0.766× |
-| RMSNorm 64×4096 | 11.177 | 12.392 | 0.902× |
-
-These are p50 warm synchronized host-wall times across 11 samples with
-100 ms calibrated sample windows and 100 ms warmup. Inputs remain
-device-resident and native outputs are preallocated. Torch sum/softmax use
-preallocated `out=` storage; the public functional RMSNorm has no `out=`
-overload, so its returned-output allocation remains inside the Torch warm
-timing and is recorded per row. Capture, compilation, transfers and cold calls
-are separately recorded. PyTorch is eager and no `torch.compile` path is
-claimed.
-
-### 9.2 LayerNorm and cross-entropy versus eager PyTorch
-
-The independent eight-case extension is
-{download}`LayerNorm/cross-entropy <../../scripts/benchmark/tile_torch/results/m1-max-20260905-metal-subgroup-row-extensions/notes.md>`;
-its adjacent JSON retains every sample, plan, error, setup phase and generated
-Metal source.
-
-| Operator / rows×width | Tile µs | Torch µs | Tile/Torch |
-|---|---:|---:|---:|
-| LayerNorm 1×127 | 4.500 | 8.400 | 0.536× |
-| LayerNorm 17×257 | 5.714 | 8.821 | 0.648× |
-| LayerNorm 128×1024 | 7.542 | 13.726 | 0.549× |
-| LayerNorm 64×4096 | 12.413 | 24.313 | 0.511× |
-| cross-entropy 1×127 | 4.513 | 107.246 | 0.042× |
-| cross-entropy 17×257 | 3.449 | 107.695 | 0.032× |
-| cross-entropy 128×1024 | 4.290 | 110.171 | 0.039× |
-| cross-entropy 64×4096 | 5.838 | 112.263 | 0.052× |
-
-These use the same synchronized host-wall protocol, now with 11 samples and
-100 ms windows. PyTorch's functional LayerNorm and cross-entropy calls return
-new output tensors, so their allocation is inside timing. Cross-entropy also
-includes the general eager operator's dispatch and semantic machinery. The
-table is therefore a real API-level comparison, not evidence that the Tile
-kernel is 19--31× faster than an isolated MPS kernel. The native A/B below is
-the causal lowering comparison.
-
-### 9.3 RMSNorm causal A/B against the old lowering
-
-The independent
-{download}`RMSNorm replay <../../scripts/benchmark/tile_torch/results/m1-max-20260905-metal-subgroup-rmsnorm-replay/notes.md>`
-uses one current executable for both variants and changes only the explicit
-subgroup policy. It rotates case and implementation order over four rounds and
-freshly captures/JIT-compiles every row.
-
-| Rows×width | Old reference µs | New subgroup µs | Paired speedup median [range] |
-|---|---:|---:|---:|
-| 1×127 | 103.180 | 3.792 | 27.216× [24.924, 28.020] |
-| 17×257 | 268.202 | 5.366 | 49.871× [49.180, 54.574] |
-| 128×1024 | 144.082 | 6.805 | 21.192× [20.989, 21.207] |
-| 64×4096 | 524.444 | 11.160 | 47.096× [46.344, 50.864] |
-
-All 32 reference/candidate outputs pass. Ranges are observed paired-round
-minima/maxima, not confidence intervals. The result demonstrates a structural
-execution-mapping gain; it does not prove the chosen map globally optimal.
-
-### 9.4 LayerNorm and cross-entropy causal A/B
-
-The
-{download}`balanced extension replay <../../scripts/benchmark/tile_torch/results/m1-max-20260905-metal-subgroup-row-extensions-replay/notes.md>`
-uses the same executable for both policies, counterbalances order over four
-rounds, recaptures/JIT-compiles every variant and checks every output.
-
-| Operator / rows×width | Old reference µs | New subgroup µs | Paired speedup median [range] |
-|---|---:|---:|---:|
-| LayerNorm 1×127 | 131.413 | 4.577 | 28.675× [27.944, 29.063] |
-| LayerNorm 17×257 | 337.366 | 5.693 | 58.942× [57.105, 64.220] |
-| LayerNorm 128×1024 | 280.352 | 7.517 | 37.333× [36.900, 37.661] |
-| LayerNorm 64×4096 | 928.945 | 12.306 | 75.536× [74.338, 82.088] |
-| cross-entropy 1×127 | 62.412 | 4.446 | 14.042× [13.737, 14.854] |
-| cross-entropy 17×257 | 191.603 | 3.228 | 59.357× [53.681, 61.339] |
-| cross-entropy 128×1024 | 74.350 | 4.370 | 17.015× [16.097, 17.463] |
-| cross-entropy 64×4096 | 355.493 | 5.774 | 60.879× [59.618, 63.291] |
-
-All 64 native variant measurements pass, and all fingerprinted artifacts are
-unchanged across the replay. This attributes the gain to the execution/view/
-resource realization family rather than PyTorch output allocation or a
-different binary. The ranges are observed paired-round extrema, not confidence
-intervals.
-
-### 9.5 Fused residual LayerNorm and materialization choice
-
-The current
-{download}`Metal materialization search <../../scripts/benchmark/tile_torch/results/m1-max-20260905-residual-layernorm-materialization-search/notes.md>`
-JIT-compiles both shared-Tile policies for every shape. All measured winners
-use `PRESERVE`:
-
-| Rows×width | Tile µs | Eager Torch MPS µs | Tile/Torch | Stripe scalars/worker |
-|---|---:|---:|---:|---:|
-| 1×127 | 3.426 | 10.671 | 0.321× | 4 |
-| 17×257 | 3.655 | 11.705 | 0.312× | 6 |
-| 128×1024 | 6.321 | 18.592 | 0.340× | 8 |
-| 64×4096 | 8.324 | 27.046 | 0.308× | 32 |
-
-PyTorch evaluates eager `layer_norm(X + residual)` and allocates its returned
-output, so this is an API-level comparison. The clean policy attribution is
-the separate
-{download}`four-round A/B replay <../../scripts/benchmark/tile_torch/results/m1-max-20260905-residual-layernorm-materialization-replay/notes.md>`:
-
-| Rows×width | Expensive-only µs | Preserve µs | Paired preserve speedup [range] |
-|---|---:|---:|---:|
-| 1×127 | 3.692 | 3.506 | 1.057× [1.027, 1.137] |
-| 17×257 | 3.648 | 3.632 | 1.008× [0.957, 1.039] |
-| 128×1024 | 8.244 | 6.084 | 1.354× [1.313, 1.366] |
-| 64×4096 | 13.548 | 9.591 | 1.421× [1.392, 1.471] |
-
-All 32 native A/B measurements pass and use unchanged fingerprinted artifacts.
-The independent
-{download}`bounded thread search <../../scripts/benchmark/tile_torch/results/m1-max-20260905-residual-layernorm-bounded-thread-search/notes.md>`
-also records the 64-scalar legality bound and rejected wide-shape candidates.
-
-The
-{download}`CPU materialization search <../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-residual-layernorm-materialization-search/notes.md>`
-selects the other legal policy, `EXPENSIVE_ONLY`, with native/Torch ratios
-0.109×, 0.225×, 0.382× and 0.643×. That run includes native LLVM codegen,
-proved input views, automatic element packing and the explicit 64 KiB local
-stack budget. It demonstrates target-dependent resource planning, not a
-universal preference for either materialization policy.
-
-### 9.6 Target-aware widths: GPU and dispatch acceptance
-
-The latest
-{download}`width evidence and independent audit <../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-width-validation/notes.md>`
-cover 15 FP32 sum/softmax/RMSNorm cases: 17×257, 64×4096, 1024×4096,
-7×1537 and 128×8192. A six-width GPU-objective search compares
-{32,96,128,256,512,1024}; its reference is the best valid member of the
-restricted {32,128,256} subfamily. Both frozen variants retain V=4, P=1 and
-U=1. This is neither a full-width optimum nor an old/new default-policy test.
-
-All 240 replayed native/Torch outputs pass in four order-balanced rounds,
-with unchanged fingerprinted executable, bridge and TVM compiler/runtime
-libraries. GPU values below are **no-counter command-buffer execution
-intervals**, not isolated kernel timestamps. Host batches and single-call
-dispatch latency are separate uninstrumented phases. Times are medians of
-per-round p50s; gains are median paired reference/candidate ratios.
-
-At 1024×4096, all columns below are GPU measurements. Ref/new are the
-frozen native reference/candidate; Torch is measured with the candidate.
-
-| Op | Ref µs | New µs | Gain [min, max] | Torch µs |
-|---|---:|---:|---:|---:|
-| sum | 24.837 | 23.625 | 1.051× [1.031, 1.080] | 26.511 |
-| softmax | 67.543 | 59.174 | 1.141× [1.111, 1.157] | 121.056 |
-| RMSNorm | 70.910 | 64.210 | 1.101× [1.092, 1.132] | 68.802 |
-
-All three wider-row gains are positive in every pair. Their separate
-batched E2E throughput gains are 1.045×, 1.156× and 1.092×. RMSNorm's paired
-native/Torch GPU time ratio is 0.931, but single-call GPU medians are
-93.417/92.458 µs and E2E medians 316.479/318.855 µs: approximately parity,
-not a general dispatch-latency win. Torch's functional RMSNorm retains its
-returned-output allocation; sum and softmax use preallocated output on both
-sides. The reference-to-candidate comparison uses the same native API and
-allocation policy.
-
-The full cohort also contains necessary counterexamples. W=1024 sum at
-128×8192 and W=96 softmax at 17×257 were search winners but regress in all
-four independent GPU pairs, costing 6.79% and 25.88% more time. Five
-identical-plan controls quantify observed variability, including a
-0.848--1.131 apparent gain range for the shortest sum control. These are not
-confidence intervals or correction factors. The four-round finite cohort
-does not justify a universal winner, V default, or fitted cost coefficients.
-It does justify retaining an incumbent in independent measured acceptance.
-
-At N=4096/W=1024/V=4 the generated MSL has one straight-line four-element
-pack; at W=128 it has eight chunk iterations. Softmax's private stripe also
-shrinks from 32 to four scalars. These are real code-shape/resource features,
-not evidence of physical register counts or the exact performance cause.
-The remaining policy needs memory/issue/collective service and whole-device
-subgroup demand, followed by held-out ranking validation. A more elaborate
-solver cannot compensate for missing features or noisy timing labels.
-
-### 9.7 Budgeted immutable-input reuse
-
-The optional `PlannerOptions::cache_reduction_inputs` restores a scheduling
-choice that unconditional input forwarding erased: a proved immutable input
-Tile used in distinct element/reduction domains may remain materialized.
-The existing reduction ownership audit then maps it to worker-private
-stripes and charges the same cumulative scalar budget as computed Tiles.
-This does not add a DSL entity, change logical execution coordinates, or ask the user
-to place input memory manually. The default remains reload/forward.
-
-The view analysis still requires noalias, immutable source/address/guard/fill,
-complete initialization, dominance, bounds, and non-escape. It counts distinct
-consumer domains, so `x*x` in one recurrence alone does not cache `x`.
-Preserved copies carry compiler provenance; manual memory is not relabeled.
-The mapping must also prove that every later access belongs to the same
-worker. Cross-worker dynamic gathers and over-budget requests fail closed;
-enabling this option is an exact request for the reduction mapping family,
-not permission to silently fall back to a replicated Tile.
-
-The benchmark switch `--cache-reduction-inputs` and frozen replay preserve
-this choice explicitly. The
-{download}`complete input-cache evidence <../../scripts/benchmark/tile_torch/results/m1-max-20260905-input-cache-validation/notes.md>`
-contains a fixed W=512, V=4, U=1, P=1 experiment for sum, softmax, RMSNorm,
-LayerNorm and residual LayerNorm at five shapes. Four-round counterbalanced
-replay validates all 400 outputs; the two unscreened pilots add 100 outputs.
-All realized source hashes and complete plans match their frozen pilots.
-
-At 1024×4096 the cache candidate reduces GPU execution time for all three
-affected normalizations in every paired round. GPU means no-counter
-command-buffer time, not an isolated kernel timestamp. Times are medians of
-per-round p50s; gain is the paired ratio median, with observed min–max:
-
-| Op | Reload µs | Cache µs | Gain [min, max] | Torch µs |
-|---|---:|---:|---:|---:|
-| softmax | 74.198 | 53.949 | 1.378× [1.373, 1.395] | 121.715 |
-| RMSNorm | 70.668 | 55.863 | 1.265× [1.246, 1.345] | 69.108 |
-| LayerNorm | 79.150 | 64.704 | 1.221× [1.213, 1.251] | 206.598 |
-
-E2E-throughput gains are 1.381×, 1.279× and 1.229× in the same order.
-These compare cache/reload at the **same fixed mapping**, not the default
-planner, earlier tuned widths or an exhaustive hardware optimum. Torch uses
-the recorded eager/output-allocation policy. All 15 changed-source cases
-have positive median GPU gains, but RMSNorm 17×257/64×4096 and LayerNorm
-17×257 include an individual pair at or below parity. All ten unchanged
-sum/residual LayerNorm cases are retained as identical-source controls;
-their timing variation is not credited as an optimization.
-
-The unchanged analytic score exposes the next problem concretely: caching
-raises the 4096-column RMSNorm score from 64 to 72 because it adds a private
-copy traversal, while the measured GPU time falls. It does not distinguish
-global from private access service or price eliminated cross-phase input
-reads. Cache/reload candidates must not be pruned by that uncalibrated score.
-Resource-sensitive features and held-out ranking validation remain necessary;
-defaults and cost coefficients are unchanged.
-
-The implementation checkpoint passes 22 new Metal numeric configurations
-(including packed-program tails, V=1/V=4, three-way unrolling, non-power-of-two
-cooperation and zero-padded input). Tests also reject unsupported targets,
-missing noalias, cross-worker gathers and over-budget caches. The full Tile
-suite remains 31/33: only the two pre-existing source assertions against the
-untouched local `mem_flags(2)` edit fail. Benchmark Python tests pass 84/84.
-
-### 9.8 Joint resource and execution mapping
-
-The {download}`access-demand and joint-search report
-<../../scripts/benchmark/tile_torch/results/m1-max-20260905-access-demand-validation/notes.md>`
-adds global/private payload read/write facts to backend-overridable policies
-and cache/reload as a staged/JIT Cartesian dimension. The facts are conservative
-logical IR demand per program and per longest worker stripe, not physical
-DRAM/register traffic. Identical loads count once within an evaluation, not
-across phases. Unsupported constructs mark the feature unavailable; optional
-access-service coefficients remain zero until calibrated.
-
-The experiment searches W={32,128,256,512,1024} × {reload,cache}, fixing
-V=4/U=1/P=1 and the 64-scalar private budget, for softmax/RMSNorm/LayerNorm
-at 23×769, 128×2048, 1024×4096 and 128×8193. It retains 101 valid trials,
-19 resource/mapping rejections and 12 fresh winner JITs. The reference is the
-best valid reload width in that same family, not the default planner. Three
-shapes are new relative to Section 9.7, but are tuned before acceptance and
-therefore are not held-out model validation.
-
-Four frozen, counterbalanced replay rounds validate all 192 outputs; search
-and fresh winner measurements validate another 226. Complete plans and source
-hashes match their frozen catalogs, with identical binaries/compiler artifacts.
-The following values are medians of per-round p50 no-counter GPU
-command-buffer times, not isolated-kernel timestamps. Gains are paired-ratio
-medians and observed min–max, not confidence intervals.
-
-| 1024×4096 op | Reload GPU µs | Joint GPU µs | GPU gain [range] | E2E gain |
-|---|---:|---:|---:|---:|
-| softmax | 59.162 | 49.179 | 1.200× [1.195, 1.210] | 1.199× |
-| RMSNorm | 64.211 | 52.826 | 1.214× [1.198, 1.221] | 1.221× |
-| LayerNorm | 75.660 | 61.316 | 1.234× [1.210, 1.240] | 1.248× |
-
-All anchor pairs improve. Softmax keeps W=1024, LayerNorm keeps W=128;
-RMSNorm changes W=1024→256, so its improvement combines width and reuse.
-Candidate-run eager Torch GPU medians are 122.653 / 69.742 / 205.799 µs;
-native/Torch paired time ratios are 0.401 / 0.761 / 0.297. Torch softmax has
-preallocated output, while its functional norms allocate returned outputs.
-
-Seven changed-source cases improve in every GPU pair: these anchors, all
-three 128×8193 cases, and LayerNorm 128×2048. Softmax and RMSNorm at
-23×769/128×2048 have mixed individual GPU pairs despite positive medians.
-All 11 changed-source cases improve in every E2E-throughput pair. The unchanged
-23×769 LayerNorm control has 0.924× apparent GPU gain [0.909, 1.023], exposing
-measurement variability rather than a code regression. No control is used
-as a correction factor, and no universal cache default is inferred.
-
-Independent batch/single-call GPU and E2E phases are retained in the full
-report. At 1024×4096 RMSNorm, native/Torch E2E batch time is 53.938/74.218 µs
-and E2E single-call latency is 303.354/323.521 µs; GPU single-call time is
-71.708/79.979 µs. Their phase medians must not be subtracted to estimate host
-overhead. These measurements use TIRx/TVM runtime, not native MPP/MPS or XIR.
-
-The new cost facts expose the actual tradeoff: at N=8193/W=256,
-softmax/LayerNorm caching needs 66 private scalars and is rejected; W=512
-needs 34 and is legal. RMSNorm admits W=256 with 33 scalars. At N=4096/W=512,
-caching adds eight rounds but removes 32 global-read bytes per worker; the
-old score cannot reward that service change. The optional resource terms
-enable calibrated backend policy, but full-device demand, live state and
-independent acceptance still need to guide any future pruning/default.
-
-### 9.9 Whole-launch policy: shape-held-out gains and small-case failures
-
-The {download}`service-policy report
-<../../scripts/benchmark/tile_torch/results/m1-max-20260905-service-policy-validation/notes.md>`
-records the first shape-held-out check of a calibrated reduction objective.
-`reduction_cost` separates local program work from the complete machine
-score, which the solver now minimizes without a hidden second wave multiplier.
-An optional typed service model prices subgroup launch demand and the new
-payload-access facts; the legacy policy remains default.
-
-The implementation, six-coefficient nonnegative fit and protocol were frozen
-in `47314e616` before measuring 37×1537, 256×3072, 768×6144 and 64×12289.
-The same three operators run on M1 Max, so this is not an operator/device
-holdout. Reference: legacy automatic width with reload. Candidate: automatic
-service-policy width plus separately captured reload/cache choices selected
-only by model cost. V=4/U=1/P=1 is fixed on both sides. No new timing label is
-used to select the candidate, and no per-shape winner table enters the model.
-
-All 96 plan-collection and 192 replay outputs pass executed validation. An
-independent audit reconstructs all 32 width scores and verifies exact plans,
-source hashes and 21 unchanged compiler/runtime/calibration artifacts. The
-four-round GPU results below are no-counter command-buffer execution, **not
-isolated-kernel time**. Gains are paired-ratio medians with observed min–max,
-not confidence intervals; displayed times are medians of per-round p50s.
-
-| 768×6144 op | Old GPU µs | Model GPU µs | GPU gain [range] | E2E gain |
-|---|---:|---:|---:|---:|
-| softmax | 78.017 | 57.414 | 1.360× [1.353, 1.364] | 1.372× |
-| RMSNorm | 78.097 | 60.753 | 1.287× [1.279, 1.289] | 1.280× |
-| LayerNorm | 92.931 | 75.251 | 1.231× [1.218, 1.243] | 1.233× |
-
-All anchor pairs improve; W changes from 384 to 192/256/256 with caching.
-Across the full cohort, nine cases improve in every GPU pair and ten in
-every E2E-throughput pair. But **37×1537 softmax and LayerNorm regress in every
-GPU and E2E-throughput pair**: GPU gains are 0.904× [0.846, 0.932] and
-0.876× [0.818, 0.928]. Both change W=192/reload to W=416/cache. Small RMSNorm
-GPU is mixed, 0.987× [0.894, 1.043], and its native/Torch time ratio is
-1.024 [0.949, 1.070]. These failures prevent promoting the profile to default.
-The current A/B does not isolate width, reuse or their interaction; a fixed
-2×2 ablation is needed before proposing a revision.
-
-Eleven of twelve candidates beat eager Torch GPU throughput in every pair;
-all twelve beat its E2E batch throughput. Torch softmax uses preallocated
-output, while its functional norms allocate returned output inside timing.
-At 768×6144, native/Torch E2E batch times are 58.321/136.194,
-62.432/83.321 and 76.873/290.837 µs. Synchronized single-call E2E times are
-285.563/439.895, 321.375/338.583 and 340.417/532.854 µs. Large batch gains
-do not establish equivalent single-call improvements: only one case improves
-E2E single-call latency in every A/B pair. Do not subtract independently
-sampled GPU/host medians. Instrumented probe/control throughput ratios span
-0.895–4.357 for Torch, so those probe samples remain diagnostic only.
-
-This is a useful whole-launch planning improvement with explicit negative
-evidence, not a general reduction scheduler or production-network claim.
-The code checkpoint passes 89 Python contracts, 5,988 planner assertions and
-the same 31/33 Tile CTest boundary: two untouched local `mem_flags(2)` source
-assertion conflicts, with the new execution/numerical tests passing.
-
-## 10. What this closes, and what remains
-
-This work closes the specific defect “logical reduction hierarchy is exported
-but mechanically scalarized on Metal” for the admitted FP32 row-program
-subset. It also demonstrates the intended architecture:
-
-- execution structure is primary;
-- execution distribution is a target-chosen map, not a source memory level;
-- resource layout follows a proved ownership correspondence;
-- a thin mutable semantic IR can feed TVMx without becoming a serialization
-  format;
-- the target bridge can add specific analyses/passes incrementally; and
-- finite analytic planning and staged/JIT measurement compose naturally.
-
-The next honest milestones are:
-
-1. add typed reduction policy for deterministic tree shape, accuracy, NaN and
-   signed-zero behavior;
-2. extend the atom catalog to FP16/BF16 and pair/tuple reducers such as
-   Welford, argmax and online attention state;
-3. share target-independent reduction/ownership facts between the TIRx and XIR
-   bridges rather than re-deriving them from target IR;
-4. isolate the small-program service-policy regressions with fixed width/reuse
-   ablations, then add missing issue/live-state features and validate a revised
-   profile on a new holdout and another Apple GPU; retain exact JIT overrides;
-5. measure cross-entropy backward, decode and prefill attention, Top-K/sort
-   and representative end-to-end LLM blocks;
-6. add equivalent CUDA and CPU realization families without pretending their
-   binding, memory or collective costs are Metal's; and
-7. introduce a general Machine TileIR only when multiple backends need the
-   same scheduled atom/resource representation and its invariants can be
-   stated more cleanly than bridge-local plans.
-
-Until those milestones are measured, the correct claim is narrow but useful:
-the TIRx route now has a proof-driven, cost-ranked, high-performance Metal
-reduction realization, and the previously measured RMSNorm, LayerNorm and
-forward cross-entropy gaps plus the fused residual LayerNorm shared-SSA defect
-are closed on the recorded M1 Max cohort.
