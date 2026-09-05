@@ -1,6 +1,6 @@
 # Tile performance by compiler route
 
-Saved comparisons through September 5, 2026. These are separate experiments,
+Saved comparisons through September 6, 2026. These are separate experiments,
 not a cross-route leaderboard with one matched timing and math policy.
 See [current status](index.md) for the conclusion and remaining goal.
 
@@ -151,6 +151,85 @@ Native/handwritten MPP use fast math off; TVM's Metal runtime uses fast math
 on. All values above are synchronized host-wall batched times, not GPU-event
 durations. The original TIRx, staged TIRx MPP, native MPP, handwritten MPP,
 MPS and Torch controls remain in the raw report.
+
+### Larger matrices: the 1024-cubed win does not generalize
+
+The new six-shape scale test freezes existing schedules before timing; it
+does not tune a new winner at each size. Native and handwritten MPP retain
+their old 32×32 control; ordinary and non-forwarding TIRx use 32×32×32,
+128 threads. The view path transfers the old 128×32×1024, 128-thread winner
+unchanged. Fourteen rounds balance all seven positions and pair precedence.
+The {download}`predeclared protocol
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-large-matrices/protocol.md>`
+and {download}`complete scale report
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-large-matrices/notes.md>`
+retain all paths, round ranges, single-call timings and failures.
+
+**8192³ still has a substantial gap.** Native MPP's paired GPU/Torch time
+ratio is 1.985 [1.916, 2.786], slower in all 14 rounds. TIRx→MPP views reduces
+that to 1.125 [1.019, 1.251], but also loses all 14 GPU pairs. Its E2E/Torch
+ratio is 1.096 [0.887, 1.597], with only two faster rounds. This is not general
+MPS/Torch parity; the nearby 2048³/4096³ medians have much wider mixed ranges.
+
+GPU batch times below are **milliseconds**, from no-counter command-buffer
+intervals, not isolated kernel timestamps. Native/handwritten MPP keep fast
+math off; TVM Metal's existing fast-math behavior is unchanged. “TIRx” means
+ordinary SIMD-group matrices, “MPP” means TIRx→MPP without forwarded inputs,
+and “Views” means TIRx→MPP with proved input views. MPS is the direct matrix
+API, not MPSGraph; Torch is eager MPS. All outputs are preallocated for GEMM.
+
+```{table} Large GEMM GPU batch time (ms)
+:class: benchmark-table
+
+| M×N×K | Native | TIRx | Hand MPP | MPS | Torch | MPP | Views |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 2048×2048×2048 | 3.201 | 4.089 | 2.832 | 3.018 | 2.989 | 3.713 | 3.012 |
+| 4096×4096×4096 | 29.978 | 39.556 | 27.169 | 30.148 | 27.074 | 33.065 | 29.273 |
+| 8192×8192×8192 | 476.117 | 438.198 | 412.663 | 248.050 | 237.612 | 421.804 | 271.092 |
+| 256×11008×4096 | 6.581 | 6.128 | 6.902 | 3.944 | 3.810 | 5.718 | 4.264 |
+| 4096×4096×11008 | 102.115 | 156.372 | 90.646 | 94.582 | 82.550 | 150.774 | rejected |
+| 2049×4097×1025 | 3.626 | 10.898 | 3.748 | 3.645 | 3.350 | 10.581 | rejected |
+```
+
+Separately measured **batched E2E milliseconds**, including warm Runtime/
+framework dispatch, submission and synchronization:
+
+```{table} Large GEMM end-to-end batch time (ms)
+:class: benchmark-table
+
+| M×N×K | Native | TIRx | Hand MPP | MPS | Torch | MPP | Views |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 2048×2048×2048 | 3.254 | 4.208 | 2.883 | 3.012 | 3.196 | 3.596 | 3.144 |
+| 4096×4096×4096 | 30.026 | 35.439 | 27.701 | 30.651 | 27.377 | 32.446 | 29.808 |
+| 8192×8192×8192 | 461.686 | 369.682 | 412.923 | 295.217 | 278.915 | 399.020 | 300.684 |
+| 256×11008×4096 | 6.529 | 6.214 | 7.156 | 4.101 | 3.896 | 6.005 | 4.276 |
+| 4096×4096×11008 | 95.074 | 146.511 | 91.488 | 85.497 | 77.179 | 131.272 | rejected |
+| 2049×4097×1025 | 3.984 | 11.906 | 3.865 | 3.811 | 3.520 | 11.755 | rejected |
+```
+
+GPU and host phases are independent; do not subtract these medians to infer
+dispatch cost. Large GEMM times drift substantially despite balanced order;
+the experiment does not identify the cause. No noisy labels refit the model.
+
+The two rejected view requests have K tails. MPP's unguarded address contract
+prevents forwarding a region that is not proved fully in bounds; materializing
+the fixed large tiles then fails the bounded resource/geometry planner.
+This is a fixed-schedule admission failure, not general MPP unavailability:
+the other six paths validate both shapes. A bounded full/tail realization and
+a shape-aware resource search remain work to do; no substitute block hides
+the rejection. The {download}`loader preflight
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-large-matrices/environment-preflight.md>`
+also preserves the initial unpatched-TVM capability failures separately.
+
+All 560 executed GEMM replay outputs pass complete FP64 comparison; 28 view
+admission failures remain failures. All 26 inventoried artifacts are unchanged.
+The {download}`independent audit and all paired metrics
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-large-matrices/audit.json>`
+checks recorded validation, balanced order, fixed plans, sources and all four
+timing metrics. These deterministic FP32 tests are not low-precision or
+end-to-end model coverage. The separate
+[wide-row reduction cohort](reductions.md#wide-rows-and-large-working-sets)
+extends normalization to width 16384 and a 512 MiB input/output payload.
 
 ### CPU TIRx: reference gaps and proved provider realizations
 

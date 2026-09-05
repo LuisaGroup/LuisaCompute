@@ -3,7 +3,6 @@
 # For the full list of built-in configuration values, see the documentation:
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
-import os
 import sys
 from pathlib import Path
 
@@ -48,7 +47,8 @@ exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store', 'venv', '.venv', 'output
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
 html_theme = 'sphinx_rtd_theme'
-html_static_path = ['_static'] if os.path.isdir('_static') else []
+html_static_path = ['_static']
+html_css_files = ['benchmark-tables.css']
 
 # -- Options for todo extension ----------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/extensions/todo.html#configuration

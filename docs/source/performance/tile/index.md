@@ -13,11 +13,11 @@ checkpoints
 
 ## Current conclusion
 
-As of September 5, 2026, on the `codex/tile-programming-design` branch:
+As of September 6, 2026, on the `codex/tile-programming-design` branch:
 **the architecture runs, and several measured cohorts beat eager Torch or
 approach/beat MPS, but the general performance goal is not complete.**
 The results below are primarily FP32 on an Apple M1 Max. They do not establish
-production-size LLM, low-precision, all-shape or cross-device parity.
+end-to-end production LLM, low-precision, all-shape or cross-device parity.
 
 The source language, mutable TileIR, C++ TIRx bridge, bounded native Metal MPP
 lowering and XIR/SIMD CPU route are implemented. Execution mapping is planned
@@ -44,7 +44,15 @@ also retain output-allocation, fusion and fast-math differences.
 
 ## Results by route
 
-**Metal GEMM is near MPS, not decisively ahead of it.** In the saved 14-round
+**Large Metal GEMM still falls short.** The new 14-round
+[scale test](results.md#larger-matrices-the-1024-cubed-win-does-not-generalize)
+covers 2048³/4096³/8192³, two large rectangles and a ragged shape. At 8192³,
+native MPP's paired GPU/Torch time ratio is 1.985; TIRx→MPP views reaches
+1.125 but loses all 14 GPU pairs. Two tail shapes reject the frozen large-view
+schedule, while the other paths validate them. No new per-shape tuning is
+claimed. There are 560 passing complete outputs and 28 retained rejections.
+
+The earlier result remains historical, not a scale guarantee. In its 14-round
 FP32 1024³ replay, TIRx-to-MPP views take 270.675 µs, native MPP 287.137 µs,
 direct MPS 272.572 µs and eager Torch 284.654 µs in median host-wall batch time.
 The paired TIRx-view/MPS time ratio is 0.9938: a small measured advantage.
@@ -76,6 +84,18 @@ regresses in every GPU pair for eight cases and improves for only two.
 Automatic packing is unchanged. These are separate experiments, not gains
 that can be multiplied together.
 
+The subsequent [fixed-total-group experiment](reductions.md#fixed-total-group-size-versus-automatic-execution)
+also retains the automatic control: S2/P4 consistently improves two many-short-row
+cases but regresses eight, despite its gains against some hand-picked mappings.
+All 456 output validations pass; no new mapping default follows from this result.
+
+The latest [wide-row coverage](reductions.md#wide-rows-and-large-working-sets)
+reaches width 16384 and a 512 MiB input/output payload. Softmax, RMSNorm and
+LayerNorm beat eager Torch in GPU and E2E throughput for all 18 cases in both
+observed orders, with 72 full-output checks passing. These are only two rounds;
+large RMSNorm margins narrow to about 1–4%, and single-call latency retains
+mixed results and a regression. Throughput does not establish latency parity.
+
 **CPU provider wins do not close the native XIR gap.** Proved TIRx CBLAS GEMMs
 beat eager Torch on seven of eight replayed shapes; Accelerate array operations
 also improve the admitted reduction/softmax families. Direct XIR/SIMD has a
@@ -94,9 +114,13 @@ not an all-green worktree. The fixed packing experiment validates 240 outputs
 across parameter pilots and the independent replay. Its complete records are
 linked from [reduction measurements](reductions.md).
 
-The next milestone is stable, held-out mapping/resource selection after the
-tail repair, with independently replayed acceptance and explicit GPU/E2E
-objectives. Broader dtypes, layouts, production LLM shapes, native MPP coverage
+The new scale-benchmark orchestration passes 93 Python tests; it reuses those
+same binaries and does not add a build/CTest claim. GEMM and reduction compiler
+inventories are checked separately because the MPP path loads patched TVM.
+
+The next milestone is bounded full/tail matrix realization and mapping/resource
+selection that scales beyond 1024³, with independently replayed acceptance and
+explicit GPU/E2E objectives. Broader dtypes, layouts, production LLM workloads, native MPP coverage
 and direct XIR performance remain open. A small cohort win is not the acceptance
 criterion for "faster than MPS/Torch."
 

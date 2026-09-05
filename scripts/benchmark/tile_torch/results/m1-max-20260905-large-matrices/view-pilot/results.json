@@ -1,0 +1,134 @@
+{
+  "metadata": {
+    "timestamp": "2026-09-05T15:17:50.898630+00:00",
+    "cpu": "Apple M1 Max",
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "python": "3.13.7 (main, Sep  2 2025, 14:05:52) [Clang 20.1.4 ]",
+    "torch_version": "2.14.0",
+    "torch_config": "PyTorch built with:\n  - GCC 4.2\n  - C++ Version: 202002\n  - clang 21.0.0\n  - OpenMP 202011\n  - LAPACK is enabled (usually provided by MKL)\n  - NNPACK is enabled\n  - CPU capability usage: DEFAULT\n  - Build settings: BLAS_INFO=accelerate, BUILD_TYPE=Release, COMMIT_SHA=08187d9e0fba026dc8217405802ab5381dc88d90, CUDA_FLAGS= -DLIBCUDACXX_ENABLE_SIMPLIFIED_COMPLEX_OPERATIONS -Xfatbin -compress-all  -Wno-deprecated-gpu-targets --expt-extended-lambda -DCUB_WRAPPED_NAMESPACE=at_cuda_detail -DDISABLE_CUSPARSE_DEPRECATED -DCUDA_HAS_FP16=1 -D__CUDA_NO_HALF_OPERATORS__ -D__CUDA_NO_HALF_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__ -D__CUDA_NO_BFLOAT16_CONVERSIONS__ -DC10_NODEPRECATED, CXX_COMPILER=/usr/bin/c++, CXX_FLAGS= -fvisibility-inlines-hidden -DUSE_PTHREADPOOL -DNDEBUG -DUSE_KINETO -DUSE_PYTORCH_QNNPACK -DAT_BUILD_ARM_VEC256_WITH_SLEEF -DUSE_PYTORCH_METAL_EXPORT -DSYMBOLICATE_MOBILE_DEBUG_HANDLE -DUSE_COREML_DELEGATE -O2 -fPIC -DC10_NODEPRECATED -Wall -Wextra -Werror=return-type -Werror=non-virtual-dtor -Werror=braced-scalar-init -Werror=range-loop-construct -Werror=bool-operation -Wnarrowing -Wno-missing-field-initializers -Wno-unknown-pragmas -Wno-unused-parameter -Wno-strict-overflow -Wno-strict-aliasing -Wvla-extension -Wsuggest-override -Wnewline-eof -Winconsistent-missing-override -Winconsistent-missing-destructor-override -Wno-pass-failed -Wno-error=old-style-cast -Wconstant-conversion -Qunused-arguments -faligned-new -fno-math-errno -fno-trapping-math -Werror=format -fclang-abi-compat=17 -DUSE_MPS -Wno-missing-braces, LAPACK_INFO=accelerate, TORCH_VERSION=2.14.0, USE_CUDA=OFF, USE_CUDNN=OFF, USE_CUSPARSELT=OFF, USE_EIGEN_FOR_BLAS=ON, USE_GFLAGS=OFF, USE_GLOG=OFF, USE_GLOO=ON, USE_HIPSPARSELT=OFF, USE_MKL=OFF, USE_MKLDNN=OFF, USE_MPI=OFF, USE_NCCL=OFF, USE_NNPACK=ON, USE_OPENMP=ON, USE_ROCM=OFF, USE_ROCM_KERNEL_ASSERT=OFF, USE_XCCL=OFF, USE_XPU=OFF, \n",
+    "threads": 8,
+    "thread_environment": {
+      "TVM_NUM_THREADS": "8",
+      "OMP_NUM_THREADS": "8",
+      "VECLIB_MAXIMUM_THREADS": "8"
+    },
+    "git_revision": "6941257465af98d43e8bf6e3ac6b106ea6f30fa8",
+    "worktree_dirty": true,
+    "native_binary": "/Users/mike/CLionProjects/luisa/cmake-build-tirx/bin/benchmark_tile_tirx",
+    "native_sha256": "9cbdc7873355118a9874c58eec499cdb0692dd9286c14b52afceae620c62ad87",
+    "metal_device_timing": null,
+    "system_baseline": null,
+    "adjacent_tile_library_sha256": {
+      "libluisa-tile-bridge-tirx.dylib": "1a06ad07d6d4eeb4d645b6324ea3719b5192940537da786df65860c77754b420",
+      "libluisa-tile-bridge-xir.dylib": "77b6343363ba3b2dc242d7c0a22d4b68c277b057a0795f52ba98090200954d95",
+      "libluisa-tile.dylib": "3c826ec66f1c3bc303b7a3eaec0641cabc401fc5f9489c99f09201746e57883f"
+    },
+    "samples": 3,
+    "sample_ms": 10,
+    "warmup_ms": 100,
+    "execution_scope": "group",
+    "pipeline_window": 1,
+    "cooperative_matrix": true,
+    "matrix_realization": "mpp-views",
+    "metal_subgroup_reductions": false,
+    "reduction_programs_per_group": 0,
+    "element_grid": null,
+    "reduction_unroll": 1,
+    "reduction_lane_elements": 1,
+    "cache_reduction_inputs": false,
+    "reduction_cost_profile": "analytic",
+    "shared_tile_materialization": "preserve",
+    "vectorize": true,
+    "auto_vectorize": false,
+    "cpu_stack_bytes": 0,
+    "capture_sources": true,
+    "cpu_vector_lanes": 16,
+    "cpu_input_views": false,
+    "input_views": false,
+    "cpu_model": null,
+    "cpu_matrix_backend": "reference",
+    "cpu_math_backend": "reference",
+    "group_threads": 128,
+    "copy_batch": 1,
+    "gemm_tuning_candidates": [],
+    "joint_tuning_candidates": [],
+    "max_tuning_candidates": 256,
+    "tuning_metric": "host",
+    "quick": false,
+    "timing": "synchronized device-resident host wall time including dispatch"
+  },
+  "results": [
+    {
+      "name": "gemm_2048x2048x2048",
+      "backend": "metal",
+      "case": {
+        "operation": "gemm",
+        "m": 2048,
+        "n": 2048,
+        "k": 2048
+      },
+      "valid": false,
+      "error": "native benchmark failed (2):\nThis TVM build lacks Metal MPP memory contract v2; use SIMD-group lowering or the documented TVM patch\n\n"
+    },
+    {
+      "name": "gemm_4096x4096x4096",
+      "backend": "metal",
+      "case": {
+        "operation": "gemm",
+        "m": 4096,
+        "n": 4096,
+        "k": 4096
+      },
+      "valid": false,
+      "error": "native benchmark failed (2):\nThis TVM build lacks Metal MPP memory contract v2; use SIMD-group lowering or the documented TVM patch\n\n"
+    },
+    {
+      "name": "gemm_8192x8192x8192",
+      "backend": "metal",
+      "case": {
+        "operation": "gemm",
+        "m": 8192,
+        "n": 8192,
+        "k": 8192
+      },
+      "valid": false,
+      "error": "native benchmark failed (2):\nThis TVM build lacks Metal MPP memory contract v2; use SIMD-group lowering or the documented TVM patch\n\n"
+    },
+    {
+      "name": "gemm_256x11008x4096",
+      "backend": "metal",
+      "case": {
+        "operation": "gemm",
+        "m": 256,
+        "n": 11008,
+        "k": 4096
+      },
+      "valid": false,
+      "error": "native benchmark failed (2):\nThis TVM build lacks Metal MPP memory contract v2; use SIMD-group lowering or the documented TVM patch\n\n"
+    },
+    {
+      "name": "gemm_4096x4096x11008",
+      "backend": "metal",
+      "case": {
+        "operation": "gemm",
+        "m": 4096,
+        "n": 4096,
+        "k": 11008
+      },
+      "valid": false,
+      "error": "native benchmark failed (2):\nThis TVM build lacks Metal MPP memory contract v2; use SIMD-group lowering or the documented TVM patch\n\n"
+    },
+    {
+      "name": "gemm_2049x4097x1025",
+      "backend": "metal",
+      "case": {
+        "operation": "gemm",
+        "m": 2049,
+        "n": 4097,
+        "k": 1025
+      },
+      "valid": false,
+      "error": "native benchmark failed (2):\nThis TVM build lacks Metal MPP memory contract v2; use SIMD-group lowering or the documented TVM patch\n\n"
+    }
+  ]
+}

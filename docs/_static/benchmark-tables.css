@@ -1,0 +1,10 @@
+/* Keep dense measurements inside the existing documentation column. */
+.rst-content table.benchmark-table th,
+.rst-content table.benchmark-table td {
+    padding: 6px 8px;
+}
+
+.rst-content table.benchmark-table th,
+.rst-content table.benchmark-table td:first-child {
+    white-space: normal;
+}

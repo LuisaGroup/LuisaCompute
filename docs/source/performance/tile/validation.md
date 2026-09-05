@@ -3,6 +3,30 @@
 This record distinguishes executed correctness checks from performance claims.
 See [current status](index.md) for the latest bounded conclusion.
 
+## Larger-matrix benchmark coverage
+
+The September 5–6 scale cohort adds 560 passing complete GEMM replay outputs
+(11,022,491,732 checked elements), eight passing pilot outputs, and 72 passing
+softmax/RMSNorm/LayerNorm outputs. The view schedule also has two rejected
+pilot shapes and 28 replay admission rejections; the initial six missing-TVM-
+capability probes are separate. These failures are retained, not numerical
+successes or silent fallback paths. See [large GEMM](results.md#larger-matrices-the-1024-cubed-win-does-not-generalize)
+and [wide reductions](reductions.md#wide-rows-and-large-working-sets).
+
+The {download}`independent scale audit
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-large-matrices/audit.py>`
+checks complete-output validation records, all four timing metrics, balanced
+GEMM order, reversed reduction precedence, fixed source identities and exact
+automatic reduction choices. It also checks emitted SIMD-group collectives.
+GEMM's 26-artifact inventory and reductions' separate 22-artifact before/after
+inventory are unchanged. Outputs were checked in full during execution but
+transient arrays are not saved for independent recomputation.
+
+The scale orchestration passes 93 Python tests. No C++ rebuild or CTest run is
+added here; the prior 31/33 boundary below still applies. This experiment
+tests deterministic FP32 inputs and large dimensions, not arbitrary data
+distributions, low precision or end-to-end LLM correctness.
+
 ## Correctness: common LLM operators now use both bridges
 
 `test_tile_xir_llm` runs **21 captured kernel/shape combinations**, each through
@@ -32,6 +56,14 @@ signed-overflow rejection in the bounds proof. The dedicated SIMD PHI test
 uses widths 1/2/4/8/16 and every active-lane count, independent of TileIR.
 
 ## Metal reduction validation checkpoints
+
+The later fixed-total-group benchmark adds 456 executed complete-output
+validations, all passing. Its independent audit enumerates all 39 automatic
+candidates for each of twelve cases and checks exact plans, source identities,
+four timing metrics, balanced order and 21 unchanged binary artifacts. This
+is new benchmark evidence, **not a new CTest run**. The
+[two-baseline comparison](reductions.md#fixed-total-group-size-versus-automatic-execution)
+keeps mixed results and regressions visible.
 
 The latest cooperating-packing checkpoint completes a full build, all 89
 Python benchmark tests and 31/33 Tile CTests. CPU/Metal execution and planner

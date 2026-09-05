@@ -72,7 +72,81 @@ pair for two LayerNorm cases, but regresses in every pair for eight other
 cases. The explicit candidate family is implemented; automatic packing and
 cost coefficients remain unchanged.
 
+The [fixed-total-group comparison](#fixed-total-group-size-versus-automatic-execution)
+then tests a narrower S2/P4 mapping against both a fixed S1/P8 control and
+automatic execution. It improves many-short-row softmax/LayerNorm, but loses
+eight of twelve cases consistently against automatic execution. It therefore
+does not justify replacing the automatic family.
+
+The latest [wide-row coverage](#wide-rows-and-large-working-sets) reaches width
+16384 and large working sets without changing the automatic policy. All 18
+cases beat eager Torch in both rounds of GPU/E2E throughput, but large RMSNorm
+margins shrink to about 1–4% and single-call latency retains mixed results
+and a regression. Two rounds establish coverage, not stable general parity.
+
 ## Performance evidence
+
+### Wide rows and large working sets
+
+This scale test adds six shapes each for softmax, RMSNorm and affine LayerNorm,
+up to a 512 MiB input/output pair. The existing analytic mapping family, V4,
+ordered U1, preserved shared Tile SSA, opt-in input caching and 64-scalar private
+bound are unchanged. One forward and one reverse case-order run reverse each
+case's native/Torch precedence; both use five samples, 30 ms windows and 100 ms
+warmup. No new-shape timing selects a plan. See the
+{download}`protocol and complete scale report
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-large-matrices/notes.md>`
+for exact commands, all samples, numerical errors and artifact boundaries.
+
+The independent audit verifies all 39 automatic candidates per case, exact
+selected plans, stable sources and 72 passing complete-output checks. Every
+plan packs one program per group: widths 8191/8192 select 16 SIMD groups;
+width 16384 selects 26; width 4096 selects 11 for softmax/LayerNorm and 16 for
+RMSNorm. Compact stripes use 8–40 estimated scalars per worker. These are
+planner facts, not hardware register/occupancy measurements.
+
+Generated code uses two-level SIMD-group reduction: two `simd_max` plus two
+`simd_sum` call sites for softmax, two `simd_sum` for RMSNorm, and four for
+LayerNorm. Each logical reduction has one threadgroup partial-result barrier.
+The [intrinsics reference](../../internals/tile/reductions.md#warp-and-simd-group-intrinsics-in-the-generated-code)
+explains the mapping; this audit checks generated source, not final ISA.
+
+Times are **µs**. GPU uses no-counter command-buffer intervals, not isolated
+kernel timestamps. Ratios are paired Tile/Torch medians [observed range],
+not ratios of the displayed absolute medians. All 18 throughput cases favor
+Tile in both rounds. Torch softmax uses preallocated output; functional norms
+allocate returned output inside timing, unlike Tile's preallocated output.
+
+```{table} Wide-row throughput: time in µs, paired Tile/Torch ratios
+:class: benchmark-table
+
+| Operator / rows×width | Tile GPU | Torch GPU | GPU ratio [range] | Tile E2E | E2E ratio [range] |
+|---|---:|---:|---|---:|---|
+| softmax 37×8191 | 11.438 | 27.084 | 0.423 [0.404, 0.441] | 12.370 | 0.356 [0.351, 0.361] |
+| softmax 1024×8192 | 154.548 | 254.706 | 0.607 [0.594, 0.619] | 158.275 | 0.583 [0.579, 0.588] |
+| softmax 1024×16384 | 395.407 | 573.559 | 0.689 [0.685, 0.694] | 402.646 | 0.669 [0.662, 0.676] |
+| softmax 4096×8192 | 792.019 | 1006.430 | 0.787 [0.786, 0.788] | 817.065 | 0.768 [0.764, 0.773] |
+| softmax 8192×4096 | 789.845 | 889.418 | 0.888 [0.887, 0.889] | 807.288 | 0.854 [0.850, 0.858] |
+| softmax 16384×4096 | 1579.533 | 1746.604 | 0.904 [0.904, 0.904] | 1616.126 | 0.878 [0.877, 0.880] |
+| RMSNorm 37×8191 | 11.629 | 13.288 | 0.875 [0.872, 0.878] | 12.137 | 0.707 [0.703, 0.710] |
+| RMSNorm 1024×8192 | 155.291 | 162.342 | 0.957 [0.949, 0.964] | 159.454 | 0.941 [0.940, 0.942] |
+| RMSNorm 1024×16384 | 405.528 | 414.320 | 0.979 [0.978, 0.979] | 411.457 | 0.967 [0.962, 0.973] |
+| RMSNorm 4096×8192 | 795.076 | 807.782 | 0.984 [0.976, 0.993] | 813.432 | 0.984 [0.979, 0.989] |
+| RMSNorm 8192×4096 | 790.359 | 800.068 | 0.988 [0.987, 0.989] | 812.588 | 0.983 [0.979, 0.987] |
+| RMSNorm 16384×4096 | 1594.521 | 1612.320 | 0.989 [0.984, 0.994] | 1614.056 | 0.972 [0.969, 0.974] |
+| LayerNorm 37×8191 | 12.652 | 34.603 | 0.366 [0.362, 0.370] | 13.882 | 0.335 [0.335, 0.336] |
+| LayerNorm 1024×8192 | 160.715 | 507.247 | 0.317 [0.316, 0.318] | 164.832 | 0.314 [0.314, 0.314] |
+| LayerNorm 1024×16384 | 420.823 | 1216.406 | 0.349 [0.315, 0.383] | 426.470 | 0.350 [0.315, 0.384] |
+| LayerNorm 4096×8192 | 803.643 | 2038.785 | 0.394 [0.393, 0.395] | 837.119 | 0.398 [0.392, 0.405] |
+| LayerNorm 8192×4096 | 797.663 | 1597.348 | 0.499 [0.497, 0.502] | 813.556 | 0.498 [0.495, 0.500] |
+| LayerNorm 16384×4096 | 1587.361 | 3164.560 | 0.502 [0.499, 0.504] | 1628.853 | 0.500 [0.489, 0.511] |
+```
+
+Single-call results are less uniform: GPU has 16 cases faster in both rounds
+and two mixed; E2E has 14 faster in both, three mixed, and RMSNorm 37×8191
+slower in both (1.065 [1.034, 1.097]). Large RMSNorm's approximately 1–4%
+throughput margin needs longer replay before affecting defaults. These are
+eager framework comparisons, not direct MPS normalization-kernel claims.
 
 ### Base reductions versus eager PyTorch
 
@@ -594,6 +668,64 @@ Evidence: {download}`protocol <../../../../scripts/benchmark/tile_torch/results/
 {download}`complete replay <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-cooperating-packing/replay/results.json>`,
 {download}`independent audit <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-cooperating-packing/audit.py>` and
 {download}`audit receipt <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-cooperating-packing/audit.json>`.
+
+### Fixed total group size versus automatic execution
+
+Holding total threads at 256 does not make S2/P4 a universal improvement.
+The candidate uses two cooperating SIMD groups per program and four programs
+per group; the fixed control uses one SIMD group and eight programs. Against
+that fixed control, four cases improve in every GPU-throughput pair, two
+regress in every pair and six are mixed. The existing analytic score prefers
+the candidate for all twelve, so fewer worker-local operations are not a
+sufficient cost model.
+
+The stronger control is **current automatic execution**, with the same V=4,
+ordered U=1, input caching and 64-scalar private bound. Against it, only
+16384×257 softmax and LayerNorm improve in every GPU/E2E-throughput pair;
+eight cases regress consistently and two are mixed. No coefficients or
+automatic defaults changed. This is automatic execution with opt-in caching,
+not all-default CompileOptions.
+
+The table reports four-round paired **automatic time / S2-P4 time**, median
+and observed min/max. Above 1 favors S2/P4; ranges are not confidence
+intervals. GPU is the no-counter command-buffer control, not an isolated
+kernel timestamp. E2E includes dispatch and amortized synchronization.
+
+| Operator / rows×width | GPU gain [range] | E2E batch gain [range] |
+|---|---:|---:|
+| softmax 37×769 | 0.716× [0.666, 0.726] | 0.683× [0.664, 0.701] |
+| softmax 1024×1024 | 0.872× [0.852, 0.916] | 0.890× [0.885, 0.911] |
+| softmax 16384×257 | 1.220× [1.208, 1.277] | 1.236× [1.233, 1.258] |
+| softmax 4096×1024 | 0.903× [0.882, 0.933] | 0.910× [0.905, 0.922] |
+| RMSNorm 37×769 | 0.635× [0.584, 0.662] | 0.648× [0.643, 0.650] |
+| RMSNorm 1024×1024 | 0.896× [0.863, 0.906] | 0.884× [0.864, 0.885] |
+| RMSNorm 16384×257 | 0.992× [0.978, 1.016] | 0.999× [0.964, 1.022] |
+| RMSNorm 4096×1024 | 0.923× [0.917, 0.928] | 0.949× [0.902, 0.963] |
+| LayerNorm 37×769 | 0.667× [0.643, 0.723] | 0.687× [0.649, 0.704] |
+| LayerNorm 1024×1024 | 0.959× [0.918, 0.993] | 0.975× [0.932, 0.981] |
+| LayerNorm 16384×257 | 1.210× [1.182, 1.230] | 1.187× [1.163, 1.208] |
+| LayerNorm 4096×1024 | 0.996× [0.974, 1.036] | 1.007× [0.977, 1.021] |
+
+Automatic execution beats eager Torch GPU and batch E2E in every pair for
+all twelve cases in this replay. Yet the explicit S2/P4 candidate loses to
+Torch GPU in every pair for RMSNorm 37×769 (paired time ratio 1.294×).
+Torch softmax uses preallocated output; functional norms allocate returned
+outputs. Single-call GPU/E2E remain separately sampled and mostly mixed;
+this is not a direct MPS comparison or a general kernel-parity claim.
+
+All 456 complete-output validations pass across three pilots and two separate
+replays. The audit independently enumerates all 39 automatic candidates per
+case and verifies resource/access facts, selected costs, frozen source hashes,
+round balance and 21 unchanged artifacts. Torch probe/control ratios reach
+6.777, reinforcing why compute-pass instrumentation is diagnostic only.
+Earlier CTest results are reused by binary identity, not rerun or relabeled
+all-green. Both full comparison tables and all four raw timing metrics remain
+in the evidence; the two experiments are never pooled.
+
+Evidence: {download}`methods and both comparisons <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-fixed-group/notes.md>`,
+{download}`frozen protocol <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-fixed-group/protocol.md>`,
+{download}`independent audit <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-fixed-group/audit.py>` and
+{download}`complete audit receipt <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-fixed-group/audit.json>`.
 
 ## What this closes, and what remains
 
