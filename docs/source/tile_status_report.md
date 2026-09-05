@@ -127,9 +127,16 @@ perturbing compute-pass probe. The
 {download}`implementation/validation checkpoint <../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-lane-validation/notes.md>`
 records 24 new Metal layout cases, 82 Python tests and the full 31/33 Tile
 regression: two existing source assertions conflict with the untouched local
-`mem_flags(2)` edit. Frozen-parameter GPU/E2E replay is separate from these
-correctness results; no automatic V choice or coefficient update follows from
-the finite search alone.
+`mem_flags(2)` edit. A separate four-round, 64-output frozen replay measures
+**1.208× / 1.469× / 1.156× GPU-throughput gains** over the current V=1 mapper
+for 1×127 / 17×257 / 64×4096 RMSNorm. At 64×4096 native GPU time is
+9.216 µs versus Torch 9.172 µs: approximately parity, not a win. The
+1024×4096 case is flat (1.015× GPU, 0.992× E2E throughput), and synchronized
+single-call E2E latency still trails Torch at both wider sizes. Forty-eight
+additional outputs validate six operators at V=4 without establishing a
+cross-operator optimum. All figures keep no-counter GPU, instrumented probe
+and E2E scopes distinct. Default V and coefficients remain unchanged pending
+held-out mapping-model validation.
 
 **The general library-performance goal is still not complete.** These CPU
 wins are legal provider realizations for narrow proved contracts, not evidence
@@ -171,7 +178,8 @@ No Metal result is relabeled as XIR performance.
 | {download}`Shared element-SSA A/B <../../scripts/benchmark/tile_torch/results/m1-max-20260905-shared-element-replay/notes.md>` | Four balanced GELU(A+B) rounds, same-binary fusion isolation, complete outputs and eager-graph caveats |
 | {download}`GPU/dispatch integration smoke <../../scripts/benchmark/tile_torch/results/m1-max-20260905-device-timing-smoke-v2/notes.md>` | Real pass-boundary GPU counters versus uninstrumented host dispatch; raw calibration and explicitly preliminary evidence |
 | {download}`Dual-timing validation <../../scripts/benchmark/tile_torch/results/m1-max-20260905-dual-timing-validation/notes.md>` | Full 33-test Tile checkpoint, then-77 Python contracts, timestamp tests and submitted/worktree distinction |
-| {download}`GPU timing observer audit <../../scripts/benchmark/tile_torch/results/m1-max-20260905-device-timing-counter-control/notes.md>` | No-counter GPU control, probe perturbation, reduction/GEMM/native-MPP integration, current 80 Python tests and no new speed-ranking claim |
+| {download}`GPU timing observer audit <../../scripts/benchmark/tile_torch/results/m1-max-20260905-device-timing-counter-control/notes.md>` | No-counter GPU control, probe perturbation, reduction/GEMM/native-MPP integration and the preceding 80-test Python checkpoint |
+| {download}`Consecutive-worker reduction layout <../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-lane-validation/notes.md>` | Generic ownership map, GPU-objective JIT, four-round RMSNorm GPU/E2E replay, six-operator coverage and current verification boundaries |
 
 ```{figure} ../_static/tile/xir-planning-pipeline.svg
 :alt: The same execution-first TileIR feeds XIR/SIMD, Metal-native MPP and TIRx compiler routes with separate ownership.
@@ -257,21 +265,20 @@ offsets, read/write snapshots, move-only shader lifetime, negative origins and
 signed-overflow rejection in the bounds proof. The dedicated SIMD PHI test
 uses widths 1/2/4/8/16 and every active-lane count, independent of TileIR.
 
-The submitted source preserves `metal::mem_flags(3)` and the last full
-`test_tile_*` regression cohort is **33/33 passing**: 30 unit-labeled tests plus
-three separately registered integration tests. The workspace contains an
-unowned local `mem_flags(2)` edit that intentionally disagrees with the
-generated-source assertions in `test_tile_tirx_cooperative_metal` and
-`test_tile_tirx_memory_metal`. The complete cohort was built and run with the
-submitted value restored temporarily; the user's `2` was then restored without
-weakening either assertion and is not part of this source snapshot. The
-current Python benchmark-contract suite passes **80/80**. The timing-control
-follow-up passed a fresh full build and its seven affected/focused CTests;
-it did not rerun the complete cohort or modify the unowned barrier edit. See the
-{download}`full-cohort checkpoint <../../scripts/benchmark/tile_torch/results/m1-max-20260905-dual-timing-validation/notes.md>`
-and {download}`latest observer audit <../../scripts/benchmark/tile_torch/results/m1-max-20260905-device-timing-counter-control/notes.md>`
-for commands and scope; this is not a claim that every non-Tile repository
-test passed.
+The submitted source preserves `metal::mem_flags(3)`. The earlier
+{download}`submitted-value checkpoint <../../scripts/benchmark/tile_torch/results/m1-max-20260905-dual-timing-validation/notes.md>`
+passed **33/33** `test_tile_*` entries: 30 unit-labeled tests and three
+integration tests. The latest consecutive-worker layout follow-up rebuilt
+the full selected tree and reran all 33 entries without touching the user's
+pre-existing local `mem_flags(2)` edit: **31/33 passed**. The two failures
+are generated-source assertions requiring `3` in
+`test_tile_tirx_cooperative_metal` and `test_tile_tirx_memory_metal`; their
+numerical checks pass. Neither assertion was weakened and the local edit is
+not submitted. Current benchmark Python contracts pass **82/82**; 24 new
+Metal ownership-layout cases also pass in the execution test. The
+{download}`current validation and full log <../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-lane-validation/notes.md>`
+keeps this dirty-worktree result separate from the earlier submitted-value
+checkpoint. No whole-repository test pass is claimed.
 
 ## Five failure investigations changed the implementation
 
@@ -349,7 +356,8 @@ contract and shared-Tile planning diagram.
 Unless explicitly labeled otherwise, reported times are **warm synchronized
 host-wall time per invocation**, amortized over a batch. They include each
 runtime's dispatch/encoding/submission and synchronization. They exclude JIT,
-allocation/upload and cold-call setup. They are not GPU hardware-event times,
+setup allocations/uploads and cold-call setup; returned-output allocation
+stays inside timing where the recorded operator API requires it. They are not GPU hardware-event times,
 and CPU thread requests are not measurements of actual library worker use.
 
 Report tables use medians of within-round p50s. A paired ratio is the median

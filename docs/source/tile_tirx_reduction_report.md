@@ -284,7 +284,7 @@ misclassify them as independent programs.
 
 ### 4.3 Coverage and ancestry
 
-For every distributed domain of count `N`, the mapper enumerates
+For every distributed domain of count `N`, the default V=1 mapper enumerates
 
 ```text
 chunk in [0, ceil_div(N, W))
@@ -297,6 +297,26 @@ mixed-radix order. The root program coordinate `p` and every ancestor
 coordinate are substituted independently of memory indexing. Therefore the
 mapping covers each `(p,e)` exactly once and preserves the ancestor execution
 prefix used by Tensor origins.
+
+The optional `PlannerOptions::reduction_lane_elements` generalizes this to
+blocked-cyclic ownership without changing program ancestry:
+
+```text
+e = (W * chunk + w) * V + v,  0 <= v < V,  V in {1,2,4,8}
+private_slot = chunk * V + v
+inverse: v=e%V, w=(e/V)%W, chunk=e/(W*V)
+```
+
+The inverse establishes unique coverage, while the existing ownership audit
+requires producers and consumers to refer to the same logical element before
+either is remapped. The maximum private allocation becomes
+`floor(N/(W*V))*V + min(N%(W*V), V)`. Only the partial final pack carries a
+bounds predicate; no invalid load/store is speculatively evaluated. V changes
+the worker-local FP32 recurrence and requires the existing reduction-tree
+permission, unlike ordered stripe unrolling. It is not a vector-instruction
+promise. The
+{download}`layout and GPU/E2E evidence <../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-lane-validation/notes.md>`
+records the generic implementation, resource checks and frozen replay.
 
 This is the concrete instance of the more general relationship
 
@@ -325,8 +345,9 @@ multi-consumer Tile, independent of whether the opcode is `exp`, `add` or
 allocating it after distributing rows but before distributing elements creates
 `N` private values per worker.
 
-The subgroup mapper may replace logical `T[N]` with worker-private
-`T_worker[ceil_div(N,W)]`, but only after proving all of the following:
+At V=1 the subgroup mapper may replace logical `T[N]` with worker-private
+`T_worker[ceil_div(N,W)]` (the generalized V-dependent bound is above), but
+only after proving all of the following:
 
 1. the object is a compiler-owned local FP32 materialization with one
    allocation and one defining store;
@@ -453,7 +474,7 @@ independent fail-closed correctness boundary.
 Legality is decided before profitability. Let `D` be the independent element
 domains, `R` the reductions, `I_d` and `N_r` their counts, `S` the candidate
 subgroups per program, `W=32S`, and `Q` the separately searched packed-program
-count (`Q>1` only for `S=1`). The bootstrap v1 score is
+count (`Q>1` only for `S=1`). At V=1 the bootstrap score is
 
 ```text
 rounds(S) = sum[d in D] ceil_div(I_d, W)
@@ -465,6 +486,12 @@ score(S, Q) = alpha * rounds(S)
 
 alpha = 1, beta = 2, gamma = 16.
 ```
+
+For non-default consecutive-worker width V, each `ceil_div(N,W)` becomes
+`floor(N/(W*V))*V + min(N%(W*V),V)`, the maximum live scalar work per worker.
+The resource bound uses the same layout-dependent expression, and backend
+policies receive V explicitly. This accounts for tail ownership but does not
+model vector issue, coalescing or reduced active-group concurrency.
 
 Each independent domain is rounded separately. Combining their total before
 `ceil_div` would underprice separate softmax passes at a tail width.
@@ -508,9 +535,14 @@ Constraints are never silently clamped or reinterpreted.
 
 The bridge now exposes a backend-owned cost-policy interface and bounded
 ordered stripe unrolling. See [the implemented policy and search contract](tile_execution_planner.md).
-The JIT harness can search `--tune-reduction-packing` and
-`--tune-reduction-unroll` alongside exact thread widths. The original model
-remains an uncalibrated prior; it does not price the unrolling choice.
+The JIT harness can search `--tune-reduction-packing`,
+`--tune-reduction-unroll` and `--tune-reduction-lane-elements` alongside exact
+thread widths. The original model remains an uncalibrated prior; it does not
+price the unrolling choice or V's hardware issue behavior. Host-wall
+throughput remains the default tuning objective; explicit
+`--tuning-metric gpu-control` instead requires the no-counter Metal
+command-buffer metric. Both objectives remeasure the winner and retain GPU
+and E2E scopes separately in frozen replay reports.
 
 ### 6.1 Plans selected in the original 20-case run
 
