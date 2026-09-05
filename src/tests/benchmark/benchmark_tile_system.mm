@@ -6,6 +6,8 @@
 #import <Metal/Metal.h>
 #import <MetalPerformanceShaders/MetalPerformanceShaders.h>
 
+#include "metal_benchmark.h"
+
 #include <algorithm>
 #include <charconv>
 #include <chrono>
@@ -111,7 +113,7 @@ void validate(const Configuration &cfg, const std::vector<float> &a,
     }
 }
 
-[[nodiscard]] Measurement measure(std::string_view backend, Configuration cfg, const char *path) {
+[[nodiscard]] Measurement measure(std::string_view backend, Configuration cfg, const char *path, luisa::test::MetalBenchmarkTiming *device_timing = nullptr) {
     auto a = input_values(elements(cfg.m, cfg.k), 5u);
     auto b = input_values(elements(cfg.k, cfg.n), 11u);
     std::vector<float> c(elements(cfg.m, cfg.n), std::numeric_limits<float>::quiet_NaN());
@@ -225,6 +227,10 @@ void validate(const Configuration &cfg, const std::vector<float> &a,
         result.latency.push_back(1000.0 * batch(1u));
         if (backend == "metal") { result.gpu_latency.push_back(1000.0 * gpu_ms); }
     }
+    if (device_timing != nullptr) {
+        device_timing->measure([] {}, [&](uint64_t count) { static_cast<void>(batch(count)); },
+                               result.repetitions, static_cast<uint32_t>(cfg.samples));
+    }
     start = Clock::now();
     download();
     result.download_ms = milliseconds(start);
@@ -269,7 +275,8 @@ int main(int argc, char *argv[]) {
             auto backend = std::string_view{argv[1]};
             Configuration cfg{positive_integer(argv[2]), positive_integer(argv[3]), positive_integer(argv[4]),
                               positive_integer(argv[5]), positive_integer(argv[6]), positive_integer(argv[7])};
-            auto result = measure(backend, cfg, argv[8]);
+            luisa::test::MetalBenchmarkTiming device_timing{backend == "metal"};
+            auto result = measure(backend, cfg, argv[8], &device_timing);
             std::cout << std::setprecision(12) << "{\"backend\":" << std::quoted(backend)
                       << ",\"implementation\":" << std::quoted(backend == "cpu" ? "accelerate_cblas_sgemm" : "mps_matrix_multiplication")
                       << ",\"api_variant\":" << std::quoted(backend == "cpu" ? "classic_lp64" : "MPSKernelOptionsNone")
@@ -293,6 +300,7 @@ int main(int argc, char *argv[]) {
                 std::cout << ',';
                 print_samples("gpu_latency_us", result.gpu_latency);
             }
+            device_timing.print();
             std::cout << "}\n";
             return 0;
         } catch (const std::exception &error) {

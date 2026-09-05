@@ -1,6 +1,7 @@
 // Real TileIR -> Metal backend -> MPP -> ordinary Runtime Stream benchmark.
-// Host wall time, NOT GPU event time. Keep the handwritten MPP baseline separate.
+// Separate host-wall and optional GPU compute-pass timing phases.
 #include "tile_native_test_utils.h"
+#include "metal_benchmark.h"
 #include <luisa/tile/runtime.h>
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/stream.h>
@@ -95,12 +96,15 @@ int main(int argc, char *argv[]) {
         auto c = device.create_buffer<float>(output.size());
         stream << a.copy_from(host_a.data()) << b.copy_from(host_b.data()) << c.copy_from(output.data()) << synchronize();
         auto upload_ms = elapsed(start);
-        auto batch = [&](uint64_t repetitions) {
-            stream.synchronize();
-            auto before = Clock::now();
+        auto submit = [&](uint64_t repetitions) {
             CommandList commands;
             for (auto i = uint64_t{0}; i < repetitions; i++) { commands << shader(a, b, c).dispatch(); }
             stream << commands.commit() << synchronize();
+        };
+        auto batch = [&](uint64_t repetitions) {
+            stream.synchronize();
+            auto before = Clock::now();
+            submit(repetitions);
             return elapsed(before);
         };
         auto cold_ms = batch(1);
@@ -117,6 +121,8 @@ int main(int argc, char *argv[]) {
         vector<double> throughput, latency;
         for (auto i = 0; i < count; i++) { throughput.emplace_back(1000.0 * batch(repetitions) / repetitions); }
         for (auto i = 0; i < count; i++) { latency.emplace_back(1000.0 * batch(1)); }
+        luisa::test::MetalBenchmarkTiming device_timing{true};
+        device_timing.measure([&] { stream.synchronize(); }, submit, repetitions, static_cast<uint32_t>(count));
         stream << c.copy_to(output.data()) << synchronize();
         std::ofstream file{argv[8], std::ios::binary};
         file.write(reinterpret_cast<const char *>(output.data()), static_cast<std::streamsize>(output.size() * sizeof(float)));
@@ -136,6 +142,7 @@ int main(int argc, char *argv[]) {
         samples("throughput_us", throughput);
         std::cout << ',';
         samples("latency_us", latency);
+        device_timing.print();
         std::cout << "}\n";
     } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';

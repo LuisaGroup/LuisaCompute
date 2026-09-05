@@ -84,8 +84,10 @@ struct ReadonlyViews {
 // address, so their default remains the stricter fully-in-bounds view policy.
 [[nodiscard]] ReadonlyViews forward_readonly_tile_loads(const tvm::tirx::PrimFunc &function, bool noalias, bool preserve_guards = false);
 
-// Fuse one automatic root and one independent element domain into a bijective
-// GPU grid. The input must have a checked noalias contract. Undefined retains
+// Fuse one automatic root and a same-domain, pointwise SSA chain into a
+// bijective GPU grid. Compiler Tile temporaries become per-worker scalar
+// definitions only after proving ownership and dominance of every access.
+// The input must have a checked noalias contract. Undefined retains
 // the original function, including its input snapshots and scope constraints.
 [[nodiscard]] tvm::tirx::Stmt try_map_gpu_elementwise(
     const tvm::tirx::Stmt &body, uint32_t max_threads, const PlannerOptions &options,

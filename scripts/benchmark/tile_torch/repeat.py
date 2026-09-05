@@ -117,6 +117,7 @@ def load_plan(path: Path, operations: set[str]) -> dict[tuple[str, str], dict[st
             "cpu_stack_bytes": cpu_stack,
             "cpu_vector_lanes": cpu_lanes,
             "cpu_input_views": cpu_views,
+            "input_views": row["backend"] == "metal" and forwarding and not metal_subgroup_reductions and native.get("metal_mpp", False) is False,
             "cpu_model": cpu_model,
             "cpu_matrix_backend": cpu_matrix,
             "cpu_math_backend": cpu_math,
@@ -127,7 +128,7 @@ def load_plan(path: Path, operations: set[str]) -> dict[tuple[str, str], dict[st
             "element_grid": None if element_grid is None else "auto" if element_grid else "reference",
             "expected_cpu_model": native.get("cpu_model") if row["backend"] == "cpu" else None,
             "elide_independent_subgroup_barriers": elide,
-            "matrix_realization": "mpp-views" if forwarding and not cpu_views and not metal_subgroup_reductions else
+            "matrix_realization": "mpp-views" if forwarding and native.get("metal_mpp", False) else
                                   "mpp" if native.get("metal_mpp") else "simdgroup",
         }
     if not plan:
@@ -198,6 +199,8 @@ def main() -> int:
     parser.add_argument("--capture-sources", action="store_true",
                         help="require and archive generated LLVM/Metal sources; both binaries must support source dumping")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--metal-device-timing", type=Path,
+                        help="prebuilt GPU compute-pass timing library; separate from host-wall replay samples")
     parser.add_argument("--operations", default="gemm")
     parser.add_argument("--rounds", type=int, default=4)
     parser.add_argument("--samples", type=int, default=9)
@@ -224,11 +227,16 @@ def main() -> int:
         parser.error("both native executables must already be built")
     try:
         operations = set(args.operations.split(","))
-        if not operations <= {"gemm", "add", "sum", "softmax", "rmsnorm", "layernorm", "residual_layernorm", "cross_entropy"}:
+        if not operations <= {"gemm", "add", "gelu_add", "sum", "softmax", "rmsnorm", "layernorm", "residual_layernorm", "cross_entropy"}:
             raise ValueError("unknown operation in replay selection")
         plans = {"reference": load_plan(args.reference, operations), "candidate": load_plan(args.candidate, operations)}
         if plans["reference"].keys() != plans["candidate"].keys():
             raise ValueError("reports must contain exactly the same requested backend/cases")
+        if args.metal_device_timing is not None:
+            if sys.platform != "darwin" or any(backend != "metal" for backend, _ in plans["reference"]):
+                raise ValueError("Metal device timing requires only Metal plans on macOS")
+            args.metal_device_timing = args.metal_device_timing.resolve(strict=True)
+            args.compiler_artifact.append(args.metal_device_timing)
         if args.cpu_stack_bytes is not None:
             if not 0 <= args.cpu_stack_bytes <= 65536 or any(k[0] != "cpu" for k in plans["reference"]):
                 raise ValueError("shared CPU stack override requires CPU plans and a budget in [0,65536]")
@@ -292,6 +300,7 @@ def main() -> int:
         "git_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(),
         "worktree_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=root)),
         "removed_environment": removed, "artifacts_sha256": hashes, "capture_sources": args.capture_sources,
+        "metal_device_timing": str(args.metal_device_timing) if args.metal_device_timing else None,
         "native_sha256": digest(args.native),
         "adjacent_tile_library_sha256": {p.name: digest(p) for p in sorted(args.native.parent.glob("*luisa-tile*"))
                                         if p.is_file() and p.suffix in (".dylib", ".so", ".dll")},

@@ -478,6 +478,70 @@ and cause a nonzero exit code; no speed ratio is published for an invalid case.
 
 ## Five-path Tile lowering comparison
 
+### Separate GPU and dispatch measurements
+
+`run.py --metal-device-timing <libluisa-benchmark-metal-timing.dylib>` adds
+device-side compute-pass timestamps to both TIRx and eager PyTorch, and to the
+optional direct MPS GEMM baseline. `repeat.py` accepts the same option for
+counterbalanced replay. Complete the full build and run
+`ctest --test-dir cmake-build-tirx -R '^test_tile_metal_timing$'` first.
+For example:
+
+```sh
+uv run --no-project --python 3.13 --with torch --with numpy python \
+  scripts/benchmark/tile_torch/run.py \
+  --native cmake-build-tirx/bin/benchmark_tile_tirx \
+  --backends metal --operations add,gelu_add --input-views \
+  --metal-device-timing cmake-build-tirx/bin/libluisa-benchmark-metal-timing.dylib \
+  --output /tmp/tile-dual-timing
+```
+
+The ordinary `throughput_us` and `latency_us` remain **uninstrumented host
+wall time**: allocation/transfer/JIT excluded, dispatch/binding and final
+synchronization included. Optional `device_timing` is a **separate phase**
+using the actual framework dispatches and resources, not generated-source
+replay. It records sum of GPU compute-pass intervals, their first-to-last
+span, command-buffer GPU duration, pass/buffer counts, raw clock calibration,
+and its own repetition count (at most 64). The JSON preserves every sample;
+the report shows both GPU execution and end-to-end dispatch.
+
+This M1 Max supports stage-boundary counters, not per-dispatch counters.
+A single-kernel pass gives that kernel's device interval. A multi-dispatch
+pass gives batch time divided by repetitions; a multi-kernel eager operator
+is still an operator sequence. Neither is just arithmetic-instruction time.
+GPU pass intervals include dispatch/barrier work inside the pass; intervals
+between passes are visible in span/command-buffer diagnostics, not hidden in
+compute time. Do not subtract independently sampled GPU and host medians to
+estimate CPU overhead. The tuning winner remains the explicitly documented
+host-wall metric; collecting counters does not silently change that objective.
+
+The benchmark-only library temporarily intercepts public Metal command-buffer
+encoder factories and commit on the concrete class discovered from the
+system-default device. It preserves dispatch type, existing counter
+attachments and encoder boundaries, then restores the methods on success or
+failure. No Runtime, private TVM/PyTorch ABI, Python source export, or TVMx
+version change is involved. Only the isolated single-device benchmark
+process is supported. Unsupported counters, incomplete work, empty capture
+and sample-capacity overflow fail closed. Do not combine it with another
+profiler or concurrent workloads. Metal 4 command-buffer/counter-heap timing
+is a different API and is not covered by this Metal command-buffer helper.
+
+Native `benchmark_tile_tirx` (TVM or Luisa Runtime), `benchmark_tile_native`
+and `benchmark_tile_system` can also load the helper through
+`LUISA_TILE_BENCH_METAL_TIMING=/absolute/path/to/library.dylib`.
+CPU-only runs cannot request this device timer; their synchronous execution
+still includes runtime dispatch and is not relabeled as a pure kernel.
+
+`gelu_add` is tanh-approximate `GELU(A+B)`. Native retains one shared Tile SSA
+producer; eager Torch uses **two operations with preallocated output and add
+scratch**. This compares a fused graph against eager, not Torch compilation.
+`--input-views` enables proved immutable forwarding on CPU or Metal,
+independently of `--element-grid auto|reference`. The older
+`--cpu-input-views` option remains CPU-only. Plans expose the actual scalar
+producer count as `elementwise_scalar_temporaries`.
+
+### Runtime routes
+
 `benchmark_tile_native` is the actual TileIR→Metal-backend→MPP route, launched
 through Luisa Runtime. It is distinct from the handwritten `benchmark_tile_mpp`
 probe. `benchmark_tile_tirx` remains the native C++ TVM bridge comparison;

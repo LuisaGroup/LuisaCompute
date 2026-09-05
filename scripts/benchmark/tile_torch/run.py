@@ -3,13 +3,14 @@
 
 The native executable must already be built. This script neither builds the
 project nor installs dependencies. Timing excludes allocation and transfer,
-but includes each framework's host dispatch/binding overhead. It is not a GPU
-event timer and must not be presented as pure hardware kernel time.
+but includes each framework's host dispatch/binding overhead. Optional Metal
+GPU compute-pass counters run separately, without instrumenting host samples.
 """
 
 from __future__ import annotations
 
 import argparse
+import ctypes
 import dataclasses
 import datetime as dt
 import hashlib
@@ -69,8 +70,8 @@ def make_cases(operations: list[str], quick: bool = False,
     for operation in operations:
         if operation == "gemm":
             cases.extend(Case(operation, *shape) for shape in gemm)
-        elif operation in ("add", "sum", "softmax", "rmsnorm", "layernorm", "residual_layernorm", "cross_entropy"):
-            cases.extend(Case(operation, *shape) for shape in (elementwise if operation == "add" else reduction))
+        elif operation in ("add", "gelu_add", "sum", "softmax", "rmsnorm", "layernorm", "residual_layernorm", "cross_entropy"):
+            cases.extend(Case(operation, *shape) for shape in (elementwise if operation in ("add", "gelu_add") else reduction))
         else:
             raise ValueError(f"unknown operation {operation!r}")
     return cases
@@ -90,6 +91,79 @@ def summarize(result: dict[str, Any]) -> None:
     for metric in ("throughput_us", "latency_us"):
         result[metric + "_p50"] = percentile(result[metric], 0.5)
         result[metric + "_p90"] = percentile(result[metric], 0.9)
+    if "device_timing" in result:
+        summarize_device_timing(result["device_timing"], len(result["throughput_us"]))
+
+
+class MetalTimingResult(ctypes.Structure):
+    _fields_ = [(name, ctypes.c_double) for name in (
+        "compute_ns", "compute_span_ns", "command_buffer_ns", "calibration_cpu_ns", "calibration_gpu_ticks")]
+    _fields_ += [(name, ctypes.c_uint64) for name in ("compute_passes", "command_buffers")]
+
+
+def summarize_device_timing(result: dict[str, Any], samples: int) -> None:
+    if (result.get("method") != "metal_compute_pass_timestamps_v1" or
+            result.get("scope") != "sum_of_compute_encoder_gpu_intervals" or
+            result.get("host_samples_instrumented") is not False):
+        raise ValueError("invalid Metal device-timing scope or method")
+    repetitions = result.get("repetitions")
+    if type(repetitions) is not int or not 1 <= repetitions <= 64:
+        raise ValueError("invalid Metal device-timing repetitions")
+    for phase, count in (("throughput", repetitions), ("latency", 1)):
+        rows = result.get(phase)
+        if not isinstance(rows, list) or len(rows) != samples:
+            raise ValueError("invalid Metal device-timing sample count")
+        for row in rows:
+            for key, kind in MetalTimingResult._fields_:
+                value = row.get(key)
+                if (type(value) not in (float, int) or not math.isfinite(value) or value <= 0 or
+                        (kind == ctypes.c_uint64 and type(value) is not int)):
+                    raise ValueError(f"invalid Metal device-timing sample: {key}")
+            if row["compute_ns"] > row["command_buffer_ns"] * 1.1:
+                raise ValueError("Metal compute-pass duration exceeds enclosing command-buffer time")
+        for metric, field in (("compute", "compute_ns"), ("command_buffer", "command_buffer_ns")):
+            key = f"{metric}_{phase}_us"
+            result[key] = [row[field] / (1000 * count) for row in rows]
+            result[key + "_p50"] = percentile(result[key], 0.5)
+            result[key + "_p90"] = percentile(result[key], 0.9)
+
+
+def time_metal_device(invoke: Callable[[], Any], synchronize: Callable[[], None],
+                      args: argparse.Namespace, repetitions: int) -> dict[str, Any]:
+    library = ctypes.CDLL(str(args.metal_device_timing))
+    library.luisa_metal_timing_version.argtypes = []
+    library.luisa_metal_timing_version.restype = ctypes.c_int
+    if library.luisa_metal_timing_version() != 1:
+        raise RuntimeError("incompatible Metal benchmark timing library")
+    library.luisa_metal_timing_begin.argtypes = [ctypes.c_uint32]
+    library.luisa_metal_timing_begin.restype = ctypes.c_int
+    library.luisa_metal_timing_end.argtypes = [ctypes.POINTER(MetalTimingResult)]
+    library.luisa_metal_timing_end.restype = ctypes.c_int
+    library.luisa_metal_timing_error.argtypes = []
+    library.luisa_metal_timing_error.restype = ctypes.c_char_p
+
+    def sample(count: int) -> dict[str, float | int]:
+        synchronize()
+        if not library.luisa_metal_timing_begin(1024):
+            raise RuntimeError(library.luisa_metal_timing_error().decode())
+        result = MetalTimingResult()
+        try:
+            for _ in range(count):
+                invoke()
+            synchronize()
+        finally:
+            success = library.luisa_metal_timing_end(ctypes.byref(result))
+        if not success:
+            raise RuntimeError(library.luisa_metal_timing_error().decode())
+        return {name: getattr(result, name) for name, _ in MetalTimingResult._fields_}
+
+    count = min(repetitions, 64)
+    result = dict(method="metal_compute_pass_timestamps_v1", scope="sum_of_compute_encoder_gpu_intervals",
+                  host_samples_instrumented=False, repetitions=count,
+                  throughput=[sample(count) for _ in range(args.samples)],
+                  latency=[sample(1) for _ in range(args.samples)])
+    summarize_device_timing(result, args.samples)
+    return result
 
 
 def time_batch(invoke: Callable[[], Any], synchronize: Callable[[], None], repetitions: int) -> float:
@@ -147,7 +221,7 @@ def validate(torch: Any, actual: Any, expected: Any, operation: str) -> dict[str
 def block_shape(case: Case, gemm_block: tuple[int, int, int]) -> tuple[int, int, int]:
     if case.operation == "gemm":
         return gemm_block
-    return (1, 256 if case.operation == "add" else case.n, 1)
+    return (1, 256 if case.operation in ("add", "gelu_add") else case.n, 1)
 
 
 def parse_gemm_block(text: str) -> tuple[int, int, int]:
@@ -277,9 +351,17 @@ def validate_native_metadata(native: dict[str, Any], case: Case, backend: str, e
 
 
 def validate_tirx_realization(native: dict[str, Any], realization: str, cpu_input_views: bool = False,
-                              metal_subgroup_reductions: bool = False) -> None:
-    if type(cpu_input_views) is not bool:
-        raise ValueError("CPU input-view policy must be boolean")
+                              metal_subgroup_reductions: bool = False, input_views: bool = False) -> None:
+    if type(cpu_input_views) is not bool or type(input_views) is not bool:
+        raise ValueError("input-view policy must be boolean")
+    if input_views:
+        if realization != "simdgroup" or native.get("backend") not in ("cpu", "metal") or native.get("metal_mpp", False) is not False or native.get("forward_readonly_tile_loads") is not True:
+            raise ValueError("input views require explicit CPU/Metal forwarding without MPP")
+        if cpu_input_views and native.get("backend") != "cpu":
+            raise ValueError("CPU input views require the CPU backend")
+        if metal_subgroup_reductions and native.get("backend") != "metal":
+            raise ValueError("Metal subgroup reductions require the Metal backend")
+        return
     if cpu_input_views:
         if realization != "simdgroup" or native.get("backend") != "cpu" or native.get("metal_mpp", False) is not False or native.get("forward_readonly_tile_loads") is not True:
             raise ValueError("CPU input views require explicit LLVM forwarding without MPP")
@@ -429,7 +511,7 @@ def optional_native_arguments(args: argparse.Namespace) -> list[str]:
     elide = getattr(args, "elide_independent_subgroup_barriers", False)
     cpu_stack = getattr(args, "cpu_stack_bytes", 0)
     cpu_lanes = getattr(args, "cpu_vector_lanes", 16)
-    cpu_views = getattr(args, "cpu_input_views", False)
+    input_views = getattr(args, "cpu_input_views", False) or getattr(args, "input_views", False)
     cpu_model = getattr(args, "cpu_model", None)
     cpu_matrix = getattr(args, "cpu_matrix_backend", "reference")
     cpu_math = getattr(args, "cpu_math_backend", "reference")
@@ -446,7 +528,7 @@ def optional_native_arguments(args: argparse.Namespace) -> list[str]:
         ("elide-subgroup-fences" if elide else "retain-subgroup-fences", elide),
         (str(cpu_stack), bool(cpu_stack)),
         (str(cpu_lanes), cpu_lanes != 16),
-        ("forward-input-views" if cpu_views else "retain-input-snapshots", cpu_views),
+        ("forward-input-views" if input_views else "retain-input-snapshots", input_views),
         (cpu_model or "generic", cpu_model is not None),
         (cpu_matrix, cpu_matrix != "reference"),
         (cpu_math, cpu_math != "reference"),
@@ -490,11 +572,13 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
     labels_host = (torch.arange(case.m, dtype=torch.int64) * 13 + 7) % case.n
     b_rows = (case.k if case.operation == "gemm" else 1 if case.operation == "rmsnorm" else
               2 if case.operation == "layernorm" else case.m)
-    b_host = inputs(b_rows, case.n, 11) if case.operation in ("gemm", "add", "rmsnorm", "layernorm", "residual_layernorm") else None
+    b_host = inputs(b_rows, case.n, 11) if case.operation in ("gemm", "add", "gelu_add", "rmsnorm", "layernorm", "residual_layernorm") else None
     if case.operation == "gemm":
         reference = a_host.double() @ b_host.double()
     elif case.operation == "add":
         reference = a_host.double() + b_host.double()
+    elif case.operation == "gelu_add":
+        reference = torch.nn.functional.gelu(a_host.double() + b_host.double(), approximate="tanh")
     elif case.operation == "sum":
         reference = a_host.double().sum(dim=1)
     elif case.operation == "rmsnorm":
@@ -548,6 +632,11 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
             cpu_math = getattr(args, "cpu_math_backend", "reference")
             command.extend(optional_native_arguments(args))
             environment = os.environ.copy()
+            timing_library = getattr(args, "metal_device_timing", None)
+            if timing_library is not None:
+                environment["LUISA_TILE_BENCH_METAL_TIMING"] = str(timing_library)
+            else:
+                environment.pop("LUISA_TILE_BENCH_METAL_TIMING", None)
             capture_source = getattr(args, "capture_sources", False)
             suffix = ".metal" if backend == "metal" else ".ll"
             source_path = Path(temporary) / ("device" + suffix)
@@ -560,6 +649,8 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
             if len(lines) != 1:
                 raise RuntimeError("native executable did not emit exactly one JSON result")
             native = json.loads(lines[0])
+            if ("device_timing" in native) != (timing_library is not None):
+                raise RuntimeError("native Metal device-timing request was not realized")
             result["native_command"] = command
             result["native_stderr"] = process.stderr
             if capture_source:
@@ -570,7 +661,7 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
                 destination = source_dir / (result["native_source_sha256"] + suffix)
                 if not destination.exists():
                     destination.write_bytes(source)
-            validate_tirx_realization(native, realization, cpu_views, getattr(args, "metal_subgroup_reductions", False))
+            validate_tirx_realization(native, realization, cpu_views, getattr(args, "metal_subgroup_reductions", False), getattr(args, "input_views", False))
             validate_subgroup_policy(native, elide)
             validate_cpu_storage_policy(native, cpu_stack)
             validate_cpu_vector_policy(native, cpu_lanes)
@@ -601,12 +692,17 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
         b = b_host.to(device) if b_host is not None else None
         labels = labels_host.to(device) if case.operation == "cross_entropy" else None
         out = None if case.operation in ("rmsnorm", "layernorm", "residual_layernorm", "cross_entropy") else torch.empty(reference.shape, dtype=torch.float32, device=device)
+        scratch = torch.empty_like(out) if case.operation == "gelu_add" else None
         synchronize()
         allocation_upload_ms = (time.perf_counter_ns() - start) / 1e6
         if case.operation == "gemm":
             invoke = lambda: torch.mm(a, b, out=out)
         elif case.operation == "add":
             invoke = lambda: torch.add(a, b, out=out)
+        elif case.operation == "gelu_add":
+            # Matched preallocation, including the eager intermediate. The
+            # baseline still has two dispatches; native fuses the whole graph.
+            invoke = lambda: torch.ops.aten.gelu.out(torch.add(a, b, out=scratch), approximate="tanh", out=out)
         elif case.operation == "sum":
             invoke = lambda: torch.sum(a, dim=1, out=out)
         elif case.operation == "rmsnorm":
@@ -620,6 +716,8 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
         else:
             invoke = lambda: torch.softmax(a, dim=1, out=out)
         measured = time_torch(invoke, synchronize, args)
+        if getattr(args, "metal_device_timing", None) is not None:
+            measured["device_timing"] = time_metal_device(invoke, synchronize, args, measured["repetitions"])
         start = time.perf_counter_ns()
         actual = (invoke() if out is None else out).cpu()
         synchronize()
@@ -628,6 +726,9 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
         measured["device"] = str(a.device)
         measured["output_policy"] = (
             "framework_return_value" if out is None else "preallocated_out")
+        if case.operation == "gelu_add":
+            measured["intermediate_policy"] = "preallocated_add_result"
+            measured["operator_sequence"] = ["add.out", "gelu.out(approximate=tanh)"]
         measured["correctness"] = validate(torch, actual, reference, case.operation)
         result["torch"] = measured
 
@@ -636,10 +737,18 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
             output = Path(temporary) / "output.f32"
             command = [str(system_binary), backend, str(case.m), str(case.n), str(case.k),
                        str(args.samples), str(args.sample_ms), str(args.warmup_ms), str(output)]
-            process = subprocess.run(command, capture_output=True, text=True, check=False, timeout=args.timeout)
+            environment = os.environ.copy()
+            timing_library = getattr(args, "metal_device_timing", None)
+            if timing_library is not None:
+                environment["LUISA_TILE_BENCH_METAL_TIMING"] = str(timing_library)
+            else:
+                environment.pop("LUISA_TILE_BENCH_METAL_TIMING", None)
+            process = subprocess.run(command, capture_output=True, text=True, check=False, timeout=args.timeout, env=environment)
             if process.returncode:
                 raise RuntimeError(f"system baseline failed ({process.returncode}):\n{process.stderr}\n{process.stdout}")
             measured = json.loads(process.stdout)
+            if ("device_timing" in measured) != (timing_library is not None):
+                raise RuntimeError("system Metal device-timing request was not realized")
             validate_system_metadata(measured, case, backend, args.samples)
             if output.stat().st_size != reference.numel() * 4:
                 raise RuntimeError("system output byte count is incorrect")
@@ -653,6 +762,9 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
         for implementation in order:
             actions[implementation]()
     result["slowdown"] = result["native"]["throughput_us_p50"] / result["torch"]["throughput_us_p50"]
+    if "device_timing" in result["native"]:
+        result["device_compute_slowdown"] = (result["native"]["device_timing"]["compute_throughput_us_p50"] /
+                                             result["torch"]["device_timing"]["compute_throughput_us_p50"])
     if "system" in result:
         result["system_slowdown"] = result["native"]["throughput_us_p50"] / result["system"]["throughput_us_p50"]
     result["valid"] = True
@@ -768,6 +880,16 @@ def write_report(report: dict[str, Any], directory: Path) -> None:
             a, b = row["native"], row["torch"]
             lines.append(f"| {row['backend']} / {row['name']} | {a['capture_ms']:.3f} | {a['compile_ms']:.3f} | {a['allocation_upload_ms']:.3f} | {b['allocation_upload_ms']:.3f} | {a['cold_call_ms']:.3f} | {b['cold_call_ms']:.3f} | {a['download_ms']:.3f} | {b['download_ms']:.3f} |")
     tuned = [row for row in report["results"] if "tuning" in row]
+    device_rows = [row for row in report["results"] if row.get("valid") and "device_timing" in row["native"]]
+    if device_rows:
+        lines.extend(["", "## GPU execution versus end-to-end dispatch", "",
+                      "Device numbers use real Metal compute-pass start/end counters, calibrated to nanoseconds. They exclude CPU encoding, queue wait before GPU execution, and completion notification. Host-wall numbers above are separate, uninstrumented samples. A pass may contain multiple dispatches: batched GPU time is divided by its own recorded repetition count (at most 64), and a multi-kernel eager operator is not mislabeled as one kernel. Compute-pass time includes GPU dispatch/barrier work inside the pass, not only arithmetic instructions. Do not subtract independently sampled medians to infer CPU cost.", "",
+                      "| Case | Native GPU batch µs/op | Torch GPU batch µs/op | Native / Torch GPU | Native GPU single µs | Torch GPU single µs | Native E2E single µs | Torch E2E single µs |",
+                      "|---|---:|---:|---:|---:|---:|---:|---:|"])
+        for row in device_rows:
+            native, torch = row["native"], row["torch"]
+            nd, td = native["device_timing"], torch["device_timing"]
+            lines.append(f"| {row['name']} | {nd['compute_throughput_us_p50']:.3f} | {td['compute_throughput_us_p50']:.3f} | {row['device_compute_slowdown']:.3f}× | {nd['compute_latency_us_p50']:.3f} | {td['compute_latency_us_p50']:.3f} | {native['latency_us_p50']:.3f} | {torch['latency_us_p50']:.3f} |")
     if any("system" in row for row in report["results"]):
         lines.extend(["", "## Direct system-library GEMM baselines", "",
                       "Same FP32 inputs, compact row-major strides, alpha=1, beta=0, no transpose or reduced-precision option. CPU uses classic LP64 Accelerate cblas_sgemm; Metal uses MPSMatrixMultiplication (not MPSGraph) with private buffers and one command buffer per timed batch. Timings include API/encoding/submission costs, not setup or uploads. Complete outputs pass the same FP64 oracle. Raw samples and each case's implementation order are recorded in JSON; use compare_system.py for per-case six-order balance.", "",
@@ -845,6 +967,8 @@ def main() -> int:
     parser.add_argument("--cpu-vector-lanes", type=int, choices=(16, 32, 64, 128), default=16,
                         help="logical CPU SIMD-pack budget; >16 enables Cartesian row packing, not a hardware width")
     parser.add_argument("--cpu-input-views", action="store_true", help="opt in to proved immutable LLVM input views, retaining lazy bounds/zero-fill expressions")
+    parser.add_argument("--input-views", action="store_true",
+                        help="prove immutable input forwarding on CPU or Metal, independently of element-grid fusion")
     parser.add_argument("--cpu-model", choices=("generic", "native"),
                         help="CPU codegen model; native resolves and validates the host model through C++ LLVM APIs")
     parser.add_argument("--cpu-matrix-backend", choices=("reference", "cblas"), default="reference",
@@ -856,6 +980,8 @@ def main() -> int:
     parser.add_argument("--tune-shared-tile-materializations",
                         help="opt-in staged/JIT search over preserve,expensive-only; each candidate is recaptured and validated")
     parser.add_argument("--capture-sources", action="store_true", help="archive LLVM IR or Metal source by SHA256")
+    parser.add_argument("--metal-device-timing", type=Path,
+                        help="prebuilt libluisa-benchmark-metal-timing.dylib; separately sample real GPU compute-pass timestamps")
     parser.add_argument("--group-threads", type=int, default=0,
                         help="exact Metal group worker count; 0 lets the compiler planner choose (not CPU threads)")
     parser.add_argument("--copy-batch", type=int, default=1,
@@ -890,12 +1016,18 @@ def main() -> int:
     if min(args.threads, args.samples, args.sample_ms, args.warmup_ms) <= 0:
         parser.error("block dimensions, thread count, and timing parameters must be positive")
     backends = args.backends.split(",")
+    if args.metal_device_timing is not None:
+        if backends != ["metal"] or sys.platform != "darwin":
+            parser.error("Metal device timing requires only the Metal backend on macOS")
+        args.metal_device_timing = args.metal_device_timing.resolve(strict=True)
     if not 0 <= args.cpu_stack_bytes <= 65536 or (args.cpu_stack_bytes and backends != ["cpu"]):
         parser.error("CPU stack budget must be in [0,65536] and requires only the CPU backend")
     if args.cpu_vector_lanes != 16 and (backends != ["cpu"] or not args.auto_vectorize):
         parser.error("non-default CPU vector lanes require only CPU with auto-vectorization")
     if args.cpu_input_views and backends != ["cpu"]:
         parser.error("CPU input views require only the CPU backend")
+    if args.input_views and args.matrix_realization != "simdgroup":
+        parser.error("generic input views require the reference TIRx realization; use mpp-views for MPP")
     if args.cpu_model is not None and backends != ["cpu"]:
         parser.error("CPU model selection requires only the CPU backend")
     if args.cpu_matrix_backend == "cblas" and (backends != ["cpu"] or args.operations != "gemm" or
@@ -953,6 +1085,9 @@ def main() -> int:
         "thread_environment": {key: os.environ[key] for key in ("TVM_NUM_THREADS", "OMP_NUM_THREADS", "VECLIB_MAXIMUM_THREADS")},
         "git_revision": revision, "worktree_dirty": dirty,
         "native_binary": str(args.native), "native_sha256": hashlib.sha256(args.native.read_bytes()).hexdigest(),
+        "metal_device_timing": {"library": str(args.metal_device_timing),
+                                "sha256": hashlib.sha256(args.metal_device_timing.read_bytes()).hexdigest()}
+                               if args.metal_device_timing else None,
         "system_baseline": {"binary": str(args.system_baseline),
                             "sha256": hashlib.sha256(args.system_baseline.read_bytes()).hexdigest()} if args.system_baseline else None,
         # The bridge is dynamically linked: an unchanged executable hash alone
@@ -977,6 +1112,7 @@ def main() -> int:
         "cpu_stack_bytes": args.cpu_stack_bytes, "capture_sources": args.capture_sources,
         "cpu_vector_lanes": args.cpu_vector_lanes,
         "cpu_input_views": args.cpu_input_views,
+        "input_views": args.input_views,
         "cpu_model": args.cpu_model,
         "cpu_matrix_backend": args.cpu_matrix_backend,
         "cpu_math_backend": args.cpu_math_backend,

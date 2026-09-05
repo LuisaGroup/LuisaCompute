@@ -1,4 +1,5 @@
 import argparse
+import copy
 import contextlib
 import hashlib
 import importlib.util
@@ -99,6 +100,43 @@ class SystemBaselineTests(unittest.TestCase):
         markdown = write.call_args_list[-1].args[0]
         self.assertIn("5/6 | INCOMPLETE", markdown)
         self.assertIn("Failed measurements: 1", markdown)
+
+
+class DeviceTimingTests(unittest.TestCase):
+    @staticmethod
+    def timing():
+        sample = dict(compute_ns=2000., compute_span_ns=2100., command_buffer_ns=3000.,
+                      calibration_cpu_ns=1e6, calibration_gpu_ticks=24000.,
+                      compute_passes=1, command_buffers=1)
+        return dict(method="metal_compute_pass_timestamps_v1", scope="sum_of_compute_encoder_gpu_intervals",
+                    host_samples_instrumented=False, repetitions=4,
+                    throughput=[sample.copy(), sample | {"compute_ns": 4000., "command_buffer_ns": 6000.}],
+                    latency=[sample.copy(), sample.copy()])
+
+    def test_gpu_denominator_is_independent_of_host_repetitions(self):
+        result = dict(throughput_us=[10., 20.], latency_us=[100., 200.], repetitions=10000,
+                      device_timing=self.timing())
+        MODULE.summarize(result)
+        self.assertEqual(result["throughput_us_p50"], 15.)
+        self.assertEqual(result["device_timing"]["compute_throughput_us_p50"], .75)
+        self.assertEqual(result["device_timing"]["compute_latency_us_p50"], 2.)
+        self.assertEqual(result["device_timing"]["command_buffer_latency_us_p50"], 3.)
+
+    def test_timing_method_instrumentation_scope_and_coverage_are_checked(self):
+        for key, value in (("method", "host_clock"), ("scope", "single_kernel"),
+                           ("host_samples_instrumented", True), ("repetitions", 0),
+                           ("repetitions", True), ("repetitions", 65), ("latency", [])):
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                MODULE.summarize_device_timing(self.timing() | {key: value}, 2)
+
+    def test_invalid_gpu_samples_fail_closed(self):
+        for key, value in (("compute_ns", 0), ("compute_ns", float("nan")),
+                           ("compute_ns", 1e20), ("calibration_gpu_ticks", 0),
+                           ("compute_passes", True), ("command_buffers", 1.5)):
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                result = copy.deepcopy(self.timing())
+                result["throughput"][0][key] = value
+                MODULE.summarize_device_timing(result, 2)
 
 
 class RepeatContractTests(unittest.TestCase):
@@ -268,6 +306,25 @@ class RepeatContractTests(unittest.TestCase):
             with patch.object(Path, "read_text", return_value=json.dumps({"results": [invalid]})):
                 with self.assertRaises(ValueError):
                     REPEAT.load_plan(Path("unused.json"), {"gemm"})
+
+    def test_generic_input_views_are_explicit_and_replayed_on_metal(self):
+        native = dict(backend="metal", metal_mpp=False, forward_readonly_tile_loads=True)
+        MODULE.validate_tirx_realization(native, "simdgroup", input_views=True)
+        for invalid in (native | {"metal_mpp": True}, native | {"forward_readonly_tile_loads": 1},
+                        native | {"backend": "cuda"}):
+            with self.assertRaises(ValueError):
+                MODULE.validate_tirx_realization(invalid, "simdgroup", input_views=True)
+        with self.assertRaises(ValueError):
+            MODULE.validate_tirx_realization(native, "simdgroup")
+        self.assertEqual(MODULE.optional_native_arguments(argparse.Namespace(input_views=True))[-1], "forward-input-views")
+        row = self.row()
+        row["backend"] = "metal"
+        row["native"].update(native)
+        with patch.object(Path, "read_text", return_value=json.dumps({"results": [row]})):
+            config = REPEAT.load_plan(Path("unused.json"), {"gemm"})["metal", "gemm_17x19x13"]
+        self.assertTrue(config["input_views"])
+        self.assertFalse(config["cpu_input_views"])
+        self.assertEqual(config["matrix_realization"], "simdgroup")
 
     def test_cpu_vector_budget_must_match_and_preserve_legacy_default(self):
         MODULE.validate_cpu_vector_policy({}, 16)
@@ -488,6 +545,12 @@ class RepeatContractTests(unittest.TestCase):
 
 
 class BenchmarkContractTests(unittest.TestCase):
+    def test_gelu_add_uses_elementwise_shapes_and_blocks(self):
+        cases = MODULE.make_cases(["gelu_add"])
+        self.assertEqual([(c.m, c.n) for c in cases], [(1, 127), (17, 257), (128, 1024), (4096, 256)])
+        self.assertTrue(all(MODULE.block_shape(c, (8, 8, 8)) == (1, 256, 1) for c in cases))
+        self.assertEqual(MODULE.tolerance("gelu_add"), (2e-6, 2e-5))
+
     def test_shape_matrix_is_not_only_squares(self):
         cases = MODULE.make_cases(["gemm"])
         self.assertEqual(len(cases), 8)

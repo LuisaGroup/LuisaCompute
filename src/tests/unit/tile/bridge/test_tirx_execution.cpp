@@ -140,6 +140,156 @@ void test_element_grid_retains_snapshot(Runtime &runtime) {
     for (size_t i = 0; i < actual.size(); i++) { expect(eq(actual[i], static_cast<float>(i ? i - 1 : 0))); }
 }
 
+void test_element_grid_shared_producers(Runtime &runtime) {
+    for (auto dims : {std::array<int64_t, 4>{1, 127, 8, 8}, {17, 257, 3, 7}, {35, 63, 8, 8}}) {
+        auto [rows, columns, bm, bn] = dims;
+        for (auto mode = 0u; mode != 4u; mode++) {
+            auto definition = tile_kernel("element_grid_ssa", [=](TensorView<const float, 2> x, TensorView<float, 2> y) {
+                auto gr = axis("gr", ceil_div(rows, bm)), gc = axis("gc", ceil_div(columns, bn));
+                auto r = axis("r", bm), c = axis("c", bn);
+                auto scope = mode == 2u ? exec::Scope::WORKER : exec::Scope::AUTOMATIC;
+                for (auto &nest : parallel(shape(gr, gc), scope)) {
+                    auto r0 = nest.index(gr) * bm, c0 = nest.index(gc) * bn;
+                    auto value = x[coord(r0 - 2, c0 - 3), shape(r, c)];
+                    auto activated = exp(value * 0.3f);
+                    auto shared = activated * activated + activated;
+                    y(coord(r0, c0), shape(r, c)).store(shared * shared + activated);
+                }
+            });
+            auto kernel = definition.capture(tensor_shape(rows, columns), tensor_shape(rows, columns));
+            PlannerOptions planner;
+            planner.fuse_gpu_elementwise = mode != 1u;
+            auto executable = runtime.build(kernel, mode != 3u, false, true, false, planner);
+            expect(executable.ok()) << executable.error;
+            if (!executable.ok()) { continue; }
+            auto fused = runtime.target() == "metal" && mode == 0u;
+            expect(eq(executable.plans.size(), fused ? size_t{1u} : size_t{0u}));
+            if (fused && !executable.plans.empty()) {
+                expect(eq(executable.plans.front().elementwise_scalar_temporaries, 2u));
+                auto source = metal_source(executable.module.value());
+                auto code = std::string_view{source.data(), source.size()};
+                expect(code.find("thread float tile_storage_") == std::string_view::npos);
+                auto first = code.find("exp(");
+                expect(first != std::string_view::npos) << code;
+                if (first != std::string_view::npos) { expect(code.find("exp(", first + 4u) == std::string_view::npos); }
+            }
+            luisa::vector<float> input(static_cast<size_t>(rows * columns));
+            for (size_t i = 0u; i < input.size(); i++) { input[i] = static_cast<float>(static_cast<int64_t>(i % 43u) - 21) / 17.0f; }
+            auto source = runtime.upload<float>({rows, columns}, input);
+            auto output = runtime.upload<float>({rows, columns}, luisa::vector<float>(input.size(), -19.0f));
+            (*executable.entry)(source, output);
+            auto actual = runtime.download<float>(output, input.size());
+            for (int64_t r = 0; r < rows; r++) {
+                for (int64_t c = 0; c < columns; c++) {
+                    auto value = r >= 2 && c >= 3 ? input[(r - 2) * columns + c - 3] : 0.0f;
+                    auto activated = std::exp(value * 0.3f);
+                    auto shared = activated * activated + activated;
+                    expect(std::abs(actual[r * columns + c] - (shared * shared + activated)) < 1e-5f);
+                }
+            }
+        }
+    }
+}
+
+void test_element_grid_respects_exact_reduction(Runtime &runtime) {
+    if (runtime.target() != "metal") { return; }
+    auto kernel = make_copy(exec::Scope::AUTOMATIC, 37);
+    for (auto request = 0u; request != 3u; request++) {
+        PlannerOptions planner;
+        planner.metal_subgroup_reductions = true;
+        if (request == 0u) { planner.threads_per_group = 64u; }
+        if (request == 1u) { planner.reduction_programs_per_group = 2u; }
+        if (request == 2u) { planner.reduction_unroll_factor = 4u; }
+        auto executable = runtime.build(kernel, true, false, true, false, planner);
+        expect(!executable.ok());
+        expect(executable.error.find("exact reduction mapping") != luisa::string::npos) << executable.error;
+    }
+}
+
+enum class ElementChainCase { POINTWISE,
+                              NEIGHBOR,
+                              TRANSPOSE,
+                              REWRITTEN,
+                              UNMARKED,
+                              MANUAL,
+                              CONDITIONAL,
+                              DIFFERENT_DOMAIN,
+                              INPUT_WRITE };
+
+void test_element_grid_producer_contract(Runtime &runtime) {
+    auto i64 = [](int64_t value) { return tvm::IntImm::Int64(value); };
+    auto f32 = [](float value) { return tvm::FloatImm{tvm::PrimType::Float(32), value}; };
+    for (auto mode : {ElementChainCase::POINTWISE, ElementChainCase::NEIGHBOR, ElementChainCase::TRANSPOSE,
+                      ElementChainCase::REWRITTEN, ElementChainCase::UNMARKED, ElementChainCase::MANUAL,
+                      ElementChainCase::CONDITIONAL, ElementChainCase::DIFFERENT_DOMAIN, ElementChainCase::INPUT_WRITE}) {
+        auto a = tvm::tirx::decl_buffer({i64(3), i64(8), i64(8)}, tvm::PrimType::Float(32), "input");
+        auto d = tvm::tirx::decl_buffer({i64(3), i64(8), i64(8)}, tvm::PrimType::Float(32), "output");
+        auto columns = mode == ElementChainCase::DIFFERENT_DOMAIN ? 7 : 8;
+        auto temporary = tvm::tirx::decl_buffer({i64(8), i64(columns)}, tvm::PrimType::Float(32), "temporary", "local");
+        auto p = tvm::tirx::PrimVar{"program", tvm::PrimType::Int(64)};
+        auto r = tvm::tirx::PrimVar{"producer_row", tvm::PrimType::Int(64)};
+        auto c = tvm::tirx::PrimVar{"producer_column", tvm::PrimType::Int(64)};
+        auto y = tvm::tirx::PrimVar{"consumer_row", tvm::PrimType::Int(64)};
+        auto x = tvm::tirx::PrimVar{"consumer_column", tvm::PrimType::Int(64)};
+        auto row = r - i64(3), column = c - i64(7);
+        auto output_row = y - i64(5), output_column = x - i64(11);
+        tvm::ffi::Map<tvm::ffi::String, tvm::ffi::Any> annotations{{"luisa.tile.independent_elements", i64(2)}};
+        if (mode != ElementChainCase::UNMARKED) { annotations.Set("luisa.tile.contract.materialized_pure_tile", i64(1)); }
+        auto producer = [&](float increment) {
+            auto value = tvm::tirx::BufferLoad{a, {p - i64(2), row, column}} + f32(increment);
+            tvm::tirx::Stmt result = tvm::tirx::BufferStore{temporary, value, {row, column}};
+            if (mode == ElementChainCase::CONDITIONAL) { result = tvm::tirx::IfThenElse{row < i64(7), std::move(result)}; }
+            result = tvm::tirx::For{c, i64(7), i64(columns), tvm::tirx::ForKind::kSerial, std::move(result)};
+            return tvm::tirx::For{r, i64(3), i64(8), tvm::tirx::ForKind::kSerial, std::move(result), {}, annotations};
+        };
+        tvm::ffi::Map<tvm::ffi::String, tvm::ffi::Any> allocation_annotations;
+        if (mode == ElementChainCase::MANUAL) { allocation_annotations.Set("luisa.tile.manual_memory", i64(1)); }
+        tvm::ffi::Array<tvm::tirx::Stmt> parts{tvm::tirx::AllocBuffer{temporary, allocation_annotations}, producer(0.25f)};
+        if (mode == ElementChainCase::REWRITTEN) { parts.push_back(producer(0.5f)); }
+        tvm::PrimExpr read_row = output_row, read_column = output_column;
+        if (mode == ElementChainCase::NEIGHBOR) { read_row = tvm::floormod(output_row + i64(1), i64(8)); }
+        if (mode == ElementChainCase::TRANSPOSE) { std::swap(read_row, read_column); }
+        if (mode == ElementChainCase::DIFFERENT_DOMAIN) { read_column = tvm::floormod(read_column, i64(7)); }
+        auto destination = mode == ElementChainCase::INPUT_WRITE ? a : d;
+        auto value = tvm::tirx::BufferLoad{temporary, {read_row, read_column}};
+        tvm::tirx::Stmt consumer = tvm::tirx::BufferStore{destination, value * value + value, {p - i64(2), output_row, output_column}};
+        if (mode == ElementChainCase::CONDITIONAL) { consumer = tvm::tirx::IfThenElse{output_row < i64(7), std::move(consumer)}; }
+        consumer = tvm::tirx::For{x, i64(11), i64(8), tvm::tirx::ForKind::kSerial, std::move(consumer)};
+        consumer = tvm::tirx::For{y, i64(5), i64(8), tvm::tirx::ForKind::kSerial, std::move(consumer), {}, {{"luisa.tile.independent_elements", i64(2)}}};
+        parts.push_back(std::move(consumer));
+        auto body = tvm::tirx::For{p, i64(2), i64(3), tvm::tirx::ForKind::kSerial, tvm::tirx::SeqStmt::Flatten(parts), {}, {{"luisa.tile.logical_parallel", i64(1)}}};
+        CompileOptions options;
+        options.target = runtime.target();
+        options.noalias = true;
+        auto compiled = compile(tvm::tirx::PrimFunc{{a, d}, std::move(body)}, "element_chain_contract", options);
+        expect(compiled.ok()) << compiled.error();
+        if (!compiled) { continue; }
+        auto fused = runtime.target() == "metal" && mode == ElementChainCase::POINTWISE;
+        expect(eq(compiled.plans().size(), fused ? size_t{1u} : size_t{0u}));
+        auto entry = compiled.module().value()->GetFunction("element_chain_contract", true);
+        expect(entry.has_value());
+        if (!entry) { continue; }
+        luisa::vector<float> input(192u);
+        for (auto i = 0u; i < input.size(); i++) { input[i] = static_cast<float>(i) / 37.0f - 2.0f; }
+        auto source = runtime.upload<float>({3, 8, 8}, input);
+        auto output = runtime.upload<float>({3, 8, 8}, luisa::vector<float>(192u, -19.0f));
+        (*entry)(source, output);
+        auto actual = runtime.download<float>(mode == ElementChainCase::INPUT_WRITE ? source : output, 192u);
+        for (auto i = 0u; i < actual.size(); i++) {
+            auto r0 = i / 8u % 8u, c0 = i % 8u;
+            if (mode == ElementChainCase::CONDITIONAL && r0 == 7u) {
+                expect(eq(actual[i], -19.0f));
+                continue;
+            }
+            if (mode == ElementChainCase::NEIGHBOR) { r0 = (r0 + 1u) % 8u; }
+            if (mode == ElementChainCase::TRANSPOSE) { std::swap(r0, c0); }
+            if (mode == ElementChainCase::DIFFERENT_DOMAIN) { c0 %= 7u; }
+            auto v = input[i / 64u * 64u + r0 * 8u + c0] + (mode == ElementChainCase::REWRITTEN ? 0.5f : 0.25f);
+            expect(std::abs(actual[i] - (v * v + v)) < 5e-6f) << "mode=" << static_cast<uint32_t>(mode) << " i=" << i;
+        }
+    }
+}
+
 [[nodiscard]] bool has_cpu_parallel_launch(const luisa::test::tile_tirx::Executable &executable) {
     if (!executable.module) { return false; }
     auto source = executable.module.value()->InspectSource("ll");
@@ -1239,6 +1389,9 @@ int main(int argc, char *argv[]) {
     "tile_execution_empty_domain"_test = [&] { test_empty_parallel(runtime); };
     "tile_execution_fused_element_grid"_test = [&] { test_fused_element_grid(runtime); };
     "tile_execution_element_grid_snapshot"_test = [&] { test_element_grid_retains_snapshot(runtime); };
+    "tile_execution_element_grid_shared_producers"_test = [&] { test_element_grid_shared_producers(runtime); };
+    "tile_execution_element_grid_exact_reduction"_test = [&] { test_element_grid_respects_exact_reduction(runtime); };
+    "tile_execution_element_grid_producer_contract"_test = [&] { test_element_grid_producer_contract(runtime); };
     "tile_execution_reduction_packing_and_policy"_test = [&] { test_metal_reduction_packing_and_policy(runtime); };
     "tile_execution_cpu_parallel_launch_cost"_test = [&] { test_cpu_parallel_launch_cost(runtime); };
     "tile_execution_shared_exp_materialization"_test = test_shared_exp_is_materialized_once;

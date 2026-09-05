@@ -622,8 +622,27 @@ The current family requires one automatic static root and one perfect static
 element nest ending in a single compact-global-buffer store. Inputs must be
 proved immutable under `noalias`; each nontrivial local axis must independently
 appear with unit coefficient in a distinct output coordinate. Opaque effects,
-overlapping read/write snapshots, custom output strides/layouts, allocations,
-multiple effects and any explicit execution binding decline this family.
+overlapping read/write snapshots, custom output strides/layouts, unproved
+allocations, multiple final effects and any explicit execution binding decline
+this family. One additional admitted form is a sequence of compiler-owned,
+versioned pure-Tile producers followed by that same final element nest:
+
+```text
+Tile SSA:       u = A + B; v = f(u); output = g(u, v)
+Reference:     full local u[] -> full local v[] -> final element loop
+Mapped point:  let u = A[i] + B[i]; let v = f(u); output[i] = g(u, v)
+                    one definition, all consumers share its scalar value
+```
+
+This is same-domain scalarization, not arbitrary recomputation. All producer
+domains must have identical static extents; minima and axis variables are
+normalized. Every compiler-local read and unique defining write must address
+the current point exactly. Producers must dominate consumers and every
+allocation must have a proved definition. Manual memory, unmarked producers,
+transposed/neighbor reads, conditional or repeated writes, changed inputs,
+cross-stage boundaries and domain mismatches retain the reference mapping.
+The number of scalar definitions is bounded at 64. This preserves expensive
+multi-consumer expressions once per element while eliminating full Tile arrays.
 The root's inter-program independence comes from `parallel`, not a new user
 proof obligation. `fuse_gpu_elementwise=false` retains the old mapping.
 
@@ -631,8 +650,10 @@ The first implementation has one linear ordering and a bounded default launch
 width (at most 256, subject to target capacity). It is not yet a general
 layout-permutation/coalescing solver. Explicit `threads_per_group` is checked
 against the actual target capacity. Plans report
-`elementwise_elements_per_program`; they do not pretend this is an MMA or a
-reduction. Its four-shape M1 Max A/B is linked from the status report.
+`elementwise_elements_per_program` and `elementwise_scalar_temporaries`; they
+do not pretend this is an MMA or a reduction. An exact row-reduction mapping
+request cannot be bypassed by this family. Four-shape M1 Max add and shared-SSA
+GELU A/B evidence is linked from the status report.
 
 ### 3.10 Backend-owned execution cost policy
 

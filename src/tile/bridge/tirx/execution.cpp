@@ -415,6 +415,176 @@ namespace {
     return body;
 }
 
+[[nodiscard]] bool static_unit_domain(const tvm::tirx::ForNode *loop) {
+    if (!loop || loop->kind != tvm::tirx::ForKind::kSerial || loop->thread_binding || loop->step ||
+        loop->loop_var.ty() != tvm::PrimType::Int(64)) { return false; }
+    auto extent = loop->extent.as<tvm::IntImmNode>();
+    auto minimum = loop->min.as<tvm::IntImmNode>();
+    return extent && minimum && extent->value > 0 && minimum->value <= INT64_MAX - extent->value;
+}
+
+struct ElementDomain {
+    luisa::vector<const tvm::tirx::ForNode *> axes;
+    tvm::tirx::Stmt point;
+    uint64_t volume{1u};
+};
+
+[[nodiscard]] std::optional<ElementDomain> element_domain(tvm::tirx::Stmt body, bool producer) {
+    auto outer = body.as<tvm::tirx::ForNode>();
+    if (!outer || outer->annotations.size() != (producer ? 2u : 1u)) { return {}; }
+    if (producer) {
+        auto provenance = outer->annotations.Get(materialized_pure_tile_annotation);
+        auto version = provenance ? provenance.value().as<tvm::IntImmNode>() : nullptr;
+        if (!version || version->value != 1) { return {}; }
+    }
+    auto rank_attribute = outer->annotations.Get(independent_elements_annotation);
+    auto rank = rank_attribute ? rank_attribute.value().as<tvm::IntImmNode>() : nullptr;
+    if (!rank || rank->value <= 0 || rank->value > 16) { return {}; }
+    ElementDomain result;
+    for (auto i = int64_t{0}; i < rank->value; i++) {
+        auto axis = body.as<tvm::tirx::ForNode>();
+        if (!static_unit_domain(axis) || (i != 0 && !axis->annotations.empty())) { return {}; }
+        auto extent = static_cast<uint64_t>(axis->extent.as<tvm::IntImmNode>()->value);
+        if (result.volume > INT64_MAX / extent) { return {}; }
+        result.volume *= extent;
+        result.axes.emplace_back(axis);
+        body = axis->body;
+    }
+    result.point = std::move(body);
+    return result;
+}
+
+// Only sequence grouping and empty export placeholders are transparent. A
+// pipeline, branch, nested execution domain, or resource marker is a boundary.
+void element_sequence(const tvm::tirx::Stmt &body, luisa::vector<tvm::tirx::Stmt> &parts) {
+    if (auto sequence = body.as<tvm::tirx::SeqStmtNode>()) {
+        for (auto &child : sequence->seq) { element_sequence(child, parts); }
+    } else if (auto effect = sole_effect(body); effect.defined()) {
+        parts.emplace_back(std::move(effect));
+    }
+}
+
+using ElementScalars = luisa::unordered_map<const tvm::tirx::VarNode *, tvm::tirx::PrimVar>;
+
+[[nodiscard]] bool pure_element_call(const tvm::CallNode *call) {
+    static auto effects = tvm::Op::GetAttrMap<tvm::tirx::TCallEffectKind>("TCallEffectKind");
+    auto op = call->op.as<tvm::Op>();
+    return !call->op.same_as(tvm::tirx::builtin::address_of()) && op && effects.count(op.value()) &&
+           effects[op.value()] <= static_cast<int64_t>(tvm::tirx::CallEffectKind::kPure);
+}
+
+// A temporary may disappear only after every read has the same local owner as
+// its unique, dominating producer. Shape equality is not a dependence proof:
+// a transpose, neighbor read, broadcast, or indirect index keeps Tile storage.
+class ElementScalarReads final : public tvm::tirx::StmtExprMutator {
+private:
+    const ElementScalars &_scalars;
+    const luisa::unordered_set<const tvm::tirx::VarNode *> &_allocated;
+    const luisa::vector<const tvm::tirx::ForNode *> &_axes;
+    const luisa::vector<const tvm::tirx::ForNode *> &_domain;
+
+protected:
+    [[nodiscard]] tvm::Expr VisitExpr_(const tvm::tirx::VarNode *variable) final {
+        valid &= !_allocated.contains(variable);
+        return StmtExprMutator::VisitExpr_(variable);
+    }
+    [[nodiscard]] tvm::Expr VisitExpr_(const tvm::tirx::ProducerLoadNode *load) final {
+        valid = false;
+        return StmtExprMutator::VisitExpr_(load);
+    }
+    [[nodiscard]] tvm::Expr VisitExpr_(const tvm::CallNode *call) final {
+        valid &= pure_element_call(call);
+        return StmtExprMutator::VisitExpr_(call);
+    }
+    [[nodiscard]] tvm::Expr VisitExpr_(const tvm::tirx::BufferLoadNode *load) final {
+        if (load->buffer.scope() == "global") { return StmtExprMutator::VisitExpr_(load); }
+        auto scalar = _scalars.find(load->buffer.get());
+        if (scalar == _scalars.end() || load->predicate || load->indices.size() != _axes.size()) {
+            valid = false;
+            return tvm::ffi::GetRef<tvm::tirx::BufferLoad>(load);
+        }
+        for (auto i = 0u; i < _axes.size(); i++) {
+            // Even an algebraically redundant index subexpression must pass
+            // the effect/escape audit before its memory access disappears.
+            static_cast<void>(VisitPrimExpr(load->indices[i]));
+            valid &= prove_in_loop_domain(load->indices[i] == _axes[i]->loop_var - _axes[i]->min, _domain);
+        }
+        return scalar->second;
+    }
+
+public:
+    bool valid{true};
+    [[nodiscard]] tvm::PrimExpr value(const tvm::PrimExpr &expression) { return VisitPrimExpr(expression); }
+    ElementScalarReads(const ElementScalars &scalars, const luisa::unordered_set<const tvm::tirx::VarNode *> &allocated,
+                       const luisa::vector<const tvm::tirx::ForNode *> &axes,
+                       const luisa::vector<const tvm::tirx::ForNode *> &domain)
+        : _scalars{scalars}, _allocated{allocated}, _axes{axes}, _domain{domain} {}
+};
+
+struct ElementProgram {
+    ElementDomain domain;
+    uint32_t scalar_temporaries{0u};
+};
+
+// Fuse a bounded, same-domain SSA chain before choosing its hardware map.
+// Each Bind still computes its producer once per logical element; this is
+// storage scalarization and loop fusion, not expression cloning/recomputation.
+[[nodiscard]] std::optional<ElementProgram> element_program(const tvm::tirx::ForNode *root) {
+    luisa::vector<tvm::tirx::Stmt> parts;
+    element_sequence(root->body, parts);
+    if (parts.empty()) { return {}; }
+    auto consumer = element_domain(parts.back(), false);
+    if (!consumer) { return {}; }
+    luisa::vector<const tvm::tirx::ForNode *> domain{root};
+    domain.insert(domain.end(), consumer->axes.begin(), consumer->axes.end());
+    luisa::unordered_set<const tvm::tirx::VarNode *> allocated;
+    ElementScalars scalars;
+    tvm::ffi::Array<tvm::tirx::Stmt> points;
+    for (auto i = size_t{0}; i + 1u < parts.size(); i++) {
+        if (auto allocation = parts[i].as<tvm::tirx::AllocBufferNode>()) {
+            auto buffer = allocation->buffer;
+            auto offset = buffer->elem_offset.as<tvm::IntImmNode>();
+            if (!allocation->annotations.empty() || buffer.scope() != "local" || !buffer->strides.empty() ||
+                buffer->layout || !buffer->allocated_addr.empty() || !offset || offset->value != 0 ||
+                buffer->dtype.IsScalableVector() || buffer->dtype.lanes() != 1 || buffer->shape.size() != consumer->axes.size() ||
+                allocated.size() == 64u || !allocated.emplace(buffer.get()).second) { return {}; }
+            for (auto j = 0u; j < consumer->axes.size(); j++) {
+                if (!tvm::ffi::StructuralEqual{}(buffer->shape[j], consumer->axes[j]->extent)) { return {}; }
+            }
+            continue;
+        }
+        auto producer = element_domain(parts[i], true);
+        if (!producer || producer->axes.size() != consumer->axes.size()) { return {}; }
+        tvm::ffi::Map<tvm::tirx::Var, tvm::Expr> coordinates;
+        for (auto j = 0u; j < producer->axes.size(); j++) {
+            auto from = producer->axes[j], to = consumer->axes[j];
+            if (!tvm::ffi::StructuralEqual{}(from->extent, to->extent)) { return {}; }
+            coordinates.Set(from->loop_var, to->loop_var - to->min + from->min);
+        }
+        auto point = tvm::tirx::Substitute(producer->point, coordinates);
+        auto store = point.as<tvm::tirx::BufferStoreNode>();
+        if (!store || store->predicate || store->value.ty() != store->buffer->dtype ||
+            !allocated.contains(store->buffer.get()) || scalars.contains(store->buffer.get()) ||
+            store->indices.size() != consumer->axes.size()) { return {}; }
+        ElementScalarReads reads{scalars, allocated, consumer->axes, domain};
+        for (auto j = 0u; j < consumer->axes.size(); j++) {
+            static_cast<void>(reads.value(store->indices[j]));
+            if (!prove_in_loop_domain(store->indices[j] == consumer->axes[j]->loop_var - consumer->axes[j]->min, domain)) { return {}; }
+        }
+        auto value = reads.value(store->value);
+        if (!reads.valid) { return {}; }
+        auto scalar = tvm::tirx::PrimVar{store->buffer.name() + "_element", store->buffer->dtype};
+        points.push_back(tvm::tirx::Bind{scalar, std::move(value)});
+        scalars.emplace(store->buffer.get(), std::move(scalar));
+    }
+    if (scalars.size() != allocated.size()) { return {}; }
+    ElementScalarReads reads{scalars, allocated, consumer->axes, domain};
+    points.push_back(reads(consumer->point));
+    if (!reads.valid) { return {}; }
+    consumer->point = tvm::tirx::SeqStmt::Flatten(points);
+    return ElementProgram{std::move(*consumer), static_cast<uint32_t>(scalars.size())};
+}
+
 class ElementGridAudit final : public tvm::tirx::StmtExprVisitor {
 private:
     const luisa::vector<const tvm::tirx::ForNode *> &_axes;
@@ -425,7 +595,8 @@ private:
 protected:
     void VisitStmt(const tvm::tirx::Stmt &statement) final {
         if (!statement.as<tvm::tirx::BufferStoreNode>() && !statement.as<tvm::tirx::IfThenElseNode>() &&
-            !statement.as<tvm::tirx::SeqStmtNode>() && !statement.as<tvm::tirx::EvaluateNode>()) {
+            !statement.as<tvm::tirx::SeqStmtNode>() && !statement.as<tvm::tirx::EvaluateNode>() &&
+            !statement.as<tvm::tirx::BindNode>()) {
             valid = false;
             return;
         }
@@ -434,10 +605,7 @@ protected:
     void VisitExpr_(const tvm::tirx::VarNode *variable) final { _escaped.emplace(variable); }
     void VisitExpr_(const tvm::tirx::ProducerLoadNode *) final { valid = false; }
     void VisitExpr_(const tvm::CallNode *call) final {
-        static auto effects = tvm::Op::GetAttrMap<tvm::tirx::TCallEffectKind>("TCallEffectKind");
-        auto op = call->op.as<tvm::Op>();
-        valid &= !call->op.same_as(tvm::tirx::builtin::address_of()) && op && effects.count(op.value()) &&
-                 effects[op.value()] <= static_cast<int64_t>(tvm::tirx::CallEffectKind::kPure);
+        valid &= pure_element_call(call);
         StmtExprVisitor::VisitExpr_(call);
     }
     void VisitExpr_(const tvm::tirx::BufferLoadNode *load) final {
@@ -503,32 +671,13 @@ tvm::tirx::Stmt try_map_gpu_elementwise(const tvm::tirx::Stmt &body, uint32_t ma
                                         const PlannerOptions &options, luisa::vector<GroupPlan> &plans) {
     auto root_statement = sole_effect(body);
     auto root = root_statement.as<tvm::tirx::ForNode>();
-    auto unit_domain = [](const tvm::tirx::ForNode *loop) {
-        if (!loop || loop->kind != tvm::tirx::ForKind::kSerial || loop->thread_binding || loop->step ||
-            loop->loop_var.ty() != tvm::PrimType::Int(64)) { return false; }
-        auto extent = loop->extent.as<tvm::IntImmNode>();
-        auto minimum = loop->min.as<tvm::IntImmNode>();
-        return extent && minimum && extent->value > 0 && minimum->value <= INT64_MAX - extent->value;
-    };
-    if (!unit_domain(root) || root->annotations.size() != 1u || !root->annotations.count(logical_parallel_annotation) ||
+    if (!static_unit_domain(root) || root->annotations.size() != 1u || !root->annotations.count(logical_parallel_annotation) ||
         max_threads == 0u || options.threads_per_group > max_threads) { return {}; }
-    auto elements = sole_effect(root->body);
-    auto outer = elements.as<tvm::tirx::ForNode>();
-    if (!outer || outer->annotations.size() != 1u) { return {}; }
-    auto rank_attribute = outer->annotations.Get(independent_elements_annotation);
-    auto rank = rank_attribute ? rank_attribute.value().as<tvm::IntImmNode>() : nullptr;
-    if (!rank || rank->value <= 0 || rank->value > 16) { return {}; }
-    luisa::vector<const tvm::tirx::ForNode *> axes;
-    auto volume = uint64_t{1u};
-    for (auto i = int64_t{0}; i < rank->value; i++) {
-        auto axis = elements.as<tvm::tirx::ForNode>();
-        if (!unit_domain(axis) || (i != 0 && !axis->annotations.empty())) { return {}; }
-        auto extent = static_cast<uint64_t>(axis->extent.as<tvm::IntImmNode>()->value);
-        if (volume > INT64_MAX / extent) { return {}; }
-        volume *= extent;
-        axes.emplace_back(axis);
-        elements = axis->body;
-    }
+    auto program = element_program(root);
+    if (!program) { return {}; }
+    auto &axes = program->domain.axes;
+    auto &elements = program->domain.point;
+    auto volume = program->domain.volume;
     auto programs = static_cast<uint64_t>(root->extent.as<tvm::IntImmNode>()->value);
     if (programs > INT64_MAX / volume || !ElementGridAudit{root, axes}.run(elements)) { return {}; }
     auto count = programs * volume;
@@ -560,6 +709,7 @@ tvm::tirx::Stmt try_map_gpu_elementwise(const tvm::tirx::Stmt &body, uint32_t ma
     plan.programs = programs;
     plan.threads = static_cast<uint32_t>(threads);
     plan.elementwise_elements_per_program = volume;
+    plan.elementwise_scalar_temporaries = program->scalar_temporaries;
     plan.candidates_considered = 1u;
     plan.optimized = true;
     plans.emplace_back(std::move(plan));

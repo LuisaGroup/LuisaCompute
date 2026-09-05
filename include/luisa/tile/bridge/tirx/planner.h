@@ -260,6 +260,8 @@ struct GroupPlan {
     uint64_t reduction_operations{0u};
     uint64_t reduction_elements{0u};
     uint64_t elementwise_elements_per_program{0u};
+    // Shared pure Tile SSA values scalarized to one definition per worker.
+    uint32_t elementwise_scalar_temporaries{0u};
     uint32_t reduction_unroll_factor{1u};
     // Static emitted synchronization sites, not dynamic barrier executions.
     // Filled by realization; the bootstrap ranking does not yet price them.

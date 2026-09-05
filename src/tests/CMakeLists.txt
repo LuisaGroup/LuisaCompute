@@ -590,7 +590,24 @@ endif ()
 if (APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
     # Independent system-library baselines, not a Tile/TVM lowering path.
     enable_language(OBJCXX)
+    # Opt-in diagnostics shared by native benchmarks and Python via ctypes.
+    # No framework/backend dependency and no hooks at library-load time.
+    add_library(luisa-benchmark-metal-timing SHARED common/metal_benchmark_timing.mm)
+    set_target_properties(luisa-benchmark-metal-timing PROPERTIES
+            OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED ON OBJCXX_EXTENSIONS OFF)
+    target_compile_options(luisa-benchmark-metal-timing PRIVATE -fobjc-arc)
+    target_link_libraries(luisa-benchmark-metal-timing PRIVATE "-framework Foundation" "-framework Metal")
+    add_executable(test_tile_metal_timing unit/tile/test_metal_timing.mm)
+    set_target_properties(test_tile_metal_timing PROPERTIES
+            OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED ON OBJCXX_EXTENSIONS OFF)
+    target_compile_options(test_tile_metal_timing PRIVATE -fobjc-arc)
+    target_include_directories(test_tile_metal_timing PRIVATE ./ common)
+    target_link_libraries(test_tile_metal_timing PRIVATE luisa-benchmark-metal-timing
+            "-framework Foundation" "-framework Metal")
+    add_test(NAME test_tile_metal_timing COMMAND test_tile_metal_timing)
+    set_tests_properties(test_tile_metal_timing PROPERTIES LABELS "integration;integration_tile_timing")
     add_executable(benchmark_tile_system benchmark/benchmark_tile_system.mm)
+    target_include_directories(benchmark_tile_system PRIVATE common)
     set_target_properties(benchmark_tile_system PROPERTIES
             OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED ON OBJCXX_EXTENSIONS OFF)
     target_compile_options(benchmark_tile_system PRIVATE -fobjc-arc)

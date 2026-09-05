@@ -443,8 +443,11 @@ public:
                 std::move(mapped), cpu_math_realization_annotation,
                 tvm::ffi::String{"accelerate"});
         }
+        auto exact_reduction = subgroup_reductions && (options.planner.threads_per_group != 0u ||
+                                                       options.planner.reduction_programs_per_group != 0u ||
+                                                       options.planner.reduction_unroll_factor != 1u);
         if (binding == RootParallelBinding::GPU_GRID && options.noalias &&
-            options.planner.enabled && options.planner.fuse_gpu_elementwise) {
+            options.planner.enabled && options.planner.fuse_gpu_elementwise && !exact_reduction) {
             // Speculative forwarding is committed only with a proved fused
             // map. Other programs keep their original materialization policy.
             auto trial = forward_readonly_tile_loads(mapped, true, true);

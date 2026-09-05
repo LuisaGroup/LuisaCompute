@@ -75,6 +75,24 @@ frozen-binary add A/B validates all 32 outputs and measures 34.49×, 79.17×,
 paired new/Torch time ratios are 0.704--0.832. This combines proved immutable
 input forwarding with coordinate fusion; it is not just a launch-width tweak.
 
+The same family now accepts bounded, pointwise shared Tile SSA chains and
+turns each producer into one per-worker scalar definition. A same-binary
+four-round GELU(A+B) A/B measures 32.70×, 52.64×, 9.91× and 3.83× over the
+unfused program-per-worker map at those four shapes, with all 64 native/Torch
+outputs valid. Both variants keep identical input-view and shared-SSA policy.
+This is storage scalarization plus execution-grid fusion, not recomputation.
+Its 2.59--19.93 µs times are still **host wall time**, and Torch is a two-op
+eager graph with preallocated intermediate/output, not a compiled fused graph.
+
+The benchmark now additionally supports **real Metal compute-pass timestamps
+in a separate measurement phase**, alongside uninstrumented batched and
+single-dispatch end-to-end times. A two-case integration smoke confirms that
+GPU execution and dispatch latency differ substantially; it is not a stable
+performance comparison. The M1 Max supports pass-boundary rather than arbitrary
+per-dispatch counters, so multi-dispatch passes are labeled batch time. No
+existing result has been relabeled as pure kernel time. The helper uses public
+Metal APIs without changing the pinned TVMx build or Runtime interfaces.
+
 Reduction collaboration width, independent-program packing and ordered stripe
 unrolling are now separately controllable and jointly searchable through
 ordinary staged/JIT runs. The TIRx cost model has a backend-overridable abstract
@@ -123,6 +141,9 @@ No Metal result is relabeled as XIR performance.
 | {download}`Element-grid A/B <../../scripts/benchmark/tile_torch/results/m1-max-20260905-element-grid-replay/notes.md>` | Frozen old/new binaries, four balanced rounds, complete add outputs and the combined forwarding/fusion gain |
 | {download}`Reduction joint-map replay <../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-joint-map-replay/notes.md>` | Collaboration/packing/unrolling choices, three stable gains, seven qualified outcomes and raw per-round evidence |
 | {download}`Execution-map validation <../../scripts/benchmark/tile_torch/results/m1-max-20260905-execution-map-validation/notes.md>` | Latest build, exact-constraint failures, CPU/Metal regressions, benchmark contracts and documented limitations |
+| {download}`Shared element-SSA A/B <../../scripts/benchmark/tile_torch/results/m1-max-20260905-shared-element-replay/notes.md>` | Four balanced GELU(A+B) rounds, same-binary fusion isolation, complete outputs and eager-graph caveats |
+| {download}`GPU/dispatch integration smoke <../../scripts/benchmark/tile_torch/results/m1-max-20260905-device-timing-smoke-v2/notes.md>` | Real pass-boundary GPU counters versus uninstrumented host dispatch; raw calibration and explicitly preliminary evidence |
+| {download}`Dual-timing validation <../../scripts/benchmark/tile_torch/results/m1-max-20260905-dual-timing-validation/notes.md>` | Current 33-test Tile cohort, 77 Python contracts, timestamp tests and submitted/worktree distinction |
 
 ```{figure} ../_static/tile/xir-planning-pipeline.svg
 :alt: The same execution-first TileIR feeds XIR/SIMD, Metal-native MPP and TIRx compiler routes with separate ownership.
@@ -209,15 +230,15 @@ signed-overflow rejection in the bounds proof. The dedicated SIMD PHI test
 uses widths 1/2/4/8/16 and every active-lane count, independent of TileIR.
 
 The submitted source preserves `metal::mem_flags(3)` and the current complete
-`test_tile_*` regression cohort is **32/32 passing**: 30 unit-labeled tests plus
-two separately registered integration tests. The workspace contains an
+`test_tile_*` regression cohort is **33/33 passing**: 30 unit-labeled tests plus
+three separately registered integration tests. The workspace contains an
 unowned local `mem_flags(2)` edit that intentionally disagrees with the
 generated-source assertions in `test_tile_tirx_cooperative_metal` and
 `test_tile_tirx_memory_metal`. The complete cohort was built and run with the
 submitted value restored temporarily; the user's `2` was then restored without
 weakening either assertion and is not part of this source snapshot. The
-current Python benchmark-contract suite passes **69/69**. See the
-{download}`current validation note <../../scripts/benchmark/tile_torch/results/m1-max-20260905-shared-tile-validation/notes.md>`
+current Python benchmark-contract suite passes **77/77**. See the
+{download}`current validation note <../../scripts/benchmark/tile_torch/results/m1-max-20260905-dual-timing-validation/notes.md>`
 for commands and scope; this is not a claim that every non-Tile repository
 test passed.
 

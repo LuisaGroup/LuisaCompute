@@ -1,7 +1,8 @@
 // Device-resident native TileIR -> TVMx timing companion to the PyTorch driver.
-// This reports synchronized host wall time, including dispatch overhead, NOT
-// GPU hardware-event time. Every input/output allocation precedes warm timing.
+// Host-wall samples include dispatch overhead. Optional Metal GPU counters
+// run in a separate phase; every input/output allocation precedes warm timing.
 #include "tile_tirx_test_utils.h"
+#include "metal_benchmark.h"
 
 #include <luisa/core/mathematics.h>
 #include <luisa/tile/algorithms.h>
@@ -53,7 +54,7 @@ struct Configuration {
 };
 
 [[nodiscard]] bool uses_auxiliary_input(std::string_view operation) noexcept {
-    return operation == "gemm" || operation == "add" ||
+    return operation == "gemm" || operation == "add" || operation == "gelu_add" ||
            operation == "rmsnorm" || operation == "layernorm" ||
            operation == "residual_layernorm";
 }
@@ -124,6 +125,7 @@ void print_plans(luisa::span<const bridge::tirx::GroupPlan> plans) {
                   << ",\"reduction_operations\":" << plan.reduction_operations
                   << ",\"reduction_elements\":" << plan.reduction_elements
                   << ",\"elementwise_elements_per_program\":" << plan.elementwise_elements_per_program
+                  << ",\"elementwise_scalar_temporaries\":" << plan.elementwise_scalar_temporaries
                   << ",\"group_barrier_sites_before\":" << plan.group_barrier_sites_before
                   << ",\"group_barrier_sites_after\":" << plan.group_barrier_sites_after
                   << ",\"independent_subgroups\":" << (plan.independent_subgroups ? "true" : "false")
@@ -286,17 +288,22 @@ void dump_source(const tvm::ffi::Module &module, std::string_view kind, const ch
         });
         return definition.capture(tensor_shape(cfg.m, cfg.k), tensor_shape(cfg.k, cfg.n), tensor_shape(cfg.m, cfg.n));
     }
-    if (operation == "add") {
-        auto definition = tile_kernel("benchmark_add", [=](TensorView<const float, 2> A,
-                                                           TensorView<const float, 2> B,
-                                                           TensorView<float, 2> C) {
+    if (operation == "add" || operation == "gelu_add") {
+        auto definition = tile_kernel(operation == "add" ? "benchmark_add" : "benchmark_gelu_add", [=](TensorView<const float, 2> A,
+                                                                                                       TensorView<const float, 2> B,
+                                                                                                       TensorView<float, 2> C) {
             auto gm = axis("block_m", ceil_div(A.extent<0>(), cfg.bm));
             auto gn = axis("block_n", ceil_div(A.extent<1>(), cfg.bn));
             auto m = axis("m", cfg.bm);
             auto n = axis("n", cfg.bn);
             for (auto &nest : parallel(shape(gm, gn), cfg.execution_scope)) {
                 auto origin = coord(nest.index(gm) * cfg.bm, nest.index(gn) * cfg.bn);
-                C(origin, shape(m, n)).store(A[origin, shape(m, n)] + B[origin, shape(m, n)]);
+                auto value = A[origin, shape(m, n)] + B[origin, shape(m, n)];
+                if (operation == "gelu_add") {
+                    C(origin, shape(m, n)).store(0.5f * value * (1.0f + tanh(0.7978845608f * (value + 0.044715f * value * value * value))));
+                } else {
+                    C(origin, shape(m, n)).store(value);
+                }
             }
         });
         return definition.capture(tensor_shape(cfg.m, cfg.n), tensor_shape(cfg.m, cfg.n), tensor_shape(cfg.m, cfg.n));
@@ -403,7 +410,7 @@ void dump_source(const tvm::ffi::Module &module, std::string_view kind, const ch
         });
         return definition.capture(tensor_shape(cfg.m, cfg.n), tensor_shape(cfg.m), tensor_shape(cfg.m));
     }
-    throw std::invalid_argument{"operation must be gemm, add, sum, softmax, rmsnorm, layernorm, residual_layernorm, or cross_entropy"};
+    throw std::invalid_argument{"operation must be gemm, add, gelu_add, sum, softmax, rmsnorm, layernorm, residual_layernorm, or cross_entropy"};
 }
 
 [[nodiscard]] luisa::vector<float> input_values(size_t count, uint64_t seed) {
@@ -484,9 +491,7 @@ void run_luisa(const char *program, const char *output_path, std::string_view op
            << labels.copy_from(host_labels.data()) << c.copy_from(output.data())
            << synchronize();
     auto upload_ms = milliseconds(start);
-    auto invoke = [&](uint64_t repetitions) {
-        stream.synchronize();
-        auto before = Clock::now();
+    auto submit = [&](uint64_t repetitions) {
         CommandList commands;
         for (auto i = uint64_t{0}; i < repetitions; i++) {
             if (labeled) {
@@ -498,6 +503,11 @@ void run_luisa(const char *program, const char *output_path, std::string_view op
             }
         }
         stream << commands.commit() << synchronize();
+    };
+    auto invoke = [&](uint64_t repetitions) {
+        stream.synchronize();
+        auto before = Clock::now();
+        submit(repetitions);
         return milliseconds(before);
     };
     auto cold_ms = invoke(1);
@@ -514,6 +524,8 @@ void run_luisa(const char *program, const char *output_path, std::string_view op
     std::vector<double> throughput, latency;
     for (auto i = 0; i < sample_count; i++) { throughput.emplace_back(1000.0 * invoke(repetitions) / repetitions); }
     for (auto i = 0; i < sample_count; i++) { latency.emplace_back(1000.0 * invoke(1)); }
+    luisa::test::MetalBenchmarkTiming device_timing{true};
+    device_timing.measure([&] { stream.synchronize(); }, submit, repetitions, static_cast<uint32_t>(sample_count));
     start = Clock::now();
     stream << c.copy_to(output.data()) << synchronize();
     auto download_ms = milliseconds(start);
@@ -558,6 +570,7 @@ void run_luisa(const char *program, const char *output_path, std::string_view op
     print_samples("throughput_us", throughput);
     std::cout << ',';
     print_samples("latency_us", latency);
+    device_timing.print();
     std::cout << "}\n";
 }
 
@@ -565,7 +578,7 @@ void run_luisa(const char *program, const char *output_path, std::string_view op
 
 int main(int argc, char *argv[]) {
     if (argc < 13 || argc > 31) {
-        std::cerr << "Usage: benchmark_tile_tirx <cpu|metal> <gemm|add|sum|softmax|rmsnorm|layernorm|residual_layernorm|cross_entropy> M N K BM BN BK samples sample-ms warmup-ms output.f32 [auto|worker|group] [pipeline-window:1|2] [scalar|subgroup-reduce|matrix|mpp|mpp-views] [vectorize|no-vectorize|auto-vectorize] [group-threads:auto|N] [copy-batch:1..16] [tvm|luisa|luisa-fast] [retain-subgroup-fences|elide-subgroup-fences] [cpu-stack-bytes:0..65536] [cpu-vector-lanes:16|32|64|128] [retain-input-snapshots|forward-input-views] [cpu-model:generic|native] [cpu-matrix:reference|cblas] [cpu-math:reference|accelerate] [shared-tiles:preserve|expensive-only]\n";
+        std::cerr << "Usage: benchmark_tile_tirx <cpu|metal> <gemm|add|gelu_add|sum|softmax|rmsnorm|layernorm|residual_layernorm|cross_entropy> M N K BM BN BK samples sample-ms warmup-ms output.f32 [auto|worker|group] [pipeline-window:1|2] [scalar|subgroup-reduce|matrix|mpp|mpp-views] [vectorize|no-vectorize|auto-vectorize] [group-threads:auto|N] [copy-batch:1..16] [tvm|luisa|luisa-fast] [retain-subgroup-fences|elide-subgroup-fences] [cpu-stack-bytes:0..65536] [cpu-vector-lanes:16|32|64|128] [retain-input-snapshots|forward-input-views] [cpu-model:generic|native] [cpu-matrix:reference|cblas] [cpu-math:reference|accelerate] [shared-tiles:preserve|expensive-only]\n";
         std::cerr << "Additional mapping options: [reduction-programs:auto|1..8] [element-grid:auto|reference] [reduction-unroll:1..16]\n";
         return 1;
     }
@@ -800,6 +813,10 @@ int main(int argc, char *argv[]) {
         std::vector<double> latency_us;
         for (auto i = 0; i < sample_count; i++) { throughput_us.emplace_back(1000.0 * batch(runtime, invoke, repetitions) / repetitions); }
         for (auto i = 0; i < sample_count; i++) { latency_us.emplace_back(1000.0 * batch(runtime, invoke, 1)); }
+        luisa::test::MetalBenchmarkTiming device_timing{backend == "metal"};
+        device_timing.measure([&] { runtime.synchronize(); }, [&](uint64_t count) {
+            for (auto i = uint64_t{0u}; i < count; i++) { invoke(); }
+            runtime.synchronize(); }, repetitions, static_cast<uint32_t>(sample_count));
         start = Clock::now();
         auto output_count = static_cast<size_t>(has_row_output(operation) ? cfg.m : cfg.m * cfg.n);
         auto output = runtime.download<float>(out, output_count);
@@ -848,6 +865,7 @@ int main(int argc, char *argv[]) {
         print_samples("latency_us", latency_us);
         std::cout << ',';
         print_plans(executable.plans);
+        device_timing.print();
         std::cout << "}\n";
     } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';
