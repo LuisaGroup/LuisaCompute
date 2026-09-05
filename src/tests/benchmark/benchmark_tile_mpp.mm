@@ -7,6 +7,7 @@
 #include <bit>
 #include <charconv>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -41,6 +42,8 @@ struct Configuration {
     bool inline_tensors{true};
     int group_simdgroups{0};
     int cohort_rows{1};
+    int walk_rows{0};
+    int walk_columns{1};
 };
 
 struct API_AVAILABLE(macos(26.0)) Precision {
@@ -102,7 +105,7 @@ void multiply_tile(thread A &tile_a, thread B &tile_b, thread C &tile_c) {
 #endif
 }
 
-kernel void mpp_gemm(uint2 group [[threadgroup_position_in_grid]],
+kernel void mpp_gemm(uint2 physical_group [[threadgroup_position_in_grid]],
                      uint subgroup [[simdgroup_index_in_threadgroup]],
 #if INLINE_TENSORS
                      device INPUT_ELEMENT *a_data [[buffer(0)]],
@@ -118,6 +121,22 @@ kernel void mpp_gemm(uint2 group [[threadgroup_position_in_grid]],
                      tensor<device INPUT_ELEMENT, dextents<int, 2>> a,
                      tensor<device INPUT_ELEMENT, dextents<int, 2>> b,
                      tensor<device ACCUMULATOR_ELEMENT, dextents<int, 2>> c) {
+#endif
+    uint2 group = physical_group;
+#if WALK_ROWS > 0
+    // Permute only independent programs. A partial final row stripe uses its
+    // actual height, so this is a bijection without padding or duplicate work.
+    const uint stripe_programs = uint(WALK_ROWS) * uint(GRID_COLUMNS);
+    const uint stripe = physical_group.x / stripe_programs;
+    const uint first_row = stripe * WALK_ROWS;
+    const uint height = min(uint(WALK_ROWS), uint(GRID_ROWS) - first_row);
+    const uint local_program = physical_group.x % stripe_programs;
+    const uint rectangle_programs = height * uint(WALK_COLUMNS);
+    const uint first_column = (local_program / rectangle_programs) * uint(WALK_COLUMNS);
+    const uint width = min(uint(WALK_COLUMNS), uint(GRID_COLUMNS) - first_column);
+    const uint rectangle_program = local_program % rectangle_programs;
+    group = uint2(first_column + rectangle_program % width,
+                  first_row + rectangle_program / width);
 #endif
     // A multi-SIMD-group operation uses the whole threadgroup. Alternatively,
     // independent single-SIMD-group operations form a spatial cohort. Memory
@@ -255,6 +274,14 @@ void complete(id<MTLCommandBuffer> command) {
             throw std::invalid_argument{"MPP scope must be one SIMD group or the whole threadgroup; cohort rows must divide independent groups"};
         }
         auto cohort_columns = cohorts / cfg.cohort_rows;
+        auto group_m = static_cast<uint64_t>(cfg.tile_m) * cfg.cohort_rows;
+        auto group_n = static_cast<uint64_t>(cfg.tile_n) * cohort_columns;
+        auto grid_rows = cfg.m / group_m + (cfg.m % group_m != 0u);
+        auto grid_columns = cfg.n / group_n + (cfg.n % group_n != 0u);
+        if (cfg.walk_rows > 0 && (grid_rows * grid_columns > std::numeric_limits<uint32_t>::max() ||
+                                  static_cast<uint64_t>(cfg.walk_rows) * grid_columns > std::numeric_limits<uint32_t>::max())) {
+            throw std::invalid_argument{"linear MPP walk exceeds uint32 program coordinates"};
+        }
         auto mode = precision(name);
         auto device = MTLCreateSystemDefaultDevice();
         if (device == nil || ![device supportsFamily:MTLGPUFamilyApple7]) {
@@ -275,13 +302,24 @@ void complete(id<MTLCommandBuffer> command) {
                                      "#define COLUMNS_N %d\n"
                                      "#define INLINE_TENSORS %d\n"
                                      "#define COHORT_ROWS %d\n"
-                                     "#define COHORT_COLUMNS %d\n",
+                                     "#define COHORT_COLUMNS %d\n"
+                                     "#define WALK_ROWS %d\n"
+                                     "#define WALK_COLUMNS %llu\n"
+                                     "#define GRID_ROWS %llu\n"
+                                     "#define GRID_COLUMNS %llu\n",
                                     mode.input_msl, mode.accumulator_msl,
                                     cfg.tile_m, cfg.tile_n, cfg.simdgroups,
                                     cfg.cooperative, cfg.relaxed_precision,
                                     cfg.static_reduction, cfg.k, cfg.m, cfg.n, cfg.inline_tensors,
-                                    cfg.cohort_rows, cohort_columns];
+                                    cfg.cohort_rows, cohort_columns, cfg.walk_rows,
+                                    static_cast<unsigned long long>(std::min(static_cast<uint64_t>(cfg.walk_columns), grid_columns)),
+                                    static_cast<unsigned long long>(grid_rows), static_cast<unsigned long long>(grid_columns)];
         auto source = [prefix stringByAppendingString:[NSString stringWithUTF8String:metal_source]];
+        if (auto dump = std::getenv("LUISA_TILE_BENCH_DUMP_SOURCE")) {
+            std::ofstream output{dump, std::ios::binary};
+            output << source.UTF8String;
+            if (!output) { throw std::runtime_error{"cannot archive MPP shader source"}; }
+        }
         auto compile_options = [MTLCompileOptions new];
         compile_options.fastMathEnabled = cfg.relaxed_precision;
         compile_options.languageVersion = MTLLanguageVersion4_0;
@@ -332,10 +370,8 @@ void complete(id<MTLCommandBuffer> command) {
         result.thread_execution_width = pipeline.threadExecutionWidth;
         result.static_threadgroup_bytes = pipeline.staticThreadgroupMemoryLength;
         result.max_threads_per_group = pipeline.maxTotalThreadsPerThreadgroup;
-        auto group_m = static_cast<uint64_t>(cfg.tile_m) * cfg.cohort_rows;
-        auto group_n = static_cast<uint64_t>(cfg.tile_n) * cohort_columns;
-        auto groups = MTLSizeMake(cfg.n / group_n + (cfg.n % group_n != 0u),
-                                  cfg.m / group_m + (cfg.m % group_m != 0u), 1u);
+        auto groups = cfg.walk_rows == 0 ? MTLSizeMake(grid_columns, grid_rows, 1u) :
+                                           MTLSizeMake(grid_columns * grid_rows, 1u, 1u);
         auto threads = MTLSizeMake(static_cast<NSUInteger>(group_simdgroups) * pipeline.threadExecutionWidth, 1u, 1u);
         std::function<BatchTiming(uint64_t)> batch;
         if (cfg.inline_tensors) {
@@ -497,10 +533,10 @@ void print_samples(std::string_view name, const std::vector<double> &samples) {
 int main(int argc, char *argv[]) {
     @autoreleasepool {
         try {
-            if (argc != 9 && argc != 14 && argc != 15 && argc != 16 && argc != 18) {
+            if (argc != 9 && argc != 14 && argc != 15 && argc != 16 && argc != 18 && argc != 19 && argc != 20) {
                 throw std::invalid_argument{
                     "Usage: benchmark_tile_mpp <fp32|fp16|fp16-fp32|bf16|bf16-fp32> M N K samples sample-ms warmup-ms output "
-                    "[tile-m tile-n simdgroups cooperative-output relaxed-precision [static-reduction [inline-tensors [group-simdgroups cohort-rows]]]]"};
+                    "[tile-m tile-n simdgroups cooperative-output relaxed-precision [static-reduction [inline-tensors [group-simdgroups cohort-rows [walk-rows [walk-columns]]]]]]"};
             }
             auto name = std::string_view{argv[1]};
             Configuration cfg{positive_integer(argv[2]), positive_integer(argv[3]), positive_integer(argv[4]),
@@ -514,10 +550,12 @@ int main(int argc, char *argv[]) {
             }
             if (argc >= 15) { cfg.static_reduction = boolean(argv[14], "static-reduction"); }
             if (argc >= 16) { cfg.inline_tensors = boolean(argv[15], "inline-tensors"); }
-            if (argc == 18) {
+            if (argc >= 18) {
                 cfg.group_simdgroups = positive_integer(argv[16]);
                 cfg.cohort_rows = positive_integer(argv[17]);
             }
+            if (argc >= 19) { cfg.walk_rows = positive_integer(argv[18]); }
+            if (argc >= 20) { cfg.walk_columns = positive_integer(argv[19]); }
             auto result = measure(name, cfg, argv[8]);
             std::cout << std::setprecision(12)
                       << "{\"backend\":\"metal\",\"implementation\":\"mpp_tensor_ops_matmul2d\""
@@ -528,6 +566,8 @@ int main(int argc, char *argv[]) {
                       << ",\"execution_simdgroups\":" << cfg.simdgroups
                       << ",\"group_simdgroups\":" << (cfg.group_simdgroups == 0 ? cfg.simdgroups : cfg.group_simdgroups)
                       << ",\"cohort_rows\":" << cfg.cohort_rows
+                      << ",\"walk_rows\":" << cfg.walk_rows
+                      << ",\"walk_columns\":" << cfg.walk_columns
                       << ",\"block\":[" << cfg.tile_m << ',' << cfg.tile_n << ']'
                       << ",\"cooperative_output\":" << (cfg.cooperative ? "true" : "false")
                       << ",\"relaxed_precision\":" << (cfg.relaxed_precision ? "true" : "false")

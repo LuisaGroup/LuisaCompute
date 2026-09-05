@@ -805,6 +805,22 @@ the same size as the operation. Static M/N slices are used only inside the
 matrix. Dynamic slices retain bounds for ragged output and K tails. Static K
 requires a multiple of 16 for this FP32 family.
 
+For a standalone physical-traversal experiment, the **binary CLI** additionally
+accepts `walk-rows [walk-columns]` after `group-simdgroups cohort-rows`.
+Omitting them preserves the original 2D launch. `1 1` uses a linear row-major
+launch; positive row/column spans enumerate row-major inside bounded program
+rectangles. These spans count **programs**, not tensor elements. Partial
+rectangles use actual dimensions, preserving launch count and ownership;
+uint32 launch/product overflow is rejected before tensor allocation.
+`LUISA_TILE_BENCH_DUMP_SOURCE` optionally archives the exact MSL passed to JIT.
+
+This option is not part of `compare_mpp.py`'s selected-config format or a
+production planner default. Its metadata validator rejects non-default walks
+unless explicitly requested by a diagnostic caller. The
+[predeclared walk screen](results/m1-max-20260906-mpp-grid-walk/notes.md) and
+[K-partition screen](results/m1-max-20260906-mpp-k-partition/notes.md) retain
+negative results and unstable controls; do not promote their minima.
+
 After a full build, screen a small family, then freeze and replay it:
 
 ```sh

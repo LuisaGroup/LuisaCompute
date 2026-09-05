@@ -51,11 +51,17 @@ class MppBenchmarkTests(unittest.TestCase):
         validate_metadata(result, (128, 128, 128), DEFAULT_CONFIG, 3)
         for field, value in (("precision", "fp16"), ("relaxed_precision", True), ("fast_math", True),
                              ("group_simdgroups", 8), ("cohort_rows", 2), ("n", 127),
+                             ("walk_rows", 4), ("walk_columns", 16), ("walk_rows", False),
                              ("gpu_throughput_us", [1., np.nan, 2.]), ("throughput_us", [1.])):
             changed = copy.deepcopy(result)
             changed[field] = value
             with self.assertRaises(ValueError):
                 validate_metadata(changed, (128, 128, 128), DEFAULT_CONFIG, 3)
+        permuted = dict(result, walk_rows=4, walk_columns=16)
+        validate_metadata(permuted, (128, 128, 128), DEFAULT_CONFIG, 3, walk=(4, 16))
+        for request in ((0, 1), (4, 8), (4, 0), (True, 16)):
+            with self.assertRaises(ValueError):
+                validate_metadata(permuted, (128, 128, 128), DEFAULT_CONFIG, 3, walk=request)
 
 
 if __name__ == "__main__":

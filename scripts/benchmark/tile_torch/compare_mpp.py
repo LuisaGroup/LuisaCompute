@@ -69,7 +69,7 @@ def validate_output(np: Any, actual: Any, expected: Any) -> dict[str, float]:
 
 
 def validate_metadata(result: dict[str, Any], shape: tuple[int, int, int],
-                      config: tuple[int, ...] | None, samples: int) -> None:
+                      config: tuple[int, ...] | None, samples: int, *, walk: tuple[int, int] = (0, 1)) -> None:
     if tuple(result.get(key) for key in ("m", "n", "k")) != shape or result.get("backend") != "metal":
         raise ValueError("binary returned a different workload/backend")
     if config is None:
@@ -79,6 +79,12 @@ def validate_metadata(result: dict[str, Any], shape: tuple[int, int, int],
                 result.get("transpose_left") is not False or result.get("transpose_right") is not False):
             raise ValueError("MPS precision/operation mismatch")
     else:
+        # Missing fields identify older binaries with the original 2D launch.
+        # An exploratory permutation must never masquerade as that baseline.
+        actual_walk = (result.get("walk_rows", 0), result.get("walk_columns", 1))
+        if (any(type(value) is not int for value in actual_walk + walk) or
+                walk[0] < 0 or walk[1] <= 0 or actual_walk != walk):
+            raise ValueError("MPP physical program walk mismatch")
         tm, tn, sg, coop, static, inline, group, cohort_rows = config
         if (result.get("implementation") != "mpp_tensor_ops_matmul2d" or result.get("precision") != "fp32" or
                 result.get("relaxed_precision") is not False or result.get("fast_math") is not False or

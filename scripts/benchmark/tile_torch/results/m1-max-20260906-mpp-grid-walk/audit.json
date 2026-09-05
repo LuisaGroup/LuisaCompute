@@ -1,0 +1,5470 @@
+{
+  "results.json": {
+    "outputs": 50,
+    "elements": 1101066250,
+    "medians": [
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "path": "legacy",
+        "round": 0,
+        "medians": {
+          "throughput_us": 519.260973684,
+          "latency_us": 797.875,
+          "gpu_throughput_us": 503.687500513,
+          "gpu_latency_us": 471.125007607
+        }
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "path": "linear",
+        "round": 0,
+        "medians": {
+          "throughput_us": 490.65105,
+          "latency_us": 718.25,
+          "gpu_throughput_us": 482.259374985,
+          "gpu_latency_us": 468.000012916
+        }
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "path": "stripe4",
+        "round": 0,
+        "medians": {
+          "throughput_us": 529.893027027,
+          "latency_us": 740.167,
+          "gpu_throughput_us": 521.664414869,
+          "gpu_latency_us": 504.125026055
+        }
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "path": "stripe8",
+        "round": 0,
+        "medians": {
+          "throughput_us": 540.748833333,
+          "latency_us": 746.75,
+          "gpu_throughput_us": 532.238425674,
+          "gpu_latency_us": 520.874978974
+        }
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "path": "mps",
+        "round": 0,
+        "medians": {
+          "throughput_us": 441.889534884,
+          "latency_us": 654.5,
+          "gpu_throughput_us": 433.197674114,
+          "gpu_latency_us": 422.374985646
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "path": "linear",
+        "round": 0,
+        "medians": {
+          "throughput_us": 18218.084,
+          "latency_us": 18228,
+          "gpu_throughput_us": 17903.6666523,
+          "gpu_latency_us": 17885.4999831
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "path": "stripe4",
+        "round": 0,
+        "medians": {
+          "throughput_us": 24763.625,
+          "latency_us": 24022.833,
+          "gpu_throughput_us": 24421.375012,
+          "gpu_latency_us": 23510.3750019
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "path": "stripe8",
+        "round": 0,
+        "medians": {
+          "throughput_us": 30466.625,
+          "latency_us": 30063.458,
+          "gpu_throughput_us": 30212.5000162,
+          "gpu_latency_us": 29663.9999724
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "path": "mps",
+        "round": 0,
+        "medians": {
+          "throughput_us": 18211.25,
+          "latency_us": 18543.25,
+          "gpu_throughput_us": 17844.0833697,
+          "gpu_latency_us": 18198.1250062
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "path": "legacy",
+        "round": 0,
+        "medians": {
+          "throughput_us": 19489.166,
+          "latency_us": 19404.208,
+          "gpu_throughput_us": 19171.5833498,
+          "gpu_latency_us": 19070.1666288
+        }
+      },
+      {
+        "shape": [
+          8192,
+          8192,
+          8192
+        ],
+        "path": "stripe4",
+        "round": 0,
+        "medians": {
+          "throughput_us": 510535.792,
+          "latency_us": 508887.083,
+          "gpu_throughput_us": 510222.666664,
+          "gpu_latency_us": 508510.666667
+        }
+      },
+      {
+        "shape": [
+          8192,
+          8192,
+          8192
+        ],
+        "path": "stripe8",
+        "round": 0,
+        "medians": {
+          "throughput_us": 601488.666,
+          "latency_us": 601933.959,
+          "gpu_throughput_us": 601198.874996,
+          "gpu_latency_us": 601633.583312
+        }
+      },
+      {
+        "shape": [
+          8192,
+          8192,
+          8192
+        ],
+        "path": "mps",
+        "round": 0,
+        "medians": {
+          "throughput_us": 153758.833,
+          "latency_us": 155271.083,
+          "gpu_throughput_us": 152791.208355,
+          "gpu_latency_us": 153650.624969
+        }
+      },
+      {
+        "shape": [
+          8192,
+          8192,
+          8192
+        ],
+        "path": "legacy",
+        "round": 0,
+        "medians": {
+          "throughput_us": 375527.292,
+          "latency_us": 378540.667,
+          "gpu_throughput_us": 375314.250006,
+          "gpu_latency_us": 378217.249992
+        }
+      },
+      {
+        "shape": [
+          8192,
+          8192,
+          8192
+        ],
+        "path": "linear",
+        "round": 0,
+        "medians": {
+          "throughput_us": 329176.875,
+          "latency_us": 331215.083,
+          "gpu_throughput_us": 328865.999996,
+          "gpu_latency_us": 330903.624999
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "path": "stripe8",
+        "round": 0,
+        "medians": {
+          "throughput_us": 146909.208,
+          "latency_us": 147045.916,
+          "gpu_throughput_us": 146566.12504,
+          "gpu_latency_us": 146679.083351
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "path": "mps",
+        "round": 0,
+        "medians": {
+          "throughput_us": 51757.792,
+          "latency_us": 51811.083,
+          "gpu_throughput_us": 51143.6666711,
+          "gpu_latency_us": 51486.9999606
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "path": "legacy",
+        "round": 0,
+        "medians": {
+          "throughput_us": 71718.166,
+          "latency_us": 71088.875,
+          "gpu_throughput_us": 71396.0833382,
+          "gpu_latency_us": 70753.3749519
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "path": "linear",
+        "round": 0,
+        "medians": {
+          "throughput_us": 73555.417,
+          "latency_us": 73662.375,
+          "gpu_throughput_us": 73061.8750094,
+          "gpu_latency_us": 73378.0833543
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "path": "stripe4",
+        "round": 0,
+        "medians": {
+          "throughput_us": 103412.667,
+          "latency_us": 101930.167,
+          "gpu_throughput_us": 103043.208306,
+          "gpu_latency_us": 101632.624981
+        }
+      },
+      {
+        "shape": [
+          2049,
+          4097,
+          1025
+        ],
+        "path": "mps",
+        "round": 0,
+        "medians": {
+          "throughput_us": 2868.33333333,
+          "latency_us": 2939.667,
+          "gpu_throughput_us": 2776.37499191,
+          "gpu_latency_us": 2604.87495689
+        }
+      },
+      {
+        "shape": [
+          2049,
+          4097,
+          1025
+        ],
+        "path": "legacy",
+        "round": 0,
+        "medians": {
+          "throughput_us": 3023.868,
+          "latency_us": 3515.625,
+          "gpu_throughput_us": 2963.39582807,
+          "gpu_latency_us": 2907.99996583
+        }
+      },
+      {
+        "shape": [
+          2049,
+          4097,
+          1025
+        ],
+        "path": "linear",
+        "round": 0,
+        "medians": {
+          "throughput_us": 3029.75683333,
+          "latency_us": 3199.959,
+          "gpu_throughput_us": 2976.819446,
+          "gpu_latency_us": 2920.62497465
+        }
+      },
+      {
+        "shape": [
+          2049,
+          4097,
+          1025
+        ],
+        "path": "stripe4",
+        "round": 0,
+        "medians": {
+          "throughput_us": 3067.36116667,
+          "latency_us": 3398.125,
+          "gpu_throughput_us": 3011.15972494,
+          "gpu_latency_us": 2969.74997036
+        }
+      },
+      {
+        "shape": [
+          2049,
+          4097,
+          1025
+        ],
+        "path": "stripe8",
+        "round": 0,
+        "medians": {
+          "throughput_us": 3135.34716667,
+          "latency_us": 3300.958,
+          "gpu_throughput_us": 3069.1458281,
+          "gpu_latency_us": 2982.37497918
+        }
+      },
+      {
+        "shape": [
+          2049,
+          4097,
+          1025
+        ],
+        "path": "stripe8",
+        "round": 1,
+        "medians": {
+          "throughput_us": 3253,
+          "latency_us": 3649.333,
+          "gpu_throughput_us": 3100.31665722,
+          "gpu_latency_us": 3106.79164249
+        }
+      },
+      {
+        "shape": [
+          2049,
+          4097,
+          1025
+        ],
+        "path": "stripe4",
+        "round": 1,
+        "medians": {
+          "throughput_us": 3250.675,
+          "latency_us": 3333.333,
+          "gpu_throughput_us": 3082.32499519,
+          "gpu_latency_us": 2954.74997256
+        }
+      },
+      {
+        "shape": [
+          2049,
+          4097,
+          1025
+        ],
+        "path": "linear",
+        "round": 1,
+        "medians": {
+          "throughput_us": 3047.389,
+          "latency_us": 3281.042,
+          "gpu_throughput_us": 2978.02777883,
+          "gpu_latency_us": 2909.83333252
+        }
+      },
+      {
+        "shape": [
+          2049,
+          4097,
+          1025
+        ],
+        "path": "legacy",
+        "round": 1,
+        "medians": {
+          "throughput_us": 3012.6805,
+          "latency_us": 3247.083,
+          "gpu_throughput_us": 2954.8194434,
+          "gpu_latency_us": 2888.54166865
+        }
+      },
+      {
+        "shape": [
+          2049,
+          4097,
+          1025
+        ],
+        "path": "mps",
+        "round": 1,
+        "medians": {
+          "throughput_us": 2836.8265,
+          "latency_us": 2984.709,
+          "gpu_throughput_us": 2749.86805744,
+          "gpu_latency_us": 2627.83333892
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "path": "stripe4",
+        "round": 1,
+        "medians": {
+          "throughput_us": 102575.416,
+          "latency_us": 101769.625,
+          "gpu_throughput_us": 102315.250027,
+          "gpu_latency_us": 101303.666655
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "path": "linear",
+        "round": 1,
+        "medians": {
+          "throughput_us": 72428.792,
+          "latency_us": 73587.125,
+          "gpu_throughput_us": 71882.7499659,
+          "gpu_latency_us": 73265.0000136
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "path": "legacy",
+        "round": 1,
+        "medians": {
+          "throughput_us": 71578.708,
+          "latency_us": 71440,
+          "gpu_throughput_us": 71275.3750267,
+          "gpu_latency_us": 71087.2500204
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "path": "mps",
+        "round": 1,
+        "medians": {
+          "throughput_us": 50889.875,
+          "latency_us": 51784.25,
+          "gpu_throughput_us": 49948.1250299,
+          "gpu_latency_us": 51443.1249467
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "path": "stripe8",
+        "round": 1,
+        "medians": {
+          "throughput_us": 147074.334,
+          "latency_us": 149042.833,
+          "gpu_throughput_us": 146428.124979,
+          "gpu_latency_us": 148234.083317
+        }
+      },
+      {
+        "shape": [
+          8192,
+          8192,
+          8192
+        ],
+        "path": "linear",
+        "round": 1,
+        "medians": {
+          "throughput_us": 330639.792,
+          "latency_us": 326700.375,
+          "gpu_throughput_us": 330297.874985,
+          "gpu_latency_us": 326334.749989
+        }
+      },
+      {
+        "shape": [
+          8192,
+          8192,
+          8192
+        ],
+        "path": "legacy",
+        "round": 1,
+        "medians": {
+          "throughput_us": 374992.458,
+          "latency_us": 373313.084,
+          "gpu_throughput_us": 374648.125027,
+          "gpu_latency_us": 372828.416643
+        }
+      },
+      {
+        "shape": [
+          8192,
+          8192,
+          8192
+        ],
+        "path": "mps",
+        "round": 1,
+        "medians": {
+          "throughput_us": 156514.334,
+          "latency_us": 160114.125,
+          "gpu_throughput_us": 155870.333314,
+          "gpu_latency_us": 159746.000019
+        }
+      },
+      {
+        "shape": [
+          8192,
+          8192,
+          8192
+        ],
+        "path": "stripe8",
+        "round": 1,
+        "medians": {
+          "throughput_us": 599076.292,
+          "latency_us": 599407.417,
+          "gpu_throughput_us": 598803.000001,
+          "gpu_latency_us": 599089.791649
+        }
+      },
+      {
+        "shape": [
+          8192,
+          8192,
+          8192
+        ],
+        "path": "stripe4",
+        "round": 1,
+        "medians": {
+          "throughput_us": 510371.833,
+          "latency_us": 508615.209,
+          "gpu_throughput_us": 510074.708378,
+          "gpu_latency_us": 508307.333337
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "path": "legacy",
+        "round": 1,
+        "medians": {
+          "throughput_us": 19982.875,
+          "latency_us": 19452.166,
+          "gpu_throughput_us": 19596.3333244,
+          "gpu_latency_us": 19141.0833504
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "path": "mps",
+        "round": 1,
+        "medians": {
+          "throughput_us": 18607.875,
+          "latency_us": 18600.916,
+          "gpu_throughput_us": 18110.3749783,
+          "gpu_latency_us": 18130.875018
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "path": "stripe8",
+        "round": 1,
+        "medians": {
+          "throughput_us": 30707.542,
+          "latency_us": 30456.583,
+          "gpu_throughput_us": 30346.2083102,
+          "gpu_latency_us": 29849.5833413
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "path": "stripe4",
+        "round": 1,
+        "medians": {
+          "throughput_us": 23827.458,
+          "latency_us": 24177.667,
+          "gpu_throughput_us": 22947.1249622,
+          "gpu_latency_us": 23758.1249676
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "path": "linear",
+        "round": 1,
+        "medians": {
+          "throughput_us": 18868.041,
+          "latency_us": 18661.375,
+          "gpu_throughput_us": 18490.2083711,
+          "gpu_latency_us": 18276.5833451
+        }
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "path": "mps",
+        "round": 1,
+        "medians": {
+          "throughput_us": 447.044581395,
+          "latency_us": 670.416,
+          "gpu_throughput_us": 437.180232798,
+          "gpu_latency_us": 421.874981839
+        }
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "path": "stripe8",
+        "round": 1,
+        "medians": {
+          "throughput_us": 542.567138889,
+          "latency_us": 765.125,
+          "gpu_throughput_us": 532.458334217,
+          "gpu_latency_us": 523.000024259
+        }
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "path": "stripe4",
+        "round": 1,
+        "medians": {
+          "throughput_us": 547.017361111,
+          "latency_us": 752.208,
+          "gpu_throughput_us": 521.788195733,
+          "gpu_latency_us": 514.083367307
+        }
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "path": "linear",
+        "round": 1,
+        "medians": {
+          "throughput_us": 512.512052632,
+          "latency_us": 721.833,
+          "gpu_throughput_us": 498.917762582,
+          "gpu_latency_us": 466.750003397
+        }
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "path": "legacy",
+        "round": 1,
+        "medians": {
+          "throughput_us": 524.275891892,
+          "latency_us": 778.541,
+          "gpu_throughput_us": 507.574323942,
+          "gpu_latency_us": 466.750003397
+        }
+      }
+    ],
+    "ratios": [
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "path": "legacy",
+        "over_linear": {
+          "throughput_us": [
+            1.0583101242400275,
+            1.0229532929022587
+          ],
+          "latency_us": [
+            1.1108597285067874,
+            1.0785611076246169
+          ],
+          "gpu_throughput_us": [
+            1.0444327816927694,
+            1.0173506778255408
+          ],
+          "gpu_latency_us": [
+            1.0066773388990502,
+            1.0
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            1.1750922633194079,
+            1.1727597508418515
+          ],
+          "latency_us": [
+            1.2190603514132925,
+            1.1612804587002696
+          ],
+          "gpu_throughput_us": [
+            1.1627197711602901,
+            1.1610184675859434
+          ],
+          "gpu_latency_us": [
+            1.1154188188640939,
+            1.1063704260498806
+          ]
+        }
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "path": "linear",
+        "over_linear": {
+          "throughput_us": [
+            1.0,
+            1.0
+          ],
+          "latency_us": [
+            1.0,
+            1.0
+          ],
+          "gpu_throughput_us": [
+            1.0,
+            1.0
+          ],
+          "gpu_latency_us": [
+            1.0,
+            1.0
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            1.110347748173761,
+            1.146445061547797
+          ],
+          "latency_us": [
+            1.0974025974025974,
+            1.0766941719768024
+          ],
+          "gpu_throughput_us": [
+            1.1132547652093094,
+            1.1412175692136701
+          ],
+          "gpu_latency_us": [
+            1.1080201925315698,
+            1.1063704260498806
+          ]
+        }
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "path": "stripe4",
+        "over_linear": {
+          "throughput_us": [
+            1.0799794008939756,
+            1.067325847854306
+          ],
+          "latency_us": [
+            1.030514444831187,
+            1.0420803703903811
+          ],
+          "gpu_throughput_us": [
+            1.081709225217707,
+            1.0458400860146586
+          ],
+          "gpu_latency_us": [
+            1.0771901968846398,
+            1.1014105271890915
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            1.1991526958566732,
+            1.2236304473348845
+          ],
+          "latency_us": [
+            1.1308892284186403,
+            1.122001861530751
+          ],
+          "gpu_throughput_us": [
+            1.2042179495444825,
+            1.1935310807478645
+          ],
+          "gpu_latency_us": [
+            1.1935484893452382,
+            1.2185680342220186
+          ]
+        }
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "path": "stripe8",
+        "over_linear": {
+          "throughput_us": [
+            1.1021047103292656,
+            1.058642691625792
+          ],
+          "latency_us": [
+            1.0396797772363384,
+            1.059975091191453
+          ],
+          "gpu_throughput_us": [
+            1.10363520810882,
+            1.0672266536701775
+          ],
+          "gpu_latency_us": [
+            1.112980693587054,
+            1.120514237713151
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            1.2237194833657952,
+            1.2136756857580566
+          ],
+          "latency_us": [
+            1.1409472880061116,
+            1.141269003126417
+          ],
+          "gpu_throughput_us": [
+            1.2286271544799119,
+            1.2179378075015195
+          ],
+          "gpu_latency_us": [
+            1.2332050823922478,
+            1.2397038145736559
+          ]
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "path": "legacy",
+        "over_linear": {
+          "throughput_us": [
+            1.0697703446751043,
+            1.0590858372631264
+          ],
+          "latency_us": [
+            1.0645275400482772,
+            1.0423758163586554
+          ],
+          "gpu_throughput_us": [
+            1.070818828462555,
+            1.059822200545282
+          ],
+          "gpu_latency_us": [
+            1.0662361492169297,
+            1.047300963696356
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            1.070171789415883,
+            1.0738934456513707
+          ],
+          "latency_us": [
+            1.046429725102126,
+            1.0457638752844214
+          ],
+          "gpu_throughput_us": [
+            1.0743944058428996,
+            1.082050114803282
+          ],
+          "gpu_latency_us": [
+            1.0479193115940737,
+            1.0557175718986032
+          ]
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "path": "linear",
+        "over_linear": {
+          "throughput_us": [
+            1.0,
+            1.0
+          ],
+          "latency_us": [
+            1.0,
+            1.0
+          ],
+          "gpu_throughput_us": [
+            1.0,
+            1.0
+          ],
+          "gpu_latency_us": [
+            1.0,
+            1.0
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            1.0003752625437572,
+            1.0139814997682433
+          ],
+          "latency_us": [
+            0.982999204562307,
+            1.003250323801258
+          ],
+          "gpu_throughput_us": [
+            1.003339105818188,
+            1.020973248386912
+          ],
+          "gpu_latency_us": [
+            0.9828210311230695,
+            1.008036475181443
+          ]
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "path": "stripe4",
+        "over_linear": {
+          "throughput_us": [
+            1.3592881117465483,
+            1.2628474784425154
+          ],
+          "latency_us": [
+            1.3179083278472679,
+            1.2955994400198272
+          ],
+          "gpu_throughput_us": [
+            1.3640432145145365,
+            1.2410419883675357
+          ],
+          "gpu_latency_us": [
+            1.3144935855366047,
+            1.299921572812438
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            1.3597982016610612,
+            1.2805039801696863
+          ],
+          "latency_us": [
+            1.2955028379599045,
+            1.29981055771662
+          ],
+          "gpu_throughput_us": [
+            1.3685978991483818,
+            1.2670706702481553
+          ],
+          "gpu_latency_us": [
+            1.2919119411417466,
+            1.3103683602701675
+          ]
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "path": "stripe8",
+        "over_linear": {
+          "throughput_us": [
+            1.672328714699087,
+            1.6274896795062084
+          ],
+          "latency_us": [
+            1.6493009655475093,
+            1.6320653220890744
+          ],
+          "gpu_throughput_us": [
+            1.6875034931639963,
+            1.641204236380094
+          ],
+          "gpu_latency_us": [
+            1.6585502222710857,
+            1.633214631951587
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            1.6729562770265634,
+            1.650244426083043
+          ],
+          "latency_us": [
+            1.6212615372170465,
+            1.637370062850668
+          ],
+          "gpu_throughput_us": [
+            1.6931382458962327,
+            1.675625620483346
+          ],
+          "gpu_latency_us": [
+            1.6300580396218645,
+            1.6463399208072353
+          ]
+        }
+      },
+      {
+        "shape": [
+          8192,
+          8192,
+          8192
+        ],
+        "path": "legacy",
+        "over_linear": {
+          "throughput_us": [
+            1.140807026617529,
+            1.134141948649665
+          ],
+          "latency_us": [
+            1.1428847490016028,
+            1.1426772436364665
+          ],
+          "gpu_throughput_us": [
+            1.1412376165689517,
+            1.1342734949294302
+          ],
+          "gpu_latency_us": [
+            1.1429830966437524,
+            1.1424723130330656
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            2.442313619797049,
+            2.395898499622405
+          ],
+          "latency_us": [
+            2.4379340936264353,
+            2.3315437285748524
+          ],
+          "gpu_throughput_us": [
+            2.4563864246297653,
+            2.4035883998032728
+          ],
+          "gpu_latency_us": [
+            2.461540589687206,
+            2.3338826424364694
+          ]
+        }
+      },
+      {
+        "shape": [
+          8192,
+          8192,
+          8192
+        ],
+        "path": "linear",
+        "over_linear": {
+          "throughput_us": [
+            1.0,
+            1.0
+          ],
+          "latency_us": [
+            1.0,
+            1.0
+          ],
+          "gpu_throughput_us": [
+            1.0,
+            1.0
+          ],
+          "gpu_latency_us": [
+            1.0,
+            1.0
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            2.140864811324368,
+            2.1125208378677955
+          ],
+          "latency_us": [
+            2.133140805104064,
+            2.0404219490316673
+          ],
+          "gpu_throughput_us": [
+            2.1523882397205876,
+            2.119055422301668
+          ],
+          "gpu_latency_us": [
+            2.1536106674851596,
+            2.042835188049692
+          ]
+        }
+      },
+      {
+        "shape": [
+          8192,
+          8192,
+          8192
+        ],
+        "path": "stripe4",
+        "over_linear": {
+          "throughput_us": [
+            1.5509467121589267,
+            1.5435886585604917
+          ],
+          "latency_us": [
+            1.5364248463286319,
+            1.5568246868403501
+          ],
+          "gpu_throughput_us": [
+            1.5514606759902387,
+            1.5442869815652442
+          ],
+          "gpu_latency_us": [
+            1.5367334421571741,
+            1.5576255159897434
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            3.320367240300269,
+            3.2608632063054364
+          ],
+          "latency_us": [
+            3.2774105336793453,
+            3.1765792618234023
+          ],
+          "gpu_throughput_us": [
+            3.339345713390343,
+            3.2724297018757067
+          ],
+          "gpu_latency_us": [
+            3.3095255341108785,
+            3.181972213867906
+          ]
+        }
+      },
+      {
+        "shape": [
+          8192,
+          8192,
+          8192
+        ],
+        "path": "stripe8",
+        "over_linear": {
+          "throughput_us": [
+            1.8272506718462527,
+            1.8118699155242632
+          ],
+          "latency_us": [
+            1.8173506881025707,
+            1.834731340605287
+          ],
+          "gpu_throughput_us": [
+            1.8280967780290827,
+            1.812918112259105
+          ],
+          "gpu_latency_us": [
+            1.8181534980579865,
+            1.8358136596522252
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            3.911896664824452,
+            3.8276129520507687
+          ],
+          "latency_us": [
+            3.8766649099755424,
+            3.7436260979473235
+          ],
+          "gpu_throughput_us": [
+            3.9347740061008953,
+            3.8416739559715603
+          ],
+          "gpu_latency_us": [
+            3.915594768543138,
+            3.750264742639847
+          ]
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "path": "legacy",
+        "over_linear": {
+          "throughput_us": [
+            0.9750222203213122,
+            0.9882631757823601
+          ],
+          "latency_us": [
+            0.9650635755363576,
+            0.9708220018107787
+          ],
+          "gpu_throughput_us": [
+            0.9772002611350218,
+            0.9915504771382824
+          ],
+          "gpu_latency_us": [
+            0.964230349412006,
+            0.9702757115567358
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            1.3856496428595717,
+            1.406541242241212
+          ],
+          "latency_us": [
+            1.3720785377136393,
+            1.3795700430150093
+          ],
+          "gpu_throughput_us": [
+            1.3959907058940717,
+            1.4269879997303814
+          ],
+          "gpu_latency_us": [
+            1.3741988270057186,
+            1.3818610376809959
+          ]
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "path": "linear",
+        "over_linear": {
+          "throughput_us": [
+            1.0,
+            1.0
+          ],
+          "latency_us": [
+            1.0,
+            1.0
+          ],
+          "gpu_throughput_us": [
+            1.0,
+            1.0
+          ],
+          "gpu_latency_us": [
+            1.0,
+            1.0
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            1.4211467328436267,
+            1.4232456259717674
+          ],
+          "latency_us": [
+            1.4217493774449765,
+            1.421032939552084
+          ],
+          "gpu_throughput_us": [
+            1.4285615358643307,
+            1.4391481146263143
+          ],
+          "gpu_latency_us": [
+            1.425176906995008,
+            1.4241941967854703
+          ]
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "path": "stripe4",
+        "over_linear": {
+          "throughput_us": [
+            1.4059150395408675,
+            1.4162243103543684
+          ],
+          "latency_us": [
+            1.3837480396199553,
+            1.3829813979007877
+          ],
+          "gpu_throughput_us": [
+            1.4103553774488085,
+            1.4233630471223857
+          ],
+          "gpu_latency_us": [
+            1.3850542332957279,
+            1.382702062870337
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            1.998011565099222,
+            2.015635055106738
+          ],
+          "latency_us": [
+            1.967342913870378,
+            1.9652621212048065
+          ],
+          "gpu_throughput_us": [
+            2.0147794441227878,
+            2.0484302456949472
+          ],
+          "gpu_latency_us": [
+            1.9739473082287475,
+            1.9692362538232326
+          ]
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "path": "stripe8",
+        "over_linear": {
+          "throughput_us": [
+            1.997258855863736,
+            2.0306059225728905
+          ],
+          "latency_us": [
+            1.9962147025533727,
+            2.0253927979928554
+          ],
+          "gpu_throughput_us": [
+            2.00605479973164,
+            2.0370412240553275
+          ],
+          "gpu_latency_us": [
+            1.9989495043468524,
+            2.0232591727220868
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            2.8383978976537487,
+            2.890050997374232
+          ],
+          "latency_us": [
+            2.8381170106017666,
+            2.8781498814794078
+          ],
+          "gpu_throughput_us": [
+            2.865772725732644,
+            2.931604037015304
+          ],
+          "gpu_latency_us": [
+            2.8488566718442514,
+            2.8815139723837677
+          ]
+        }
+      },
+      {
+        "shape": [
+          2049,
+          4097,
+          1025
+        ],
+        "path": "legacy",
+        "over_linear": {
+          "throughput_us": [
+            0.9980563346651395,
+            0.9886104137016967
+          ],
+          "latency_us": [
+            1.0986468889132643,
+            0.9896499343806023
+          ],
+          "gpu_throughput_us": [
+            0.9954906173607413,
+            0.9922068102940538
+          ],
+          "gpu_latency_us": [
+            0.9956772920420867,
+            0.9926828579382719
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            1.054224753051777,
+            1.061989691650159
+          ],
+          "latency_us": [
+            1.1959262732819738,
+            1.087906057173413
+          ],
+          "gpu_throughput_us": [
+            1.067361518780768,
+            1.0745313526608984
+          ],
+          "gpu_latency_us": [
+            1.116368353167288,
+            1.0992103745198494
+          ]
+        }
+      },
+      {
+        "shape": [
+          2049,
+          4097,
+          1025
+        ],
+        "path": "linear",
+        "over_linear": {
+          "throughput_us": [
+            1.0,
+            1.0
+          ],
+          "latency_us": [
+            1.0,
+            1.0
+          ],
+          "gpu_throughput_us": [
+            1.0,
+            1.0
+          ],
+          "gpu_latency_us": [
+            1.0,
+            1.0
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            1.056277803602622,
+            1.0742246661894903
+          ],
+          "latency_us": [
+            1.0885447229226983,
+            1.0992837157659257
+          ],
+          "gpu_throughput_us": [
+            1.0721964628964276,
+            1.0829711522968146
+          ],
+          "gpu_latency_us": [
+            1.1212150383360355,
+            1.10731273913889
+          ]
+        }
+      },
+      {
+        "shape": [
+          2049,
+          4097,
+          1025
+        ],
+        "path": "stripe4",
+        "over_linear": {
+          "throughput_us": [
+            1.0124116671431578,
+            1.0667082541808741
+          ],
+          "latency_us": [
+            1.0619276684482521,
+            1.0159373150358941
+          ],
+          "gpu_throughput_us": [
+            1.0115358957984986,
+            1.0350222442857724
+          ],
+          "gpu_latency_us": [
+            1.0168200286364693,
+            1.0154361555825264
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            1.0693879721116435,
+            1.1458843182690235
+          ],
+          "latency_us": [
+            1.1559557596149497,
+            1.1168033466579155
+          ],
+          "gpu_throughput_us": [
+            1.0845652095679195,
+            1.120899232546998
+          ],
+          "gpu_latency_us": [
+            1.1400739073884876,
+            1.1244053908587512
+          ]
+        }
+      },
+      {
+        "shape": [
+          2049,
+          4097,
+          1025
+        ],
+        "path": "stripe8",
+        "over_linear": {
+          "throughput_us": [
+            1.0348510917372686,
+            1.0674712023965434
+          ],
+          "latency_us": [
+            1.0315625918957088,
+            1.1122481821323835
+          ],
+          "gpu_throughput_us": [
+            1.0310151098428426,
+            1.041063713125619
+          ],
+          "gpu_latency_us": [
+            1.0211427365943826,
+            1.0676871447477125
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            1.0930902382360175,
+            1.1467038960613205
+          ],
+          "latency_us": [
+            1.122902015772535,
+            1.2226763145083828
+          ],
+          "gpu_throughput_us": [
+            1.1054507539662677,
+            1.1274419690180522
+          ],
+          "gpu_latency_us": [
+            1.1449205925572348,
+            1.18226357679397
+          ]
+        }
+      }
+    ],
+    "independent_source_identities": 20
+  },
+  "results-rectangles.json": {
+    "outputs": 50,
+    "elements": 1101066250,
+    "medians": [
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "path": "linear",
+        "round": 0,
+        "medians": {
+          "throughput_us": 490.884375,
+          "latency_us": 701.084,
+          "gpu_throughput_us": 483.671874099,
+          "gpu_latency_us": 470.6250038
+        }
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "path": "rectangle2x8",
+        "round": 0,
+        "medians": {
+          "throughput_us": 522.959421053,
+          "latency_us": 815.958,
+          "gpu_throughput_us": 513.97587767,
+          "gpu_latency_us": 509.666686412
+        }
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "path": "rectangle4x16",
+        "round": 0,
+        "medians": {
+          "throughput_us": 489.1302,
+          "latency_us": 733.458,
+          "gpu_throughput_us": 481.929165835,
+          "gpu_latency_us": 473.499996588
+        }
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "path": "rectangle8x32",
+        "round": 0,
+        "medians": {
+          "throughput_us": 497.721153846,
+          "latency_us": 727.833,
+          "gpu_throughput_us": 489.788461262,
+          "gpu_latency_us": 467.083358672
+        }
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "path": "mps",
+        "round": 0,
+        "medians": {
+          "throughput_us": 449.350767442,
+          "latency_us": 655.125,
+          "gpu_throughput_us": 440.930232925,
+          "gpu_latency_us": 419.000047259
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "path": "rectangle2x8",
+        "round": 0,
+        "medians": {
+          "throughput_us": 20335.5,
+          "latency_us": 20425.583,
+          "gpu_throughput_us": 19992.1249878,
+          "gpu_latency_us": 19890.708325
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "path": "rectangle4x16",
+        "round": 0,
+        "medians": {
+          "throughput_us": 21658.959,
+          "latency_us": 21852.084,
+          "gpu_throughput_us": 21329.0000102,
+          "gpu_latency_us": 21546.9583054
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "path": "rectangle8x32",
+        "round": 0,
+        "medians": {
+          "throughput_us": 23568.583,
+          "latency_us": 24478.5,
+          "gpu_throughput_us": 23314.4166996,
+          "gpu_latency_us": 23688.9999942
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "path": "mps",
+        "round": 0,
+        "medians": {
+          "throughput_us": 24061.084,
+          "latency_us": 24273.833,
+          "gpu_throughput_us": 23686.2082966,
+          "gpu_latency_us": 23884.7500295
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "path": "linear",
+        "round": 0,
+        "medians": {
+          "throughput_us": 27779.792,
+          "latency_us": 28992.208,
+          "gpu_throughput_us": 27374.6666498,
+          "gpu_latency_us": 28286.500019
+        }
+      },
+      {
+        "shape": [
+          8192,
+          8192,
+          8192
+        ],
+        "path": "rectangle4x16",
+        "round": 0,
+        "medians": {
+          "throughput_us": 452214.584,
+          "latency_us": 471651.959,
+          "gpu_throughput_us": 451713.958348,
+          "gpu_latency_us": 471349.333297
+        }
+      },
+      {
+        "shape": [
+          8192,
+          8192,
+          8192
+        ],
+        "path": "rectangle8x32",
+        "round": 0,
+        "medians": {
+          "throughput_us": 459497.167,
+          "latency_us": 523566.459,
+          "gpu_throughput_us": 459205.99997,
+          "gpu_latency_us": 523235.125002
+        }
+      },
+      {
+        "shape": [
+          8192,
+          8192,
+          8192
+        ],
+        "path": "mps",
+        "round": 0,
+        "medians": {
+          "throughput_us": 435739.333,
+          "latency_us": 289130.333,
+          "gpu_throughput_us": 435384.16666,
+          "gpu_latency_us": 288780.166651
+        }
+      },
+      {
+        "shape": [
+          8192,
+          8192,
+          8192
+        ],
+        "path": "linear",
+        "round": 0,
+        "medians": {
+          "throughput_us": 362568.5,
+          "latency_us": 495462.042,
+          "gpu_throughput_us": 362034.625025,
+          "gpu_latency_us": 495162.458334
+        }
+      },
+      {
+        "shape": [
+          8192,
+          8192,
+          8192
+        ],
+        "path": "rectangle2x8",
+        "round": 0,
+        "medians": {
+          "throughput_us": 422651.5,
+          "latency_us": 475708.417,
+          "gpu_throughput_us": 421905.249998,
+          "gpu_latency_us": 475332.624977
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "path": "rectangle8x32",
+        "round": 0,
+        "medians": {
+          "throughput_us": 94615.833,
+          "latency_us": 95607.833,
+          "gpu_throughput_us": 94314.6250211,
+          "gpu_latency_us": 95263.0416723
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "path": "mps",
+        "round": 0,
+        "medians": {
+          "throughput_us": 68541.333,
+          "latency_us": 85794.458,
+          "gpu_throughput_us": 68067.6250486,
+          "gpu_latency_us": 85198.4999608
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "path": "linear",
+        "round": 0,
+        "medians": {
+          "throughput_us": 111196.375,
+          "latency_us": 108294.125,
+          "gpu_throughput_us": 110839.208297,
+          "gpu_latency_us": 107981.54166
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "path": "rectangle2x8",
+        "round": 0,
+        "medians": {
+          "throughput_us": 84508.291,
+          "latency_us": 90060.875,
+          "gpu_throughput_us": 84036.7499623,
+          "gpu_latency_us": 89756.5000341
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "path": "rectangle4x16",
+        "round": 0,
+        "medians": {
+          "throughput_us": 98502.25,
+          "latency_us": 107518.167,
+          "gpu_throughput_us": 98195.0416462,
+          "gpu_latency_us": 107210.333343
+        }
+      },
+      {
+        "shape": [
+          2049,
+          4097,
+          1025
+        ],
+        "path": "mps",
+        "round": 0,
+        "medians": {
+          "throughput_us": 4574.13525,
+          "latency_us": 5105.458,
+          "gpu_throughput_us": 4492.06249323,
+          "gpu_latency_us": 4616.37496483
+        }
+      },
+      {
+        "shape": [
+          2049,
+          4097,
+          1025
+        ],
+        "path": "linear",
+        "round": 0,
+        "medians": {
+          "throughput_us": 4306.70825,
+          "latency_us": 4689.916,
+          "gpu_throughput_us": 4172.68749152,
+          "gpu_latency_us": 4314.91661584
+        }
+      },
+      {
+        "shape": [
+          2049,
+          4097,
+          1025
+        ],
+        "path": "rectangle2x8",
+        "round": 0,
+        "medians": {
+          "throughput_us": 3829.275,
+          "latency_us": 3666.25,
+          "gpu_throughput_us": 3762.57500611,
+          "gpu_latency_us": 3292.79166181
+        }
+      },
+      {
+        "shape": [
+          2049,
+          4097,
+          1025
+        ],
+        "path": "rectangle4x16",
+        "round": 0,
+        "medians": {
+          "throughput_us": 3189.5,
+          "latency_us": 3460.583,
+          "gpu_throughput_us": 3138.70832906,
+          "gpu_latency_us": 3143.62498466
+        }
+      },
+      {
+        "shape": [
+          2049,
+          4097,
+          1025
+        ],
+        "path": "rectangle8x32",
+        "round": 0,
+        "medians": {
+          "throughput_us": 3001.21533333,
+          "latency_us": 3218,
+          "gpu_throughput_us": 2944.08333139,
+          "gpu_latency_us": 2893.83338531
+        }
+      },
+      {
+        "shape": [
+          2049,
+          4097,
+          1025
+        ],
+        "path": "rectangle8x32",
+        "round": 1,
+        "medians": {
+          "throughput_us": 3016.52083333,
+          "latency_us": 3461.583,
+          "gpu_throughput_us": 2948.89583408,
+          "gpu_latency_us": 2890.62497905
+        }
+      },
+      {
+        "shape": [
+          2049,
+          4097,
+          1025
+        ],
+        "path": "rectangle4x16",
+        "round": 1,
+        "medians": {
+          "throughput_us": 3056.1875,
+          "latency_us": 3227.834,
+          "gpu_throughput_us": 2990.60416485,
+          "gpu_latency_us": 2963.37500913
+        }
+      },
+      {
+        "shape": [
+          2049,
+          4097,
+          1025
+        ],
+        "path": "rectangle2x8",
+        "round": 1,
+        "medians": {
+          "throughput_us": 3151.02083333,
+          "latency_us": 3286.834,
+          "gpu_throughput_us": 3092.39584021,
+          "gpu_latency_us": 3006.29169215
+        }
+      },
+      {
+        "shape": [
+          2049,
+          4097,
+          1025
+        ],
+        "path": "linear",
+        "round": 1,
+        "medians": {
+          "throughput_us": 3010.23616667,
+          "latency_us": 3187.708,
+          "gpu_throughput_us": 2946.48610482,
+          "gpu_latency_us": 2897.12502854
+        }
+      },
+      {
+        "shape": [
+          2049,
+          4097,
+          1025
+        ],
+        "path": "mps",
+        "round": 1,
+        "medians": {
+          "throughput_us": 2840.59716667,
+          "latency_us": 2985.792,
+          "gpu_throughput_us": 2749.66666863,
+          "gpu_latency_us": 2682.91664543
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "path": "rectangle4x16",
+        "round": 1,
+        "medians": {
+          "throughput_us": 90885.25,
+          "latency_us": 98169.833,
+          "gpu_throughput_us": 90561.2916686,
+          "gpu_latency_us": 97669.9583698
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "path": "rectangle2x8",
+        "round": 1,
+        "medians": {
+          "throughput_us": 151552.041,
+          "latency_us": 125879.709,
+          "gpu_throughput_us": 150857.500033,
+          "gpu_latency_us": 125486.250035
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "path": "linear",
+        "round": 1,
+        "medians": {
+          "throughput_us": 89714,
+          "latency_us": 91944.25,
+          "gpu_throughput_us": 89070.0416639,
+          "gpu_latency_us": 91670.7916185
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "path": "mps",
+        "round": 1,
+        "medians": {
+          "throughput_us": 87370.083,
+          "latency_us": 105404.125,
+          "gpu_throughput_us": 87037.9999978,
+          "gpu_latency_us": 105091.75004
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "path": "rectangle8x32",
+        "round": 1,
+        "medians": {
+          "throughput_us": 122669.375,
+          "latency_us": 122600.292,
+          "gpu_throughput_us": 122356.250009,
+          "gpu_latency_us": 122298.833332
+        }
+      },
+      {
+        "shape": [
+          8192,
+          8192,
+          8192
+        ],
+        "path": "rectangle2x8",
+        "round": 1,
+        "medians": {
+          "throughput_us": 473416.333,
+          "latency_us": 487555.375,
+          "gpu_throughput_us": 472995.708289,
+          "gpu_latency_us": 487257.000001
+        }
+      },
+      {
+        "shape": [
+          8192,
+          8192,
+          8192
+        ],
+        "path": "linear",
+        "round": 1,
+        "medians": {
+          "throughput_us": 598458.834,
+          "latency_us": 399375.375,
+          "gpu_throughput_us": 598058.74998,
+          "gpu_latency_us": 399035.41666
+        }
+      },
+      {
+        "shape": [
+          8192,
+          8192,
+          8192
+        ],
+        "path": "mps",
+        "round": 1,
+        "medians": {
+          "throughput_us": 386343.833,
+          "latency_us": 236978.792,
+          "gpu_throughput_us": 385647.833347,
+          "gpu_latency_us": 236695.875006
+        }
+      },
+      {
+        "shape": [
+          8192,
+          8192,
+          8192
+        ],
+        "path": "rectangle8x32",
+        "round": 1,
+        "medians": {
+          "throughput_us": 616264.125,
+          "latency_us": 498540.25,
+          "gpu_throughput_us": 615919.583302,
+          "gpu_latency_us": 498211.208323
+        }
+      },
+      {
+        "shape": [
+          8192,
+          8192,
+          8192
+        ],
+        "path": "rectangle4x16",
+        "round": 1,
+        "medians": {
+          "throughput_us": 513892.541,
+          "latency_us": 469355.792,
+          "gpu_throughput_us": 513552.999997,
+          "gpu_latency_us": 469075.833389
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "path": "linear",
+        "round": 1,
+        "medians": {
+          "throughput_us": 24473.5,
+          "latency_us": 25485.25,
+          "gpu_throughput_us": 24159.5000261,
+          "gpu_latency_us": 25184.6666215
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "path": "mps",
+        "round": 1,
+        "medians": {
+          "throughput_us": 29860.542,
+          "latency_us": 32019.958,
+          "gpu_throughput_us": 29514.4166448,
+          "gpu_latency_us": 31666.7499719
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "path": "rectangle8x32",
+        "round": 1,
+        "medians": {
+          "throughput_us": 39092.417,
+          "latency_us": 43642.042,
+          "gpu_throughput_us": 38368.999958,
+          "gpu_latency_us": 43270.0000238
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "path": "rectangle4x16",
+        "round": 1,
+        "medians": {
+          "throughput_us": 48198.5,
+          "latency_us": 50701,
+          "gpu_throughput_us": 47911.416681,
+          "gpu_latency_us": 50424.5833145
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "path": "rectangle2x8",
+        "round": 1,
+        "medians": {
+          "throughput_us": 42161.458,
+          "latency_us": 43657.917,
+          "gpu_throughput_us": 41695.8749993,
+          "gpu_latency_us": 43247.750029
+        }
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "path": "mps",
+        "round": 1,
+        "medians": {
+          "throughput_us": 849.014478261,
+          "latency_us": 1070.875,
+          "gpu_throughput_us": 834.442027237,
+          "gpu_latency_us": 847.749994136
+        }
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "path": "rectangle8x32",
+        "round": 1,
+        "medians": {
+          "throughput_us": 920.714285714,
+          "latency_us": 1119.041,
+          "gpu_throughput_us": 904.710317541,
+          "gpu_latency_us": 911.000010092
+        }
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "path": "rectangle4x16",
+        "round": 1,
+        "medians": {
+          "throughput_us": 895.195090909,
+          "latency_us": 1077.625,
+          "gpu_throughput_us": 876.964014341,
+          "gpu_latency_us": 768.666679505
+        }
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "path": "rectangle2x8",
+        "round": 1,
+        "medians": {
+          "throughput_us": 900.763157895,
+          "latency_us": 1140.292,
+          "gpu_throughput_us": 885.300436302,
+          "gpu_latency_us": 819.083361421
+        }
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "path": "linear",
+        "round": 1,
+        "medians": {
+          "throughput_us": 837.909708333,
+          "latency_us": 1039,
+          "gpu_throughput_us": 824.817708538,
+          "gpu_latency_us": 779.916648753
+        }
+      }
+    ],
+    "ratios": [
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "path": "linear",
+        "over_linear": {
+          "throughput_us": [
+            1.0,
+            1.0
+          ],
+          "latency_us": [
+            1.0,
+            1.0
+          ],
+          "gpu_throughput_us": [
+            1.0,
+            1.0
+          ],
+          "gpu_latency_us": [
+            1.0,
+            1.0
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            1.092430258424697,
+            0.98692039981374
+          ],
+          "latency_us": [
+            1.0701530242320167,
+            0.9702346212209642
+          ],
+          "gpu_throughput_us": [
+            1.09693515659034,
+            0.9884661625555127
+          ],
+          "gpu_latency_us": [
+            1.1232099062487424,
+            0.9199842573256121
+          ]
+        }
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "path": "rectangle2x8",
+        "over_linear": {
+          "throughput_us": [
+            1.0653413465299237,
+            1.0750121987332564
+          ],
+          "latency_us": [
+            1.163851977794387,
+            1.0974898941289701
+          ],
+          "gpu_throughput_us": [
+            1.0626540536959097,
+            1.073328599929318
+          ],
+          "gpu_latency_us": [
+            1.0829570938576638,
+            1.0502191006316164
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            1.1638111225001992,
+            1.0609514689784731
+          ],
+          "latency_us": [
+            1.2454997137950772,
+            1.0648226917240573
+          ],
+          "gpu_throughput_us": [
+            1.1656625907922824,
+            1.0609490023332142
+          ],
+          "gpu_latency_us": [
+            1.216388135863277,
+            0.9661850393237499
+          ]
+        }
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "path": "rectangle4x16",
+        "over_linear": {
+          "throughput_us": [
+            0.9964265006397892,
+            1.0683670113931103
+          ],
+          "latency_us": [
+            1.0461770629482345,
+            1.0371751684311838
+          ],
+          "gpu_throughput_us": [
+            0.9963969203972293,
+            1.0632216128039127
+          ],
+          "gpu_latency_us": [
+            1.0061088823687356,
+            0.9855754210837948
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            1.0885264595951414,
+            1.054393198031899
+          ],
+          "latency_us": [
+            1.119569547796222,
+            1.0063032566826193
+          ],
+          "gpu_throughput_us": [
+            1.0929828119020673,
+            1.0509585875543668
+          ],
+          "gpu_latency_us": [
+            1.1300714634414146,
+            0.9067138718041523
+          ]
+        }
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "path": "rectangle8x32",
+        "over_linear": {
+          "throughput_us": [
+            1.0139274729329082,
+            1.0988227926678849
+          ],
+          "latency_us": [
+            1.038153773299633,
+            1.0770365736284888
+          ],
+          "gpu_throughput_us": [
+            1.012646150190962,
+            1.0968609283918147
+          ],
+          "gpu_latency_us": [
+            0.9924745920862609,
+            1.1680735518963312
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            1.1076450512799967,
+            1.0844506298642393
+          ],
+          "latency_us": [
+            1.1109834001144818,
+            1.044978172055562
+          ],
+          "gpu_throughput_us": [
+            1.110807163330328,
+            1.0842099127445342
+          ],
+          "gpu_latency_us": [
+            1.114757293531468,
+            1.074609279143036
+          ]
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "path": "linear",
+        "over_linear": {
+          "throughput_us": [
+            1.0,
+            1.0
+          ],
+          "latency_us": [
+            1.0,
+            1.0
+          ],
+          "gpu_throughput_us": [
+            1.0,
+            1.0
+          ],
+          "gpu_latency_us": [
+            1.0,
+            1.0
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            1.154552804021631,
+            0.8195932947231835
+          ],
+          "latency_us": [
+            1.1943811263758797,
+            0.7959176586052986
+          ],
+          "gpu_throughput_us": [
+            1.1557217730678089,
+            0.8185660694857929
+          ],
+          "gpu_latency_us": [
+            1.1842912311857319,
+            0.7953031695342282
+          ]
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "path": "rectangle2x8",
+        "over_linear": {
+          "throughput_us": [
+            0.7320249194090438,
+            1.7227392077144665
+          ],
+          "latency_us": [
+            0.7045197454433274,
+            1.713066067627353
+          ],
+          "gpu_throughput_us": [
+            0.7303148287997897,
+            1.7258583561023655
+          ],
+          "gpu_latency_us": [
+            0.7031873265211123,
+            1.7172254324017795
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            0.84516142331742,
+            1.4119455031995065
+          ],
+          "latency_us": [
+            0.8414650871166495,
+            1.363459533582149
+          ],
+          "gpu_throughput_us": [
+            0.8440407488382063,
+            1.4127290910439252
+          ],
+          "gpu_latency_us": [
+            0.8327785846798912,
+            1.3657148291939207
+          ]
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "path": "rectangle4x16",
+        "over_linear": {
+          "throughput_us": [
+            0.7796659888598158,
+            1.969415898829346
+          ],
+          "latency_us": [
+            0.7537226554114126,
+            1.989425255785209
+          ],
+          "gpu_throughput_us": [
+            0.7791510407435712,
+            1.9831294782276259
+          ],
+          "gpu_latency_us": [
+            0.7617399922552079,
+            2.0021937980093343
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            0.900165553638398,
+            1.6141200652017635
+          ],
+          "latency_us": [
+            0.900232114145302,
+            1.583418691554811
+          ],
+          "gpu_throughput_us": [
+            0.9004818222957888,
+            1.6233225022741988
+          ],
+          "gpu_latency_us": [
+            0.9021219932713301,
+            1.592351073578598
+          ]
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "path": "rectangle8x32",
+        "over_linear": {
+          "throughput_us": [
+            0.8484074682776601,
+            1.5973365885549677
+          ],
+          "latency_us": [
+            0.8443130650828664,
+            1.7124431582974466
+          ],
+          "gpu_throughput_us": [
+            0.8516785609796762,
+            1.5881537248928657
+          ],
+          "gpu_latency_us": [
+            0.8374666352602173,
+            1.718108906268414
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            0.9795312214528655,
+            1.309166357395656
+          ],
+          "latency_us": [
+            1.0084315896875455,
+            1.3629637490467665
+          ],
+          "gpu_throughput_us": [
+            0.9843034565792714,
+            1.3000087523247743
+          ],
+          "gpu_latency_us": [
+            0.9918043925492949,
+            1.3664174587602558
+          ]
+        }
+      },
+      {
+        "shape": [
+          8192,
+          8192,
+          8192
+        ],
+        "path": "linear",
+        "over_linear": {
+          "throughput_us": [
+            1.0,
+            1.0
+          ],
+          "latency_us": [
+            1.0,
+            1.0
+          ],
+          "gpu_throughput_us": [
+            1.0,
+            1.0
+          ],
+          "gpu_latency_us": [
+            1.0,
+            1.0
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            0.8320765938290909,
+            1.5490316730382494
+          ],
+          "latency_us": [
+            1.7136287184368166,
+            1.6852789721368824
+          ],
+          "gpu_throughput_us": [
+            0.8315291477003112,
+            1.5507898612822644
+          ],
+          "gpu_latency_us": [
+            1.7146692034859154,
+            1.6858570798915902
+          ]
+        }
+      },
+      {
+        "shape": [
+          8192,
+          8192,
+          8192
+        ],
+        "path": "rectangle2x8",
+        "over_linear": {
+          "throughput_us": [
+            1.1657148924961767,
+            0.7910591440947798
+          ],
+          "latency_us": [
+            0.9601309014102033,
+            1.220794784856227
+          ],
+          "gpu_throughput_us": [
+            1.1653726490079939,
+            0.7908850230931622
+          ],
+          "gpu_latency_us": [
+            0.9599528740047892,
+            1.2210871006875303
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            0.9699640771240635,
+            1.2253756694493425
+          ],
+          "latency_us": [
+            1.6453078861151522,
+            2.057379780212569
+          ],
+          "gpu_throughput_us": [
+            0.9690413255828709,
+            1.2264964752528655
+          ],
+          "gpu_latency_us": [
+            1.6460016298538072,
+            2.0585783338583683
+          ]
+        }
+      },
+      {
+        "shape": [
+          8192,
+          8192,
+          8192
+        ],
+        "path": "rectangle4x16",
+        "over_linear": {
+          "throughput_us": [
+            1.2472528198119803,
+            0.858693216315694
+          ],
+          "latency_us": [
+            0.9519436788661197,
+            1.175224666768701
+          ],
+          "gpu_throughput_us": [
+            1.2477092717769944,
+            0.8586999187189787
+          ],
+          "gpu_latency_us": [
+            0.9519084602715631,
+            1.1755243113888265
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            1.0378098779528815,
+            1.330142989496095
+          ],
+          "latency_us": [
+            1.6312780264393774,
+            1.9805814184418664
+          ],
+          "gpu_throughput_us": [
+            1.0375066273385,
+            1.3316631278332967
+          ],
+          "gpu_latency_us": [
+            1.6322081213653452,
+            1.9817659829395395
+          ]
+        }
+      },
+      {
+        "shape": [
+          8192,
+          8192,
+          8192
+        ],
+        "path": "rectangle8x32",
+        "over_linear": {
+          "throughput_us": [
+            1.2673389083717974,
+            1.029751906043382
+          ],
+          "latency_us": [
+            1.056723653110847,
+            1.2482999233490548
+          ],
+          "gpu_throughput_us": [
+            1.268403539960549,
+            1.0298646802217963
+          ],
+          "gpu_latency_us": [
+            1.0566938510695094,
+            1.2485388201706997
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            1.0545230421050835,
+            1.5951183178327064
+          ],
+          "latency_us": [
+            1.8108319994222122,
+            2.103733611740244
+          ],
+          "gpu_throughput_us": [
+            1.0547145145234529,
+            1.5971037045806633
+          ],
+          "gpu_latency_us": [
+            1.8118804039418204,
+            2.1048580095042673
+          ]
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "path": "linear",
+        "over_linear": {
+          "throughput_us": [
+            1.0,
+            1.0
+          ],
+          "latency_us": [
+            1.0,
+            1.0
+          ],
+          "gpu_throughput_us": [
+            1.0,
+            1.0
+          ],
+          "gpu_latency_us": [
+            1.0,
+            1.0
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            1.6223258307509134,
+            1.0268274553430377
+          ],
+          "latency_us": [
+            1.262250820443437,
+            0.8723021987991457
+          ],
+          "gpu_throughput_us": [
+            1.6283689671537867,
+            1.0233466033933611
+          ],
+          "gpu_latency_us": [
+            1.2674113007820855,
+            0.8722929400605498
+          ]
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "path": "rectangle2x8",
+        "over_linear": {
+          "throughput_us": [
+            0.7599914205836296,
+            1.6892797222284146
+          ],
+          "latency_us": [
+            0.8316321407093875,
+            1.3690873436892466
+          ],
+          "gpu_throughput_us": [
+            0.758186126132539,
+            1.6936951775800322
+          ],
+          "gpu_latency_us": [
+            0.8312207684227648,
+            1.368879310623033
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            1.232953712761904,
+            1.7345987985383968
+          ],
+          "latency_us": [
+            1.0497283519175562,
+            1.1942579002482114
+          ],
+          "gpu_throughput_us": [
+            1.234606759120773,
+            1.7332372071602418
+          ],
+          "gpu_latency_us": [
+            1.0534985953437812,
+            1.1940637584514242
+          ]
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "path": "rectangle4x16",
+        "over_linear": {
+          "throughput_us": [
+            0.8858404781630697,
+            1.013055375972535
+          ],
+          "latency_us": [
+            0.9928347174881371,
+            1.0677104114721692
+          ],
+          "gpu_throughput_us": [
+            0.8859233402595295,
+            1.0167424419798423
+          ],
+          "gpu_latency_us": [
+            0.9928579616002493,
+            1.0654425105901377
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            1.4371218896486884,
+            1.0402330738314625
+          ],
+          "latency_us": [
+            1.2532064367141291,
+            0.9313661396079138
+          ],
+          "gpu_throughput_us": [
+            1.4426100745558428,
+            1.0404799245259433
+          ],
+          "gpu_latency_us": [
+            1.258359400603622,
+            0.9293779800281649
+          ]
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "path": "rectangle8x32",
+        "over_linear": {
+          "throughput_us": [
+            0.8508895456349184,
+            1.3673381523508037
+          ],
+          "latency_us": [
+            0.8828533680843721,
+            1.3334198930330063
+          ],
+          "gpu_throughput_us": [
+            0.8509139181902,
+            1.3737082381829722
+          ],
+          "gpu_latency_us": [
+            0.8822159806928246,
+            1.334109056688008
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            1.3804200889994362,
+            1.4040203555718267
+          ],
+          "latency_us": [
+            1.1143823881957504,
+            1.163145104615213
+          ],
+          "gpu_throughput_us": [
+            1.3856018181001577,
+            1.4057796595980228
+          ],
+          "gpu_latency_us": [
+            1.1181305036606362,
+            1.1637339114197893
+          ]
+        }
+      },
+      {
+        "shape": [
+          2049,
+          4097,
+          1025
+        ],
+        "path": "linear",
+        "over_linear": {
+          "throughput_us": [
+            1.0,
+            1.0
+          ],
+          "latency_us": [
+            1.0,
+            1.0
+          ],
+          "gpu_throughput_us": [
+            1.0,
+            1.0
+          ],
+          "gpu_latency_us": [
+            1.0,
+            1.0
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            0.9415349600779731,
+            1.0597194850401352
+          ],
+          "latency_us": [
+            0.9186082815684705,
+            1.067625608213834
+          ],
+          "gpu_throughput_us": [
+            0.9289023689694141,
+            1.0715793803065097
+          ],
+          "gpu_latency_us": [
+            0.9346980366008676,
+            1.0798416094942334
+          ]
+        }
+      },
+      {
+        "shape": [
+          2049,
+          4097,
+          1025
+        ],
+        "path": "rectangle2x8",
+        "over_linear": {
+          "throughput_us": [
+            0.8891419566208136,
+            1.0467686450049332
+          ],
+          "latency_us": [
+            0.7817304190522815,
+            1.0310963237536186
+          ],
+          "gpu_throughput_us": [
+            0.901715025090315,
+            1.0495199129401338
+          ],
+          "gpu_latency_us": [
+            0.7631182604368776,
+            1.0376810329325048
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            0.8371582366306287,
+            1.109281129440788
+          ],
+          "latency_us": [
+            0.7181040368954167,
+            1.1008248397745053
+          ],
+          "gpu_throughput_us": [
+            0.8376052229417082,
+            1.1246438979277305
+          ],
+          "gpu_latency_us": [
+            0.713285139724619,
+            1.1205311567434746
+          ]
+        }
+      },
+      {
+        "shape": [
+          2049,
+          4097,
+          1025
+        ],
+        "path": "rectangle4x16",
+        "over_linear": {
+          "throughput_us": [
+            0.7405888244229222,
+            1.0152650259932372
+          ],
+          "latency_us": [
+            0.7378773948190117,
+            1.0125877276086768
+          ],
+          "gpu_throughput_us": [
+            0.7522030670733627,
+            1.0149731098198052
+          ],
+          "gpu_latency_us": [
+            0.7285482581794965,
+            1.022867491025538
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            0.697290269237229,
+            1.075896130524813
+          ],
+          "latency_us": [
+            0.6778202856629122,
+            1.0810645885580776
+          ],
+          "gpu_throughput_us": [
+            0.6987232109505057,
+            1.0876242560484777
+          ],
+          "gpu_latency_us": [
+            0.6809726264893574,
+            1.104534877808345
+          ]
+        }
+      },
+      {
+        "shape": [
+          2049,
+          4097,
+          1025
+        ],
+        "path": "rectangle8x32",
+        "over_linear": {
+          "throughput_us": [
+            0.6968698967082342,
+            1.0020877653154212
+          ],
+          "latency_us": [
+            0.6861530142544131,
+            1.0859159621897614
+          ],
+          "gpu_throughput_us": [
+            0.7055604660960478,
+            1.0008178315370495
+          ],
+          "gpu_latency_us": [
+            0.670658008705609,
+            0.9977563793671426
+          ]
+        },
+        "over_mps": {
+          "throughput_us": [
+            0.6561273703767285,
+            1.061931930625078
+          ],
+          "latency_us": [
+            0.6303058413172726,
+            1.159351689601955
+          ],
+          "gpu_throughput_us": [
+            0.6553967884077829,
+            1.0724557517181763
+          ],
+          "gpu_latency_us": [
+            0.6268627239677803,
+            1.077418854578954
+          ]
+        }
+      }
+    ],
+    "independent_source_identities": 20
+  },
+  "correctness.json": {
+    "outputs": 48,
+    "elements": 2284464,
+    "medians": [
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "legacy",
+        "round": null,
+        "medians": {
+          "throughput_us": 25.8318181818,
+          "latency_us": 227.833,
+          "gpu_throughput_us": 15.0621212511,
+          "gpu_latency_us": 21.4999890886
+        }
+      },
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 21.8013392857,
+          "latency_us": 283.875,
+          "gpu_throughput_us": 18.1897318855,
+          "gpu_latency_us": 11.5833245218
+        }
+      },
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "stripe4",
+        "round": null,
+        "medians": {
+          "throughput_us": 134.5625,
+          "latency_us": 207.542,
+          "gpu_throughput_us": 8.68749339134,
+          "gpu_latency_us": 11.2916459329
+        }
+      },
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "stripe8",
+        "round": null,
+        "medians": {
+          "throughput_us": 8.14930555556,
+          "latency_us": 263.333,
+          "gpu_throughput_us": 6.13888874391,
+          "gpu_latency_us": 12.0416516438
+        }
+      },
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "legacy",
+        "round": null,
+        "medians": {
+          "throughput_us": 20.5361333333,
+          "latency_us": 250.625,
+          "gpu_throughput_us": 12.3500009067,
+          "gpu_latency_us": 21.9999928959
+        }
+      },
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 17.1717755102,
+          "latency_us": 269.625,
+          "gpu_throughput_us": 12.288265624,
+          "gpu_latency_us": 21.3750172406
+        }
+      },
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "stripe4",
+        "round": null,
+        "medians": {
+          "throughput_us": 276.375,
+          "latency_us": 218.792,
+          "gpu_throughput_us": 72.6250000298,
+          "gpu_latency_us": 21.7499909922
+        }
+      },
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "stripe8",
+        "round": null,
+        "medians": {
+          "throughput_us": 15.975877193,
+          "latency_us": 330.917,
+          "gpu_throughput_us": 12.1337719049,
+          "gpu_latency_us": 21.6249609366
+        }
+      },
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "legacy",
+        "round": null,
+        "medians": {
+          "throughput_us": 16.6135,
+          "latency_us": 230.875,
+          "gpu_throughput_us": 12.3757184563,
+          "gpu_latency_us": 22.3749666475
+        }
+      },
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 264.458,
+          "latency_us": 416,
+          "gpu_throughput_us": 19.1666767932,
+          "gpu_latency_us": 75.7499947213
+        }
+      },
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "stripe4",
+        "round": null,
+        "medians": {
+          "throughput_us": 8.38020833333,
+          "latency_us": 259.5,
+          "gpu_throughput_us": 6.24392365959,
+          "gpu_latency_us": 12.0000331663
+        }
+      },
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "stripe8",
+        "round": null,
+        "medians": {
+          "throughput_us": 106.51025,
+          "latency_us": 242.541,
+          "gpu_throughput_us": 44.3437602371,
+          "gpu_latency_us": 11.958356481
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "legacy",
+        "round": null,
+        "medians": {
+          "throughput_us": 21.1219512195,
+          "latency_us": 253.416,
+          "gpu_throughput_us": 14.3221539741,
+          "gpu_latency_us": 23.6250343733
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 34.0546875,
+          "latency_us": 290.709,
+          "gpu_throughput_us": 23.6328123719,
+          "gpu_latency_us": 22.4999967031
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "stripe4",
+        "round": null,
+        "medians": {
+          "throughput_us": 26.4345357143,
+          "latency_us": 276.958,
+          "gpu_throughput_us": 16.2857156413,
+          "gpu_latency_us": 27.6250066236
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "stripe8",
+        "round": null,
+        "medians": {
+          "throughput_us": 113.9585,
+          "latency_us": 322.459,
+          "gpu_throughput_us": 49.4687410537,
+          "gpu_latency_us": 23.833301384
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "legacy",
+        "round": null,
+        "medians": {
+          "throughput_us": 21.4967948718,
+          "latency_us": 269.5,
+          "gpu_throughput_us": 15.644231238,
+          "gpu_latency_us": 23.6249761656
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 21.625,
+          "latency_us": 255.375,
+          "gpu_throughput_us": 16.2002028579,
+          "gpu_latency_us": 23.583357688
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "stripe4",
+        "round": null,
+        "medians": {
+          "throughput_us": 22.1962894737,
+          "latency_us": 246.25,
+          "gpu_throughput_us": 15.8596483647,
+          "gpu_latency_us": 23.708329536
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "stripe8",
+        "round": null,
+        "medians": {
+          "throughput_us": 33.8222666667,
+          "latency_us": 193.125,
+          "gpu_throughput_us": 16.0111114383,
+          "gpu_latency_us": 23.5000043176
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "legacy",
+        "round": null,
+        "medians": {
+          "throughput_us": 21.4914117647,
+          "latency_us": 233.416,
+          "gpu_throughput_us": 15.0551478488,
+          "gpu_latency_us": 23.9166547544
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 19.4384130435,
+          "latency_us": 299.084,
+          "gpu_throughput_us": 14.1249999971,
+          "gpu_latency_us": 23.9167129621
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "stripe4",
+        "round": null,
+        "medians": {
+          "throughput_us": 19.6475,
+          "latency_us": 244.25,
+          "gpu_throughput_us": 14.7824990563,
+          "gpu_latency_us": 23.8749780692
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "stripe8",
+        "round": null,
+        "medians": {
+          "throughput_us": 18.5044255319,
+          "latency_us": 232.875,
+          "gpu_throughput_us": 14.1196812384,
+          "gpu_latency_us": 24.1249799728
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "legacy",
+        "round": null,
+        "medians": {
+          "throughput_us": 60.1789411765,
+          "latency_us": 303.542,
+          "gpu_throughput_us": 46.455883421,
+          "gpu_latency_us": 45.2499953099
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 70.05835,
+          "latency_us": 285,
+          "gpu_throughput_us": 51.6812491696,
+          "gpu_latency_us": 44.0000439994
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "stripe4",
+        "round": null,
+        "medians": {
+          "throughput_us": 44.12915,
+          "latency_us": 320.084,
+          "gpu_throughput_us": 33.7208330166,
+          "gpu_latency_us": 46.4166514575
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "stripe8",
+        "round": null,
+        "medians": {
+          "throughput_us": 49.0942631579,
+          "latency_us": 1016.75,
+          "gpu_throughput_us": 32.6732437028,
+          "gpu_latency_us": 505.750009324
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "legacy",
+        "round": null,
+        "medians": {
+          "throughput_us": 325.5,
+          "latency_us": 347.667,
+          "gpu_throughput_us": 70.666661486,
+          "gpu_latency_us": 125.499966089
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 44.2632727273,
+          "latency_us": 270.625,
+          "gpu_throughput_us": 33.8920455595,
+          "gpu_latency_us": 43.916690629
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "stripe4",
+        "round": null,
+        "medians": {
+          "throughput_us": 48.7125,
+          "latency_us": 447.542,
+          "gpu_throughput_us": 33.2937517669,
+          "gpu_latency_us": 44.9999934062
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "stripe8",
+        "round": null,
+        "medians": {
+          "throughput_us": 45.8112941176,
+          "latency_us": 291.375,
+          "gpu_throughput_us": 32.9411773504,
+          "gpu_latency_us": 45.1249652542
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "legacy",
+        "round": null,
+        "medians": {
+          "throughput_us": 53.5771,
+          "latency_us": 628.542,
+          "gpu_throughput_us": 34.1624981957,
+          "gpu_latency_us": 399.041629862
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 43.6396,
+          "latency_us": 1423.459,
+          "gpu_throughput_us": 31.9312501233,
+          "gpu_latency_us": 546.166673303
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "stripe4",
+        "round": null,
+        "medians": {
+          "throughput_us": 133.802125,
+          "latency_us": 257,
+          "gpu_throughput_us": 106.125000457,
+          "gpu_latency_us": 45.7499991171
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "stripe8",
+        "round": null,
+        "medians": {
+          "throughput_us": 98.9125,
+          "latency_us": 394.333,
+          "gpu_throughput_us": 72.8687504306,
+          "gpu_latency_us": 47.5000124425
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "legacy",
+        "round": null,
+        "medians": {
+          "throughput_us": 71.8171111111,
+          "latency_us": 281.5,
+          "gpu_throughput_us": 56.7893504113,
+          "gpu_latency_us": 43.9999857917
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 304.584,
+          "latency_us": 181.458,
+          "gpu_throughput_us": 99.2499990389,
+          "gpu_latency_us": 43.6250120401
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "stripe4",
+        "round": null,
+        "medians": {
+          "throughput_us": 55,
+          "latency_us": 265.833,
+          "gpu_throughput_us": 38.1057705873,
+          "gpu_latency_us": 45.4166438431
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "stripe8",
+        "round": null,
+        "medians": {
+          "throughput_us": 125.652777778,
+          "latency_us": 290.375,
+          "gpu_throughput_us": 85.8240754395,
+          "gpu_latency_us": 43.4583052993
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "legacy",
+        "round": null,
+        "medians": {
+          "throughput_us": 84.2291666667,
+          "latency_us": 1050.042,
+          "gpu_throughput_us": 39.3055573416,
+          "gpu_latency_us": 498.916662764
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 54.6028,
+          "latency_us": 292,
+          "gpu_throughput_us": 39.5416670168,
+          "gpu_latency_us": 44.624961447
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "stripe4",
+        "round": null,
+        "medians": {
+          "throughput_us": 57.4019411765,
+          "latency_us": 335.833,
+          "gpu_throughput_us": 39.2156858545,
+          "gpu_latency_us": 44.2916643806
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "stripe8",
+        "round": null,
+        "medians": {
+          "throughput_us": 60.6025384615,
+          "latency_us": 295.959,
+          "gpu_throughput_us": 42.1955124833,
+          "gpu_latency_us": 52.6250223629
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "legacy",
+        "round": null,
+        "medians": {
+          "throughput_us": 51.6041875,
+          "latency_us": 286.334,
+          "gpu_throughput_us": 35.5989614036,
+          "gpu_latency_us": 41.6666734964
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 107.585666667,
+          "latency_us": 322.875,
+          "gpu_throughput_us": 77.3888896219,
+          "gpu_latency_us": 40.6249891967
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "stripe4",
+        "round": null,
+        "medians": {
+          "throughput_us": 83.0757272727,
+          "latency_us": 329.667,
+          "gpu_throughput_us": 64.6136362444,
+          "gpu_latency_us": 55.2500132471
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "stripe8",
+        "round": null,
+        "medians": {
+          "throughput_us": 118.613636364,
+          "latency_us": 316.708,
+          "gpu_throughput_us": 92.9166668687,
+          "gpu_latency_us": 45.1250234619
+        }
+      }
+    ],
+    "ratios": [],
+    "independent_source_identities": 48
+  },
+  "correctness-unsigned.json": {
+    "outputs": 48,
+    "elements": 2284464,
+    "medians": [
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "legacy",
+        "round": null,
+        "medians": {
+          "throughput_us": 20.8229166667,
+          "latency_us": 582.5,
+          "gpu_throughput_us": 13.6256945552,
+          "gpu_latency_us": 329.000002239
+        }
+      },
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 7.6541300813,
+          "latency_us": 230.708,
+          "gpu_throughput_us": 6.01287266785,
+          "gpu_latency_us": 11.500029359
+        }
+      },
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "stripe4",
+        "round": null,
+        "medians": {
+          "throughput_us": 31.3493076923,
+          "latency_us": 250.666,
+          "gpu_throughput_us": 14.4903807758,
+          "gpu_latency_us": 11.8750031106
+        }
+      },
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "stripe8",
+        "round": null,
+        "medians": {
+          "throughput_us": 10.0029557522,
+          "latency_us": 326.5,
+          "gpu_throughput_us": 7.35398266563,
+          "gpu_latency_us": 12.1666816995
+        }
+      },
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "legacy",
+        "round": null,
+        "medians": {
+          "throughput_us": 16.6049444444,
+          "latency_us": 286.375,
+          "gpu_throughput_us": 12.1790120223,
+          "gpu_latency_us": 21.7499909922
+        }
+      },
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 16.3087678571,
+          "latency_us": 257.833,
+          "gpu_throughput_us": 11.9151788697,
+          "gpu_latency_us": 21.249987185
+        }
+      },
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "stripe4",
+        "round": null,
+        "medians": {
+          "throughput_us": 26.6077586207,
+          "latency_us": 276.834,
+          "gpu_throughput_us": 22.296695408,
+          "gpu_latency_us": 21.9583744183
+        }
+      },
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "stripe8",
+        "round": null,
+        "medians": {
+          "throughput_us": 33.6076666667,
+          "latency_us": 263.292,
+          "gpu_throughput_us": 16.3749985707,
+          "gpu_latency_us": 21.4166939259
+        }
+      },
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "legacy",
+        "round": null,
+        "medians": {
+          "throughput_us": 17.8703555556,
+          "latency_us": 252.709,
+          "gpu_throughput_us": 12.5592600347,
+          "gpu_latency_us": 22.4166433327
+        }
+      },
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 8.82482653061,
+          "latency_us": 374.917,
+          "gpu_throughput_us": 6.12627553316,
+          "gpu_latency_us": 12.1250050142
+        }
+      },
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "stripe4",
+        "round": null,
+        "medians": {
+          "throughput_us": 19.9698073394,
+          "latency_us": 234.166,
+          "gpu_throughput_us": 14.7989298508,
+          "gpu_latency_us": 11.9999749586
+        }
+      },
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "stripe8",
+        "round": null,
+        "medians": {
+          "throughput_us": 9.48503846154,
+          "latency_us": 256,
+          "gpu_throughput_us": 6.21420958151,
+          "gpu_latency_us": 11.8750031106
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "legacy",
+        "round": null,
+        "medians": {
+          "throughput_us": 31.7532051282,
+          "latency_us": 574,
+          "gpu_throughput_us": 14.6666664081,
+          "gpu_latency_us": 270.791642834
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 19.0373333333,
+          "latency_us": 243.25,
+          "gpu_throughput_us": 14.2647562219,
+          "gpu_latency_us": 23.2916790992
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "stripe4",
+        "round": null,
+        "medians": {
+          "throughput_us": 21.1201627907,
+          "latency_us": 254.5,
+          "gpu_throughput_us": 15.1153112393,
+          "gpu_latency_us": 23.7500062212
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "stripe8",
+        "round": null,
+        "medians": {
+          "throughput_us": 19.219625,
+          "latency_us": 275.125,
+          "gpu_throughput_us": 14.4227427275,
+          "gpu_latency_us": 23.6249761656
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "legacy",
+        "round": null,
+        "medians": {
+          "throughput_us": 21.8920454545,
+          "latency_us": 268.125,
+          "gpu_throughput_us": 16.4119317725,
+          "gpu_latency_us": 24.0000081249
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 59.2861,
+          "latency_us": 269,
+          "gpu_throughput_us": 42.1250006184,
+          "gpu_latency_us": 23.5416810028
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "stripe4",
+        "round": null,
+        "medians": {
+          "throughput_us": 22.059375,
+          "latency_us": 273.334,
+          "gpu_throughput_us": 15.7020826009,
+          "gpu_latency_us": 23.708329536
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "stripe8",
+        "round": null,
+        "medians": {
+          "throughput_us": 27.571625,
+          "latency_us": 281.125,
+          "gpu_throughput_us": 21.3424464164,
+          "gpu_latency_us": 23.8749780692
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "legacy",
+        "round": null,
+        "medians": {
+          "throughput_us": 409.208,
+          "latency_us": 250.708,
+          "gpu_throughput_us": 175.791676156,
+          "gpu_latency_us": 23.7916829064
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 18.8503636364,
+          "latency_us": 247.25,
+          "gpu_throughput_us": 14.0113631708,
+          "gpu_latency_us": 23.708329536
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "stripe4",
+        "round": null,
+        "medians": {
+          "throughput_us": 21.23418,
+          "latency_us": 221.375,
+          "gpu_throughput_us": 16.3358333521,
+          "gpu_latency_us": 24.2916867137
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "stripe8",
+        "round": null,
+        "medians": {
+          "throughput_us": 19.7713255814,
+          "latency_us": 265.625,
+          "gpu_throughput_us": 14.1279062603,
+          "gpu_latency_us": 24.0000081249
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "legacy",
+        "round": null,
+        "medians": {
+          "throughput_us": 50.1666666667,
+          "latency_us": 279.958,
+          "gpu_throughput_us": 35.0555573176,
+          "gpu_latency_us": 44.8750215583
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 47.2152777778,
+          "latency_us": 272.125,
+          "gpu_throughput_us": 32.335649141,
+          "gpu_latency_us": 44.375017751
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "stripe4",
+        "round": null,
+        "medians": {
+          "throughput_us": 59.60205,
+          "latency_us": 511.5,
+          "gpu_throughput_us": 35.1187482011,
+          "gpu_latency_us": 313.416647259
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "stripe8",
+        "round": null,
+        "medians": {
+          "throughput_us": 66.536375,
+          "latency_us": 269.875,
+          "gpu_throughput_us": 33.6718730978,
+          "gpu_latency_us": 46.8750367872
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "legacy",
+        "round": null,
+        "medians": {
+          "throughput_us": 95.275,
+          "latency_us": 291.458,
+          "gpu_throughput_us": 69.5520837326,
+          "gpu_latency_us": 44.2083110102
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 149.180333333,
+          "latency_us": 279.709,
+          "gpu_throughput_us": 76.0833305928,
+          "gpu_latency_us": 44.4583129138
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "stripe4",
+        "round": null,
+        "medians": {
+          "throughput_us": 54.7745294118,
+          "latency_us": 280.292,
+          "gpu_throughput_us": 34.9607811693,
+          "gpu_latency_us": 43.1250082329
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "stripe8",
+        "round": null,
+        "medians": {
+          "throughput_us": 56.2176111111,
+          "latency_us": 600.916,
+          "gpu_throughput_us": 37.6388876854,
+          "gpu_latency_us": 332.458352204
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "legacy",
+        "round": null,
+        "medians": {
+          "throughput_us": 99.0166,
+          "latency_us": 321.708,
+          "gpu_throughput_us": 51.758333575,
+          "gpu_latency_us": 45.3749671578
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 46.3357647059,
+          "latency_us": 278.709,
+          "gpu_throughput_us": 32.8235293958,
+          "gpu_latency_us": 44.624961447
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "stripe4",
+        "round": null,
+        "medians": {
+          "throughput_us": 126.282333333,
+          "latency_us": 321.167,
+          "gpu_throughput_us": 103.180561887,
+          "gpu_latency_us": 46.1249728687
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "stripe8",
+        "round": null,
+        "medians": {
+          "throughput_us": 194.396,
+          "latency_us": 244.375,
+          "gpu_throughput_us": 93.687500339,
+          "gpu_latency_us": 46.500004828
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "legacy",
+        "round": null,
+        "medians": {
+          "throughput_us": 73.2426470588,
+          "latency_us": 652.792,
+          "gpu_throughput_us": 36.3970586263,
+          "gpu_latency_us": 355.41667603
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 91.5360666667,
+          "latency_us": 296.708,
+          "gpu_throughput_us": 76.0611107883,
+          "gpu_latency_us": 43.9999857917
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "stripe4",
+        "round": null,
+        "medians": {
+          "throughput_us": 50.4473684211,
+          "latency_us": 278.667,
+          "gpu_throughput_us": 37.815789447,
+          "gpu_latency_us": 45.3749671578
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "stripe8",
+        "round": null,
+        "medians": {
+          "throughput_us": 51.7181764706,
+          "latency_us": 370.625,
+          "gpu_throughput_us": 36.3529406433,
+          "gpu_latency_us": 42.2499724664
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "legacy",
+        "round": null,
+        "medians": {
+          "throughput_us": 100.3515625,
+          "latency_us": 276.792,
+          "gpu_throughput_us": 86.3541681611,
+          "gpu_latency_us": 68.333290983
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 53.0342941176,
+          "latency_us": 267.375,
+          "gpu_throughput_us": 40.0416662588,
+          "gpu_latency_us": 46.3333562948
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "stripe4",
+        "round": null,
+        "medians": {
+          "throughput_us": 64.6694666667,
+          "latency_us": 578.041,
+          "gpu_throughput_us": 41.3138885051,
+          "gpu_latency_us": 332.541647367
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "stripe8",
+        "round": null,
+        "medians": {
+          "throughput_us": 102.607142857,
+          "latency_us": 378.417,
+          "gpu_throughput_us": 86.2857143927,
+          "gpu_latency_us": 49.416674301
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "legacy",
+        "round": null,
+        "medians": {
+          "throughput_us": 76.7306,
+          "latency_us": 283.041,
+          "gpu_throughput_us": 53.4416680845,
+          "gpu_latency_us": 47.5416891277
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 118.430533333,
+          "latency_us": 285.25,
+          "gpu_throughput_us": 82.7416661195,
+          "gpu_latency_us": 42.7083577961
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "stripe4",
+        "round": null,
+        "medians": {
+          "throughput_us": 49.8994705882,
+          "latency_us": 293.084,
+          "gpu_throughput_us": 35.9338249409,
+          "gpu_latency_us": 42.250030674
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "stripe8",
+        "round": null,
+        "medians": {
+          "throughput_us": 58.2611333333,
+          "latency_us": 331.584,
+          "gpu_throughput_us": 39.8027788227,
+          "gpu_latency_us": 46.500004828
+        }
+      }
+    ],
+    "ratios": [],
+    "independent_source_identities": 48
+  },
+  "correctness-rectangles.json": {
+    "outputs": 48,
+    "elements": 2284464,
+    "medians": [
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 8.53198989899,
+          "latency_us": 223.417,
+          "gpu_throughput_us": 6.2394779025,
+          "gpu_latency_us": 11.749973055
+        }
+      },
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "rectangle2x8",
+        "round": null,
+        "medians": {
+          "throughput_us": 130.021,
+          "latency_us": 210.708,
+          "gpu_throughput_us": 16.7083344422,
+          "gpu_latency_us": 12.9166874103
+        }
+      },
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "rectangle4x16",
+        "round": null,
+        "medians": {
+          "throughput_us": 9.50245098039,
+          "latency_us": 284.5,
+          "gpu_throughput_us": 6.23366042205,
+          "gpu_latency_us": 12.0833865367
+        }
+      },
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "rectangle8x32",
+        "round": null,
+        "medians": {
+          "throughput_us": 20.3284117647,
+          "latency_us": 214.583,
+          "gpu_throughput_us": 10.4828436366,
+          "gpu_latency_us": 12.2083583847
+        }
+      },
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 26.0409298246,
+          "latency_us": 253.916,
+          "gpu_throughput_us": 22.3998529755,
+          "gpu_latency_us": 21.2083104998
+        }
+      },
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "rectangle2x8",
+        "round": null,
+        "medians": {
+          "throughput_us": 16.5669642857,
+          "latency_us": 221.25,
+          "gpu_throughput_us": 12.357887629,
+          "gpu_latency_us": 22.2499947995
+        }
+      },
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "rectangle4x16",
+        "round": null,
+        "medians": {
+          "throughput_us": 17.665,
+          "latency_us": 257.166,
+          "gpu_throughput_us": 13.2149993442,
+          "gpu_latency_us": 21.6666958295
+        }
+      },
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "rectangle8x32",
+        "round": null,
+        "medians": {
+          "throughput_us": 16.2565294118,
+          "latency_us": 230,
+          "gpu_throughput_us": 12.0710784697,
+          "gpu_latency_us": 21.7500491999
+        }
+      },
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 8.45912264151,
+          "latency_us": 258.75,
+          "gpu_throughput_us": 6.39072287705,
+          "gpu_latency_us": 11.749973055
+        }
+      },
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "rectangle2x8",
+        "round": null,
+        "medians": {
+          "throughput_us": 12.1397604167,
+          "latency_us": 527.416,
+          "gpu_throughput_us": 7.8350694821,
+          "gpu_latency_us": 297.41670005
+        }
+      },
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "rectangle4x16",
+        "round": null,
+        "medians": {
+          "throughput_us": 8.85463636364,
+          "latency_us": 233.125,
+          "gpu_throughput_us": 6.25426103149,
+          "gpu_latency_us": 11.7500312626
+        }
+      },
+      {
+        "shape": [
+          1,
+          1,
+          1
+        ],
+        "path": "rectangle8x32",
+        "round": null,
+        "medians": {
+          "throughput_us": 17.5690104167,
+          "latency_us": 287.5,
+          "gpu_throughput_us": 15.1076389254,
+          "gpu_latency_us": 49.8333247378
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 20.3344594595,
+          "latency_us": 349.5,
+          "gpu_throughput_us": 14.8378375515,
+          "gpu_latency_us": 23.7500062212
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "rectangle2x8",
+        "round": null,
+        "medians": {
+          "throughput_us": 20.9677954545,
+          "latency_us": 216.917,
+          "gpu_throughput_us": 16.0265150374,
+          "gpu_latency_us": 24.5416886173
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "rectangle4x16",
+        "round": null,
+        "medians": {
+          "throughput_us": 19.8856382979,
+          "latency_us": 252.708,
+          "gpu_throughput_us": 14.6675540352,
+          "gpu_latency_us": 24.9166623689
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "rectangle8x32",
+        "round": null,
+        "medians": {
+          "throughput_us": 19.5088723404,
+          "latency_us": 349.916,
+          "gpu_throughput_us": 14.8945032282,
+          "gpu_latency_us": 24.8749856837
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 21.4448,
+          "latency_us": 257.625,
+          "gpu_throughput_us": 15.5802088557,
+          "gpu_latency_us": 23.3333557844
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "rectangle2x8",
+        "round": null,
+        "medians": {
+          "throughput_us": 74.6028,
+          "latency_us": 219.917,
+          "gpu_throughput_us": 60.3749998845,
+          "gpu_latency_us": 23.9583314396
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "rectangle4x16",
+        "round": null,
+        "medians": {
+          "throughput_us": 85.9375,
+          "latency_us": 235.542,
+          "gpu_throughput_us": 33.0937473336,
+          "gpu_latency_us": 24.0000081249
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "rectangle8x32",
+        "round": null,
+        "medians": {
+          "throughput_us": 20.9065121951,
+          "latency_us": 274,
+          "gpu_throughput_us": 15.6432932538,
+          "gpu_latency_us": 23.8333595917
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 20.2296585366,
+          "latency_us": 258.208,
+          "gpu_throughput_us": 14.0731699946,
+          "gpu_latency_us": 24.2499518208
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "rectangle2x8",
+        "round": null,
+        "medians": {
+          "throughput_us": 20.2110434783,
+          "latency_us": 290.584,
+          "gpu_throughput_us": 14.5371380748,
+          "gpu_latency_us": 36.7499887943
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "rectangle4x16",
+        "round": null,
+        "medians": {
+          "throughput_us": 37.4901315789,
+          "latency_us": 347.958,
+          "gpu_throughput_us": 30.5559216557,
+          "gpu_latency_us": 24.1249799728
+        }
+      },
+      {
+        "shape": [
+          129,
+          65,
+          7
+        ],
+        "path": "rectangle8x32",
+        "round": null,
+        "medians": {
+          "throughput_us": 20.3711395349,
+          "latency_us": 225.375,
+          "gpu_throughput_us": 14.7819762703,
+          "gpu_latency_us": 24.4582770392
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 56.8729,
+          "latency_us": 661.375,
+          "gpu_throughput_us": 34.847916686,
+          "gpu_latency_us": 372.499984223
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "rectangle2x8",
+        "round": null,
+        "medians": {
+          "throughput_us": 65.1381578947,
+          "latency_us": 604.917,
+          "gpu_throughput_us": 31.9495631725,
+          "gpu_latency_us": 363.125000149
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "rectangle4x16",
+        "round": null,
+        "medians": {
+          "throughput_us": 43.0965909091,
+          "latency_us": 259.167,
+          "gpu_throughput_us": 31.844696919,
+          "gpu_latency_us": 45.4583787359
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "rectangle8x32",
+        "round": null,
+        "medians": {
+          "throughput_us": 149.611,
+          "latency_us": 281.459,
+          "gpu_throughput_us": 73.2499950876,
+          "gpu_latency_us": 45.3749671578
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 50.9007619048,
+          "latency_us": 605.917,
+          "gpu_throughput_us": 35.9067454978,
+          "gpu_latency_us": 393.875001464
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "rectangle2x8",
+        "round": null,
+        "medians": {
+          "throughput_us": 47.4101052632,
+          "latency_us": 279.208,
+          "gpu_throughput_us": 34.0526335334,
+          "gpu_latency_us": 44.7916681878
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "rectangle4x16",
+        "round": null,
+        "medians": {
+          "throughput_us": 47.8729,
+          "latency_us": 277.166,
+          "gpu_throughput_us": 33.2458323101,
+          "gpu_latency_us": 43.8750139438
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "rectangle8x32",
+        "round": null,
+        "medians": {
+          "throughput_us": 45.6706666667,
+          "latency_us": 266.666,
+          "gpu_throughput_us": 34.0773812717,
+          "gpu_latency_us": 44.9999934062
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 401.625,
+          "latency_us": 275.25,
+          "gpu_throughput_us": 166.083336808,
+          "gpu_latency_us": 44.5833429694
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "rectangle2x8",
+        "round": null,
+        "medians": {
+          "throughput_us": 123.973058824,
+          "latency_us": 307.792,
+          "gpu_throughput_us": 80.8088225313,
+          "gpu_latency_us": 45.2499953099
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "rectangle4x16",
+        "round": null,
+        "medians": {
+          "throughput_us": 43.47915,
+          "latency_us": 277.958,
+          "gpu_throughput_us": 32.2062522173,
+          "gpu_latency_us": 45.083288569
+        }
+      },
+      {
+        "shape": [
+          513,
+          97,
+          61
+        ],
+        "path": "rectangle8x32",
+        "round": null,
+        "medians": {
+          "throughput_us": 47.7058823529,
+          "latency_us": 285.292,
+          "gpu_throughput_us": 33.6421585149,
+          "gpu_latency_us": 44.8750215583
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 50.125,
+          "latency_us": 251.917,
+          "gpu_throughput_us": 35.9088553523,
+          "gpu_latency_us": 44.1250158474
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "rectangle2x8",
+        "round": null,
+        "medians": {
+          "throughput_us": 87.5859375,
+          "latency_us": 276.833,
+          "gpu_throughput_us": 75.2395826566,
+          "gpu_latency_us": 44.4166944362
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "rectangle4x16",
+        "round": null,
+        "medians": {
+          "throughput_us": 51.6862352941,
+          "latency_us": 296.541,
+          "gpu_throughput_us": 37.2352934552,
+          "gpu_latency_us": 44.7499915026
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "rectangle8x32",
+        "round": null,
+        "medians": {
+          "throughput_us": 49.67915,
+          "latency_us": 267.584,
+          "gpu_throughput_us": 38.1249992643,
+          "gpu_latency_us": 45.7916758023
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 55.2596153846,
+          "latency_us": 267.791,
+          "gpu_throughput_us": 38.3621798112,
+          "gpu_latency_us": 44.9583749287
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "rectangle2x8",
+        "round": null,
+        "medians": {
+          "throughput_us": 62.3020625,
+          "latency_us": 617.167,
+          "gpu_throughput_us": 42.3359379056,
+          "gpu_latency_us": 358.833291102
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "rectangle4x16",
+        "round": null,
+        "medians": {
+          "throughput_us": 53.9019411765,
+          "latency_us": 387.208,
+          "gpu_throughput_us": 39.2450978432,
+          "gpu_latency_us": 45.1667001471
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "rectangle8x32",
+        "round": null,
+        "medians": {
+          "throughput_us": 53.9092941176,
+          "latency_us": 294.833,
+          "gpu_throughput_us": 39.0073503642,
+          "gpu_latency_us": 45.5416738987
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "linear",
+        "round": null,
+        "medians": {
+          "throughput_us": 73.5,
+          "latency_us": 343,
+          "gpu_throughput_us": 36.8154724129,
+          "gpu_latency_us": 40.7083425671
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "rectangle2x8",
+        "round": null,
+        "medians": {
+          "throughput_us": 50.4956315789,
+          "latency_us": 293.125,
+          "gpu_throughput_us": 37.9736823226,
+          "gpu_latency_us": 43.4166286141
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "rectangle4x16",
+        "round": null,
+        "medians": {
+          "throughput_us": 49.3092105263,
+          "latency_us": 285.333,
+          "gpu_throughput_us": 36.5109666937,
+          "gpu_latency_us": 42.7083577961
+        }
+      },
+      {
+        "shape": [
+          1025,
+          129,
+          33
+        ],
+        "path": "rectangle8x32",
+        "round": null,
+        "medians": {
+          "throughput_us": 50.4028,
+          "latency_us": 262.875,
+          "gpu_throughput_us": 36.4361098036,
+          "gpu_latency_us": 47.7083376609
+        }
+      }
+    ],
+    "ratios": [],
+    "independent_source_identities": 48
+  },
+  "current_artifacts_verified": 2,
+  "verified_artifact_directory": "/tmp/luisa-mpp-walk-evidence.9fp9RO",
+  "negative_probes_rejected": 5,
+  "bijective_rectangular_grids_checked": 2688,
+  "validated_outputs": 244,
+  "validated_elements": 2208985892
+}

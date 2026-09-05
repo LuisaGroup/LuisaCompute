@@ -1,0 +1,1038 @@
+{
+  "forward": {
+    "outputs": 45,
+    "elements": 519045120,
+    "measurements": [
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "block": [
+          128,
+          32,
+          128
+        ],
+        "phase": "trial",
+        "source_sha256": "8d96ea662dd2aabc92128e56e810b3f6c5eff3bf59aeaeff9e0f0b6d824ad943",
+        "paths": {
+          "native": {
+            "gpu_batch_us": 578.5873659225807,
+            "gpu_single_us": 574.083358515,
+            "e2e_batch_us": 591.243290323,
+            "e2e_single_us": 866.041
+          },
+          "torch": {
+            "gpu_batch_us": 440.9263573781869,
+            "gpu_single_us": 424.3750008754432,
+            "e2e_batch_us": 455.077511627907,
+            "e2e_single_us": 750.084
+          },
+          "system": {
+            "gpu_batch_us": 435.1521316953488,
+            "gpu_single_us": 418.95831236600003,
+            "e2e_batch_us": 442.63372093,
+            "e2e_single_us": 648.333
+          }
+        }
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "block": [
+          128,
+          32,
+          512
+        ],
+        "phase": "trial",
+        "source_sha256": "a3f9f5d3f4850083fbed5b8ea47068736283389c7aa0fc4ca3bc6ef71a70fdc5",
+        "paths": {
+          "native": {
+            "gpu_batch_us": 520.5370349972222,
+            "gpu_single_us": 514.208280947,
+            "e2e_batch_us": 535.815972222,
+            "e2e_single_us": 785.291
+          },
+          "torch": {
+            "gpu_batch_us": 435.8095272133748,
+            "gpu_single_us": 435.12502452358603,
+            "e2e_batch_us": 461.8164523809524,
+            "e2e_single_us": 836.4580000000001
+          },
+          "system": {
+            "gpu_batch_us": 437.07222212,
+            "gpu_single_us": 422.374985646,
+            "e2e_batch_us": 443.075,
+            "e2e_single_us": 703.334
+          }
+        }
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "block": [
+          128,
+          32,
+          1024
+        ],
+        "phase": "trial",
+        "source_sha256": "09bca4f69d6fc9607159fe84b1d7b2a0007639b6aca033e4ef2f74b755d64900",
+        "paths": {
+          "native": {
+            "gpu_batch_us": 509.4627191078947,
+            "gpu_single_us": 518.958375324,
+            "e2e_batch_us": 524.870605263,
+            "e2e_single_us": 786.292
+          },
+          "torch": {
+            "gpu_batch_us": 435.5261632956045,
+            "gpu_single_us": 424.3750008754432,
+            "e2e_batch_us": 462.66765116279066,
+            "e2e_single_us": 794.959
+          },
+          "system": {
+            "gpu_batch_us": 434.0113638045454,
+            "gpu_single_us": 423.874997068,
+            "e2e_batch_us": 444.671409091,
+            "e2e_single_us": 675.208
+          }
+        }
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "block": [
+          128,
+          32,
+          4096
+        ],
+        "phase": "trial",
+        "source_sha256": "a175a80c476f0ff53969adc803bfbcc75dd205bd38bfa4078ac2edd52f973c39",
+        "paths": {
+          "native": {
+            "gpu_batch_us": 480.85937451,
+            "gpu_single_us": 468.958343845,
+            "e2e_batch_us": 493.294775,
+            "e2e_single_us": 800.875
+          },
+          "torch": {
+            "gpu_batch_us": 438.4380086643122,
+            "gpu_single_us": 441.87501771375537,
+            "e2e_batch_us": 464.3617804878048,
+            "e2e_single_us": 787.333
+          },
+          "system": {
+            "gpu_batch_us": 440.79259193111113,
+            "gpu_single_us": 422.62498755,
+            "e2e_batch_us": 444.013888889,
+            "e2e_single_us": 697.125
+          }
+        }
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "block": [
+          128,
+          32,
+          4096
+        ],
+        "phase": "fresh",
+        "source_sha256": "a175a80c476f0ff53969adc803bfbcc75dd205bd38bfa4078ac2edd52f973c39",
+        "paths": {
+          "native": {
+            "gpu_batch_us": 483.63229289,
+            "gpu_single_us": 469.24996422600003,
+            "e2e_batch_us": 491.140625,
+            "e2e_single_us": 707.5
+          },
+          "torch": {
+            "gpu_batch_us": 440.834400554498,
+            "gpu_single_us": 427.4583770893514,
+            "e2e_batch_us": 456.8984871794871,
+            "e2e_single_us": 722.583
+          },
+          "system": {
+            "gpu_batch_us": 436.3750002,
+            "gpu_single_us": 420.37502862499997,
+            "e2e_batch_us": 451.715116279,
+            "e2e_single_us": 646.709
+          }
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "block": [
+          128,
+          32,
+          512
+        ],
+        "phase": "trial",
+        "source_sha256": "b479a9b52d0b79358acfd46e840e8c7afb7acb7a4780cb33b0c23f1ff320169b",
+        "paths": {
+          "native": {
+            "gpu_batch_us": 20572.708395799997,
+            "gpu_single_us": 20434.708392700002,
+            "e2e_batch_us": 20531.875,
+            "e2e_single_us": 20857.458
+          },
+          "torch": {
+            "gpu_batch_us": 16756.083292420954,
+            "gpu_single_us": 16567.62498896569,
+            "e2e_batch_us": 17322.0,
+            "e2e_single_us": 17408.291999999998
+          },
+          "system": {
+            "gpu_batch_us": 17822.7500292,
+            "gpu_single_us": 17673.3750268,
+            "e2e_batch_us": 18320.917,
+            "e2e_single_us": 18249.667
+          }
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "block": [
+          128,
+          32,
+          1024
+        ],
+        "phase": "trial",
+        "source_sha256": "818052b39eba9b273ef5db807c6ccbe99d8c98a65ad2a564cfdf825851c4afba",
+        "paths": {
+          "native": {
+            "gpu_batch_us": 19631.124916499997,
+            "gpu_single_us": 19746.9166596,
+            "e2e_batch_us": 20110.084,
+            "e2e_single_us": 19869.042
+          },
+          "torch": {
+            "gpu_batch_us": 16641.333349980414,
+            "gpu_single_us": 16777.37501449883,
+            "e2e_batch_us": 17298.625,
+            "e2e_single_us": 17448.792
+          },
+          "system": {
+            "gpu_batch_us": 18010.8750355,
+            "gpu_single_us": 18300.4999999,
+            "e2e_batch_us": 18532.333,
+            "e2e_single_us": 18501.667
+          }
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "block": [
+          128,
+          32,
+          4096
+        ],
+        "phase": "trial",
+        "source_sha256": "ec3b76316ffc7e30c285376c89ce3554e6cb85d27a999e5ccae7e262f461009b",
+        "paths": {
+          "native": {
+            "gpu_batch_us": 18230.5833441,
+            "gpu_single_us": 18236.4166831,
+            "e2e_batch_us": 18214.291,
+            "e2e_single_us": 17994.208
+          },
+          "torch": {
+            "gpu_batch_us": 16526.041668839753,
+            "gpu_single_us": 16893.166699446738,
+            "e2e_batch_us": 17457.0,
+            "e2e_single_us": 17261.916
+          },
+          "system": {
+            "gpu_batch_us": 18136.124999699998,
+            "gpu_single_us": 18070.333346299998,
+            "e2e_batch_us": 18372.542,
+            "e2e_single_us": 18598.708
+          }
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "block": [
+          128,
+          32,
+          128
+        ],
+        "phase": "trial",
+        "source_sha256": "9b2fdedac6f4e4979969d59582370809c19b64610fe9207624ee875c0110927b",
+        "paths": {
+          "native": {
+            "gpu_batch_us": 22909.8333512,
+            "gpu_single_us": 23273.3333251,
+            "e2e_batch_us": 23544.916,
+            "e2e_single_us": 23461.209
+          },
+          "torch": {
+            "gpu_batch_us": 16685.874958056957,
+            "gpu_single_us": 16727.333306334913,
+            "e2e_batch_us": 17431.209,
+            "e2e_single_us": 17455.666999999998
+          },
+          "system": {
+            "gpu_batch_us": 17889.7916921,
+            "gpu_single_us": 17898.8333209,
+            "e2e_batch_us": 18413.708,
+            "e2e_single_us": 18681.791
+          }
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "block": [
+          128,
+          32,
+          4096
+        ],
+        "phase": "fresh",
+        "source_sha256": "ec3b76316ffc7e30c285376c89ce3554e6cb85d27a999e5ccae7e262f461009b",
+        "paths": {
+          "native": {
+            "gpu_batch_us": 18039.5000498,
+            "gpu_single_us": 17986.166698399997,
+            "e2e_batch_us": 18631.458,
+            "e2e_single_us": 18516.708
+          },
+          "torch": {
+            "gpu_batch_us": 16614.70835097134,
+            "gpu_single_us": 16685.625014360994,
+            "e2e_batch_us": 17060.542,
+            "e2e_single_us": 16686.458
+          },
+          "system": {
+            "gpu_batch_us": 17871.249991,
+            "gpu_single_us": 17981.5000156,
+            "e2e_batch_us": 18571.542,
+            "e2e_single_us": 18054
+          }
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "block": [
+          128,
+          32,
+          1024
+        ],
+        "phase": "trial",
+        "source_sha256": "95282632db407765fd726c949013580a65a37d2a323c64fb5a5ed1fd67be6624",
+        "paths": {
+          "native": {
+            "gpu_batch_us": 55701.7500396,
+            "gpu_single_us": 55761.374998800005,
+            "e2e_batch_us": 56017.709,
+            "e2e_single_us": 55860.958
+          },
+          "torch": {
+            "gpu_batch_us": 47248.249989934266,
+            "gpu_single_us": 47236.249956768006,
+            "e2e_batch_us": 48527.75,
+            "e2e_single_us": 48601.708
+          },
+          "system": {
+            "gpu_batch_us": 51193.4166425,
+            "gpu_single_us": 51478.749956,
+            "e2e_batch_us": 50719.375,
+            "e2e_single_us": 51064.542
+          }
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "block": [
+          128,
+          32,
+          4096
+        ],
+        "phase": "trial",
+        "source_sha256": "c185c5544f458fd06f03ab170dc759f9aa59b42a4985fc650030ced5835d5a52",
+        "paths": {
+          "native": {
+            "gpu_batch_us": 56464.2083482,
+            "gpu_single_us": 56041.9583344,
+            "e2e_batch_us": 56846.125,
+            "e2e_single_us": 56678.667
+          },
+          "torch": {
+            "gpu_batch_us": 48050.916695501655,
+            "gpu_single_us": 47713.25003821403,
+            "e2e_batch_us": 48717.042,
+            "e2e_single_us": 48363.916000000005
+          },
+          "system": {
+            "gpu_batch_us": 50615.7500204,
+            "gpu_single_us": 50358.9999862,
+            "e2e_batch_us": 51382.583,
+            "e2e_single_us": 51786.25
+          }
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "block": [
+          128,
+          32,
+          128
+        ],
+        "phase": "trial",
+        "source_sha256": "cca7cbfd90319d447af69acac5c23c795609c0359ee3e1d564b70386aa6ac8d6",
+        "paths": {
+          "native": {
+            "gpu_batch_us": 65308.458288199996,
+            "gpu_single_us": 66694.87495669999,
+            "e2e_batch_us": 66206.208,
+            "e2e_single_us": 65544.083
+          },
+          "torch": {
+            "gpu_batch_us": 48138.750018551946,
+            "gpu_single_us": 48020.33334271982,
+            "e2e_batch_us": 48802.667,
+            "e2e_single_us": 48800.042
+          },
+          "system": {
+            "gpu_batch_us": 51185.2499912,
+            "gpu_single_us": 51489.8750116,
+            "e2e_batch_us": 51522.458,
+            "e2e_single_us": 52000.834
+          }
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "block": [
+          128,
+          32,
+          512
+        ],
+        "phase": "trial",
+        "source_sha256": "f6a2ceb0980f85783add3d6fb31b7717224341e7d412db36116aaaadfb3255de",
+        "paths": {
+          "native": {
+            "gpu_batch_us": 56209.0000021,
+            "gpu_single_us": 56602.2083513,
+            "e2e_batch_us": 56506.708,
+            "e2e_single_us": 56695.25
+          },
+          "torch": {
+            "gpu_batch_us": 47885.75001293793,
+            "gpu_single_us": 47856.166667770594,
+            "e2e_batch_us": 48580.292,
+            "e2e_single_us": 48174.833
+          },
+          "system": {
+            "gpu_batch_us": 50278.1249816,
+            "gpu_single_us": 51240.7500064,
+            "e2e_batch_us": 51819.042,
+            "e2e_single_us": 51698.625
+          }
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "block": [
+          128,
+          32,
+          1024
+        ],
+        "phase": "fresh",
+        "source_sha256": "95282632db407765fd726c949013580a65a37d2a323c64fb5a5ed1fd67be6624",
+        "paths": {
+          "native": {
+            "gpu_batch_us": 55680.5832894,
+            "gpu_single_us": 55569.666670599996,
+            "e2e_batch_us": 55957.75,
+            "e2e_single_us": 56208.083
+          },
+          "torch": {
+            "gpu_batch_us": 47416.08334006742,
+            "gpu_single_us": 47792.54161985591,
+            "e2e_batch_us": 48630.333,
+            "e2e_single_us": 48529.25
+          },
+          "system": {
+            "gpu_batch_us": 50425.166671599996,
+            "gpu_single_us": 50664.1249522,
+            "e2e_batch_us": 53156.666,
+            "e2e_single_us": 51911.666
+          }
+        }
+      }
+    ]
+  },
+  "reverse": {
+    "outputs": 45,
+    "elements": 519045120,
+    "measurements": [
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "block": [
+          128,
+          32,
+          4096
+        ],
+        "phase": "trial",
+        "source_sha256": "c185c5544f458fd06f03ab170dc759f9aa59b42a4985fc650030ced5835d5a52",
+        "paths": {
+          "native": {
+            "gpu_batch_us": 56000.9999899,
+            "gpu_single_us": 56386.0833645,
+            "e2e_batch_us": 56810.333,
+            "e2e_single_us": 57209.417
+          },
+          "torch": {
+            "gpu_batch_us": 47951.291664503515,
+            "gpu_single_us": 48023.70833931491,
+            "e2e_batch_us": 48433.0,
+            "e2e_single_us": 48605.75
+          },
+          "system": {
+            "gpu_batch_us": 50723.958353,
+            "gpu_single_us": 50908.4999794,
+            "e2e_batch_us": 51448.791,
+            "e2e_single_us": 52022.041
+          }
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "block": [
+          128,
+          32,
+          1024
+        ],
+        "phase": "trial",
+        "source_sha256": "95282632db407765fd726c949013580a65a37d2a323c64fb5a5ed1fd67be6624",
+        "paths": {
+          "native": {
+            "gpu_batch_us": 55364.3333842,
+            "gpu_single_us": 55811.8332992,
+            "e2e_batch_us": 56071.958,
+            "e2e_single_us": 55765.75
+          },
+          "torch": {
+            "gpu_batch_us": 48149.916634429246,
+            "gpu_single_us": 47362.62501683086,
+            "e2e_batch_us": 48452.5,
+            "e2e_single_us": 48359.875
+          },
+          "system": {
+            "gpu_batch_us": 51056.5416771,
+            "gpu_single_us": 50880.5416757,
+            "e2e_batch_us": 52023.917,
+            "e2e_single_us": 52264.25
+          }
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "block": [
+          128,
+          32,
+          512
+        ],
+        "phase": "trial",
+        "source_sha256": "f6a2ceb0980f85783add3d6fb31b7717224341e7d412db36116aaaadfb3255de",
+        "paths": {
+          "native": {
+            "gpu_batch_us": 56650.749989799995,
+            "gpu_single_us": 56192.3749628,
+            "e2e_batch_us": 56583.542,
+            "e2e_single_us": 56723.75
+          },
+          "torch": {
+            "gpu_batch_us": 47558.374993968755,
+            "gpu_single_us": 47999.29168075323,
+            "e2e_batch_us": 48101.417,
+            "e2e_single_us": 47557.375
+          },
+          "system": {
+            "gpu_batch_us": 51786.291704,
+            "gpu_single_us": 51176.9999866,
+            "e2e_batch_us": 51491.375,
+            "e2e_single_us": 51706.542
+          }
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "block": [
+          128,
+          32,
+          128
+        ],
+        "phase": "trial",
+        "source_sha256": "cca7cbfd90319d447af69acac5c23c795609c0359ee3e1d564b70386aa6ac8d6",
+        "paths": {
+          "native": {
+            "gpu_batch_us": 64176.0000144,
+            "gpu_single_us": 63941.4582984,
+            "e2e_batch_us": 65182,
+            "e2e_single_us": 65311.583
+          },
+          "torch": {
+            "gpu_batch_us": 48223.250021692365,
+            "gpu_single_us": 48300.08331919089,
+            "e2e_batch_us": 48144.208,
+            "e2e_single_us": 48337.791000000005
+          },
+          "system": {
+            "gpu_batch_us": 51488.6250021,
+            "gpu_single_us": 51190.6250031,
+            "e2e_batch_us": 51480.75,
+            "e2e_single_us": 51178.75
+          }
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          11008
+        ],
+        "block": [
+          128,
+          32,
+          1024
+        ],
+        "phase": "fresh",
+        "source_sha256": "95282632db407765fd726c949013580a65a37d2a323c64fb5a5ed1fd67be6624",
+        "paths": {
+          "native": {
+            "gpu_batch_us": 55920.0000134,
+            "gpu_single_us": 55639.583326399996,
+            "e2e_batch_us": 55973.208,
+            "e2e_single_us": 56179.75
+          },
+          "torch": {
+            "gpu_batch_us": 47938.87498090044,
+            "gpu_single_us": 48017.16667134315,
+            "e2e_batch_us": 48390.083,
+            "e2e_single_us": 48476.417
+          },
+          "system": {
+            "gpu_batch_us": 51118.0416215,
+            "gpu_single_us": 50529.916654299996,
+            "e2e_batch_us": 51655.958,
+            "e2e_single_us": 51223.417
+          }
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "block": [
+          128,
+          32,
+          1024
+        ],
+        "phase": "trial",
+        "source_sha256": "818052b39eba9b273ef5db807c6ccbe99d8c98a65ad2a564cfdf825851c4afba",
+        "paths": {
+          "native": {
+            "gpu_batch_us": 20369.5416567,
+            "gpu_single_us": 19956.125004700003,
+            "e2e_batch_us": 20635.916,
+            "e2e_single_us": 20308.708
+          },
+          "torch": {
+            "gpu_batch_us": 16895.00000793487,
+            "gpu_single_us": 16869.5833417587,
+            "e2e_batch_us": 17188.208,
+            "e2e_single_us": 17325.790999999997
+          },
+          "system": {
+            "gpu_batch_us": 18002.249999000003,
+            "gpu_single_us": 18348.166660900002,
+            "e2e_batch_us": 18528.791,
+            "e2e_single_us": 18556.458
+          }
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "block": [
+          128,
+          32,
+          512
+        ],
+        "phase": "trial",
+        "source_sha256": "b479a9b52d0b79358acfd46e840e8c7afb7acb7a4780cb33b0c23f1ff320169b",
+        "paths": {
+          "native": {
+            "gpu_batch_us": 20429.249969300003,
+            "gpu_single_us": 19547.541625799997,
+            "e2e_batch_us": 20750.042,
+            "e2e_single_us": 20783.5
+          },
+          "torch": {
+            "gpu_batch_us": 16832.249995786697,
+            "gpu_single_us": 16962.833353318274,
+            "e2e_batch_us": 17217.0,
+            "e2e_single_us": 17174.917
+          },
+          "system": {
+            "gpu_batch_us": 16863.7500028,
+            "gpu_single_us": 17822.5000273,
+            "e2e_batch_us": 17884.042,
+            "e2e_single_us": 18027.125
+          }
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "block": [
+          128,
+          32,
+          128
+        ],
+        "phase": "trial",
+        "source_sha256": "9b2fdedac6f4e4979969d59582370809c19b64610fe9207624ee875c0110927b",
+        "paths": {
+          "native": {
+            "gpu_batch_us": 20507.875015,
+            "gpu_single_us": 20556.458388500003,
+            "e2e_batch_us": 23857.625,
+            "e2e_single_us": 22563.375
+          },
+          "torch": {
+            "gpu_batch_us": 15796.124993357807,
+            "gpu_single_us": 15787.208336405456,
+            "e2e_batch_us": 16717.790999999997,
+            "e2e_single_us": 16903.25
+          },
+          "system": {
+            "gpu_batch_us": 17468.8750412,
+            "gpu_single_us": 16823.749989300002,
+            "e2e_batch_us": 17147.875,
+            "e2e_single_us": 18773.625
+          }
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "block": [
+          128,
+          32,
+          4096
+        ],
+        "phase": "trial",
+        "source_sha256": "ec3b76316ffc7e30c285376c89ce3554e6cb85d27a999e5ccae7e262f461009b",
+        "paths": {
+          "native": {
+            "gpu_batch_us": 18226.791697099998,
+            "gpu_single_us": 18109.0416736,
+            "e2e_batch_us": 18445.417,
+            "e2e_single_us": 18188.042
+          },
+          "torch": {
+            "gpu_batch_us": 15802.500012796372,
+            "gpu_single_us": 15782.333328388631,
+            "e2e_batch_us": 16256.0,
+            "e2e_single_us": 16196.542000000001
+          },
+          "system": {
+            "gpu_batch_us": 16752.2500269,
+            "gpu_single_us": 16832.2916725,
+            "e2e_batch_us": 17068.958,
+            "e2e_single_us": 17045.5
+          }
+        }
+      },
+      {
+        "shape": [
+          4096,
+          4096,
+          4096
+        ],
+        "block": [
+          128,
+          32,
+          4096
+        ],
+        "phase": "fresh",
+        "source_sha256": "ec3b76316ffc7e30c285376c89ce3554e6cb85d27a999e5ccae7e262f461009b",
+        "paths": {
+          "native": {
+            "gpu_batch_us": 17721.0416878,
+            "gpu_single_us": 18457.0416459,
+            "e2e_batch_us": 17847.625,
+            "e2e_single_us": 18090.541
+          },
+          "torch": {
+            "gpu_batch_us": 15795.458341017365,
+            "gpu_single_us": 15806.999988853931,
+            "e2e_batch_us": 16241.958,
+            "e2e_single_us": 16103.750000000002
+          },
+          "system": {
+            "gpu_batch_us": 16841.7083332,
+            "gpu_single_us": 17087.9583457,
+            "e2e_batch_us": 17017.375,
+            "e2e_single_us": 17038.708
+          }
+        }
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "block": [
+          128,
+          32,
+          512
+        ],
+        "phase": "trial",
+        "source_sha256": "a3f9f5d3f4850083fbed5b8ea47068736283389c7aa0fc4ca3bc6ef71a70fdc5",
+        "paths": {
+          "native": {
+            "gpu_batch_us": 518.453828172973,
+            "gpu_single_us": 516.791653354,
+            "e2e_batch_us": 533.974108108,
+            "e2e_single_us": 775.791
+          },
+          "torch": {
+            "gpu_batch_us": 437.4137592263693,
+            "gpu_single_us": 426.37501610442996,
+            "e2e_batch_us": 453.47093023255815,
+            "e2e_single_us": 698.375
+          },
+          "system": {
+            "gpu_batch_us": 432.7611118133333,
+            "gpu_single_us": 422.999961302,
+            "e2e_batch_us": 440.693511111,
+            "e2e_single_us": 665.166
+          }
+        }
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "block": [
+          128,
+          32,
+          128
+        ],
+        "phase": "trial",
+        "source_sha256": "8d96ea662dd2aabc92128e56e810b3f6c5eff3bf59aeaeff9e0f0b6d824ad943",
+        "paths": {
+          "native": {
+            "gpu_batch_us": 577.57353095,
+            "gpu_single_us": 579.9166392530001,
+            "e2e_batch_us": 582.935058824,
+            "e2e_single_us": 798.166
+          },
+          "torch": {
+            "gpu_batch_us": 435.5208338460042,
+            "gpu_single_us": 429.24995068460703,
+            "e2e_batch_us": 455.1448333333333,
+            "e2e_single_us": 669.709
+          },
+          "system": {
+            "gpu_batch_us": 430.76136287045455,
+            "gpu_single_us": 423.000019509,
+            "e2e_batch_us": 441.136363636,
+            "e2e_single_us": 676.375
+          }
+        }
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "block": [
+          128,
+          32,
+          4096
+        ],
+        "phase": "trial",
+        "source_sha256": "a175a80c476f0ff53969adc803bfbcc75dd205bd38bfa4078ac2edd52f973c39",
+        "paths": {
+          "native": {
+            "gpu_batch_us": 482.23646008500003,
+            "gpu_single_us": 470.16667667800004,
+            "e2e_batch_us": 491.723975,
+            "e2e_single_us": 699.75
+          },
+          "torch": {
+            "gpu_batch_us": 436.3071706774103,
+            "gpu_single_us": 426.37501610442996,
+            "e2e_batch_us": 453.11723255813956,
+            "e2e_single_us": 747.6669999999999
+          },
+          "system": {
+            "gpu_batch_us": 432.7414776931818,
+            "gpu_single_us": 423.124991357,
+            "e2e_batch_us": 443.128772727,
+            "e2e_single_us": 654.917
+          }
+        }
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "block": [
+          128,
+          32,
+          1024
+        ],
+        "phase": "trial",
+        "source_sha256": "09bca4f69d6fc9607159fe84b1d7b2a0007639b6aca033e4ef2f74b755d64900",
+        "paths": {
+          "native": {
+            "gpu_batch_us": 509.64802472894735,
+            "gpu_single_us": 516.833330039,
+            "e2e_batch_us": 518.109657895,
+            "e2e_single_us": 755.208
+          },
+          "torch": {
+            "gpu_batch_us": 433.96899601184697,
+            "gpu_single_us": 436.37497583404183,
+            "e2e_batch_us": 459.54165116279063,
+            "e2e_single_us": 768.959
+          },
+          "system": {
+            "gpu_batch_us": 433.44697041818176,
+            "gpu_single_us": 420.91665091000004,
+            "e2e_batch_us": 439.416659091,
+            "e2e_single_us": 689.417
+          }
+        }
+      },
+      {
+        "shape": [
+          1024,
+          1024,
+          1537
+        ],
+        "block": [
+          128,
+          32,
+          4096
+        ],
+        "phase": "fresh",
+        "source_sha256": "a175a80c476f0ff53969adc803bfbcc75dd205bd38bfa4078ac2edd52f973c39",
+        "paths": {
+          "native": {
+            "gpu_batch_us": 482.3432016,
+            "gpu_single_us": 472.25004527699997,
+            "e2e_batch_us": 498.220394737,
+            "e2e_single_us": 709.875
+          },
+          "torch": {
+            "gpu_batch_us": 437.97577449748684,
+            "gpu_single_us": 440.7916567288339,
+            "e2e_batch_us": 454.3139534883721,
+            "e2e_single_us": 678.2080000000001
+          },
+          "system": {
+            "gpu_batch_us": 433.3579537068182,
+            "gpu_single_us": 427.249993663,
+            "e2e_batch_us": 442.928022727,
+            "e2e_single_us": 648.209
+          }
+        }
+      }
+    ]
+  },
+  "current_artifacts_verified": 11,
+  "negative_probes_rejected": 5,
+  "validated_outputs": 90,
+  "validated_elements": 1038090240
+}

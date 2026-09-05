@@ -200,6 +200,46 @@ or a claim of MPS parity. M/N edge atoms and automatic physical K retiming
 remain separate work. The patch ABI and build order are documented in
 [the TVM patch README](https://github.com/LuisaGroup/LuisaCompute/blob/codex/tile-programming-design/src/tile/bridge/tirx/patches/README.md).
 
+## Physical program traversal remains a candidate
+
+Program-grid traversal is another execution-layout choice, independent of
+memory layout. It composes before the already planned subgroup/local map:
+
+```text
+physical program ordinal
+          |
+  bounded grid permutation
+          |
+logical program coordinate
+          |
+  subgroup + local coordinate
+          |
+     operand address map
+```
+
+`parallel` instances already have independent execution semantics. A candidate
+permutation needs an in-domain bijection, not a new dependence proof. It must
+preserve every program exactly once, including partial grid rectangles, and
+does not promise the hardware scheduler's actual execution order. Memory
+views and nested scope/resource ownership remain unchanged.
+
+The standalone MPP benchmark can now enumerate bounded row/column rectangles
+with no padded programs. It checks uint32 launch arithmetic before allocation;
+small/tail GPU outputs and host enumeration validate the mapping. **The
+production TIRx/native planner does not yet select these traversals.** TIRx's
+cooperative mapper already uses a linear physical grid; the hand benchmark's
+legacy-2D versus linear comparison is not a new bridge optimization.
+
+The [two-order diagnostics](../../performance/tile/results.md#k-partition-and-program-walks-diagnostics-not-new-defaults)
+reject a generic preference for larger row groups. For a 128×32 group output,
+a 4×1 program stripe is a 512×32 output region, not a square reuse region.
+Square-region candidates were also inconclusive under substantial timing
+variation. A future backend policy should consider program aspect, operand
+access maps and K partition jointly; the current per-group MPP footprint model
+does not measure cross-group cache reuse or actual concurrent occupancy.
+Keep those as candidate/model extensions pending stable held-out evidence,
+without adding a DSL primitive or assigning a hardware memory level to a nest.
+
 ## Implemented matrix mapping family
 
 The current planner targets a proved Metal group-level FP32 MMA with a

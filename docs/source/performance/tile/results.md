@@ -336,6 +336,57 @@ finds no universally better collective width; no single-order minimum becomes
 a default. M/N-edge atoms, physical K chunking, reuse and distribution remain
 the next realization work, followed by independent model/search validation.
 
+### K partition and program walks: diagnostics, not new defaults
+
+The next September 6 experiment fixes the TIRx MPP output block at 128×32,
+128 threads and an ordered pipeline, changing only captured K across
+128/512/1024/4096. All candidates retain the same four 32×32 subgroup outputs,
+zero shared allocation and persistent accumulator. **90 complete outputs**
+pass the full FP64 check. This is staged/JIT schedule sensitivity, not a new
+compiler implementation or a balanced acceptance run.
+
+```{table} K partition: TIRx GPU command-buffer batch microseconds, two orders
+:class: benchmark-table
+
+| M×N×K | Order | BK=128 | BK=512 | BK=1024 | BK=4096 |
+|---|---|---:|---:|---:|---:|
+| 1024×1024×1537 | A | 578.587 | 520.537 | 509.463 | 480.859 |
+| 1024×1024×1537 | B | 577.574 | 518.454 | 509.648 | 482.236 |
+| 4096³ | A | 22909.833 | 20572.708 | 19631.125 | 18230.583 |
+| 4096³ | B | 20507.875 | 20429.250 | 20369.542 | 18226.792 |
+| 4096×4096×11008 | A | 65308.458 | 56209.000 | 55701.750 | 56464.208 |
+| 4096×4096×11008 | B | 64176.000 | 56650.750 | 55364.333 | 56001.000 |
+```
+
+Orders A/B preserve both run-specific medians, not their minimum. BK=4096
+improves on BK=1024 in the first two shapes; the long-K shape mildly reverses
+that direction. Fresh recapture of the selected candidates is still slower
+than MPS and Torch in all six GPU comparisons. The
+{download}`complete K report and controls
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260906-mpp-k-partition/notes.md>`
+keeps every MPS/Torch measurement, separate E2E/single-call metrics, stable
+source/plan identities and the independent 11-artifact audit. No universal
+K-size reward or new default is justified.
+
+A separate hand-MPP probe adds a **bounded program-grid permutation**. It
+changes neither group count nor per-group work. Four/eight-row one-column
+stripes lose all ten paired GPU and E2E batch comparisons to linear traversal.
+At 8192³, GPU stripe4/linear is 1.551× / 1.544× and stripe8/linear is
+1.828× / 1.813×. A follow-up using square output-region rectangles is
+**inconclusive**: at 4096³, rectangle2×8/linear reverses from 0.730× to
+1.726×, while the MPS control also varies substantially. Keep these results
+out of performance acceptance and coefficient fitting until a stable replay.
+
+The {download}`walk report
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260906-mpp-grid-walk/notes.md>`
+retains both complete 50-output screens, 144 development correctness outputs,
+two additional unsigned-boundary outputs and all four metrics. The mapping
+also passes 2,688 host bijection checks and four invalid/overflowing-request
+checks. This remains a **benchmark capability**, not a production lowering
+feature. TIRx already has a one-dimensional launch; improvements over the
+hand probe's legacy 2D launch must not be credited as a new TIRx speedup.
+See [the mapping boundary](../../internals/tile/matrix.md#physical-program-traversal-remains-a-candidate).
+
 ### CPU TIRx: reference gaps and proved provider realizations
 
 The original six-round, eight-shape reference-loop cohort remains useful as a

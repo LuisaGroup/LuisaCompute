@@ -62,6 +62,11 @@ retain substantial variation. The 8192³ view source is unchanged, so this
 new session is not evidence of a compiler speedup at that shape. M/N-tail
 forwarding and broader physical K/reuse choices remain open.
 
+The subsequent [K/walk diagnostics](results.md#k-partition-and-program-walks-diagnostics-not-new-defaults)
+find shape-dependent K sensitivity, reject simple row-stripe traversal, and
+retain an inconclusive rectangle screen with order reversals. These are
+exploratory benchmark results, not new production defaults or MPS/Torch wins.
+
 The earlier result remains historical, not a scale guarantee. In its 14-round
 FP32 1024³ replay, TIRx-to-MPP views take 270.675 µs, native MPP 287.137 µs,
 direct MPS 272.572 µs and eager Torch 284.654 µs in median host-wall batch time.
