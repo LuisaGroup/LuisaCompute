@@ -2,10 +2,39 @@ import itertools
 import unittest
 
 from compare_lowerings import (PATHS, RUNTIME_PATHS, MPP_PATHS, VIEW_PATHS, implementation_order, validate_native, validate_times, validate_mpp_tirx,
-                               validate_tirx_runtime, validate_runtime_controls)
+                               validate_tirx_runtime, validate_runtime_controls, gpu_samples)
 
 
 class LoweringComparisonTest(unittest.TestCase):
+    def test_gpu_controls_do_not_fall_back_to_host_or_instrumented_time(self):
+        sample = dict(compute_ns=2000., compute_span_ns=2100., command_buffer_ns=3000.,
+                      calibration_cpu_ns=1e6, calibration_gpu_ticks=24000., compute_passes=1, command_buffers=1)
+        control = dict(method="metal_command_buffer_timestamps_v1", scope="sum_of_command_buffer_gpu_intervals",
+                       encoder_instrumentation=False, repetitions=4,
+                       throughput=[dict(command_buffer_ns=12000., command_buffers=1)] * 2,
+                       latency=[dict(command_buffer_ns=5000., command_buffers=1)] * 2)
+        device = dict(method="metal_compute_pass_timestamps_v1", scope="sum_of_compute_encoder_gpu_intervals",
+                      host_samples_instrumented=False, repetitions=4, control=control,
+                      throughput=[sample] * 2, latency=[sample] * 2)
+        result = dict(device_timing=device, throughput_us=[100., 200.])
+        self.assertEqual(gpu_samples(result, "torch", "throughput", 2), [3., 3.])
+        self.assertEqual(gpu_samples(result, "tile_native_mpp", "latency", 2), [5., 5.])
+        for invalid in ({}, {"throughput_us": [1., 2.]},
+                        {"device_timing": {k: v for k, v in device.items() if k != "control"}},
+                        {"device_timing": device | {"control": control | {"encoder_instrumentation": True}}}):
+            with self.assertRaises(ValueError):
+                gpu_samples(invalid, "tile_tirx", "throughput", 2)
+
+    def test_hand_mpp_preserves_its_direct_command_buffer_timer(self):
+        result = dict(gpu_throughput_us=[1., 2.], gpu_latency_us=[3., 4.], throughput_us=[100., 200.])
+        self.assertEqual(gpu_samples(result, "handwritten_mpp", "throughput", 2), [1., 2.])
+        self.assertEqual(gpu_samples(result, "handwritten_mpp", "latency", 2), [3., 4.])
+        for values in ([True, 2.], [0., 2.], [float("nan"), 2.], [1.]):
+            with self.assertRaises(ValueError):
+                gpu_samples(result | {"gpu_throughput_us": values}, "handwritten_mpp", "throughput", 2)
+        with self.assertRaises(ValueError):
+            gpu_samples(result, "handwritten_mpp", "other", 2)
+
     def test_mpp_counterbalance(self):
         for paths in (PATHS + MPP_PATHS, PATHS + RUNTIME_PATHS + MPP_PATHS, PATHS + MPP_PATHS + VIEW_PATHS):
             for offset in range(2 * len(paths)):

@@ -7,6 +7,19 @@ Metal / PyTorch MPS.
 GEMM includes small/large squares, tall/wide matrices, and non-multiple tail
 sizes; reductions vary both row count and width.
 
+The default GEMM cohort stops at 1024³. For explicit scale coverage, use
+`run.py --gemm-shapes 2048x2048x2048,8192x8192x8192,256x11008x4096`;
+`--row-shapes` independently selects non-GEMM M×N cases. Explicit lists keep
+their order and override `--quick` only for that operator family. Dimensions
+are bounded by the native driver's 16384 limit; the caller must still budget
+FP64-oracle and device memory.
+
+`compare_lowerings.py --metal-device-timing PATH_TO_HELPER` adds separate
+no-counter GPU command-buffer controls for every comparison path. Host tables
+remain E2E; GPU tables never substitute compute-pass probe times or host times.
+Handwritten MPP keeps its direct command-buffer timer. Both GPU and host
+single-call samples are retained in JSON, and missing controls fail the row.
+
 Latest M1 Max evidence: [shape-held-out service policy, including small-case regressions](results/m1-max-20260905-service-policy-validation/notes.md),
 [joint resource/width GPU and E2E acceptance](results/m1-max-20260905-access-demand-validation/notes.md),
 [Metal subgroup sum/softmax/RMSNorm cohort](results/m1-max-20260905-metal-subgroup-reductions/notes.md),

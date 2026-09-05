@@ -54,8 +54,23 @@ def parse_row_shapes(specification: str) -> list[tuple[int, int]]:
     return result
 
 
+def parse_gemm_shapes(specification: str) -> list[tuple[int, int, int]]:
+    result = []
+    for item in specification.split(","):
+        if not re.fullmatch(r"[1-9][0-9]*x[1-9][0-9]*x[1-9][0-9]*", item):
+            raise ValueError("GEMM shapes must be comma-separated MxNxK triples")
+        shape = tuple(map(int, item.split("x")))
+        if max(shape) > 16384:
+            raise ValueError("GEMM dimensions must not exceed 16384")
+        if shape in result:
+            raise ValueError("duplicate GEMM shape")
+        result.append(shape)
+    return result
+
+
 def make_cases(operations: list[str], quick: bool = False,
-               row_shapes: list[tuple[int, int]] | None = None) -> list[Case]:
+               row_shapes: list[tuple[int, int]] | None = None,
+               gemm_shapes: list[tuple[int, int, int]] | None = None) -> list[Case]:
     gemm = [(32, 32, 32), (128, 128, 128), (512, 512, 512), (1024, 1024, 1024),
             (256, 1024, 128), (1024, 128, 256), (127, 193, 61), (513, 257, 129)]
     elementwise = [(1, 127), (17, 257), (128, 1024), (4096, 256)]
@@ -66,6 +81,8 @@ def make_cases(operations: list[str], quick: bool = False,
         reduction = reduction[:2]
     if row_shapes is not None:
         elementwise = reduction = row_shapes
+    if gemm_shapes is not None:
+        gemm = gemm_shapes
     cases: list[Case] = []
     for operation in operations:
         if operation == "gemm":
@@ -1192,6 +1209,7 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=180)
     parser.add_argument("--quick", action="store_true", help="smoke run; omits the large shape cases")
     parser.add_argument("--row-shapes", help="replace non-GEMM shapes with comma-separated MxN pairs; overrides --quick for these cases")
+    parser.add_argument("--gemm-shapes", help="replace GEMM shapes with comma-separated MxNxK triples; overrides --quick for GEMM only")
     args = parser.parse_args()
     if args.elide_independent_subgroup_barriers and args.matrix_realization != "mpp-views":
         parser.error("subgroup-fence elision currently requires mpp-views")
@@ -1202,6 +1220,7 @@ def main() -> int:
     try:
         parse_reduction_cost_profile(args.reduction_cost_profile)
         row_shapes = parse_row_shapes(args.row_shapes) if args.row_shapes is not None else None
+        gemm_shapes = parse_gemm_shapes(args.gemm_shapes) if args.gemm_shapes is not None else None
         args.gemm_block = parse_gemm_block(args.gemm_block)
         args.tuning_candidates = tuning_candidates(args.gemm_block, args.pipeline_window,
                                                   args.tune_gemm_blocks, args.tune_pipeline_windows)
@@ -1344,7 +1363,7 @@ def main() -> int:
         "tuning_metric": args.tuning_metric,
         "quick": args.quick, "timing": "synchronized device-resident host wall time including dispatch",
     }, "results": []}
-    cases = make_cases(args.operations.split(","), args.quick, row_shapes)
+    cases = make_cases(args.operations.split(","), args.quick, row_shapes, gemm_shapes)
     failed = False
     for backend in backends:
         for case in cases:

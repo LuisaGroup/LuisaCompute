@@ -327,6 +327,21 @@ class RepeatContractTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 MODULE.parse_row_shapes(text)
 
+    def test_large_gemm_shapes_preserve_order_and_tails(self):
+        shapes = MODULE.parse_gemm_shapes("2048x2048x2048,8192x8192x8192,256x11008x4096,2049x4097x1025")
+        cases = MODULE.make_cases(["gemm", "sum"], True, [(3, 7)], shapes)
+        self.assertEqual([(c.m, c.n, c.k) for c in cases[:-1]], shapes)
+        self.assertEqual(cases[-1], MODULE.Case("sum", 3, 7))
+        self.assertEqual(len(MODULE.make_cases(["gemm"])), 8)
+        self.assertEqual(len(MODULE.make_cases(["gemm"], True)), 3)
+
+    def test_gemm_shape_safety_and_syntax(self):
+        self.assertEqual(MODULE.parse_gemm_shapes("1x1x16384"), [(1, 1, 16384)])
+        for text in ("", "0x8x8", "8x8", "1x2x3x4", "1x2x3,1x2x3", "1x2x16385",
+                     "1x2x-3", "1x2x3,", " 1x2x3", "1x2x3.0", "01x2x3"):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                MODULE.parse_gemm_shapes(text)
+
     def test_reduction_payload_access_schema_is_complete_or_unavailable(self):
         demand = dict(global_read_bytes=32, global_write_bytes=16, private_read_bytes=8, private_write_bytes=4)
         plan = dict(reduction_payload_accesses_known=True, reduction_payload_accesses_per_program=demand,

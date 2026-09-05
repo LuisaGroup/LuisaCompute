@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Compare Tile native MPP, Tile TIRx, handwritten MPP, direct MPS, and eager Torch.
 
-Prebuilt artifacts only. No parameter search. Same full FP64 oracle for all five
-paths; timing is synchronized device-resident HOST WALL, not GPU event time.
+Prebuilt artifacts only. No parameter search. Same full FP64 oracle for every
+path. Host timing and optional command-buffer GPU controls remain separate.
 """
 from __future__ import annotations
 
@@ -20,7 +20,8 @@ from typing import Any
 
 from compare_mpp import DEFAULT_SHAPES, oracle, parse_config, parse_shape, validate_metadata, validate_output
 from repeat import load_plan
-from run import Case, percentile, summarize, time_torch, validate_native_metadata, validate_tirx_realization, validate_subgroup_policy
+from run import (Case, percentile, summarize, summarize_device_timing, time_metal_device, time_torch,
+                 validate_native_metadata, validate_tirx_realization, validate_subgroup_policy)
 
 PATHS = ("tile_native_mpp", "tile_tirx", "handwritten_mpp", "mps", "torch")
 RUNTIME_PATHS = ("tile_tirx_luisa", "tile_tirx_luisa_fast")
@@ -111,6 +112,25 @@ def validate_times(result: dict[str, Any], samples: int) -> None:
             raise ValueError(f"invalid {metric} samples")
 
 
+def gpu_samples(result: dict[str, Any], label: str, phase: str, samples: int) -> list[float]:
+    if phase not in ("throughput", "latency"):
+        raise ValueError("GPU phase must be throughput or latency")
+    if label == "handwritten_mpp":
+        # This standalone control already measures completed MTLCommandBuffer
+        # intervals without encoder instrumentation. Do not relabel it as a
+        # compute-pass counter measurement.
+        values = result.get(f"gpu_{phase}_us", [])
+    else:
+        device = result.get("device_timing", {})
+        if "control" not in device:
+            raise ValueError("GPU comparison requires an uninstrumented command-buffer control")
+        summarize_device_timing(device, samples)
+        values = device["control"][f"command_buffer_{phase}_us"]
+    if len(values) != samples or any(type(x) not in (int, float) or not math.isfinite(x) or x <= 0 for x in values):
+        raise ValueError("invalid command-buffer GPU samples")
+    return values
+
+
 def measure(args: argparse.Namespace, np: Any, torch: Any, label: str, shape: tuple[int, ...],
             config: tuple[int, ...], tirx: dict[str, Any], reference: Any) -> dict[str, Any]:
     row: dict[str, Any] = {"valid": False}
@@ -125,6 +145,9 @@ def measure(args: argparse.Namespace, np: Any, torch: Any, label: str, shape: tu
             torch.mps.synchronize()
             with torch.inference_mode():
                 result = time_torch(lambda: torch.mm(a, b, out=out), torch.mps.synchronize, args)
+                if getattr(args, "metal_device_timing", None) is not None:
+                    result["device_timing"] = time_metal_device(
+                        lambda: torch.mm(a, b, out=out), torch.mps.synchronize, args, result["repetitions"])
             actual = out.cpu().numpy()
             torch.mps.synchronize()
             result.update(implementation="torch_eager_mm_out", device=str(out.device), dtype=str(out.dtype))
@@ -154,6 +177,10 @@ def measure(args: argparse.Namespace, np: Any, torch: Any, label: str, shape: tu
                     command = [str(args.native), "fp32", *map(str, shape), *timing, *map(str, (tm, tn, sg, group, cm))]
                 row["command"] = command
                 environment = os.environ.copy()
+                timing_library = getattr(args, "metal_device_timing", None)
+                environment.pop("LUISA_TILE_BENCH_METAL_TIMING", None)
+                if timing_library is not None and label != "handwritten_mpp":
+                    environment["LUISA_TILE_BENCH_METAL_TIMING"] = str(timing_library)
                 source_path = Path(folder) / "device.metal"
                 if label == "tile_tirx" or label in RUNTIME_PATHS + MPP_PATHS + VIEW_PATHS:
                     environment["LUISA_TILE_BENCH_DUMP_SOURCE"] = str(source_path)
@@ -165,6 +192,8 @@ def measure(args: argparse.Namespace, np: Any, torch: Any, label: str, shape: tu
                 if len(lines) != 1:
                     raise ValueError("expected exactly one JSON result")
                 result = json.loads(lines[0])
+                if label != "handwritten_mpp" and (("device_timing" in result) != (timing_library is not None)):
+                    raise ValueError("requested Metal device timing was not realized")
                 if source_path.exists():
                     source = source_path.read_bytes()
                     row["source_sha256"] = hashlib.sha256(source).hexdigest()
@@ -194,6 +223,9 @@ def measure(args: argparse.Namespace, np: Any, torch: Any, label: str, shape: tu
         validate_times(result, args.samples)
         correctness = validate_output(np, actual, reference)
         summarize(result)
+        if getattr(args, "metal_device_timing", None) is not None:
+            for phase in ("throughput", "latency"):
+                result[f"gpu_control_{phase}_us_p50"] = percentile(gpu_samples(result, label, phase, args.samples), .5)
         row.update(valid=True, measurement=result, correctness=correctness)
     except Exception as error:
         row["error"] = str(error)
@@ -242,6 +274,23 @@ def save(report: dict[str, Any], folder: Path) -> None:
         columns = " | ".join(f"{percentile(times[p], .5):.3f}" for p in paths)
         ratios = [percentile([a / b for a, b in zip(times[PATHS[0]], times[p])], .5) for p in ("mps", "handwritten_mpp")]
         lines.append(f"| {name} | {count} | {columns} | {ratios[0]:.3f} | {ratios[1]:.3f} |")
+    if report["metadata"].get("metal_device_timing"):
+        lines += ["", "## Separate GPU command-buffer controls", "",
+                  "These no-counter GPU intervals include work and gaps inside completed command buffers, not host encoding or waits. "
+                  "They are not isolated-kernel timestamps. Handwritten MPP uses its existing direct command-buffer timer; "
+                  "other paths use the shared timing helper's uninstrumented control phase. Compute-pass counters remain diagnostic JSON only. "
+                  "Do not subtract independently measured GPU/host medians to infer dispatch cost.", "",
+                  "| M×N×K | Valid rounds | " + " | ".join(TITLES[p] + " GPU µs" for p in paths) + " |",
+                  "|---|---:" + "|---:" * len(paths) + "|"]
+        for shape in report["metadata"]["shapes"]:
+            rows = [r for r in report["results"] if r["shape"] == shape and r["valid"]]
+            name = "×".join(map(str, shape))
+            count = f"{len(rows)}/{report['metadata']['rounds']}"
+            if len(rows) != report["metadata"]["rounds"]:
+                lines.append(f"| {name} | {count} | INCOMPLETE " + "| — " * (len(paths) - 1) + "|")
+            else:
+                values = [percentile([r[p]["measurement"]["gpu_control_throughput_us_p50"] for r in rows], .5) for p in paths]
+                lines.append(f"| {name} | {count} | " + " | ".join(f"{v:.3f}" for v in values) + " |")
     lines += ["", f"Artifacts unchanged: {report['metadata'].get('artifacts_unchanged', 'pending')}.", "",
               "Raw samples, configs, ordering, failed paths and provenance: [results.json](results.json).", ""]
     (folder / "results.md").write_text("\n".join(lines))
@@ -261,6 +310,7 @@ def main() -> int:
     parser.add_argument("--tirx-view-subgroup-fences", choices=("reported", "retain", "elide"), default="reported",
                         help="explicit synchronization policy override, only for the MPP-view path")
     parser.add_argument("--compiler-artifact", type=Path, action="append", default=[], help="also fingerprint externally linked compiler/runtime libraries")
+    parser.add_argument("--metal-device-timing", type=Path, help="also measure separate GPU controls with the prebuilt Metal timing helper")
     parser.add_argument("--rounds", type=int, help="default: twice the number of implementations")
     parser.add_argument("--samples", type=int, default=7)
     parser.add_argument("--sample-ms", type=int, default=30)
@@ -268,6 +318,9 @@ def main() -> int:
     parser.add_argument("--timeout", type=int, default=180)
     parser.add_argument("--threads", type=int, default=8)
     args = parser.parse_args()
+    if args.metal_device_timing is not None:
+        args.metal_device_timing = args.metal_device_timing.resolve(strict=True)
+        args.compiler_artifact.append(args.metal_device_timing)
     if args.tirx_view_subgroup_fences != "reported" and not args.tirx_view_plan:
         parser.error("subgroup-fence override requires --tirx-view-plan")
     paths = PATHS + RUNTIME_PATHS if args.tirx_runtime_controls else PATHS
@@ -306,7 +359,7 @@ def main() -> int:
     removed = {key: os.environ.pop(key, None) for key in (
         "PYTORCH_MPS_FAST_MATH", "PYTORCH_MPS_PREFER_METAL", "PYTORCH_ENABLE_MPS_FALLBACK",
         "LUISA_ENABLE_VALIDATION", "MTL_DEBUG_LAYER", "MTL_SHADER_VALIDATION",
-        "DYLD_PRINT_LIBRARIES", "LUISA_TILE_BENCH_DUMP_SOURCE")}
+        "DYLD_PRINT_LIBRARIES", "LUISA_TILE_BENCH_DUMP_SOURCE", "LUISA_TILE_BENCH_METAL_TIMING")}
     import numpy as np
     import torch
     torch.set_num_threads(args.threads)
@@ -336,6 +389,7 @@ def main() -> int:
         artifacts_sha256=hashes, plan_sha256={str(p): digest(p) for p in (args.mpp_plan, args.tirx_plan, args.tirx_view_plan) if p},
         shapes=[list(s) for s in shapes], paths=paths, rounds=args.rounds, balanced=args.rounds % (2 * len(paths)) == 0,
         samples=args.samples, sample_ms=args.sample_ms, warmup_ms=args.warmup_ms,
+        metal_device_timing=str(args.metal_device_timing) if args.metal_device_timing else None,
         timing="synchronized_device_resident_host_wall"), "results": []}
     references = {s: oracle(np, s) for s in shapes}
     for ri in range(args.rounds):
