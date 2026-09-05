@@ -44,7 +44,11 @@ regress in independent replay. The fixed-width input-reuse experiment
 (Section 9.7) then isolates a resource-planning improvement: caching audited
 immutable inputs improves the three large normalization cases in every
 paired round, while smaller mixed results and identical-source controls
-remain visible. Input caching stays opt-in.
+remain visible. The subsequent joint resource/width replay (Section 9.8)
+compares against the best measured reload width in the same family, rather
+than a fixed width. The three 1024×4096 cases gain 1.200×/1.214×/1.234×
+GPU throughput, while seven stable changed-source cases, four mixed cases
+and one unchanged-source control remain separated. Input caching stays opt-in.
 
 ```{figure} ../_static/tile/tirx-subgroup-reduction.svg
 :alt: A logical TileIR reduction passes fail-closed proofs and a bounded cost solver before becoming either packed independent SIMD groups or several cooperating SIMD groups, with memory resources planned separately.
@@ -724,7 +728,11 @@ The subsequent input-reuse checkpoint adds 22 Metal numeric configurations
 and passes all 84 Python contracts. It rebuilds the full selected tree and
 again runs all 33 Tile tests without touching the local memory-flag edit:
 31/33 pass with the same two source-assertion failures. Section 9.7 and its
-linked validation note retain this latest run separately.
+linked validation note retain that run separately. The access-demand follow-up
+in Section 9.8 again builds the full tree and reports the same 31/33 boundary,
+while all 87 Python contracts pass. Its focused input-reuse run passes 89,942
+assertions including the new resource facts; the planner passes 5,941
+assertions in nine tests.
 
 ## 9. Performance evidence
 
@@ -980,6 +988,66 @@ missing noalias, cross-worker gathers and over-budget caches. The full Tile
 suite remains 31/33: only the two pre-existing source assertions against the
 untouched local `mem_flags(2)` edit fail. Benchmark Python tests pass 84/84.
 
+### 9.8 Joint resource and execution mapping
+
+The {download}`access-demand and joint-search report
+<../../scripts/benchmark/tile_torch/results/m1-max-20260905-access-demand-validation/notes.md>`
+adds global/private payload read/write facts to backend-overridable policies
+and cache/reload as a staged/JIT Cartesian dimension. The facts are conservative
+logical IR demand per program and per longest worker stripe, not physical
+DRAM/register traffic. Identical loads count once within an evaluation, not
+across phases. Unsupported constructs mark the feature unavailable; optional
+access-service coefficients remain zero until calibrated.
+
+The experiment searches W={32,128,256,512,1024} × {reload,cache}, fixing
+V=4/U=1/P=1 and the 64-scalar private budget, for softmax/RMSNorm/LayerNorm
+at 23×769, 128×2048, 1024×4096 and 128×8193. It retains 101 valid trials,
+19 resource/mapping rejections and 12 fresh winner JITs. The reference is the
+best valid reload width in that same family, not the default planner. Three
+shapes are new relative to Section 9.7, but are tuned before acceptance and
+therefore are not held-out model validation.
+
+Four frozen, counterbalanced replay rounds validate all 192 outputs; search
+and fresh winner measurements validate another 226. Complete plans and source
+hashes match their frozen catalogs, with identical binaries/compiler artifacts.
+The following values are medians of per-round p50 no-counter GPU
+command-buffer times, not isolated-kernel timestamps. Gains are paired-ratio
+medians and observed min–max, not confidence intervals.
+
+| 1024×4096 op | Reload GPU µs | Joint GPU µs | GPU gain [range] | E2E gain |
+|---|---:|---:|---:|---:|
+| softmax | 59.162 | 49.179 | 1.200× [1.195, 1.210] | 1.199× |
+| RMSNorm | 64.211 | 52.826 | 1.214× [1.198, 1.221] | 1.221× |
+| LayerNorm | 75.660 | 61.316 | 1.234× [1.210, 1.240] | 1.248× |
+
+All anchor pairs improve. Softmax keeps W=1024, LayerNorm keeps W=128;
+RMSNorm changes W=1024→256, so its improvement combines width and reuse.
+Candidate-run eager Torch GPU medians are 122.653 / 69.742 / 205.799 µs;
+native/Torch paired time ratios are 0.401 / 0.761 / 0.297. Torch softmax has
+preallocated output, while its functional norms allocate returned outputs.
+
+Seven changed-source cases improve in every GPU pair: these anchors, all
+three 128×8193 cases, and LayerNorm 128×2048. Softmax and RMSNorm at
+23×769/128×2048 have mixed individual GPU pairs despite positive medians.
+All 11 changed-source cases improve in every E2E-throughput pair. The unchanged
+23×769 LayerNorm control has 0.924× apparent GPU gain [0.909, 1.023], exposing
+measurement variability rather than a code regression. No control is used
+as a correction factor, and no universal cache default is inferred.
+
+Independent batch/single-call GPU and E2E phases are retained in the full
+report. At 1024×4096 RMSNorm, native/Torch E2E batch time is 53.938/74.218 µs
+and E2E single-call latency is 303.354/323.521 µs; GPU single-call time is
+71.708/79.979 µs. Their phase medians must not be subtracted to estimate host
+overhead. These measurements use TIRx/TVM runtime, not native MPP/MPS or XIR.
+
+The new cost facts expose the actual tradeoff: at N=8193/W=256,
+softmax/LayerNorm caching needs 66 private scalars and is rejected; W=512
+needs 34 and is legal. RMSNorm admits W=256 with 33 scalars. At N=4096/W=512,
+caching adds eight rounds but removes 32 global-read bytes per worker; the
+old score cannot reward that service change. The optional resource terms
+enable calibrated backend policy, but full-device demand, live state and
+independent acceptance still need to guide any future pruning/default.
+
 ## 10. What this closes, and what remains
 
 This work closes the specific defect “logical reduction hierarchy is exported
@@ -1002,9 +1070,9 @@ The next honest milestones are:
    Welford, argmax and online attention state;
 3. share target-independent reduction/ownership facts between the TIRx and XIR
    bridges rather than re-deriving them from target IR;
-4. add global/local traffic, expression-depth and live-state features to the
-   shortlist prior, then calibrate it on held-out shapes and at least one other
-   Apple GPU while retaining exact JIT overrides;
+4. calibrate the new global/private payload-demand features together with
+   expression-depth, live-state and whole-device service on held-out shapes
+   and at least one other Apple GPU while retaining exact JIT overrides;
 5. measure cross-entropy backward, decode and prefill attention, Top-K/sort
    and representative end-to-end LLM blocks;
 6. add equivalent CUDA and CPU realization families without pretending their

@@ -779,8 +779,27 @@ invalid candidates stay in the search record and the winner is freshly JITed
 and validated. The old analytic score does not prune this measured search.
 The {download}`access-demand checkpoint
 <../../scripts/benchmark/tile_torch/results/m1-max-20260905-access-demand-validation/notes.md>`
-records implementation tests; new joint-search performance evidence is still
-pending at this checkpoint, not implied by the interface or synthetic weights.
+records implementation tests and the subsequent 12-case joint search. It
+retains 101 valid trials, 19 rejections and 12 freshly JITed winners. A frozen
+four-round replay then compares the best joint candidate against the best
+measured reload width from the same five-width family, at fixed V=4/U=1/P=1.
+All 192 replay outputs pass. At 1024×4096 softmax/RMSNorm/LayerNorm gain
+1.200×/1.214×/1.234× GPU throughput and 1.199×/1.221×/1.248× E2E throughput,
+with every pair positive. Seven changed-source cases improve in every GPU
+pair, four have mixed pairs, and one unchanged-source control is retained.
+
+At N=8193 the resource/ownership interaction is explicit: W=256 cached
+softmax/LayerNorm requires 66 private scalars, exceeding the 64-scalar budget;
+W=512 requires 34 and is legal. RMSNorm needs only one stripe, so W=256 with
+33 scalars is legal. No kernel-name rule makes those decisions.
+
+At N=4096/W=512, caching adds eight scalar rounds, removes 32 global-read
+bytes and adds 64/32 private read/write bytes per worker. With the existing
+unit scalar coefficient, the optional access terms change its score delta
+from `8` to `8 - 32*g + 96*p`. This sensitivity is not a calibration or a
+microsecond prediction. New shapes in a tuned replay are not held-out model
+validation; full-device service, private live state and independent incumbent
+acceptance remain necessary before the model can safely prune the search.
 
 ## 4. Implemented matrix mapping family
 

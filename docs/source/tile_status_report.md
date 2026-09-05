@@ -186,8 +186,18 @@ backend-overridable policy, plus joint cache/reload × execution-mapping JIT
 search. Optional access coefficients remain zero until calibrated. These are
 conservative logical IR features, not physical traffic measurements. Tests
 verify same-expression load deduplication, cross-phase accounting, budget
-rejections and fresh-winner capture. This checkpoint makes no new speedup claim;
-independent joint-search replay is the next acceptance step.
+rejections and fresh-winner capture. The following 12-case, four-round replay
+compares joint selection against the best measured reload width in the same
+five-width family, not the earlier fixed-W=512 reference. At 1024×4096,
+softmax/RMSNorm/LayerNorm gain **1.200× / 1.214× / 1.234× GPU throughput**
+and **1.199× / 1.221× / 1.248× E2E throughput**, all four pairs positive.
+Their GPU times are 49.179 / 52.826 / 61.316 µs versus eager Torch
+122.653 / 69.742 / 205.799 µs. Seven changed-source cases improve in every
+GPU pair; four smaller cases have mixed pairs, and one identical-source
+control is retained. All 192 replay and 226 search/fresh-winner outputs pass
+executed validation and the independent raw-timing/source/plan audit. GPU is
+command-buffer, not isolated-kernel time. Defaults remain unchanged; this
+demonstrates joint JIT selection, not a fitted replacement cost model.
 
 **The general library-performance goal is still not complete.** These CPU
 wins are legal provider realizations for narrow proved contracts, not evidence
