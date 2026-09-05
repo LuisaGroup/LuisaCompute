@@ -200,6 +200,16 @@ struct ReductionCandidate {
     ReductionAccessDemand payload_accesses_per_worker;
 };
 
+// The solver minimizes kernel_score, not program_score. A backend may combine
+// the local critical path with whole-launch service demands; the final score
+// need not equal program_score * concurrent_waves. Waves are a model feature,
+// never a measurement of hardware residency.
+struct ReductionCost {
+    double program_score{0.0};
+    double concurrent_waves{1.0};
+    double kernel_score{0.0};
+};
+
 // Bridge-owned proofs and candidate generation precede these read-only
 // profitability hooks. Hard device limits and numerical permissions are not
 // overridable by a score. No TVM types, RTTI or cross-module ownership.
@@ -211,6 +221,11 @@ public:
         const ExecutionCostModel &prior) const noexcept = 0;
     [[nodiscard]] virtual double reduction_score(
         const ReductionCandidate &candidate, const ExecutionCostModel &model) const noexcept = 0;
+    // The compatibility implementation applies the historical program-wave
+    // prior to reduction_score(). Override this hook for a machine objective;
+    // the bridge will not multiply the returned kernel score a second time.
+    [[nodiscard]] virtual ReductionCost reduction_cost(
+        const ReductionCandidate &candidate, const ExecutionCostModel &model) const noexcept;
 };
 
 // Existing deterministic prior. Backends can inherit and override either
@@ -220,6 +235,30 @@ public:
     [[nodiscard]] ExecutionCostModel coefficients(
         const ExecutionLimits &, MatrixCostBasis, const ExecutionCostModel &prior) const noexcept override { return prior; }
     [[nodiscard]] double reduction_score(
+        const ReductionCandidate &candidate, const ExecutionCostModel &model) const noexcept override;
+};
+
+// Optional backend-calibrated service model. All coefficients share the
+// caller's score units (e.g. fitted microseconds); none are hardware facts.
+// Byte inputs are conservative IR demand, not measured DRAM/register traffic.
+struct ReductionServiceModel {
+    uint32_t concurrent_subgroups{0u};
+    double dispatch{0.0};
+    double scalar_round{0.0};
+    double collective{0.0};
+    double global_program_byte{0.0};
+    double global_worker_byte{0.0};
+    double private_worker_byte{0.0};
+};
+
+class LUISA_TILE_TIRX_BRIDGE_API ServiceExecutionCostPolicy : public AnalyticExecutionCostPolicy {
+private:
+    ReductionServiceModel _model;
+
+public:
+    explicit ServiceExecutionCostPolicy(ReductionServiceModel model) noexcept : _model{model} {}
+    [[nodiscard]] bool valid() const noexcept;
+    [[nodiscard]] ReductionCost reduction_cost(
         const ReductionCandidate &candidate, const ExecutionCostModel &model) const noexcept override;
 };
 
@@ -273,9 +312,9 @@ struct PlanCost {
     double local_column_aspect_issues{0.0};
     double independent_elements{0.0};
     uint64_t fragment_scalars_per_lane{0u};
-    // score is one logical program's relative work and drives the inner
-    // solver. kernel_score applies the outer program-wave prior so separately
-    // staged/JIT-compiled execution shapes can be compared on the same basis.
+    // score is local program work. Solvers minimize kernel_score, which may
+    // also include machine service demand. A custom reduction policy owns the
+    // whole objective; no additional wave prior is applied by the bridge.
     double score{0.0};
     double concurrent_waves{1.0};
     double kernel_score{0.0};

@@ -745,6 +745,44 @@ void test_metal_reduction_packing_and_policy(Runtime &runtime) {
     auto bad_cost = runtime.build(kernel, true, false, true, false, planner, false, true);
     expect(!bad_cost.ok());
     expect(bad_cost.error.find("nonfinite") != luisa::string::npos) << bad_cost.error;
+
+    class MachinePolicy final : public AnalyticExecutionCostPolicy {
+    public:
+        ReductionCost reduction_cost(const ReductionCandidate &candidate, const ExecutionCostModel &) const noexcept override {
+            // The best machine score deliberately has worse local work. Its
+            // reported waves do not multiply the already-complete objective.
+            return candidate.subgroups_per_program == 3u ? ReductionCost{100.0, 3.0, 2.0} : ReductionCost{1.0, 1.0, 10.0};
+        }
+    } machine_policy;
+    planner.cost_policy = &machine_policy;
+    planner.cost.preferred_concurrent_programs = 1u;
+    auto machine = runtime.build(kernel, true, false, true, false, planner, false, true);
+    expect(machine.ok()) << machine.error;
+    if (machine.ok() && !machine.plans.empty()) {
+        auto &plan = machine.plans.front();
+        expect(eq(plan.threads, 96u));
+        expect(eq(plan.cost.score, 100.0));
+        expect(eq(plan.cost.concurrent_waves, 3.0));
+        expect(eq(plan.cost.kernel_score, 2.0));
+        luisa::vector<float> values(static_cast<size_t>(rows * columns), 0.25f);
+        auto input = runtime.upload<float>({rows, columns}, values);
+        auto output = runtime.allocate<float>({rows});
+        (*machine.entry)(input, output);
+        for (auto value : runtime.download<float>(output, rows)) { expect(eq(value, 0.25f * columns)); }
+    }
+    class InvalidMachinePolicy final : public AnalyticExecutionCostPolicy {
+    public:
+        ReductionCost cost;
+        ReductionCost reduction_cost(const ReductionCandidate &, const ExecutionCostModel &) const noexcept override { return cost; }
+    } invalid_machine;
+    planner.cost_policy = &invalid_machine;
+    for (auto cost : {ReductionCost{-1.0, 1.0, 1.0}, ReductionCost{1.0, 0.0, 1.0},
+                      ReductionCost{1.0, 1.0, -1.0}, ReductionCost{1.0, std::numeric_limits<double>::infinity(), 1.0}}) {
+        invalid_machine.cost = cost;
+        auto rejected = runtime.build(kernel, true, false, true, false, planner, false, true);
+        expect(!rejected.ok());
+        expect(rejected.error.find("nonfinite") != luisa::string::npos) << rejected.error;
+    }
 }
 
 void test_reduction_lane_elements(Runtime &runtime) {

@@ -18,7 +18,7 @@ import subprocess
 import sys
 from typing import Any
 
-from run import Case, percentile, run_case, validate_cpu_target_policy
+from run import Case, percentile, run_case, validate_cpu_target_policy, validate_reduction_cost_profile
 
 
 def artifact_hashes(binaries: list[Path], extra: list[Path]) -> dict[str, str]:
@@ -71,6 +71,8 @@ def load_plan(path: Path, operations: set[str]) -> dict[tuple[str, str], dict[st
         unroll = native.get("reduction_unroll_factor", 1)
         lanes = native.get("reduction_lane_elements", 1)
         cache_inputs = native.get("cache_reduction_inputs", False)
+        cost_profile = native.get("reduction_cost_profile", "analytic")
+        validate_reduction_cost_profile(native, cost_profile)
         if type(cache_inputs) is not bool or (cache_inputs and not metal_subgroup_reductions):
             raise ValueError(f"{case.name} has an invalid reduction input-cache policy")
         if type(lanes) is not int or lanes not in (1, 2, 4, 8) or (lanes != 1 and not metal_subgroup_reductions):
@@ -135,6 +137,7 @@ def load_plan(path: Path, operations: set[str]) -> dict[tuple[str, str], dict[st
             "reduction_unroll": unroll,
             "reduction_lane_elements": lanes,
             "cache_reduction_inputs": cache_inputs,
+            "reduction_cost_profile": cost_profile,
             "element_grid": None if element_grid is None else "auto" if element_grid else "reference",
             "expected_cpu_model": native.get("cpu_model") if row["backend"] == "cpu" else None,
             "elide_independent_subgroup_barriers": elide,

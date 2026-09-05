@@ -609,9 +609,49 @@ def optional_native_arguments(args: argparse.Namespace) -> list[str]:
         (str(unroll), unroll != 1),
         (str(getattr(args, "reduction_lane_elements", 1)), getattr(args, "reduction_lane_elements", 1) != 1),
         ("cache" if getattr(args, "cache_reduction_inputs", False) else "reload", getattr(args, "cache_reduction_inputs", False)),
+        (getattr(args, "reduction_cost_profile", "analytic"), getattr(args, "reduction_cost_profile", "analytic") != "analytic"),
     ]
     count = max((i + 1 for i, (_, requested) in enumerate(slots) if requested), default=0)
     return [value for value, _ in slots[:count]]
+
+
+def parse_reduction_cost_profile(text: str) -> tuple[int, list[float]] | None:
+    if text == "analytic":
+        return None
+    tokens = text.split(",") if isinstance(text, str) else []
+    number = r"-?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?"
+    if (len(tokens) != 8 or tokens[0] != "service-v1" or not re.fullmatch(r"[0-9]+", tokens[1]) or
+            not 1 <= int(tokens[1]) <= 0xffffffff or any(not re.fullmatch(number, value) for value in tokens[2:])):
+        raise ValueError("invalid reduction cost profile; expected analytic or service-v1,C,D,R,K,G,W,P")
+    coefficients = [float(value) for value in tokens[2:]]
+    if any(not math.isfinite(value) or value < 0 for value in coefficients):
+        raise ValueError("reduction cost profile requires finite nonnegative coefficients")
+    return int(tokens[1]), coefficients
+
+
+def validate_reduction_cost_profile(native: dict[str, Any], requested: str) -> None:
+    profile = parse_reduction_cost_profile(requested)
+    if native.get("reduction_cost_profile", "analytic") != requested:
+        raise ValueError("native reduction cost profile differs from the request")
+    if profile is None:
+        return
+    capacity, (dispatch, scalar, collective, global_program, global_worker, private) = profile
+    plans = native.get("execution_plans")
+    if native.get("metal_subgroup_reductions") is not True or native.get("backend") != "metal" or not plans:
+        raise ValueError("reduction cost profile requires realized Metal subgroup reductions")
+    for plan in plans:
+        if plan.get("reduction_payload_accesses_known") is not True or plan.get("cost_basis") != "metal_reduction_service_v1":
+            raise ValueError("reduction cost profile lacks payload facts or the correct objective")
+        worker, program = plan["reduction_payload_accesses_per_worker"], plan["reduction_payload_accesses_per_program"]
+        local = (plan["reduction_scalar_rounds"] * scalar + plan["reduction_operations"] * plan["reduction_subgroups_per_program"] * collective +
+                 (worker["private_read_bytes"] + worker["private_write_bytes"]) * private)
+        waves = max(1.0, plan["reduction_threadgroups"] * plan["reduction_subgroups_per_program"] * plan["reduction_programs_per_group"] / capacity)
+        total = (dispatch + local * waves + plan["programs"] * (program["global_read_bytes"] + program["global_write_bytes"]) * global_program +
+                 (worker["global_read_bytes"] + worker["global_write_bytes"]) * global_worker)
+        for key, expected in (("normalized_cost", local), ("concurrent_waves", waves), ("normalized_kernel_cost", total)):
+            actual = plan.get(key)
+            if type(actual) not in (int, float) or not math.isfinite(actual) or not math.isclose(actual, expected, rel_tol=1e-9, abs_tol=1e-9):
+                raise ValueError(f"reduction cost profile objective mismatch: {key}")
 
 
 def validate_element_reduction_mapping(native: dict[str, Any], args: argparse.Namespace) -> None:
@@ -628,6 +668,7 @@ def validate_element_reduction_mapping(native: dict[str, Any], args: argparse.Na
                 raise ValueError("invalid reduction payload access schema")
             if any(type(value) not in (int, float) or not math.isfinite(value) or value < 0 or (not known and value != 0) for value in demand.values()):
                 raise ValueError("invalid reduction payload access demand")
+    validate_reduction_cost_profile(native, getattr(args, "reduction_cost_profile", "analytic"))
     cache_inputs = getattr(args, "cache_reduction_inputs", False)
     if type(native.get("cache_reduction_inputs", False)) is not bool or native.get("cache_reduction_inputs", False) is not cache_inputs:
         raise ValueError("native reduction input-cache policy differs from the request")
@@ -877,9 +918,14 @@ def tuning_score(measurement: dict[str, Any], metric: str) -> float:
         if control.get("encoder_instrumentation") is not False or control.get("method") != "metal_command_buffer_timestamps_v1":
             raise ValueError("GPU tuning requires the no-counter command-buffer control")
         score = control.get("command_buffer_throughput_us_p50")
+    elif metric == "model":
+        costs = [plan.get("normalized_kernel_cost") for plan in native.get("execution_plans", [])]
+        if not costs or any(type(cost) not in (int, float) or not math.isfinite(cost) or cost < 0 for cost in costs):
+            raise ValueError("model selection requires finite nonnegative whole-kernel costs")
+        score = sum(costs)
     else:
         raise ValueError("unknown JIT selection metric")
-    if not measurement.get("valid") or type(score) not in (int, float) or not math.isfinite(score) or score <= 0:
+    if not measurement.get("valid") or type(score) not in (int, float) or not math.isfinite(score) or score < 0 or (metric != "model" and score == 0):
         raise ValueError("candidate lacks a valid positive selection timing")
     return float(score)
 
@@ -920,14 +966,15 @@ def run_tuned_case(torch: Any, np: Any, args: argparse.Namespace, case: Case,
                 model_costs = [plan.get("normalized_kernel_cost") for plan in plans]
                 if all(type(cost) in (int, float) and math.isfinite(cost) and cost >= 0 for cost in model_costs):
                     trial["model_cost"] = sum(model_costs)
-            print(f"    validated; native {metric} {score:.3f} us", flush=True)
+            print(f"    validated; native {metric} {score:.3f} {'score units' if metric == 'model' else 'us'}", flush=True)
         except Exception as error:
             trial.update(valid=False, error=str(error))
             print(f"    rejected: {str(error).splitlines()[0]}", flush=True)
         trials.append(trial)
     tuning: dict[str, Any] = {
         "selection_wall_ms": (time.perf_counter_ns() - start) / 1e6,
-        "selection_metric": "native_throughput_us_p50" if metric == "host" else "native_gpu_command_buffer_throughput_us_p50",
+        "selection_metric": {"host": "native_throughput_us_p50", "gpu-control": "native_gpu_command_buffer_throughput_us_p50",
+                             "model": "sum_execution_plan_normalized_kernel_cost"}[metric],
         "reported_measurement": "fresh post-selection recapture/JIT and timing, not the search minimum",
         "trials": trials,
     }
@@ -944,7 +991,8 @@ def run_tuned_case(torch: Any, np: Any, args: argparse.Namespace, case: Case,
         tuning["model_selected_trial"] = model_selected
         measured_best = trials[selected]["selection_score"]
         measured_model = trials[model_selected]["selection_score"]
-        tuning["model_regret"] = measured_model / measured_best - 1.0
+        if metric != "model":
+            tuning["model_regret"] = measured_model / measured_best - 1.0
     winner = trials[selected]
     candidate_args = argparse.Namespace(**vars(args))
     candidate_args.gemm_block = winner["block"]
@@ -1042,8 +1090,8 @@ def write_report(report: dict[str, Any], directory: Path) -> None:
         lines.extend(["", "## JIT search", "",
                       "All candidates are recaptured, compiled, and checked against the same FP64 oracle. Invalid candidates are retained in JSON but cannot win. Candidate order rotates across cases. Tables above use a fresh post-selection run, not the search minimum; a revalidation failure remains a failure. This is not a confidence interval or an exhaustive search.", "",
                       "Selection wall time below includes JIT, validation, native/PyTorch measurements, and process overhead; it is excluded from warm timings. Full candidate settings, rejected cases, and raw trial samples are in results.json.", "",
-                      "The model column is diagnostic only: it compares the lowest reported normalized kernel cost with the measured winner inside the same finite candidate set. Model regret uses the selected objective: measured(model pick) / measured(best) - 1; it is not a hardware-optimality claim. Selection defaults to host-wall throughput; an explicit gpu-control objective uses no-counter GPU command-buffer throughput, never the instrumented compute-pass probe.", "",
-                      "| Device / case | Valid / attempted candidates | Model pick / measured pick | Model regret | Selection wall ms |", "|---|---:|---|---:|---:|"])
+                      "For host/gpu-control selection, the model column is diagnostic: regret is measured(model pick) / measured(best) - 1 inside the same finite set. Explicit model selection uses only reported whole-kernel costs, not timing labels; no measured regret is inferred by comparing two model scores. Trials still execute for validation and diagnostics, so this is not a compile-only tuning path. GPU-control selection uses no-counter command-buffer throughput, never the instrumented compute-pass probe.", "",
+                      "| Device / case | Valid / attempted candidates | Model pick / selected pick | Model regret | Selection wall ms |", "|---|---:|---|---:|---:|"])
         for row in tuned:
             tuning = row["tuning"]
             trials = tuning["trials"]
@@ -1056,7 +1104,7 @@ def write_report(report: dict[str, Any], directory: Path) -> None:
                            f"{'×'.join(map(str, measured['block']))} @ {measured['group_threads'] or 'auto'}t, "
                            f"{measured.get('shared_tile_materialization', 'preserve')}, "
                            f"P={measured.get('reduction_programs_per_group', 0) or 'auto'}, U={measured.get('reduction_unroll', 1)}, V={measured.get('reduction_lane_elements', 1)}, cache={measured.get('cache_reduction_inputs', False)}")
-                regret = f"{100.0 * tuning['model_regret']:.2f}%"
+                regret = f"{100.0 * tuning['model_regret']:.2f}%" if "model_regret" in tuning else "not measured (model selection)"
             else:
                 choices, regret = "unavailable", "unavailable"
             lines.append(f"| {row['backend']} / {row['name']} | {sum(trial['valid'] for trial in trials)} / {len(trials)} | {choices} | {regret} | {tuning['selection_wall_ms']:.3f} |")
@@ -1078,8 +1126,8 @@ def main() -> int:
     parser.add_argument("--tune-copy-batches", help="opt-in cooperative-copy batches, e.g. '1,4,8'; combined with other tuning lists")
     parser.add_argument("--max-tuning-candidates", type=int, default=256,
                         help="maximum joint candidates per shape; reject oversized searches without truncation")
-    parser.add_argument("--tuning-metric", choices=("host", "gpu-control"), default="host",
-                        help="JIT objective: host-wall throughput (default), or GPU command-buffer throughput without encoder probes")
+    parser.add_argument("--tuning-metric", choices=("host", "gpu-control", "model"), default="host",
+                        help="JIT objective: host-wall throughput (default), no-counter GPU throughput, or whole-kernel model score")
     parser.add_argument("--execution-scope", choices=("auto", "worker", "group"), default="auto")
     parser.add_argument("--pipeline-window", type=int, choices=(1, 2), default=2,
                         help="GEMM scheduling window: 1 is ordered, 2 permits software prefetching")
@@ -1132,6 +1180,8 @@ def main() -> int:
                         help="prebuilt libluisa-benchmark-metal-timing.dylib; separately sample real GPU compute-pass timestamps")
     parser.add_argument("--group-threads", type=int, default=0,
                         help="exact Metal group worker count; 0 lets the compiler planner choose (not CPU threads)")
+    parser.add_argument("--reduction-cost-profile", default="analytic",
+                        help="opt-in calibrated service-v1,C,D,R,K,G,W,P coefficients; analytic preserves the prior")
     parser.add_argument("--copy-batch", type=int, default=1,
                         help="maximum in-flight values per Metal cooperative copy; 1 preserves scalar load/store order")
     parser.add_argument("--samples", type=int, default=9)
@@ -1148,6 +1198,7 @@ def main() -> int:
         args.system_baseline = args.system_baseline.resolve(strict=True)
     args.output = args.output.resolve()
     try:
+        parse_reduction_cost_profile(args.reduction_cost_profile)
         row_shapes = parse_row_shapes(args.row_shapes) if args.row_shapes is not None else None
         args.gemm_block = parse_gemm_block(args.gemm_block)
         args.tuning_candidates = tuning_candidates(args.gemm_block, args.pipeline_window,
@@ -1166,6 +1217,8 @@ def main() -> int:
     if min(args.threads, args.samples, args.sample_ms, args.warmup_ms) <= 0:
         parser.error("block dimensions, thread count, and timing parameters must be positive")
     backends = args.backends.split(",")
+    if args.reduction_cost_profile != "analytic" and (backends != ["metal"] or not args.metal_subgroup_reductions):
+        parser.error("reduction service profiles require Metal subgroup reductions with the TVM runtime")
     if args.tuning_metric == "gpu-control" and args.metal_device_timing is None:
         parser.error("GPU-control JIT selection requires --metal-device-timing")
     if args.metal_device_timing is not None:
@@ -1264,6 +1317,7 @@ def main() -> int:
         "reduction_unroll": args.reduction_unroll,
         "reduction_lane_elements": args.reduction_lane_elements,
         "cache_reduction_inputs": args.cache_reduction_inputs,
+        "reduction_cost_profile": args.reduction_cost_profile,
         "shared_tile_materialization": args.shared_tile_materialization,
         "vectorize": not args.no_vectorize,
         "auto_vectorize": args.auto_vectorize,

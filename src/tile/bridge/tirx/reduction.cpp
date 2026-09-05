@@ -1254,7 +1254,7 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
         uint64_t striped_storage_scalars{0u};
         double scalar_rounds{0.0};
         double lane_utilization{0.0};
-        double score{std::numeric_limits<double>::infinity()};
+        ReductionCost cost{0.0, 1.0, std::numeric_limits<double>::infinity()};
     };
     luisa::vector<uint64_t> widths;
     auto exact_packing = options.reduction_programs_per_group;
@@ -1340,13 +1340,15 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
                 partial_bytes, striped_storage_scalars, analysis.reductions.size(), scalar_rounds, options.reduction_unroll_factor, options.reduction_lane_elements,
                 luisa::ceil_div(*groups, packed), scalar_elements, lane_utilization,
                 accesses.known, accesses.demand(), accesses.demand(workers, options.reduction_lane_elements)};
-            auto score = policy.reduction_score(features, model);
-            if (!std::isfinite(score) || score < 0.0) {
+            auto cost = policy.reduction_cost(features, model);
+            if (!std::isfinite(cost.program_score) || cost.program_score < 0.0 ||
+                !std::isfinite(cost.concurrent_waves) || cost.concurrent_waves < 1.0 ||
+                !std::isfinite(cost.kernel_score) || cost.kernel_score < 0.0) {
                 throw std::runtime_error{"reduction cost policy returned a nonfinite or negative score"};
             }
-            if (score < best.score) {
+            if (cost.kernel_score < best.cost.kernel_score) {
                 best = Candidate{subgroups, packed, threads,
-                                 partial_bytes, striped_storage_scalars, scalar_rounds, lane_utilization, score};
+                                 partial_bytes, striped_storage_scalars, scalar_rounds, lane_utilization, cost};
             }
         }
     }
@@ -1473,11 +1475,9 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
     plan.optimized = true;
     plan.cost.independent_elements =
         static_cast<double>(analysis.independent_elements);
-    plan.cost.score = best.score;
-    plan.cost.concurrent_waves = std::max(
-        1.0, std::ceil(static_cast<double>(*groups) /
-                       std::max(1u, model.preferred_concurrent_programs)));
-    plan.cost.kernel_score = plan.cost.score * plan.cost.concurrent_waves;
+    plan.cost.score = best.cost.program_score;
+    plan.cost.concurrent_waves = best.cost.concurrent_waves;
+    plan.cost.kernel_score = best.cost.kernel_score;
     plans.emplace_back(std::move(plan));
     return body;
 }

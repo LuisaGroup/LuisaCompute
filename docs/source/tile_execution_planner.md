@@ -674,16 +674,29 @@ Bridge: prove -> enumerate legal -> score -> select -> realize
 ```
 
 `coefficients(limits, basis, prior)` returns the model used by matrix and
-reduction planning. `reduction_score(candidate, model)` may replace the whole
-reduction objective. Its immutable feature record includes logical programs,
+reduction planning. `reduction_score(candidate, model)` preserves the local
+program-score hook; `reduction_cost(candidate, model)` may replace the complete
+machine objective. Its immutable feature record includes logical programs,
 threads, subgroups/program, programs/group, shared bytes, private stripe
 scalars, reduction count, scalar rounds, ordered unroll factor and consecutive
 elements per worker. It also includes the exact physical threadgroup count,
 useful scalar element count and useful lane-work fraction
 `elements / (scalar_rounds * cooperating_workers)`. These are ownership and
 launch facts, not profiler measurements of occupancy or SIMD issue. A backend
-can inherit the analytic policy and override either method. No TVM type or
+can inherit the analytic policy and override either score level. No TVM type or
 RTTI crosses this interface.
+
+The solver minimizes `ReductionCost::kernel_score`, not local work. The
+compatibility implementation returns the historical program score and
+`ceil(programs / preferred_concurrent_programs)` product, preserving existing
+policies. A backend-provided whole-kernel score is never multiplied by that
+prior again. `ServiceExecutionCostPolicy` is an optional reusable objective
+over subgroup launch demand and global/private payload access; a typed
+`ReductionServiceModel` supplies its coefficients without device-name tests
+inside the solver. Missing access facts reject an explicit service profile
+instead of mixing incompatible fallback units. The
+{download}`frozen calibration and held-out protocol <../../scripts/benchmark/tile_torch/results/m1-max-20260905-service-policy-validation/notes.md>`
+records the current experiment; this profile is not a new default.
 
 The policy is borrowed through `PlannerOptions::cost_policy` only for the
 synchronous compile call; it is not retained by a shader or serialized.

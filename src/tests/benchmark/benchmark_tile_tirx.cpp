@@ -13,6 +13,7 @@
 #include <tvm/script/printer/printer.h>
 
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <chrono>
 #include <cstdlib>
@@ -22,6 +23,8 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <locale>
+#include <sstream>
 #include <stdexcept>
 #include <string_view>
 #include <vector>
@@ -96,6 +99,42 @@ struct Configuration {
     return std::chrono::duration<double, std::milli>{Clock::now() - start}.count();
 }
 
+[[nodiscard]] bridge::tirx::ReductionServiceModel parse_reduction_service_profile(std::string_view text) {
+    constexpr auto prefix = std::string_view{"service-v1,"};
+    if (!text.starts_with(prefix)) { throw std::invalid_argument{"reduction cost profile must be analytic or service-v1,C,D,R,K,G,W,P"}; }
+    text.remove_prefix(prefix.size());
+    bridge::tirx::ReductionServiceModel model;
+    auto capacity_end = text.find(',');
+    if (capacity_end == std::string_view::npos) { throw std::invalid_argument{"missing reduction service coefficients"}; }
+    auto capacity = std::from_chars(text.data(), text.data() + capacity_end, model.concurrent_subgroups);
+    if (capacity.ec != std::errc{} || capacity.ptr != text.data() + capacity_end) {
+        throw std::invalid_argument{"invalid reduction service subgroup capacity"};
+    }
+    text.remove_prefix(capacity_end + 1u);
+    auto coefficients = std::array{&model.dispatch, &model.scalar_round, &model.collective,
+                                   &model.global_program_byte, &model.global_worker_byte, &model.private_worker_byte};
+    for (auto i = size_t{0u}; i < coefficients.size(); i++) {
+        auto end = text.find(',');
+        if ((end == std::string_view::npos) != (i + 1u == coefficients.size())) {
+            throw std::invalid_argument{"reduction service profile requires exactly six coefficients"};
+        }
+        auto token = text.substr(0u, end);
+        // Floating-point from_chars requires macOS 26 in Apple's libc++;
+        // retain the benchmark's macOS 13 deployment target.
+        auto parser = std::istringstream{std::string{token}};
+        parser.imbue(std::locale::classic());
+        parser >> std::noskipws >> *coefficients[i];
+        if (token.empty() || token.front() == '+' || !parser || parser.peek() != std::char_traits<char>::eof()) {
+            throw std::invalid_argument{"invalid reduction service coefficient"};
+        }
+        if (end != std::string_view::npos) { text.remove_prefix(end + 1u); }
+    }
+    if (!bridge::tirx::ServiceExecutionCostPolicy{model}.valid()) {
+        throw std::invalid_argument{"reduction service profile requires positive capacity and finite nonnegative coefficients"};
+    }
+    return model;
+}
+
 void print_access_demand(const bridge::tirx::ReductionAccessDemand &demand) {
     std::cout << "{\"global_read_bytes\":" << demand.global_read_bytes
               << ",\"global_write_bytes\":" << demand.global_write_bytes
@@ -103,13 +142,13 @@ void print_access_demand(const bridge::tirx::ReductionAccessDemand &demand) {
               << ",\"private_write_bytes\":" << demand.private_write_bytes << '}';
 }
 
-void print_plans(luisa::span<const bridge::tirx::GroupPlan> plans) {
+void print_plans(luisa::span<const bridge::tirx::GroupPlan> plans, std::string_view reduction_cost_profile) {
     std::cout << "\"execution_plans\":[";
     auto separator = "";
     for (auto &plan : plans) {
         auto cost_basis = plan.elementwise_elements_per_program != 0u ? "fused_element_grid_v1" :
                           plan.reduction_subgroups_per_program != 0u ?
-                                                                        "metal_subgroup_reduction_v1" :
+                                                                        reduction_cost_profile == "analytic" ? "metal_subgroup_reduction_v1" : "metal_reduction_service_v1" :
                           plan.cost_basis == bridge::tirx::MatrixCostBasis::METAL_MPP_MEMORY ?
                                                                         "metal_mpp_memory_v2" :
                                                                         "simdgroup_reference_geometry";
@@ -593,7 +632,7 @@ void run_luisa(const char *program, const char *output_path, std::string_view op
 }// namespace
 
 int main(int argc, char *argv[]) {
-    if (argc < 13 || argc > 33) {
+    if (argc < 13 || argc > 34) {
         std::cerr << "Usage: benchmark_tile_tirx <cpu|metal> <gemm|add|gelu_add|sum|softmax|rmsnorm|layernorm|residual_layernorm|cross_entropy> M N K BM BN BK samples sample-ms warmup-ms output.f32 [auto|worker|group] [pipeline-window:1|2] [scalar|subgroup-reduce|matrix|mpp|mpp-views] [vectorize|no-vectorize|auto-vectorize] [group-threads:auto|N] [copy-batch:1..16] [tvm|luisa|luisa-fast] [retain-subgroup-fences|elide-subgroup-fences] [cpu-stack-bytes:0..65536] [cpu-vector-lanes:16|32|64|128] [retain-input-snapshots|forward-input-views] [cpu-model:generic|native] [cpu-matrix:reference|cblas] [cpu-math:reference|accelerate] [shared-tiles:preserve|expensive-only]\n";
         std::cerr << "Additional mapping options: [reduction-programs:auto|1..8] [element-grid:auto|reference] [reduction-unroll:1..16] [reduction-lane-elements:1|2|4|8] [reduction-inputs:reload|cache]\n";
         return 1;
@@ -637,6 +676,14 @@ int main(int argc, char *argv[]) {
         auto auto_vectorize = vector_mode == "auto-vectorize";
         bridge::tirx::PlannerOptions planner;
         planner.metal_subgroup_reductions = metal_subgroup_reductions;
+        auto reduction_cost_profile = argc >= 34 ? std::string_view{argv[33]} : "analytic";
+        auto service_policy = bridge::tirx::ServiceExecutionCostPolicy{
+            reduction_cost_profile == "analytic" ? bridge::tirx::ReductionServiceModel{} :
+                                                   parse_reduction_service_profile(reduction_cost_profile)};
+        if (reduction_cost_profile != "analytic") {
+            if (!metal_subgroup_reductions) { throw std::invalid_argument{"reduction service profiles require subgroup-reduce"}; }
+            planner.cost_policy = &service_policy;
+        }
         if (argc >= 33) {
             auto inputs = std::string_view{argv[32]};
             if ((inputs != "reload" && inputs != "cache") ||
@@ -756,6 +803,9 @@ int main(int argc, char *argv[]) {
             }
         }
         if (runtime_choice != "tvm") {
+            if (reduction_cost_profile != "analytic") {
+                throw std::invalid_argument{"the reduction service-profile benchmark currently requires the TVM runtime"};
+            }
             if (backend != "metal" || (runtime_choice != "luisa" && runtime_choice != "luisa-fast")) {
                 throw std::invalid_argument{"Runtime must be tvm, or luisa/luisa-fast on Metal"};
             }
@@ -868,6 +918,7 @@ int main(int argc, char *argv[]) {
                   << ",\"reduction_unroll_factor\":" << planner.reduction_unroll_factor
                   << ",\"reduction_lane_elements\":" << planner.reduction_lane_elements
                   << ",\"cache_reduction_inputs\":" << (planner.cache_reduction_inputs ? "true" : "false")
+                  << ",\"reduction_cost_profile\":" << std::quoted(reduction_cost_profile)
                   << ",\"fuse_gpu_elementwise\":" << (planner.fuse_gpu_elementwise ? "true" : "false")
                   << ",\"shared_tile_materialization\":" << std::quoted(shared_tiles_name)
                   << ",\"forward_readonly_tile_loads\":" << (forward_readonly_tile_loads ? "true" : "false")
@@ -899,7 +950,7 @@ int main(int argc, char *argv[]) {
         std::cout << ',';
         print_samples("latency_us", latency_us);
         std::cout << ',';
-        print_plans(executable.plans);
+        print_plans(executable.plans, reduction_cost_profile);
         device_timing.print();
         std::cout << "}\n";
     } catch (const std::exception &error) {

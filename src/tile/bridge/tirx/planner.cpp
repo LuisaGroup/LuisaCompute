@@ -219,6 +219,44 @@ bool verify_matrix_distribution(const MatrixWorkload &workload, const MatrixDist
            distribution.atom_columns == workload.columns / 8u / distribution.subgroups_n;
 }
 
+ReductionCost ExecutionCostPolicy::reduction_cost(const ReductionCandidate &candidate, const ExecutionCostModel &model) const noexcept {
+    auto score = reduction_score(candidate, model);
+    auto waves = std::max(1.0, std::ceil(static_cast<double>(candidate.programs) /
+                                         std::max(1u, model.preferred_concurrent_programs)));
+    return {score, waves, score * waves};
+}
+
+bool ServiceExecutionCostPolicy::valid() const noexcept {
+    if (_model.concurrent_subgroups == 0u) { return false; }
+    for (auto coefficient : {_model.dispatch, _model.scalar_round, _model.collective,
+                             _model.global_program_byte, _model.global_worker_byte, _model.private_worker_byte}) {
+        if (!std::isfinite(coefficient) || coefficient < 0.0) { return false; }
+    }
+    return true;
+}
+
+ReductionCost ServiceExecutionCostPolicy::reduction_cost(const ReductionCandidate &candidate, const ExecutionCostModel &) const noexcept {
+    // Mixing an uncalibrated fallback's abstract rounds with service scores
+    // would corrupt the ranking. Missing facts reject the requested profile.
+    if (!valid() || !candidate.payload_accesses_known || candidate.programs == 0u ||
+        candidate.threadgroups == 0u || candidate.subgroups_per_program == 0u || candidate.programs_per_group == 0u) {
+        return {0.0, 1.0, std::numeric_limits<double>::quiet_NaN()};
+    }
+    auto &worker = candidate.payload_accesses_per_worker;
+    auto &program = candidate.payload_accesses_per_program;
+    auto score = candidate.scalar_rounds * _model.scalar_round +
+                 static_cast<double>(candidate.reductions) * candidate.subgroups_per_program * _model.collective +
+                 (worker.private_read_bytes + worker.private_write_bytes) * _model.private_worker_byte;
+    // Include inactive packed-tail subgroups in physical launch demand. Use
+    // floating-point products to avoid overflowing integer feature counters.
+    auto waves = std::max(1.0, static_cast<double>(candidate.threadgroups) * candidate.subgroups_per_program *
+                                   candidate.programs_per_group / _model.concurrent_subgroups);
+    auto kernel_score = _model.dispatch + score * waves +
+                        static_cast<double>(candidate.programs) * (program.global_read_bytes + program.global_write_bytes) * _model.global_program_byte +
+                        (worker.global_read_bytes + worker.global_write_bytes) * _model.global_worker_byte;
+    return {score, waves, kernel_score};
+}
+
 double AnalyticExecutionCostPolicy::reduction_score(const ReductionCandidate &candidate, const ExecutionCostModel &model) const noexcept {
     auto &access = candidate.payload_accesses_per_worker;
     auto access_score = candidate.payload_accesses_known ?

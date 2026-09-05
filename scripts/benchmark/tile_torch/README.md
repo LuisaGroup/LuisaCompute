@@ -904,3 +904,24 @@ on CPU** and **14.876/0.353 ms on Metal**: native was about 26.5× and 42.1×
 slower, respectively. These measurements include host dispatch and predate the
 explicit cooperative-group mapping. They are retained as a historical
 reference, not a measurement of the current cooperative implementation.
+## Experimental reduction service policy
+
+`--reduction-cost-profile service-v1,C,D,R,K,G,W,P` injects a typed,
+backend-owned whole-launch objective into the Metal reduction solver. `C`
+is a positive subgroup saturation prior; the six finite nonnegative
+coefficients price dispatch, scalar rounds, collectives, per-program global
+bytes, per-worker global bytes and per-worker private bytes. These are fitted
+score units, not queried occupancy or measured DRAM/register traffic.
+`analytic` remains the default, and an explicit profile with unavailable
+payload features fails instead of falling back to different score units.
+
+`--tuning-metric model` selects from separately captured/JIT-compiled
+configurations by summed whole-kernel score only. Trials still execute for
+correctness and diagnostic timing, and the winner is freshly captured again;
+this does not claim compile-only search or use the trial times for selection.
+Combine it with `--tune-reduction-input-caches reload,cache` to choose resource
+reuse while the C++ solver independently chooses each legal execution width.
+The exact profile string and generated objective are checked and preserved by
+`repeat.py` for frozen replay. See the
+[service-policy experiment](results/m1-max-20260905-service-policy-validation/notes.md)
+for the calibration data, limitations and predeclared held-out protocol.

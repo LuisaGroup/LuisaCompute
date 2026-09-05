@@ -269,6 +269,50 @@ class RepeatContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "input-cache"):
             MODULE.validate_element_reduction_mapping({}, args)
 
+    def test_reduction_service_profile_contract(self):
+        profile = "service-v1,512,3,2,5,0.25,0.125,0.0625"
+        self.assertEqual(MODULE.parse_reduction_cost_profile(profile), (512, [3, 2, 5, 0.25, 0.125, 0.0625]))
+        for bad in (None, True, "", "service-v2,512,3,2,5,0.25,0.125,0.0625",
+                    "service-v1,0,3,2,5,0.25,0.125,0.0625", profile + ",1",
+                    profile.replace("512", "4294967296"), profile.replace("512", "512.0"),
+                    profile.replace("0.0625", "nan"), profile.replace("0.0625", "1e309"),
+                    profile.replace("0.0625", "-1"), profile.replace("0.0625", "+1")):
+            with self.subTest(profile=bad), self.assertRaises(ValueError):
+                MODULE.parse_reduction_cost_profile(bad)
+        plan = {"programs": 1024, "reduction_threadgroups": 1024,
+                "reduction_subgroups_per_program": 4, "reduction_programs_per_group": 1,
+                "reduction_scalar_rounds": 12, "reduction_operations": 2,
+                "reduction_payload_accesses_known": True, "cost_basis": "metal_reduction_service_v1",
+                "reduction_payload_accesses_per_worker": {"global_read_bytes": 64, "global_write_bytes": 32, "private_read_bytes": 96, "private_write_bytes": 16},
+                "reduction_payload_accesses_per_program": {"global_read_bytes": 128, "global_write_bytes": 64, "private_read_bytes": 192, "private_write_bytes": 32},
+                "normalized_cost": 71, "concurrent_waves": 8, "normalized_kernel_cost": 49735}
+        native = {"reduction_cost_profile": profile, "metal_subgroup_reductions": True,
+                  "backend": "metal", "execution_plans": [plan]}
+        MODULE.validate_reduction_cost_profile(native, profile)
+        for changes in ({"normalized_kernel_cost": 49735 * 16}, {"normalized_cost": True},
+                        {"concurrent_waves": 16}, {"reduction_payload_accesses_known": False},
+                        {"cost_basis": "metal_subgroup_reduction_v1"}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                MODULE.validate_reduction_cost_profile(native | {"execution_plans": [plan | changes]}, profile)
+        with self.assertRaisesRegex(ValueError, "differs"):
+            MODULE.validate_reduction_cost_profile(native, "analytic")
+        args = argparse.Namespace(reduction_cost_profile=profile)
+        tail = MODULE.optional_native_arguments(args)
+        self.assertEqual(tail[-3:], ["1", "reload", profile])
+        self.assertEqual(len(tail), 17)
+
+    def test_model_selection_ignores_timing_labels(self):
+        row = {"valid": True, "native": {"throughput_us_p50": 0.01, "execution_plans": [
+            {"normalized_kernel_cost": 12}, {"normalized_kernel_cost": 5}]}}
+        self.assertEqual(MODULE.tuning_score(row, "model"), 17)
+        row["native"]["throughput_us_p50"] = 100000
+        self.assertEqual(MODULE.tuning_score(row, "model"), 17)
+        for costs in ([], [{"normalized_kernel_cost": None}], [{"normalized_kernel_cost": -1}],
+                      [{"normalized_kernel_cost": float("nan")}], [{"normalized_kernel_cost": True}]):
+            with self.assertRaises(ValueError):
+                MODULE.tuning_score({"valid": True, "native": {"execution_plans": costs}}, "model")
+        self.assertEqual(MODULE.tuning_score({"valid": True, "native": {"execution_plans": [{"normalized_kernel_cost": 0}]}}, "model"), 0)
+
     def test_row_shapes_cover_independent_width_and_program_count(self):
         shapes = MODULE.parse_row_shapes("1x4096,1024x4096,1024x127")
         cases = MODULE.make_cases(["sum", "add"], True, shapes)
@@ -642,6 +686,25 @@ class RepeatContractTests(unittest.TestCase):
         self.assertIs(config["cpu_input_views"], False)
         self.assertEqual(config["reduction_lane_elements"], 1)
         self.assertIs(config["cache_reduction_inputs"], False)
+        self.assertEqual(config["reduction_cost_profile"], "analytic")
+        profile = "service-v1,512,3,0,0,0,0,0"
+        service = copy.deepcopy(row)
+        service["native"]["backend"] = "metal"
+        service["native"]["reduction_cost_profile"] = profile
+        service["native"]["execution_plans"][0] |= {
+            "programs": 64, "reduction_threadgroups": 64, "reduction_subgroups_per_program": 8,
+            "reduction_programs_per_group": 1, "reduction_scalar_rounds": 64, "reduction_operations": 2,
+            "reduction_payload_accesses_known": True, "cost_basis": "metal_reduction_service_v1",
+            "reduction_payload_accesses_per_worker": {"global_read_bytes": 128, "global_write_bytes": 64, "private_read_bytes": 256, "private_write_bytes": 64},
+            "reduction_payload_accesses_per_program": {"global_read_bytes": 32768, "global_write_bytes": 16384, "private_read_bytes": 65536, "private_write_bytes": 16384},
+            "normalized_cost": 0, "concurrent_waves": 1, "normalized_kernel_cost": 3}
+        with patch.object(Path, "read_text", return_value=json.dumps({"results": [service]})):
+            config = REPEAT.load_plan(Path("unused.json"), {"softmax"})["metal", "softmax_64x4096"]
+        self.assertEqual(config["reduction_cost_profile"], profile)
+        service["native"]["execution_plans"][0]["normalized_kernel_cost"] = 48
+        with patch.object(Path, "read_text", return_value=json.dumps({"results": [service]})):
+            with self.assertRaisesRegex(ValueError, "objective mismatch"):
+                REPEAT.load_plan(Path("unused.json"), {"softmax"})
         cached = row | {"native": row["native"] | {"cache_reduction_inputs": True}}
         with patch.object(Path, "read_text", return_value=json.dumps({"results": [cached]})):
             config = REPEAT.load_plan(Path("unused.json"), {"softmax"})["metal", "softmax_64x4096"]
@@ -1047,6 +1110,14 @@ class BenchmarkContractTests(unittest.TestCase):
         self.assertEqual(result["tuning"]["model_regret"], 2.0)
         self.assertEqual(MODULE.tuning_score(result, "gpu-control"), 100.0)
         self.assertIs(args.cache_reduction_inputs, False)
+        calls.clear()
+        args.tuning_metric = "model"
+        with patch.object(MODULE, "run_case", side_effect=measure), contextlib.redirect_stdout(io.StringIO()):
+            model_result = MODULE.run_tuned_case(None, None, args, MODULE.Case("softmax", 64, 4096, 1), "metal", 0)
+        self.assertEqual(calls[-1], (32, False))
+        self.assertEqual(model_result["tuning"]["selected_trial"], 0)
+        self.assertEqual(model_result["tuning"]["selection_metric"], "sum_execution_plan_normalized_kernel_cost")
+        self.assertNotIn("model_regret", model_result["tuning"])
 
     def test_jit_search_reports_model_regret_without_overriding_measurement(self):
         args = argparse.Namespace(tuning_candidates=[((32, 128, 1024), 1), ((128, 32, 1024), 1)],

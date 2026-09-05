@@ -199,6 +199,15 @@ executed validation and the independent raw-timing/source/plan audit. GPU is
 command-buffer, not isolated-kernel time. Defaults remain unchanged; this
 demonstrates joint JIT selection, not a fitted replacement cost model.
 
+The next {download}`whole-launch cost-policy checkpoint <../../scripts/benchmark/tile_torch/results/m1-max-20260905-service-policy-validation/notes.md>`
+separates local program work from the complete machine objective. Backends can
+override the latter without a hidden program-wave multiplication; an optional
+typed service model combines subgroup launch demand and payload access facts.
+The old policy remains the default. Six nonnegative coefficients are frozen
+from the preceding 101 valid trials, with four disjoint shapes predeclared for
+model-only resource selection and independent replay. Calibration diagnostics
+are not yet held-out acceptance or permission to change the defaults.
+
 **The general library-performance goal is still not complete.** These CPU
 wins are legal provider realizations for narrow proved contracts, not evidence
 that the portable loop family or direct XIR route has acquired BLAS-class

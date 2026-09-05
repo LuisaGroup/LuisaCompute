@@ -460,6 +460,58 @@ void test_reduction_access_service_policy() {
     }
 }
 
+void test_reduction_machine_cost() {
+    ReductionCandidate candidate;
+    candidate.programs = 1024u;
+    candidate.threadgroups = 1024u;
+    candidate.subgroups_per_program = 4u;
+    candidate.programs_per_group = 1u;
+    candidate.scalar_rounds = 12.0;
+    candidate.reductions = 2u;
+    candidate.payload_accesses_known = true;
+    candidate.payload_accesses_per_worker = {64.0, 32.0, 96.0, 16.0};
+    candidate.payload_accesses_per_program = {128.0, 64.0, 192.0, 32.0};
+    ExecutionCostModel prior;
+    AnalyticExecutionCostPolicy legacy;
+    auto original = legacy.reduction_cost(candidate, prior);
+    expect(eq(original.program_score, legacy.reduction_score(candidate, prior)));
+    expect(eq(original.concurrent_waves, 16.0));
+    expect(eq(original.kernel_score, original.program_score * 16.0));
+    // Synthetic arithmetic, deliberately unrelated to the M1 Max fit.
+    auto model = ReductionServiceModel{512u, 3.0, 2.0, 5.0, 0.25, 0.125, 0.0625};
+    ServiceExecutionCostPolicy policy{model};
+    expect(policy.valid());
+    auto cost = policy.reduction_cost(candidate, prior);
+    expect(eq(cost.program_score, 71.0));
+    expect(eq(cost.concurrent_waves, 8.0));
+    expect(eq(cost.kernel_score, 49735.0));
+    prior.preferred_concurrent_programs = 1u;
+    expect(eq(policy.reduction_cost(candidate, prior).kernel_score, cost.kernel_score));
+    // Five programs packed three per group launch six subgroups, not five.
+    candidate.programs = 5u;
+    candidate.threadgroups = 2u;
+    candidate.programs_per_group = 3u;
+    candidate.subgroups_per_program = 1u;
+    model.concurrent_subgroups = 4u;
+    expect(eq(ServiceExecutionCostPolicy{model}.reduction_cost(candidate, prior).concurrent_waves, 1.5));
+    candidate.payload_accesses_known = false;
+    expect(!std::isfinite(policy.reduction_cost(candidate, prior).kernel_score));
+    model.concurrent_subgroups = 0u;
+    expect(!ServiceExecutionCostPolicy{model}.valid());
+    model.concurrent_subgroups = 512u;
+    for (auto member : {&ReductionServiceModel::dispatch, &ReductionServiceModel::scalar_round,
+                        &ReductionServiceModel::collective, &ReductionServiceModel::global_program_byte,
+                        &ReductionServiceModel::global_worker_byte, &ReductionServiceModel::private_worker_byte}) {
+        for (auto invalid : {-1.0, std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity()}) {
+            auto bad = model;
+            bad.*member = invalid;
+            ServiceExecutionCostPolicy rejected{bad};
+            expect(!rejected.valid());
+            expect(!std::isfinite(rejected.reduction_cost(candidate, prior).kernel_score));
+        }
+    }
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -473,4 +525,5 @@ int main(int argc, char *argv[]) {
     "tile_planner_mpp_subgroup_critical_path_and_machine_waves"_test = [] { test_mpp_subgroup_critical_path_and_machine_waves(); };
     "tile_planner_backend_cost_policy"_test = [] { test_backend_cost_policy(); };
     "tile_planner_reduction_access_service_policy"_test = [] { test_reduction_access_service_policy(); };
+    "tile_planner_reduction_machine_cost"_test = [] { test_reduction_machine_cost(); };
 }
