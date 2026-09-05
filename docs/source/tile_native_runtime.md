@@ -279,9 +279,11 @@ rechecked before mapping.
 Repeated compiler-owned Tile values can be compacted from logical full-row
 storage to worker-private stripes. The transformation proves every flattened
 load/store index equals the current distributed element coordinate; an
-escaping, fixed or permuted access is not compacted. Explicit manual Memory
-is not inferred from this optimization and keeps its own placement/store
-contract.
+escaping, fixed or permuted access is not compacted. A separate audit rejects
+the subgroup map if a distributed private Tile would then be read by a
+different logical owner. Guarded gathers from immutable Tensor snapshots can
+instead be forwarded as lazy direct input reads. Explicit manual Memory is not
+inferred from this optimization and keeps its own placement/store contract.
 
 The resulting `DeviceArtifact` uses the same direct-buffer ABI and ordinary
 Metal Runtime path described above. The standalone TVM runtime is retained as

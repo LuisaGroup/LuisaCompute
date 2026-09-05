@@ -1,13 +1,15 @@
 # Native TileIR / TVMx vs PyTorch
 
 This is an opt-in **correctness-checked, multi-shape** benchmark, not a CTest
-performance threshold. It compares FP32 GEMM, add, row sum, softmax and RMSNorm
-on CPU and actual Metal / PyTorch MPS. GEMM includes small/large squares,
-tall/wide matrices, and non-multiple tail sizes; reductions vary both row count
-and width.
+performance threshold. It compares FP32 GEMM, add, row sum, softmax, RMSNorm,
+LayerNorm and per-row cross-entropy on CPU and actual Metal / PyTorch MPS.
+GEMM includes small/large squares, tall/wide matrices, and non-multiple tail
+sizes; reductions vary both row count and width.
 
 Latest M1 Max evidence: [Metal subgroup sum/softmax/RMSNorm cohort](results/m1-max-20260905-metal-subgroup-reductions/notes.md),
 [balanced same-binary RMSNorm lowering A/B](results/m1-max-20260905-metal-subgroup-rmsnorm-replay/notes.md),
+[Metal subgroup LayerNorm/cross-entropy cohort](results/m1-max-20260905-metal-subgroup-row-extensions/notes.md),
+[balanced LayerNorm/cross-entropy lowering A/B](results/m1-max-20260905-metal-subgroup-row-extensions-replay/notes.md),
 [MPP cost-model v1→v2 calibration-cohort study](results/m1-max-20260905-mpp-cost-v2-search/notes.md),
 [frozen seven-path MPP-v2 replay](results/m1-max-20260905-mpp-cost-v2-replay/notes.md),
 [proved CPU CBLAS plan](results/m1-max-20260905-cpu-cblas-v2-plan/notes.md),
@@ -375,8 +377,10 @@ winner is then captured/JIT-compiled and measured again, so the reported row
 is not a search minimum. GEMM block/pipeline and copy-batch tuning are rejected
 for this reduction mode.
 
-The saved [12-case report](results/m1-max-20260905-metal-subgroup-reductions/notes.md)
-and [balanced RMSNorm A/B](results/m1-max-20260905-metal-subgroup-rmsnorm-replay/notes.md)
+The saved [12-case base report](results/m1-max-20260905-metal-subgroup-reductions/notes.md),
+[eight-case LayerNorm/cross-entropy extension](results/m1-max-20260905-metal-subgroup-row-extensions/notes.md),
+[balanced RMSNorm A/B](results/m1-max-20260905-metal-subgroup-rmsnorm-replay/notes.md)
+and [balanced extension A/B](results/m1-max-20260905-metal-subgroup-row-extensions-replay/notes.md)
 document exact plans, commands, hashes, complete errors and interpretation
 limits. They are an M1 Max FP32 cohort, not all-device or production-LLM parity.
 
@@ -395,8 +399,10 @@ Measurement contract:
 - Capture, native compilation, allocation/upload, first invocation, and
   download are reported separately. First-call timings are not a claim of an
   empty OS/driver cache, and PyTorch's process is reused across cases.
-- At least 150 ms warmup, calibrated ~20 ms batches, 9 samples, p50/p90, plus
-  individually synchronized latency samples. Native/PyTorch order alternates.
+- Warmup, calibrated batch duration and sample count are explicit command-line
+  inputs and recorded in JSON. The saved 20-case subgroup cohorts use 100 ms
+  warmup and 11 × 100 ms samples; their four-round causal replays use 80 ms
+  warmup and 7 or 9 × 60 ms samples. Native/PyTorch order alternates.
 - Warm measurements use a host clock around dispatch plus synchronization.
   They exclude transfers but include C++/Python binding and launch overhead;
   they are **not pure GPU-event kernel timings**. Do not run alongside builds.

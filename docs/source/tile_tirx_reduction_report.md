@@ -19,15 +19,15 @@ threadgroup, cooperates across up to eight SIMD groups for wide programs, and
 compacts eligible compiler-owned Tiles to worker-private stripes. The source
 C++ kernel and logical TileIR remain unchanged.
 
-On the saved 12-case Apple M1 Max cohort, all complete FP64 checks pass and
+Across the saved 20-case Apple M1 Max cohort, all complete FP64 checks pass and
 Tile/TIRx is faster than eager PyTorch MPS in every row. Tile/Torch ranges from
-0.124× to 0.902× in synchronized device-resident host-wall throughput. Sum and
-softmax use preallocated output on both sides; PyTorch's functional RMSNorm
-allocates its returned output inside timing, so that comparison is explicitly
-qualified below. A separate four-round balanced RMSNorm A/B measures a
-21.19×--49.87× speedup over the old TIRx realization while using the same
-current binary for both variants; that native-to-native result is unaffected
-by the PyTorch output policy.
+0.032× to 0.902× in synchronized device-resident host-wall throughput. Sum and
+softmax use preallocated output on both sides; PyTorch's functional RMSNorm,
+LayerNorm and cross-entropy allocate returned outputs inside timing, so those
+external comparisons are explicitly qualified below. Separate four-round,
+same-binary native A/B replays measure 21.19×--49.87× for RMSNorm and
+14.04×--75.54× for the LayerNorm/cross-entropy extension. Those causal
+native-to-native results are unaffected by PyTorch's output policy.
 
 These results close one identified structural gap. They do **not** establish
 all-operator, all-shape, low-precision, cross-device or pure-kernel parity.
@@ -77,6 +77,36 @@ The syntax preserves the language decisions made elsewhere:
 - `reduce` is a semantic algebraic region/library operation. It can become a
   serial fold, tree or target collective only under its numerical contract.
 - `exp`, subtraction and division remain Tile-level elementwise operations.
+
+Cross-entropy needs no loss-specific primitive. It composes the same semantic
+reductions with a guarded indirect Tile operation:
+
+```cpp
+auto definition = tile_kernel(
+    "cross_entropy",
+    [](TensorView<const float, 2> logits,
+       TensorView<const int64_t, 1> labels,
+       TensorView<float, 1> losses) {
+        auto rows = axis("rows", logits.extent<0>());
+        auto one = axis("one", 1);
+        auto columns = axis("columns", logits.extent<1>());
+
+        for (auto &nest : parallel(shape(rows))) {
+            auto origin = coord(nest.index(), 0);
+            auto row = logits[origin, shape(one, columns)];
+            auto label = labels[coord(nest.index()), shape(one)];
+            auto peak = reduce(row, columns, maximum);
+            auto total = reduce(exp(row - peak), columns, add);
+            auto selected = gather(row, label, columns);
+            losses(coord(nest.index()), shape(one))
+                .store(log(total) + peak - selected);
+        }
+    });
+```
+
+`gather` remains a general Tile-level library operation. The lowering derives
+its guarded Tensor access from the input view; neither the source hierarchy nor
+the primitive names a subgroup, thread or memory level.
 
 The compile option `metal_subgroup_reductions` is explicit. For FP32 addition,
 enabling it is also the numerical permission to replace the reference left
@@ -146,6 +176,8 @@ The current mapper admits only the following bounded subset:
 | Control | static unit-step serial source loop; no conditional containing the reduction |
 | Execution nesting | no nested logical `parallel` inside the mapped program |
 | Global effects | stores occur only inside a distributed independent-element domain |
+| Distributed private storage | every nonscalar local buffer with distributed stores has compact row-major accesses proved equal to the current worker owner |
+| Guarded input views | every delayed source is immutable; each lazy consumer path proves its temporary and source indices in bounds |
 | Manual resources | only compatible private constraints; unsupported placement rejects the path |
 | Dynamic control | no while, break, continue, return, assert or opaque Tile primitive |
 
@@ -297,9 +329,10 @@ The subgroup mapper may replace logical `T[N]` with worker-private
    that domain or reduction.
 
 After mapping, the physical slot is `chunk = floor(e / W)`. A fixed,
-permuted, cross-element or escaping access fails the equality proof and keeps
-the original storage; it is never silently redirected to another worker's
-slot.
+permuted, cross-element or escaping access with an unknown owner proof cannot
+use this substitution. The independent distributed-local audit then either
+proves the uncompacted private allocation safe or declines the complete
+subgroup map; it is never silently redirected to another worker's slot.
 
 For width 4096 with 256 workers, each worker owns only 16 FP32 values. The
 unit test inspects generated Metal and requires `_worker_stripe[16]` while
@@ -313,6 +346,54 @@ for deliberate expert placement and still requires explicit `.store()`.
 
 Reduction factorization changes participants and local slots. The semantic
 contribution set, grouping map, identity and merge contract remain intact.
+```
+
+### 5.1 Guarded immutable views and dynamic gather
+
+Cross-entropy revealed a second ownership case. Before mapping, a logical row
+snapshot can legally be consumed both as `V[e]` by reductions and as
+`V[label]` by a guarded gather. Mechanically distributing its initialization
+while retaining a private `V[N]` per worker is invalid:
+
+```text
+worker w initializes only private_w.V[e(w)]
+worker 0 later reads private_0.V[label]
+```
+
+Unless `label == e(0)`, that read does not observe the logical snapshot. The
+first prototype did exactly this and failed six of seven cross-entropy rows;
+the reductions themselves were correct.
+
+The view analysis is now path-sensitive for pure lazy `if_then_else` calls.
+For a target-buffer load under path predicate `G`, every index bound must be
+proved from the loop domain, contained syntactically in `G`, or follow from
+`G`. Under the independent noalias/effect proof, substitution preserves the
+lazy source guard and produces:
+
+```text
+selected = ite(0 <= label && label < N,
+               global_logits[row, label], 0)
+```
+
+The logical snapshot allocation disappears; reductions and gather read the
+same immutable Tensor directly. Conditions, address expressions and fill
+values remain lazy. An unguarded memory-dependent index is still unknown, as
+are predicates outside the supported pure Boolean fragment.
+
+This optimization is not the correctness firewall. A separate whole-program
+audit examines every nonscalar local buffer that has a distributed store. It
+requires one allocation, compact storage and
+`flatten(access_indices) == owner_coordinate` for every observed load and
+distributed store. The current proof intentionally rejects otherwise safe but
+unrecognized permutations. Automatic execution then falls back to the
+reference map; an explicit subgroup request reports that it is unrealizable.
+
+```{figure} ../_static/tile/guarded-view-ownership.svg
+:alt: A guarded dynamic gather cannot read a logically distributed Tile from one worker's private full array. Path-sensitive immutable view forwarding removes that array, while a separate ownership audit rejects unsupported maps.
+:width: 100%
+
+Forwarding is a profitable realization; the distributed-local audit is the
+independent fail-closed correctness boundary.
 ```
 
 ## 6. Cost model and finite solver
@@ -378,10 +459,23 @@ does not mean “pack this many unrelated workers however convenient.”
 | RMSNorm 17×257 | 256 | 1 | 0 | 0 | 1 | 22 |
 | RMSNorm 128×1024 | 128 | 4 | 16 | 0 | 1 | 40 |
 | RMSNorm 64×4096 | 256 | 8 | 32 | 0 | 1 | 64 |
+| LayerNorm 1×127 | 64 | 2 | 16 | 0 | 2 | 30 |
+| LayerNorm 17×257 | 256 | 1 | 0 | 0 | 2 | 33 |
+| LayerNorm 128×1024 | 128 | 4 | 32 | 0 | 2 | 56 |
+| LayerNorm 64×4096 | 256 | 8 | 64 | 0 | 2 | 96 |
+| cross-entropy 1×127 | 32 | 1 | 0 | 0 | 2 | 31 |
+| cross-entropy 17×257 | 256 | 1 | 0 | 0 | 2 | 27 |
+| cross-entropy 128×1024 | 128 | 4 | 32 | 0 | 2 | 51 |
+| cross-entropy 64×4096 | 256 | 8 | 64 | 0 | 2 | 83 |
 
 `threads/group` is the whole threadgroup width. For the 17-row `S=1` plans,
 256 threads mean eight independently packed row programs, not eight groups
 cooperating on one row.
+
+LayerNorm's independent element count is the row width because its affine
+output is distributed. Cross-entropy has only three scalar independent
+elements after immutable logits/label views are forwarded; its two width-sized
+loops are the reductions already counted in `R`.
 
 ## 7. Staged/JIT tuning is the outer authority
 
@@ -430,32 +524,40 @@ results:
 - softmax at `3×4096`, requiring two reductions, 256 threads, eight groups,
   64 shared bytes, a 16-scalar private stripe, `simd_max`, `simd_sum`, and every
   output element against FP64;
+- LayerNorm at `3×4096`, requiring two reductions and checking all 12,288
+  affine outputs against an independent FP64 mean/variance formula;
+- cross-entropy at `7×4096`, including two collectives, a guarded dynamic
+  label gather, absence of the private `[4096]` input snapshot, and every loss
+  against a stable FP64 log-sum-exp formula;
+- an explicitly materialized derived-logits negative case, which must decline
+  subgroup mapping because its gather crosses private worker ownership;
+- a CPU structural pair showing that an unguarded memory-dependent consumer
+  index retains its snapshot while the same index under a complete lazy bounds
+  guard is safely forwarded;
 - minimum and maximum together at `7×1024`;
 - uniform first collectives and guarded tails in generated Metal;
 - CPU fallback behavior and unchanged reference paths; and
 - benchmark/replay metadata, policy preservation, cooperating-subgroup facts
   and staged/JIT winner revalidation.
 
-After the final per-domain cost correction:
+At the current checkpoint:
 
 ```text
-test_tile_tirx_planner:              5,890 assertions / 7 tests passed
-test_tile_tirx_execution cpu:       33,064 assertions / 17 tests passed
-Metal subgroup contract:                 4 assertions passed
-Metal subgroup sum:                     60 assertions passed
-Metal subgroup softmax:             12,300 assertions passed
-Metal subgroup extrema:                 20 assertions passed
-Python benchmark contract suite:        67 tests passed
+complete CTest /^test_tile_/:            32 / 32 tests passed
+guarded CPU view proof:               1,572 assertions passed
+Metal subgroup LayerNorm:            12,297 assertions passed
+Metal subgroup cross-entropy:            20 assertions passed
+Python benchmark contract discovery:    67 / 67 tests passed
 ```
 
 The wider repository contains an unrelated local edit to Metal memory flags;
-the four targeted subgroup hardware tests avoid attributing that user's change
-to this feature. The complete Tile cohort was also run with the submitted
+the targeted subgroup hardware tests avoid attributing that user's change to
+this feature. The complete Tile cohort was also run with the submitted
 source value restored temporarily, then the user's local edit was restored.
 
 ## 9. Performance evidence
 
-### 9.1 Current implementation versus eager PyTorch
+### 9.1 Base reductions versus eager PyTorch
 
 The complete report is
 {download}`Metal subgroup reductions <../../scripts/benchmark/tile_torch/results/m1-max-20260905-metal-subgroup-reductions/notes.md>`;
@@ -485,7 +587,33 @@ timing and is recorded per row. Capture, compilation, transfers and cold calls
 are separately recorded. PyTorch is eager and no `torch.compile` path is
 claimed.
 
-### 9.2 Balanced causal A/B against the old lowering
+### 9.2 LayerNorm and cross-entropy versus eager PyTorch
+
+The independent eight-case extension is
+{download}`LayerNorm/cross-entropy <../../scripts/benchmark/tile_torch/results/m1-max-20260905-metal-subgroup-row-extensions/notes.md>`;
+its adjacent JSON retains every sample, plan, error, setup phase and generated
+Metal source.
+
+| Operator / rows×width | Tile µs | Torch µs | Tile/Torch |
+|---|---:|---:|---:|
+| LayerNorm 1×127 | 4.500 | 8.400 | 0.536× |
+| LayerNorm 17×257 | 5.714 | 8.821 | 0.648× |
+| LayerNorm 128×1024 | 7.542 | 13.726 | 0.549× |
+| LayerNorm 64×4096 | 12.413 | 24.313 | 0.511× |
+| cross-entropy 1×127 | 4.513 | 107.246 | 0.042× |
+| cross-entropy 17×257 | 3.449 | 107.695 | 0.032× |
+| cross-entropy 128×1024 | 4.290 | 110.171 | 0.039× |
+| cross-entropy 64×4096 | 5.838 | 112.263 | 0.052× |
+
+These use the same synchronized host-wall protocol, now with 11 samples and
+100 ms windows. PyTorch's functional LayerNorm and cross-entropy calls return
+new output tensors, so their allocation is inside timing. Cross-entropy also
+includes the general eager operator's dispatch and semantic machinery. The
+table is therefore a real API-level comparison, not evidence that the Tile
+kernel is 19--31× faster than an isolated MPS kernel. The native A/B below is
+the causal lowering comparison.
+
+### 9.3 RMSNorm causal A/B against the old lowering
 
 The independent
 {download}`RMSNorm replay <../../scripts/benchmark/tile_torch/results/m1-max-20260905-metal-subgroup-rmsnorm-replay/notes.md>`
@@ -503,6 +631,30 @@ freshly captures/JIT-compiles every row.
 All 32 reference/candidate outputs pass. Ranges are observed paired-round
 minima/maxima, not confidence intervals. The result demonstrates a structural
 execution-mapping gain; it does not prove the chosen map globally optimal.
+
+### 9.4 LayerNorm and cross-entropy causal A/B
+
+The
+{download}`balanced extension replay <../../scripts/benchmark/tile_torch/results/m1-max-20260905-metal-subgroup-row-extensions-replay/notes.md>`
+uses the same executable for both policies, counterbalances order over four
+rounds, recaptures/JIT-compiles every variant and checks every output.
+
+| Operator / rows×width | Old reference µs | New subgroup µs | Paired speedup median [range] |
+|---|---:|---:|---:|
+| LayerNorm 1×127 | 131.413 | 4.577 | 28.675× [27.944, 29.063] |
+| LayerNorm 17×257 | 337.366 | 5.693 | 58.942× [57.105, 64.220] |
+| LayerNorm 128×1024 | 280.352 | 7.517 | 37.333× [36.900, 37.661] |
+| LayerNorm 64×4096 | 928.945 | 12.306 | 75.536× [74.338, 82.088] |
+| cross-entropy 1×127 | 62.412 | 4.446 | 14.042× [13.737, 14.854] |
+| cross-entropy 17×257 | 191.603 | 3.228 | 59.357× [53.681, 61.339] |
+| cross-entropy 128×1024 | 74.350 | 4.370 | 17.015× [16.097, 17.463] |
+| cross-entropy 64×4096 | 355.493 | 5.774 | 60.879× [59.618, 63.291] |
+
+All 64 native variant measurements pass, and all fingerprinted artifacts are
+unchanged across the replay. This attributes the gain to the execution/view/
+resource realization family rather than PyTorch output allocation or a
+different binary. The ranges are observed paired-round extrema, not confidence
+intervals.
 
 ## 10. What this closes, and what remains
 
@@ -528,7 +680,7 @@ The next honest milestones are:
    bridges rather than re-deriving them from target IR;
 4. calibrate the shortlist prior on held-out shapes and at least one other
    Apple GPU, while retaining exact JIT overrides;
-5. measure LayerNorm, cross-entropy, fused activation/reduction, decode and
+5. measure fused residual-normalization, cross-entropy backward, decode and
    prefill attention, Top-K/sort and representative end-to-end LLM blocks;
 6. add equivalent CUDA and CPU realization families without pretending their
    binding, memory or collective costs are Metal's; and
@@ -538,5 +690,6 @@ The next honest milestones are:
 
 Until those milestones are measured, the correct claim is narrow but useful:
 the TIRx route now has a proof-driven, cost-ranked, high-performance Metal
-reduction realization, and the previously measured RMSNorm structural gap is
-closed on the recorded M1 Max cohort.
+reduction realization, and the previously measured RMSNorm, LayerNorm and
+forward cross-entropy structural gaps are closed on the recorded M1 Max
+cohort.

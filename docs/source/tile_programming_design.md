@@ -1516,6 +1516,14 @@ floating-point tree-order permission. A richer per-reducer accuracy,
 determinism, NaN and signed-zero policy remains part of this language design,
 not a feature already exposed by the current C++ surface.
 
+The same execution/resource separation is observable for an indirect gather.
+A distributed definition of logical `Tile[N]` does not make the other
+elements of each worker's physical private array valid. The current Metal
+realization either forwards a guarded immutable Tensor view or proves every
+remaining local access has the current worker owner; otherwise it falls back.
+This is a backend proof over the general `gather` operation, not a new
+loss-specific primitive or source memory level.
+
 A custom state reduction remains compact. Welford normalization, for example,
 uses one state instead of hard-coding a two-pass warp algorithm:
 

@@ -53,13 +53,16 @@ The TIRx Metal route now has a third, non-library realization family for
 proved FP32 row reductions. It maps one logical program to one, two, four or
 eight 32-lane SIMD groups, packs independent short programs, and compacts
 eligible compiler-owned Tiles to worker-private stripes through an affine
-ownership proof. In the current 12-case sum/softmax/RMSNorm run, every complete
-output passes and Tile/Torch host-wall throughput ranges from 0.124× to 0.902×.
-Sum and softmax use preallocated output on both sides; PyTorch RMSNorm includes
-its unavoidable returned-output allocation. A same-binary four-round native
-RMSNorm A/B measures a 21.19×--49.87× speedup over the old scalar-worker
-lowering and is unaffected by that PyTorch API asymmetry. This is a narrow M1
-Max cohort, not a production LLM-suite or pure-GPU-event claim.
+ownership proof. Path-sensitive guarded-view analysis and an independent
+distributed-local ownership audit now also make dynamic label gathers safe.
+Across the current 20-case sum/softmax/RMSNorm/LayerNorm/cross-entropy reports,
+every complete output passes and Tile/Torch host-wall throughput ranges from
+0.032× to 0.902×. Sum and softmax use preallocated output on both sides;
+PyTorch's functional normalization/loss calls include returned-output
+allocation. Same-binary four-round native A/B replays measure 21.19×--49.87×
+for RMSNorm and 14.04×--75.54× for LayerNorm/cross-entropy, unaffected by that
+PyTorch API asymmetry. This is a narrow M1 Max cohort, not a production
+LLM-suite or pure-GPU-event claim.
 
 **The general library-performance goal is still not complete.** These CPU
 wins are legal provider realizations for narrow proved contracts, not evidence
@@ -85,6 +88,8 @@ No Metal result is relabeled as XIR performance.
 | {download}`Metal MPP cost v2 replay <../../scripts/benchmark/tile_torch/results/m1-max-20260905-mpp-cost-v2-replay/notes.md>` | Frozen schedules, 784 full-output checks and balanced MPP/MPS/Torch evidence |
 | {download}`Metal reduction cohort <../../scripts/benchmark/tile_torch/results/m1-max-20260905-metal-subgroup-reductions/notes.md>` | Sum, softmax and RMSNorm plans, 12 complete outputs, timings, hashes and exact command |
 | {download}`Balanced RMSNorm A/B <../../scripts/benchmark/tile_torch/results/m1-max-20260905-metal-subgroup-rmsnorm-replay/notes.md>` | Same-binary reference/subgroup causality check across four shapes and four balanced rounds |
+| {download}`Metal row-program extension <../../scripts/benchmark/tile_torch/results/m1-max-20260905-metal-subgroup-row-extensions/notes.md>` | LayerNorm and cross-entropy plans, guarded-gather repair, eight complete outputs and API-level timings |
+| {download}`Balanced row-program A/B <../../scripts/benchmark/tile_torch/results/m1-max-20260905-metal-subgroup-row-extensions-replay/notes.md>` | Same-binary LayerNorm/cross-entropy causality check: 64 valid native variants and unchanged artifacts |
 | {download}`CPU CBLAS replay <../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-cblas-v2-replay/notes.md>` | Eight frozen GEMMs, six implementation orders, direct CBLAS overhead and Torch comparison |
 | {download}`CPU array-math replay <../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-accelerate-ops-replay/notes.md>` | Causal reference/Accelerate A/B over add controls, row reductions and softmax |
 | {download}`Final CPU/provider validation <../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-provider-validation/notes.md>` | Full rebuild, focused structural tests, 34/34 submitted-source Tile cohort, 64/64 Python checks and documentation QA |
@@ -158,7 +163,7 @@ passes **67/67**. See the
 for commands and scope; this is not a claim that every non-Tile repository
 test passed.
 
-## Three failure investigations changed the implementation
+## Four failure investigations changed the implementation
 
 ### LLVM coexistence is a build/runtime constraint
 
@@ -192,6 +197,23 @@ including capture, both JIT routes, launches and validation. This observation
 is a compilation/verification usability result, **not a kernel speedup ratio**;
 the interrupted runs are not comparable completed timing samples.
 
+### Distributed initialization does not create shared private storage
+
+The first cross-entropy subgroup run passed both reduction recognizers but
+failed six of seven output rows. Generated Metal showed why: 256 workers each
+had a private `float[4096]`, initialization wrote only the worker-owned stripe,
+and thread zero later performed the dynamic label gather from its own mostly
+uninitialized array. This is exactly the abstraction error that execution/
+resource separation is meant to prevent.
+
+The repair makes immutable-view analysis path-sensitive for guarded indirect
+indices, producing a direct guarded Tensor read, and adds a separate
+whole-program ownership audit for every distributed nonscalar local buffer.
+An unknown ownership proof now declines the optimized mapping. A positive
+cross-platform guarded-view test and a negative explicitly materialized Tile
+test protect both decisions; the full explanation and diagram are in
+[the reduction report](tile_tirx_reduction_report.md).
+
 ## Performance: preserve the measurement basis
 
 Unless explicitly labeled otherwise, reported times are **warm synchronized
@@ -215,29 +237,36 @@ map. For softmax width 4096, a logical compiler-owned 4096-element Tile becomes
 16 private values per worker only after every access proves the same affine
 owner; the old per-thread `float[4096]` form is rejected by source tests.
 
-The final current-binary run uses 11 samples, 100 ms calibrated sample windows
-and 100 ms warmup. All 12 complete FP64 checks pass:
+The two final current-binary cohorts use 11 samples, 100 ms calibrated sample
+windows and 100 ms warmup. All 20 complete FP64 checks pass:
 
 | Family | Shapes | Tile/Torch range | Fastest absolute Tile | Slowest relative Tile |
 |---|---|---:|---:|---:|
 | row sum | 1×127, 17×257, 128×1024, 64×4096 | 0.293×--0.716× | 3.106 µs | 0.716× |
 | softmax | same widths/row counts | 0.124×--0.286× | 3.305 µs | 0.286× |
 | RMSNorm | same widths/row counts | 0.546×--0.902× | 3.904 µs | 0.902× |
+| LayerNorm | same widths/row counts | 0.511×--0.648× | 4.500 µs | 0.648× |
+| cross-entropy | same widths/row counts | 0.032×--0.052× | 3.449 µs | 0.052× |
 
-The independent same-binary RMSNorm replay rotates variant and case order for
-four rounds. The subgroup path is 21.19×--49.87× faster than the old reference
-lowering by median paired ratio and remains faster than eager Torch in all four
-shapes. Native uses preallocated output; PyTorch's functional RMSNorm allocates
-its returned output inside timing, so only the native reference/candidate A/B
-is the clean causal comparison. The saved
-{download}`cohort report <../../scripts/benchmark/tile_torch/results/m1-max-20260905-metal-subgroup-reductions/notes.md>`
+The independent same-binary replays rotate variant and case order for four
+rounds. The subgroup path is 21.19×--49.87× faster for RMSNorm and
+14.04×--75.54× for LayerNorm/cross-entropy by median paired ratio. Native uses
+preallocated output; PyTorch's functional normalization/loss calls allocate
+their returned output inside timing, so only the native reference/candidate
+A/B is the clean causal comparison. The saved
+{download}`cohort report <../../scripts/benchmark/tile_torch/results/m1-max-20260905-metal-subgroup-reductions/notes.md>`,
+{download}`balanced replay <../../scripts/benchmark/tile_torch/results/m1-max-20260905-metal-subgroup-rmsnorm-replay/notes.md>`,
+{download}`row extension <../../scripts/benchmark/tile_torch/results/m1-max-20260905-metal-subgroup-row-extensions/notes.md>`
 and
-{download}`balanced replay <../../scripts/benchmark/tile_torch/results/m1-max-20260905-metal-subgroup-rmsnorm-replay/notes.md>`
+{download}`extension replay <../../scripts/benchmark/tile_torch/results/m1-max-20260905-metal-subgroup-row-extensions-replay/notes.md>`
 retain every sample, plan, output error, artifact hash and exact command.
 
 This closes the diagnosed scalar-worker realization for the admitted subset.
-It is not production attention/cross-entropy coverage, low-precision evidence,
-held-out device calibration or pure Metal kernel timing.
+It is not production attention, training-loss/backward coverage,
+low-precision evidence, held-out device calibration or pure Metal kernel
+timing. In particular, the very large cross-entropy advantage includes
+PyTorch's general eager API and returned-output overhead; it is not presented
+as an isolated MPS-kernel ratio.
 
 ### New XIR/SIMD planner pilot
 

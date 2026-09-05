@@ -513,6 +513,14 @@ only when affine analysis proves every access has that worker's distributed
 element coordinate. Thus resource layout is derived from execution ownership;
 it does not define the source hierarchy.
 
+Guarded indirect reads require a second correspondence. If an immutable input
+snapshot is consumed as `tile[label]`, path-sensitive view analysis may retain
+the lazy bounds/fill condition and substitute a direct Tensor read. Otherwise
+a whole-program audit requires every access to any distributed nonscalar local
+buffer to equal the current worker-owner coordinate. An unknown proof declines
+the subgroup candidate; it never leaves a worker reading another worker's
+logical element from its own private allocation.
+
 After hard target/effect/alias/control constraints, the finite v1 score is:
 
 ~~~text
@@ -532,15 +540,15 @@ constraint; `run.py --tune-group-threads` recaptures/JITs each concrete width,
 validates it, and independently recompiles the winner. Measurement calibrates
 ranking but can never override legality.
 
-The current 12-case sum/softmax/RMSNorm report selects one, two, four and eight
-groups as widths grow, checks every output, and is faster than eager Torch MPS
-in all saved rows. A balanced same-binary RMSNorm A/B attributes a
-21.19×--49.87× improvement to this mapping family. Sum and softmax use
-preallocated Torch outputs; the RMSNorm Torch comparison includes its
-framework-returned output allocation, while the native A/B does not. These
-facts validate the
-need for a structural execution plan; they do not establish the coefficient
-prior on held-out devices or a production LLM operator suite.
+The current 20-case sum/softmax/RMSNorm/LayerNorm/cross-entropy reports select
+one, two, four and eight groups as widths grow, check every output, and are
+faster than eager Torch MPS in all saved rows. Balanced same-binary A/B replays
+attribute 21.19×--49.87× RMSNorm and 14.04×--75.54× LayerNorm/cross-entropy
+improvements to this mapping family. Sum and softmax use preallocated Torch
+outputs; the functional normalization/loss comparisons include returned-output
+allocation, while the native A/B does not. These facts validate the need for a
+structural execution plan; they do not establish the coefficient prior on
+held-out devices or a production LLM operator suite.
 
 ## 4. Implemented matrix mapping family
 
@@ -1176,9 +1184,12 @@ Tile load snapshot
 
 This does not turn a padded Tile into an unguarded pointer view. Bounds and
 fill semantics survive substitution; ordered MMA keeps the same K recurrence.
-The current proof query deliberately rejects memory-dependent consumer
-indices, even some bounded gathers. Such cases remain correct snapshots, not
-promises of complete indirect-access optimization.
+The proof still rejects unguarded memory-dependent consumer indices, including
+some mathematically bounded expressions outside its fragment. A pure lazy
+branch whose path condition proves every temporary bound can now forward a
+guarded gather without dropping its source bounds/fill expression. Unknown
+cases remain correct snapshots, not promises of complete indirect-access
+optimization.
 
 Legality is not profitability. Forwarding trades copy/workspace traffic for
 direct global strides and repeated predicates; compact packing may still win

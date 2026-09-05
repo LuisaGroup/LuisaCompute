@@ -194,15 +194,18 @@ invented. The current small whole-tensor test uses the former.
 The LayerNorm POC uses the simple mean-square formulation to exercise Tile
 broadcasting. Numerically robust Welford state is a library extension, not a
 claim that this reference formula is suitable for every input distribution.
-The same concise row-sum, softmax and RMSNorm shapes now have an opt-in
-proof-driven Metal SIMD-group realization without changing their DSL source;
-its formal mapping, storage proof and measured limits are in
+The same concise row-sum, softmax, RMSNorm and LayerNorm shapes now have an
+opt-in proof-driven Metal SIMD-group realization without changing their DSL
+source; its formal mapping, storage proof and measured limits are in
 [TIRx Metal reductions](tile_tirx_reduction_report.md).
 
 ## 6. Sparse cross entropy and gradient
 
-`gather` indexes an already-loaded Tile. Its portable expansion uses pure
-Tile extraction; it does not introduce scalar global-memory reads.
+`gather` semantically indexes an already-loaded Tile. Its portable reference
+expansion uses pure Tile extraction. A target realization may replace an
+immutable input snapshot with a guarded direct Tensor read only after proving
+source immutability, path bounds and distributed worker ownership; this is an
+optimization, not a different source operation.
 
 ```{literalinclude} ../../src/tests/unit/tile/bridge/test_tirx_poc_neural.cpp
 :language: cpp

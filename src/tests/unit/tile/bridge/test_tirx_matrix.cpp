@@ -991,6 +991,7 @@ enum class ReadonlyViewCase { PADDED,
                               MUTABLE_GUARD,
                               MUTABLE_FILL,
                               NESTED_INDEX,
+                              GUARDED_NESTED_INDEX,
                               MANUAL,
                               CONDITIONAL,
                               ESCAPED,
@@ -1007,10 +1008,12 @@ void test_cpu_readonly_view_proofs(Runtime &runtime) {
     auto i64 = [](int64_t value) { return tvm::IntImm::Int64(value); };
     auto f32 = [](float value) { return tvm::FloatImm{tvm::PrimType::Float(32), value}; };
     for (auto mode : {ReadonlyViewCase::PADDED, ReadonlyViewCase::MUTABLE_INDEX, ReadonlyViewCase::MUTABLE_GUARD,
-                      ReadonlyViewCase::MUTABLE_FILL, ReadonlyViewCase::NESTED_INDEX, ReadonlyViewCase::MANUAL,
+                      ReadonlyViewCase::MUTABLE_FILL, ReadonlyViewCase::NESTED_INDEX, ReadonlyViewCase::GUARDED_NESTED_INDEX,
+                      ReadonlyViewCase::MANUAL,
                       ReadonlyViewCase::CONDITIONAL, ReadonlyViewCase::ESCAPED, ReadonlyViewCase::MUTABLE_SOURCE,
                       ReadonlyViewCase::IMMUTABLE_GUARD, ReadonlyViewCase::WEAK_GUARD}) {
-        auto nested = mode == ReadonlyViewCase::NESTED_INDEX;
+        auto nested = mode == ReadonlyViewCase::NESTED_INDEX ||
+                      mode == ReadonlyViewCase::GUARDED_NESTED_INDEX;
         auto size = nested ? 17 : 34;
         auto buffer = [&](int64_t length, const char *name, const char *scope = "global") {
             return tvm::tirx::decl_buffer({i64(length)}, tvm::PrimType::Float(32), name, scope);
@@ -1048,7 +1051,15 @@ void test_cpu_readonly_view_proofs(Runtime &runtime) {
         if (nested) {
             read_index = tvm::floormod(tvm::cast(tvm::PrimType::Int(64), tvm::tirx::BufferLoad{index_snapshot, {i64(0)}}), i64(17));
         }
-        auto consume = elements(output_index, size, tvm::tirx::BufferStore{d, tvm::tirx::BufferLoad{snapshot, {read_index}}, {output_index}});
+        tvm::PrimExpr consumed = tvm::tirx::BufferLoad{snapshot, {read_index}};
+        if (mode == ReadonlyViewCase::GUARDED_NESTED_INDEX) {
+            consumed = tvm::if_then_else(
+                read_index >= i64(0) && read_index < i64(size),
+                std::move(consumed), f32(-2.25f));
+        }
+        auto consume = elements(
+            output_index, size,
+            tvm::tirx::BufferStore{d, std::move(consumed), {output_index}});
         tvm::ffi::Map<tvm::ffi::String, tvm::Any> annotations;
         if (mode == ReadonlyViewCase::MANUAL) { annotations.Set("luisa.tile.manual_memory", tvm::IntImm::Int32(1)); }
         tvm::ffi::Array<tvm::tirx::Stmt> body{tvm::tirx::AllocBuffer{snapshot, annotations}};
@@ -1084,10 +1095,12 @@ void test_cpu_readonly_view_proofs(Runtime &runtime) {
             if (!compiled) { continue; }
             auto source = compiled.module().value()->InspectSource("ll");
             auto workspace = std::string_view{source.data(), source.size()}.find("@__TVMBackendAllocWorkspace") != std::string_view::npos;
-            // The current bounds proof rejects memory-dependent consumer
-            // indices, including this bounded gather. The index snapshot may
-            // disappear, but its source Tile must conservatively remain.
-            auto removable = mode == ReadonlyViewCase::PADDED || mode == ReadonlyViewCase::IMMUTABLE_GUARD;
+            // An unguarded memory-dependent consumer index remains unknown.
+            // A lazy branch that syntactically proves the complete temporary
+            // bounds can instead forward the immutable source expression.
+            auto removable = mode == ReadonlyViewCase::PADDED ||
+                             mode == ReadonlyViewCase::IMMUTABLE_GUARD ||
+                             mode == ReadonlyViewCase::GUARDED_NESTED_INDEX;
             expect(eq(workspace, !forward || !removable)) << "mode=" << static_cast<uint32_t>(mode) << " forward=" << forward;
             auto entry = compiled.module().value()->GetFunction("cpu_view_proof", true);
             expect(entry.has_value());
