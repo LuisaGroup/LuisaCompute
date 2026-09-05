@@ -82,7 +82,7 @@ struct ReadonlyViews {
 // CPU scalar/SIMD consumers can retain the original guarded read expression.
 // Cooperative memory-input atoms currently require an unconditionally valid
 // address, so their default remains the stricter fully-in-bounds view policy.
-[[nodiscard]] ReadonlyViews forward_readonly_tile_loads(const tvm::tirx::PrimFunc &function, bool noalias, bool preserve_guards = false);
+[[nodiscard]] ReadonlyViews forward_readonly_tile_loads(const tvm::tirx::PrimFunc &function, bool noalias, bool preserve_guards = false, bool cache_reused_inputs = false);
 
 // Fuse one automatic root and a same-domain, pointwise SSA chain into a
 // bijective GPU grid. Compiler Tile temporaries become per-worker scalar

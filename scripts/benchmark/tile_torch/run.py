@@ -596,12 +596,16 @@ def optional_native_arguments(args: argparse.Namespace) -> list[str]:
         (element_grid or "auto", element_grid is not None),
         (str(unroll), unroll != 1),
         (str(getattr(args, "reduction_lane_elements", 1)), getattr(args, "reduction_lane_elements", 1) != 1),
+        ("cache" if getattr(args, "cache_reduction_inputs", False) else "reload", getattr(args, "cache_reduction_inputs", False)),
     ]
     count = max((i + 1 for i, (_, requested) in enumerate(slots) if requested), default=0)
     return [value for value, _ in slots[:count]]
 
 
 def validate_element_reduction_mapping(native: dict[str, Any], args: argparse.Namespace) -> None:
+    cache_inputs = getattr(args, "cache_reduction_inputs", False)
+    if type(native.get("cache_reduction_inputs", False)) is not bool or native.get("cache_reduction_inputs", False) is not cache_inputs:
+        raise ValueError("native reduction input-cache policy differs from the request")
     lanes = getattr(args, "reduction_lane_elements", 1)
     actual_lanes = native.get("reduction_lane_elements", 1)
     if type(actual_lanes) is not int or actual_lanes != lanes or lanes not in (1, 2, 4, 8):
@@ -1093,6 +1097,8 @@ def main() -> int:
     parser.add_argument("--tune-shared-tile-materializations",
                         help="opt-in staged/JIT search over preserve,expensive-only; each candidate is recaptured and validated")
     parser.add_argument("--capture-sources", action="store_true", help="archive LLVM IR or Metal source by SHA256")
+    parser.add_argument("--cache-reduction-inputs", action="store_true",
+                        help="retain proved immutable cross-phase inputs in budgeted worker-private stripes (Metal subgroup reductions only)")
     parser.add_argument("--metal-device-timing", type=Path,
                         help="prebuilt libluisa-benchmark-metal-timing.dylib; separately sample real GPU compute-pass timestamps")
     parser.add_argument("--group-threads", type=int, default=0,
@@ -1162,6 +1168,8 @@ def main() -> int:
         parser.error("reduction unrolling requires 1..16 and Metal subgroup reductions when non-default")
     if args.reduction_lane_elements != 1 and not args.metal_subgroup_reductions:
         parser.error("non-default reduction lane elements require Metal subgroup reductions")
+    if args.cache_reduction_inputs and not args.metal_subgroup_reductions:
+        parser.error("reduction input caching requires Metal subgroup reductions")
     if (args.packing_tuning_candidates or args.unroll_tuning_candidates or args.lane_tuning_candidates) and not args.metal_subgroup_reductions:
         parser.error("reduction packing/unroll/lane tuning requires Metal subgroup reductions")
     if any(backend not in ("cpu", "metal") for backend in backends):
@@ -1225,6 +1233,7 @@ def main() -> int:
         "element_grid": args.element_grid,
         "reduction_unroll": args.reduction_unroll,
         "reduction_lane_elements": args.reduction_lane_elements,
+        "cache_reduction_inputs": args.cache_reduction_inputs,
         "shared_tile_materialization": args.shared_tile_materialization,
         "vectorize": not args.no_vectorize,
         "auto_vectorize": args.auto_vectorize,

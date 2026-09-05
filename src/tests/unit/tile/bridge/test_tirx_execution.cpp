@@ -822,6 +822,120 @@ void test_reduction_lane_elements(Runtime &runtime) {
     expect(over_budget.error.find("exact reduction mapping") != luisa::string::npos) << over_budget.error;
 }
 
+void test_reduction_input_cache(Runtime &runtime) {
+    auto planner = subgroup_reduction_options();
+    planner.cache_reduction_inputs = true;
+    planner.metal_subgroup_reductions = false;
+    auto unsupported = runtime.build(make_row_softmax(5, 257), true, false, true, false, planner);
+    expect(!unsupported.ok());
+    expect(unsupported.error.find("input stripe caching") != luisa::string::npos) << unsupported.error;
+    if (runtime.target() != "metal") { return; }
+    constexpr auto rows = int64_t{5};
+    for (auto columns : {int64_t{1}, int64_t{31}, int64_t{33}, int64_t{257}, int64_t{4103}}) {
+        for (auto width : {1u, 4u}) {
+            auto workers = columns <= 257 ? 32u : 96u;
+            auto stride = static_cast<int64_t>(workers * width);
+            auto slots = static_cast<uint64_t>(columns / stride * width + std::min<int64_t>(columns % stride, width));
+            luisa::vector<float> values(static_cast<size_t>(rows * columns));
+            for (auto i = size_t{0u}; i < values.size(); i++) {
+                values[i] = static_cast<float>(static_cast<int32_t>(i % 127u) - 63) / 64.0f;
+            }
+            auto input = runtime.upload<float>({rows, columns}, values);
+            auto output = runtime.allocate<float>({rows, columns});
+            for (auto cache : {false, true}) {
+                planner = subgroup_reduction_options();
+                planner.cache_reduction_inputs = cache;
+                planner.reduction_lane_elements = width;
+                planner.reduction_unroll_factor = 3u;
+                planner.threads_per_group = workers;
+                // Exercise packing separately, with a tail of two programs.
+                if (workers == 32u) {
+                    planner.threads_per_group = 96u;
+                    planner.reduction_programs_per_group = 3u;
+                }
+                if (columns == 4103) { planner.max_reduction_striped_scalars_per_worker = 128u; }
+                auto executable = runtime.build(make_row_softmax(rows, columns), true, false, true, false, planner);
+                expect(executable.ok()) << "cache=" << cache << " columns=" << columns << " width=" << width << " " << executable.error;
+                if (!executable.ok()) { continue; }
+                expect(eq(executable.plans.front().striped_storage_scalars_per_worker, slots * (cache ? 2u : 1u)));
+                (*executable.entry)(input, output);
+                auto actual = runtime.download<float>(output, values.size());
+                for (auto row = int64_t{0}; row < rows; row++) {
+                    auto denominator = 0.0;
+                    for (auto column = int64_t{0}; column < columns; column++) {
+                        denominator += std::exp(static_cast<double>(values[row * columns + column]));
+                    }
+                    for (auto column = int64_t{0}; column < columns; column++) {
+                        auto index = static_cast<size_t>(row * columns + column);
+                        auto expected = std::exp(static_cast<double>(values[index])) / denominator;
+                        expect(std::abs(static_cast<double>(actual[index]) - expected) <= 2e-6 + 2e-5 * std::abs(expected));
+                    }
+                }
+            }
+        }
+    }
+    planner = subgroup_reduction_options();
+    planner.cache_reduction_inputs = true;
+    planner.threads_per_group = 32u;
+    auto padded = tile_kernel("cache_padded_input", [](TensorView<const float, 2> x, TensorView<float, 2> y) {
+                      auto rows = axis("rows", x.extent<0>());
+                      auto one = axis("one", 1);
+                      auto columns = axis("columns", x.extent<1>() + 3);
+                      for (auto &nest : parallel(shape(rows))) {
+                          auto origin = coord(nest.index(), 0);
+                          auto value = x[origin, shape(one, columns)];
+                          y(origin, shape(one, columns)).store(value + reduce(value * value, columns, add));
+                      }
+                  }).capture(tensor_shape(rows, 257), tensor_shape(rows, 260));
+    auto guarded = runtime.build(padded, true, false, true, false, planner);
+    expect(guarded.ok()) << guarded.error;
+    if (guarded.ok()) {
+        expect(eq(guarded.plans.front().striped_storage_scalars_per_worker, uint64_t{9u}));
+        luisa::vector<float> values(static_cast<size_t>(rows * 257), 0.25f);
+        auto input = runtime.upload<float>({rows, 257}, values);
+        auto output = runtime.allocate<float>({rows, 260});
+        (*guarded.entry)(input, output);
+        auto actual = runtime.download<float>(output, rows * 260);
+        for (auto i = size_t{0u}; i < actual.size(); i++) {
+            expect(eq(actual[i], 257.0f / 16.0f + (i % 260u < 257u ? 0.25f : 0.0f)));
+        }
+    }
+    planner.max_reduction_striped_scalars_per_worker = 9u;
+    // One 257-element stripe fits; input plus exponentials must not fit.
+    auto over_budget = runtime.build(make_row_softmax(rows, 257), true, false, true, false, planner);
+    expect(!over_budget.ok());
+    expect(over_budget.error.find("exact reduction mapping") != luisa::string::npos) << over_budget.error;
+    planner.max_reduction_striped_scalars_per_worker = 64u;
+    auto aliases = runtime.build(make_row_softmax(rows, 257), false, false, true, false, planner);
+    expect(!aliases.ok());
+    expect(aliases.error.find("noalias") != luisa::string::npos) << aliases.error;
+    // A dynamic gather can require another worker's cached input. An exact
+    // cache request must not silently change that access to an input reload.
+    auto gather = runtime.build(make_row_cross_entropy(rows, 257), true, false, true, false, planner);
+    expect(!gather.ok());
+    expect(gather.error.find("exact reduction mapping") != luisa::string::npos) << gather.error;
+
+    auto squares = tile_kernel("cache_single_phase_squares", [](TensorView<const float, 2> x, TensorView<float, 1> y) {
+                       auto rows = axis("rows", x.extent<0>());
+                       auto one = axis("one", 1);
+                       auto columns = axis("columns", x.extent<1>());
+                       for (auto &nest : parallel(shape(rows))) {
+                           auto value = x[coord(nest.index(), 0), shape(one, columns)];
+                           y(coord(nest.index()), shape(one)).store(reduce(value * value, columns, add));
+                       }
+                   }).capture(tensor_shape(rows, 257), tensor_shape(rows));
+    auto single_phase = runtime.build(squares, true, false, true, false, planner);
+    expect(single_phase.ok()) << single_phase.error;
+    if (single_phase.ok()) {
+        expect(eq(single_phase.plans.front().striped_storage_scalars_per_worker, uint64_t{0u}));
+        luisa::vector<float> values(static_cast<size_t>(rows * 257), 0.25f);
+        auto input = runtime.upload<float>({rows, 257}, values);
+        auto output = runtime.allocate<float>({rows});
+        (*single_phase.entry)(input, output);
+        for (auto value : runtime.download<float>(output, rows)) { expect(eq(value, 257.0f / 16.0f)); }
+    }
+}
+
 void test_reduction_complete_width_search(Runtime &runtime) {
     if (runtime.target() != "metal") { return; }
     class Policy final : public AnalyticExecutionCostPolicy {
@@ -1580,6 +1694,7 @@ int main(int argc, char *argv[]) {
     "tile_execution_element_grid_producer_contract"_test = [&] { test_element_grid_producer_contract(runtime); };
     "tile_execution_reduction_packing_and_policy"_test = [&] { test_metal_reduction_packing_and_policy(runtime); };
     "tile_execution_reduction_lane_elements"_test = [&] { test_reduction_lane_elements(runtime); };
+    "tile_execution_reduction_input_cache"_test = [&] { test_reduction_input_cache(runtime); };
     "tile_execution_reduction_complete_width_search"_test = [&] { test_reduction_complete_width_search(runtime); };
     "tile_execution_cpu_parallel_launch_cost"_test = [&] { test_cpu_parallel_launch_cost(runtime); };
     "tile_execution_shared_exp_materialization"_test = test_shared_exp_is_materialized_once;

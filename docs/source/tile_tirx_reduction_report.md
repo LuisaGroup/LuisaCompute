@@ -908,6 +908,39 @@ The remaining policy needs memory/issue/collective service and whole-device
 subgroup demand, followed by held-out ranking validation. A more elaborate
 solver cannot compensate for missing features or noisy timing labels.
 
+### 9.7 Budgeted immutable-input reuse
+
+The optional `PlannerOptions::cache_reduction_inputs` restores a scheduling
+choice that unconditional input forwarding erased: a proved immutable input
+Tile used in distinct element/reduction domains may remain materialized.
+The existing reduction ownership audit then maps it to worker-private
+stripes and charges the same cumulative scalar budget as computed Tiles.
+This does not add a DSL entity, change execution coordinates, or ask the user
+to place input memory manually. The default remains reload/forward.
+
+The view analysis still requires noalias, immutable source/address/guard/fill,
+complete initialization, dominance, bounds, and non-escape. It counts distinct
+consumer domains, so `x*x` in one recurrence alone does not cache `x`.
+Preserved copies carry compiler provenance; manual memory is not relabeled.
+The mapping must also prove that every later access belongs to the same
+worker. Cross-worker dynamic gathers and over-budget requests fail closed;
+enabling this option is an exact request for the reduction mapping family,
+not permission to silently fall back to a replicated Tile.
+
+The benchmark switch `--cache-reduction-inputs` and frozen replay preserve
+this choice explicitly. A fixed W=512, V=4, U=1, P=1 cohort compares sum,
+softmax, RMSNorm, LayerNorm and residual LayerNorm at five shapes. Four-round
+counterbalanced acceptance is pending at this implementation checkpoint;
+initial sequential measurements are not a performance claim. Defaults and
+cost coefficients are unchanged.
+
+The implementation checkpoint passes 22 new Metal numeric configurations
+(including packed-program tails, V=1/V=4, three-way unrolling, non-power-of-two
+cooperation and zero-padded input). Tests also reject unsupported targets,
+missing noalias, cross-worker gathers and over-budget caches. The full Tile
+suite remains 31/33: only the two pre-existing source assertions against the
+untouched local `mem_flags(2)` edit fail. Benchmark Python tests pass 84/84.
+
 ## 10. What this closes, and what remains
 
 This work closes the specific defect “logical reduction hierarchy is exported

@@ -240,6 +240,7 @@ class RepeatContractTests(unittest.TestCase):
         self.assertEqual(MODULE.optional_native_arguments(argparse.Namespace(element_grid="reference")), prefix + ["auto", "reference"])
         self.assertEqual(MODULE.optional_native_arguments(argparse.Namespace(reduction_unroll=4)), prefix + ["auto", "auto", "4"])
         self.assertEqual(MODULE.optional_native_arguments(argparse.Namespace(reduction_lane_elements=4)), prefix + ["auto", "auto", "1", "4"])
+        self.assertEqual(MODULE.optional_native_arguments(argparse.Namespace(cache_reduction_inputs=True)), prefix + ["auto", "auto", "1", "1", "cache"])
         MODULE.validate_element_reduction_mapping({}, argparse.Namespace())
         args = argparse.Namespace(reduction_programs_per_group=3, element_grid="auto")
         native = {"reduction_programs_per_group": 3, "fuse_gpu_elementwise": True,
@@ -258,6 +259,15 @@ class RepeatContractTests(unittest.TestCase):
                        {"execution_plans": []}, {"execution_plans": [{}]}):
             with self.assertRaisesRegex(ValueError, "lane elements"):
                 MODULE.validate_element_reduction_mapping(native | change, args)
+
+    def test_reduction_input_cache_request_is_exact(self):
+        args = argparse.Namespace(cache_reduction_inputs=True)
+        MODULE.validate_element_reduction_mapping({"cache_reduction_inputs": True}, args)
+        for value in (False, 1, None, "cache"):
+            with self.assertRaisesRegex(ValueError, "input-cache"):
+                MODULE.validate_element_reduction_mapping({"cache_reduction_inputs": value}, args)
+        with self.assertRaisesRegex(ValueError, "input-cache"):
+            MODULE.validate_element_reduction_mapping({}, args)
 
     def test_row_shapes_cover_independent_width_and_program_count(self):
         shapes = MODULE.parse_row_shapes("1x4096,1024x4096,1024x127")
@@ -592,6 +602,16 @@ class RepeatContractTests(unittest.TestCase):
         self.assertEqual(config["matrix_realization"], "simdgroup")
         self.assertIs(config["cpu_input_views"], False)
         self.assertEqual(config["reduction_lane_elements"], 1)
+        self.assertIs(config["cache_reduction_inputs"], False)
+        cached = row | {"native": row["native"] | {"cache_reduction_inputs": True}}
+        with patch.object(Path, "read_text", return_value=json.dumps({"results": [cached]})):
+            config = REPEAT.load_plan(Path("unused.json"), {"softmax"})["metal", "softmax_64x4096"]
+        self.assertIs(config["cache_reduction_inputs"], True)
+        for value in (1, None, "cache"):
+            invalid = row | {"native": row["native"] | {"cache_reduction_inputs": value}}
+            with patch.object(Path, "read_text", return_value=json.dumps({"results": [invalid]})):
+                with self.assertRaisesRegex(ValueError, "input-cache"):
+                    REPEAT.load_plan(Path("unused.json"), {"softmax"})
         packed = copy.deepcopy(row)
         packed["native"]["reduction_lane_elements"] = 4
         packed["native"]["execution_plans"][0]["reduction_lane_elements"] = 4

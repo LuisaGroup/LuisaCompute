@@ -152,6 +152,16 @@ protected:
     void VisitExpr_(const tvm::tirx::BufferLoadNode *load) final {
         if (load->buffer.same_as(_buffer)) {
             loads++;
+            // Consumer phases, not expression occurrence counts: x*x in one
+            // recurrence is not a second traversal of the input Tile.
+            const tvm::tirx::ForNode *phase = nullptr;
+            for (auto loop : _domain) {
+                if (loop->annotations.count(independent_elements_annotation) ||
+                    loop->annotations.count(reduction_contract_annotation)) {
+                    phase = loop;
+                }
+            }
+            phases.emplace(phase);
             valid &= !load->predicate && load->indices.size() == _buffer->shape.size();
             if (valid) {
                 for (auto i = 0u; i < load->indices.size(); i++) {
@@ -185,6 +195,7 @@ protected:
 public:
     uint64_t loads{0u};
     bool valid{true};
+    luisa::unordered_set<const tvm::tirx::ForNode *> phases;
     ConsumerBounds(tvm::tirx::BufferVar buffer, Domain domain) : _buffer{std::move(buffer)}, _domain{std::move(domain)} {}
 };
 
@@ -194,6 +205,7 @@ private:
     const luisa::unordered_set<BufferKey> &_inputs;
     Domain _domain;
     bool _preserve_guards;
+    bool _cache_reused_inputs;
 
     [[nodiscard]] std::optional<ForwardedView> _copy(const tvm::tirx::Stmt &statement, const tvm::tirx::BufferVar &buffer) const {
         auto body = statement;
@@ -274,8 +286,13 @@ protected:
                 // node may also occur before initialization or outside here.
                 if (consumers.valid && consumers.loads == access.loads) {
                     views.emplace(buffer.get(), std::move(*copy));
-                    removed.emplace(allocation);
-                    removed.emplace(parts[j].get());
+                    if (_cache_reused_inputs && consumers.phases.size() > 1u) {
+                        cached.emplace(buffer.get());
+                        cached_copies.emplace(parts[j].get());
+                    } else {
+                        removed.emplace(allocation);
+                        removed.emplace(parts[j].get());
+                    }
                 }
                 break;
             }
@@ -286,8 +303,10 @@ protected:
 public:
     luisa::unordered_map<BufferKey, ForwardedView> views;
     luisa::unordered_set<const tvm::tirx::StmtNode *> removed;
-    ViewAnalysis(const InputAccess &access, const luisa::unordered_set<BufferKey> &inputs, bool preserve_guards)
-        : _access{access}, _inputs{inputs}, _preserve_guards{preserve_guards} {}
+    luisa::unordered_set<BufferKey> cached;
+    luisa::unordered_set<const tvm::tirx::StmtNode *> cached_copies;
+    ViewAnalysis(const InputAccess &access, const luisa::unordered_set<BufferKey> &inputs, bool preserve_guards, bool cache_reused_inputs)
+        : _access{access}, _inputs{inputs}, _preserve_guards{preserve_guards}, _cache_reused_inputs{cache_reused_inputs} {}
 };
 
 class ViewRewriter final : public tvm::tirx::StmtExprMutator {
@@ -297,10 +316,17 @@ private:
 protected:
     [[nodiscard]] tvm::tirx::Stmt VisitStmt(const tvm::tirx::Stmt &statement) final {
         if (_analysis.removed.contains(statement.get())) { return tvm::tirx::Evaluate{tvm::IntImm::Int32(0)}; }
+        if (_analysis.cached_copies.contains(statement.get())) {
+            auto loop = StmtExprMutator::VisitStmt(statement).as_or_throw<tvm::tirx::For>();
+            // Only the audited, immutable compiler snapshot gets this marker.
+            // Subsequent ownership/resource proofs decide its physical form.
+            loop.CopyOnWrite()->annotations.Set(materialized_pure_tile_annotation, tvm::IntImm::Int32(1));
+            return loop;
+        }
         return StmtExprMutator::VisitStmt(statement);
     }
     [[nodiscard]] tvm::Expr VisitExpr_(const tvm::tirx::BufferLoadNode *load) final {
-        if (auto iter = _analysis.views.find(load->buffer.get()); iter != _analysis.views.end()) {
+        if (auto iter = _analysis.views.find(load->buffer.get()); iter != _analysis.views.end() && !_analysis.cached.contains(load->buffer.get())) {
             auto &view = iter->second;
             tvm::ffi::Map<tvm::tirx::Var, tvm::Expr> coordinates;
             for (auto i = 0u; i < view.axes.size(); i++) { coordinates.Set(view.axes[i], VisitPrimExpr(load->indices[i])); }
@@ -315,7 +341,7 @@ public:
 
 }// namespace
 
-ReadonlyViews forward_readonly_tile_loads(const tvm::tirx::PrimFunc &function, bool noalias, bool preserve_guards) {
+ReadonlyViews forward_readonly_tile_loads(const tvm::tirx::PrimFunc &function, bool noalias, bool preserve_guards, bool cache_reused_inputs) {
     ReadonlyViews result{function->body, {}};
     if (!noalias) { return result; }
     auto current = function;
@@ -334,7 +360,7 @@ ReadonlyViews forward_readonly_tile_loads(const tvm::tirx::PrimFunc &function, b
                 inputs.emplace(buffer.get());
             }
         }
-        ViewAnalysis analysis{access, inputs, preserve_guards};
+        ViewAnalysis analysis{access, inputs, preserve_guards, cache_reused_inputs};
         analysis(current->body);
         if (analysis.views.empty()) { break; }
         for (auto &&[buffer, view] : analysis.views) { forwarded_inputs.emplace(view.source->buffer.get()); }
@@ -342,8 +368,9 @@ ReadonlyViews forward_readonly_tile_loads(const tvm::tirx::PrimFunc &function, b
         current.CopyOnWrite()->body = std::move(body);
         // Axis relabeling and other value copies may expose another complete
         // immutable-input snapshot. Recheck all effects, bounds and dominance
-        // on the new body; each successful round removes at least one unique
-        // allocation, so this fixed point is bounded by the original IR size.
+        // on the new body; each successful round removes or marks at least
+        // one unique allocation/copy. Marked copies no longer match _copy,
+        // so this fixed point is bounded by the original IR size.
     }
     for (auto &&parameter : function->params) {
         if (forwarded_inputs.contains(parameter.get())) { result.inputs.emplace_back(tvm::tirx::BufferVar{parameter}); }

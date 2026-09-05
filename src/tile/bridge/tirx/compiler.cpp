@@ -256,8 +256,8 @@ protected:
         }
         if (auto scope = loop->annotations.Get(execution_scope_annotation);
             scope && scope.value().as<tvm::ffi::String>() && scope.value().cast<tvm::ffi::String>() == "group") {
-            if (_planner.metal_subgroup_reductions && (_planner.reduction_programs_per_group != 0u || _planner.reduction_unroll_factor != 1u || _planner.reduction_lane_elements != 1u)) {
-                _scope_error(loop, "group", "conflicts with exact row-program packing, unrolling or lane elements");
+            if (_planner.metal_subgroup_reductions && (_planner.reduction_programs_per_group != 0u || _planner.reduction_unroll_factor != 1u || _planner.reduction_lane_elements != 1u || _planner.cache_reduction_inputs)) {
+                _scope_error(loop, "group", "conflicts with exact row-program packing, unrolling, lane elements or input caching");
             }
             if (_target_name != "metal") { _scope_error(loop, "group", "is not supported by this target's execution mapper"); }
             if (_logical_parallel_depth != 0u) { _scope_error(loop, "group", "requires a coordinate factorization for nested group bindings"); }
@@ -273,13 +273,13 @@ protected:
                     tvm::ffi::GetRef<tvm::tirx::For>(loop), _gpu_group_thread_limit,
                     _shared_memory_limit, _planner, _plans);
                 if (mapped.defined()) { return mapped; }
-                if (_planner.reduction_programs_per_group != 0u || _planner.threads_per_group != 0u || _planner.reduction_unroll_factor != 1u || _planner.reduction_lane_elements != 1u) {
-                    _scope_error(loop, "subgroup", "cannot realize the exact reduction mapping (threads, packing, unrolling or lane elements)");
+                if (_planner.reduction_programs_per_group != 0u || _planner.threads_per_group != 0u || _planner.reduction_unroll_factor != 1u || _planner.reduction_lane_elements != 1u || _planner.cache_reduction_inputs) {
+                    _scope_error(loop, "subgroup", "cannot realize the exact reduction mapping (threads, packing, unrolling, lane elements or input caching)");
                 }
                 if (constraint) {
                     _scope_error(loop, "subgroup", "does not contain a realizable uniform reduction program");
                 }
-            } else if (_planner.reduction_programs_per_group != 0u || _planner.threads_per_group != 0u || _planner.reduction_unroll_factor != 1u || _planner.reduction_lane_elements != 1u) {
+            } else if (_planner.reduction_programs_per_group != 0u || _planner.threads_per_group != 0u || _planner.reduction_unroll_factor != 1u || _planner.reduction_lane_elements != 1u || _planner.cache_reduction_inputs) {
                 _scope_error(loop, "subgroup", "explicit execution scope conflicts with the exact reduction mapping");
             }
         }
@@ -403,6 +403,9 @@ public:
     }
     auto cooperative_matrix = options.cooperative_matrix && target->kind->name == "metal" && target->GetAttr<int64_t>("thread_warp_size").value_or(0) == 32;
     auto subgroup_reductions = options.planner.metal_subgroup_reductions;
+    if (options.planner.cache_reduction_inputs && !subgroup_reductions) {
+        throw std::runtime_error{"input stripe caching requires Metal SIMD-group reductions"};
+    }
     auto lane_elements = options.planner.reduction_lane_elements;
     if ((lane_elements != 1u && lane_elements != 2u && lane_elements != 4u && lane_elements != 8u) ||
         (lane_elements != 1u && !subgroup_reductions)) {
@@ -451,7 +454,8 @@ public:
         auto exact_reduction = subgroup_reductions && (options.planner.threads_per_group != 0u ||
                                                        options.planner.reduction_programs_per_group != 0u ||
                                                        options.planner.reduction_unroll_factor != 1u ||
-                                                       options.planner.reduction_lane_elements != 1u);
+                                                       options.planner.reduction_lane_elements != 1u ||
+                                                       options.planner.cache_reduction_inputs);
         if (binding == RootParallelBinding::GPU_GRID && options.noalias &&
             options.planner.enabled && options.planner.fuse_gpu_elementwise && !exact_reduction) {
             // Speculative forwarding is committed only with a proved fused
@@ -469,7 +473,7 @@ public:
         // load expression. MPP memory atoms are the stricter exception: their
         // address contract requires a fully in-bounds view before mapping.
         auto preserve_view_guards = !options.metal_mpp;
-        auto views = forward_views ? forward_readonly_tile_loads(mapped, options.noalias, preserve_view_guards) : ReadonlyViews{mapped->body, {}};
+        auto views = forward_views ? forward_readonly_tile_loads(mapped, options.noalias, preserve_view_guards, options.planner.cache_reduction_inputs) : ReadonlyViews{mapped->body, {}};
         mapped.CopyOnWrite()->body = std::move(views.body);
         mapped.CopyOnWrite()->body = schedule_pipelines(mapped->body, options.noalias, shared_memory_limit,
                                                         !options.metal_mpp && cooperative_matrix && options.planner.enabled && options.planner.max_pipeline_prefetch_scalars_per_lane != 0u);

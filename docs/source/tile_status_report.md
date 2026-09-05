@@ -162,6 +162,13 @@ means command-buffer execution, not an isolated kernel timestamp. Default V
 and scoring coefficients remain unchanged; independent incumbent acceptance
 and a calibrated full-device cost policy remain necessary.
 
+A new opt-in input-reuse candidate retains proved immutable snapshots across
+distinct reduction/element domains, using the existing private-stripe
+ownership proof and cumulative budget. It does not cache repeated occurrences
+inside one domain or expose new Tile DSL syntax. The default stays reload;
+four-round GPU/E2E acceptance of the fixed-width 25-case cohort is pending at
+this implementation checkpoint. See Section 9.7 of the reduction report.
+
 **The general library-performance goal is still not complete.** These CPU
 wins are legal provider realizations for narrow proved contracts, not evidence
 that the portable loop family or direct XIR route has acquired BLAS-class

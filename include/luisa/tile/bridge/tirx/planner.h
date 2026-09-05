@@ -106,6 +106,12 @@ struct PlannerOptions {
     // the next worker (1, 2, 4 or 8). An ownership layout, not a vector ISA
     // guarantee. Non-default widths require the reduction-tree permission.
     uint32_t reduction_lane_elements{1u};
+    // Opt-in retention of proved immutable input snapshots reused by distinct
+    // element/reduction domains. The reduction mapper must prove same-worker
+    // ownership and charge the existing private-stripe budget. Repeated reads
+    // within one domain alone do not request a cache. Requires subgroup
+    // reductions; an unrealizable request fails instead of changing mappings.
+    bool cache_reduction_inputs{false};
     bool retain_accumulators{true};
     // Elide the initial/final shared accumulator only when its literal fill
     // and sole, fully in-bounds global store have been proved by analysis.

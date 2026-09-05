@@ -581,9 +581,9 @@ void run_luisa(const char *program, const char *output_path, std::string_view op
 }// namespace
 
 int main(int argc, char *argv[]) {
-    if (argc < 13 || argc > 32) {
+    if (argc < 13 || argc > 33) {
         std::cerr << "Usage: benchmark_tile_tirx <cpu|metal> <gemm|add|gelu_add|sum|softmax|rmsnorm|layernorm|residual_layernorm|cross_entropy> M N K BM BN BK samples sample-ms warmup-ms output.f32 [auto|worker|group] [pipeline-window:1|2] [scalar|subgroup-reduce|matrix|mpp|mpp-views] [vectorize|no-vectorize|auto-vectorize] [group-threads:auto|N] [copy-batch:1..16] [tvm|luisa|luisa-fast] [retain-subgroup-fences|elide-subgroup-fences] [cpu-stack-bytes:0..65536] [cpu-vector-lanes:16|32|64|128] [retain-input-snapshots|forward-input-views] [cpu-model:generic|native] [cpu-matrix:reference|cblas] [cpu-math:reference|accelerate] [shared-tiles:preserve|expensive-only]\n";
-        std::cerr << "Additional mapping options: [reduction-programs:auto|1..8] [element-grid:auto|reference] [reduction-unroll:1..16] [reduction-lane-elements:1|2|4|8]\n";
+        std::cerr << "Additional mapping options: [reduction-programs:auto|1..8] [element-grid:auto|reference] [reduction-unroll:1..16] [reduction-lane-elements:1|2|4|8] [reduction-inputs:reload|cache]\n";
         return 1;
     }
     try {
@@ -625,6 +625,14 @@ int main(int argc, char *argv[]) {
         auto auto_vectorize = vector_mode == "auto-vectorize";
         bridge::tirx::PlannerOptions planner;
         planner.metal_subgroup_reductions = metal_subgroup_reductions;
+        if (argc >= 33) {
+            auto inputs = std::string_view{argv[32]};
+            if ((inputs != "reload" && inputs != "cache") ||
+                (inputs == "cache" && !metal_subgroup_reductions)) {
+                throw std::invalid_argument{"reduction inputs require reload or cache, and subgroup-reduce for cache"};
+            }
+            planner.cache_reduction_inputs = inputs == "cache";
+        }
         if (argc >= 32) {
             auto width = positive_integer(argv[31]);
             if ((width != 1 && width != 2 && width != 4 && width != 8) ||
@@ -847,6 +855,7 @@ int main(int argc, char *argv[]) {
                   << ",\"reduction_programs_per_group\":" << planner.reduction_programs_per_group
                   << ",\"reduction_unroll_factor\":" << planner.reduction_unroll_factor
                   << ",\"reduction_lane_elements\":" << planner.reduction_lane_elements
+                  << ",\"cache_reduction_inputs\":" << (planner.cache_reduction_inputs ? "true" : "false")
                   << ",\"fuse_gpu_elementwise\":" << (planner.fuse_gpu_elementwise ? "true" : "false")
                   << ",\"shared_tile_materialization\":" << std::quoted(shared_tiles_name)
                   << ",\"forward_readonly_tile_loads\":" << (forward_readonly_tile_loads ? "true" : "false")

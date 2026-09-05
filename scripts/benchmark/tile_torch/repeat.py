@@ -70,6 +70,9 @@ def load_plan(path: Path, operations: set[str]) -> dict[tuple[str, str], dict[st
         packing = native.get("reduction_programs_per_group", 0)
         unroll = native.get("reduction_unroll_factor", 1)
         lanes = native.get("reduction_lane_elements", 1)
+        cache_inputs = native.get("cache_reduction_inputs", False)
+        if type(cache_inputs) is not bool or (cache_inputs and not metal_subgroup_reductions):
+            raise ValueError(f"{case.name} has an invalid reduction input-cache policy")
         if type(lanes) is not int or lanes not in (1, 2, 4, 8) or (lanes != 1 and not metal_subgroup_reductions):
             raise ValueError(f"{case.name} has invalid reduction lane elements")
         if type(unroll) is not int or not 1 <= unroll <= 16 or (unroll != 1 and not metal_subgroup_reductions):
@@ -131,6 +134,7 @@ def load_plan(path: Path, operations: set[str]) -> dict[tuple[str, str], dict[st
             "reduction_programs_per_group": packing,
             "reduction_unroll": unroll,
             "reduction_lane_elements": lanes,
+            "cache_reduction_inputs": cache_inputs,
             "element_grid": None if element_grid is None else "auto" if element_grid else "reference",
             "expected_cpu_model": native.get("cpu_model") if row["backend"] == "cpu" else None,
             "elide_independent_subgroup_barriers": elide,
