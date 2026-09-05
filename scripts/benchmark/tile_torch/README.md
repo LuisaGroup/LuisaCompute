@@ -412,8 +412,19 @@ stripes without changing their accumulation order. Its default remains one;
 the legal range is 1..16. Both policies and their realized values are recorded
 and checked before accepting an output or replaying a plan.
 
+`--reduction-lane-elements V` selects a blocked-cyclic ownership layout:
+`i = (chunk * workers + worker) * V + element`, with `0 <= element < V`.
+Legal widths are 1, 2, 4 and 8; the default remains 1. Unlike stripe unrolling,
+changing V changes each worker's FP32 recurrence and requires the existing
+SIMD-group reduction-tree permission. The same map distributes reductions,
+elementwise consumers and compiler-local Tile storage; manual memory is not
+silently reinterpreted. Full packs have no tail predicate; only the last
+partial pack is guarded. Consecutive elements expose contiguous accesses to
+codegen, but do **not** promise hardware vector instructions. Resource bounds
+use the maximum live private slots under this layout, not the old V=1 count.
+
 The JIT product can include `--tune-reduction-packing '0,4'` and
-`--tune-reduction-unroll '1,4'` together with
+`--tune-reduction-unroll '1,4'`, `--tune-reduction-lane-elements '1,2,4'` together with
 `--tune-group-threads '0,128'`. Zero includes the automatic planner as a
 candidate; do not accidentally exclude its packed short-row realization by
 searching only exact cooperating widths. Illegal/resource-heavy combinations
@@ -421,6 +432,14 @@ remain rejected trials, and the full Cartesian product is budgeted. An
 independent `repeat.py` replay—not the search minimum—is the performance
 claim. `--row-shapes '1x4096,64x4096,1024x4096,17x257,1024x257'` replaces the
 non-GEMM shape set and separates program-count scaling from reduction width.
+
+JIT selection remains host-wall throughput by default. Use the explicit
+`--tuning-metric gpu-control` with `--metal-device-timing` to minimize the
+no-counter GPU command-buffer throughput instead. It does not fall back to
+host time or instrumented compute-pass time if the control is absent. Raw
+trials record the objective and score; model regret uses that same objective.
+The selected layout is recaptured and measured afresh, then can be independently
+replayed with GPU and E2E measurements retained side by side.
 
 Automatic GPU elementwise programs now also admit a fused program/element
 grid. `--element-grid reference` disables this family for same-binary A/B;

@@ -325,9 +325,12 @@ def program_candidates(args: argparse.Namespace) -> list[tuple]:
     base = joint_candidates(args)
     packing = getattr(args, "packing_tuning_candidates", []) or [getattr(args, "reduction_programs_per_group", 0)]
     unroll = getattr(args, "unroll_tuning_candidates", []) or [getattr(args, "reduction_unroll", 1)]
-    if len(base) * len(packing) * len(unroll) > getattr(args, "max_tuning_candidates", 256):
-        raise ValueError("joint JIT candidate budget exceeded by reduction packing/unroll product")
-    return [(*candidate, p, u) for candidate in base for p in packing for u in unroll]
+    lanes = getattr(args, "lane_tuning_candidates", []) or [getattr(args, "reduction_lane_elements", 1)]
+    if any(type(width) is not int or width not in (1, 2, 4, 8) for width in lanes):
+        raise ValueError("reduction lane elements must be 1, 2, 4 or 8")
+    if len(base) * len(packing) * len(unroll) * len(lanes) > getattr(args, "max_tuning_candidates", 256):
+        raise ValueError("joint JIT candidate budget exceeded by reduction packing/unroll/lane product")
+    return [(*candidate, p, u, v) for candidate in base for p in packing for u in unroll for v in lanes]
 
 
 def validate_native_metadata(native: dict[str, Any], case: Case, backend: str, execution_scope: str,
@@ -570,12 +573,21 @@ def optional_native_arguments(args: argparse.Namespace) -> list[str]:
         (str(packing) if packing else "auto", bool(packing)),
         (element_grid or "auto", element_grid is not None),
         (str(unroll), unroll != 1),
+        (str(getattr(args, "reduction_lane_elements", 1)), getattr(args, "reduction_lane_elements", 1) != 1),
     ]
     count = max((i + 1 for i, (_, requested) in enumerate(slots) if requested), default=0)
     return [value for value, _ in slots[:count]]
 
 
 def validate_element_reduction_mapping(native: dict[str, Any], args: argparse.Namespace) -> None:
+    lanes = getattr(args, "reduction_lane_elements", 1)
+    actual_lanes = native.get("reduction_lane_elements", 1)
+    if type(actual_lanes) is not int or actual_lanes != lanes or lanes not in (1, 2, 4, 8):
+        raise ValueError("native reduction lane elements differ from the request")
+    if lanes != 1:
+        plans = native.get("execution_plans")
+        if not plans or any(plan.get("reduction_lane_elements") != lanes for plan in plans):
+            raise ValueError("reduction lane elements were not realized")
     unroll = getattr(args, "reduction_unroll", 1)
     actual_unroll = native.get("reduction_unroll_factor", 1)
     if type(actual_unroll) is not int or actual_unroll != unroll:
@@ -805,6 +817,22 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
     return result
 
 
+def tuning_score(measurement: dict[str, Any], metric: str) -> float:
+    native = measurement.get("native", {})
+    if metric == "host":
+        score = native.get("throughput_us_p50")
+    elif metric == "gpu-control":
+        control = native.get("device_timing", {}).get("control", {})
+        if control.get("encoder_instrumentation") is not False or control.get("method") != "metal_command_buffer_timestamps_v1":
+            raise ValueError("GPU tuning requires the no-counter command-buffer control")
+        score = control.get("command_buffer_throughput_us_p50")
+    else:
+        raise ValueError("unknown JIT selection metric")
+    if not measurement.get("valid") or type(score) not in (int, float) or not math.isfinite(score) or score <= 0:
+        raise ValueError("candidate lacks a valid positive selection timing")
+    return float(score)
+
+
 def run_tuned_case(torch: Any, np: Any, args: argparse.Namespace, case: Case,
                    backend: str, ordinal: int) -> dict[str, Any]:
     # Each candidate is ordinary host configuration: recapture and native JIT
@@ -813,40 +841,41 @@ def run_tuned_case(torch: Any, np: Any, args: argparse.Namespace, case: Case,
     shift = ordinal % len(candidates)
     candidates = candidates[shift:] + candidates[:shift]
     trials: list[dict[str, Any]] = []
+    metric = getattr(args, "tuning_metric", "host")
     start = time.perf_counter_ns()
-    for index, (block, window, threads, batch, materialization, packing, unroll) in enumerate(candidates):
+    for index, (block, window, threads, batch, materialization, packing, unroll, lanes) in enumerate(candidates):
         trial: dict[str, Any] = {"block": block, "pipeline_window": window,
                                 "group_threads": threads, "copy_batch": batch,
                                 "shared_tile_materialization": materialization,
-                                "reduction_programs_per_group": packing, "reduction_unroll": unroll}
+                                "reduction_programs_per_group": packing, "reduction_unroll": unroll,
+                                "reduction_lane_elements": lanes}
         candidate_args = argparse.Namespace(**vars(args))
         candidate_args.gemm_block, candidate_args.pipeline_window = block, window
         candidate_args.group_threads, candidate_args.copy_batch = threads, batch
         candidate_args.shared_tile_materialization = materialization
         candidate_args.reduction_programs_per_group = packing
         candidate_args.reduction_unroll = unroll
+        candidate_args.reduction_lane_elements = lanes
         print(f"  JIT trial {index + 1}/{len(candidates)}: block={block}, window={window}, "
               f"threads={threads or 'auto'}, copy_batch={batch}, shared_tiles={materialization}, "
-              f"row_packing={packing or 'auto'}, unroll={unroll}", flush=True)
+              f"row_packing={packing or 'auto'}, unroll={unroll}, lane_elements={lanes}", flush=True)
         try:
             measured = run_case(torch, np, candidate_args, case, backend, ordinal * len(candidates) + index)
-            score = measured["native"]["throughput_us_p50"]
-            if not measured.get("valid") or not math.isfinite(score) or score <= 0:
-                raise RuntimeError("candidate lacks a valid positive timing")
-            trial.update(valid=True, measurement=measured)
+            score = tuning_score(measured, metric)
+            trial.update(valid=True, measurement=measured, selection_score=score)
             plans = measured.get("native", {}).get("execution_plans")
             if isinstance(plans, list) and plans:
                 model_costs = [plan.get("normalized_kernel_cost") for plan in plans]
                 if all(type(cost) in (int, float) and math.isfinite(cost) and cost >= 0 for cost in model_costs):
                     trial["model_cost"] = sum(model_costs)
-            print(f"    validated; native {score:.3f} us", flush=True)
+            print(f"    validated; native {metric} {score:.3f} us", flush=True)
         except Exception as error:
             trial.update(valid=False, error=str(error))
             print(f"    rejected: {str(error).splitlines()[0]}", flush=True)
         trials.append(trial)
     tuning: dict[str, Any] = {
         "selection_wall_ms": (time.perf_counter_ns() - start) / 1e6,
-        "selection_metric": "native_throughput_us_p50",
+        "selection_metric": "native_throughput_us_p50" if metric == "host" else "native_gpu_command_buffer_throughput_us_p50",
         "reported_measurement": "fresh post-selection recapture/JIT and timing, not the search minimum",
         "trials": trials,
     }
@@ -854,15 +883,15 @@ def run_tuned_case(torch: Any, np: Any, args: argparse.Namespace, case: Case,
     failed = {"case": dataclasses.asdict(case), "name": case.name, "backend": backend, "valid": False}
     if not valid:
         return failed | {"error": "no numerically valid JIT candidate", "tuning": tuning}
-    selected = min(valid, key=lambda index: trials[index]["measurement"]["native"]["throughput_us_p50"])
+    selected = min(valid, key=lambda index: trials[index]["selection_score"])
     tuning["selected_trial"] = selected
     model_valid = [index for index in valid if "model_cost" in trials[index]]
     if model_valid:
         model_selected = min(model_valid, key=lambda index: trials[index]["model_cost"])
         tuning["model_selection_metric"] = "sum_execution_plan_normalized_kernel_cost"
         tuning["model_selected_trial"] = model_selected
-        measured_best = trials[selected]["measurement"]["native"]["throughput_us_p50"]
-        measured_model = trials[model_selected]["measurement"]["native"]["throughput_us_p50"]
+        measured_best = trials[selected]["selection_score"]
+        measured_model = trials[model_selected]["selection_score"]
         tuning["model_regret"] = measured_model / measured_best - 1.0
     winner = trials[selected]
     candidate_args = argparse.Namespace(**vars(args))
@@ -873,10 +902,12 @@ def run_tuned_case(torch: Any, np: Any, args: argparse.Namespace, case: Case,
     candidate_args.shared_tile_materialization = winner["shared_tile_materialization"]
     candidate_args.reduction_programs_per_group = winner["reduction_programs_per_group"]
     candidate_args.reduction_unroll = winner["reduction_unroll"]
+    candidate_args.reduction_lane_elements = winner["reduction_lane_elements"]
     print(f"  Selected block={winner['block']}, window={winner['pipeline_window']}, "
           f"threads={winner['group_threads'] or 'auto'}, copy_batch={winner['copy_batch']}, "
           f"shared_tiles={winner['shared_tile_materialization']}, "
-          f"row_packing={winner['reduction_programs_per_group'] or 'auto'}, unroll={winner['reduction_unroll']}; "
+          f"row_packing={winner['reduction_programs_per_group'] or 'auto'}, unroll={winner['reduction_unroll']}, "
+          f"lane_elements={winner['reduction_lane_elements']}; "
           "fresh validation/timing", flush=True)
     try:
         # Keep the fresh comparison's framework order alternating across
@@ -958,7 +989,7 @@ def write_report(report: dict[str, Any], directory: Path) -> None:
         lines.extend(["", "## JIT search", "",
                       "All candidates are recaptured, compiled, and checked against the same FP64 oracle. Invalid candidates are retained in JSON but cannot win. Candidate order rotates across cases. Tables above use a fresh post-selection run, not the search minimum; a revalidation failure remains a failure. This is not a confidence interval or an exhaustive search.", "",
                       "Selection wall time below includes JIT, validation, native/PyTorch measurements, and process overhead; it is excluded from warm timings. Full candidate settings, rejected cases, and raw trial samples are in results.json.", "",
-                      "The model column is diagnostic only: it compares the lowest reported normalized kernel cost with the measured winner inside the same finite candidate set. Model regret is measured(model pick) / measured(best) - 1; it is not a hardware-optimality claim.", "",
+                      "The model column is diagnostic only: it compares the lowest reported normalized kernel cost with the measured winner inside the same finite candidate set. Model regret uses the selected objective: measured(model pick) / measured(best) - 1; it is not a hardware-optimality claim. Selection defaults to host-wall throughput; an explicit gpu-control objective uses no-counter GPU command-buffer throughput, never the instrumented compute-pass probe.", "",
                       "| Device / case | Valid / attempted candidates | Model pick / measured pick | Model regret | Selection wall ms |", "|---|---:|---|---:|---:|"])
         for row in tuned:
             tuning = row["tuning"]
@@ -968,10 +999,10 @@ def write_report(report: dict[str, Any], directory: Path) -> None:
                 measured = trials[tuning["selected_trial"]]
                 choices = (f"{'×'.join(map(str, model['block']))} @ {model['group_threads'] or 'auto'}t, "
                            f"{model.get('shared_tile_materialization', 'preserve')}, "
-                           f"P={model.get('reduction_programs_per_group', 0) or 'auto'}, U={model.get('reduction_unroll', 1)} / "
+                           f"P={model.get('reduction_programs_per_group', 0) or 'auto'}, U={model.get('reduction_unroll', 1)}, V={model.get('reduction_lane_elements', 1)} / "
                            f"{'×'.join(map(str, measured['block']))} @ {measured['group_threads'] or 'auto'}t, "
                            f"{measured.get('shared_tile_materialization', 'preserve')}, "
-                           f"P={measured.get('reduction_programs_per_group', 0) or 'auto'}, U={measured.get('reduction_unroll', 1)}")
+                           f"P={measured.get('reduction_programs_per_group', 0) or 'auto'}, U={measured.get('reduction_unroll', 1)}, V={measured.get('reduction_lane_elements', 1)}")
                 regret = f"{100.0 * tuning['model_regret']:.2f}%"
             else:
                 choices, regret = "unavailable", "unavailable"
@@ -994,6 +1025,8 @@ def main() -> int:
     parser.add_argument("--tune-copy-batches", help="opt-in cooperative-copy batches, e.g. '1,4,8'; combined with other tuning lists")
     parser.add_argument("--max-tuning-candidates", type=int, default=256,
                         help="maximum joint candidates per shape; reject oversized searches without truncation")
+    parser.add_argument("--tuning-metric", choices=("host", "gpu-control"), default="host",
+                        help="JIT objective: host-wall throughput (default), or GPU command-buffer throughput without encoder probes")
     parser.add_argument("--execution-scope", choices=("auto", "worker", "group"), default="auto")
     parser.add_argument("--pipeline-window", type=int, choices=(1, 2), default=2,
                         help="GEMM scheduling window: 1 is ordered, 2 permits software prefetching")
@@ -1009,8 +1042,11 @@ def main() -> int:
                         help="fuse automatic GPU program/element coordinates, or retain program-per-worker mapping")
     parser.add_argument("--reduction-unroll", type=int, default=1,
                         help="partially unroll ordered worker stripes (1..16); does not reorder accumulation")
+    parser.add_argument("--reduction-lane-elements", type=int, choices=(1, 2, 4, 8), default=1,
+                        help="consecutive elements per worker; changes ownership/FP32 reduction order, not a vector ISA promise")
     parser.add_argument("--tune-reduction-packing", help="staged/JIT search over programs/group, comma-separated 0..8; zero includes the automatic solver")
     parser.add_argument("--tune-reduction-unroll", help="staged/JIT search over ordered stripe unroll factors, comma-separated 1..16")
+    parser.add_argument("--tune-reduction-lane-elements", help="staged/JIT search over consecutive worker element widths from 1,2,4,8")
     parser.add_argument("--elide-independent-subgroup-barriers", action="store_true",
                         help="opt-in synchronization candidate; only proved independent MPP-view groups can elide fences")
     vectorization = parser.add_mutually_exclusive_group()
@@ -1065,12 +1101,15 @@ def main() -> int:
             args.shared_tile_materialization, args.tune_shared_tile_materializations)
         args.packing_tuning_candidates = reduction_candidates(args.tune_reduction_packing, 0, 8)
         args.unroll_tuning_candidates = reduction_candidates(args.tune_reduction_unroll, 1, 16)
+        args.lane_tuning_candidates = reduction_candidates(args.tune_reduction_lane_elements, 1, 8)
         candidates = program_candidates(args)
     except ValueError as error:
         parser.error(str(error))
     if min(args.threads, args.samples, args.sample_ms, args.warmup_ms) <= 0:
         parser.error("block dimensions, thread count, and timing parameters must be positive")
     backends = args.backends.split(",")
+    if args.tuning_metric == "gpu-control" and args.metal_device_timing is None:
+        parser.error("GPU-control JIT selection requires --metal-device-timing")
     if args.metal_device_timing is not None:
         if backends != ["metal"] or sys.platform != "darwin":
             parser.error("Metal device timing requires only the Metal backend on macOS")
@@ -1099,8 +1138,10 @@ def main() -> int:
         parser.error("exact reduction packing requires Metal subgroup reductions and 1..8 programs")
     if not 1 <= args.reduction_unroll <= 16 or (args.reduction_unroll != 1 and not args.metal_subgroup_reductions):
         parser.error("reduction unrolling requires 1..16 and Metal subgroup reductions when non-default")
-    if (args.packing_tuning_candidates or args.unroll_tuning_candidates) and not args.metal_subgroup_reductions:
-        parser.error("reduction packing/unroll tuning requires Metal subgroup reductions")
+    if args.reduction_lane_elements != 1 and not args.metal_subgroup_reductions:
+        parser.error("non-default reduction lane elements require Metal subgroup reductions")
+    if (args.packing_tuning_candidates or args.unroll_tuning_candidates or args.lane_tuning_candidates) and not args.metal_subgroup_reductions:
+        parser.error("reduction packing/unroll/lane tuning requires Metal subgroup reductions")
     if any(backend not in ("cpu", "metal") for backend in backends):
         parser.error("backends must be cpu and/or metal")
     if args.matrix_realization != "simdgroup" and (backends != ["metal"] or args.operations != "gemm" or
@@ -1161,6 +1202,7 @@ def main() -> int:
         "reduction_programs_per_group": args.reduction_programs_per_group,
         "element_grid": args.element_grid,
         "reduction_unroll": args.reduction_unroll,
+        "reduction_lane_elements": args.reduction_lane_elements,
         "shared_tile_materialization": args.shared_tile_materialization,
         "vectorize": not args.no_vectorize,
         "auto_vectorize": args.auto_vectorize,
@@ -1176,11 +1218,12 @@ def main() -> int:
         "gemm_tuning_candidates": [{"block": block, "pipeline_window": window} for block, window in args.tuning_candidates],
         "joint_tuning_candidates": [dict(block=block, pipeline_window=window, group_threads=width,
                                          copy_batch=batch, shared_tile_materialization=materialization,
-                                         reduction_programs_per_group=packing, reduction_unroll=unroll)
-                                    for block, window, width, batch, materialization, packing, unroll in candidates]
+                                         reduction_programs_per_group=packing, reduction_unroll=unroll, reduction_lane_elements=lanes)
+                                    for block, window, width, batch, materialization, packing, unroll, lanes in candidates]
                                    if args.tuning_candidates or args.mapping_tuning_candidates or
-                                   args.materialization_tuning_candidates or args.packing_tuning_candidates or args.unroll_tuning_candidates else [],
+                                   args.materialization_tuning_candidates or args.packing_tuning_candidates or args.unroll_tuning_candidates or args.lane_tuning_candidates else [],
         "max_tuning_candidates": args.max_tuning_candidates,
+        "tuning_metric": args.tuning_metric,
         "quick": args.quick, "timing": "synchronized device-resident host wall time including dispatch",
     }, "results": []}
     cases = make_cases(args.operations.split(","), args.quick, row_shapes)
@@ -1192,7 +1235,7 @@ def main() -> int:
                 tune = ((case.operation == "gemm" and
                          (args.tuning_candidates or args.mapping_tuning_candidates)) or
                         (args.metal_subgroup_reductions and
-                         bool(args.mapping_tuning_candidates or args.packing_tuning_candidates or args.unroll_tuning_candidates)) or
+                         bool(args.mapping_tuning_candidates or args.packing_tuning_candidates or args.unroll_tuning_candidates or args.lane_tuning_candidates)) or
                         bool(args.materialization_tuning_candidates))
                 measure = run_tuned_case if tune else run_case
                 row = measure(torch, np, args, case, backend, len(report["results"]))

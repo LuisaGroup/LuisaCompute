@@ -101,6 +101,10 @@ struct PlannerOptions {
     // independent accumulators or change its floating-point recurrence order.
     // A bounded code-size choice, not a hardware vector-width promise.
     uint32_t reduction_unroll_factor{1u};
+    // Consecutive logical elements owned by one worker before advancing to
+    // the next worker (1, 2, 4 or 8). An ownership layout, not a vector ISA
+    // guarantee. Non-default widths require the reduction-tree permission.
+    uint32_t reduction_lane_elements{1u};
     bool retain_accumulators{true};
     // Elide the initial/final shared accumulator only when its literal fill
     // and sole, fully in-bounds global store have been proved by analysis.
@@ -157,6 +161,7 @@ struct ReductionCandidate {
     uint64_t reductions{0u};
     double scalar_rounds{0.0};
     uint32_t unroll_factor{1u};
+    uint32_t lane_elements{1u};
 };
 
 // Bridge-owned proofs and candidate generation precede these read-only
@@ -263,6 +268,7 @@ struct GroupPlan {
     // Shared pure Tile SSA values scalarized to one definition per worker.
     uint32_t elementwise_scalar_temporaries{0u};
     uint32_t reduction_unroll_factor{1u};
+    uint32_t reduction_lane_elements{1u};
     // Static emitted synchronization sites, not dynamic barrier executions.
     // Filled by realization; the bootstrap ranking does not yet price them.
     uint64_t group_barrier_sites_before{0u};

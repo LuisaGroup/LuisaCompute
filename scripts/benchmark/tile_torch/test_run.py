@@ -239,6 +239,7 @@ class RepeatContractTests(unittest.TestCase):
         self.assertEqual(MODULE.optional_native_arguments(argparse.Namespace(reduction_programs_per_group=3)), prefix + ["3"])
         self.assertEqual(MODULE.optional_native_arguments(argparse.Namespace(element_grid="reference")), prefix + ["auto", "reference"])
         self.assertEqual(MODULE.optional_native_arguments(argparse.Namespace(reduction_unroll=4)), prefix + ["auto", "auto", "4"])
+        self.assertEqual(MODULE.optional_native_arguments(argparse.Namespace(reduction_lane_elements=4)), prefix + ["auto", "auto", "1", "4"])
         MODULE.validate_element_reduction_mapping({}, argparse.Namespace())
         args = argparse.Namespace(reduction_programs_per_group=3, element_grid="auto")
         native = {"reduction_programs_per_group": 3, "fuse_gpu_elementwise": True,
@@ -247,6 +248,15 @@ class RepeatContractTests(unittest.TestCase):
         for change in ({"reduction_programs_per_group": 0}, {"fuse_gpu_elementwise": False},
                        {"execution_plans": []}, {"execution_plans": [{"reduction_programs_per_group": 1}]}):
             with self.assertRaises(ValueError):
+                MODULE.validate_element_reduction_mapping(native | change, args)
+
+    def test_lane_element_request_requires_realization(self):
+        args = argparse.Namespace(reduction_lane_elements=4)
+        native = {"reduction_lane_elements": 4, "execution_plans": [{"reduction_lane_elements": 4}]}
+        MODULE.validate_element_reduction_mapping(native, args)
+        for change in ({"reduction_lane_elements": True}, {"reduction_lane_elements": 1},
+                       {"execution_plans": []}, {"execution_plans": [{}]}):
+            with self.assertRaisesRegex(ValueError, "lane elements"):
                 MODULE.validate_element_reduction_mapping(native | change, args)
 
     def test_row_shapes_cover_independent_width_and_program_count(self):
@@ -262,9 +272,18 @@ class RepeatContractTests(unittest.TestCase):
                                   packing_tuning_candidates=[0, 4], unroll_tuning_candidates=[1, 4],
                                   max_tuning_candidates=4)
         choices = MODULE.program_candidates(args)
-        self.assertEqual([choice[-2:] for choice in choices], [(0, 1), (0, 4), (4, 1), (4, 4)])
+        self.assertEqual([choice[-3:] for choice in choices], [(0, 1, 1), (0, 4, 1), (4, 1, 1), (4, 4, 1)])
         args.max_tuning_candidates = 3
         with self.assertRaisesRegex(ValueError, "budget"):
+            MODULE.program_candidates(args)
+        args.max_tuning_candidates = 8
+        args.lane_tuning_candidates = [1, 4]
+        self.assertEqual(len(MODULE.program_candidates(args)), 8)
+        args.max_tuning_candidates = 7
+        with self.assertRaisesRegex(ValueError, "budget"):
+            MODULE.program_candidates(args)
+        args.lane_tuning_candidates = [3]
+        with self.assertRaisesRegex(ValueError, "lane elements"):
             MODULE.program_candidates(args)
         self.assertEqual(MODULE.reduction_candidates("0,4,0", 0, 8), [0, 4])
         self.assertEqual(MODULE.reduction_candidates(None, 1, 16), [])
@@ -572,6 +591,18 @@ class RepeatContractTests(unittest.TestCase):
         self.assertIs(config["metal_subgroup_reductions"], True)
         self.assertEqual(config["matrix_realization"], "simdgroup")
         self.assertIs(config["cpu_input_views"], False)
+        self.assertEqual(config["reduction_lane_elements"], 1)
+        packed = copy.deepcopy(row)
+        packed["native"]["reduction_lane_elements"] = 4
+        packed["native"]["execution_plans"][0]["reduction_lane_elements"] = 4
+        with patch.object(Path, "read_text", return_value=json.dumps({"results": [packed]})):
+            config = REPEAT.load_plan(Path("unused.json"), {"softmax"})["metal", "softmax_64x4096"]
+        self.assertEqual(config["reduction_lane_elements"], 4)
+        for bad_width in (True, 3, 8):
+            bad = packed | {"native": packed["native"] | {"reduction_lane_elements": bad_width}}
+            with patch.object(Path, "read_text", return_value=json.dumps({"results": [bad]})):
+                with self.assertRaisesRegex(ValueError, "lane elements"):
+                    REPEAT.load_plan(Path("unused.json"), {"softmax"})
         layernorm = row | {
             "case": {"operation": "layernorm", "m": 64, "n": 4096, "k": 1}}
         with patch.object(Path, "read_text", return_value=json.dumps({"results": [layernorm]})):
@@ -879,6 +910,34 @@ class BenchmarkContractTests(unittest.TestCase):
         self.assertEqual(result["native"]["throughput_us_p50"], 50.0)
         self.assertEqual(result["tuning"]["selected_trial"], 1)
         self.assertEqual(args.group_threads, 0)
+
+    def test_gpu_jit_objective_is_explicit_and_replays_the_selected_lane_layout(self):
+        args = argparse.Namespace(tuning_candidates=[], gemm_block=(8, 8, 16), pipeline_window=1,
+                                  lane_tuning_candidates=[1, 4], tuning_metric="gpu-control")
+        calls = []
+
+        def measure(torch, np, candidate, case, backend, ordinal):
+            calls.append(candidate.reduction_lane_elements)
+            gpu = 20.0 if len(calls) == 3 else 2.0 if calls[-1] == 4 else 8.0
+            return {"valid": True, "native": {
+                "throughput_us_p50": 1.0 if calls[-1] == 1 else 3.0,
+                "execution_plans": [{"normalized_kernel_cost": 1.0 if calls[-1] == 1 else 2.0}],
+                "device_timing": {"control": {"encoder_instrumentation": False,
+                                               "method": "metal_command_buffer_timestamps_v1",
+                                               "command_buffer_throughput_us_p50": gpu}}}}
+
+        with patch.object(MODULE, "run_case", side_effect=measure), contextlib.redirect_stdout(io.StringIO()):
+            result = MODULE.run_tuned_case(None, None, args, MODULE.Case("rmsnorm", 64, 4096, 1), "metal", 0)
+        self.assertEqual(calls, [1, 4, 4])
+        self.assertEqual(result["tuning"]["selection_metric"], "native_gpu_command_buffer_throughput_us_p50")
+        self.assertEqual(result["tuning"]["model_regret"], 3.0)
+        self.assertEqual(MODULE.tuning_score(result, "gpu-control"), 20.0)
+        for control in ({}, {"method": "metal_command_buffer_timestamps_v1", "encoder_instrumentation": True},
+                        {"method": "metal_command_buffer_timestamps_v1", "encoder_instrumentation": False,
+                         "command_buffer_throughput_us_p50": float("nan")}):
+            with self.assertRaises(ValueError):
+                MODULE.tuning_score({"valid": True, "native": {"throughput_us_p50": 1.0,
+                                                               "device_timing": {"control": control}}}, "gpu-control")
 
     def test_jit_search_reports_model_regret_without_overriding_measurement(self):
         args = argparse.Namespace(tuning_candidates=[((32, 128, 1024), 1), ((128, 32, 1024), 1)],

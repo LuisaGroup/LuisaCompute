@@ -121,6 +121,7 @@ void print_plans(luisa::span<const bridge::tirx::GroupPlan> plans) {
                   << ",\"reduction_subgroups_per_program\":" << plan.reduction_subgroups_per_program
                   << ",\"reduction_programs_per_group\":" << plan.reduction_programs_per_group
                   << ",\"reduction_unroll_factor\":" << plan.reduction_unroll_factor
+                  << ",\"reduction_lane_elements\":" << plan.reduction_lane_elements
                   << ",\"striped_storage_scalars_per_worker\":" << plan.striped_storage_scalars_per_worker
                   << ",\"reduction_operations\":" << plan.reduction_operations
                   << ",\"reduction_elements\":" << plan.reduction_elements
@@ -577,9 +578,9 @@ void run_luisa(const char *program, const char *output_path, std::string_view op
 }// namespace
 
 int main(int argc, char *argv[]) {
-    if (argc < 13 || argc > 31) {
+    if (argc < 13 || argc > 32) {
         std::cerr << "Usage: benchmark_tile_tirx <cpu|metal> <gemm|add|gelu_add|sum|softmax|rmsnorm|layernorm|residual_layernorm|cross_entropy> M N K BM BN BK samples sample-ms warmup-ms output.f32 [auto|worker|group] [pipeline-window:1|2] [scalar|subgroup-reduce|matrix|mpp|mpp-views] [vectorize|no-vectorize|auto-vectorize] [group-threads:auto|N] [copy-batch:1..16] [tvm|luisa|luisa-fast] [retain-subgroup-fences|elide-subgroup-fences] [cpu-stack-bytes:0..65536] [cpu-vector-lanes:16|32|64|128] [retain-input-snapshots|forward-input-views] [cpu-model:generic|native] [cpu-matrix:reference|cblas] [cpu-math:reference|accelerate] [shared-tiles:preserve|expensive-only]\n";
-        std::cerr << "Additional mapping options: [reduction-programs:auto|1..8] [element-grid:auto|reference] [reduction-unroll:1..16]\n";
+        std::cerr << "Additional mapping options: [reduction-programs:auto|1..8] [element-grid:auto|reference] [reduction-unroll:1..16] [reduction-lane-elements:1|2|4|8]\n";
         return 1;
     }
     try {
@@ -621,6 +622,14 @@ int main(int argc, char *argv[]) {
         auto auto_vectorize = vector_mode == "auto-vectorize";
         bridge::tirx::PlannerOptions planner;
         planner.metal_subgroup_reductions = metal_subgroup_reductions;
+        if (argc >= 32) {
+            auto width = positive_integer(argv[31]);
+            if ((width != 1 && width != 2 && width != 4 && width != 8) ||
+                (width != 1 && !metal_subgroup_reductions)) {
+                throw std::invalid_argument{"reduction lane elements require 1, 2, 4 or 8 and subgroup-reduce when non-default"};
+            }
+            planner.reduction_lane_elements = static_cast<uint32_t>(width);
+        }
         if (argc >= 31) {
             auto factor = positive_integer(argv[30]);
             if (factor > 16 || (factor != 1 && !metal_subgroup_reductions)) {
@@ -833,6 +842,7 @@ int main(int argc, char *argv[]) {
                   << ",\"metal_subgroup_reductions\":" << (metal_subgroup_reductions ? "true" : "false")
                   << ",\"reduction_programs_per_group\":" << planner.reduction_programs_per_group
                   << ",\"reduction_unroll_factor\":" << planner.reduction_unroll_factor
+                  << ",\"reduction_lane_elements\":" << planner.reduction_lane_elements
                   << ",\"fuse_gpu_elementwise\":" << (planner.fuse_gpu_elementwise ? "true" : "false")
                   << ",\"shared_tile_materialization\":" << std::quoted(shared_tiles_name)
                   << ",\"forward_readonly_tile_loads\":" << (forward_readonly_tile_loads ? "true" : "false")

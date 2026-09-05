@@ -27,6 +27,16 @@ namespace {
 constexpr auto subgroup_size = uint64_t{32u};
 using BufferKey = const tvm::tirx::VarNode *;
 
+// Maximum private slots owned by any worker under the blocked-cyclic map
+// i = (chunk * workers + worker) * lane_elements + element. The partial
+// final pack needs only its live prefix, including when elements < workers.
+[[nodiscard]] uint64_t stripe_slots(uint64_t elements, uint64_t workers,
+                                    uint64_t lane_elements) noexcept {
+    auto stride = workers * lane_elements;
+    return elements / stride * lane_elements +
+           std::min(elements % stride, lane_elements);
+}
+
 [[nodiscard]] std::optional<uint64_t> static_extent(
     const tvm::PrimExpr &expression, bool positive = false) noexcept {
     auto value = expression.as<tvm::IntImmNode>();
@@ -738,6 +748,7 @@ private:
     uint64_t _workers;
     uint64_t _subgroups;
     uint32_t _unroll_factor;
+    uint32_t _lane_elements;
     const ReductionAnalysis &_analysis;
     const luisa::unordered_map<const tvm::tirx::ForNode *,
                                tvm::tirx::BufferVar> &_partials;
@@ -775,17 +786,52 @@ private:
                            tvm::ffi::Optional<tvm::PrimExpr>{};
     }
 
+    [[nodiscard]] tvm::tirx::Stmt _element_pack(
+        const tvm::tirx::PrimVar &element, tvm::tirx::Stmt body) const {
+        if (_lane_elements == 1u) {
+            return tvm::tirx::Substitute(std::move(body),
+                                         tvm::ffi::Map<tvm::tirx::Var, tvm::Expr>{{element, tvm::IntImm::Int64(0)}});
+        }
+        return tvm::tirx::For{element, tvm::IntImm::Int64(0),
+                              tvm::IntImm::Int64(_lane_elements),
+                              tvm::tirx::ForKind::kUnrolled, std::move(body)};
+    }
+
+    [[nodiscard]] tvm::tirx::Stmt _distributed_loop(
+        const tvm::tirx::PrimVar &chunk, const tvm::tirx::PrimVar &element,
+        const tvm::PrimExpr &linear, uint64_t elements,
+        tvm::tirx::Stmt body) const {
+        auto stride = _workers * _lane_elements;
+        auto complete_chunks = elements / stride;
+        tvm::ffi::Array<tvm::tirx::Stmt> statements;
+        if (complete_chunks != 0u) {
+            statements.push_back(_stripe_loop(chunk, complete_chunks, _element_pack(element, body)));
+        }
+        // Only the last, partial pack carries a bounds check. Keeping the
+        // complete domain separate exposes consecutive accesses to codegen
+        // without speculatively evaluating a tail load or private-array use.
+        if (elements % stride != 0u) {
+            auto tail = _element_pack(element, tvm::tirx::IfThenElse{
+                                                   linear < tvm::IntImm::Int64(static_cast<int64_t>(elements)),
+                                                   std::move(body)});
+            statements.push_back(tvm::tirx::Substitute(std::move(tail),
+                                                       tvm::ffi::Map<tvm::tirx::Var, tvm::Expr>{{chunk, tvm::IntImm::Int64(static_cast<int64_t>(complete_chunks))}}));
+        }
+        if (statements.empty()) { return tvm::tirx::Evaluate{tvm::IntImm::Int32(0)}; }
+        return tvm::tirx::SeqStmt::Flatten(statements);
+    }
+
     [[nodiscard]] tvm::tirx::Stmt _reduction(
         const tvm::tirx::ForNode *loop,
         const ReductionMatch &match) {
-        auto chunks = luisa::ceil_div(match.elements, _workers);
         auto chunk = tvm::tirx::PrimVar{
             loop->loop_var->name + "_subgroup_chunk", tvm::PrimType::Int(64)};
-        auto linear = chunk *
-                          tvm::IntImm::Int64(static_cast<int64_t>(_workers)) +
-                      _worker;
+        auto element = tvm::tirx::PrimVar{
+            loop->loop_var->name + "_lane_element", tvm::PrimType::Int(64)};
+        auto width = tvm::IntImm::Int64(_lane_elements);
+        auto linear = (chunk * tvm::IntImm::Int64(static_cast<int64_t>(_workers)) + _worker) * width + element;
         auto previous_slot = std::move(_striped_slot);
-        _striped_slot = chunk;
+        _striped_slot = chunk * width + element;
         auto contribution = tvm::tirx::Substitute(
             VisitPrimExpr(match.contribution),
             tvm::ffi::Map<tvm::tirx::Var, tvm::Expr>{
@@ -803,13 +849,7 @@ private:
         }
         tvm::tirx::Stmt update = tvm::tirx::BufferStore{
             match.carry, std::move(combined), {tvm::IntImm::Int64(0)}};
-        if (chunks * _workers != match.elements) {
-            update = tvm::tirx::IfThenElse{
-                linear < tvm::IntImm::Int64(
-                             static_cast<int64_t>(match.elements)),
-                std::move(update)};
-        }
-        auto striped = _stripe_loop(chunk, chunks, std::move(update));
+        auto striped = _distributed_loop(chunk, element, linear, match.elements, std::move(update));
         auto intrinsic = match.kind == reduction_add_contract ?
                              "simd_sum" :
                          match.kind == reduction_max_contract ?
@@ -853,11 +893,13 @@ private:
 
     [[nodiscard]] tvm::tirx::Stmt _distributed_elements(
         const tvm::tirx::ForNode *loop, const ElementDomain &domain) {
-        auto chunks = luisa::ceil_div(domain.count, _workers);
         auto chunk = tvm::tirx::PrimVar{
             loop->loop_var->name + "_subgroup_chunk", tvm::PrimType::Int(64)};
+        auto element = tvm::tirx::PrimVar{
+            loop->loop_var->name + "_lane_element", tvm::PrimType::Int(64)};
+        auto width = tvm::IntImm::Int64(_lane_elements);
         auto previous_slot = std::move(_striped_slot);
-        _striped_slot = chunk;
+        _striped_slot = chunk * width + element;
         _lane_depth++;
         auto body = VisitStmt(domain.body);
         _lane_depth--;
@@ -865,9 +907,7 @@ private:
         if (domain.count == 0u) {
             return tvm::tirx::Evaluate{tvm::IntImm::Int32(0)};
         }
-        auto linear = chunk *
-                          tvm::IntImm::Int64(static_cast<int64_t>(_workers)) +
-                      _worker;
+        auto linear = (chunk * tvm::IntImm::Int64(static_cast<int64_t>(_workers)) + _worker) * width + element;
         tvm::ffi::Map<tvm::tirx::Var, tvm::Expr> coordinates;
         auto trailing = domain.count;
         for (auto axis : domain.axes) {
@@ -884,13 +924,7 @@ private:
             coordinates.Set(axis->loop_var, axis->min + coordinate);
         }
         body = tvm::tirx::Substitute(std::move(body), coordinates);
-        if (chunks * _workers != domain.count) {
-            body = tvm::tirx::IfThenElse{
-                linear < tvm::IntImm::Int64(
-                             static_cast<int64_t>(domain.count)),
-                std::move(body)};
-        }
-        return _stripe_loop(chunk, chunks, std::move(body));
+        return _distributed_loop(chunk, element, linear, domain.count, std::move(body));
     }
 
 protected:
@@ -982,7 +1016,7 @@ protected:
 public:
     ReductionProgramMapper(
         tvm::PrimExpr worker, tvm::PrimExpr lane,
-        tvm::PrimExpr subgroup, uint64_t workers, uint64_t subgroups, uint32_t unroll_factor,
+        tvm::PrimExpr subgroup, uint64_t workers, uint64_t subgroups, uint32_t unroll_factor, uint32_t lane_elements,
         const ReductionAnalysis &analysis,
         const luisa::unordered_map<const tvm::tirx::ForNode *,
                                    tvm::tirx::BufferVar> &partials,
@@ -990,7 +1024,7 @@ public:
                                    tvm::tirx::BufferVar> &striped_buffers) noexcept
         : _worker{std::move(worker)}, _lane{std::move(lane)},
           _subgroup{std::move(subgroup)}, _workers{workers},
-          _subgroups{subgroups}, _unroll_factor{unroll_factor}, _analysis{analysis}, _partials{partials},
+          _subgroups{subgroups}, _unroll_factor{unroll_factor}, _lane_elements{lane_elements}, _analysis{analysis}, _partials{partials},
           _striped_buffers{striped_buffers} {}
 };
 
@@ -1088,7 +1122,7 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
             options.max_reduction_striped_scalars_per_worker);
         for (auto &&[key, materialization] : materializations) {
             static_cast<void>(key);
-            auto slots = luisa::ceil_div(materialization.elements, workers);
+            auto slots = stripe_slots(materialization.elements, workers, options.reduction_lane_elements);
             if (slots > striped_storage_budget ||
                 striped_storage_scalars > striped_storage_budget - slots) {
                 striped_storage_valid = false;
@@ -1104,12 +1138,12 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
         auto scalar_rounds = 0.0;
         for (auto elements : analysis.independent_domains) {
             scalar_rounds +=
-                static_cast<double>(luisa::ceil_div(elements, workers));
+                static_cast<double>(stripe_slots(elements, workers, options.reduction_lane_elements));
         }
         for (auto reduction : analysis.reduction_order) {
             auto elements = analysis.reductions.at(reduction).elements;
             scalar_rounds +=
-                static_cast<double>(luisa::ceil_div(elements, workers));
+                static_cast<double>(stripe_slots(elements, workers, options.reduction_lane_elements));
         }
         // Packing independent programs is a separate search dimension from
         // the cooperating width of one program. Multiple-subgroup programs
@@ -1124,7 +1158,7 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
             auto features = ReductionCandidate{
                 *groups, static_cast<uint32_t>(threads),
                 static_cast<uint32_t>(subgroups), static_cast<uint32_t>(packed),
-                partial_bytes, striped_storage_scalars, analysis.reductions.size(), scalar_rounds, options.reduction_unroll_factor};
+                partial_bytes, striped_storage_scalars, analysis.reductions.size(), scalar_rounds, options.reduction_unroll_factor, options.reduction_lane_elements};
             auto score = policy.reduction_score(features, model);
             if (!std::isfinite(score) || score < 0.0) {
                 throw std::runtime_error{"reduction cost policy returned a nonfinite or negative score"};
@@ -1182,7 +1216,7 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
     auto striped_storage_scalars = uint64_t{0u};
     for (auto &&[key, materialization] : materializations) {
         auto slots =
-            luisa::ceil_div(materialization.elements, program_workers);
+            stripe_slots(materialization.elements, program_workers, options.reduction_lane_elements);
         striped_storage_scalars += slots;
         auto buffer = tvm::tirx::decl_buffer(
             {tvm::IntImm::Int64(static_cast<int64_t>(slots))},
@@ -1196,7 +1230,7 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
     }
     auto body = ReductionProgramMapper{
         std::move(worker), lane, subgroup,
-        program_workers, multi_subgroup ? subgroups_per_program : 1u, options.reduction_unroll_factor,
+        program_workers, multi_subgroup ? subgroups_per_program : 1u, options.reduction_unroll_factor, options.reduction_lane_elements,
         analysis, partials, striped_buffers}(loop->body);
     if (!allocations.empty()) {
         allocations.push_back(std::move(body));
@@ -1241,6 +1275,7 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
         static_cast<uint32_t>(subgroups_per_program);
     plan.reduction_programs_per_group = static_cast<uint32_t>(packed_programs);
     plan.reduction_unroll_factor = options.reduction_unroll_factor;
+    plan.reduction_lane_elements = options.reduction_lane_elements;
     plan.striped_storage_scalars_per_worker = striped_storage_scalars;
     plan.reduction_operations = analysis.reductions.size();
     plan.reduction_elements = analysis.reduction_elements;

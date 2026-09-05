@@ -194,12 +194,13 @@ void test_element_grid_shared_producers(Runtime &runtime) {
 void test_element_grid_respects_exact_reduction(Runtime &runtime) {
     if (runtime.target() != "metal") { return; }
     auto kernel = make_copy(exec::Scope::AUTOMATIC, 37);
-    for (auto request = 0u; request != 3u; request++) {
+    for (auto request = 0u; request != 4u; request++) {
         PlannerOptions planner;
         planner.metal_subgroup_reductions = true;
         if (request == 0u) { planner.threads_per_group = 64u; }
         if (request == 1u) { planner.reduction_programs_per_group = 2u; }
         if (request == 2u) { planner.reduction_unroll_factor = 4u; }
+        if (request == 3u) { planner.reduction_lane_elements = 4u; }
         auto executable = runtime.build(kernel, true, false, true, false, planner);
         expect(!executable.ok());
         expect(executable.error.find("exact reduction mapping") != luisa::string::npos) << executable.error;
@@ -725,6 +726,81 @@ void test_metal_reduction_packing_and_policy(Runtime &runtime) {
     auto bad_cost = runtime.build(kernel, true, false, true, false, planner, false, true);
     expect(!bad_cost.ok());
     expect(bad_cost.error.find("nonfinite") != luisa::string::npos) << bad_cost.error;
+}
+
+void test_reduction_lane_elements(Runtime &runtime) {
+    constexpr auto rows = int64_t{5};
+    for (auto width : {0u, 3u, 16u, 4u}) {
+        auto planner = subgroup_reduction_options();
+        planner.reduction_lane_elements = width;
+        if (width == 4u) { planner.metal_subgroup_reductions = false; }
+        auto rejected = runtime.build(make_row_softmax(rows, 257), true, false, true, false, planner);
+        expect(!rejected.ok());
+        expect(rejected.error.find("lane elements") != luisa::string::npos) << rejected.error;
+    }
+    if (runtime.target() != "metal") { return; }
+    class Policy final : public AnalyticExecutionCostPolicy {
+    public:
+        mutable uint32_t observed_width{0u};
+        double reduction_score(const ReductionCandidate &candidate, const ExecutionCostModel &model) const noexcept override {
+            observed_width = candidate.lane_elements;
+            return AnalyticExecutionCostPolicy::reduction_score(candidate, model);
+        }
+    } policy;
+    for (auto width : {2u, 4u, 8u}) {
+        for (auto columns : {int64_t{1}, int64_t{31}, int64_t{33}, int64_t{127}, int64_t{128}, int64_t{129}, int64_t{257}, int64_t{4103}}) {
+            auto planner = subgroup_reduction_options();
+            planner.reduction_lane_elements = width;
+            planner.reduction_unroll_factor = 3u;
+            planner.cost_policy = &policy;
+            if (columns <= 257) {
+                planner.reduction_programs_per_group = 3u;
+            } else {
+                planner.threads_per_group = 256u;
+            }
+            auto executable = runtime.build(make_row_softmax(rows, columns), true, false, true, false, planner, false, true);
+            expect(executable.ok()) << "width=" << width << " columns=" << columns << " " << executable.error;
+            if (!executable.ok()) { continue; }
+            expect(eq(policy.observed_width, width));
+            expect(eq(executable.plans.size(), 1u));
+            if (executable.plans.empty()) { continue; }
+            auto &plan = executable.plans.front();
+            expect(eq(plan.reduction_lane_elements, width));
+            expect(eq(plan.reduction_unroll_factor, 3u));
+            auto workers = columns <= 257 ? 32u : 256u;
+            auto stride = static_cast<int64_t>(workers * width);
+            auto slots = static_cast<uint64_t>(columns / stride * width + std::min<int64_t>(columns % stride, width));
+            expect(eq(plan.striped_storage_scalars_per_worker, slots));
+            expect(eq(plan.reduction_programs_per_group, columns <= 257 ? 3u : 1u));
+            luisa::vector<float> values(static_cast<size_t>(rows * columns));
+            for (auto i = size_t{0u}; i < values.size(); i++) {
+                values[i] = static_cast<float>(static_cast<int32_t>(i % 127u) - 63) / 64.0f;
+            }
+            auto input = runtime.upload<float>({rows, columns}, values);
+            auto output = runtime.allocate<float>({rows, columns});
+            (*executable.entry)(input, output);
+            auto actual = runtime.download<float>(output, values.size());
+            for (auto row = int64_t{0}; row < rows; row++) {
+                auto denominator = 0.0;
+                for (auto column = int64_t{0}; column < columns; column++) {
+                    denominator += std::exp(static_cast<double>(values[row * columns + column]));
+                }
+                for (auto column = int64_t{0}; column < columns; column++) {
+                    auto index = static_cast<size_t>(row * columns + column);
+                    auto expected = std::exp(static_cast<double>(values[index])) / denominator;
+                    expect(std::abs(static_cast<double>(actual[index]) - expected) <= 2e-6 + 2e-5 * std::abs(expected))
+                        << "width=" << width << " columns=" << columns << " index=" << index;
+                }
+            }
+        }
+    }
+    auto planner = subgroup_reduction_options();
+    planner.reduction_lane_elements = 8u;
+    planner.threads_per_group = 32u;
+    planner.max_reduction_striped_scalars_per_worker = 1u;
+    auto over_budget = runtime.build(make_row_softmax(rows, 33), true, false, true, false, planner, false, true);
+    expect(!over_budget.ok());
+    expect(over_budget.error.find("exact reduction mapping") != luisa::string::npos) << over_budget.error;
 }
 
 void test_metal_subgroup_striped_softmax(Runtime &runtime) {
@@ -1393,6 +1469,7 @@ int main(int argc, char *argv[]) {
     "tile_execution_element_grid_exact_reduction"_test = [&] { test_element_grid_respects_exact_reduction(runtime); };
     "tile_execution_element_grid_producer_contract"_test = [&] { test_element_grid_producer_contract(runtime); };
     "tile_execution_reduction_packing_and_policy"_test = [&] { test_metal_reduction_packing_and_policy(runtime); };
+    "tile_execution_reduction_lane_elements"_test = [&] { test_reduction_lane_elements(runtime); };
     "tile_execution_cpu_parallel_launch_cost"_test = [&] { test_cpu_parallel_launch_cost(runtime); };
     "tile_execution_shared_exp_materialization"_test = test_shared_exp_is_materialized_once;
     "tile_execution_shared_tanh_materialization"_test = test_shared_tanh_is_materialized_once;

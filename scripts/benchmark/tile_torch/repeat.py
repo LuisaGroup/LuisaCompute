@@ -69,6 +69,9 @@ def load_plan(path: Path, operations: set[str]) -> dict[tuple[str, str], dict[st
             raise ValueError(f"{case.name} has an invalid Metal subgroup-reduction policy")
         packing = native.get("reduction_programs_per_group", 0)
         unroll = native.get("reduction_unroll_factor", 1)
+        lanes = native.get("reduction_lane_elements", 1)
+        if type(lanes) is not int or lanes not in (1, 2, 4, 8) or (lanes != 1 and not metal_subgroup_reductions):
+            raise ValueError(f"{case.name} has invalid reduction lane elements")
         if type(unroll) is not int or not 1 <= unroll <= 16 or (unroll != 1 and not metal_subgroup_reductions):
             raise ValueError(f"{case.name} has an invalid reduction unroll factor")
         if type(packing) is not int or not 0 <= packing <= 8 or (packing and not metal_subgroup_reductions):
@@ -88,6 +91,8 @@ def load_plan(path: Path, operations: set[str]) -> dict[tuple[str, str], dict[st
                 raise ValueError(f"{case.name} has an unrealized reduction program packing")
             if unroll != 1 and any(item.get("reduction_unroll_factor") != unroll for item in execution_plans):
                 raise ValueError(f"{case.name} has an unrealized reduction unroll factor")
+            if lanes != 1 and any(item.get("reduction_lane_elements") != lanes for item in execution_plans):
+                raise ValueError(f"{case.name} has unrealized reduction lane elements")
         cpu_views = row["backend"] == "cpu" and forwarding
         cpu_model = native.get("cpu_target_policy") if row["backend"] == "cpu" else None
         validate_cpu_target_policy(native, cpu_model, row["backend"])
@@ -125,6 +130,7 @@ def load_plan(path: Path, operations: set[str]) -> dict[tuple[str, str], dict[st
             "metal_subgroup_reductions": metal_subgroup_reductions,
             "reduction_programs_per_group": packing,
             "reduction_unroll": unroll,
+            "reduction_lane_elements": lanes,
             "element_grid": None if element_grid is None else "auto" if element_grid else "reference",
             "expected_cpu_model": native.get("cpu_model") if row["backend"] == "cpu" else None,
             "elide_independent_subgroup_barriers": elide,

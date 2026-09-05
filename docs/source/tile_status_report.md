@@ -116,6 +116,21 @@ the unchanged 17×257 sum is a noise control. Therefore the default unrolling
 factor and coefficient prior remain unchanged. Sixteen additional norm/loss
 outputs validate the new unrolled codegen, not a universal performance win.
 
+The next structural reduction candidate is **consecutive elements per worker**:
+`i=(chunk*workers+worker)*V+element`, V=1/2/4/8. Reducers, elementwise
+consumers and compiler-local Tile storage share this ownership map; full packs
+are separated from guarded tails. V defaults to one and is exposed to the
+backend cost policy and staged/JIT search, not hardcoded for RMSNorm. An
+explicit GPU-control JIT objective now complements the unchanged host-wall
+default. Its score uses no-counter command-buffer GPU throughput, never the
+perturbing compute-pass probe. The
+{download}`implementation/validation checkpoint <../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-lane-validation/notes.md>`
+records 24 new Metal layout cases, 82 Python tests and the full 31/33 Tile
+regression: two existing source assertions conflict with the untouched local
+`mem_flags(2)` edit. Frozen-parameter GPU/E2E replay is separate from these
+correctness results; no automatic V choice or coefficient update follows from
+the finite search alone.
+
 **The general library-performance goal is still not complete.** These CPU
 wins are legal provider realizations for narrow proved contracts, not evidence
 that the portable loop family or direct XIR route has acquired BLAS-class
