@@ -29,8 +29,8 @@ same-binary native A/B replays measure 21.19×--49.87× for RMSNorm and
 14.04×--75.54× for the LayerNorm/cross-entropy extension. Those causal
 native-to-native results are unaffected by PyTorch's output policy.
 
-The newest four cases are fused residual LayerNorm. They expose and repair a
-second structural gap: cloning a cheap shared Tile expression into each
+The final four cases in that cohort are fused residual LayerNorm. They expose
+and repair a second structural gap: cloning a cheap shared Tile expression into each
 consumer duplicated device reads even after the execution hierarchy was
 mapped correctly. The structural exporter now preserves all multi-consumer
 pure Tile SSA by default, and the target mapper can compact it to bounded
@@ -38,6 +38,9 @@ worker-private stripes. A staged/JIT candidate can still choose recomputation.
 
 These results close two identified structural gaps. They do **not** establish
 all-operator, all-shape, low-precision, cross-device or pure-kernel parity.
+The later target-width experiment (Section 9.6)
+adds separately measured GPU and E2E evidence, including search winners that
+regress in independent replay.
 
 ```{figure} ../_static/tile/tirx-subgroup-reduction.svg
 :alt: A logical TileIR reduction passes fail-closed proofs and a bounded cost solver before becoming either packed independent SIMD groups or several cooperating SIMD groups, with memory resources planned separately.
@@ -366,9 +369,10 @@ use this substitution. The independent distributed-local audit then either
 proves the uncompacted private allocation safe or declines the complete
 subgroup map; it is never silently redirected to another worker's slot.
 
-For width 4096 with 256 workers, each worker owns only 16 FP32 values. The
-unit test inspects generated Metal and requires `_worker_stripe[16]` while
-rejecting the old per-thread `[4096]` form. This is a resource-planning result,
+For width 4096 with exactly 256 workers, each worker owns only 16 FP32 values.
+Auto-layout tests independently enumerate the current objective and check
+the private stripe required by the chosen width, while rejecting the old
+per-thread `[4096]` form. This is a resource-planning result,
 not a new source-level `Memory` declaration. Explicit manual `Memory` remains
 for deliberate expert placement and still requires explicit `.store()`.
 
@@ -495,6 +499,13 @@ The resource bound uses the same layout-dependent expression, and backend
 policies receive V explicitly. This accounts for tail ownership but does not
 model vector issue, coalescing or reduced active-group concurrency.
 
+Policies also receive physical group count `ceil_div(programs,Q)`, total
+useful scalar elements summed over these separate domains, and useful lane
+work `elements/(rounds*W)`. These immutable facts do not assert measured
+occupancy. Device thread capacity is now queried by the benchmark adapter,
+instead of inheriting TVM's 256-thread target default. The algorithm's
+32-partial collective bound remains independent of that device limit.
+
 Each independent domain is rounded separately. Combining their total before
 `ceil_div` would underprice separate softmax passes at a tail width.
 
@@ -582,9 +593,10 @@ loops are the reductions already counted in `R`.
 
 The table is retained as the exact historical plan report. The current
 default structural exporter additionally preserves LayerNorm's shared
-`centered` Tile, so a newly compiled width-4096 LayerNorm reports a 16-scalar
-worker stripe rather than zero. Saved artifacts are never rewritten to pretend
-they were produced by the newer policy.
+`centered` Tile, so a newly compiled width-4096 LayerNorm reports a bounded
+worker stripe rather than zero. Its exact size follows the selected width,
+not this historical 256-thread entry. Saved artifacts are never rewritten to
+pretend they were produced by the newer policy.
 
 ## 7. Staged/JIT tuning is the outer authority
 
@@ -675,7 +687,7 @@ results:
 - benchmark/replay metadata, policy preservation, cooperating-subgroup facts
   and staged/JIT winner revalidation, including materialization policy.
 
-At the current checkpoint:
+At the earlier shared-Tile checkpoint (historical counts retained):
 
 ```text
 complete CTest /^test_tile_/:            32 / 32 tests passed
@@ -694,6 +706,15 @@ this feature. The complete Tile cohort was also run with the submitted
 source value restored temporarily, then the user's local edit was restored.
 Commands and the full warning boundary are in the
 {download}`shared-Tile validation note <../../scripts/benchmark/tile_torch/results/m1-max-20260905-shared-tile-validation/notes.md>`.
+
+The latest target-width checkpoint instead runs the full current 33-test
+Tile suite without modifying that local edit: 31/33 pass, with only the two
+known cooperative/memory source-assertion conflicts; their numerical checks
+pass. All 83 Python benchmark contract tests and the 14 new ragged Metal
+layouts pass. The
+{download}`current validation log and boundary <../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-width-validation/notes.md>`
+retain the exact build/test provenance; the older 32/32 counts above are not
+relabeled as a new clean-source run.
 
 ## 9. Performance evidence
 
@@ -834,6 +855,58 @@ selects the other legal policy, `EXPENSIVE_ONLY`, with native/Torch ratios
 proved input views, automatic element packing and the explicit 64 KiB local
 stack budget. It demonstrates target-dependent resource planning, not a
 universal preference for either materialization policy.
+
+### 9.6 Target-aware widths: GPU and dispatch acceptance
+
+The latest
+{download}`width evidence and independent audit <../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-width-validation/notes.md>`
+cover 15 FP32 sum/softmax/RMSNorm cases: 17×257, 64×4096, 1024×4096,
+7×1537 and 128×8192. A six-width GPU-objective search compares
+{32,96,128,256,512,1024}; its reference is the best valid member of the
+restricted {32,128,256} subfamily. Both frozen variants retain V=4, P=1 and
+U=1. This is neither a full-width optimum nor an old/new default-policy test.
+
+All 240 replayed native/Torch outputs pass in four order-balanced rounds,
+with unchanged fingerprinted executable, bridge and TVM compiler/runtime
+libraries. GPU values below are **no-counter command-buffer execution
+intervals**, not isolated kernel timestamps. Host batches and single-call
+dispatch latency are separate uninstrumented phases. Times are medians of
+per-round p50s; gains are median paired reference/candidate ratios.
+
+At 1024×4096, all columns below are GPU measurements. Ref/new are the
+frozen native reference/candidate; Torch is measured with the candidate.
+
+| Op | Ref µs | New µs | Gain [min, max] | Torch µs |
+|---|---:|---:|---:|---:|
+| sum | 24.837 | 23.625 | 1.051× [1.031, 1.080] | 26.511 |
+| softmax | 67.543 | 59.174 | 1.141× [1.111, 1.157] | 121.056 |
+| RMSNorm | 70.910 | 64.210 | 1.101× [1.092, 1.132] | 68.802 |
+
+All three wider-row gains are positive in every pair. Their separate
+batched E2E throughput gains are 1.045×, 1.156× and 1.092×. RMSNorm's paired
+native/Torch GPU time ratio is 0.931, but single-call GPU medians are
+93.417/92.458 µs and E2E medians 316.479/318.855 µs: approximately parity,
+not a general dispatch-latency win. Torch's functional RMSNorm retains its
+returned-output allocation; sum and softmax use preallocated output on both
+sides. The reference-to-candidate comparison uses the same native API and
+allocation policy.
+
+The full cohort also contains necessary counterexamples. W=1024 sum at
+128×8192 and W=96 softmax at 17×257 were search winners but regress in all
+four independent GPU pairs, costing 6.79% and 25.88% more time. Five
+identical-plan controls quantify observed variability, including a
+0.848--1.131 apparent gain range for the shortest sum control. These are not
+confidence intervals or correction factors. The four-round finite cohort
+does not justify a universal winner, V default, or fitted cost coefficients.
+It does justify retaining an incumbent in independent measured acceptance.
+
+At N=4096/W=1024/V=4 the generated MSL has one straight-line four-element
+pack; at W=128 it has eight chunk iterations. Softmax's private stripe also
+shrinks from 32 to four scalars. These are real code-shape/resource features,
+not evidence of physical register counts or the exact performance cause.
+The remaining policy needs memory/issue/collective service and whole-device
+subgroup demand, followed by held-out ranking validation. A more elaborate
+solver cannot compensate for missing features or noisy timing labels.
 
 ## 10. What this closes, and what remains
 

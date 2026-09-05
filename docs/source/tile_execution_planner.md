@@ -709,6 +709,26 @@ checked in full; a separate frozen-plan replay is required before claiming a
 speedup. The default analytic prior is intentionally unchanged by these
 in-cohort trials: it does not yet price unrolling or full-machine row waves.
 
+The
+{download}`target-width replay <../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-width-validation/notes.md>`
+is a concrete test of that boundary. Expanding the six-width measured
+subfamily beyond the restricted {32,128,256} reference yields 1.051×,
+1.141× and 1.101× no-counter GPU gains for 1024×4096 sum, softmax and
+RMSNorm, with fixed V=4/P=1/U=1. But two other search winners are slower
+in all four independent pairs. The same-plan controls also expose variation
+that a minimum-only selection policy cannot distinguish from improvement.
+The six measurements are a subset of all newly legal subgroup widths, not
+an exhaustive hardware optimum or default-policy comparison.
+
+Consequently, measured selection should retain an incumbent and use a
+separate acceptance phase before promoting a winner. The next backend policy
+must relate physical group/subgroup demand, pack/tail code shape and
+memory/issue/collective service; useful lane work alone is insufficient.
+Both GPU execution and E2E dispatch should be reported, with the selection
+objective explicit. This experiment changes no default scoring coefficients
+and provides no held-out model calibration. The current small candidate
+family still favors exact enumeration, not a more complex search algorithm.
+
 ## 4. Implemented matrix mapping family
 
 The current planner targets a proved Metal group-level FP32 MMA with a

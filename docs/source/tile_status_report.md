@@ -146,8 +146,21 @@ cooperation to powers of two through eight subgroups. The adapter now queries
 the device limit and the solver includes every legal subgroup count up to the
 32-partial collective bound. Fourteen new ragged softmax configurations pass,
 including 96 and 1024 threads on this device. Physical group counts and useful
-lane-work fractions reach backend cost policies and reports. Default scoring
-coefficients are unchanged; the independent performance comparison is separate.
+lane-work fractions reach backend cost policies and reports. A separate
+15-case, four-round frozen replay holds V=4/P=1/U=1 fixed and compares the
+best of six measured widths with the best of the restricted {32,128,256}
+subfamily, not the old automatic planner. At 1024×4096, sum/softmax/RMSNorm
+gain **1.051× / 1.141× / 1.101× GPU throughput** and
+**1.045× / 1.156× / 1.092× E2E throughput**, with all four pairs positive.
+RMSNorm takes 64.210 µs versus Torch 68.802 µs in the no-counter GPU phase;
+the median paired time ratio is 0.931. Single-call RMSNorm GPU/E2E remains
+approximately parity. Two other search winners regress in every replay round:
+128×8192 sum costs 6.79% more GPU time and 17×257 softmax costs 25.88% more.
+Five same-plan controls and all 240 replay outputs are retained; the search
+adds 202 validated outputs and four explicit resource rejections. GPU here
+means command-buffer execution, not an isolated kernel timestamp. Default V
+and scoring coefficients remain unchanged; independent incumbent acceptance
+and a calibrated full-device cost policy remain necessary.
 
 **The general library-performance goal is still not complete.** These CPU
 wins are legal provider realizations for narrow proved contracts, not evidence
@@ -191,7 +204,7 @@ No Metal result is relabeled as XIR performance.
 | {download}`Dual-timing validation <../../scripts/benchmark/tile_torch/results/m1-max-20260905-dual-timing-validation/notes.md>` | Full 33-test Tile checkpoint, then-77 Python contracts, timestamp tests and submitted/worktree distinction |
 | {download}`GPU timing observer audit <../../scripts/benchmark/tile_torch/results/m1-max-20260905-device-timing-counter-control/notes.md>` | No-counter GPU control, probe perturbation, reduction/GEMM/native-MPP integration and the preceding 80-test Python checkpoint |
 | {download}`Consecutive-worker reduction layout <../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-lane-validation/notes.md>` | Generic ownership map, GPU-objective JIT, four-round RMSNorm GPU/E2E replay, six-operator coverage and current verification boundaries |
-| {download}`Target-complete reduction widths <../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-width-validation/notes.md>` | Queried device limit, all whole-subgroup widths, immutable cost-policy features, 14 new GPU layouts and current 83-test Python checkpoint |
+| {download}`Target-complete reduction widths <../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-width-validation/notes.md>` | Queried device limit, all whole-subgroup widths, cost-policy features, 14 new GPU layouts, 83 Python tests, 15-case GPU/E2E replay, rejected winners and source-hashed audit |
 
 ```{figure} ../_static/tile/xir-planning-pipeline.svg
 :alt: The same execution-first TileIR feeds XIR/SIMD, Metal-native MPP and TIRx compiler routes with separate ownership.
