@@ -1,0 +1,117 @@
+Test project /Users/mike/CLionProjects/luisa/cmake-build-tirx
+      Start 44: test_tile_layout
+ 1/33 Test #44: test_tile_layout ......................   Passed    0.18 sec
+      Start 45: test_tile_ir
+ 2/33 Test #45: test_tile_ir ..........................   Passed    0.01 sec
+      Start 46: test_tile_dsl
+ 3/33 Test #46: test_tile_dsl .........................   Passed    0.01 sec
+      Start 47: test_tile_memory
+ 4/33 Test #47: test_tile_memory ......................   Passed    0.02 sec
+      Start 48: test_tile_xir
+ 5/33 Test #48: test_tile_xir .........................   Passed    0.02 sec
+      Start 49: test_tile_values_cpp20
+ 6/33 Test #49: test_tile_values_cpp20 ................   Passed    0.01 sec
+      Start 50: test_tile_values_cpp23
+ 7/33 Test #50: test_tile_values_cpp23 ................   Passed    0.01 sec
+      Start 51: test_tile_native_codegen
+ 8/33 Test #51: test_tile_native_codegen ..............   Passed    0.01 sec
+      Start 52: test_tile_native_runtime
+ 9/33 Test #52: test_tile_native_runtime ..............   Passed    2.29 sec
+      Start 53: test_tile_metal_timing
+10/33 Test #53: test_tile_metal_timing ................   Passed    0.07 sec
+      Start 54: test_tile_system_cpu
+11/33 Test #54: test_tile_system_cpu ..................   Passed    0.03 sec
+      Start 55: test_tile_system_metal
+12/33 Test #55: test_tile_system_metal ................   Passed    0.11 sec
+      Start 56: test_tile_tirx
+13/33 Test #56: test_tile_tirx ........................   Passed    0.75 sec
+      Start 57: test_tile_tirx_values
+14/33 Test #57: test_tile_tirx_values .................   Passed    1.34 sec
+      Start 58: test_tile_tirx_execution
+15/33 Test #58: test_tile_tirx_execution ..............   Passed    4.96 sec
+      Start 59: test_tile_tirx_cooperative
+16/33 Test #59: test_tile_tirx_cooperative ............   Passed    3.45 sec
+      Start 60: test_tile_tirx_memory
+17/33 Test #60: test_tile_tirx_memory .................   Passed    6.78 sec
+      Start 61: test_tile_tirx_pipeline
+18/33 Test #61: test_tile_tirx_pipeline ...............   Passed    4.59 sec
+      Start 62: test_tile_tirx_matrix
+19/33 Test #62: test_tile_tirx_matrix .................   Passed   56.59 sec
+      Start 63: test_tile_tirx_planner
+20/33 Test #63: test_tile_tirx_planner ................   Passed    0.55 sec
+      Start 64: test_tile_tirx_poc
+21/33 Test #64: test_tile_tirx_poc ....................   Passed    1.89 sec
+      Start 65: test_tile_tirx_poc_neural
+22/33 Test #65: test_tile_tirx_poc_neural .............   Passed    0.97 sec
+      Start 66: test_tile_tirx_poc_algorithms
+23/33 Test #66: test_tile_tirx_poc_algorithms .........   Passed    1.20 sec
+      Start 67: test_tile_tirx_targets
+24/33 Test #67: test_tile_tirx_targets ................   Passed    0.73 sec
+      Start 68: test_tile_tirx_poc_metal
+25/33 Test #68: test_tile_tirx_poc_metal ..............   Passed    0.73 sec
+      Start 69: test_tile_tirx_poc_neural_metal
+26/33 Test #69: test_tile_tirx_poc_neural_metal .......   Passed    0.33 sec
+      Start 70: test_tile_tirx_poc_algorithms_metal
+27/33 Test #70: test_tile_tirx_poc_algorithms_metal ...   Passed    0.38 sec
+      Start 71: test_tile_tirx_values_metal
+28/33 Test #71: test_tile_tirx_values_metal ...........   Passed    0.85 sec
+      Start 72: test_tile_tirx_execution_metal
+29/33 Test #72: test_tile_tirx_execution_metal ........   Passed    7.75 sec
+      Start 73: test_tile_tirx_cooperative_metal
+30/33 Test #73: test_tile_tirx_cooperative_metal ......***Failed    4.72 sec
+
+Running test "tile_cooperative_shared_resources_and_global_order"... [31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_cooperative.cpp:100[31m - test condition:  [false[31m][0m
+
+
+===============================================================================
+Suite global
+tests:   12 | [31m1 failed[0m
+asserts: 897 | 11 passed | [31m1 failed[0m
+
+
+      Start 74: test_tile_tirx_memory_metal
+31/33 Test #74: test_tile_tirx_memory_metal ...........***Failed    2.08 sec
+
+Running test "tile_native_memory_ancestor_resources"... [31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_memory.cpp:168[31m - test condition:  [false[31m][0m
+
+
+Running test "tile_native_memory_ancestor_resources"... [31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_memory.cpp:168[31m - test condition:  [false[31m][0m[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_memory.cpp:168[31m - test condition:  [false[31m][0m
+
+
+===============================================================================
+Suite global
+tests:   14 | [31m2 failed[0m
+asserts: 448 | 13 passed | [31m2 failed[0m
+
+
+      Start 75: test_tile_tirx_pipeline_metal
+32/33 Test #75: test_tile_tirx_pipeline_metal .........   Passed    2.58 sec
+      Start 76: test_tile_tirx_matrix_metal
+33/33 Test #76: test_tile_tirx_matrix_metal ...........   Passed    7.91 sec
+
+94% tests passed, 2 tests failed out of 33
+
+Label Time Summary:
+integration                =   2.47 sec*proc (3 tests)
+integration_tile_native    =   2.29 sec*proc (1 test)
+integration_tile_system    =   0.11 sec*proc (1 test)
+integration_tile_timing    =   0.07 sec*proc (1 test)
+unit                       = 111.41 sec*proc (30 tests)
+unit_tile                  = 111.41 sec*proc (30 tests)
+unit_tile_native           =   0.01 sec*proc (1 test)
+unit_tile_poc              =  31.38 sec*proc (12 tests)
+unit_tile_system           =   0.14 sec*proc (2 tests)
+unit_tile_targets          =  28.06 sec*proc (10 tests)
+unit_tile_tirx             = 111.13 sec*proc (21 tests)
+unit_tile_xir              =   0.02 sec*proc (1 test)
+
+Total Test time (real) = 113.89 sec
+
+The following tests FAILED:
+	 73 - test_tile_tirx_cooperative_metal (Failed)         unit unit_tile unit_tile_poc unit_tile_targets unit_tile_tirx
+	 74 - test_tile_tirx_memory_metal (Failed)              unit unit_tile unit_tile_poc unit_tile_targets unit_tile_tirx
+Errors while running CTest

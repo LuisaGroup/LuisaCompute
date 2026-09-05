@@ -949,34 +949,44 @@ private:
     }
 
     [[nodiscard]] tvm::tirx::Stmt _element_pack(
-        const tvm::tirx::PrimVar &element, tvm::tirx::Stmt body) const {
-        if (_lane_elements == 1u) {
+        const tvm::tirx::PrimVar &element, tvm::tirx::Stmt body, uint64_t count) const {
+        if (count == 1u) {
             return tvm::tirx::Substitute(std::move(body),
                                          tvm::ffi::Map<tvm::tirx::Var, tvm::Expr>{{element, tvm::IntImm::Int64(0)}});
         }
         return tvm::tirx::For{element, tvm::IntImm::Int64(0),
-                              tvm::IntImm::Int64(_lane_elements),
+                              tvm::IntImm::Int64(static_cast<int64_t>(count)),
                               tvm::tirx::ForKind::kUnrolled, std::move(body)};
     }
 
     [[nodiscard]] tvm::tirx::Stmt _distributed_loop(
         const tvm::tirx::PrimVar &chunk, const tvm::tirx::PrimVar &element,
-        const tvm::PrimExpr &linear, uint64_t elements,
-        tvm::tirx::Stmt body) const {
+        uint64_t elements, tvm::tirx::Stmt body) const {
         auto stride = _workers * _lane_elements;
         auto complete_chunks = elements / stride;
         tvm::ffi::Array<tvm::tirx::Stmt> statements;
         if (complete_chunks != 0u) {
-            statements.push_back(_stripe_loop(chunk, complete_chunks, _element_pack(element, body)));
+            statements.push_back(_stripe_loop(chunk, complete_chunks, _element_pack(element, body, _lane_elements)));
         }
-        // Only the last, partial pack carries a bounds check. Keeping the
-        // complete domain separate exposes consecutive accesses to codegen
-        // without speculatively evaluating a tail load or private-array use.
-        if (elements % stride != 0u) {
-            auto tail = _element_pack(element, tvm::tirx::IfThenElse{
-                                                   linear < tvm::IntImm::Int64(static_cast<int64_t>(elements)),
-                                                   std::move(body)});
-            statements.push_back(tvm::tirx::Substitute(std::move(tail),
+        // The final chunk has full worker packs followed by at most one
+        // partial pack. Guard a whole pack, rather than each unrolled scalar.
+        // Keep the partial worker separate: it must not speculate a load or
+        // private-stripe access beyond its domain. Each worker's recurrence
+        // order and storage slots are identical to the element-guarded form.
+        if (auto remaining = elements % stride; remaining != 0u) {
+            auto complete_workers = remaining / _lane_elements;
+            auto partial_elements = remaining % _lane_elements;
+            auto boundary = tvm::IntImm::Int64(static_cast<int64_t>(complete_workers));
+            tvm::ffi::Array<tvm::tirx::Stmt> tail;
+            if (complete_workers != 0u) {
+                tail.push_back(tvm::tirx::IfThenElse{
+                    _worker < boundary, _element_pack(element, body, _lane_elements)});
+            }
+            if (partial_elements != 0u) {
+                tail.push_back(tvm::tirx::IfThenElse{
+                    tvm::equal(_worker, boundary), _element_pack(element, std::move(body), partial_elements)});
+            }
+            statements.push_back(tvm::tirx::Substitute(tvm::tirx::SeqStmt::Flatten(std::move(tail)),
                                                        tvm::ffi::Map<tvm::tirx::Var, tvm::Expr>{{chunk, tvm::IntImm::Int64(static_cast<int64_t>(complete_chunks))}}));
         }
         if (statements.empty()) { return tvm::tirx::Evaluate{tvm::IntImm::Int32(0)}; }
@@ -1011,7 +1021,7 @@ private:
         }
         tvm::tirx::Stmt update = tvm::tirx::BufferStore{
             match.carry, std::move(combined), {tvm::IntImm::Int64(0)}};
-        auto striped = _distributed_loop(chunk, element, linear, match.elements, std::move(update));
+        auto striped = _distributed_loop(chunk, element, match.elements, std::move(update));
         auto intrinsic = match.kind == reduction_add_contract ?
                              "simd_sum" :
                          match.kind == reduction_max_contract ?
@@ -1086,7 +1096,7 @@ private:
             coordinates.Set(axis->loop_var, axis->min + coordinate);
         }
         body = tvm::tirx::Substitute(std::move(body), coordinates);
-        return _distributed_loop(chunk, element, linear, domain.count, std::move(body));
+        return _distributed_loop(chunk, element, domain.count, std::move(body));
     }
 
 protected:

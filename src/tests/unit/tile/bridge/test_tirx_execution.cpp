@@ -860,6 +860,49 @@ void test_reduction_lane_elements(Runtime &runtime) {
     expect(over_budget.error.find("exact reduction mapping") != luisa::string::npos) << over_budget.error;
 }
 
+// Full packs, all-tail domains, each residual element count, and a complete
+// chunk followed by a partial worker must preserve input/temporary ownership.
+void test_reduction_tail_packs(Runtime &runtime) {
+    if (runtime.target() != "metal") { return; }
+    constexpr auto rows = int64_t{3};
+    for (auto workers : {192u, 416u}) {
+        for (auto columns : {int64_t{1536}, int64_t{1537}, int64_t{1538}, int64_t{1539}, int64_t{1663}, int64_t{1664}, int64_t{1665}}) {
+            luisa::vector<float> values(static_cast<size_t>(rows * columns));
+            for (size_t i = 0u; i < values.size(); i++) {
+                values[i] = static_cast<float>(static_cast<int32_t>(i % 127u) - 63) / 16.0f;
+            }
+            auto input = runtime.upload<float>({rows, columns}, values);
+            for (auto cache : {false, true}) {
+                auto planner = subgroup_reduction_options();
+                planner.threads_per_group = workers;
+                planner.reduction_programs_per_group = 1u;
+                planner.reduction_lane_elements = 4u;
+                planner.cache_reduction_inputs = cache;
+                auto executable = runtime.build(make_row_softmax(rows, columns), true, false, true, false, planner);
+                expect(executable.ok()) << "workers=" << workers << " columns=" << columns << " cache=" << cache << " " << executable.error;
+                if (!executable.ok()) { continue; }
+                // Every output is overwritten from a sentinel, including the
+                // last worker's 1/2/3 elements. No skipped-tail pass is valid.
+                auto output = runtime.upload<float>({rows, columns}, luisa::vector<float>(values.size(), -19.0f));
+                (*executable.entry)(input, output);
+                auto actual = runtime.download<float>(output, values.size());
+                for (int64_t row = 0; row < rows; row++) {
+                    auto denominator = 0.0;
+                    for (int64_t column = 0; column < columns; column++) {
+                        denominator += std::exp(static_cast<double>(values[row * columns + column]));
+                    }
+                    for (int64_t column = 0; column < columns; column++) {
+                        auto index = static_cast<size_t>(row * columns + column);
+                        auto expected = std::exp(static_cast<double>(values[index])) / denominator;
+                        expect(std::abs(static_cast<double>(actual[index]) - expected) <= 2e-6 + 2e-5 * std::abs(expected))
+                            << "workers=" << workers << " columns=" << columns << " cache=" << cache << " index=" << index;
+                    }
+                }
+            }
+        }
+    }
+}
+
 void test_reduction_input_cache(Runtime &runtime) {
     auto planner = subgroup_reduction_options();
     planner.cache_reduction_inputs = true;
@@ -1748,6 +1791,7 @@ int main(int argc, char *argv[]) {
     "tile_execution_element_grid_producer_contract"_test = [&] { test_element_grid_producer_contract(runtime); };
     "tile_execution_reduction_packing_and_policy"_test = [&] { test_metal_reduction_packing_and_policy(runtime); };
     "tile_execution_reduction_lane_elements"_test = [&] { test_reduction_lane_elements(runtime); };
+    "tile_execution_reduction_tail_packs"_test = [&] { test_reduction_tail_packs(runtime); };
     "tile_execution_reduction_input_cache"_test = [&] { test_reduction_input_cache(runtime); };
     "tile_execution_reduction_complete_width_search"_test = [&] { test_reduction_complete_width_search(runtime); };
     "tile_execution_cpu_parallel_launch_cost"_test = [&] { test_cpu_parallel_launch_cost(runtime); };
