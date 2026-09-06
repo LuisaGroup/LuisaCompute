@@ -514,6 +514,44 @@ performance remains a finite FP32 M1 Max cohort. Physical K, edge costs and
 reuse still need planner work; native MPP, SIMD and other operators do not
 inherit a new speed claim from this change.
 
+### MPP state budget and candidate admission
+
+The [realization-state correction](../../internals/tile/matrix.md#fragment-budgets-belong-to-the-emitted-realization)
+removes a second structural search restriction: MPP candidates no longer pay
+the SIMD-group emitter's nonexistent A/B fragment allocations. The default
+64-scalar budget and all cost coefficients are unchanged. Explicit MPP
+budgets now also admit the legal four-scalar 8x16 minimum; reference A/B/C
+accounting and physical shared-memory checks remain intact.
+
+The fixed exploratory set contains four output blocks times three thread
+counts, with BK=4096 and pipeline window 1. On **each** of 1024³, 4096³,
+1025×1025×1024 and 4096×4096×11008, valid candidates increase from **6/12 to
+10/12**. The full-output audit covers 64 accepted trials and eight freshly
+compiled selections: **216 complete native/Torch/direct-MPS outputs**, about
+1.93 billion checked elements. All 24 old/new common candidate sources are
+byte-identical. The remaining rejections exceed the explicit-state budget.
+
+**There is no accepted speedup or new calibrated/default schedule in this
+checkpoint.** Search timings were unstable during concurrent desktop activity;
+all eight selected configurations became 1.23–1.88× slower on fresh GPU
+measurement than their selected trial. Selection bias and changing load are
+not separated by this exploratory run. Those numbers diagnose why its minima
+cannot establish a performance gain; they do not measure an old/new compiler
+regression. Raw GPU command-buffer and E2E batch/single results remain in the
+{download}`source-backed audit and methods
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260906-mpp-state-budget/notes.md>`.
+
+Final correctness checks cover 4,992 independently enumerated admission
+combinations, 42 newly admitted Metal programs (including staged/global views,
+transposes, ragged bounds, minimum/exact budgets and nonzero recurrence state),
+CPU/Metal execution and operator regressions, and native Metal Runtime. The
+{download}`final receipt
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260906-mpp-state-budget/final-correctness/results.json>`
+keeps failures against the old library as explicit negative controls.
+The planned held-out cohort and six-round frozen performance acceptance have
+not run in a quiet window. Physical K, eliminated scalar work and memory-path
+features still need scoring work; native MPP/SIMD gain no new performance claim.
+
 ### K partition and program walks: diagnostics, not new defaults
 
 The earlier September 6 K-partition experiment fixes the TIRx MPP output block at 128×32,

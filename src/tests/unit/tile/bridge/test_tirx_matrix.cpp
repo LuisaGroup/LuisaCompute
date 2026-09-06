@@ -329,6 +329,51 @@ public:
         : _input{function->params[0]}, _offset{function->params[2]} {}
 };
 
+void test_mpp_output_only_fragment_budget(Runtime &runtime) {
+    if (runtime.target() != "metal" || !tvm::ffi::Function::GetGlobal("target.metal.mpp_bounded_store_contract_version")) { return; }
+    struct Case {
+        int64_t m, n;
+        uint32_t threads;
+        uint32_t budget{64u};
+    };
+    for (auto test : {Case{8, 16, 32u, 4u}, Case{32, 64, 32u}, Case{64, 32, 32u}, Case{64, 64, 64u},
+                      Case{128, 64, 128u}, Case{64, 128, 128u}, Case{128, 128, 256u}}) {
+        for (auto scenario = 0u; scenario < 3u; scenario++) {
+            Shape cfg{test.m * 2, test.n * 2, 16, test.m, test.n, 16};
+            if (scenario != 0u) {
+                cfg.m = test.m + 5;
+                cfg.n = test.n + 7;
+                cfg.k = scenario == 1u ? 17 : 51;
+                cfg.transpose_a = true;
+                cfg.transpose_b = scenario == 2u;
+            }
+            auto initial = scenario == 0u ? 0.0f : 0.5f;
+            for (auto views : {false, true}) {
+                auto kernel = gemm(runtime, cfg, 1u, 1u, true, initial);
+                auto native = bridge::tirx::lower(kernel.function());
+                expect(native.ok()) << native.error;
+                if (!native) { continue; }
+                bridge::tirx::PlannerOptions planner;
+                planner.threads_per_group = test.threads;
+                planner.max_fragment_scalars_per_lane = test.budget;
+                auto executable = compile_native(runtime, kernel, std::move(native.value), 32u, 256u, planner, false, true, views);
+                expect(executable.ok()) << executable.error << test.m << test.n << scenario << views;
+                if (!executable.ok()) { continue; }
+                expect(eq(executable.plans.size(), size_t{1u}));
+                for (auto &plan : executable.plans) {
+                    expect(eq(plan.threads, test.threads));
+                    expect(eq(plan.cost.fragment_scalars_per_lane, static_cast<uint64_t>(test.budget)));
+                    expect(plan.metal_mpp && plan.matrices[0].persistent_accumulator && plan.matrices[0].direct_accumulator_store);
+                    expect(eq(plan.shared_memory_bytes, views ? 0ull : static_cast<uint64_t>((cfg.bm + cfg.bn) * cfg.bk * 4)));
+                }
+                auto source = metal_source(executable.module.value());
+                expect(std::string_view{source.data(), source.size()}.find("mpp::tensor_ops::matmul2d<") != std::string_view::npos);
+                check_gemm(runtime, executable, cfg, 1.0, true, false, false, initial);
+            }
+        }
+    }
+}
+
 void test_mpp_readonly_views(Runtime &runtime) {
     if (runtime.target() != "metal" || !tvm::ffi::Function::GetGlobal("target.metal.mpp_memory_contract_version")) { return; }
     bridge::tirx::PlannerOptions planner;
@@ -2374,6 +2419,7 @@ int main(int argc, char *argv[]) {
     "tile_matrix_mpp_memory_inputs_and_nonzero_accumulator"_test = [&] { test_mpp_memory_realization(runtime); };
     "tile_matrix_mpp_typed_contract_and_rejections"_test = [&] { test_mpp_typed_contract(runtime); };
     "tile_matrix_mpp_readonly_view_proofs"_test = [&] { test_mpp_readonly_views(runtime); };
+    "tile_matrix_mpp_output_only_fragment_budget"_test = [&] { test_mpp_output_only_fragment_budget(runtime); };
     "tile_matrix_mpp_bounded_k_views"_test = [&] { test_mpp_bounded_k_views(runtime); };
     "tile_matrix_mpp_bounded_mn_semantics"_test = [&] { test_mpp_bounded_mn_contract(runtime); };
     "tile_matrix_mpp_bounded_store_contract"_test = [&] { test_mpp_bounded_store_contract(runtime); };

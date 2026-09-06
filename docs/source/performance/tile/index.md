@@ -80,6 +80,12 @@ This extends the existing planner's legal family, not its cost calibration or
 the independent native-MPP/SIMD routes. Both measured compiler stacks include
 the same uncommitted barrier edit, documented with the artifact fingerprints.
 
+The [realization-state budget correction](results.md#mpp-state-budget-and-candidate-admission)
+then expands a fixed MPP search from 6 to 10 valid candidates per shape by
+removing nonexistent A/B fragment charges. Correctness and source controls
+pass, but unstable exploratory timing prevents a new performance claim;
+held-out and balanced acceptance remain pending. No cost calibration changes.
+
 The [K/walk diagnostics](results.md#k-partition-and-program-walks-diagnostics-not-new-defaults)
 find shape-dependent K sensitivity, reject simple row-stripe traversal, and
 retain an inconclusive rectangle screen with order reversals. These are

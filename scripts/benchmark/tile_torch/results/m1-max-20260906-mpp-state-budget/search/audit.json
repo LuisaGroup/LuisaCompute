@@ -1,0 +1,564 @@
+{
+  "passed": true,
+  "use": "candidate admission and numerical validation; uncontrolled search timings are not accepted performance gains",
+  "attempted_candidates": 96,
+  "valid_candidates": 64,
+  "complete_outputs": 216,
+  "checked_elements": 1925296182,
+  "unchanged_common_candidates": 24,
+  "summary": [
+    {
+      "shape": [
+        1024,
+        1024,
+        1024
+      ],
+      "variant": "reference",
+      "valid_candidates": 6,
+      "selected": {
+        "block": [
+          128,
+          32,
+          4096
+        ],
+        "threads": 128,
+        "subgroup": [
+          4,
+          1
+        ],
+        "local": [
+          32,
+          32
+        ],
+        "logical_scalars": 32,
+        "newly_admitted": false,
+        "source": "9a3882584d67f153f07bb7141774a116e61191216407241e0974c48611e65a5e"
+      },
+      "model": {
+        "block": [
+          128,
+          64,
+          4096
+        ],
+        "threads": 256,
+        "subgroup": [
+          4,
+          2
+        ],
+        "local": [
+          32,
+          32
+        ],
+        "logical_scalars": 32,
+        "newly_admitted": false,
+        "source": "50c1fc802524eab2d79c07821bc0d5f218c8166d255db7f0845b23785a99ba43"
+      },
+      "observed_model_regret": 0.7257237496022624,
+      "fresh_metrics": {
+        "native": {
+          "gpu_throughput": 630.9094826758621,
+          "e2e_throughput": 629.706896552,
+          "gpu_latency": 529.750017449,
+          "e2e_latency": 915.167
+        },
+        "torch": {
+          "gpu_throughput": 659.1934548591131,
+          "e2e_throughput": 719.8244285714285,
+          "gpu_latency": 533.499987795949,
+          "e2e_latency": 858.666
+        },
+        "system": {
+          "gpu_throughput": 680.837838445946,
+          "e2e_throughput": 668.430162162,
+          "gpu_latency": 604.125030804,
+          "e2e_latency": 873.417
+        }
+      },
+      "selection_to_fresh_gpu_ratio": 1.8777456054596637
+    },
+    {
+      "shape": [
+        1024,
+        1024,
+        1024
+      ],
+      "variant": "candidate",
+      "valid_candidates": 10,
+      "selected": {
+        "block": [
+          128,
+          32,
+          4096
+        ],
+        "threads": 64,
+        "subgroup": [
+          2,
+          1
+        ],
+        "local": [
+          64,
+          32
+        ],
+        "logical_scalars": 64,
+        "newly_admitted": true,
+        "source": "d6fdcd766bf1e4ef64990f3d32bc8a64053eeb6af1c7e0b9fa54b7351d28cd96"
+      },
+      "model": {
+        "block": [
+          128,
+          64,
+          4096
+        ],
+        "threads": 256,
+        "subgroup": [
+          4,
+          2
+        ],
+        "local": [
+          32,
+          32
+        ],
+        "logical_scalars": 32,
+        "newly_admitted": false,
+        "source": "50c1fc802524eab2d79c07821bc0d5f218c8166d255db7f0845b23785a99ba43"
+      },
+      "observed_model_regret": 0.014631085217829298,
+      "fresh_metrics": {
+        "native": {
+          "gpu_throughput": 696.6865067142858,
+          "e2e_throughput": 768.011904762,
+          "gpu_latency": 665.4999451709999,
+          "e2e_latency": 954.125
+        },
+        "torch": {
+          "gpu_throughput": 542.8738753638557,
+          "e2e_throughput": 565.6565135135135,
+          "gpu_latency": 460.6249858625233,
+          "e2e_latency": 710.416
+        },
+        "system": {
+          "gpu_throughput": 564.9391882675676,
+          "e2e_throughput": 572.086702703,
+          "gpu_latency": 461.20834304,
+          "e2e_latency": 714.958
+        }
+      },
+      "selection_to_fresh_gpu_ratio": 1.3733599059644874
+    },
+    {
+      "shape": [
+        4096,
+        4096,
+        4096
+      ],
+      "variant": "candidate",
+      "valid_candidates": 10,
+      "selected": {
+        "block": [
+          128,
+          32,
+          4096
+        ],
+        "threads": 64,
+        "subgroup": [
+          2,
+          1
+        ],
+        "local": [
+          64,
+          32
+        ],
+        "logical_scalars": 64,
+        "newly_admitted": true,
+        "source": "27428531d52d88746666239c96b497632a4462e4d2233e189df4214687d29d2f"
+      },
+      "model": {
+        "block": [
+          128,
+          64,
+          4096
+        ],
+        "threads": 256,
+        "subgroup": [
+          4,
+          2
+        ],
+        "local": [
+          32,
+          32
+        ],
+        "logical_scalars": 32,
+        "newly_admitted": false,
+        "source": "3f207c7bc67e8c8d6cd2f979b22c50d2e304d4e8ab34147e0ccf8b45592042e4"
+      },
+      "observed_model_regret": 0.8257353605957842,
+      "fresh_metrics": {
+        "native": {
+          "gpu_throughput": 36854.125035499994,
+          "e2e_throughput": 33926.708,
+          "gpu_latency": 40597.541665200006,
+          "e2e_latency": 35263.834
+        },
+        "torch": {
+          "gpu_throughput": 49804.333364591,
+          "e2e_throughput": 40624.291999999994,
+          "gpu_latency": 61985.25003856048,
+          "e2e_latency": 43405.458000000006
+        },
+        "system": {
+          "gpu_throughput": 51962.958299599995,
+          "e2e_throughput": 63112,
+          "gpu_latency": 47145.7916428,
+          "e2e_latency": 56500.292
+        }
+      },
+      "selection_to_fresh_gpu_ratio": 1.4705474565767682
+    },
+    {
+      "shape": [
+        4096,
+        4096,
+        4096
+      ],
+      "variant": "reference",
+      "valid_candidates": 6,
+      "selected": {
+        "block": [
+          128,
+          32,
+          4096
+        ],
+        "threads": 128,
+        "subgroup": [
+          4,
+          1
+        ],
+        "local": [
+          32,
+          32
+        ],
+        "logical_scalars": 32,
+        "newly_admitted": false,
+        "source": "ec3b76316ffc7e30c285376c89ce3554e6cb85d27a999e5ccae7e262f461009b"
+      },
+      "model": {
+        "block": [
+          128,
+          64,
+          4096
+        ],
+        "threads": 256,
+        "subgroup": [
+          4,
+          2
+        ],
+        "local": [
+          32,
+          32
+        ],
+        "logical_scalars": 32,
+        "newly_admitted": false,
+        "source": "3f207c7bc67e8c8d6cd2f979b22c50d2e304d4e8ab34147e0ccf8b45592042e4"
+      },
+      "observed_model_regret": 0.8193895255105561,
+      "fresh_metrics": {
+        "native": {
+          "gpu_throughput": 37954.3750314,
+          "e2e_throughput": 33921.084,
+          "gpu_latency": 50386.7500229,
+          "e2e_latency": 36520.459
+        },
+        "torch": {
+          "gpu_throughput": 66907.12500130758,
+          "e2e_throughput": 80136.459,
+          "gpu_latency": 51036.91667318344,
+          "e2e_latency": 81848.458
+        },
+        "system": {
+          "gpu_throughput": 44770.4999824,
+          "e2e_throughput": 45324.792,
+          "gpu_latency": 47612.2499676,
+          "e2e_latency": 43959.584
+        }
+      },
+      "selection_to_fresh_gpu_ratio": 1.2246918803544806
+    },
+    {
+      "shape": [
+        1025,
+        1025,
+        1024
+      ],
+      "variant": "reference",
+      "valid_candidates": 6,
+      "selected": {
+        "block": [
+          64,
+          64,
+          4096
+        ],
+        "threads": 128,
+        "subgroup": [
+          2,
+          2
+        ],
+        "local": [
+          32,
+          32
+        ],
+        "logical_scalars": 32,
+        "newly_admitted": false,
+        "source": "267b7845667583e8f1da45bc79f13941854442c4eaf603cebd551f90dc9a24ad"
+      },
+      "model": {
+        "block": [
+          64,
+          64,
+          4096
+        ],
+        "threads": 128,
+        "subgroup": [
+          2,
+          2
+        ],
+        "local": [
+          32,
+          32
+        ],
+        "logical_scalars": 32,
+        "newly_admitted": false,
+        "source": "267b7845667583e8f1da45bc79f13941854442c4eaf603cebd551f90dc9a24ad"
+      },
+      "observed_model_regret": 0.0,
+      "fresh_metrics": {
+        "native": {
+          "gpu_throughput": 1003.3020832166667,
+          "e2e_throughput": 973.78125,
+          "gpu_latency": 1136.0000353300002,
+          "e2e_latency": 1562.083
+        },
+        "torch": {
+          "gpu_throughput": 934.9854197353125,
+          "e2e_throughput": 941.11875,
+          "gpu_latency": 1007.3750163428485,
+          "e2e_latency": 1249.959
+        },
+        "system": {
+          "gpu_throughput": 1160.413692042857,
+          "e2e_throughput": 1255.35121429,
+          "gpu_latency": 1401.4999615,
+          "e2e_latency": 1767.875
+        }
+      },
+      "selection_to_fresh_gpu_ratio": 1.413215180233403
+    },
+    {
+      "shape": [
+        1025,
+        1025,
+        1024
+      ],
+      "variant": "candidate",
+      "valid_candidates": 10,
+      "selected": {
+        "block": [
+          128,
+          32,
+          4096
+        ],
+        "threads": 64,
+        "subgroup": [
+          2,
+          1
+        ],
+        "local": [
+          64,
+          32
+        ],
+        "logical_scalars": 64,
+        "newly_admitted": true,
+        "source": "cc831a1be2500ac37c7ba273946186b08fb06b0eb33a0ca3eaa6c390347b487b"
+      },
+      "model": {
+        "block": [
+          64,
+          64,
+          4096
+        ],
+        "threads": 128,
+        "subgroup": [
+          2,
+          2
+        ],
+        "local": [
+          32,
+          32
+        ],
+        "logical_scalars": 32,
+        "newly_admitted": false,
+        "source": "267b7845667583e8f1da45bc79f13941854442c4eaf603cebd551f90dc9a24ad"
+      },
+      "observed_model_regret": 0.08762854443056045,
+      "fresh_metrics": {
+        "native": {
+          "gpu_throughput": 982.9635382624999,
+          "e2e_throughput": 1042.599,
+          "gpu_latency": 840.833352413,
+          "e2e_latency": 1286.292
+        },
+        "torch": {
+          "gpu_throughput": 653.4875001913557,
+          "e2e_throughput": 694.4611333333334,
+          "gpu_latency": 573.1666460633278,
+          "e2e_latency": 933.667
+        },
+        "system": {
+          "gpu_throughput": 865.9202899043479,
+          "e2e_throughput": 880.606913043,
+          "gpu_latency": 721.624994185,
+          "e2e_latency": 1211.083
+        }
+      },
+      "selection_to_fresh_gpu_ratio": 1.2683557824589458
+    },
+    {
+      "shape": [
+        4096,
+        4096,
+        11008
+      ],
+      "variant": "candidate",
+      "valid_candidates": 10,
+      "selected": {
+        "block": [
+          64,
+          64,
+          4096
+        ],
+        "threads": 128,
+        "subgroup": [
+          2,
+          2
+        ],
+        "local": [
+          32,
+          32
+        ],
+        "logical_scalars": 32,
+        "newly_admitted": false,
+        "source": "7cb078f2e3ead542c627b95ffc6a9fa4d59fe25191bf3670046dec5b43cf5d66"
+      },
+      "model": {
+        "block": [
+          128,
+          64,
+          4096
+        ],
+        "threads": 256,
+        "subgroup": [
+          4,
+          2
+        ],
+        "local": [
+          32,
+          32
+        ],
+        "logical_scalars": 32,
+        "newly_admitted": false,
+        "source": "d51da4c92ceb1b1bb2e79ae54b214a84cac5bba3f9e999f9342f65804a51be09"
+      },
+      "observed_model_regret": 0.0017221445283677195,
+      "fresh_metrics": {
+        "native": {
+          "gpu_throughput": 138839.208346,
+          "e2e_throughput": 73483.125,
+          "gpu_latency": 136620.91671700001,
+          "e2e_latency": 83121.333
+        },
+        "torch": {
+          "gpu_throughput": 93680.37496460602,
+          "e2e_throughput": 83183.459,
+          "gpu_latency": 116227.374994196,
+          "e2e_latency": 84011.084
+        },
+        "system": {
+          "gpu_throughput": 107532.083348,
+          "e2e_throughput": 112579.875,
+          "gpu_latency": 108008.99995999999,
+          "e2e_latency": 108126.958
+        }
+      },
+      "selection_to_fresh_gpu_ratio": 1.2426216868736346
+    },
+    {
+      "shape": [
+        4096,
+        4096,
+        11008
+      ],
+      "variant": "reference",
+      "valid_candidates": 6,
+      "selected": {
+        "block": [
+          64,
+          64,
+          4096
+        ],
+        "threads": 128,
+        "subgroup": [
+          2,
+          2
+        ],
+        "local": [
+          32,
+          32
+        ],
+        "logical_scalars": 32,
+        "newly_admitted": false,
+        "source": "7cb078f2e3ead542c627b95ffc6a9fa4d59fe25191bf3670046dec5b43cf5d66"
+      },
+      "model": {
+        "block": [
+          128,
+          64,
+          4096
+        ],
+        "threads": 256,
+        "subgroup": [
+          4,
+          2
+        ],
+        "local": [
+          32,
+          32
+        ],
+        "logical_scalars": 32,
+        "newly_admitted": false,
+        "source": "d51da4c92ceb1b1bb2e79ae54b214a84cac5bba3f9e999f9342f65804a51be09"
+      },
+      "observed_model_regret": 0.02929495351105693,
+      "fresh_metrics": {
+        "native": {
+          "gpu_throughput": 108989.458298,
+          "e2e_throughput": 72864.709,
+          "gpu_latency": 174143.625016,
+          "e2e_latency": 80753.125
+        },
+        "torch": {
+          "gpu_throughput": 87127.37500900403,
+          "e2e_throughput": 82138.5,
+          "gpu_latency": 101583.3750134334,
+          "e2e_latency": 85461.041
+        },
+        "system": {
+          "gpu_throughput": 102565.33336399999,
+          "e2e_throughput": 112784.417,
+          "gpu_latency": 102643.333317,
+          "e2e_latency": 109244.167
+        }
+      },
+      "selection_to_fresh_gpu_ratio": 1.3512765009279604
+    }
+  ],
+  "input_sha256": "69b2fc15624552d0c643e2a9de66e3936850e38f02dc7a4e40b98d4d9ddd14fe"
+}

@@ -152,6 +152,34 @@ staged MPP controls and selects/replays forwarding candidates separately. A
 measured choice belongs to the specialized configuration, not to a hard-coded
 shape dispatch in the bridge.
 
+### Fragment budgets belong to the emitted realization
+
+For a subgroup owning an `rm x rn` rectangle of 8x8 atoms, the compiler-explicit
+logical fragment state per lane is:
+
+| Realization | Explicit tensor state | Scalars per lane (32 lanes) |
+|---|---|---:|
+| SIMD-group reference | A fragments, B fragments, accumulator | `2 * (rm*rn + rm + rn)` |
+| MPP memory operands | Output cooperative tensor | `2 * rm*rn` |
+
+The candidate gate now uses the same realization-specific accounting as the
+scorer. For example, a 32x64 local output requires 64 logical MPP scalars/lane,
+but 88 in the reference emitter. Charging MPP for reference-only A/B fragments
+incorrectly discarded this candidate at the unchanged 64-scalar budget.
+The minimum explicit budget is also realization-specific: the smallest MPP
+8x16 descriptor needs four output scalars/lane, whereas a reference 8x8 atom
+needs six for A/B/C. A budget below the corresponding minimum still rejects.
+This applies equally to staged and direct-global MPP inputs: their backing
+resource remains separately charged against shared-memory limits where needed.
+
+This is a compiler-state/code-size budget, **not a physical register count or
+occupancy guarantee**. MPP may internally materialize input data, address state
+or spills. Hardware capacity, legal descriptor shape, exact coverage and the
+existing pressure prior remain independent checks. Admitting a larger output
+does not imply that the default score selects it or that its performance wins;
+the [state-budget experiment](../../performance/tile/results.md#mpp-state-budget-and-candidate-admission)
+keeps those questions separate.
+
 ## Bounded K views avoid nominal padding storage
 
 The optional `metal-mpp-bounded-k-v1.patch`, applied after MPP memory v2,

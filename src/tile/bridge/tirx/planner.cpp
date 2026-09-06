@@ -138,7 +138,7 @@ namespace {
     return {};
 }
 
-[[nodiscard]] bool valid_options(const PlannerOptions &options) noexcept {
+[[nodiscard]] bool valid_options(const PlannerOptions &options, MatrixCostBasis cost_basis) noexcept {
     auto &cost = options.cost;
     for (auto coefficient : {cost.matrix_issue, cost.shared_fragment_transfer, cost.independent_element, cost.subgroup_setup,
                              cost.subgroup_reduction_scalar_round, cost.subgroup_reduction_collective,
@@ -152,7 +152,7 @@ namespace {
     }
     return cost.preferred_subgroups != 0u && cost.preferred_fragment_scalars_per_lane != 0u &&
            cost.preferred_concurrent_programs != 0u && cost.metal_mpp_concurrent_subgroups != 0u &&
-           options.max_fragment_scalars_per_lane >= 6u && options.max_thread_candidates != 0u &&
+           options.max_fragment_scalars_per_lane >= (cost_basis == MatrixCostBasis::METAL_MPP_MEMORY ? 4u : 6u) && options.max_thread_candidates != 0u &&
            options.max_reduction_striped_scalars_per_worker != 0u &&
            options.max_copy_batch != 0u && options.max_copy_batch <= 16u;
 }
@@ -282,7 +282,7 @@ PlanningResult plan_group(const GroupWorkload &workload, const ExecutionLimits &
     auto &plan = result.plan;
     plan.programs = workload.programs;
     plan.cost_basis = cost_basis;
-    if (limits.max_threads == 0u || limits.subgroup_size != 32u || !valid_options(options)) {
+    if (limits.max_threads == 0u || limits.subgroup_size != 32u || !valid_options(options, cost_basis)) {
         result.error = "invalid group planner limits or cost coefficients";
         return result;
     }
@@ -357,10 +357,22 @@ PlanningResult plan_group(const GroupWorkload &workload, const ExecutionLimits &
                     plan.candidates_rejected++;
                     continue;
                 }
-                // Avoid overflow as well as unbounded generated unrolled code.
+                // Bound compiler-explicit fragment state for the selected
+                // realization. MPP keeps A/B as memory operands; only its
+                // output cooperative tensor is live. The SIMD-group emitter
+                // also allocates A/B fragment arrays. Neither count predicts
+                // the target compiler's internal register allocation/spills.
                 auto scalar_budget = options.max_fragment_scalars_per_lane / (64u / limits.subgroup_size);
-                if (candidate.atom_rows > scalar_budget || candidate.atom_columns > scalar_budget ||
-                    candidate.atom_rows * candidate.atom_columns + candidate.atom_rows + candidate.atom_columns > scalar_budget) {
+                // Bound each factor before multiplication to avoid overflow.
+                if (candidate.atom_rows > scalar_budget || candidate.atom_columns > scalar_budget) {
+                    plan.candidates_rejected++;
+                    continue;
+                }
+                auto fragment_atoms = candidate.atom_rows * candidate.atom_columns;
+                if (cost_basis == MatrixCostBasis::SIMDGROUP_REFERENCE) {
+                    fragment_atoms += candidate.atom_rows + candidate.atom_columns;
+                }
+                if (fragment_atoms > scalar_budget) {
                     plan.candidates_rejected++;
                     continue;
                 }

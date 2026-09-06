@@ -430,6 +430,58 @@ void test_backend_cost_policy() {
     expect(!plan_group(work, limits, options));
 }
 
+void test_realization_fragment_state_budget() {
+    // Independent pixel-domain enumeration: the MPP emitter keeps one MxN
+    // output tensor, not the reference emitter's A/B fragment arrays. Cover
+    // exact limits, ragged subgroup factorizations and both aspect directions.
+    auto limits = ExecutionLimits{256u, 32u, 1u << 24u};
+    for (auto m : {8u, 16u, 24u, 32u, 48u, 64u, 96u, 128u}) {
+        for (auto n : {8u, 16u, 24u, 32u, 48u, 64u, 96u, 128u}) {
+            auto work = workload(m, n, 32u);
+            for (auto threads : {32u, 64u, 96u, 128u, 192u, 256u}) {
+                for (auto budget : {3u, 4u, 5u, 6u, 16u, 31u, 32u, 47u, 48u, 63u, 64u, 96u, 128u}) {
+                    auto expected = false;
+                    for (auto gm = 1u; gm <= threads / 32u; gm++) {
+                        if (threads / 32u % gm != 0u) { continue; }
+                        auto gn = threads / 32u / gm;
+                        if (m % gm != 0u || n % gn != 0u) { continue; }
+                        auto local_m = m / gm;
+                        auto local_n = n / gn;
+                        expected |= local_m % 8u == 0u && local_n % 8u == 0u &&
+                                    (local_m % 16u == 0u || local_n % 16u == 0u) &&
+                                    local_m * local_n / 32u <= budget;
+                    }
+                    PlannerOptions options;
+                    options.threads_per_group = threads;
+                    options.max_fragment_scalars_per_lane = budget;
+                    auto result = plan_group(work, limits, options, MatrixCostBasis::METAL_MPP_MEMORY);
+                    expect(eq(result.ok(), expected)) << m << n << threads << budget << result.error;
+                    if (result) {
+                        expect(eq(result.plan.cost.fragment_scalars_per_lane, uint64_t{m * n / threads}));
+                        expect(verify_matrix_distribution(work.matrices[0], result.plan.matrices[0], threads, 32u));
+                    }
+                }
+            }
+        }
+    }
+    auto work = workload(32u, 64u, 32u);
+    PlannerOptions options;
+    options.threads_per_group = 32u;
+    // Keep the pressure prior neutral here: this checks admission, not the
+    // profitability of large explicit fragments on a particular GPU.
+    options.cost.preferred_fragment_scalars_per_lane = 128u;
+    options.max_fragment_scalars_per_lane = 87u;
+    auto reference = plan_group(work, limits, options);
+    expect(reference.ok() && !reference.plan.matrices[0].rectangular());
+    options.max_fragment_scalars_per_lane = 88u;
+    reference = plan_group(work, limits, options);
+    expect(reference.ok() && reference.plan.matrices[0].rectangular());
+    if (reference) { expect(eq(reference.plan.cost.fragment_scalars_per_lane, 88ull)); }
+    // Correcting a software-state budget cannot waive physical shared capacity.
+    options.max_fragment_scalars_per_lane = 64u;
+    expect(!plan_group(work, {32u, 32u, work.shared_memory_bytes - 1u}, options, MatrixCostBasis::METAL_MPP_MEMORY));
+}
+
 void test_reduction_access_service_policy() {
     ReductionCandidate candidate;
     candidate.scalar_rounds = 12.0;
@@ -531,6 +583,7 @@ int main(int argc, char *argv[]) {
     "tile_planner_direct_output_proof_and_storage_accounting"_test = [] { test_direct_output_requires_proof_and_releases_both_buffers(); };
     "tile_planner_mpp_cost_basis_and_shape_ranking"_test = [] { test_mpp_cost_basis_and_shape_ranking(); };
     "tile_planner_mpp_subgroup_critical_path_and_machine_waves"_test = [] { test_mpp_subgroup_critical_path_and_machine_waves(); };
+    "tile_planner_realization_fragment_state_budget"_test = [] { test_realization_fragment_state_budget(); };
     "tile_planner_backend_cost_policy"_test = [] { test_backend_cost_policy(); };
     "tile_planner_reduction_access_service_policy"_test = [] { test_reduction_access_service_policy(); };
     "tile_planner_reduction_machine_cost"_test = [] { test_reduction_machine_cost(); };
