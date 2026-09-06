@@ -171,6 +171,8 @@ private:
     struct RegisteredAuxiliaryWork {
         luisa::shared_ptr<AuxiliaryWork> work;
         luisa::vector<uint> max_emitted_per_continuation;
+        uint stage_count{0u};
+        size_t stats_offset{0u};
     };
     struct RegisteredExtensionStage {
         WavefrontCoroExtensionStage stage;
@@ -1443,26 +1445,39 @@ private:
             max_active_count = std::max(max_active_count, active_count);
             auto auxiliary_active_count = uint64_t{0u};
             auto selected_auxiliary = _auxiliary_work.size();
+            auto selected_auxiliary_stage = 0u;
             auto selected_auxiliary_count = 0u;
             for (size_t i = 0u; i < _auxiliary_work.size(); ++i) {
-                auto count = _auxiliary_work[i].work->host_count();
+                auto &&registered = _auxiliary_work[i];
+                auto count = registered.work->host_count();
                 LUISA_ASSERT(
-                    count <= _auxiliary_work[i].work->capacity(),
+                    count <= registered.work->capacity(),
                     "Wavefront auxiliary queue '{}' contains {} items, "
                     "exceeding its capacity {}.",
-                    _auxiliary_work[i].work->name(), count,
-                    _auxiliary_work[i].work->capacity());
+                    registered.work->name(), count,
+                    registered.work->capacity());
                 auxiliary_active_count += count;
-                if (report_stats) {
-                    auto &work =
-                        _last_dispatch_stats.auxiliary_work[i];
-                    work.peak_queued_count = std::max(
-                        work.peak_queued_count, count);
+                LUISA_ASSERT(registered.stage_count == registered.work->stage_count(),
+                             "Wavefront auxiliary stage count changed after registration.");
+                auto stage_total = uint64_t{0u};
+                for (auto stage = 0u; stage < registered.stage_count; ++stage) {
+                    auto stage_count = registered.work->stage_host_count(stage);
+                    stage_total += stage_count;
+                    if (report_stats) {
+                        auto &work = _last_dispatch_stats.auxiliary_work[
+                            registered.stats_offset + stage];
+                        work.peak_queued_count = std::max(
+                            work.peak_queued_count, stage_count);
+                    }
+                    if (stage_count > selected_auxiliary_count) {
+                        selected_auxiliary = i;
+                        selected_auxiliary_stage = stage;
+                        selected_auxiliary_count = stage_count;
+                    }
                 }
-                if (count > selected_auxiliary_count) {
-                    selected_auxiliary = i;
-                    selected_auxiliary_count = count;
-                }
+                LUISA_ASSERT(stage_total == count,
+                             "Wavefront auxiliary '{}' stage sum {} differs from live count {}.",
+                             registered.work->name(), stage_total, count);
             }
             LUISA_ASSERT(active_count <= scan_count,
                          "Wavefront coroutine queue invariant violation: active frames ({}) exceed scanned frame prefix ({}).",
@@ -1512,14 +1527,15 @@ private:
                 }
             }
 
-            // Side work competes with main continuations by queue
-            // cardinality. A producer whose complete queue cannot be
-            // admitted without overflowing a side queue is blocked and that
-            // side queue is drained first. Registration proves that an empty
-            // side queue can always admit a full main continuation queue.
+            // Individual side stages compete with main continuations by
+            // cardinality, but admission accounts for ALL live stages sharing
+            // a capacity. Only if the greedy winner is a main producer do we
+            // substitute its capacity owner's requested drain stage.
             auto forced_auxiliary = _auxiliary_work.size();
+            auto forced_auxiliary_stage = 0u;
             auto forced_auxiliary_count = 0u;
-            if (selected < nc && selected_count != 0u) {
+            if (selected < nc && selected_count != 0u &&
+                selected_auxiliary_count <= selected_count) {
                 for (size_t i = 0u; i < _auxiliary_work.size(); ++i) {
                     auto &&registered = _auxiliary_work[i];
                     auto bound =
@@ -1546,12 +1562,24 @@ private:
                     }
                 }
             }
+            if (forced_auxiliary != _auxiliary_work.size()) {
+                auto &&registered = _auxiliary_work[forced_auxiliary];
+                forced_auxiliary_stage = registered.work->admission_stage();
+                LUISA_ASSERT(
+                    forced_auxiliary_stage < registered.stage_count &&
+                        registered.work->stage_host_count(forced_auxiliary_stage) != 0u,
+                    "Wavefront auxiliary '{}' supplied an empty admission stage.",
+                    registered.work->name());
+            }
             auto dispatch_auxiliary =
                 forced_auxiliary != _auxiliary_work.size() ?
                     forced_auxiliary :
                     (selected_auxiliary_count > selected_count ?
                          selected_auxiliary :
                          _auxiliary_work.size());
+            auto dispatch_auxiliary_stage =
+                forced_auxiliary != _auxiliary_work.size() ?
+                    forced_auxiliary_stage : selected_auxiliary_stage;
 
             // The legacy counter/gather path materializes every queue before
             // the refill decision because compaction may need queue zero's
@@ -1662,19 +1690,31 @@ private:
                 if (dispatch_auxiliary != _auxiliary_work.size()) {
                     auto &&registered =
                         _auxiliary_work[dispatch_auxiliary];
-                    auto count = registered.work->host_count();
+                    auto count = registered.work->stage_host_count(dispatch_auxiliary_stage);
                     LUISA_ASSERT(count != 0u,
                                  "Selected an empty wavefront auxiliary "
                                  "queue '{}'.",
                                  registered.work->name());
-                    registered.work->dispatch(stream, args...);
+                    registered.work->dispatch_stage(dispatch_auxiliary_stage, stream, args...);
                     if (report_stats) {
                         auto &work = _last_dispatch_stats
-                                         .auxiliary_work[dispatch_auxiliary];
+                                         .auxiliary_work[registered.stats_offset + dispatch_auxiliary_stage];
                         work.dispatch_count++;
                         work.executed_count += count;
                     }
                     continue;
+                }
+                if (selected < nc && selected_count != 0u) {
+                    for (auto &&registered : _auxiliary_work) {
+                        auto bound = registered.max_emitted_per_continuation[selected];
+                        if (bound != 0u) {
+                            // Admission has proved this product fits capacity
+                            // (and therefore uint). Storage-only preparation
+                            // is ordered before the producer, not before refill.
+                            registered.work->prepare_for_producer(
+                                stream, static_cast<uint>(uint64_t{selected_count} * bound));
+                        }
+                    }
                 }
                 if (_config.incremental_continuation_counts &&
                     selected < nq && selected_count != 0u &&
@@ -1943,9 +1983,21 @@ public:
             !registered.work->producers().empty(),
             "Wavefront auxiliary queue '{}' has no producers.",
             registered.work->name());
-        _last_dispatch_stats.auxiliary_work.emplace_back(
-            WavefrontCoroAuxiliaryStats{
-                .name = luisa::string{registered.work->name()}});
+        registered.stage_count = registered.work->stage_count();
+        registered.stats_offset = _last_dispatch_stats.auxiliary_work.size();
+        LUISA_ASSERT(registered.stage_count != 0u,
+                     "Wavefront auxiliary work must expose at least one stage.");
+        for (auto stage = 0u; stage < registered.stage_count; ++stage) {
+            auto name = registered.work->stage_name(stage);
+            LUISA_ASSERT(!name.empty(), "Wavefront auxiliary stage name must not be empty.");
+            for (auto prior = 0u; prior < stage; ++prior) {
+                LUISA_ASSERT(name != registered.work->stage_name(prior),
+                             "Duplicate stage '{}' in wavefront auxiliary '{}'.",
+                             name, registered.work->name());
+            }
+            _last_dispatch_stats.auxiliary_work.emplace_back(
+                WavefrontCoroAuxiliaryStats{.name = luisa::string{name}});
+        }
         _auxiliary_work.emplace_back(std::move(registered));
     }
     /// Structural hashes of the scheduler-owned generate, continuation, and
