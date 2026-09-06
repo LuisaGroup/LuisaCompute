@@ -55,9 +55,9 @@ int main(int argc, char **argv) {
         auto input = device.create_buffer<uint>(inputs.size());
         auto output = device.create_buffer<uint>(values.size());
         auto stream = device.create_stream();
-        stream << input.copy_from(inputs.data())
+        stream << input.copy_from(luisa::span{inputs})
                << shader(input, output).dispatch(thread_count)
-               << output.copy_to(values.data())
+               << output.copy_to(luisa::span{values})
                << synchronize();
         for (auto tid = 0u; tid < thread_count; ++tid) {
             for (auto i = 0u; i < local_count; ++i) {
