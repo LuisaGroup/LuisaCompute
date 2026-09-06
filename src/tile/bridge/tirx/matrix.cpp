@@ -104,8 +104,10 @@ struct MatrixView {
     uint64_t stride;
     bool transpose;
     tvm::tirx::BufferVar source;
-    // Present only for a proved zero-padded K suffix. M/N remain in bounds.
+    // Proved positive K prefix and, optionally, a zero-padded M/N prefix.
+    // The latter is relative to the logical matrix, before subgroup slicing.
     tvm::PrimExpr reduction_length;
+    tvm::PrimExpr outer_length;
 };
 
 [[nodiscard]] std::optional<MatrixView> matrix_projection(
@@ -167,6 +169,8 @@ struct MatrixView {
         conditional->args.size() != 3u || !is_positive_zero(conditional->args[2].as_or_throw<tvm::PrimExpr>())) { return {}; }
     auto capability = tvm::ffi::Function::GetGlobal("target.metal.mpp_bounded_k_contract_version");
     if (!capability || (*capability)().cast<int64_t>() != 1) { return {}; }
+    auto mn_capability = tvm::ffi::Function::GetGlobal("target.metal.mpp_bounded_mnk_contract_version");
+    auto bounded_mn = mn_capability && (*mn_capability)().cast<int64_t>() == 1;
     auto load = conditional->args[1].as<tvm::tirx::BufferLoadNode>();
     if (load == nullptr || load->predicate || load->indices.size() != 2u || load->buffer->shape.size() != 2u) { return {}; }
     auto buffer = map_buffer(load->buffer);
@@ -175,10 +179,12 @@ struct MatrixView {
     if (!buffer.defined() || buffer.scope() != "global") { return {}; }
     tvm::PrimExpr bounds = tvm::IntImm::Bool(true);
     tvm::PrimExpr length;
+    tvm::PrimExpr outer_length;
     auto outer = row_axis == 2u ? column_axis : row_axis;
     auto outer_extent = row_axis == 2u ? columns : rows;
     auto reduction_extent = row_axis == 2u ? rows : columns;
     auto outer_dimensions = 0u;
+    auto transpose = false;
     for (auto i = 0u; i < 2u; i++) {
         auto index = affine_index(load->indices[i], axes);
         auto extent = buffer->shape[i].as<tvm::IntImmNode>();
@@ -192,19 +198,31 @@ struct MatrixView {
         } else if (index->strides == outer_stride) {
             outer_dimensions++;
             auto last = index->base + tvm::IntImm::Int64(static_cast<int64_t>(outer_extent));
-            if (!prove_in_loop_domain(index->base >= 0 && last <= buffer->shape[i], domain)) { return {}; }
+            if (!prove_in_loop_domain(index->base >= 0 && last <= buffer->shape[i], domain)) {
+                if (!bounded_mn || !prove_in_loop_domain(index->base >= 0, domain)) { return {}; }
+                outer_length = tvm::max(tvm::IntImm::Int64(0), tvm::min(buffer->shape[i] - index->base,
+                                                                        tvm::IntImm::Int64(static_cast<int64_t>(outer_extent))));
+            }
         } else {
             return {};
         }
+        if (i == 0u) { transpose = index->strides[row_axis] == 0u; }
         bounds = bounds && load->indices[i] >= 0 && load->indices[i] < buffer->shape[i];
     }
     if (!length.defined() || outer_dimensions != 1u ||
         !prove_in_loop_domain(tvm::equal(conditional->args[0].as_or_throw<tvm::PrimExpr>(), bounds), domain)) { return {}; }
-    // The actual K suffix can be shorter than the nominal tile/leading stride.
-    // Only that dimension relaxes the full-rectangle projection check.
+    // Bounds, not nominal padded extents, constrain the physical rectangle.
+    // Unit projections identify orientation even if a physical dimension is
+    // one and both logical strides happen to be equal.
     auto result = matrix_projection(buffer, load->indices, axes, row_axis, column_axis,
-                                    row_axis == 2u ? 1u : rows, column_axis == 2u ? 1u : columns, load->buffer);
-    if (result) { result->reduction_length = std::move(length); }
+                                    row_axis == 2u || outer_length.defined() ? 1u : rows,
+                                    column_axis == 2u || outer_length.defined() ? 1u : columns, load->buffer);
+    if (result) {
+        result->reduction_length = std::move(length);
+        result->outer_length = std::move(outer_length);
+        result->transpose = transpose;
+        result->stride = static_cast<uint64_t>(buffer->shape[1].as<tvm::IntImmNode>()->value);
+    }
     return result;
 }
 
@@ -254,8 +272,13 @@ bool prove_in_loop_domain(tvm::PrimExpr predicate, luisa::span<const tvm::tirx::
 
 namespace {
 
-[[nodiscard]] tvm::Expr matrix_address(const MatrixView &view, const Coordinates &coordinates) {
+[[nodiscard]] tvm::Expr matrix_address(const MatrixView &view, const Coordinates &coordinates, const tvm::PrimExpr &present = {}) {
     auto indices = tvm::tirx::Substitute(view.indices, coordinates);
+    if (present.defined()) {
+        // An empty subgroup rectangle still needs a valid pointer value.
+        // Its zero-product realization never reads the absent operand.
+        indices = indices.Map([&](const tvm::PrimExpr &index) { return tvm::if_then_else(present, index, tvm::IntImm::Int64(0)); });
+    }
     return tvm::Call{view.buffer.DataPointerType(), tvm::tirx::builtin::address_of(), {tvm::tirx::BufferLoad{view.buffer, std::move(indices)}}};
 }
 
@@ -442,6 +465,14 @@ struct MatchedMatrix {
     Coordinates coordinates{{matrix.axes[0], tvm::floordiv(subgroup, sg_n) * tvm::IntImm::Int64(m)},
                             {matrix.axes[1], tvm::floormod(subgroup, sg_n) * tvm::IntImm::Int64(n)},
                             {matrix.axes[2], tvm::IntImm::Int64(0)}};
+    auto remaining = [&](const MatrixView &view, uint32_t axis, int64_t extent) -> tvm::PrimExpr {
+        if (!view.outer_length.defined()) { return tvm::IntImm::Int64(extent); }
+        return tvm::max(tvm::IntImm::Int64(0), tvm::min(tvm::IntImm::Int64(extent),
+                                                        view.outer_length - coordinates.at(matrix.axes[axis]).as_or_throw<tvm::PrimExpr>()));
+    };
+    auto actual_m = remaining(matrix.a, 0u, m);
+    auto actual_n = remaining(matrix.b, 1u, n);
+    auto bounded_mn = matrix.a.outer_length.defined() || matrix.b.outer_length.defined();
     auto cf = tvm::tirx::decl_buffer({tvm::IntImm::Int64(m * n)}, tvm::PrimType::Float(32),
                                      matrix.axes[0]->name + "_mpp_c", "metal.cooperative_tensor");
     auto zero = tvm::IntImm::Int32(0);
@@ -469,8 +500,8 @@ struct MatchedMatrix {
                                                   "tirx.cooperative_tensor_multiply_accumulate_from_memory");
     tvm::ffi::Array<tvm::Expr> mma_args{
         cf, zero,
-        matrix_address(matrix.a, coordinates), tvm::IntImm::Int64(static_cast<int64_t>(matrix.a.stride)),
-        matrix_address(matrix.b, coordinates), tvm::IntImm::Int64(static_cast<int64_t>(matrix.b.stride))};
+        matrix_address(matrix.a, coordinates, matrix.a.outer_length.defined() ? actual_m > 0 : tvm::PrimExpr{}), tvm::IntImm::Int64(static_cast<int64_t>(matrix.a.stride)),
+        matrix_address(matrix.b, coordinates, matrix.b.outer_length.defined() ? actual_n > 0 : tvm::PrimExpr{}), tvm::IntImm::Int64(static_cast<int64_t>(matrix.b.stride))};
     if (!overwrite) {
         mma_args.push_back(cf);
         mma_args.push_back(zero);
@@ -480,7 +511,13 @@ struct MatchedMatrix {
     mma_args.push_back(tvm::IntImm::Int64(k));
     mma_args.push_back(tvm::IntImm::Bool(matrix.a.transpose));
     mma_args.push_back(tvm::IntImm::Bool(matrix.b.transpose));
-    if (matrix.reduction_length.defined()) { mma_args.push_back(matrix.reduction_length); }
+    if (bounded_mn) {
+        mma_args.push_back(actual_m);
+        mma_args.push_back(actual_n);
+        mma_args.push_back(matrix.reduction_length.defined() ? matrix.reduction_length : tvm::IntImm::Int64(k));
+    } else if (matrix.reduction_length.defined()) {
+        mma_args.push_back(matrix.reduction_length);
+    }
     auto multiply = tvm::tirx::Evaluate{tvm::Call{tvm::PrimType::Void(), mma_op, std::move(mma_args)}};
     auto destination = loop_emission == nullptr ? matrix.d : *matrix.c;
     if (direct) {

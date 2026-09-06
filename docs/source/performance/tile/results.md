@@ -336,9 +336,75 @@ finds no universally better collective width; no single-order minimum becomes
 a default. M/N-edge atoms, physical K chunking, reuse and distribution remain
 the next realization work, followed by independent model/search validation.
 
+### Bounded M/N inputs remove an admission barrier
+
+The next September 6 checkpoint extends [bounded M/N input views](../../internals/tile/matrix.md#bounded-m-n-views-compose-with-subgroup-coordinates).
+Ragged matrices can now use large K blocks without nominal A/B staging.
+After staged/JIT selection, GPU batch time falls to **22%, 19–21% and 15%**
+of the old path on the three larger ragged shapes below. This includes newly
+legal schedules, not just a same-schedule compiler improvement. **General
+MPS/Torch parity is still not achieved.**
+
+Both compilers receive BM=128, BN=32, BK=16/1024/4096, 128 threads, window=1
+and copy batch=1. The frozen old compiler rejects the two large-BK requests
+on each ragged shape and selects BK=16. The new compiler selects BK=4096,
+except the reverse 4097×4097×4096 run selects BK=1024. A/B denote forward and
+reverse orders in an old/new/new/old replay. Each number below is a fresh
+post-selection median of five samples, **not the tuning minimum**.
+
+```{table} M/N-tail cohort: GPU command-buffer batch microseconds, A / B
+:class: benchmark-table
+
+| M×N×K | Old TIRx views µs | New TIRx views µs | New/MPS time | New/Torch time |
+|---|---:|---:|---:|---:|
+| 129×257×61 | 31.995 / 31.236 | 24.576 / 24.854 | 1.675 / 1.684 | 1.388 / 1.561 |
+| 1025×1025×1024 | 2122.583 / 2156.722 | 470.910 / 467.192 | 0.972 / 0.961 | 1.221 / 1.213 |
+| 2049×4097×1025 | 15136.375 / 15928.875 | 3121.892 / 3102.326 | 1.125 / 1.126 | 1.208 / 1.198 |
+| 4097×4097×4096 | 140672.250 / 140243.292 | 21216.667 / 21629.167 | 0.969 / 0.980 | 1.070 / 1.061 |
+| 1024³ control | 282.365 / 278.570 | 278.889 / 281.747 | 0.990 / 1.004 | 0.972 / 0.979 |
+```
+
+The new path narrowly beats MPS in GPU batch time on two ragged shapes, but
+still loses to Torch on all four. The small case beats Torch in **E2E batch**
+time (0.857/0.862×), while losing its GPU comparison: dispatch savings are
+not a pure-kernel win. At 4097×4097×4096, E2E batch time is 21.841/22.423 ms;
+new/MPS ratios are 0.942/1.005 and new/Torch 1.078/1.095. Single-call GPU
+and E2E latency remain separate in the audit and retain regressions. GPU
+command-buffer controls include work/gaps; instrumented compute-pass times
+are diagnostic, not unperturbed isolated-kernel rankings.
+
+At the **same BK=16**, new/old GPU ratios are 0.669–0.679, 0.760–0.775 and
+0.388–0.403 on the three larger ragged shapes. But the small case regresses
+to **1.692–1.732×**. The current nominal-work model does not price that edge
+handling well, so no new cost coefficients or default schedule are promoted.
+The aligned 1024³ sources are identical for all three blocks; its timing
+variation is not a compiler speedup. Ragged programs still materialize a
+16 KiB output tile and retain four barrier sites. Masked direct output and
+physical-K/edge-aware planning remain structural work.
+
+Two earlier, numerically correct emitters regressed much more severely:
+per-output empty-operand scans, then per-column collective scans. Their full
+ABBA runs and patches are retained. The final emitter gives lanes ownership
+of input rows/columns, shuffles the nonfinite/sign classification to output
+coordinates, and keeps a static-M/N interior path. Across the three emitter
+runs, **576 complete outputs** pass FP64 comparison; each run retains 16 old
+resource rejections and 35 unchanged artifacts. The final run alone checks
+995,833,488 elements. Desktop activity was not isolated, and two orders are
+not a held-out performance acceptance test.
+
+The {download}`checkpoint notes and reproducible commands
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260906-mpp-mn-bounds/notes.md>`
+and {download}`independent audit, all four metrics and controls
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260906-mpp-mn-bounds/audit.json>`
+preserve every candidate, failure, source and comparison. The semantic suite
+also checks 1,008 full low-level outputs with non-dyadic inputs, transposes,
+empty/partial M/N, Inf/NaN, signed zero and distinct C/D. This checkpoint does
+not change native-MPP or SIMD performance, other operators, or broader dtype
+coverage.
+
 ### K partition and program walks: diagnostics, not new defaults
 
-The next September 6 experiment fixes the TIRx MPP output block at 128×32,
+The earlier September 6 K-partition experiment fixes the TIRx MPP output block at 128×32,
 128 threads and an ordered pipeline, changing only captured K across
 128/512/1024/4096. All candidates retain the same four 32×32 subgroup outputs,
 zero shared allocation and persistent accumulator. **90 complete outputs**

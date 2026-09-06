@@ -79,8 +79,8 @@ struct CompileOptions {
     // noalias and proves immutable input, complete initialization, lexical
     // dominance, non-escape, and bounds. Ordinary CPU/GPU consumers retain
     // guarded/zero-fill read expressions. Metal MPP requires in-bounds physical
-    // rectangles; its optional bounded-K extension can omit a proved common
-    // zero-padded suffix while preserving the logical Tile shape.
+    // rectangles. Optional bounded-K/MNK capabilities admit proved zero-padded
+    // suffixes/rectangles while preserving the logical Tile and accumulator.
     // No materialization policy is inferred from an external buffer's scope.
     bool forward_readonly_tile_loads{false};
     PlannerOptions planner;

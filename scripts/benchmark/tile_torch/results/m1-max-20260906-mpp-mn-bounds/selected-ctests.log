@@ -1,0 +1,158 @@
+Start testing: Sep 06 12:19 CST
+----------------------------------------------------------
+83/209 Testing: test_tile_tirx_pipeline_metal
+83/209 Test: test_tile_tirx_pipeline_metal
+Command: "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/test_tile_tirx_pipeline" "metal"
+Directory: /tmp/luisa-tvm-mpp.VaKmzx/luisa-build/src/tests
+"test_tile_tirx_pipeline_metal" start time: Sep 06 12:19 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (568 asserts in 6 tests)
+<end of output>
+Test time =   2.46 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_tirx_pipeline_metal" end time: Sep 06 12:19 CST
+"test_tile_tirx_pipeline_metal" time elapsed: 00:00:02
+----------------------------------------------------------
+
+69/209 Testing: test_tile_tirx_pipeline
+69/209 Test: test_tile_tirx_pipeline
+Command: "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/test_tile_tirx_pipeline"
+Directory: /tmp/luisa-tvm-mpp.VaKmzx/luisa-build/src/tests
+"test_tile_tirx_pipeline" start time: Sep 06 12:19 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (345 asserts in 6 tests)
+<end of output>
+Test time =   4.25 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_tirx_pipeline" end time: Sep 06 12:19 CST
+"test_tile_tirx_pipeline" time elapsed: 00:00:04
+----------------------------------------------------------
+
+72/209 Testing: test_tile_tirx_poc
+72/209 Test: test_tile_tirx_poc
+Command: "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/test_tile_tirx_poc"
+Directory: /tmp/luisa-tvm-mpp.VaKmzx/luisa-build/src/tests
+"test_tile_tirx_poc" start time: Sep 06 12:19 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (3293 asserts in 4 tests)
+<end of output>
+Test time =   1.81 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_tirx_poc" end time: Sep 06 12:19 CST
+"test_tile_tirx_poc" time elapsed: 00:00:01
+----------------------------------------------------------
+
+73/209 Testing: test_tile_tirx_poc_neural
+73/209 Test: test_tile_tirx_poc_neural
+Command: "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/test_tile_tirx_poc_neural"
+Directory: /tmp/luisa-tvm-mpp.VaKmzx/luisa-build/src/tests
+"test_tile_tirx_poc_neural" start time: Sep 06 12:19 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (84 asserts in 4 tests)
+<end of output>
+Test time =   0.94 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_tirx_poc_neural" end time: Sep 06 12:19 CST
+"test_tile_tirx_poc_neural" time elapsed: 00:00:00
+----------------------------------------------------------
+
+74/209 Testing: test_tile_tirx_poc_algorithms
+74/209 Test: test_tile_tirx_poc_algorithms
+Command: "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/test_tile_tirx_poc_algorithms"
+Directory: /tmp/luisa-tvm-mpp.VaKmzx/luisa-build/src/tests
+"test_tile_tirx_poc_algorithms" start time: Sep 06 12:19 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (391 asserts in 5 tests)
+<end of output>
+Test time =   1.21 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_tirx_poc_algorithms" end time: Sep 06 12:19 CST
+"test_tile_tirx_poc_algorithms" time elapsed: 00:00:01
+----------------------------------------------------------
+
+76/209 Testing: test_tile_tirx_poc_metal
+76/209 Test: test_tile_tirx_poc_metal
+Command: "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/test_tile_tirx_poc" "metal"
+Directory: /tmp/luisa-tvm-mpp.VaKmzx/luisa-build/src/tests
+"test_tile_tirx_poc_metal" start time: Sep 06 12:19 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (3293 asserts in 4 tests)
+<end of output>
+Test time =   0.56 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_tirx_poc_metal" end time: Sep 06 12:19 CST
+"test_tile_tirx_poc_metal" time elapsed: 00:00:00
+----------------------------------------------------------
+
+78/209 Testing: test_tile_tirx_poc_algorithms_metal
+78/209 Test: test_tile_tirx_poc_algorithms_metal
+Command: "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/test_tile_tirx_poc_algorithms" "metal"
+Directory: /tmp/luisa-tvm-mpp.VaKmzx/luisa-build/src/tests
+"test_tile_tirx_poc_algorithms_metal" start time: Sep 06 12:19 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (391 asserts in 5 tests)
+<end of output>
+Test time =   0.35 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_tirx_poc_algorithms_metal" end time: Sep 06 12:19 CST
+"test_tile_tirx_poc_algorithms_metal" time elapsed: 00:00:00
+----------------------------------------------------------
+
+77/209 Testing: test_tile_tirx_poc_neural_metal
+77/209 Test: test_tile_tirx_poc_neural_metal
+Command: "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/test_tile_tirx_poc_neural" "metal"
+Directory: /tmp/luisa-tvm-mpp.VaKmzx/luisa-build/src/tests
+"test_tile_tirx_poc_neural_metal" start time: Sep 06 12:19 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (84 asserts in 4 tests)
+<end of output>
+Test time =   0.33 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_tirx_poc_neural_metal" end time: Sep 06 12:19 CST
+"test_tile_tirx_poc_neural_metal" time elapsed: 00:00:00
+----------------------------------------------------------
+
+71/209 Testing: test_tile_tirx_planner
+71/209 Test: test_tile_tirx_planner
+Command: "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/test_tile_tirx_planner"
+Directory: /tmp/luisa-tvm-mpp.VaKmzx/luisa-build/src/tests
+"test_tile_tirx_planner" start time: Sep 06 12:19 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (5991 asserts in 10 tests)
+<end of output>
+Test time =   0.47 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_tirx_planner" end time: Sep 06 12:19 CST
+"test_tile_tirx_planner" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Sep 06 12:19 CST
+
+unit =  12.37 sec*proc
+
+unit_tile =  12.37 sec*proc
+
+unit_tile_poc =   7.64 sec*proc
+
+unit_tile_targets =   3.70 sec*proc
+
+unit_tile_tirx =  12.37 sec*proc
+

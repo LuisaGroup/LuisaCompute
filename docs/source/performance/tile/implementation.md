@@ -8,7 +8,7 @@
 | Execution | `parallel`, `serial`, `pipeline`, `reduce`; scope constraints | The backend must realize the requested binding; unsupported bindings are errors |
 | Data/layout | Typed layout representation and proof mechanisms; Tensor as storage plus layout/view | Not every represented layout has an emitter on every bridge |
 | TileIR | Mutable typed SSA, regions and intrusive ownership/use structure | General Machine TileIR and its pass suite are not implemented |
-| TIRx | Native C++ export preserving pure multi-consumer SSA; target-selectable recomputation; CPU/Metal realizations; typed MPP v2 modes and optional proved K-tail views; Metal FP32 subgroup reductions; bounded target-specific cost/solvers | MPP view forwarding still requires full M/N; materialization lacks traffic/spill calibration; broader atoms/operators remain necessary |
+| TIRx | Native C++ export preserving pure multi-consumer SSA; target-selectable recomputation; CPU/Metal realizations; typed MPP v2 modes and optional proved K/M/N-tail views; Metal FP32 subgroup reductions; bounded target-specific cost/solvers | MPP tail views require optional capabilities and canonical proved guards; masked direct output remains absent; materialization lacks traffic/spill calibration; broader atoms/operators remain necessary |
 | Native Metal | Typed FP32 MMA/view-forwarding subset; ordinary Runtime shader and launch | Not general epilogues, K pipelines, manual Memory, all dtypes or arbitrary operators |
 | XIR/SIMD | Direct verified XIR; local Tile expansion; loop PHIs; ordinary CPU Runtime | No matrix-extension atom, packed GEMM microkernel or general Tile distribution |
 | CPU planner / realizations | Root-axis permutations × legal worker-block widths; bounded storage/SIMD/launch choices; proved CBLAS and Accelerate atoms | Provider selection is explicit; no fitted break-even model, whole-program optimum, general Tile partitioning or physical pipeline solver |
@@ -19,6 +19,38 @@ complete decision procedure over arbitrary programs. The language design
 distinguishes representational closure, proof fragments, finite fallback and
 unknown results. Likewise, XIR's current compact-buffer realization is a
 subset of the layout representation, not an alternative, less general DSL.
+
+## Generality and attribution
+
+The goal is reusable optimization over IR structure, not a table of operator
+names or favorable shapes. Three different claims require separate evidence:
+
+- **Semantic applicability:** a transformation matches proved access,
+  dependence, ownership and numerical contracts. Pointwise grid fusion and
+  shared-SSA scalarization can serve different expression graphs; canonical
+  add/max/min reduction mapping serves several row programs. Matrix input
+  forwarding serves the admitted affine zero-padded MMA family, not every
+  operator containing a reduction.
+- **Realization coverage:** a legal execution/resource combination has a
+  target emitter. The M/N-tail extension expands this space without changing
+  planner coefficients or the subgroup distribution. Existing staged/JIT
+  selection can then use newly legal K blocks. That is not evidence of better
+  analytic ranking, nor does it improve native MPP or XIR automatically.
+- **Performance generalization:** a frozen policy must be tested on disjoint
+  shapes and composed operators, with unchanged incumbents, complete output
+  checks, both GPU/E2E objectives and reported regressions. Current small-row
+  held-out failures and large-GEMM gaps show that this claim is still open.
+
+Execution partitioning, worker ownership, materialization/reuse and atom
+selection should remain independently represented choices with coupled
+legality/resource checks. Shared analysis and search consume backend-owned
+capabilities and costs; target emitters implement the selected contracts.
+This does not require one identical schedule or cost profile across CPU and
+GPU, and does not add operator-specific concepts to the public DSL. The next
+acceptance work must exercise these choices across pointwise chains,
+reductions/normalizations and matrix-based compositions, rather than only
+selecting another GEMM winner. Attention, convolution/filter and sort/Top-K
+PoCs are correctness coverage, not a broad optimized-performance claim.
 
 ## Next work and acceptance criteria
 

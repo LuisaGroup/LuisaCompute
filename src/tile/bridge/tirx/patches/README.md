@@ -115,6 +115,42 @@ This removes the nominal A/B shared allocation from eligible K-tail programs.
 The cost model still charges nominal K work conservatively; it is not a new
 calibration or a claim that the selected schedule beats MPS.
 
+### Optional bounded-M/N/K extension
+
+Apply `metal-mpp-bounded-mnk-v1.patch` **after both patches above**. It retains
+their ABIs and separately advertises
+`target.metal.mpp_bounded_mnk_contract_version() == 1`. The multiply and
+multiply-accumulate calls may append three scalar signed Int32/Int64 values
+`actual_m, actual_n, actual_k` (14 or 16 arguments respectively). The caller
+proves `0 <= actual_m <= M`, `0 <= actual_n <= N`, and `0 < actual_k <= K`.
+Actual rectangles and positive leading strides must fit the supplied memory;
+literal violations and wrong scalar types fail before launch. Dynamic values
+remain caller preconditions. Uniform participation and the nominal destination
+shape/fragment contract do not change.
+
+Nonempty inputs become dynamic-extent inline tensors. M/N padding remains
+observable arithmetic, including `0 * Inf`/NaN, not permission to drop nominal
+output elements. The validated M1 Max/SDK probe did **not** treat a zero-extent
+inline tensor as an empty operand. The emitter therefore handles a wholly
+empty operand separately: it visits the nominal cooperative output, reads
+only valid elements of the other operand, classifies FP32 bits, and preserves
+NaN and signed-zero accumulation. It never constructs an empty MPP tensor or
+reads an absent input. Lanes own rows/columns of the remaining operand and
+shuffle their classifications to the cooperative output's public coordinates.
+Collectives execute outside divergent output-validity predicates. Complete
+interior rectangles retain static M/N tensor views. This is subgroup work,
+not a CPU fallback, input staging allocation, or reduced-precision path.
+
+The bridge proves canonical positive-zero rectangles from affine projections
+under ancestor loop domains, then composes their lengths with subgroup origins.
+Empty subgroup rectangles use a valid base pointer. Unit projections determine
+transpose orientation even when a physical extent is one. Missing capability,
+extra masks, nonzero fills, unequal K intervals or failed ownership proofs
+retain the transactional snapshot path. The extension adds no DSL entity or
+new execution-distribution family. Forwarding stays default-off; nominal cost
+features are conservative and do not model empty-rectangle scans or measured
+profitability.
+
 ### Commands
 
 Use a clean checkout at the pinned commit; initialize its `3rdparty/tvm-ffi`
@@ -131,6 +167,9 @@ git -C "$TVM_SRC" apply "$LUISA_SRC/src/tile/bridge/tirx/patches/metal-mpp-memor
 # Optional: enable proved zero-padded K suffixes without nominal shared tiles.
 git -C "$TVM_SRC" apply --check "$LUISA_SRC/src/tile/bridge/tirx/patches/metal-mpp-bounded-k-v1.patch"
 git -C "$TVM_SRC" apply "$LUISA_SRC/src/tile/bridge/tirx/patches/metal-mpp-bounded-k-v1.patch"
+# Optional: also enable proved M/N edges, including empty subgroup rectangles.
+git -C "$TVM_SRC" apply --check "$LUISA_SRC/src/tile/bridge/tirx/patches/metal-mpp-bounded-mnk-v1.patch"
+git -C "$TVM_SRC" apply "$LUISA_SRC/src/tile/bridge/tirx/patches/metal-mpp-bounded-mnk-v1.patch"
 
 cmake -S "$TVM_SRC" -B "$TVM_BUILD" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DUSE_LLVM=/opt/homebrew/opt/llvm@21/bin/llvm-config \

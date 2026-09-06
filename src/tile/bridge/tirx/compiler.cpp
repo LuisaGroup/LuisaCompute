@@ -474,7 +474,7 @@ public:
             if (bounded_k && (*bounded_k)().cast<int64_t>() == 1) {
                 // Transactional forwarding: every reassociable MMA must still
                 // have a verified memory-atom realization. An extra mask,
-                // nonzero fill or unsupported M/N tail keeps the old snapshots,
+                // nonzero fill or unsupported padded view keeps the old snapshots,
                 // rather than silently turning an MPP request into scalar work.
                 auto trial = forward_readonly_tile_loads(mapped, options.noalias, true);
                 auto body = schedule_pipelines(std::move(trial.body), options.noalias, shared_memory_limit, false);

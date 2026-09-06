@@ -59,10 +59,18 @@ outputs. Paired GPU view/MPS ratios for 1024×1024×1537, 4096×4096×11008 and
 8192³ are 1.180/1.097/1.075; view/Torch ratios are 1.171/1.124/1.182.
 Small-shape host throughput wins, but large shapes still lack parity and
 retain substantial variation. The 8192³ view source is unchanged, so this
-new session is not evidence of a compiler speedup at that shape. M/N-tail
-forwarding and broader physical K/reuse choices remain open.
+new session is not evidence of a compiler speedup at that shape.
 
-The subsequent [K/walk diagnostics](results.md#k-partition-and-program-walks-diagnostics-not-new-defaults)
+The newer [M/N-tail extension](results.md#bounded-m-n-inputs-remove-an-admission-barrier)
+admits large-K input views on ragged matrices. In a two-order diagnostic,
+selected GPU batch time falls to 15–22% of the old restricted schedule on
+three larger ragged shapes, up to 4097×4097×4096. It narrowly beats MPS on
+two of them but still loses to Torch on all four ragged shapes. Same-BK
+small-shape regressions remain; no cost-model/default promotion is claimed.
+The aligned control source is unchanged. Physical K/reuse choices and masked
+direct output remain open.
+
+The [K/walk diagnostics](results.md#k-partition-and-program-walks-diagnostics-not-new-defaults)
 find shape-dependent K sensitivity, reject simple row-stripe traversal, and
 retain an inconclusive rectangle screen with order reversals. These are
 exploratory benchmark results, not new production defaults or MPS/Torch wins.
@@ -153,7 +161,12 @@ Its independent audit checks 392 full-output receipts, 26 unchanged artifacts
 and eight deliberately corrupted evidence cases. This does not change the
 unrelated barrier-assertion boundary described above.
 
-The next milestone is M/N-edge matrix realization, physical K/reuse choices and mapping/resource
+The M/N-tail checkpoint adds 2,334 Metal matrix assertions, 1,008 complete
+low-level semantic outputs, and three retained emitter comparisons totaling
+576 FP64-validated benchmark outputs. Its selected schedules do not establish
+general library parity; the semantic and performance evidence stay separate.
+
+The next milestone is masked direct output, physical K/reuse choices and mapping/resource
 selection that scales beyond 1024³, with independently replayed acceptance and
 explicit GPU/E2E objectives. Broader dtypes, layouts, production LLM workloads, native MPP coverage
 and direct XIR performance remain open. A small cohort win is not the acceptance

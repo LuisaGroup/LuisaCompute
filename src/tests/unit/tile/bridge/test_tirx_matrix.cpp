@@ -6,6 +6,7 @@
 #include "tile_tirx_test_utils.h"
 
 #include <luisa/core/mathematics.h>
+#include <luisa/core/logging.h>
 #include <luisa/core/stl/format.h>
 #include <luisa/tile/memory.h>
 
@@ -361,8 +362,8 @@ void test_mpp_readonly_views(Runtime &runtime) {
             }
         }
     }
-    // Absence of the noalias contract, or unproved padded bounds, must keep
-    // the snapshot path. These are semantic gates, not performance choices.
+    // Noalias remains mandatory. An old extension also retains M/N snapshots;
+    // a bounded-M/N installation must improve that case without changing C.
     for (auto noalias : {false, true}) {
         auto cfg = noalias ? Shape{37, 71, 45, 32, 64, 16} : Shape{32, 64, 32, 32, 64, 16};
         auto kernel = gemm(runtime, cfg, 1u, 1u, true);
@@ -371,8 +372,12 @@ void test_mpp_readonly_views(Runtime &runtime) {
         expect(reference.ok()) << reference.error;
         expect(forwarded.ok()) << forwarded.error;
         if (reference.ok() && forwarded.ok()) {
-            expect(eq(reference.plans[0].shared_memory_bytes, forwarded.plans[0].shared_memory_bytes));
-            expect(metal_source(reference.module.value()) == metal_source(forwarded.module.value()));
+            if (noalias && tvm::ffi::Function::GetGlobal("target.metal.mpp_bounded_mnk_contract_version")) {
+                expect(forwarded.plans[0].shared_memory_bytes < reference.plans[0].shared_memory_bytes);
+            } else {
+                expect(eq(reference.plans[0].shared_memory_bytes, forwarded.plans[0].shared_memory_bytes));
+                expect(metal_source(reference.module.value()) == metal_source(forwarded.module.value()));
+            }
             check_gemm(runtime, forwarded, cfg, 1.0, true);
         }
     }
@@ -558,41 +563,83 @@ void test_mpp_bounded_k_views(Runtime &runtime) {
     if (executable.ok()) { check_gemm(runtime, executable, cfg); }
     // No zero-suffix rewrite for nonzero padding, extra masks, or different
     // effective A/B reduction intervals. Validate the preserved computations.
-    for (auto kind : {0u, 1u, 2u}) {
-        auto shape = Shape{32, 64, 61, 32, 32, 16};
-        auto kernel = gemm(runtime, shape, 1u);
-        auto native = bridge::tirx::lower(kernel.function());
-        expect(static_cast<bool>(native));
-        if (!native) { continue; }
-        BoundedKGuardTest mutation{native.value->params[0u].as_or_throw<tvm::tirx::BufferVar>(), kind};
-        native.value.CopyOnWrite()->body = mutation(native.value->body);
-        expect(eq(mutation.replacements, 1u));
-        bridge::tirx::CompileOptions options;
-        options.target = R"({"kind":"metal","thread_warp_size":32})";
-        options.noalias = true;
-        options.cooperative_matrix = true;
-        options.metal_mpp = true;
-        options.forward_readonly_tile_loads = true;
-        options.planner = planner;
-        auto compiled = bridge::tirx::compile(native.value, kernel.function().name(), options);
-        expect(static_cast<bool>(compiled)) << compiled.error();
-        if (!compiled) { continue; }
-        auto source = metal_source(compiled.module().value());
-        expect(std::string_view{source.data(), source.size()}.find("dynamic_extent") == std::string_view::npos) << source;
-        auto entry = compiled.module().value()->GetFunction("matrix_gemm", true);
-        expect(entry.has_value());
-        if (!entry) { continue; }
-        auto a = runtime.upload<float>({32, 61}, vector<float>(32 * 61, 0.5f));
-        auto b = runtime.upload<float>({61, 64}, vector<float>(61 * 64, -0.25f));
-        auto c = runtime.upload<float>({32, 64}, vector<float>(32 * 64, 0.375f));
-        auto d = runtime.allocate<float>({32, 64});
-        (*entry)(a, b, c, d);
-        auto actual = runtime.download<float>(d, 32 * 64);
-        auto valid_k = kind == 0u ? 61u : kind == 1u ? 31u :
-                                                       60u;
-        auto expected = 0.375f - 0.125f * static_cast<float>(valid_k);
-        expect(std::all_of(actual.begin(), actual.end(), [&](float x) { return std::isfinite(x) && std::abs(x - expected) < 1e-5f; }));
+    for (auto dimensions : {std::pair{32, 64}, std::pair{17, 23}}) {
+        for (auto kind : {0u, 1u, 2u}) {
+            auto shape = Shape{dimensions.first, dimensions.second, 61, 32, 32, 16};
+            auto kernel = gemm(runtime, shape, 1u);
+            auto native = bridge::tirx::lower(kernel.function());
+            expect(static_cast<bool>(native));
+            if (!native) { continue; }
+            BoundedKGuardTest mutation{native.value->params[0u].as_or_throw<tvm::tirx::BufferVar>(), kind};
+            native.value.CopyOnWrite()->body = mutation(native.value->body);
+            expect(eq(mutation.replacements, 1u));
+            bridge::tirx::CompileOptions options;
+            options.target = R"({"kind":"metal","thread_warp_size":32})";
+            options.noalias = true;
+            options.cooperative_matrix = true;
+            options.metal_mpp = true;
+            options.forward_readonly_tile_loads = true;
+            options.planner = planner;
+            auto compiled = bridge::tirx::compile(native.value, kernel.function().name(), options);
+            expect(static_cast<bool>(compiled)) << compiled.error();
+            if (!compiled) { continue; }
+            auto source = metal_source(compiled.module().value());
+            expect(std::string_view{source.data(), source.size()}.find("dynamic_extent") == std::string_view::npos) << source;
+            auto entry = compiled.module().value()->GetFunction("matrix_gemm", true);
+            expect(entry.has_value());
+            if (!entry) { continue; }
+            auto elements = static_cast<size_t>(shape.m) * shape.n;
+            auto a = runtime.upload<float>({shape.m, 61}, vector<float>(static_cast<size_t>(shape.m) * 61u, 0.5f));
+            auto b = runtime.upload<float>({61, shape.n}, vector<float>(61u * static_cast<size_t>(shape.n), -0.25f));
+            auto c = runtime.upload<float>({shape.m, shape.n}, vector<float>(elements, 0.375f));
+            auto d = runtime.allocate<float>({shape.m, shape.n});
+            (*entry)(a, b, c, d);
+            auto actual = runtime.download<float>(d, elements);
+            auto valid_k = kind == 0u ? 61u : kind == 1u ? 31u :
+                                                           60u;
+            auto expected = 0.375f - 0.125f * static_cast<float>(valid_k);
+            expect(std::all_of(actual.begin(), actual.end(), [&](float x) { return std::isfinite(x) && std::abs(x - expected) < 1e-5f; }));
+        }
     }
+}
+
+void test_mpp_bounded_mn_views(Runtime &runtime) {
+    if (runtime.target() != "metal" || !tvm::ffi::Function::GetGlobal("target.metal.mpp_bounded_mnk_contract_version")) { return; }
+    bridge::tirx::PlannerOptions planner;
+    planner.threads_per_group = 128u;
+    // Four participating subgroups include wholly empty rectangles in the
+    // last program. Large BK makes restoring nominal A/B snapshots impossible.
+    for (auto base : {Shape{1, 1, 7, 32, 32, 1024}, Shape{17, 23, 61, 32, 32, 1024},
+                      Shape{129, 65, 1033, 128, 32, 1024}, Shape{37, 71, 45, 32, 64, 16}}) {
+        for (auto ta : {false, true}) {
+            for (auto tb : {false, true}) {
+                for (auto literal : {false, true}) {
+                    auto cfg = base;
+                    cfg.transpose_a = ta;
+                    cfg.transpose_b = tb;
+                    auto kernel = gemm(runtime, cfg, 1u, 1u, literal, 0.0f);
+                    auto reference = runtime.build(kernel, true, true, true, false, planner, true);
+                    auto executable = runtime.build(kernel, true, true, true, false, planner, true, true);
+                    expect(executable.ok()) << cfg.m << 'x' << cfg.n << 'x' << cfg.k << " transpose=" << ta << '/' << tb
+                                            << " literal=" << literal << ": " << executable.error;
+                    if (!executable.ok()) { continue; }
+                    expect(eq(executable.plans.size(), size_t{1u}));
+                    for (auto &plan : executable.plans) {
+                        expect(plan.metal_mpp && !plan.matrices.empty());
+                        expect(plan.shared_memory_bytes <= 32768u);
+                        if (reference.ok()) { expect(plan.shared_memory_bytes < reference.plans[0].shared_memory_bytes); }
+                    }
+                    auto source = metal_source(executable.module.value());
+                    expect(std::string_view{source.data(), source.size()}.find("mpp_actual_m") != std::string_view::npos);
+                    check_gemm(runtime, executable, cfg, 1.0, literal, false, false, 0.0f);
+                }
+            }
+        }
+    }
+    auto cfg = Shape{17, 23, 1033, 32, 32, 1024};
+    auto executable = runtime.build(gemm(runtime, cfg, 2u), true, true, true, false, planner, true, true);
+    expect(executable.ok()) << executable.error;
+    if (executable.ok()) { check_gemm(runtime, executable, cfg); }
 }
 
 void test_mpp_subgroup_isolation(Runtime &runtime) {
@@ -753,6 +800,179 @@ void test_mpp_typed_contract(Runtime &runtime) {
                 }
             }
         }
+    }
+}
+
+class MalformedMppBoundsTest final : public tvm::tirx::StmtExprMutator {
+private:
+    uint32_t _kind;
+
+protected:
+    [[nodiscard]] tvm::Expr VisitExpr_(const tvm::CallNode *call) final {
+        if (call->op.same_as(tvm::Op::Get("tirx.cooperative_tensor_multiply_from_memory")) ||
+            call->op.same_as(tvm::Op::Get("tirx.cooperative_tensor_multiply_accumulate_from_memory"))) {
+            auto args = call->args;
+            auto first = static_cast<int64_t>(args.size()) - 3;
+            if (_kind < 4u) {
+                args.Set(first + _kind / 2u, tvm::IntImm::Int64(_kind % 2u == 0u ? -1 : 17));
+            } else if (_kind == 4u) {
+                args.Set(first, tvm::FloatImm{tvm::PrimType::Float(32), 16.0});
+            } else if (_kind == 5u) {
+                args.Set(first + 1u, tvm::IntImm::Bool(true));
+            } else if (_kind < 8u) {
+                args.Set(first + 2u, tvm::IntImm::Int64(_kind == 6u ? 0 : 9));
+            } else {
+                args.Set(3u, tvm::IntImm::Int64(1));
+            }
+            replacements++;
+            return tvm::Call{call->ty, call->op, std::move(args)};
+        }
+        return StmtExprMutator::VisitExpr_(call);
+    }
+
+public:
+    uint32_t replacements{0u};
+    explicit MalformedMppBoundsTest(uint32_t kind) : _kind{kind} {}
+};
+
+void test_mpp_bounded_mn_contract(Runtime &runtime) {
+    if (runtime.target() != "metal" || !tvm::ffi::Function::GetGlobal("target.metal.mpp_bounded_mnk_contract_version")) { return; }
+    // A bounded input is a zero-padded operand, not permission to discard
+    // padded output elements. Observe the entire nominal destination, also
+    // when an operand has no valid M/N elements or the other contains Inf/NaN.
+    auto i64 = [](int64_t value) { return tvm::IntImm::Int64(value); };
+    auto buffer = [&](int64_t rows, int64_t columns, const char *name, const char *scope = "global") {
+        return tvm::tirx::decl_buffer({i64(rows), i64(columns)}, tvm::PrimType::Float(32), name, scope);
+    };
+    auto address = [&](const tvm::tirx::BufferVar &value) {
+        return tvm::Call{value.DataPointerType(), tvm::tirx::builtin::address_of(), {tvm::tirx::BufferLoad{value, {i64(0), i64(0)}}}};
+    };
+    auto call = [](const char *name, tvm::ffi::Array<tvm::Expr> arguments) {
+        return tvm::tirx::Evaluate{tvm::Call{tvm::PrimType::Void(), tvm::Op::Get(name), std::move(arguments)}};
+    };
+    for (auto [nominal_m, nominal_n] : {std::pair{16, 16}, std::pair{16, 64}, std::pair{64, 16}}) {
+        auto elements = static_cast<size_t>(nominal_m) * nominal_n;
+        auto kernel = gemm(runtime, {nominal_m, nominal_n, 8, nominal_m, nominal_n, 8}, 1u);
+        auto all_valid = true;
+        for (auto [actual_m, actual_n] : {std::pair{nominal_m, nominal_n}, std::pair{nominal_m - 1, nominal_n}, std::pair{nominal_m, nominal_n - 1},
+                                          std::pair{1, 1}, std::pair{0, nominal_n}, std::pair{nominal_m, 0}, std::pair{0, 0}}) {
+            auto actual_k = actual_m == nominal_m && actual_n == nominal_n ? 8 : 7;
+            auto storage_m = std::max(actual_m, 1);
+            auto storage_n = std::max(actual_n, 1);
+            for (auto ta : {false, true}) {
+                for (auto tb : {false, true}) {
+                    for (auto overwrite : {false, true}) {
+                        auto a_rows = ta ? actual_k : storage_m;
+                        auto a_columns = ta ? storage_m : actual_k;
+                        auto b_rows = tb ? storage_n : actual_k;
+                        auto b_columns = tb ? actual_k : storage_n;
+                        auto a = buffer(a_rows, a_columns, "bounded_a");
+                        auto b = buffer(b_rows, b_columns, "bounded_b");
+                        auto c = buffer(nominal_m, nominal_n, "initial");
+                        auto d = buffer(nominal_m, nominal_n, "result");
+                        auto cf = buffer(1, static_cast<int64_t>(elements), "initial_fragment", "metal.cooperative_tensor");
+                        auto df = buffer(1, static_cast<int64_t>(elements), "result_fragment", "metal.cooperative_tensor");
+                        tvm::ffi::Array<tvm::tirx::Stmt> statements;
+                        if (!overwrite) {
+                            statements.push_back(tvm::tirx::AllocBuffer{cf});
+                            statements.push_back(call("tirx.cooperative_tensor_load", {cf, i64(0), address(c), i64(nominal_n),
+                                                                                       i64(nominal_m), i64(nominal_n), tvm::IntImm::Bool(false), i64(nominal_m), i64(nominal_n), i64(8), i64(2)}));
+                        }
+                        statements.push_back(tvm::tirx::AllocBuffer{df});
+                        tvm::ffi::Array<tvm::Expr> args{df, i64(0), address(a), i64(a_columns), address(b), i64(b_columns)};
+                        if (!overwrite) {
+                            args.push_back(cf);
+                            args.push_back(i64(0));
+                        }
+                        for (auto value : {nominal_m, nominal_n, 8}) { args.push_back(i64(value)); }
+                        args.push_back(tvm::IntImm::Bool(ta));
+                        args.push_back(tvm::IntImm::Bool(tb));
+                        for (auto value : {actual_m, actual_n, actual_k}) { args.push_back(i64(value)); }
+                        statements.push_back(call(overwrite ? "tirx.cooperative_tensor_multiply_from_memory" :
+                                                              "tirx.cooperative_tensor_multiply_accumulate_from_memory",
+                                                  std::move(args)));
+                        statements.push_back(call("tirx.cooperative_tensor_store", {df, i64(0), address(d), i64(nominal_n),
+                                                                                    i64(nominal_m), i64(nominal_n), tvm::IntImm::Bool(false), i64(nominal_m), i64(nominal_n), i64(8), i64(2)}));
+                        auto bind = [&](const char *name, int64_t extent, const char *tag, tvm::tirx::Stmt body) {
+                            auto index = tvm::tirx::PrimVar{name, tvm::PrimType::Int(64)};
+                            auto axis = tvm::tirx::IterVar{tvm::Range::FromMinExtent(i64(0), i64(extent)), index,
+                                                           tvm::tirx::IterVarType::kThreadIndex, tag};
+                            return tvm::tirx::For{index, i64(0), i64(extent), tvm::tirx::ForKind::kThreadBinding, std::move(body), axis};
+                        };
+                        auto function = tvm::tirx::PrimFunc{{a, b, c, d},
+                                                            bind("program", 1, "blockIdx.x", bind("worker", 32, "threadIdx.x", tvm::tirx::SeqStmt::Flatten(statements)))};
+                        if (nominal_m == 16 && nominal_n == 16 && actual_m == nominal_m && actual_n == nominal_n && !ta && !tb) {
+                            for (auto kind = 0u; kind < 9u; kind++) {
+                                MalformedMppBoundsTest mutation{kind};
+                                auto malformed = function;
+                                malformed.CopyOnWrite()->body = mutation(function->body);
+                                expect(eq(mutation.replacements, 1u));
+                                auto rejected = compile_native(runtime, kernel, std::move(malformed));
+                                expect(!rejected.ok()) << "malformed M/N/K contract=" << kind;
+                                auto diagnostic = kind < 4u ? "nonnegative" : kind < 6u ? "scalar signed integer" :
+                                                                          kind < 8u     ? "positive" :
+                                                                                          "leading stride";
+                                expect(rejected.error.find(diagnostic) != luisa::string::npos) << rejected.error;
+                            }
+                        }
+                        auto executable = compile_native(runtime, kernel, std::move(function));
+                        expect(executable.ok()) << executable.error;
+                        if (!executable.ok()) { continue; }
+                        for (auto special : {0u, 1u, 2u, 3u, 4u, 5u}) {
+                            auto left_values = values(static_cast<size_t>(a_rows) * a_columns, 0.13f);
+                            auto right_values = values(static_cast<size_t>(b_rows) * b_columns, 0.47f);
+                            auto initial = values(elements, 0.93f);
+                            if (special == 1u) { right_values[0] = std::numeric_limits<float>::infinity(); }
+                            if (special == 2u) { left_values[0] = std::numeric_limits<float>::quiet_NaN(); }
+                            if (special == 3u || special == 4u) {
+                                std::fill(left_values.begin(), left_values.end(), special == 3u ? -1.0f : -0.0f);
+                                std::fill(right_values.begin(), right_values.end(), special == 3u ? -1.0f : -0.0f);
+                                std::fill(initial.begin(), initial.end(), -0.0f);
+                            }
+                            if (special == 5u) {
+                                std::fill(initial.begin(), initial.end(), -std::numeric_limits<float>::infinity());
+                                initial[1] = std::numeric_limits<float>::quiet_NaN();
+                            }
+                            auto left = runtime.upload<float>({a_rows, a_columns}, left_values);
+                            auto right = runtime.upload<float>({b_rows, b_columns}, right_values);
+                            auto input_c = runtime.upload<float>({nominal_m, nominal_n}, initial);
+                            auto output = runtime.allocate<float>({nominal_m, nominal_n});
+                            (*executable.entry)(left, right, input_c, output);
+                            auto actual = runtime.download<float>(output, elements);
+                            auto valid = true;
+                            for (auto row = 0; row < nominal_m; row++) {
+                                for (auto column = 0; column < nominal_n; column++) {
+                                    auto expected = overwrite ? 0.0 : static_cast<double>(initial[row * nominal_n + column]);
+                                    for (auto reduction = 0; reduction < actual_k; reduction++) {
+                                        auto av = row < actual_m ? left_values[ta ? reduction * storage_m + row : row * actual_k + reduction] : 0.0f;
+                                        auto bv = column < actual_n ? right_values[tb ? column * actual_k + reduction : reduction * storage_n + column] : 0.0f;
+                                        expected += static_cast<double>(av) * static_cast<double>(bv);
+                                    }
+                                    auto observed = actual[row * nominal_n + column];
+                                    auto matches = std::isnan(expected) ? std::isnan(observed) :
+                                                   std::isinf(expected) ? std::isinf(observed) && std::signbit(observed) == std::signbit(expected) :
+                                                                          std::isfinite(observed) && std::abs(static_cast<double>(observed) - expected) <= 1e-4 + 2e-5 * std::abs(expected);
+                                    if (expected == 0.0 && (actual_m == 0 || actual_n == 0)) {
+                                        matches &= std::signbit(observed) == std::signbit(expected);
+                                    }
+                                    if (!matches && valid) {
+                                        LUISA_WARNING("bounded M/N={}/{} transpose={}/{} overwrite={} special={}: first mismatch at ({}, {}): {} expected {}",
+                                                      actual_m, actual_n, ta, tb, overwrite, special, row, column, observed, expected);
+                                    }
+                                    valid &= matches;
+                                }
+                            }
+                            all_valid &= valid;
+                            if (!valid && actual_m == 0 && actual_n == 16 && !ta && !tb && !overwrite && special == 0u) {
+                                auto source = metal_source(executable.module.value());
+                                LUISA_WARNING("bounded M/N source:\n{}", std::string_view{source.data(), source.size()});
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        expect(all_valid);
     }
 }
 
@@ -2038,6 +2258,8 @@ int main(int argc, char *argv[]) {
     "tile_matrix_mpp_typed_contract_and_rejections"_test = [&] { test_mpp_typed_contract(runtime); };
     "tile_matrix_mpp_readonly_view_proofs"_test = [&] { test_mpp_readonly_views(runtime); };
     "tile_matrix_mpp_bounded_k_views"_test = [&] { test_mpp_bounded_k_views(runtime); };
+    "tile_matrix_mpp_bounded_mn_semantics"_test = [&] { test_mpp_bounded_mn_contract(runtime); };
+    "tile_matrix_mpp_bounded_mn_views"_test = [&] { test_mpp_bounded_mn_views(runtime); };
     "tile_matrix_mpp_independent_subgroups_and_sync_boundaries"_test = [&] { test_mpp_subgroup_isolation(runtime); };
     "tile_matrix_stale_marker_does_not_tensorize"_test = [&] { test_stale_matrix_marker(runtime); };
     "tile_matrix_literal_initial_and_zero_contraction"_test = [&] { test_literal_initial_and_zero_contraction(runtime); };

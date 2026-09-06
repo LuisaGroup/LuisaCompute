@@ -157,8 +157,8 @@ shape dispatch in the bridge.
 The optional `metal-mpp-bounded-k-v1.patch`, applied after MPP memory v2,
 adds a separately checked capability without changing the DSL or TileIR.
 It distinguishes the **logical** contraction tile BK from the **physical**
-input interval `actual_k = min(BK, source_k - origin_k)`. M/N still have to
-be fully in bounds; this is not yet a general masked tensor atom.
+input interval `actual_k = min(BK, source_k - origin_k)`. With this capability
+alone, M/N have to be fully in bounds; it is not a general masked tensor atom.
 
 ~~~text
 logical A[BM, BK] / B[BK, BN]
@@ -196,9 +196,47 @@ For BM=128, BN=32, BK=1024, this can remove the nominal 640 KiB A/B staging
 requirement even when the final contraction is short. The existing resource
 solver sees the resulting physical allocations; its work score still charges
 nominal K conservatively. This extends legality, not the cost model's accuracy
-or a claim of MPS parity. M/N edge atoms and automatic physical K retiming
-remain separate work. The patch ABI and build order are documented in
+or a claim of MPS parity. M/N edges require the separate capability below;
+automatic physical K retiming remains separate work. The patch ABI and build order are documented in
 [the TVM patch README](https://github.com/LuisaGroup/LuisaCompute/blob/codex/tile-programming-design/src/tile/bridge/tirx/patches/README.md).
+
+## Bounded M/N views compose with subgroup coordinates
+
+The optional `metal-mpp-bounded-mnk-v1.patch` extends the same proof to M/N
+edges, including wholly empty subgroup rectangles. It keeps the logical MMA
+shape and execution distribution unchanged: ancestor program origins compose
+with the existing subgroup rectangle, then constrain the physical input view.
+For example, `actual_m = max(0, min(local_m, source_m - program_m - subgroup_m))`;
+N is analogous, and A/B still share one positive actual-K interval.
+
+This is resource/execution separation, not a new nest or a memory-defined
+worker hierarchy. Canonical positive-zero guards, affine unit projections,
+immutability, noalias and dominance remain required. A unit projection also
+determines orientation when physical dimensions of one make numerical strides
+ambiguous. For an absent operand, address construction selects the valid
+buffer base instead of forming an out-of-object pointer.
+
+Positive actual M/N use MPP's bounded inline tensors. Zero extents need a
+different implementation: the validated SDK probe read a sentinel row from
+the naive zero-extent encoding. The emitter therefore handles an empty input
+inside the existing subgroup's cooperative output fragments. Only valid
+elements of the other operand are read; FP32 bit classification preserves
+`0 * Inf`, NaN and signed-zero accumulation. Each lane owns a row/column of
+that operand; shuffle transfers its classification to each public output
+coordinate. No opaque MPP distribution is assumed, and collectives stay
+outside divergent validity predicates. Interior rectangles retain static
+M/N tensor views. The nominal destination and
+nonzero C remain observable. Empty does **not** mean permission to skip the
+output or silently assume finite values. No A/B staging allocation is needed.
+
+The separately versioned capability retains both older ABIs. Without it the
+bridge keeps the previous M/N-tail fallback. The empty-rectangle scan
+is a correctness realization, not a calibrated performance model: the solver
+still scores nominal work, and default-off forwarding remains opt-in.
+Noncanonical masks, nonzero fill, unequal K intervals, mutable inputs and
+manual memory retain snapshots. See the
+[performance checkpoint](../../performance/tile/results.md#bounded-m-n-inputs-remove-an-admission-barrier)
+for actual timings rather than inferring speed from removed storage.
 
 ## Physical program traversal remains a candidate
 
