@@ -208,6 +208,82 @@ void test_element_grid_respects_exact_reduction(Runtime &runtime) {
     }
 }
 
+void test_element_grid_multiple_outputs(Runtime &runtime) {
+    for (auto dims : {std::array<int64_t, 4>{1, 127, 1, 16}, {17, 257, 3, 7}, {35, 63, 8, 8}}) {
+        auto [rows, columns, bm, bn] = dims;
+        for (auto mode = 0u; mode < 4u; mode++) {
+            auto scope = mode == 2u ? exec::Scope::WORKER : exec::Scope::AUTOMATIC;
+            auto definition = tile_kernel("element_multi_output", [=](TensorView<const float, 2> input,
+                                                                      TensorView<float, 2> first,
+                                                                      TensorView<float, 2> second,
+                                                                      TensorView<float, 2> third) {
+                auto gr = axis("gr", ceil_div(rows, bm)), gc = axis("gc", ceil_div(columns, bn));
+                auto r = axis("r", bm), c = axis("c", bn);
+                for (auto &nest : parallel(shape(gr, gc), scope)) {
+                    auto r0 = nest.index(gr) * bm, c0 = nest.index(gc) * bn;
+                    auto origin = coord(r0, c0);
+                    auto a = exp(input[coord(r0 - 1, c0 - 3), shape(r, c)] * 0.3f);
+                    first(origin, shape(r, c)).store(a + a);
+                    // A second shared producer appears after an output effect.
+                    // Fusion must preserve its definition and both later uses.
+                    auto b = a * a + 0.25f;
+                    second(origin, shape(r, c)).store(b + a);
+                    third(origin, shape(r, c)).store(b * b - a);
+                }
+            });
+            auto kernel = definition.capture(tensor_shape(rows, columns), tensor_shape(rows, columns),
+                                             tensor_shape(rows, columns), tensor_shape(rows, columns));
+            PlannerOptions planner;
+            planner.fuse_gpu_elementwise = mode != 1u;
+            auto executable = runtime.build(kernel, mode != 3u, false, true, false, planner);
+            expect(executable.ok()) << executable.error;
+            if (!executable.ok()) { continue; }
+            auto fused = runtime.target() == "metal" && mode == 0u;
+            expect(eq(executable.plans.size(), fused ? size_t{1u} : size_t{0u}));
+            if (fused && !executable.plans.empty()) {
+                expect(eq(executable.plans.front().elementwise_scalar_temporaries, 2u));
+                auto source = metal_source(executable.module.value());
+                auto text = std::string_view{source.data(), source.size()};
+                expect(text.find("thread float tile_storage_") == std::string_view::npos);
+                auto first_exp = text.find("exp(");
+                // Every shifted input is zero for the single-row case. TIRx
+                // may substitute constant exp(0) expressions for Metal to
+                // fold; the once-per-worker check targets nonconstant work.
+                if (rows > 1) {
+                    expect(first_exp != std::string_view::npos);
+                    if (first_exp != std::string_view::npos) { expect(text.find("exp(", first_exp + 4u) == std::string_view::npos); }
+                } else {
+                    expect(text.find("arg0_ptr") == std::string_view::npos);
+                }
+            }
+            auto count = static_cast<size_t>(rows * columns);
+            luisa::vector<float> values(count);
+            for (auto i = size_t{0}; i < count; i++) { values[i] = static_cast<float>(static_cast<int64_t>(i % 43u) - 21) / 17.0f; }
+            auto input = runtime.upload<float>({rows, columns}, values);
+            auto first = runtime.upload<float>({rows, columns}, luisa::vector<float>(count, -19.0f));
+            auto second = runtime.upload<float>({rows, columns}, luisa::vector<float>(count, -19.0f));
+            auto third = runtime.upload<float>({rows, columns}, luisa::vector<float>(count, -19.0f));
+            (*executable.entry)(input, first, second, third);
+            auto actual_a = runtime.download<float>(first, count);
+            auto actual_b = runtime.download<float>(second, count);
+            auto actual_c = runtime.download<float>(third, count);
+            auto valid = true;
+            for (auto row = int64_t{0}; row < rows; row++) {
+                for (auto column = int64_t{0}; column < columns; column++) {
+                    auto index = static_cast<size_t>(row * columns + column);
+                    auto value = row >= 1 && column >= 3 ? values[static_cast<size_t>((row - 1) * columns + column - 3)] : 0.0f;
+                    auto a = std::exp(static_cast<double>(value) * static_cast<double>(0.3f));
+                    auto b = a * a + 0.25;
+                    valid &= std::isfinite(actual_a[index]) && std::abs(actual_a[index] - 2.0 * a) < 1e-5;
+                    valid &= std::isfinite(actual_b[index]) && std::abs(actual_b[index] - (b + a)) < 1e-5;
+                    valid &= std::isfinite(actual_c[index]) && std::abs(actual_c[index] - (b * b - a)) < 1e-5;
+                }
+            }
+            expect(valid) << "mode=" << mode;
+        }
+    }
+}
+
 enum class ElementChainCase { POINTWISE,
                               NEIGHBOR,
                               TRANSPOSE,
@@ -217,6 +293,83 @@ enum class ElementChainCase { POINTWISE,
                               CONDITIONAL,
                               DIFFERENT_DOMAIN,
                               INPUT_WRITE };
+
+void test_element_grid_output_dependencies(Runtime &runtime) {
+    enum class Case { INDEPENDENT,
+                      TRANSPOSED_OUTPUT,
+                      CONDITIONAL,
+                      RAW,
+                      WAR,
+                      WAW,
+                      DIFFERENT_DOMAIN };
+    auto i64 = [](int64_t value) { return tvm::IntImm::Int64(value); };
+    auto f32 = [](float value) { return tvm::FloatImm{tvm::PrimType::Float(32), value}; };
+    for (auto mode : {Case::INDEPENDENT, Case::TRANSPOSED_OUTPUT, Case::CONDITIONAL, Case::RAW, Case::WAR, Case::WAW, Case::DIFFERENT_DOMAIN}) {
+        auto a = tvm::tirx::decl_buffer({i64(3), i64(8)}, tvm::PrimType::Float(32), "input");
+        auto y = tvm::tirx::decl_buffer({i64(3), i64(8)}, tvm::PrimType::Float(32), "first");
+        auto z = tvm::tirx::decl_buffer(mode == Case::TRANSPOSED_OUTPUT ? tvm::ffi::Array<tvm::PrimExpr>{i64(8), i64(3)} :
+                                                                          tvm::ffi::Array<tvm::PrimExpr>{i64(3), i64(8)},
+                                        tvm::PrimType::Float(32), "second");
+        auto p = tvm::tirx::PrimVar{"program", tvm::PrimType::Int(64)};
+        auto c = tvm::tirx::PrimVar{"first_column", tvm::PrimType::Int(64)};
+        auto d = tvm::tirx::PrimVar{"second_column", tvm::PrimType::Int(64)};
+        auto row = p - i64(2), column = c - i64(5), next = d - i64(11);
+        auto read_column = mode == Case::WAR ? tvm::floormod(column + i64(1), i64(8)) : column;
+        tvm::tirx::Stmt first = tvm::tirx::BufferStore{y, tvm::tirx::BufferLoad{a, {row, read_column}} * f32(2.0f), {row, column}};
+        auto destination = mode == Case::WAR ? a : mode == Case::WAW ? y :
+                                                                       z;
+        auto indices = mode == Case::TRANSPOSED_OUTPUT ? tvm::ffi::Array<tvm::PrimExpr>{next, row} :
+                                                         tvm::ffi::Array<tvm::PrimExpr>{row, mode == Case::WAW ? tvm::floormod(next + i64(1), i64(8)) : next};
+        tvm::PrimExpr value = mode == Case::WAR ? f32(-3.0f) :
+                              mode == Case::RAW ? tvm::tirx::BufferLoad{y, {row, tvm::floormod(next + i64(1), i64(8))}} + f32(1.0f) :
+                                                  tvm::tirx::BufferLoad{a, {row, next}} + f32(3.0f);
+        tvm::tirx::Stmt second = tvm::tirx::BufferStore{destination, value, indices};
+        if (mode == Case::CONDITIONAL) {
+            first = tvm::tirx::IfThenElse{tvm::floormod(column, i64(2)) == i64(0), std::move(first)};
+            second = tvm::tirx::IfThenElse{next < i64(5), std::move(second)};
+        }
+        first = tvm::tirx::For{c, i64(5), i64(8), tvm::tirx::ForKind::kSerial, std::move(first), {}, {{"luisa.tile.independent_elements", i64(1)}}};
+        second = tvm::tirx::For{d, i64(11), i64(mode == Case::DIFFERENT_DOMAIN ? 7 : 8), tvm::tirx::ForKind::kSerial, std::move(second), {}, {{"luisa.tile.independent_elements", i64(1)}}};
+        auto body = tvm::tirx::For{p, i64(2), i64(3), tvm::tirx::ForKind::kSerial, tvm::tirx::SeqStmt::Flatten(first, second), {}, {{"luisa.tile.logical_parallel", i64(1)}}};
+        CompileOptions options;
+        options.target = runtime.target();
+        options.noalias = true;
+        auto executable = compile(tvm::tirx::PrimFunc{{a, y, z}, std::move(body)}, "output_dependence_contract", options);
+        expect(executable.ok()) << executable.error();
+        if (!executable) { continue; }
+        auto fused = runtime.target() == "metal" && (mode == Case::INDEPENDENT || mode == Case::TRANSPOSED_OUTPUT || mode == Case::CONDITIONAL);
+        expect(eq(executable.plans().size(), fused ? size_t{1u} : size_t{0u}));
+        auto entry = executable.module().value()->GetFunction("output_dependence_contract", true);
+        expect(entry.has_value());
+        if (!entry) { continue; }
+        luisa::vector<float> values(24u);
+        for (auto i = 0u; i < values.size(); i++) { values[i] = static_cast<float>(i) / 16.0f - 0.5f; }
+        auto input = runtime.upload<float>({3, 8}, values);
+        auto output_y = runtime.upload<float>({3, 8}, luisa::vector<float>(24u, -19.0f));
+        auto output_z = runtime.upload<float>({mode == Case::TRANSPOSED_OUTPUT ? 8 : 3, mode == Case::TRANSPOSED_OUTPUT ? 3 : 8}, luisa::vector<float>(24u, -19.0f));
+        (*entry)(input, output_y, output_z);
+        auto actual_y = runtime.download<float>(output_y, 24u);
+        auto actual_z = runtime.download<float>(output_z, 24u);
+        auto actual_a = runtime.download<float>(input, 24u);
+        for (auto row_index = 0u; row_index < 3u; row_index++) {
+            for (auto column_index = 0u; column_index < 8u; column_index++) {
+                auto index = row_index * 8u + column_index;
+                auto expected_y = mode == Case::WAW                                    ? values[row_index * 8u + (column_index + 7u) % 8u] + 3.0f :
+                                  mode == Case::CONDITIONAL && column_index % 2u != 0u ? -19.0f :
+                                                                                         values[row_index * 8u + (mode == Case::WAR ? (column_index + 1u) % 8u : column_index)] * 2.0f;
+                auto expected_z = mode == Case::WAR || mode == Case::WAW ||
+                                          (mode == Case::CONDITIONAL && column_index >= 5u) ||
+                                          (mode == Case::DIFFERENT_DOMAIN && column_index == 7u) ?
+                                      -19.0f :
+                                  mode == Case::RAW ? values[row_index * 8u + (column_index + 1u) % 8u] * 2.0f + 1.0f :
+                                                      values[index] + 3.0f;
+                expect(eq(actual_y[index], expected_y));
+                expect(eq(actual_z[mode == Case::TRANSPOSED_OUTPUT ? column_index * 3u + row_index : index], expected_z));
+                expect(eq(actual_a[index], mode == Case::WAR ? -3.0f : values[index]));
+            }
+        }
+    }
+}
 
 void test_element_grid_producer_contract(Runtime &runtime) {
     auto i64 = [](int64_t value) { return tvm::IntImm::Int64(value); };
@@ -1965,6 +2118,8 @@ int main(int argc, char *argv[]) {
     "tile_execution_fused_element_grid"_test = [&] { test_fused_element_grid(runtime); };
     "tile_execution_element_grid_snapshot"_test = [&] { test_element_grid_retains_snapshot(runtime); };
     "tile_execution_element_grid_shared_producers"_test = [&] { test_element_grid_shared_producers(runtime); };
+    "tile_execution_element_grid_multiple_outputs"_test = [&] { test_element_grid_multiple_outputs(runtime); };
+    "tile_execution_element_grid_output_dependencies"_test = [&] { test_element_grid_output_dependencies(runtime); };
     "tile_execution_element_grid_exact_reduction"_test = [&] { test_element_grid_respects_exact_reduction(runtime); };
     "tile_execution_element_grid_producer_contract"_test = [&] { test_element_grid_producer_contract(runtime); };
     "tile_execution_reduction_packing_and_policy"_test = [&] { test_metal_reduction_packing_and_policy(runtime); };

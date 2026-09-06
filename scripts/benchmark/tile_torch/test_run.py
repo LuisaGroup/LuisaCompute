@@ -28,6 +28,68 @@ with patch.dict(sys.modules, {"run": MODULE, "repeat": REPEAT}):
     SYSTEM_SPEC.loader.exec_module(SYSTEM)
 
 
+class PairedActivationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        try:
+            import torch
+        except ImportError as error:
+            raise unittest.SkipTest("paired activation checks require PyTorch") from error
+        cls.torch = torch
+
+    def test_cases_keep_the_existing_element_block_without_search(self):
+        shapes = [(1, 127), (37, 1537), (1024, 4096), (4096, 4096)]
+        cases = MODULE.make_cases(["sigmoid_pair", "gelu_pair"], row_shapes=shapes)
+        self.assertEqual(len(cases), 8)
+        for case in cases:
+            self.assertEqual(MODULE.block_shape(case, (64, 64, 32)), (1, 256, 1))
+            self.assertIn((case.m, case.n), shapes)
+
+    def test_double_reference_derivative_matches_autograd(self):
+        torch = self.torch
+        # Include saturation, cancellation near zero, and the regular domain.
+        x = torch.tensor([-20., -8., -3., -1., -1e-4, 0., 1e-4, 1., 3., 8., 20.],
+                         dtype=torch.float64, requires_grad=True)
+        for operation in ("sigmoid_pair", "gelu_pair"):
+            with self.subTest(operation=operation):
+                value = (torch.sigmoid(x) if operation == "sigmoid_pair" else
+                         torch.nn.functional.gelu(x, approximate="tanh"))
+                derivative, = torch.autograd.grad(value.sum(), x)
+                expected = MODULE.paired_activation_reference(torch, x.detach(), operation)
+                self.assertEqual(expected.dtype, torch.float64)
+                torch.testing.assert_close(expected[0], value, atol=1e-14, rtol=1e-13)
+                torch.testing.assert_close(expected[1], derivative, atol=1e-14, rtol=1e-13)
+
+    def test_preallocated_eager_outputs_are_both_written_and_validated(self):
+        torch = self.torch
+        x = torch.linspace(-6, 6, 257).reshape(1, 257)
+        for operation, calls in (("sigmoid_pair", 3), ("gelu_pair", 2)):
+            with self.subTest(operation=operation):
+                out = torch.full((2, *x.shape), float("nan"))
+                pointer = out.data_ptr()
+                invoke, sequence = MODULE.paired_activation_invoker(torch, x, out, operation)
+                self.assertEqual(len(sequence), calls)
+                expected = MODULE.paired_activation_reference(torch, x, operation)
+                for _ in range(2):
+                    out.fill_(float("nan"))
+                    self.assertIs(invoke(), out)
+                    self.assertEqual(out.data_ptr(), pointer)
+                    MODULE.validate(torch, out, expected, operation)
+                out[1, 0, 128] += 0.1
+                with self.assertRaisesRegex(AssertionError, "error"):
+                    MODULE.validate(torch, out, expected, operation)
+                with self.assertRaisesRegex(AssertionError, "shape"):
+                    MODULE.validate(torch, out[0], expected, operation)
+
+    def test_unknown_graph_is_not_silently_replaced(self):
+        torch = self.torch
+        x = torch.zeros(1, 2)
+        with self.assertRaises(ValueError):
+            MODULE.paired_activation_reference(torch, x, "unknown")
+        with self.assertRaises(ValueError):
+            MODULE.paired_activation_invoker(torch, x, torch.empty(2, 1, 2), "unknown")
+
+
 class SystemBaselineTests(unittest.TestCase):
     def test_three_implementation_orders_are_balanced_per_case(self):
         keys = [("metal", str(i)) for i in range(8)]

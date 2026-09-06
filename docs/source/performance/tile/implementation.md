@@ -27,7 +27,8 @@ names or favorable shapes. Three different claims require separate evidence:
 
 - **Semantic applicability:** a transformation matches proved access,
   dependence, ownership and numerical contracts. Pointwise grid fusion and
-  shared-SSA scalarization can serve different expression graphs; canonical
+  shared-SSA scalarization can serve different expression graphs, including
+  several independently written output domains; canonical
   add/max/min reduction mapping serves several row programs. Matrix input
   forwarding serves the admitted affine zero-padded MMA family, not every
   operator containing a reduction.

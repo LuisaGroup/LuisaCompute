@@ -18,6 +18,68 @@ of same-round numerator/denominator ratios, **not** a ratio of the displayed
 medians. Ranges and counts of slower rounds are descriptive, not confidence
 intervals. No slow or failed row is discarded to improve the headline.
 
+### Multi-output pointwise fusion removes a mapping boundary
+
+The September 6 [pointwise graph extension](../../internals/tile/lowering.md#automatic-gpu-pointwise-graphs)
+admits several independent output domains sharing compiler-owned SSA. It
+removes the previous program-per-worker fallback without matching operator
+names or shapes. This is a new legal realization, **not new cost coefficients
+or a fitted solver**. The existing 1×256 element block and automatic 256-thread
+policy are frozen throughout this comparison.
+
+Both graphs return an activation and its derivative, in two distinct native
+output buffers. GELU uses the tanh approximation. Torch preallocates both
+outputs and uses three eager out operations for sigmoid, two forward/backward
+out operations for GELU. It is not compiled fused Torch or a full training
+step. Six fresh-JIT rounds balance mapper and framework order independently,
+at 9 samples, 30 ms sample windows and 100 ms warmup. All **192 complete
+value/derivative pairs (384 output planes)** pass FP64 validation; 23
+fingerprinted artifacts remain unchanged. The disabled-fusion reference
+matches the old compiler's Metal source on all eight cases.
+
+The table uses no-counter GPU command-buffer batch intervals in µs/op,
+including work and gaps inside those buffers, not isolated kernel time.
+Old/new and new/Torch are medians of paired round ratios; lower new/Torch is
+better. The large cases improve too, but much less than the tiny underfilled
+reference launches.
+
+```{table} FP32 activation and derivative, Apple M1 Max, six paired rounds
+:class: benchmark-table
+
+| Graph / rows×width | Reference GPU µs | Fused GPU µs | Torch GPU µs | Old/new | New/Torch |
+|---|---:|---:|---:|---:|---:|
+| sigmoid / 1×127 | 96.588 | 2.018 | 6.523 | 48.138× | 0.309× |
+| sigmoid / 37×1537 | 252.647 | 3.546 | 9.803 | 71.257× | 0.362× |
+| sigmoid / 1024×4096 | 366.747 | 105.319 | 288.584 | 3.503× | 0.365× |
+| sigmoid / 4096×4096 | 1566.623 | 679.060 | 1712.971 | 2.298× | 0.399× |
+| GELU / 1×127 | 124.775 | 3.016 | 4.414 | 41.279× | 0.684× |
+| GELU / 37×1537 | 279.678 | 6.468 | 6.793 | 43.277× | 0.952× |
+| GELU / 1024×4096 | 451.546 | 105.544 | 197.518 | 4.232× | 0.530× |
+| GELU / 4096×4096 | 2045.484 | 677.876 | 1227.067 | 3.025× | 0.556× |
+```
+
+All 48 new/reference pairs improve in both batched GPU and E2E time. Paired
+E2E speedups are 29.70–50.22× for the two smaller shapes and 2.36–3.68× for
+the larger ones. All eight median GPU and E2E comparisons favor the fused Tile
+kernel over eager Torch, **but not every round or latency objective wins**:
+small GELU loses one of six GPU batch pairs to Torch, and 37×1537 GELU's
+single-call E2E ratio is 1.024×, losing three rounds. Its GPU batch margin is
+only about 5%. Desktop activity is not isolated, ranges are not confidence
+intervals, and separately instrumented compute-pass samples remain diagnostics.
+
+The {download}`frozen replay <../../../../scripts/benchmark/tile_torch/results/m1-max-20260906-element-multi-output/replay/results.md>`
+retains all four timing views. The
+{download}`audit and limitations <../../../../scripts/benchmark/tile_torch/results/m1-max-20260906-element-multi-output/notes.md>`
+link raw samples, generated sources, complete-output checks and adversarial
+audit tests. Single-output Add/GELU and Softmax/RMSNorm/LayerNorm controls
+have identical old/new Metal source. CPU controls differ only in bijectively
+renamed TBAA object-address labels; no CPU speedup follows from this change.
+Attention, CNN/filter and sort/Top-K regressions pass correctness checks, not
+a new optimized-performance comparison. Register-heavy multi-output graphs,
+general affine output layouts, fusion partitioning and cross-device
+profitability remain open; this result does not close the MPS/GEMM or
+direct-XIR/SIMD gaps.
+
 ### Metal subgroup reductions close the measured normalization defect
 
 The [lowering reference](../../internals/tile/reductions.md)

@@ -147,8 +147,10 @@ this reference planner does not yet implement, so they are rejected even
 through unbound/serial intermediate scopes. Device, subgroup, unknown scope
 names, CPU group bindings, and other unavailable bindings also fail closed.
 Disabling vectorization cannot silently override an explicit vector
-constraint. The default remains the reference worker mapping; these choices
-are not a public `CPU_THREADS`/`GPU_GRID` compile option.
+constraint. Automatic pointwise graphs can additionally use the fused grid
+described below; other programs retain the reference worker mapping unless
+another realization is selected. These choices are not a public
+`CPU_THREADS`/`GPU_GRID` compile option.
 
 Vector binding includes a separate resource transformation. A compiler-local
 temporary declared inside a vector instance has one independent copy per
@@ -225,6 +227,60 @@ use the [two-window software-prefetch plan](#implemented-native-software-prefetc
 ordered. Neither plan implies hardware-asynchronous copy. Reference MMA
 distributes output elements and retains each element's serial contraction;
 parallel reduction trees remain separate planner work.
+
+#### Automatic GPU pointwise graphs
+
+The element-grid mapper consumes the product of a logical program domain and
+its independent Tile-element domain. It does **not** assign one entire Tile
+to each hardware thread. A single automatic root with same-domain pure SSA
+producers and one or more independent output domains can become:
+
+~~~text
+logical program p × local element e
+                  |
+       linear = p * elements_per_program + e
+                  |
+       block = linear / threads; worker = linear % threads
+                  |
+       v = producer(input[p, e])       // one worker-local SSA value
+       output_a[p, e] = f(v)
+       w = another_producer(v)         // definition after an output is legal
+       output_b[p, e] = g(v, w)
+       output_c[p, e] = h(w)
+~~~
+
+This is an IR-structure rule, not recognition of sigmoid, GELU, a kernel name,
+or a particular tensor size. Each original domain is normalized to the same
+local coordinates, including nonzero loop minima. Interleaving preserves
+per-element statement order. An output may use a different coordinate
+permutation or predicate if its write map is independently proved injective.
+Shared compiler-owned Tiles become scalar definitions only after every load
+proves the same owner as its unique dominating producer; neither shape
+equality nor the `parallel` contract alone establishes that ownership.
+
+The current admission proof is deliberately bounded:
+
+- Parameters have the checked `noalias` contract; each written global buffer
+  has exactly one syntactic store and is never read or escaped by this graph.
+- Output buffers have supported compact address maps; producer and consumer
+  domains have the same static rectangular rank/extents. Conditional output
+  stores are allowed, conditional shared producers are not.
+- Shared definitions are compiler-owned pure Tiles. Unknown effects, manual
+  resource/layout constraints, a different domain, pipeline boundaries and
+  explicit execution bindings retain their original realization.
+- Two stores to the same buffer retain the reference path even if a future
+  disjointness analysis could prove them safe. Cross-domain RAW/WAR/WAW
+  dependencies cannot be erased by assigning the same shape to both domains.
+
+The mapper emits worker-local scalar storage and a bijective flat launch;
+the existing bounded thread policy supplies its width. Plans record
+`elementwise_elements_per_program` and `elementwise_scalar_temporaries`.
+`PlannerOptions::fuse_gpu_elementwise = false` retains the same-binary
+reference control. This extension adds a legal realization family, not a
+newly fitted cost model or a general fusion-partition solver. CPU vector
+mapping and reduction/matrix realization are separate. Profitability for
+many-output, register-heavy graphs and more general affine layouts remains
+an open planning problem; passing the proof is not a cross-device speed claim.
 
 #### Guarded native Metal matrix realization
 

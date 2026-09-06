@@ -87,8 +87,8 @@ def make_cases(operations: list[str], quick: bool = False,
     for operation in operations:
         if operation == "gemm":
             cases.extend(Case(operation, *shape) for shape in gemm)
-        elif operation in ("add", "gelu_add", "sum", "softmax", "rmsnorm", "layernorm", "residual_layernorm", "cross_entropy"):
-            cases.extend(Case(operation, *shape) for shape in (elementwise if operation in ("add", "gelu_add") else reduction))
+        elif operation in ("add", "gelu_add", "sigmoid_pair", "gelu_pair", "sum", "softmax", "rmsnorm", "layernorm", "residual_layernorm", "cross_entropy"):
+            cases.extend(Case(operation, *shape) for shape in (elementwise if operation in ("add", "gelu_add", "sigmoid_pair", "gelu_pair") else reduction))
         else:
             raise ValueError(f"unknown operation {operation!r}")
     return cases
@@ -272,7 +272,7 @@ def validate(torch: Any, actual: Any, expected: Any, operation: str) -> dict[str
 def block_shape(case: Case, gemm_block: tuple[int, int, int]) -> tuple[int, int, int]:
     if case.operation == "gemm":
         return gemm_block
-    return (1, 256 if case.operation in ("add", "gelu_add") else case.n, 1)
+    return (1, 256 if case.operation in ("add", "gelu_add", "sigmoid_pair", "gelu_pair") else case.n, 1)
 
 
 def parse_gemm_block(text: str) -> tuple[int, int, int]:
@@ -720,6 +720,41 @@ def validate_element_reduction_mapping(native: dict[str, Any], args: argparse.Na
         raise ValueError("native element-grid mapping policy differs from the request")
 
 
+def paired_activation_reference(torch: Any, x: Any, operation: str) -> Any:
+    """Value and mathematical derivative of the selected forward formula."""
+    x = x.double()
+    if operation == "sigmoid_pair":
+        value = torch.sigmoid(x)
+        derivative = value * (1 - value)
+    elif operation == "gelu_pair":
+        t = torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * x ** 3))
+        value = 0.5 * x * (1 + t)
+        derivative = 0.5 * (1 + t) + 0.5 * x * (1 - t * t) * math.sqrt(2 / math.pi) * (1 + 0.134145 * x * x)
+    else:
+        raise ValueError("unknown paired activation")
+    return torch.stack((value, derivative))
+
+
+def paired_activation_invoker(torch: Any, a: Any, out: Any, operation: str) -> tuple[Any, list[str]]:
+    """Preallocate views and backward input outside the measured eager graph."""
+    value, derivative = out.unbind(0)
+    if operation == "sigmoid_pair":
+        def invoke():
+            torch.sigmoid(a, out=value)
+            torch.sub(1, value, out=derivative)
+            torch.mul(value, derivative, out=derivative)
+            return out
+        return invoke, ["sigmoid.out", "sub.out", "mul.out"]
+    if operation == "gelu_pair":
+        unit_gradient = torch.ones_like(a)
+        def invoke():
+            torch.ops.aten.gelu.out(a, approximate="tanh", out=value)
+            torch.ops.aten.gelu_backward.grad_input(unit_gradient, a, approximate="tanh", grad_input=derivative)
+            return out
+        return invoke, ["gelu.out(approximate=tanh)", "gelu_backward.grad_input(ones, approximate=tanh)"]
+    raise ValueError("unknown paired activation")
+
+
 def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend: str, ordinal: int) -> dict[str, Any]:
     def inputs(rows: int, columns: int, seed: int) -> Any:
         indices = torch.arange(rows * columns, dtype=torch.int64)
@@ -736,6 +771,8 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
         reference = a_host.double() + b_host.double()
     elif case.operation == "gelu_add":
         reference = torch.nn.functional.gelu(a_host.double() + b_host.double(), approximate="tanh")
+    elif case.operation in ("sigmoid_pair", "gelu_pair"):
+        reference = paired_activation_reference(torch, a_host, case.operation)
     elif case.operation == "sum":
         reference = a_host.double().sum(dim=1)
     elif case.operation == "rmsnorm":
@@ -850,6 +887,8 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
         labels = labels_host.to(device) if case.operation == "cross_entropy" else None
         out = None if case.operation in ("rmsnorm", "layernorm", "residual_layernorm", "cross_entropy") else torch.empty(reference.shape, dtype=torch.float32, device=device)
         scratch = torch.empty_like(out) if case.operation == "gelu_add" else None
+        paired_invoke, paired_sequence = (paired_activation_invoker(torch, a, out, case.operation)
+                                           if case.operation in ("sigmoid_pair", "gelu_pair") else (None, None))
         synchronize()
         allocation_upload_ms = (time.perf_counter_ns() - start) / 1e6
         if case.operation == "gemm":
@@ -860,6 +899,8 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
             # Matched preallocation, including the eager intermediate. The
             # baseline still has two dispatches; native fuses the whole graph.
             invoke = lambda: torch.ops.aten.gelu.out(torch.add(a, b, out=scratch), approximate="tanh", out=out)
+        elif paired_invoke is not None:
+            invoke = paired_invoke
         elif case.operation == "sum":
             invoke = lambda: torch.sum(a, dim=1, out=out)
         elif case.operation == "rmsnorm":
@@ -886,6 +927,10 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
         if case.operation == "gelu_add":
             measured["intermediate_policy"] = "preallocated_add_result"
             measured["operator_sequence"] = ["add.out", "gelu.out(approximate=tanh)"]
+        if paired_sequence is not None:
+            measured["operator_sequence"] = paired_sequence
+            measured["intermediate_policy"] = "preallocated_output_views_and_unit_gradient"
+            measured["output_order"] = ["value", "derivative"]
         measured["correctness"] = validate(torch, actual, reference, case.operation)
         result["torch"] = measured
 

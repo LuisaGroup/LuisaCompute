@@ -24,6 +24,7 @@
 #include <iostream>
 #include <limits>
 #include <locale>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string_view>
@@ -68,6 +69,10 @@ struct Configuration {
 
 [[nodiscard]] bool has_row_output(std::string_view operation) noexcept {
     return operation == "sum" || operation == "cross_entropy";
+}
+
+[[nodiscard]] bool has_paired_output(std::string_view operation) noexcept {
+    return operation == "sigmoid_pair" || operation == "gelu_pair";
 }
 
 [[nodiscard]] int64_t auxiliary_input_rows(
@@ -363,6 +368,29 @@ void dump_source(const tvm::ffi::Module &module, std::string_view kind, const ch
         });
         return definition.capture(tensor_shape(cfg.m, cfg.n), tensor_shape(cfg.m, cfg.n), tensor_shape(cfg.m, cfg.n));
     }
+    if (has_paired_output(operation)) {
+        auto definition = tile_kernel("benchmark_activation_pair", [=](TensorView<const float, 2> A,
+                                                                       TensorView<float, 2> Y,
+                                                                       TensorView<float, 2> D) {
+            auto gr = axis("gr", ceil_div(cfg.m, cfg.bm)), gc = axis("gc", ceil_div(cfg.n, cfg.bn));
+            auto r = axis("r", cfg.bm), c = axis("c", cfg.bn);
+            for (auto &nest : parallel(shape(gr, gc), cfg.execution_scope)) {
+                auto origin = coord(nest.index(gr) * cfg.bm, nest.index(gc) * cfg.bn);
+                auto value = A[origin, shape(r, c)];
+                if (operation == "sigmoid_pair") {
+                    auto sigmoid = 1.0f / (1.0f + exp(-value));
+                    Y(origin, shape(r, c)).store(sigmoid);
+                    D(origin, shape(r, c)).store(sigmoid * (1.0f - sigmoid));
+                } else {
+                    auto cubic = value * value * value;
+                    auto activated = tanh(0.7978845608028654f * (value + 0.044715f * cubic));
+                    Y(origin, shape(r, c)).store(0.5f * value * (1.0f + activated));
+                    D(origin, shape(r, c)).store(0.5f * (1.0f + activated) + 0.5f * value * (1.0f - activated * activated) * 0.7978845608028654f * (1.0f + 0.134145f * value * value));
+                }
+            }
+        });
+        return definition.capture(tensor_shape(cfg.m, cfg.n), tensor_shape(cfg.m, cfg.n), tensor_shape(cfg.m, cfg.n));
+    }
     if (operation == "sum") {
         auto definition = tile_kernel("benchmark_sum", [=](TensorView<const float, 2> A, TensorView<float, 1> C) {
             auto rows = axis("rows", A.extent<0>());
@@ -465,7 +493,7 @@ void dump_source(const tvm::ffi::Module &module, std::string_view kind, const ch
         });
         return definition.capture(tensor_shape(cfg.m, cfg.n), tensor_shape(cfg.m), tensor_shape(cfg.m));
     }
-    throw std::invalid_argument{"operation must be gemm, add, gelu_add, sum, softmax, rmsnorm, layernorm, residual_layernorm, or cross_entropy"};
+    throw std::invalid_argument{"operation must be gemm, add, gelu_add, sigmoid_pair, gelu_pair, sum, softmax, rmsnorm, layernorm, residual_layernorm, or cross_entropy"};
 }
 
 [[nodiscard]] luisa::vector<float> input_values(size_t count, uint64_t seed) {
@@ -532,6 +560,7 @@ void run_luisa(const char *program, const char *output_path, std::string_view op
     auto rows_b = auxiliary_input_rows(operation, cfg);
     auto binary = uses_auxiliary_input(operation);
     auto labeled = uses_label_input(operation);
+    auto paired = has_paired_output(operation);
     auto host_a = input_values(cfg.m * columns_a, 5);
     auto host_b = input_values(binary ? rows_b * cfg.n : 1, 11);
     auto host_labels = label_values(cfg.m, cfg.n);
@@ -542,6 +571,8 @@ void run_luisa(const char *program, const char *output_path, std::string_view op
     auto b = device.create_buffer<float>(host_b.size());
     auto labels = device.create_buffer<int64_t>(host_labels.size());
     auto c = device.create_buffer<float>(output.size());
+    std::optional<Buffer<float>> d;
+    if (paired) { d = device.create_buffer<float>(output.size()); }
     stream << a.copy_from(host_a.data()) << b.copy_from(host_b.data())
            << labels.copy_from(host_labels.data()) << c.copy_from(output.data())
            << synchronize();
@@ -549,7 +580,9 @@ void run_luisa(const char *program, const char *output_path, std::string_view op
     auto submit = [&](uint64_t repetitions) {
         CommandList commands;
         for (auto i = uint64_t{0}; i < repetitions; i++) {
-            if (labeled) {
+            if (paired) {
+                commands << shader(a, c, *d).dispatch();
+            } else if (labeled) {
                 commands << shader(a, labels, c).dispatch();
             } else if (binary) {
                 commands << shader(a, b, c).dispatch();
@@ -583,6 +616,11 @@ void run_luisa(const char *program, const char *output_path, std::string_view op
     device_timing.measure([&] { stream.synchronize(); }, submit, repetitions, static_cast<uint32_t>(sample_count));
     start = Clock::now();
     stream << c.copy_to(output.data()) << synchronize();
+    if (paired) {
+        luisa::vector<float> derivative(output.size());
+        stream << d->copy_to(derivative.data()) << synchronize();
+        output.insert(output.end(), derivative.begin(), derivative.end());
+    }
     auto download_ms = milliseconds(start);
     std::ofstream file{output_path, std::ios::binary};
     file.write(reinterpret_cast<const char *>(output.data()), static_cast<std::streamsize>(output.size() * sizeof(float)));
@@ -615,7 +653,7 @@ void run_luisa(const char *program, const char *output_path, std::string_view op
               << ",\"realized_threads\":" << shader.block_size().x * shader.block_size().y * shader.block_size().z
               << ",\"matrix_intrinsics\":" << matrix_calls + mpp_calls
               << ",\"simdgroup_intrinsics\":" << matrix_calls << ",\"mpp_intrinsics\":" << mpp_calls
-              << ",\"output_elements\":" << output_count
+              << ",\"output_elements\":" << output.size()
               << ",\"mma_operations\":" << luisa::test::tile_tirx::count_operations(kernel.function().body(), OperationKind::MMA)
               << ",\"runtime_init_ms\":" << runtime_ms << ",\"capture_ms\":" << capture_ms << ",\"compile_ms\":" << compile_ms
               << ",\"allocation_upload_ms\":" << upload_ms << ",\"cold_call_ms\":" << cold_ms << ",\"warmup_ms\":" << actual_warmup_ms
@@ -633,7 +671,7 @@ void run_luisa(const char *program, const char *output_path, std::string_view op
 
 int main(int argc, char *argv[]) {
     if (argc < 13 || argc > 34) {
-        std::cerr << "Usage: benchmark_tile_tirx <cpu|metal> <gemm|add|gelu_add|sum|softmax|rmsnorm|layernorm|residual_layernorm|cross_entropy> M N K BM BN BK samples sample-ms warmup-ms output.f32 [auto|worker|group] [pipeline-window:1|2] [scalar|subgroup-reduce|matrix|mpp|mpp-views] [vectorize|no-vectorize|auto-vectorize] [group-threads:auto|N] [copy-batch:1..16] [tvm|luisa|luisa-fast] [retain-subgroup-fences|elide-subgroup-fences] [cpu-stack-bytes:0..65536] [cpu-vector-lanes:16|32|64|128] [retain-input-snapshots|forward-input-views] [cpu-model:generic|native] [cpu-matrix:reference|cblas] [cpu-math:reference|accelerate] [shared-tiles:preserve|expensive-only]\n";
+        std::cerr << "Usage: benchmark_tile_tirx <cpu|metal> <gemm|add|gelu_add|sigmoid_pair|gelu_pair|sum|softmax|rmsnorm|layernorm|residual_layernorm|cross_entropy> M N K BM BN BK samples sample-ms warmup-ms output.f32 [auto|worker|group] [pipeline-window:1|2] [scalar|subgroup-reduce|matrix|mpp|mpp-views] [vectorize|no-vectorize|auto-vectorize] [group-threads:auto|N] [copy-batch:1..16] [tvm|luisa|luisa-fast] [retain-subgroup-fences|elide-subgroup-fences] [cpu-stack-bytes:0..65536] [cpu-vector-lanes:16|32|64|128] [retain-input-snapshots|forward-input-views] [cpu-model:generic|native] [cpu-matrix:reference|cblas] [cpu-math:reference|accelerate] [shared-tiles:preserve|expensive-only]\n";
         std::cerr << "Additional mapping options: [reduction-programs:auto|1..8] [element-grid:auto|reference] [reduction-unroll:1..16] [reduction-lane-elements:1|2|4|8] [reduction-inputs:reload|cache]\n";
         return 1;
     }
@@ -859,6 +897,7 @@ int main(int argc, char *argv[]) {
         auto rows_b = auxiliary_input_rows(operation, cfg);
         auto binary = uses_auxiliary_input(operation);
         auto labeled = uses_label_input(operation);
+        auto paired = has_paired_output(operation);
         auto host_a = input_values(static_cast<size_t>(cfg.m * columns_a), 5);
         auto host_b = input_values(binary ? static_cast<size_t>(rows_b * cfg.n) : 0u, 11);
         auto host_labels = label_values(cfg.m, cfg.n);
@@ -869,10 +908,14 @@ int main(int argc, char *argv[]) {
         tvm::runtime::Tensor labels;
         if (labeled) { labels = runtime.upload<int64_t>({cfg.m}, host_labels); }
         auto out = has_row_output(operation) ? runtime.allocate<float>({cfg.m}) : runtime.allocate<float>({cfg.m, cfg.n});
+        tvm::runtime::Tensor derivative;
+        if (paired) { derivative = runtime.allocate<float>({cfg.m, cfg.n}); }
         runtime.synchronize();
         auto allocation_upload_ms = milliseconds(start);
         std::function<void()> invoke = [&] {
-            if (labeled) {
+            if (paired) {
+                (*executable.entry)(a, out, derivative);
+            } else if (labeled) {
                 (*executable.entry)(a, labels, out);
             } else if (binary) {
                 (*executable.entry)(a, b, out);
@@ -902,6 +945,11 @@ int main(int argc, char *argv[]) {
         start = Clock::now();
         auto output_count = static_cast<size_t>(has_row_output(operation) ? cfg.m : cfg.m * cfg.n);
         auto output = runtime.download<float>(out, output_count);
+        if (paired) {
+            auto extra = runtime.download<float>(derivative, output_count);
+            output.insert(output.end(), extra.begin(), extra.end());
+            output_count = output.size();
+        }
         auto download_ms = milliseconds(start);
         std::ofstream file{argv[12], std::ios::binary};
         file.write(reinterpret_cast<const char *>(output.data()), static_cast<std::streamsize>(output.size() * sizeof(float)));

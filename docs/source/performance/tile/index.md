@@ -93,6 +93,14 @@ eager-versus-fused behavior qualify those ratios; they are not direct MPS
 kernel speedups. See [route comparisons](results.md) and
 [reduction measurements](reductions.md).
 
+The newer [multi-output pointwise extension](results.md#multi-output-pointwise-fusion-removes-a-mapping-boundary)
+handles activation/derivative graphs through the same ownership and effect
+analysis, with no operator-name rules or cost-model refit. Six-round tests
+through 4096×4096 improve over the old map in every GPU/E2E batch pair;
+median GPU new/Torch ratios are 0.309–0.952. This is fused native versus
+preallocated eager Torch, with a small-GELU GPU outlier and mixed single-call
+latency. CPU and reduction controls do not gain new code generation here.
+
 **Mapping and resource planning still have held-out failures.** A frozen
 whole-launch cost profile improves the three 768×6144 norm/softmax cases,
 but 37×1537 softmax and LayerNorm regress. Fixed-width/cache ablation then

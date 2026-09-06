@@ -3,6 +3,39 @@
 This record distinguishes executed correctness checks from performance claims.
 See [current status](index.md) for the latest bounded conclusion.
 
+## Multi-output pointwise ownership and effects
+
+The September 6 extension passes the full selected build and ten native
+suite/backend combinations: execution, matrix and the three PoC suites on
+both CPU and Metal. The execution suite passes **803,488 Metal assertions**
+and **82,357 CPU assertions**, in 36 tests per backend. These include existing
+subgroup-reduction controls. Matrix tests retain 2,334/3,058 assertions on
+Metal/CPU; the PoCs exercise losses, normalization, attention, convolution,
+filters, sorting and Top-K. The
+{download}`build and correctness receipts <../../../../scripts/benchmark/tile_torch/results/m1-max-20260906-element-multi-output/correctness/receipt.json>`
+record exact commands and unchanged libraries. This is selected coverage,
+not a whole-worktree all-green claim.
+
+New tests check three outputs with an interleaved second shared producer,
+ragged/negative input coordinates, nonzero loop minima, conditional stores,
+and permuted output coordinates. Missing noalias, explicit worker bindings,
+read-after-write, write-after-read, repeated writes to the same buffer and
+different local domains retain the reference path. Full numerical checks
+include all outputs and untouched sentinels. Nonconstant shared exponentials
+must appear once in generated source, without thread-private Tile arrays.
+The constant all-zero case instead verifies removal of the input parameter;
+its first source-count assertion was overstrict and the failed log is retained.
+
+There are 99 passing Python benchmark tests, including independent autograd
+checks of the FP64 derivative formulas and corrupt-second-output rejection.
+The six-round performance replay validates 192 full value/derivative pairs;
+its independent audit rejects eight corrupted evidence variants. Old/new
+controls validate another 64 native/Torch graph outputs. Four CPU raw source
+hashes differ only in TBAA object-address labels: the separate audit preserves
+the alias equivalence classes while renaming those labels, leaving all
+instructions and other metadata unchanged. Neither those diagnostic control
+timings nor passing broad PoCs are reported as new performance gains.
+
 ## Bounded-K MPP input-view checks
 
 The September 6 bridge extension removes only a proved common zero-padded K

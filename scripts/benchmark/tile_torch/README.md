@@ -627,6 +627,20 @@ independently of `--element-grid auto|reference`. The older
 `--cpu-input-views` option remains CPU-only. Plans expose the actual scalar
 producer count as `elementwise_scalar_temporaries`.
 
+`sigmoid_pair` and `gelu_pair` measure multi-output graphs: each returns the
+activation and the derivative of its forward formula in separate native
+buffers. GELU uses the tanh approximation. Both native outputs are joined
+**after timing** and checked completely against FP64, in value/derivative
+order. Torch preallocates both outputs: sigmoid uses `sigmoid.out`, `sub.out`,
+`mul.out`; GELU uses forward and backward out calls with a preallocated unit
+gradient. These compare fused graphs with eager sequences, not compiled
+Torch, and do not include a full training/backpropagation step.
+The existing fixed element block is 1×256; `repeat.py` can replay these graphs
+without a parameter search. `--element-grid reference` preserves their serial
+program-per-worker control, while the automatic mapper admits same-domain
+multi-output graphs only after the ownership and effect checks documented in
+the [lowering reference](../../../docs/source/internals/tile/lowering.md#automatic-gpu-pointwise-graphs).
+
 ### Runtime routes
 
 `benchmark_tile_native` is the actual TileIR→Metal-backend→MPP route, launched

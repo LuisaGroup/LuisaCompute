@@ -272,7 +272,7 @@ def main() -> int:
         parser.error("both native executables must already be built")
     try:
         operations = set(args.operations.split(","))
-        if not operations <= {"gemm", "add", "gelu_add", "sum", "softmax", "rmsnorm", "layernorm", "residual_layernorm", "cross_entropy"}:
+        if not operations <= {"gemm", "add", "gelu_add", "sigmoid_pair", "gelu_pair", "sum", "softmax", "rmsnorm", "layernorm", "residual_layernorm", "cross_entropy"}:
             raise ValueError("unknown operation in replay selection")
         plans = {"reference": load_plan(args.reference, operations), "candidate": load_plan(args.candidate, operations)}
         if plans["reference"].keys() != plans["candidate"].keys():

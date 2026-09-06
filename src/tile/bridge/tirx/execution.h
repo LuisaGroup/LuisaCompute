@@ -85,8 +85,8 @@ struct ReadonlyViews {
 // stronger atom contract; otherwise it retains strict snapshot forwarding.
 [[nodiscard]] ReadonlyViews forward_readonly_tile_loads(const tvm::tirx::PrimFunc &function, bool noalias, bool preserve_guards = false, bool cache_reused_inputs = false);
 
-// Fuse one automatic root and a same-domain, pointwise SSA chain into a
-// bijective GPU grid. Compiler Tile temporaries become per-worker scalar
+// Fuse one automatic root and a same-domain, pointwise SSA graph with disjoint
+// output domains into a bijective GPU grid. Compiler Tiles become per-worker scalar
 // definitions only after proving ownership and dominance of every access.
 // The input must have a checked noalias contract. Undefined retains
 // the original function, including its input snapshots and scope constraints.

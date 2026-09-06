@@ -397,8 +397,8 @@ tvm::tirx::Stmt vectorize_independent_elements(const tvm::tirx::For &loop, uint3
 
 namespace {
 
-// Strip only empty structural-export placeholders. An allocation, stage cut,
-// second effect domain, or lexical definition keeps the reference mapping.
+// Strip only empty structural-export placeholders. Other statements retain
+// their identity for the complete effect/domain audit below.
 [[nodiscard]] tvm::tirx::Stmt sole_effect(const tvm::tirx::Stmt &body) {
     if (auto evaluate = body.as<tvm::tirx::EvaluateNode>();
         evaluate && (evaluate->value.as<tvm::IntImmNode>() || evaluate->value.as<tvm::FloatImmNode>())) { return {}; }
@@ -526,9 +526,11 @@ struct ElementProgram {
     uint32_t scalar_temporaries{0u};
 };
 
-// Fuse a bounded, same-domain SSA chain before choosing its hardware map.
+// Fuse a bounded, same-domain SSA graph and its output domains before mapping.
 // Each Bind still computes its producer once per logical element; this is
 // storage scalarization and loop fusion, not expression cloning/recomputation.
+// The later effect audit proves distinct output buffers and no global RAW/WAR
+// dependence before this interleaving of the original loop domains commits.
 [[nodiscard]] std::optional<ElementProgram> element_program(const tvm::tirx::ForNode *root) {
     luisa::vector<tvm::tirx::Stmt> parts;
     element_sequence(root->body, parts);
@@ -540,7 +542,7 @@ struct ElementProgram {
     luisa::unordered_set<const tvm::tirx::VarNode *> allocated;
     ElementScalars scalars;
     tvm::ffi::Array<tvm::tirx::Stmt> points;
-    for (auto i = size_t{0}; i + 1u < parts.size(); i++) {
+    for (auto i = size_t{0}; i < parts.size(); i++) {
         if (auto allocation = parts[i].as<tvm::tirx::AllocBufferNode>()) {
             auto buffer = allocation->buffer;
             auto offset = buffer->elem_offset.as<tvm::IntImmNode>();
@@ -553,7 +555,9 @@ struct ElementProgram {
             }
             continue;
         }
-        auto producer = element_domain(parts[i], true);
+        auto outer = parts[i].as<tvm::tirx::ForNode>();
+        auto materialized = outer && outer->annotations.count(materialized_pure_tile_annotation);
+        auto producer = element_domain(parts[i], materialized);
         if (!producer || producer->axes.size() != consumer->axes.size()) { return {}; }
         tvm::ffi::Map<tvm::tirx::Var, tvm::Expr> coordinates;
         for (auto j = 0u; j < producer->axes.size(); j++) {
@@ -562,6 +566,12 @@ struct ElementProgram {
             coordinates.Set(from->loop_var, to->loop_var - to->min + from->min);
         }
         auto point = tvm::tirx::Substitute(producer->point, coordinates);
+        if (!materialized) {
+            ElementScalarReads reads{scalars, allocated, consumer->axes, domain};
+            points.push_back(reads(point));
+            if (!reads.valid) { return {}; }
+            continue;
+        }
         auto store = point.as<tvm::tirx::BufferStoreNode>();
         if (!store || store->predicate || store->value.ty() != store->buffer->dtype ||
             !allocated.contains(store->buffer.get()) || scalars.contains(store->buffer.get()) ||
@@ -578,9 +588,6 @@ struct ElementProgram {
         scalars.emplace(store->buffer.get(), std::move(scalar));
     }
     if (scalars.size() != allocated.size()) { return {}; }
-    ElementScalarReads reads{scalars, allocated, consumer->axes, domain};
-    points.push_back(reads(consumer->point));
-    if (!reads.valid) { return {}; }
     consumer->point = tvm::tirx::SeqStmt::Flatten(points);
     return ElementProgram{std::move(*consumer), static_cast<uint32_t>(scalars.size())};
 }
@@ -590,7 +597,6 @@ private:
     const luisa::vector<const tvm::tirx::ForNode *> &_axes;
     luisa::vector<const tvm::tirx::ForNode *> _domain;
     luisa::unordered_set<const tvm::tirx::VarNode *> _reads, _writes, _escaped;
-    uint32_t _stores{0u};
 
 protected:
     void VisitStmt(const tvm::tirx::Stmt &statement) final {
@@ -615,7 +621,10 @@ protected:
         if (load->predicate) { VisitExpr(load->predicate.value()); }
     }
     void VisitStmt_(const tvm::tirx::BufferStoreNode *store) final {
-        valid &= ++_stores == 1u;
+        // Different output domains may be interleaved only when each buffer
+        // has one syntactic store and is never read or escaped. Even two
+        // injective maps into the same buffer can overlap after loop fusion.
+        valid &= _writes.emplace(store->buffer.get()).second;
         valid &= store->buffer.scope() == "global";
         // Coordinate injectivity implies address injectivity only for this
         // compact buffer family. Arbitrary strides/layouts need their own
@@ -634,7 +643,6 @@ protected:
             }
             output_volume *= static_cast<uint64_t>(size->value);
         }
-        _writes.emplace(store->buffer.get());
         tvm::ffi::Map<tvm::tirx::Var, tvm::Expr> origin;
         for (auto axis : _axes) { origin.Set(axis->loop_var, axis->min); }
         // Prove injectivity inside one logical program independently of the
