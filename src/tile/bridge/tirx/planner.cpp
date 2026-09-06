@@ -174,7 +174,8 @@ namespace {
                              cost.metal_mpp_independent_element, cost.metal_mpp_group_setup}) {
         if (!std::isfinite(coefficient) || coefficient < 0.0) { return false; }
     }
-    return cost.preferred_subgroups != 0u && cost.preferred_fragment_scalars_per_lane != 0u &&
+    return options.program_order_rows != 0u && options.program_order_columns != 0u &&
+           cost.preferred_subgroups != 0u && cost.preferred_fragment_scalars_per_lane != 0u &&
            cost.preferred_concurrent_programs != 0u && cost.metal_mpp_concurrent_subgroups != 0u &&
            options.max_fragment_scalars_per_lane >= (cost_basis == MatrixCostBasis::METAL_MPP_MEMORY ? 4u : 6u) && options.max_thread_candidates != 0u &&
            options.max_reduction_striped_scalars_per_worker != 0u &&

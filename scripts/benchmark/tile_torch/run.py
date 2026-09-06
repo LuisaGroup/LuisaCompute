@@ -627,9 +627,29 @@ def optional_native_arguments(args: argparse.Namespace) -> list[str]:
         (str(getattr(args, "reduction_lane_elements", 1)), getattr(args, "reduction_lane_elements", 1) != 1),
         ("cache" if getattr(args, "cache_reduction_inputs", False) else "reload", getattr(args, "cache_reduction_inputs", False)),
         (getattr(args, "reduction_cost_profile", "analytic"), getattr(args, "reduction_cost_profile", "analytic") != "analytic"),
+        (str(getattr(args, "program_order_rows", 1)), getattr(args, "program_order_rows", 1) != 1),
+        (str(getattr(args, "program_order_columns", 1)), getattr(args, "program_order_columns", 1) != 1),
     ]
     count = max((i + 1 for i, (_, requested) in enumerate(slots) if requested), default=0)
     return [value for value, _ in slots[:count]]
+
+
+def validate_program_order(native: dict[str, Any], requested: list[int]) -> None:
+    actual = native.get("program_order", [1, 1])
+    if (not isinstance(actual, list) or len(actual) != 2 or
+            any(type(x) is not int or not 1 <= x <= 0xffffffff for x in actual) or actual != requested):
+        raise ValueError("native program traversal differs from the requested rectangle")
+    if actual != [1, 1]:
+        plans = native.get("execution_plans")
+        if native.get("execution_scope") != "group" or not plans or any(p.get("program_order") != actual for p in plans):
+            raise ValueError("program traversal was not realized by group execution")
+        for plan in plans:
+            grid = plan.get("program_grid")
+            count = plan.get("programs")
+            if (not isinstance(grid, list) or len(grid) != 2 or
+                    any(type(x) is not int or x <= 0 for x in grid) or type(count) is not int or
+                    count <= 0 or count % (grid[0] * grid[1])):
+                raise ValueError("invalid physical program grid")
 
 
 def parse_reduction_cost_profile(text: str) -> tuple[int, list[float]] | None:
@@ -869,6 +889,7 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
             validate_native_metadata(native, case, backend, args.execution_scope, args.pipeline_window,
                                      args.cooperative_matrix, args.gemm_block, not args.no_vectorize, args.auto_vectorize, group_threads, copy_batch,
                                      getattr(args, "metal_subgroup_reductions", False))
+            validate_program_order(native, [getattr(args, "program_order_rows", 1), getattr(args, "program_order_columns", 1)])
             array = np.fromfile(output, dtype="<f4")
             if array.size != reference.numel():
                 raise RuntimeError("native output byte count is incorrect")
@@ -1246,6 +1267,10 @@ def main() -> int:
                         help="exact Metal group worker count; 0 lets the compiler planner choose (not CPU threads)")
     parser.add_argument("--reduction-cost-profile", default="analytic",
                         help="opt-in calibrated service-v1,C,D,R,K,G,W,P coefficients; analytic preserves the prior")
+    parser.add_argument("--program-order-rows", type=int, default=1,
+                        help="opt-in rectangular traversal of explicit Metal group programs")
+    parser.add_argument("--program-order-columns", type=int, default=1,
+                        help="columns per program-traversal rectangle; does not change memory layout")
     parser.add_argument("--copy-batch", type=int, default=1,
                         help="maximum in-flight values per Metal cooperative copy; 1 preserves scalar load/store order")
     parser.add_argument("--samples", type=int, default=9)
@@ -1329,6 +1354,10 @@ def main() -> int:
     if not 0 <= args.group_threads <= 0xffffffff or (args.group_threads and
             (backends != ["metal"] or (args.execution_scope != "group" and not args.metal_subgroup_reductions))):
         parser.error("group threads must be uint32; an explicit count requires Metal group execution or subgroup reductions")
+    if (any(not 1 <= v <= 0xffffffff for v in (args.program_order_rows, args.program_order_columns)) or
+            ((args.program_order_rows, args.program_order_columns) != (1, 1) and
+             (backends != ["metal"] or args.execution_scope != "group"))):
+        parser.error("program traversal requires positive uint32 sizes and explicit Metal group execution")
     if not 1 <= args.copy_batch <= 16 or (args.copy_batch != 1 and (backends != ["metal"] or args.execution_scope != "group")):
         parser.error("copy batch must be in [1,16]; batching requires only Metal group execution")
     if args.metal_subgroup_reductions and args.tuning_candidates:
@@ -1397,6 +1426,7 @@ def main() -> int:
         "cpu_math_backend": args.cpu_math_backend,
         "group_threads": args.group_threads,
         "copy_batch": args.copy_batch,
+        "program_order": [args.program_order_rows, args.program_order_columns],
         "gemm_tuning_candidates": [{"block": block, "pipeline_window": window} for block, window in args.tuning_candidates],
         "joint_tuning_candidates": [dict(block=block, pipeline_window=window, group_threads=width,
                                          copy_batch=batch, shared_tile_materialization=materialization,

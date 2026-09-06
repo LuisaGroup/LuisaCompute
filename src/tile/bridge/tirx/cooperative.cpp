@@ -14,6 +14,8 @@
 
 #include "execution.h"
 
+#include <luisa/tile/bridge/tirx/layout.h>
+
 namespace luisa::compute::tile::bridge::tirx::detail {
 
 namespace {
@@ -604,6 +606,7 @@ protected:
         auto result = StmtExprMutator::VisitStmt_(loop).as_or_throw<tvm::tirx::For>();
         auto node = result.CopyOnWrite();
         node->annotations.erase(logical_parallel_annotation);
+        node->annotations.erase(logical_program_shape_annotation);
         node->annotations.erase(execution_scope_annotation);
         node->annotations.erase(independent_elements_annotation);
         node->annotations.erase(mma_annotation);
@@ -732,6 +735,40 @@ tvm::tirx::Stmt map_metal_cooperative_group(const tvm::tirx::For &loop, uint32_t
     auto threads = plan.threads;
     auto thread = tvm::tirx::PrimVar{loop->loop_var->name + "_worker", tvm::PrimType::Int(64)};
     auto group = tvm::tirx::PrimVar{loop->loop_var->name + "_group", tvm::PrimType::Int(64)};
+    auto logical_group = tvm::PrimExpr{group};
+    auto reordered = options.program_order_rows != 1u || options.program_order_columns != 1u;
+    auto shape = loop->annotations.Get(logical_program_shape_annotation);
+    if (reordered && !shape) { throw std::runtime_error{"program traversal requires the original parallel shape"}; }
+    if (shape) {
+        auto dimensions = shape.value().cast<tvm::ffi::Array<tvm::PrimExpr>>();
+        auto volume = uint64_t{1u};
+        for (auto &&dimension : dimensions) {
+            auto extent = dimension.as<tvm::IntImmNode>();
+            if (extent == nullptr || extent->value < 0 ||
+                (extent->value != 0 && volume > static_cast<uint64_t>(INT64_MAX / extent->value))) {
+                throw std::runtime_error{"invalid parallel program shape"};
+            }
+            volume *= static_cast<uint64_t>(extent->value);
+        }
+        if (volume != groups || (reordered && dimensions.size() < 2u)) {
+            throw std::runtime_error{"program traversal requires a matching rank-two-or-higher parallel shape"};
+        }
+        if (dimensions.size() >= 2u) {
+            auto rows = static_cast<uint64_t>(dimensions[dimensions.size() - 2u].as<tvm::IntImmNode>()->value);
+            auto columns = static_cast<uint64_t>(dimensions.back().as<tvm::IntImmNode>()->value);
+            plan.program_grid_rows = rows;
+            plan.program_grid_columns = columns;
+            if (reordered && groups != 0u) {
+                auto area = tvm::IntImm::Int64(static_cast<int64_t>(rows * columns));
+                auto mapped = rectangular_program_ordinal(tvm::floormod(group, area), rows, columns,
+                                                          options.program_order_rows, options.program_order_columns);
+                if (!mapped) { throw std::runtime_error{mapped.error.c_str()}; }
+                logical_group = tvm::floordiv(group, area) * area + mapped.value[0];
+            }
+        }
+    }
+    plan.program_order_rows = options.program_order_rows;
+    plan.program_order_columns = options.program_order_columns;
     auto body = CooperativeGroupMapper{thread, threads, shared_memory_limit, cooperative_matrix, analysis.matrices, plan, analysis.accumulators,
                                        options.enabled && !metal_mpp ? options.max_pipeline_prefetch_scalars_per_lane : 0u, readonly_inputs, loop.get()}
                     .map(loop->body, options);
@@ -739,7 +776,7 @@ tvm::tirx::Stmt map_metal_cooperative_group(const tvm::tirx::For &loop, uint32_t
     // Empty domains are no-ops, but must not hide unsupported descendants.
     if (groups == 0u) { return tvm::tirx::Evaluate{tvm::IntImm::Int32(0)}; }
     body = tvm::tirx::Substitute(std::move(body),
-                                 tvm::ffi::Map<tvm::tirx::Var, tvm::Expr>{{loop->loop_var, group + loop->min}});
+                                 tvm::ffi::Map<tvm::tirx::Var, tvm::Expr>{{loop->loop_var, logical_group + loop->min}});
     auto zero = tvm::IntImm::Int64(0);
     auto worker_count = tvm::IntImm::Int64(static_cast<int64_t>(threads));
     auto worker_axis = tvm::tirx::IterVar{tvm::Range::FromMinExtent(zero, worker_count), thread,

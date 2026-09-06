@@ -1,0 +1,270 @@
+{
+  "metadata": {
+    "started_at": "2026-09-06T16:09:08.867708+00:00",
+    "phase": "check",
+    "loader": "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin:/private/tmp/luisa-tvm-mpp.VaKmzx/build/lib",
+    "removed_environment": {
+      "MTL_DEBUG_LAYER": null,
+      "MTL_SHADER_VALIDATION": null,
+      "LUISA_ENABLE_VALIDATION": null,
+      "DYLD_PRINT_LIBRARIES": null,
+      "LUISA_TILE_BENCH_DUMP_SOURCE": null,
+      "PYTORCH_MPS_FAST_MATH": null,
+      "PYTORCH_MPS_PREFER_METAL": null,
+      "PYTORCH_ENABLE_MPS_FALLBACK": null
+    },
+    "build": {
+      "command": [
+        "cmake",
+        "--build",
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build",
+        "--parallel",
+        "8"
+      ],
+      "exit_code": 0
+    },
+    "artifacts_before": {
+      "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/repeat.py": "a4265d73c169514e1e0a4d33fcfb73e3270a4e464256bcdaf9747b57de875156",
+      "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260906-program-order/experiment.py": "f7292dc73d2093d9586b17150553dc07cde4edbbb280fb6908dc4553f8255b06",
+      "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260906-program-order/protocol.md": "5ee1d239db3b3122dc98190602ea5f1e67ef9c3efbf1b66b7566d0b2838cc671",
+      "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/run.py": "8c4aa51507f6838b8202bc84aab49aafe2c4c3800246f2f40e09e1ac58076f2c",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_system": "3d6ec98f2ee4cdea36603052f83a4f8044cb31ad1ecde6254d63a4957dbb686a",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_tirx": "fba6c17b44bb9fac2bccafac2f912fac66dcd3d30b13da2387d591620950d87a",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libSPIRV.16.3.0.dylib": "b7be78508871167f76051de75b6ba56b519b96492c60155e8b6453b7838f23a6",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libglslang-default-resource-limits.16.3.0.dylib": "a722bbd9db115f842367af935597674cd2a74ad73fabfac8df715a3b6cbbca9d",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libglslang.16.3.0.dylib": "f864c25ca330cb53a2d755a50a73579b61f8940829ecf35494f235d6f659ca33",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-ast.dylib": "c14765aeee8490c28ae0ae7a47d5a5d4f871f00e86f1ab02bbc76e23efe4e49c",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-backend-metal.so": "8842075631a59d6a2f84e561ff95e48d9eba1d90a336ca960fdee9b273b3ca55",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-backend-simd.so": "c96c0e3c2645d33030dbd1ed877cb7d69811a42ee64fbce4bc3c50b9e94b27c9",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-benchmark-metal-timing.dylib": "01fc5fde7cf4fc531b6a96b0223f98965741652cf4068477f1691fee2aa60ef1",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-core.dylib": "dde51f1ec8a0816aa2caa5575a7354ecd4d70fad4717cdbdeddccef40cc6caa1",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-coro.dylib": "09310d529e2b780a83b23d3624b0f5b53828d914f49644985e19d1f1174dced0",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-dsl.dylib": "9281e93f08720f798b7cc282bbb72dc845a42efac08b7be287856d7c7b99025d",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-osl.dylib": "a9d317aad4a4138783e09944c6bf114351b2590b52d70f6a37cdd01b8451ba53",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-runtime.dylib": "c029a94ad23c52f32a802262be7d9a2da99b106a46c0021ba2214e2c15b263b1",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-tile-bridge-tirx.dylib": "2a0d8fea92ff6cc8d7e0b93c2523429b94bd5cd267dc2cfb84c030dc5cace2a6",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-tile-bridge-xir.dylib": "86a4f5d2e0029ffa4315763a1153ba64117ff5e09325e0df48bae1a77c738815",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-tile.dylib": "4b0b3cec0d41b3d36682b77b21743dbc95ee83f7926474a662ecf3a291664947",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-validation-layer.so": "1623432c278c2a9bbaeab4c0328cd572f4eadc03dff34a6288a9bcc5427aefa3",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-xir.dylib": "44851a00ea7e2d7d55cc986f07eb62f2699aefb4f14e299d2478683ad86bf0a6"
+    },
+    "artifacts_after": {
+      "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/repeat.py": "a4265d73c169514e1e0a4d33fcfb73e3270a4e464256bcdaf9747b57de875156",
+      "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260906-program-order/experiment.py": "f7292dc73d2093d9586b17150553dc07cde4edbbb280fb6908dc4553f8255b06",
+      "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260906-program-order/protocol.md": "5ee1d239db3b3122dc98190602ea5f1e67ef9c3efbf1b66b7566d0b2838cc671",
+      "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/run.py": "8c4aa51507f6838b8202bc84aab49aafe2c4c3800246f2f40e09e1ac58076f2c",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_system": "3d6ec98f2ee4cdea36603052f83a4f8044cb31ad1ecde6254d63a4957dbb686a",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_tirx": "fba6c17b44bb9fac2bccafac2f912fac66dcd3d30b13da2387d591620950d87a",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libSPIRV.16.3.0.dylib": "b7be78508871167f76051de75b6ba56b519b96492c60155e8b6453b7838f23a6",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libglslang-default-resource-limits.16.3.0.dylib": "a722bbd9db115f842367af935597674cd2a74ad73fabfac8df715a3b6cbbca9d",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libglslang.16.3.0.dylib": "f864c25ca330cb53a2d755a50a73579b61f8940829ecf35494f235d6f659ca33",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-ast.dylib": "c14765aeee8490c28ae0ae7a47d5a5d4f871f00e86f1ab02bbc76e23efe4e49c",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-backend-metal.so": "8842075631a59d6a2f84e561ff95e48d9eba1d90a336ca960fdee9b273b3ca55",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-backend-simd.so": "c96c0e3c2645d33030dbd1ed877cb7d69811a42ee64fbce4bc3c50b9e94b27c9",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-benchmark-metal-timing.dylib": "01fc5fde7cf4fc531b6a96b0223f98965741652cf4068477f1691fee2aa60ef1",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-core.dylib": "dde51f1ec8a0816aa2caa5575a7354ecd4d70fad4717cdbdeddccef40cc6caa1",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-coro.dylib": "09310d529e2b780a83b23d3624b0f5b53828d914f49644985e19d1f1174dced0",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-dsl.dylib": "9281e93f08720f798b7cc282bbb72dc845a42efac08b7be287856d7c7b99025d",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-osl.dylib": "a9d317aad4a4138783e09944c6bf114351b2590b52d70f6a37cdd01b8451ba53",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-runtime.dylib": "c029a94ad23c52f32a802262be7d9a2da99b106a46c0021ba2214e2c15b263b1",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-tile-bridge-tirx.dylib": "2a0d8fea92ff6cc8d7e0b93c2523429b94bd5cd267dc2cfb84c030dc5cace2a6",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-tile-bridge-xir.dylib": "86a4f5d2e0029ffa4315763a1153ba64117ff5e09325e0df48bae1a77c738815",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-tile.dylib": "4b0b3cec0d41b3d36682b77b21743dbc95ee83f7926474a662ecf3a291664947",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-validation-layer.so": "1623432c278c2a9bbaeab4c0328cd572f4eadc03dff34a6288a9bcc5427aefa3",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-xir.dylib": "44851a00ea7e2d7d55cc986f07eb62f2699aefb4f14e299d2478683ad86bf0a6"
+    },
+    "artifacts_unchanged": true,
+    "finished_at": "2026-09-06T16:12:10.958276+00:00"
+  },
+  "results": [
+    {
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/test_tile_tirx"
+      ],
+      "exit_code": 0,
+      "log": "test_tile_tirx-unit.log",
+      "passed": true,
+      "assertions": 130709
+    },
+    {
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/test_tile_tirx_planner"
+      ],
+      "exit_code": 0,
+      "log": "test_tile_tirx_planner-unit.log",
+      "passed": true,
+      "assertions": 14406
+    },
+    {
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/test_tile_tirx_execution",
+        "metal"
+      ],
+      "exit_code": 0,
+      "log": "test_tile_tirx_execution-metal.log",
+      "passed": true,
+      "assertions": 808749
+    },
+    {
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/test_tile_tirx_execution",
+        "cpu"
+      ],
+      "exit_code": 0,
+      "log": "test_tile_tirx_execution-cpu.log",
+      "passed": true,
+      "assertions": 82370
+    },
+    {
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/test_tile_tirx_matrix",
+        "metal"
+      ],
+      "exit_code": 255,
+      "log": "test_tile_tirx_matrix-metal.log",
+      "passed": false,
+      "assertions": 0
+    },
+    {
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/test_tile_tirx_matrix",
+        "cpu"
+      ],
+      "exit_code": 0,
+      "log": "test_tile_tirx_matrix-cpu.log",
+      "passed": true,
+      "assertions": 3159
+    },
+    {
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/test_tile_tirx_poc",
+        "metal"
+      ],
+      "exit_code": 0,
+      "log": "test_tile_tirx_poc-metal.log",
+      "passed": true,
+      "assertions": 3293
+    },
+    {
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/test_tile_tirx_poc",
+        "cpu"
+      ],
+      "exit_code": 0,
+      "log": "test_tile_tirx_poc-cpu.log",
+      "passed": true,
+      "assertions": 3293
+    },
+    {
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/test_tile_tirx_poc_neural",
+        "metal"
+      ],
+      "exit_code": 0,
+      "log": "test_tile_tirx_poc_neural-metal.log",
+      "passed": true,
+      "assertions": 84
+    },
+    {
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/test_tile_tirx_poc_neural",
+        "cpu"
+      ],
+      "exit_code": 0,
+      "log": "test_tile_tirx_poc_neural-cpu.log",
+      "passed": true,
+      "assertions": 84
+    },
+    {
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/test_tile_tirx_poc_algorithms",
+        "metal"
+      ],
+      "exit_code": 0,
+      "log": "test_tile_tirx_poc_algorithms-metal.log",
+      "passed": true,
+      "assertions": 391
+    },
+    {
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/test_tile_tirx_poc_algorithms",
+        "cpu"
+      ],
+      "exit_code": 0,
+      "log": "test_tile_tirx_poc_algorithms-cpu.log",
+      "passed": true,
+      "assertions": 391
+    },
+    {
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/test_tile_tirx_pipeline",
+        "metal"
+      ],
+      "exit_code": 0,
+      "log": "test_tile_tirx_pipeline-metal.log",
+      "passed": true,
+      "assertions": 568
+    },
+    {
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/test_tile_tirx_pipeline",
+        "cpu"
+      ],
+      "exit_code": 0,
+      "log": "test_tile_tirx_pipeline-cpu.log",
+      "passed": true,
+      "assertions": 345
+    },
+    {
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/test_tile_tirx_memory",
+        "metal"
+      ],
+      "exit_code": 255,
+      "log": "test_tile_tirx_memory-metal.log",
+      "passed": false,
+      "assertions": 0
+    },
+    {
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/test_tile_tirx_memory",
+        "cpu"
+      ],
+      "exit_code": 0,
+      "log": "test_tile_tirx_memory-cpu.log",
+      "passed": true,
+      "assertions": 445
+    },
+    {
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/test_tile_tirx_cooperative",
+        "metal"
+      ],
+      "exit_code": 255,
+      "log": "test_tile_tirx_cooperative-metal.log",
+      "passed": false,
+      "assertions": 0
+    },
+    {
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/test_tile_tirx_cooperative",
+        "cpu"
+      ],
+      "exit_code": 0,
+      "log": "test_tile_tirx_cooperative-cpu.log",
+      "passed": true,
+      "assertions": 322
+    },
+    {
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/test_tile_native_runtime",
+        "metal"
+      ],
+      "exit_code": 0,
+      "log": "test_tile_native_runtime-metal.log",
+      "passed": true,
+      "assertions": 364
+    }
+  ],
+  "passed": false
+}

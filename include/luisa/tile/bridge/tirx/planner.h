@@ -135,6 +135,13 @@ struct PlannerOptions {
     // Zero lets the solver choose. A nonzero value is an exact tuning
     // constraint, checked against the target before any code is generated.
     uint32_t threads_per_group{0u};
+    // Opt-in bijective traversal of the last two logical program axes.
+    // Independent Metal group programs visit bounded row-major rectangles;
+    // outer batch axes, launch cardinality and worker ownership are unchanged.
+    // These are exact JIT constraints, not calibrated cache/occupancy costs.
+    // One row retains the original row-major traversal. Both sizes are positive.
+    uint32_t program_order_rows{1u};
+    uint32_t program_order_columns{1u};
     // A compiler search/code-size budget, not a claimed hardware register limit.
     uint32_t max_fragment_scalars_per_lane{64u};
     // Bound compiler-created worker-private stripes for one logical row
@@ -338,6 +345,10 @@ struct PlanCost {
 struct GroupPlan {
     luisa::string name;
     uint64_t programs{0u};
+    uint64_t program_grid_rows{0u};
+    uint64_t program_grid_columns{0u};
+    uint32_t program_order_rows{1u};
+    uint32_t program_order_columns{1u};
     uint32_t threads{1u};
     uint64_t shared_memory_bytes{0u};
     uint64_t candidates_considered{0u};

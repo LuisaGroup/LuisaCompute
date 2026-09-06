@@ -29,6 +29,9 @@ namespace luisa::compute::tile::bridge::tirx::detail {
 // The structural bridge preserves logical domains and hard scope constraints.
 // The target mapper consumes these only after resolving a legal realization.
 inline constexpr auto logical_parallel_annotation = "luisa.tile.logical_parallel";
+// Original row-major factorization of the flattened parallel ordinal. This
+// is shape metadata, not extra independence or memory-alias permission.
+inline constexpr auto logical_program_shape_annotation = "luisa.tile.program_shape";
 inline constexpr auto execution_scope_annotation = "luisa.tile.execution_scope";
 // Positive rank of a perfect, rectangular serial element-loop nest. Its
 // instances are independent by semantics, not a dependence-analysis hint.

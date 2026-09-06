@@ -679,7 +679,7 @@ tvm::tirx::Stmt try_map_gpu_elementwise(const tvm::tirx::Stmt &body, uint32_t ma
                                         const PlannerOptions &options, luisa::vector<GroupPlan> &plans) {
     auto root_statement = sole_effect(body);
     auto root = root_statement.as<tvm::tirx::ForNode>();
-    if (!static_unit_domain(root) || root->annotations.size() != 1u || !root->annotations.count(logical_parallel_annotation) ||
+    if (!static_unit_domain(root) || root->annotations.size() != 1u + root->annotations.count(logical_program_shape_annotation) || !root->annotations.count(logical_parallel_annotation) ||
         max_threads == 0u || options.threads_per_group > max_threads) { return {}; }
     auto program = element_program(root);
     if (!program) { return {}; }

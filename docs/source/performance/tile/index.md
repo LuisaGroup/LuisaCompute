@@ -13,7 +13,7 @@ checkpoints
 
 ## Current conclusion
 
-As of September 6, 2026, on the `codex/tile-programming-design` branch:
+As of September 7, 2026, on the `codex/tile-programming-design` branch:
 **the architecture runs, and several measured cohorts beat eager Torch or
 approach/beat MPS, but the general performance goal is not complete.**
 The results below are primarily FP32 on an Apple M1 Max. They do not establish
@@ -96,6 +96,19 @@ The [K/walk diagnostics](results.md#k-partition-and-program-walks-diagnostics-no
 find shape-dependent K sensitivity, reject simple row-stripe traversal, and
 retain an inconclusive rectangle screen with order reversals. These are
 exploratory benchmark results, not new production defaults or MPS/Torch wins.
+
+The [matched-participation screen](results.md#whole-group-mpp-participation-is-not-uniformly-better)
+also finds no universal advantage for whole-group MPP over independent
+subgroup operations. A new [generic program traversal](../../internals/tile/planner.md#program-traversal-is-a-mapping-choice-not-a-memory-scope)
+is now available as an explicit Metal-group JIT constraint. It preserves
+local ownership/resources and pipeline order, with non-matrix correctness
+coverage and unchanged default-code controls. It is not yet an automatically
+selected cache/reuse policy or a performance improvement for other routes.
+Its [K/traversal screen](results.md#generic-traversal-composes-with-k-but-is-not-a-universal-win)
+validates all 288 native/Torch/MPS outputs. Large regular grids favor a fixed
+4×8 rectangle in both orders, while small/ragged cases regress or reverse.
+Byte-identical controls expose substantial variation, and every native/Torch
+GPU pair remains slower; no new default or accepted speed claim follows.
 
 The earlier result remains historical, not a scale guarantee. In its 14-round
 FP32 1024³ replay, TIRx-to-MPP views take 270.675 µs, native MPP 287.137 µs,

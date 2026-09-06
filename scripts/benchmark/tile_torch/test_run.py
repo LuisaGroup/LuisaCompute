@@ -28,6 +28,28 @@ with patch.dict(sys.modules, {"run": MODULE, "repeat": REPEAT}):
     SYSTEM_SPEC.loader.exec_module(SYSTEM)
 
 
+class ProgramTraversalTests(unittest.TestCase):
+    def test_optional_arguments_preserve_frozen_binary_compatibility(self):
+        self.assertEqual(MODULE.optional_native_arguments(argparse.Namespace()), [])
+        arguments = MODULE.optional_native_arguments(argparse.Namespace(program_order_rows=4, program_order_columns=16))
+        self.assertEqual(arguments[-3:], ["analytic", "4", "16"])
+        self.assertEqual(len(arguments), 19)
+
+    def test_metadata_requires_the_exact_realized_grid(self):
+        native = dict(program_order=[4, 16], execution_scope="group",
+                      execution_plans=[dict(program_order=[4, 16], program_grid=[7, 19], programs=266)])
+        MODULE.validate_program_order(native, [4, 16])
+        for changed in ([1, 1], [4, True], [4], [4, 0], [4, 2**32], "4,16"):
+            with self.subTest(changed=changed), self.assertRaises(ValueError):
+                MODULE.validate_program_order(dict(native, program_order=changed), [4, 16])
+        for plan in ({}, dict(program_order=[1, 1], program_grid=[7, 19], programs=266),
+                     dict(program_order=[4, 16], program_grid=[7, 19], programs=265),
+                     dict(program_order=[4, 16], program_grid=[7, 0], programs=0)):
+            with self.subTest(plan=plan), self.assertRaises(ValueError):
+                MODULE.validate_program_order(dict(native, execution_plans=[plan]), [4, 16])
+        MODULE.validate_program_order({}, [1, 1])
+
+
 class PairedActivationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -737,6 +759,23 @@ class RepeatContractTests(unittest.TestCase):
             row["native"]["copy_batch"] = invalid
             with patch.object(Path, "read_text", return_value=json.dumps({"results": [row]})):
                 with self.assertRaisesRegex(ValueError, "copy-batch"):
+                    REPEAT.load_plan(Path("unused.json"), {"gemm"})
+
+    def test_replay_preserves_realized_program_traversal(self):
+        row = self.row()
+        with patch.object(Path, "read_text", return_value=json.dumps({"results": [row]})):
+            config = REPEAT.load_plan(Path("unused.json"), {"gemm"})["metal", "gemm_17x19x13"]
+        self.assertEqual((config["program_order_rows"], config["program_order_columns"]), (1, 1))
+        row["native"].update(program_order=[2, 4], execution_plans=[
+            dict(program_order=[2, 4], program_grid=[2, 1], programs=2)])
+        with patch.object(Path, "read_text", return_value=json.dumps({"results": [row]})):
+            config = REPEAT.load_plan(Path("unused.json"), {"gemm"})["metal", "gemm_17x19x13"]
+        self.assertEqual((config["program_order_rows"], config["program_order_columns"]), (2, 4))
+        for invalid in (dict(row, backend="cpu"),
+                        dict(row, native=dict(row["native"], execution_plans=[])),
+                        dict(row, native=dict(row["native"], program_order=[2, False]))):
+            with patch.object(Path, "read_text", return_value=json.dumps({"results": [invalid]})):
+                with self.assertRaisesRegex(ValueError, "program traversal"):
                     REPEAT.load_plan(Path("unused.json"), {"gemm"})
 
     def test_replay_preserves_exact_group_thread_constraint(self):

@@ -65,7 +65,7 @@ protected:
     void VisitStmt_(const tvm::tirx::ForNode *loop) final {
         opaque |= loop->kind != tvm::tirx::ForKind::kSerial || loop->thread_binding.has_value();
         for (auto &&[key, value] : loop->annotations) {
-            opaque |= key != logical_parallel_annotation && key != execution_scope_annotation &&
+            opaque |= key != logical_parallel_annotation && key != logical_program_shape_annotation && key != execution_scope_annotation &&
                       key != independent_elements_annotation && key != mma_annotation &&
                       key != materialized_pure_tile_annotation && key != reduction_contract_annotation &&
                       key != logical_pipeline_annotation && key != pipeline_window_annotation && key != pipeline_interval_annotation;

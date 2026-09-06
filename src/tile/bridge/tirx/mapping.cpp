@@ -1,9 +1,40 @@
+#include <algorithm>
 #include <array>
 #include <limits>
+
+#include <tvm/tirx/op.h>
 
 #include <luisa/tile/bridge/tirx/layout.h>
 
 namespace luisa::compute::tile::bridge::tirx {
+
+NativeIndices rectangular_program_ordinal(tvm::PrimExpr physical, uint64_t rows, uint64_t columns,
+                                          uint32_t tile_rows, uint32_t tile_columns) noexcept {
+    if (!physical.defined() || physical.ty() != tvm::PrimType::Int(64) ||
+        rows == 0u || columns == 0u || tile_rows == 0u || tile_columns == 0u ||
+        rows > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) / columns) {
+        return {{}, "program traversal requires positive dimensions, an int64 ordinal and an int64 product"};
+    }
+    if (auto literal = physical.as<tvm::IntImmNode>(); literal &&
+                                                       (literal->value < 0 || static_cast<uint64_t>(literal->value) >= rows * columns)) {
+        return {{}, "physical program ordinal is outside its domain"};
+    }
+    auto r = std::min<uint64_t>(rows, tile_rows);
+    auto c = std::min<uint64_t>(columns, tile_columns);
+    if (r == 1u || c == columns) { return {{std::move(physical)}, {}}; }
+    // Clamping precedes multiplication: r*columns <= rows*columns and every
+    // partial rectangle has positive dimensions for an in-domain ordinal.
+    auto imm = [](uint64_t value) { return tvm::IntImm::Int64(static_cast<int64_t>(value)); };
+    auto row_begin = tvm::floordiv(physical, imm(r * columns)) * imm(r);
+    auto height = tvm::min(imm(r), imm(rows) - row_begin);
+    auto local = tvm::floormod(physical, imm(r * columns));
+    auto column_begin = tvm::floordiv(local, height * imm(c)) * imm(c);
+    auto width = tvm::min(imm(c), imm(columns) - column_begin);
+    auto inside = tvm::floormod(local, height * imm(c));
+    auto logical = (row_begin + tvm::floordiv(inside, width)) * imm(columns) +
+                   column_begin + tvm::floormod(inside, width);
+    return {{std::move(logical)}, {}};
+}
 
 namespace {
 

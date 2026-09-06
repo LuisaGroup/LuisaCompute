@@ -3,6 +3,45 @@
 This record distinguishes executed correctness checks from performance claims.
 See [current status](index.md) for the latest bounded conclusion.
 
+## Bounded program traversal: structure and unchanged defaults
+
+The September 7 [generic traversal emitter](../../internals/tile/planner.md#program-traversal-is-a-mapping-choice-not-a-memory-scope)
+passes 480 independently enumerated grid/rectangle combinations, including
+partial bands, plus invalid/overflowing input checks. Eight non-matrix Metal
+executions combine batch axes, bounded three-tap input access, pipeline state
+and optional local reduction. Twenty-four matrix programs each run two
+non-dyadic input sets, spanning SIMD-group/MPP, staged/view inputs, transposes,
+partial M/N/K, nonzero recurrence state and two program orders. Malformed
+axis metadata and unsupported exact traversal requests reject before launch.
+
+After a full build, **17/19 integration invocations pass**. The two retained
+failures are existing Metal memory/cooperative source assertions requiring
+`mem_flags(3)`, while the untouched user-owned barrier edit emits
+`mem_flags(2)`. These are not silently waived or reported as a green suite.
+All new layout/execution/matrix tests, both CPU/Metal basic/neural/algorithm
+PoCs, pipeline tests and native Runtime checks pass. The
+{download}`full receipt <../../../../scripts/benchmark/tile_torch/results/m1-max-20260906-program-order/correctness-v3/results.json>`
+and {download}`syntax/Python receipt <../../../../scripts/benchmark/tile_torch/results/m1-max-20260906-program-order/syntax/results.json>`
+retain the boundary: eleven changed C++ translation units pass syntax checks.
+The subsequent {download}`Python receipt <../../../../scripts/benchmark/tile_torch/results/m1-max-20260906-program-order/python-final.json>`
+passes all 102 tests, including exact traversal preservation in frozen replay.
+
+A frozen pre-change executable/library set checks unchanged defaults across
+three GEMMs plus add, paired GELU and softmax. Six Metal sources are
+byte-identical; three CPU LLVM sources differ only in bijectively renamed
+allocation-identity TBAA labels. Their instructions, alias graph and width/
+offset suffixes are unchanged. All 36 native/Torch outputs pass complete
+checks. The initial byte-only CPU comparison remains a recorded failure;
+the {download}`independent source audit <../../../../scripts/benchmark/tile_torch/results/m1-max-20260906-program-order/defaults/audit.json>`
+establishes the narrower equivalence without discarding metadata or changing
+the raw source. These short runs are compatibility checks, not speed claims.
+
+The earlier missing-header build failed before tests: the `/tmp` TVM checkout
+had lost files and Git metadata. An isolated persistent-cache checkout at the
+same pinned TVM/FFI revisions plus the four recorded MPP patches restores all
+surviving source/header contents exactly. Existing compiler/runtime libraries
+are unchanged; subsequent full builds and artifact fingerprints are retained.
+
 ## Multi-output pointwise ownership and effects
 
 The September 6 extension passes the full selected build and ten native

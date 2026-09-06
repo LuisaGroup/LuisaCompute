@@ -972,6 +972,7 @@ private:
             tvm::ffi::Map<tvm::ffi::String, tvm::ffi::Any> annotations;
             if (is_parallel) {
                 annotations.Set(logical_parallel_annotation, tvm::IntImm::Int64(static_cast<int64_t>(operation.id())));
+                annotations.Set(logical_program_shape_annotation, loop_extents);
                 if (auto &&scope = operation.execution_scope_constraint()) {
                     annotations.Set(execution_scope_annotation, tvm::ffi::String{std::string{*scope}});
                 }

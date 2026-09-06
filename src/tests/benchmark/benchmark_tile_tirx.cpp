@@ -158,6 +158,8 @@ void print_plans(luisa::span<const bridge::tirx::GroupPlan> plans, std::string_v
                                                                         "metal_mpp_memory_v3" :
                                                                         "simdgroup_reference_geometry";
         std::cout << separator << "{\"threads\":" << plan.threads
+                  << ",\"program_grid\":[" << plan.program_grid_rows << ',' << plan.program_grid_columns << ']'
+                  << ",\"program_order\":[" << plan.program_order_rows << ',' << plan.program_order_columns << ']'
                   << ",\"metal_mpp\":" << (plan.metal_mpp ? "true" : "false")
                   << ",\"cost_basis\":" << std::quoted(cost_basis)
                   << ",\"programs\":" << plan.programs
@@ -652,6 +654,7 @@ void run_luisa(const char *program, const char *output_path, std::string_view op
               << ",\"auto_vectorize\":" << (options.auto_vectorize ? "true" : "false")
               << ",\"max_reduction_striped_scalars_per_worker\":" << options.planner.max_reduction_striped_scalars_per_worker
               << ",\"planner_threads\":" << options.planner.threads_per_group << ",\"copy_batch\":" << options.planner.max_copy_batch
+              << ",\"program_order\":[" << options.planner.program_order_rows << ',' << options.planner.program_order_columns << ']'
               << ",\"realized_threads\":" << shader.block_size().x * shader.block_size().y * shader.block_size().z
               << ",\"matrix_intrinsics\":" << matrix_calls + mpp_calls
               << ",\"simdgroup_intrinsics\":" << matrix_calls << ",\"mpp_intrinsics\":" << mpp_calls
@@ -672,9 +675,9 @@ void run_luisa(const char *program, const char *output_path, std::string_view op
 }// namespace
 
 int main(int argc, char *argv[]) {
-    if (argc < 13 || argc > 34) {
+    if (argc < 13 || argc > 36) {
         std::cerr << "Usage: benchmark_tile_tirx <cpu|metal> <gemm|add|gelu_add|sigmoid_pair|gelu_pair|sum|softmax|rmsnorm|layernorm|residual_layernorm|cross_entropy> M N K BM BN BK samples sample-ms warmup-ms output.f32 [auto|worker|group] [pipeline-window:1|2] [scalar|subgroup-reduce|matrix|mpp|mpp-views] [vectorize|no-vectorize|auto-vectorize] [group-threads:auto|N] [copy-batch:1..16] [tvm|luisa|luisa-fast] [retain-subgroup-fences|elide-subgroup-fences] [cpu-stack-bytes:0..65536] [cpu-vector-lanes:16|32|64|128] [retain-input-snapshots|forward-input-views] [cpu-model:generic|native] [cpu-matrix:reference|cblas] [cpu-math:reference|accelerate] [shared-tiles:preserve|expensive-only]\n";
-        std::cerr << "Additional mapping options: [reduction-programs:auto|1..8] [element-grid:auto|reference] [reduction-unroll:1..16] [reduction-lane-elements:1|2|4|8] [reduction-inputs:reload|cache]\n";
+        std::cerr << "Additional mapping options: [reduction-programs:auto|1..8] [element-grid:auto|reference] [reduction-unroll:1..16] [reduction-lane-elements:1|2|4|8] [reduction-inputs:reload|cache] [reduction-cost:analytic|service-v1,...] [program-order-rows:N] [program-order-columns:N]\n";
         return 1;
     }
     try {
@@ -716,6 +719,14 @@ int main(int argc, char *argv[]) {
         auto auto_vectorize = vector_mode == "auto-vectorize";
         bridge::tirx::PlannerOptions planner;
         planner.metal_subgroup_reductions = metal_subgroup_reductions;
+        for (auto index = 34; index < argc; index++) {
+            auto size = positive_integer(argv[index]);
+            if (size > std::numeric_limits<uint32_t>::max() ||
+                (size != 1 && (backend != "metal" || cfg.execution_scope != exec::Scope::GROUP))) {
+                throw std::invalid_argument{"program traversal requires positive uint32 rectangle sizes and Metal group execution"};
+            }
+            (index == 34 ? planner.program_order_rows : planner.program_order_columns) = static_cast<uint32_t>(size);
+        }
         auto reduction_cost_profile = argc >= 34 ? std::string_view{argv[33]} : "analytic";
         auto service_policy = bridge::tirx::ServiceExecutionCostPolicy{
             reduction_cost_profile == "analytic" ? bridge::tirx::ReductionServiceModel{} :
@@ -985,6 +996,7 @@ int main(int argc, char *argv[]) {
                   << ",\"cpu_math_backend\":" << std::quoted(cpu_math_name)
                   << ",\"planner_threads\":" << planner.threads_per_group
                   << ",\"copy_batch\":" << planner.max_copy_batch
+                  << ",\"program_order\":[" << planner.program_order_rows << ',' << planner.program_order_columns << ']'
                   << ",\"matrix_intrinsics\":" << matrix_calls + mpp_calls
                   << ",\"external_matrix_calls\":" << library_matrix_calls
                   << ",\"external_vector_math_calls\":" << library_vector_math_calls

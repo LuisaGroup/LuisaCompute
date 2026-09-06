@@ -66,6 +66,49 @@ needs no TVM types or JIT. Later, a TileIR analysis can produce the same facts
 before export. Native Metal/CUDA code generation still belongs to the backend;
 external IR integration remains a bridge. No MLIR dependency is introduced.
 
+### Program traversal is a mapping choice, not a memory scope
+
+The TIRx bridge now supports an **opt-in bounded rectangular traversal** for
+explicit Metal group programs. `PlannerOptions::program_order_rows` and
+`program_order_columns` default to `1,1`; they are positive JIT constraints,
+not measured cache sizes or automatically selected cost-model outputs. The
+last two axes of the original `parallel` domain form the program grid. Earlier
+axes remain separate batches, and the launch contains exactly the original
+number of programs, including partial final rectangles.
+
+```text
+physical program ordinal -- bounded bijection --> logical ancestor coordinates
+                                                       |
+                                      existing worker/local distribution
+                                                       |
+                                      existing per-resource address maps
+```
+
+Structural export retains the original axis extents in typed native TIRx
+metadata. Resource, recurrence and matrix analyses run on the original logical
+domain; only then does realization substitute the permuted program ordinal.
+No operation-name matching, shared-memory placement, worker redistribution or
+pipeline-stage reordering follows from this choice. In particular, several
+memory resources used by the same program keep their independent layouts.
+
+For each row band, the map concatenates its bounded column rectangles, then
+enumerates each rectangle row-major. Those rectangles partition the grid,
+and each inner enumeration is bijective, so their concatenation has neither
+holes nor duplicates. Signed-64-bit extent/product checks precede expression
+construction; a final band uses its actual height and width. One-row traversal
+or a rectangle spanning all columns reduces to the original row-major map.
+This is a coordinate permutation, **not a guarantee of GPU scheduling order**.
+
+An exact nondefault request rejects unsupported targets/bindings, disabled
+planning, missing or inconsistent axis metadata, and rank-one programs.
+This initial emitter supports explicit Metal groups only; CPU, automatic
+pointwise fusion, reduction-program packing and native MPP do not silently
+inherit it. Stencil-like pipelines, local reductions and staged/view matrices
+exercise the same map in tests. Performance generalization is a separate
+question: the current cost policy does not price cross-program reuse or
+traversal address arithmetic. Keep traversal explicit until a frozen policy
+passes multi-shape and multi-operator validation.
+
 ## Hard constraints are not costs
 
 The following failures cannot be compensated by a better score:

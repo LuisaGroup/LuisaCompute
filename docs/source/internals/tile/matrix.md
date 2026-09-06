@@ -331,10 +331,13 @@ views and nested scope/resource ownership remain unchanged.
 
 The standalone MPP benchmark can now enumerate bounded row/column rectangles
 with no padded programs. It checks uint32 launch arithmetic before allocation;
-small/tail GPU outputs and host enumeration validate the mapping. **The
-production TIRx/native planner does not yet select these traversals.** TIRx's
-cooperative mapper already uses a linear physical grid; the hand benchmark's
-legacy-2D versus linear comparison is not a new bridge optimization.
+small/tail GPU outputs and host enumeration validate the mapping. The TIRx
+bridge now also implements the [generic group-program traversal](planner.md#program-traversal-is-a-mapping-choice-not-a-memory-scope)
+as an explicit JIT constraint, composed after local resource/matrix planning.
+**Neither the automatic TIRx planner nor native MPP selects a new default
+traversal.** TIRx's cooperative mapper already uses a linear physical grid;
+the hand benchmark's legacy-2D versus linear comparison is not a new bridge
+optimization. The new bounded rectangles are not a Morton-order traversal.
 
 The [two-order diagnostics](../../performance/tile/results.md#k-partition-and-program-walks-diagnostics-not-new-defaults)
 reject a generic preference for larger row groups. For a 128×32 group output,

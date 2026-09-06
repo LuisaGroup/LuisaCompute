@@ -8,6 +8,7 @@
 #include <utility>
 
 #include <tvm/runtime/tensor.h>
+#include <tvm/arith/analyzer.h>
 #include <tvm/tirx/stmt_functor.h>
 
 #include <luisa/tile/bridge/tirx/compiler.h>
@@ -22,6 +23,63 @@ using namespace boost::ut;
 using namespace boost::ut::literals;
 
 namespace {
+
+void test_rectangular_program_order() {
+    auto physical = tvm::tirx::PrimVar{"physical", tvm::PrimType::Int(64)};
+    tvm::arith::Analyzer analyzer;
+    for (auto rows : {1u, 2u, 3u, 7u, 16u, 17u}) {
+        for (auto columns : {1u, 3u, 5u, 16u, 19u}) {
+            for (auto r : {1u, 2u, 4u, 32u}) {
+                for (auto c : {1u, 2u, 8u, 32u}) {
+                    auto mapping = rectangular_program_ordinal(physical, rows, columns, r, c);
+                    expect(mapping.ok()) << mapping.error;
+                    if (!mapping) { continue; }
+                    // Independent constructive reference: concatenate actual
+                    // rectangles, then enumerate each rectangle row-major.
+                    vector<int64_t> expected;
+                    for (auto rb = 0u; rb < rows; rb += r) {
+                        for (auto cb = 0u; cb < columns; cb += c) {
+                            for (auto ri = rb; ri < std::min(rows, rb + r); ri++) {
+                                for (auto ci = cb; ci < std::min(columns, cb + c); ci++) {
+                                    expected.emplace_back(static_cast<int64_t>(ri * columns + ci));
+                                }
+                            }
+                        }
+                    }
+                    vector<bool> seen(rows * columns, false);
+                    for (auto i = 0u; i < expected.size(); i++) {
+                        auto value = analyzer->Simplify(tvm::tirx::Substitute(mapping.value[0],
+                                                                              tvm::ffi::Map<tvm::tirx::Var, tvm::Expr>{{physical, tvm::IntImm::Int64(i)}}));
+                        auto literal = value.as<tvm::IntImmNode>();
+                        expect(literal != nullptr);
+                        if (literal == nullptr) { continue; }
+                        expect(eq(literal->value, expected[i]));
+                        auto valid = literal->value >= 0 && static_cast<uint64_t>(literal->value) < seen.size();
+                        expect(valid);
+                        if (valid) {
+                            expect(!seen[literal->value]);
+                            seen[literal->value] = true;
+                        }
+                    }
+                    expect(std::all_of(seen.begin(), seen.end(), [](bool x) { return x; }));
+                }
+            }
+        }
+    }
+    expect(!rectangular_program_ordinal(physical, 0u, 8u, 2u, 2u));
+    expect(!rectangular_program_ordinal(physical, 8u, 0u, 2u, 2u));
+    expect(!rectangular_program_ordinal(physical, 8u, 8u, 0u, 2u));
+    expect(!rectangular_program_ordinal(physical, 8u, 8u, 2u, 0u));
+    expect(!rectangular_program_ordinal(physical, UINT64_MAX, 2u, 2u, 2u));
+    expect(!rectangular_program_ordinal(tvm::IntImm::Int32(0), 8u, 8u, 2u, 2u));
+    expect(!rectangular_program_ordinal(tvm::IntImm::Int64(-1), 8u, 8u, 2u, 2u));
+    expect(!rectangular_program_ordinal(tvm::IntImm::Int64(64), 8u, 8u, 2u, 2u));
+    // Clamping must happen before requested rectangle products are formed.
+    auto large = rectangular_program_ordinal(tvm::IntImm::Int64(INT64_MAX - 1), 1u,
+                                             INT64_MAX, UINT32_MAX, UINT32_MAX);
+    expect(large.ok());
+    if (large) { expect(eq(large.value[0].as<tvm::IntImmNode>()->value, INT64_MAX - 1)); }
+}
 
 struct TiledReplicaFixture {
     DimensionContext dimensions;
@@ -450,6 +508,7 @@ int main(int argc, char *argv[]) {
     "tile_tirx_native_export"_test = test_native_export;
     "tile_tirx_native_compiler"_test = test_native_compiler;
     "tile_tirx_native_index_expressions"_test = test_native_index_expressions;
+    "tile_tirx_rectangular_program_order"_test = test_rectangular_program_order;
     "tile_tirx_native_buffer_kernel"_test = test_native_buffer_kernel;
     "tile_tirx_dsl_elementwise_end_to_end"_test = test_dsl_elementwise_end_to_end;
     "tile_tirx_dsl_reduction_end_to_end"_test = test_dsl_reduction_end_to_end;

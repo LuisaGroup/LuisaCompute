@@ -18,7 +18,7 @@ import subprocess
 import sys
 from typing import Any
 
-from run import Case, percentile, run_case, validate_cpu_target_policy, validate_reduction_cost_profile
+from run import Case, percentile, run_case, validate_cpu_target_policy, validate_reduction_cost_profile, validate_program_order
 
 
 def artifact_hashes(binaries: list[Path], extra: list[Path]) -> dict[str, str]:
@@ -50,6 +50,10 @@ def load_plan(path: Path, operations: set[str]) -> dict[tuple[str, str], dict[st
         copy_batch = native.get("copy_batch", 1)
         if type(copy_batch) is not int or not 1 <= copy_batch <= 16:
             raise ValueError(f"{case.name} has an invalid copy-batch policy")
+        program_order = native.get("program_order", [1, 1])
+        validate_program_order(native, program_order)
+        if program_order != [1, 1] and row["backend"] != "metal":
+            raise ValueError("program traversal requires Metal group execution")
         elide = native.get("elide_independent_subgroup_barriers", False)
         if type(elide) is not bool or elide and native.get("forward_readonly_tile_loads") is not True:
             raise ValueError(f"{case.name} has an invalid subgroup-fence policy")
@@ -124,6 +128,8 @@ def load_plan(path: Path, operations: set[str]) -> dict[tuple[str, str], dict[st
             "auto_vectorize": native["auto_vectorize"],
             "group_threads": group_threads,
             "copy_batch": copy_batch,
+            "program_order_rows": program_order[0],
+            "program_order_columns": program_order[1],
             "cpu_stack_bytes": cpu_stack,
             "cpu_vector_lanes": cpu_lanes,
             "cpu_input_views": cpu_views,

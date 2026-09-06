@@ -263,6 +263,9 @@ protected:
             if (_logical_parallel_depth != 0u) { _scope_error(loop, "group", "requires a coordinate factorization for nested group bindings"); }
             return map_metal_cooperative_group(tvm::ffi::GetRef<tvm::tirx::For>(loop), _gpu_group_thread_limit, _shared_memory_limit, _cooperative_matrix, _metal_mpp, _planner, _plans, _readonly_inputs);
         }
+        if (_logical_parallel_depth == 0u && (_planner.program_order_rows != 1u || _planner.program_order_columns != 1u)) {
+            _scope_error(loop, "group", "program traversal requires an explicit Metal group program");
+        }
         if (_target_name == "metal" && _planner.enabled && _planner.metal_subgroup_reductions &&
             _logical_parallel_depth == 0u) {
             auto constraint = loop->annotations.Get(execution_scope_annotation);
@@ -289,6 +292,7 @@ protected:
         auto is_vector = _resolve_vector(loop);
         auto annotations = loop->annotations;
         annotations.erase(logical_parallel_annotation);
+        annotations.erase(logical_program_shape_annotation);
         annotations.erase(execution_scope_annotation);
         auto is_outermost = _logical_parallel_depth == 0u;
         _logical_parallel_depth++;
@@ -360,6 +364,11 @@ public:
     const tvm::Target &target,
     const CompileOptions &options, luisa::vector<GroupPlan> &plans) {
     auto binding = resolve_parallel_binding(target);
+    auto program_order = options.planner.program_order_rows != 1u || options.planner.program_order_columns != 1u;
+    if (options.planner.program_order_rows == 0u || options.planner.program_order_columns == 0u ||
+        (program_order && (!options.planner.enabled || target->kind->name != "metal"))) {
+        throw std::runtime_error{"program traversal requires positive rectangle sizes and an enabled Metal planner"};
+    }
     if (options.cpu_matrix_backend != CpuMatrixBackend::REFERENCE &&
         binding != RootParallelBinding::CPU_THREADS) {
         throw std::runtime_error{"CPU matrix realization requires an LLVM target"};
@@ -457,7 +466,7 @@ public:
                                                        options.planner.reduction_lane_elements != 1u ||
                                                        options.planner.cache_reduction_inputs);
         if (binding == RootParallelBinding::GPU_GRID && options.noalias &&
-            options.planner.enabled && options.planner.fuse_gpu_elementwise && !exact_reduction) {
+            options.planner.enabled && options.planner.fuse_gpu_elementwise && !exact_reduction && !program_order) {
             // Speculative forwarding is committed only with a proved fused
             // map. Other programs keep their original materialization policy.
             auto trial = forward_readonly_tile_loads(mapped, true, true);

@@ -426,6 +426,59 @@ void test_mpp_realized_work(Runtime &runtime) {
     }
 }
 
+void test_matrix_program_traversal(Runtime &runtime) {
+    if (runtime.target() != "metal") { return; }
+    auto mpp_available = tvm::ffi::Function::GetGlobal("target.metal.mpp_bounded_store_contract_version").has_value();
+    for (auto cfg : {Shape{129, 225, 33, 32, 64, 16}, Shape{33, 193, 25, 16, 32, 16, true, false},
+                     Shape{65, 97, 17, 32, 32, 64, false, true}}) {
+        for (auto mpp : {false, true}) {
+            if (mpp && !mpp_available) { continue; }
+            for (auto views : {false, true}) {
+                for (auto rectangle : {std::array{2u, 3u}, {4u, 2u}}) {
+                    auto kernel = gemm(runtime, cfg, 1u, 1u, true, 0.5f);
+                    bridge::tirx::PlannerOptions planner;
+                    planner.threads_per_group = 128u;
+                    planner.program_order_rows = rectangle[0];
+                    planner.program_order_columns = rectangle[1];
+                    auto executable = runtime.build(kernel, true, true, true, false, planner, mpp, views);
+                    expect(executable.ok()) << executable.error;
+                    if (!executable.ok()) { continue; }
+                    expect(eq(executable.plans.size(), size_t{1}));
+                    auto &plan = executable.plans.front();
+                    expect(eq(plan.program_grid_rows, static_cast<uint64_t>(ceil_div(cfg.m, cfg.bm))));
+                    expect(eq(plan.program_grid_columns, static_cast<uint64_t>(ceil_div(cfg.n, cfg.bn))));
+                    expect(eq(plan.program_order_rows, rectangle[0]));
+                    expect(eq(plan.program_order_columns, rectangle[1]));
+                    check_gemm(runtime, executable, cfg, 1.0, true);
+                }
+            }
+        }
+    }
+    class MalformedShape final : public tvm::tirx::StmtMutator {
+    protected:
+        tvm::tirx::Stmt VisitStmt_(const tvm::tirx::ForNode *loop) final {
+            auto result = StmtMutator::VisitStmt_(loop).as_or_throw<tvm::tirx::For>();
+            if (loop->annotations.count("luisa.tile.logical_parallel")) {
+                result.CopyOnWrite()->annotations.Set(
+                    "luisa.tile.program_shape", tvm::ffi::Array<tvm::PrimExpr>{tvm::IntImm::Int64(1)});
+            }
+            return result;
+        }
+    };
+    Shape cfg{129, 225, 33, 32, 64, 16};
+    auto kernel = gemm(runtime, cfg, 1u);
+    auto lowered = bridge::tirx::lower(kernel.function());
+    expect(lowered.ok());
+    if (lowered) {
+        lowered.value.CopyOnWrite()->body = MalformedShape{}(lowered.value->body);
+        bridge::tirx::PlannerOptions planner;
+        planner.program_order_rows = 2u;
+        auto executable = compile_native(runtime, kernel, std::move(lowered.value), 32u, 256u, planner);
+        expect(!executable.ok());
+        expect(executable.error.find("parallel shape") != string::npos) << executable.error;
+    }
+}
+
 void test_mpp_readonly_views(Runtime &runtime) {
     if (runtime.target() != "metal" || !tvm::ffi::Function::GetGlobal("target.metal.mpp_memory_contract_version")) { return; }
     bridge::tirx::PlannerOptions planner;
@@ -2473,6 +2526,7 @@ int main(int argc, char *argv[]) {
     "tile_matrix_mpp_readonly_view_proofs"_test = [&] { test_mpp_readonly_views(runtime); };
     "tile_matrix_mpp_output_only_fragment_budget"_test = [&] { test_mpp_output_only_fragment_budget(runtime); };
     "tile_matrix_mpp_realized_work"_test = [&] { test_mpp_realized_work(runtime); };
+    "tile_matrix_program_traversal"_test = [&] { test_matrix_program_traversal(runtime); };
     "tile_matrix_mpp_bounded_k_views"_test = [&] { test_mpp_bounded_k_views(runtime); };
     "tile_matrix_mpp_bounded_mn_semantics"_test = [&] { test_mpp_bounded_mn_contract(runtime); };
     "tile_matrix_mpp_bounded_store_contract"_test = [&] { test_mpp_bounded_store_contract(runtime); };

@@ -107,4 +107,12 @@ struct NativeIndices {
     const MatrixWorkload &workload, const MatrixDistribution &distribution,
     tvm::PrimExpr subgroup, tvm::PrimExpr fragment) noexcept;
 
+// Bijection of [0, rows*columns) that visits bounded rectangular program
+// groups. The input is a zero-based ordinal in that interval, not a byte
+// address. Partial final rectangles use their actual sizes; no padded launch
+// or duplicate program is introduced. Dimensions/products must fit int64.
+[[nodiscard]] LUISA_TILE_TIRX_BRIDGE_API NativeIndices rectangular_program_ordinal(
+    tvm::PrimExpr physical, uint64_t rows, uint64_t columns,
+    uint32_t tile_rows, uint32_t tile_columns) noexcept;
+
 }// namespace luisa::compute::tile::bridge::tirx

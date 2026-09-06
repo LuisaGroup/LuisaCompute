@@ -80,6 +80,81 @@ void test_empty_parallel(Runtime &runtime) {
     if (runtime.target() == "metal") { check_copy(runtime, exec::Scope::GROUP, 0); }
 }
 
+void test_program_traversal(Runtime &runtime) {
+    constexpr int64_t batches = 2, rows = 13, columns = 25, bm = 2, bn = 3;
+    for (auto reduction : {false, true}) {
+        auto definition = tile_kernel("program_traversal", [=](TensorView<const float, 3> input, TensorView<float, 3> output) {
+            auto batch = axis("batch", batches), gr = axis("gr", ceil_div(rows, bm)), gc = axis("gc", ceil_div(columns, bn));
+            auto b = axis("b", 1), r = axis("r", bm), c = axis("c", bn);
+            for (auto &nest : parallel(shape(batch, gr, gc), exec::Scope::GROUP)) {
+                auto b0 = nest.index(batch), r0 = nest.index(gr) * bm, c0 = nest.index(gc) * bn;
+                auto value = zeros<float>(shape(b, r, c));
+                for (auto &step : nest.pipeline(shape(3), {.stages = 1u})) {
+                    value += input[coord(b0, r0, c0 - step.index()), shape(b, r, c)];
+                }
+                if (reduction) { value += reduce(value, c, add); }
+                output(coord(b0, r0, c0), shape(b, r, c)).store(value);
+            }
+        });
+        auto kernel = definition.capture(tensor_shape(batches, rows, columns), tensor_shape(batches, rows, columns));
+        for (auto rectangle : {std::array{1u, 1u}, {2u, 4u}, {4u, 16u}, {16u, 2u}}) {
+            PlannerOptions planner;
+            planner.program_order_rows = rectangle[0];
+            planner.program_order_columns = rectangle[1];
+            planner.threads_per_group = 64u;
+            auto executable = runtime.build(kernel, true, false, true, false, planner);
+            if (runtime.target() != "metal") {
+                expect(!executable.ok());
+                continue;
+            }
+            expect(executable.ok()) << executable.error;
+            if (!executable.ok()) { continue; }
+            expect(eq(executable.plans.size(), size_t{1}));
+            auto &plan = executable.plans.front();
+            expect(eq(plan.programs, uint64_t{126}));
+            expect(eq(plan.program_grid_rows, uint64_t{7}));
+            expect(eq(plan.program_grid_columns, uint64_t{9}));
+            expect(eq(plan.program_order_rows, rectangle[0]));
+            expect(eq(plan.program_order_columns, rectangle[1]));
+            luisa::vector<float> values(batches * rows * columns);
+            for (auto i = size_t{0}; i < values.size(); i++) { values[i] = static_cast<float>(static_cast<int64_t>(i % 53u) - 26); }
+            auto input = runtime.upload<float>({batches, rows, columns}, values);
+            auto output = runtime.upload<float>({batches, rows, columns}, luisa::vector<float>(values.size(), -12345.0f));
+            (*executable.entry)(input, output);
+            auto actual = runtime.download<float>(output, values.size());
+            for (auto batch = int64_t{0}; batch < batches; batch++) {
+                for (auto r = int64_t{0}; r < rows; r++) {
+                    auto sum_at = [&](int64_t column) {
+                        auto result = 0.0f;
+                        for (auto k = int64_t{0}; k < 3; k++) {
+                            if (column - k >= 0 && column - k < columns) { result += values[(batch * rows + r) * columns + column - k]; }
+                        }
+                        return result;
+                    };
+                    for (auto c = int64_t{0}; c < columns; c++) {
+                        auto expected = sum_at(c);
+                        if (reduction) {
+                            for (auto j = c / bn * bn; j < (c / bn + 1) * bn; j++) { expected += sum_at(j); }
+                        }
+                        expect(eq(actual[(batch * rows + r) * columns + c], expected));
+                    }
+                }
+            }
+        }
+    }
+    PlannerOptions planner;
+    planner.program_order_rows = 2u;
+    for (auto scope : {exec::Scope::GROUP, exec::Scope::WORKER, exec::Scope::AUTOMATIC}) {
+        auto rejected = runtime.build(make_copy(scope, 37), true, false, true, false, planner);
+        expect(!rejected.ok()) << "rank-one or non-group programs must not silently ignore traversal";
+    }
+    planner.program_order_rows = 0u;
+    expect(!runtime.build(make_copy(exec::Scope::GROUP, 37), true, false, true, false, planner).ok());
+    planner.program_order_rows = 2u;
+    planner.enabled = false;
+    expect(!runtime.build(make_copy(exec::Scope::GROUP, 37), true, false, true, false, planner).ok());
+}
+
 void test_fused_element_grid(Runtime &runtime) {
     for (auto dims : {std::array<int64_t, 4>{1, 127, 8, 8}, {17, 257, 3, 7}, {35, 63, 8, 8}}) {
         auto [rows, columns, bm, bn] = dims;
@@ -2115,6 +2190,7 @@ int main(int argc, char *argv[]) {
                                                     const_cast<const char **>(argc > 1 ? argv + 1 : argv));
     "tile_execution_explicit_worker"_test = [&] { test_explicit_worker(runtime); };
     "tile_execution_empty_domain"_test = [&] { test_empty_parallel(runtime); };
+    "tile_execution_program_traversal"_test = [&] { test_program_traversal(runtime); };
     "tile_execution_fused_element_grid"_test = [&] { test_fused_element_grid(runtime); };
     "tile_execution_element_grid_snapshot"_test = [&] { test_element_grid_retains_snapshot(runtime); };
     "tile_execution_element_grid_shared_producers"_test = [&] { test_element_grid_shared_producers(runtime); };

@@ -685,6 +685,87 @@ feature. TIRx already has a one-dimensional launch; improvements over the
 hand probe's legacy 2D launch must not be credited as a new TIRx speedup.
 See [the mapping boundary](../../internals/tile/matrix.md#physical-program-traversal-remains-a-candidate).
 
+### Whole-group MPP participation is not uniformly better
+
+A later September 6 handwritten-MPP screen compares independent 32×32
+subgroup operations with one collective operation at the **same group output
+rectangle and thread count**. It processes whole physical K, uses FP32 dynamic
+inline tensors and cooperative output, and disables fast math/relaxed precision.
+Direct MPS is a seventh arm; this screen has no TIRx or Torch arm.
+
+The table is an exact matched-pair lookup. Values are collective/independent
+GPU batch-time ratios in forward / reversed order; below one favors collective
+participation. Each order uses five no-counter command-buffer samples, not
+isolated kernel timings or a confidence interval.
+
+```{table} Matched MPP participation, two exploratory orders
+:class: benchmark-table
+
+| M×N×K | 128×64, 256 threads | 128×32, 128 threads | 64×64, 128 threads |
+|---|---:|---:|---:|
+| 512³ | 1.018 / 1.135 | 0.995 / 1.043 | 1.016 / 1.054 |
+| 4096³ | 1.046 / 1.116 | 1.114 / 1.094 | 1.121 / 1.124 |
+| 8192³ | 1.143 / 1.115 | 0.827 / 0.854 | 1.017 / 1.006 |
+| 256×11008×4096 | 0.972 / 1.032 | 1.020 / 1.049 | 0.858 / 0.907 |
+| 2049×4097×1025 | 1.229 / 1.186 | 1.070 / 1.068 | 1.234 / 1.230 |
+```
+
+**All 70 complete outputs pass**, but 4096³ and the ragged matrix regress at
+every matched geometry. The 8192³ collective 128×32 gain does not win the
+whole candidate set: independent 128×64 is faster in both rounds, and still
+behind MPS. Substantial control variation remains (512³ MPS: 49.232 versus
+61.531 µs). There is no accepted speedup, calibrated participation rule or
+production default change. The
+{download}`methods and four-metric audit <../../../../scripts/benchmark/tile_torch/results/m1-max-20260906-mpp-participation-geometry/notes.md>`
+retain every arm, output receipt, source, sample and order reversal.
+
+### Generic traversal composes with K, but is not a universal win
+
+The September 7 [TIRx traversal emitter](../../internals/tile/planner.md#program-traversal-is-a-mapping-choice-not-a-memory-scope)
+adds an explicit coordinate permutation after local planning, with no
+operator-name rule or new cost coefficient. The exploratory screen fixes
+128×64 group outputs, 256 threads and independent 32×32 MPP operations,
+crossing BK=512/4096 with row-major and 2×4/4×8/8×16 program rectangles.
+All **288 complete native/Torch/MPS outputs** pass; 39 unique generated
+sources and unchanged artifact hashes are audited. Local matrix/resource
+plans stay identical for every fixed shape/BK comparison.
+
+The table shows **one fixed 4×8 candidate on all six shapes**, not per-shape
+search winners. Each cell retains forward / reversed-order GPU batch-time
+ratios against the same-BK row-major control; below one favors traversal.
+Five samples per order use no-counter command-buffer GPU intervals. Both
+GPU/E2E batch/single results and all eight candidates remain in the audit.
+
+```{table} Fixed 4×8 program traversal, two exploratory orders
+:class: benchmark-table
+
+| M×N×K | BK=512: traversal / row-major | BK=4096: traversal / row-major | BK=4096: traversal / Torch |
+|---|---:|---:|---:|
+| 512³ † | 0.994 / 1.011 | 1.141 / 0.999 | 1.227 / 1.105 |
+| 4096³ | 0.917 / 0.920 | 0.936 / 0.956 | 1.203 / 1.229 |
+| 8192³ | 0.960 / 0.968 | 0.968 / 0.944 | 1.276 / 1.168 |
+| 4096×4096×11008 | 0.948 / 0.969 | 0.973 / 0.961 | 1.235 / 1.220 |
+| 2049×4097×1025 | 0.976 / 1.008 | 1.065 / 1.046 | 1.301 / 1.281 |
+| 257×769×113 | 1.054 / 1.035 | 1.042 / 1.027 | 1.839 / 1.909 |
+```
+
+The three large regular grids favor this rectangle at both K sizes in both
+orders. The ragged and small cases do not generalize that result. **† is a
+byte-identical-source control:** the rectangle spans the entire eight-column
+program grid and simplifies to row-major, so its 14.1% apparent regression
+in one comparison is variation, not traversal cost. Other clamped identity
+candidates are explicitly labeled in the audit. No cache-miss/occupancy
+causality or stable timing acceptance is established by two rounds.
+
+Every native/Torch GPU pair in the whole screen remains above one; MPS parity
+is not established either. **Default traversal and cost coefficients remain
+unchanged.** The next step is a frozen balanced replay, followed by a policy
+that accounts for access-derived reuse and address work on held-out programs,
+not a shape-name table. This enlarges the supported mapping family; it does
+not claim a solved generic planner or faster native-MPP/XIR/SIMD paths. The
+{download}`complete methods and four-metric audit <../../../../scripts/benchmark/tile_torch/results/m1-max-20260906-program-order/notes.md>`
+retain all candidates, controls, failures and validation boundaries.
+
 ### CPU TIRx: reference gaps and proved provider realizations
 
 The original six-round, eight-shape reference-loop cohort remains useful as a
