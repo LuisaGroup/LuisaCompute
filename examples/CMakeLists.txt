@@ -220,7 +220,7 @@ if (LUISA_COMPUTE_ENABLE_CUDA AND LUISA_COMPUTE_ENABLE_DX)
     luisa_compute_add_example(example_cuda_dx_interop interop/cuda_dx_interop.cpp)
 endif ()
 
-if (LUISA_COMPUTE_ENABLE_CUDA AND LUISA_COMPUTE_ENABLE_VULKAN)
+if (LUISA_COMPUTE_VK_CUDA_INTEROP_ENABLED AND LUISA_COMPUTE_ENABLE_CUDA)
     luisa_compute_add_example(example_cuda_vk_interop interop/cuda_vk_interop.cpp)
 endif ()
 

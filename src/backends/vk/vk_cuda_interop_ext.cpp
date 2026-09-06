@@ -1,5 +1,6 @@
 #ifdef LUISA_VULKAN_ENABLE_CUDA_INTEROP
 #include <cuda.h>
+#include <nvrtc.h>
 #include "vk_cuda_interop_ext.h"
 #include "device.h"
 #include "texture.h"
@@ -150,6 +151,37 @@ static bool initialize_cuda() noexcept {
     vstd::unreachable();
 }
 VkCudaInteropImpl::VkCudaInteropImpl(Device *device) noexcept : _device(device) {
+    // VK_NV_cuda_kernel_launch entry points are loaded manually because volk
+    // is compiled without VK_ENABLE_BETA_EXTENSIONS. This path is pure Vulkan
+    // and does not require a CUDA driver context.
+    if (_device->enable_cuda_kernel_launch()) {
+        auto logic_device = _device->logic_device();
+        auto load = [logic_device](auto &pfn, const char *name) noexcept {
+            using PFN = std::remove_reference_t<decltype(pfn)>;
+            pfn = reinterpret_cast<PFN>(vkGetDeviceProcAddr(logic_device, name));
+        };
+          load(_cuda_launch_funcs.create_cuda_module, "vkCreateCudaModuleNV");
+          load(_cuda_launch_funcs.create_cuda_function, "vkCreateCudaFunctionNV");
+        load(_cuda_launch_funcs.destroy_cuda_module, "vkDestroyCudaModuleNV");
+        load(_cuda_launch_funcs.destroy_cuda_function, "vkDestroyCudaFunctionNV");
+        load(_cuda_launch_funcs.cmd_cuda_launch_kernel, "vkCmdCudaLaunchKernelNV");
+        if (!_cuda_launch_funcs.valid()) {
+            LUISA_WARNING(
+                "VK_NV_cuda_kernel_launch entry points could not be loaded; "
+                "CUDA kernel launch is disabled.");
+        } else {
+            VkPhysicalDeviceCudaKernelLaunchPropertiesNV cuda_props{
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUDA_KERNEL_LAUNCH_PROPERTIES_NV,
+                .pNext = nullptr};
+            VkPhysicalDeviceProperties2 props2{
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+                .pNext = &cuda_props};
+            vkGetPhysicalDeviceProperties2(_device->physical_device(), &props2);
+            _cuda_compute_capability =
+                cuda_props.computeCapabilityMajor * 10u +
+                cuda_props.computeCapabilityMinor;
+        }
+    }
     _cuda_device = get_cuda_device_for_vulkan_device(device->physical_device());
     if (_cuda_device == -1) return;
     LUISA_CHECK_CUDA(cuDeviceGet(&_cu_device, _cuda_device));
@@ -265,7 +297,8 @@ BufferCreationInfo VkCudaInteropImpl::create_interop_buffer(const Type *element,
         _device,
         buffer,
         buffer_memory,
-        size_bytes);
+        size_bytes,
+        _device->enable_device_address());
     info.handle = reinterpret_cast<uint64_t>(lc_buffer);
     info.native_handle = lc_buffer->vk_buffer();
     info.element_stride = element_stride;
@@ -509,6 +542,205 @@ DeviceInterface *VkCudaInteropImpl::device() noexcept {
 }
 CUDADeviceConfigExt::ExternalVkDevice VkCudaInteropImpl::get_external_vk_device() const noexcept {
     return {_device->physical_device(), _device->logic_device()};
+}
+
+#ifndef LUISA_CHECK_NVRTC
+#define LUISA_CHECK_NVRTC(...)                                   \
+    do {                                                         \
+        if (auto ec = __VA_ARGS__; ec != NVRTC_SUCCESS) {        \
+            LUISA_ERROR_WITH_LOCATION(                           \
+                "NVRTC error: {}", nvrtcGetErrorString(ec));    \
+        }                                                        \
+    } while (false)
+#endif
+
+namespace detail {
+
+[[nodiscard]] luisa::vector<char> compile_cuda_source_to_ptx(
+    luisa::string_view source,
+    luisa::string_view kernel_name,
+    uint32_t compute_capability,
+    luisa::span<const luisa::string> extra_options) noexcept {
+    LUISA_ASSERT(!source.empty(), "CUDA kernel source is empty.");
+    LUISA_ASSERT(!kernel_name.empty(), "CUDA kernel entry name is empty.");
+    LUISA_ASSERT(compute_capability != 0u,
+                 "CUDA compute capability is unknown for this device.");
+    // NVRTC expects null-terminated strings.
+    luisa::string source_storage{source};
+    luisa::string name_storage{kernel_name};
+    nvrtcProgram prog;
+    LUISA_CHECK_NVRTC(nvrtcCreateProgram(
+        &prog, source_storage.c_str(), name_storage.c_str(),
+        0, nullptr, nullptr));
+    luisa::string arch = luisa::format("--gpu-architecture=compute_{}", compute_capability);
+    luisa::vector<const char *> options;
+    options.emplace_back("--std=c++17");
+    options.emplace_back(arch.c_str());
+    for (auto &opt : extra_options) {
+        options.emplace_back(opt.c_str());
+    }
+    auto compile_result = nvrtcCompileProgram(
+        prog, static_cast<int>(options.size()), options.data());
+    // Always fetch the log so NVRTC diagnostics stay visible.
+    size_t log_size = 0u;
+    nvrtcGetProgramLogSize(prog, &log_size);
+    luisa::string log;
+    if (log_size > 1u) {
+        log.resize(log_size - 1u);
+        nvrtcGetProgramLog(prog, log.data());
+    }
+    if (compile_result != NVRTC_SUCCESS) {
+        nvrtcDestroyProgram(&prog);
+        LUISA_ERROR_WITH_LOCATION(
+            "NVRTC failed to compile CUDA kernel '{}': {}\n{}",
+            kernel_name, nvrtcGetErrorString(compile_result), log);
+    }
+    if (!log.empty()) {
+        LUISA_VERBOSE_WITH_LOCATION("NVRTC compile log for '{}': {}", kernel_name, log);
+    }
+    size_t ptx_size = 0u;
+    LUISA_CHECK_NVRTC(nvrtcGetPTXSize(prog, &ptx_size));
+    luisa::vector<char> ptx;
+    ptx.resize(ptx_size);
+    LUISA_CHECK_NVRTC(nvrtcGetPTX(prog, ptx.data()));
+    LUISA_CHECK_NVRTC(nvrtcDestroyProgram(&prog));
+    return ptx;
+}
+
+}// namespace detail
+
+bool VkCudaInteropImpl::cuda_kernel_launch_supported() const noexcept {
+    return _device->enable_cuda_kernel_launch() && _cuda_launch_funcs.valid();
+}
+
+uint64_t VkCudaInteropImpl::create_cuda_kernel_shader(
+    const vk_cuda_interop::CudaKernelShaderOption &option) noexcept {
+    if (!cuda_kernel_launch_supported()) {
+        LUISA_WARNING(
+            "VK_NV_cuda_kernel_launch is not enabled on this device; "
+            "cannot create a CUDA kernel shader.");
+        return 0u;
+    }
+    luisa::vector<char> ptx;
+    if (option.source_is_ptx) {
+        ptx.assign(option.source.begin(), option.source.end());
+        // The CUDA module loader consumes PTX as a null-terminated string.
+        if (ptx.empty() || ptx.back() != '\0') {
+            ptx.emplace_back('\0');
+        }
+    } else {
+        ptx = detail::compile_cuda_source_to_ptx(
+            option.source, option.kernel_name,
+            _cuda_compute_capability, option.compile_options);
+    }
+    if (option.ptx_output != nullptr) {
+        option.ptx_output->assign(ptx.begin(), ptx.end());
+    }
+    auto shader = new CudaKernelShader{};
+    VkCudaModuleCreateInfoNV module_info{
+        .sType = VK_STRUCTURE_TYPE_CUDA_MODULE_CREATE_INFO_NV,
+        .pNext = nullptr,
+        .dataSize = ptx.size(),
+        .pData = ptx.data()};
+    LUISA_CHECK_VULKAN(_cuda_launch_funcs.create_cuda_module(
+        _device->logic_device(), &module_info,
+        Device::alloc_callbacks(), &shader->module));
+    luisa::string kernel_name{option.kernel_name};
+    VkCudaFunctionCreateInfoNV function_info{
+        .sType = VK_STRUCTURE_TYPE_CUDA_FUNCTION_CREATE_INFO_NV,
+        .pNext = nullptr,
+        .module = shader->module,
+        .pName = kernel_name.c_str()};
+    if (auto result = _cuda_launch_funcs.create_cuda_function(
+            _device->logic_device(), &function_info,
+            Device::alloc_callbacks(), &shader->function);
+        result != VK_SUCCESS) {
+        _cuda_launch_funcs.destroy_cuda_module(
+            _device->logic_device(), shader->module, Device::alloc_callbacks());
+        delete shader;
+        LUISA_CHECK_VULKAN(result);
+    }
+    return reinterpret_cast<uint64_t>(shader);
+}
+
+void VkCudaInteropImpl::destroy_cuda_kernel_shader(uint64_t handle) noexcept {
+    auto shader = reinterpret_cast<CudaKernelShader *>(handle);
+    if (shader == nullptr) return;
+    if (shader->function != VK_NULL_HANDLE) {
+        _cuda_launch_funcs.destroy_cuda_function(
+            _device->logic_device(), shader->function, Device::alloc_callbacks());
+    }
+    if (shader->module != VK_NULL_HANDLE) {
+        _cuda_launch_funcs.destroy_cuda_module(
+            _device->logic_device(), shader->module, Device::alloc_callbacks());
+    }
+    delete shader;
+}
+
+void cuda_launch_kernel(Device *device, VkCommandBuffer cmdbuffer,
+                        const vk_cuda_interop::CudaKernelLaunchCommand *cmd) noexcept {
+    LUISA_ASSERT(cmd != nullptr, "CUDA kernel launch command is null.");
+    auto ext = static_cast<VkCudaInteropImpl *>(device->extension(VkCudaInterop::name));
+    if (ext == nullptr || !ext->cuda_kernel_launch_supported()) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION(
+            "VK_NV_cuda_kernel_launch is not enabled on this device.");
+    }
+    auto shader = reinterpret_cast<CudaKernelShader const *>(cmd->cuda_function());
+    if (shader == nullptr || shader->function == VK_NULL_HANDLE) [[unlikely]] {
+        // create_cuda_kernel_shader documents returning 0 when unsupported;
+        // dispatching such a command is a hard error, not a release-mode crash.
+        LUISA_ERROR_WITH_LOCATION(
+            "CUDA kernel launch command references an invalid CUDA kernel shader.");
+    }
+    // Buffer arguments are packed as raw 64-bit device addresses; uniform
+    // arguments point into the command's embedded uniform blob.
+    auto args = cmd->arguments();
+    auto buffer_count = 0u;
+    for (auto &&arg : args) {
+        if (arg.tag == Argument::Tag::BUFFER) {
+            ++buffer_count;
+        }
+    }
+    vstd::vector<uint64_t> address_staging;
+    address_staging.reserve(buffer_count);
+    vstd::vector<const void *> params;
+    params.reserve(args.size());
+    for (auto &&arg : args) {
+        switch (arg.tag) {
+            case Argument::Tag::UNIFORM: {
+                auto data = cmd->uniform(arg.uniform);
+                params.emplace_back(data.data());
+            } break;
+            case Argument::Tag::BUFFER: {
+                auto buffer = reinterpret_cast<Buffer const *>(arg.buffer.handle);
+                LUISA_ASSERT(buffer != nullptr && buffer->device_address_capable(),
+                             "CUDA kernel launch buffer arguments must be device-address capable.");
+                address_staging.emplace_back(buffer->get_device_address() + arg.buffer.offset);
+                params.emplace_back(&address_staging.back());
+            } break;
+            default:
+                LUISA_ERROR_WITH_LOCATION(
+                    "Argument type {} is not supported for CUDA kernel launch "
+                    "(textures require VK_NVX_image_view_handle; future work).",
+                    luisa::to_underlying(arg.tag));
+        }
+    }
+    VkCudaLaunchInfoNV launch_info{
+        .sType = VK_STRUCTURE_TYPE_CUDA_LAUNCH_INFO_NV,
+        .pNext = nullptr,
+        .function = shader->function,
+        .gridDimX = cmd->grid_dim().x,
+        .gridDimY = cmd->grid_dim().y,
+        .gridDimZ = cmd->grid_dim().z,
+        .blockDimX = cmd->block_dim().x,
+        .blockDimY = cmd->block_dim().y,
+        .blockDimZ = cmd->block_dim().z,
+        .sharedMemBytes = cmd->shared_mem_bytes(),
+        .paramCount = params.size(),
+        .pParams = params.data(),
+        .extraCount = 0u,
+        .pExtras = nullptr};
+    ext->cuda_kernel_launch_funcs().cmd_cuda_launch_kernel(cmdbuffer, &launch_info);
 }
 }// namespace lc::vk
 #endif

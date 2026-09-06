@@ -217,6 +217,9 @@ public:
     bool surface_enabled : 1 {true};
     bool device_address_enabled : 1 {true};
     bool interop_enabled : 1 {true};
+    // VK_NV_cuda_kernel_launch (compiled only with LUISA_VULKAN_ENABLE_CUDA_INTEROP;
+    // owned logical devices only — imported devices cannot be queried).
+    bool cuda_kernel_launch_enabled : 1 {false};
     bool motion_blur_enabled : 1 {false};
     bool subgroup_size_control_enabled : 1 {false};
     bool subgroup_extended_types_enabled : 1 {false};
@@ -259,6 +262,9 @@ public:
     bool enable_motion_blur() const { return motion_blur_enabled; }
     bool enable_raytracing() const { return raytracing_enabled; }
     bool enable_device_address() const { return device_address_enabled; }
+    [[nodiscard]] bool enable_cuda_kernel_launch() const noexcept {
+        return cuda_kernel_launch_enabled;
+    }
     bool enable_async_copy() const { return async_copy_enabled; }
     [[nodiscard]] bool enable_sampler_anisotropy() const noexcept {
         return sampler_anisotropy_enabled;

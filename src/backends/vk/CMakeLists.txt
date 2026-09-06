@@ -3,6 +3,21 @@ if (LUISA_COMPUTE_ENABLE_VULKAN)
     file(GLOB LUISA_COMPUTE_VK_SOURCES CONFIGURE_DEPENDS *.cpp *.h)
     luisa_compute_add_backend(vk SOURCES ${LUISA_COMPUTE_VK_SOURCES} ../common/default_binary_io.cpp)
     target_link_libraries(luisa-compute-backend-vk PRIVATE luisa-compute-ext-volk luisa-compute-hlsl-codegen)
+
+    # CUDA interop (external memory + VK_NV_cuda_kernel_launch) links the CUDA
+    # driver API and NVRTC, mirroring the DirectX interop block.
+    if (LUISA_COMPUTE_ENABLE_VK_CUDA_INTEROP)
+        find_package(CUDAToolkit 11.7 QUIET)
+        if (CUDAToolkit_FOUND)
+            target_link_libraries(luisa-compute-backend-vk PRIVATE CUDA::cuda_driver CUDA::nvrtc)
+            target_compile_definitions(luisa-compute-backend-vk PRIVATE
+                    LUISA_VULKAN_ENABLE_CUDA_INTEROP VK_ENABLE_BETA_EXTENSIONS)
+            set_property(GLOBAL PROPERTY
+                    LUISA_COMPUTE_VK_CUDA_INTEROP_ENABLED ON)
+        else ()
+            message(STATUS "CUDAToolkit not found; Vulkan CUDA interop disabled.")
+        endif ()
+    endif ()
     if (NOT LUISA_COMPUTE_VULKAN_ENABLE_DXC_COMPATIBILITY)
         target_compile_definitions(
                 luisa-compute-backend-vk PRIVATE LC_NO_HLSL_BUILTIN=1)

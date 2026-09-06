@@ -69,6 +69,10 @@ end)
 test_proj("test_command_reorder_bindless", "unit/ext/test_command_reorder_bindless.cpp", false, function()
     add_includedirs("../backends/common")
 end)
+test_proj("test_vk_cuda_launch_command", "unit/ext/test_vk_cuda_launch_command.cpp")
+if has_config("lc_vk_cuda_interop") then
+    test_proj("test_vk_cuda_kernel_launch", "integration/runtime/test_vk_cuda_kernel_launch.cpp")
+end
 if has_config("lc_vk_backend") or has_config("lc_dx_backend") then
     test_proj("test_hlsl_validation_codegen", "unit/ext/test_hlsl_validation_codegen.cpp", false, function()
         add_includedirs("../backends/common/hlsl")

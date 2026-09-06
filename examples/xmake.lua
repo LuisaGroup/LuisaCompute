@@ -119,6 +119,6 @@ end
 if has_config("lc_dx_cuda_interop") then
     example_proj("example_cuda_dx_interop", "interop/cuda_dx_interop.cpp", false)
 end
-if has_config("lc_vk_cuda_interop") then
-    example_proj("example_cuda_vk_interop", "interop/cuda_vk_interop.cpp", false)
-end
+  if has_config("lc_vk_cuda_interop") and has_config("lc_cuda_backend") then
+      example_proj("example_cuda_vk_interop", "interop/cuda_vk_interop.cpp", false)
+  end

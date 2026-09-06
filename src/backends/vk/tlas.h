@@ -28,13 +28,23 @@ private:
     uint _last_instance_count = 0;
     struct Instance {
         MeshHandle *handle = nullptr;
+        // Whether the instance was assigned a MotionInstance primitive (as
+        // opposed to a plain Blas); required to keep the TLAS motion-capable
+        // across builds whose modification list does not touch the primitive.
+        bool is_motion_instance = false;
     };
     bool _require_rebuild = true;
     bool _has_motion = false;  // true if any child BLAS has motion or any MotionInstance is present
+    bool _built_with_motion = false;  // motion flag of the currently built TLAS handle
+    // Host-side shadow copies of the instance buffers used by the motion path;
+    // updated incrementally and uploaded whole so untouched instances survive
+    // partial modification lists and pending _set_map refreshes.
+    luisa::vector<uint8_t> _motion_instance_cache;
+    luisa::vector<uint8_t> _std_instance_cache;
     vstd::vector<Instance> _all_instance;
     void _resize_instance(size_t size);
     void _update_mesh(MeshHandle *handle);
-    void _set_mesh(Blas *mesh, uint64 index);
+    void _set_mesh(Blas *mesh, uint64 index, bool is_motion_instance, bool explicit_primitive);
 
 public:
     Tlas(Device *device, AccelOption const &option);
