@@ -5,11 +5,12 @@ if (LUISA_COMPUTE_ENABLE_VULKAN)
     target_link_libraries(luisa-compute-backend-vk PRIVATE luisa-compute-ext-volk luisa-compute-hlsl-codegen)
 
     # CUDA interop (external memory + VK_NV_cuda_kernel_launch) links the CUDA
-    # driver API and NVRTC, mirroring the DirectX interop block.
+    # driver API only; the module image is produced by the cuda backend, so
+    # no runtime CUDA compiler library is required here.
     if (LUISA_COMPUTE_ENABLE_VK_CUDA_INTEROP)
         find_package(CUDAToolkit 11.7 QUIET)
         if (CUDAToolkit_FOUND)
-            target_link_libraries(luisa-compute-backend-vk PRIVATE CUDA::cuda_driver CUDA::nvrtc)
+            target_link_libraries(luisa-compute-backend-vk PRIVATE CUDA::cuda_driver)
             target_compile_definitions(luisa-compute-backend-vk PRIVATE
                     LUISA_VULKAN_ENABLE_CUDA_INTEROP VK_ENABLE_BETA_EXTENSIONS)
             set_property(GLOBAL PROPERTY

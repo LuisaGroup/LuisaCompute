@@ -151,12 +151,11 @@ on_load(function(target)
         -- VK_NV_cuda_kernel_launch types live in vulkan_beta.h, only exposed
         -- with VK_ENABLE_BETA_EXTENSIONS (must precede the volk include).
         target:add("defines", "VK_ENABLE_BETA_EXTENSIONS")
-        -- Link the shared NVRTC import library: nvrtc_static/cudart_static
-        -- are MT static-release archives that cannot link into this MD debug
-        -- DLL (LNK2038) and nvrtc_static additionally requires
-        -- nvptxcompiler_static. The interop code only needs the CUDA driver
-        -- API plus NVRTC.
-        target:add("links", "nvrtc", "cuda")
+        -- Only the CUDA driver API is needed: the primary context and
+        -- external memory are managed here, while the module image (PTX or
+        -- linked cubin) is produced by the cuda backend; this backend no
+        -- longer compiles CUDA source at runtime.
+        target:add("links", "cuda")
         target:add('deps', '_lc_cuda_base')
     end
     if has_config('lc_vk_backend_use_ast_llvm_spirv')  or has_config('lc_vk_backend_use_xir_spirv') then

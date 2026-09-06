@@ -217,48 +217,34 @@ python scripts/debugger.py build/bin/test.exe -- --gtest_filter=MyTest
 
 ## 9. Tracking Memory Growth with `scripts/mem_monitor.py`
 
-A Windows Python wrapper that launches a process, samples its memory (Private Bytes / Working Set via `GetProcessMemoryInfo`) at a fixed interval, writes a timeline log, and **kills the process tree** (`taskkill /F /T`) when Private Bytes exceed a threshold — essential when a runaway test could exhaust machine RAM before you can observe it.
+A cross-platform (Windows/Linux) Python wrapper that launches a process, samples its memory at a fixed interval, writes a timeline log, and **kills the process tree** when private memory exceeds a threshold — essential when a runaway test could exhaust machine RAM before you can observe it.
+
+- **Windows:** Private Bytes / Working Set via `GetProcessMemoryInfo`; kills the tree with `taskkill /F /T`.
+- **Linux:** private memory = `Private_Clean + Private_Dirty` from `/proc/<pid>/smaps_rollup` (fallback `RssAnon + VmSwap`), working set = `VmRSS`; kills the child's whole process group with `SIGKILL` (the child is started in its own session).
 
 **Usage:**
 ```bash
 python scripts/mem_monitor.py [--kill-gb N] [--interval S] [--log FILE] -- <exe> [args...]
 ```
 
-- `--kill-gb N` (default 20): hard kill threshold in GiB of Private Bytes. Pick a value that leaves the machine usable (e.g. total free RAM minus headroom).
+- `--kill-gb N` (default 20): hard kill threshold in GiB of private memory (Private Bytes on Windows, `smaps_rollup` private on Linux). Pick a value that leaves the machine usable (e.g. total free RAM minus headroom).
 - `--interval S` (default 0.25): sampling interval in seconds.
 - `--log FILE` (default `mem_monitor.log`): timeline output, one `time_s private_mb working_set_mb` row per sample.
 - Arguments after `--` are forwarded to the target executable.
-- On exit it prints a summary: exit code, whether it killed the process, peak Private Bytes, and the first/last samples.
+- On exit it prints a summary: exit code, whether it killed the process, peak private memory, and the first/last samples.
 
 **Example (run a device test, kill if it exceeds 6 GiB):**
 ```bash
-python scripts/mem_monitor.py --kill-gb 6 --interval 0.25 --log mem.log -- bin/debug/dgm-ao-kernels-test.exe dx
+python scripts/mem_monitor.py --kill-gb 6 --interval 0.25 --log mem.log -- bin/my_test.exe <backend>
 ```
 
 **Workflow for a suspected leak / memory blow-up:**
 1. Run the full repro under the monitor with a safe `--kill-gb`. A straight-line, ever-growing timeline (constant MiB/s) usually means an **unbounded accumulation loop** (e.g. appending commands to a `CommandList` that never terminates), not a classic leak; stepwise growth synchronized with test phases suggests per-phase leaks.
-2. Isolate the phase: run individual tests (Boost.UT: positional test-name patterns after the backend arg, e.g. `test.exe dx bench_uv_usage`) and compare peak memory and timeline shape.
+2. Isolate the phase: run individual tests (Boost.UT: positional test-name patterns after the backend arg, e.g. `test.exe <backend> my_test`) and compare peak memory and timeline shape.
 3. A phase that terminates with flat memory is innocent; a phase whose memory grows without plateau owns the bug. Then read that phase's code for loops whose trip count can make zero progress (e.g. `n = min(remaining, k)` with `k == 0`).
-4. After the fix, re-run under the monitor: peak Private Bytes should be bounded (hundreds of MiB for small device tests) and the timeline flat.
+4. After the fix, re-run under the monitor: peak private memory should be bounded (hundreds of MiB for small device tests) and the timeline flat.
 
-**Note:** GPU/device memory is mostly invisible to Private Bytes; this tool tracks host-side growth. Pair with backend allocator logging if device-side exhaustion is suspected.
-
-## 10. Ray-Query / Accel Failures: Check Mesh-vs-Accel Lifetime First
-
-If ray queries (Accel.intersect) return all-miss or backend-flaky hits (e.g. passes on dx, fails on vk; or results change depending on unrelated preceding dispatches), suspect a **dangling BLAS: the Mesh was destroyed while the Accel still references it**.
-
-The lifetime contract:
-- `Mesh` OWNS the BLAS. `~Mesh` -> `device->destroy_mesh` -> backends `delete` the BLAS object **immediately** (vk: `vkDestroyAccelerationStructureKHR` + immediate `vmaDestroyBuffer` of the BLAS storage).
-- `Accel` (TLAS) references the BLAS only by **raw device address** baked into its instance buffer; it does NOT keep the Mesh/BLAS alive.
-- Therefore the Mesh must outlive every use of the Accel. If a helper builds `{positions, triangles, mesh, accel}` and returns only the `Accel`, the BLAS is freed when the helper returns.
-
-Why it "works" until it doesn't:
-- The freed BLAS memory keeps valid content until a later allocation reuses it. dx tolerates this because its resource GC defers memory reuse past the GPU timeline; vk's VMA frees immediately, so the next large kernel-output buffer/arena allocation recycles the BLAS memory and subsequent traces read garbage -> deterministic-looking all-miss.
-- Symptom fingerprint: early traces hit; traces after a sufficiently large compute dispatch (hundreds of writing threads, i.e. a big output buffer) all miss; a freshly-built accel traced afterwards works again; rebuilding the TLAS does NOT recover (the corruption is the freed BLAS, not the TLAS).
-
-Diagnostic probes that isolated this (pattern-gated `world_accel_probe` in the AO test, since removed): trace literal axis-aligned rays (hit = freed memory still intact), full-scene downward-ray scan (dx shows floor hits everywhere, vk all-miss after a big dispatch), canary buffer scan (pristine: the "corruption" is memory *reuse*, not stray writes), fresh-accel retrace (works: per-accel lifetime bug, not global query-state breakage).
-
-Fix: keep the `Mesh` alive alongside the `Accel` (e.g. return a struct holding both; meshes first so the accel is destroyed first).
+**Note:** GPU/device memory is mostly invisible to host-side private memory; this tool tracks host-side growth. Pair with backend allocator logging if device-side exhaustion is suspected.
 
 ## Summary
 
@@ -267,5 +253,4 @@ Fix: keep the `Mesh` alive alongside the `Accel` (e.g. return a struct holding b
 - **No trace** → read `CMakeLists.txt`/`xmake.lua`, add `LUISA_INFO`/`LUISA_VERBOSE`, then `device_log`.
 - **DSL values** → prefer `Buffer` write + host read-back for bulk inspection; use `device_log` for targeted per-thread messages.
 - **Backend/codegen issues** → set `LUISA_DUMP_SOURCE=1` to inspect generated shaders and `LUISA_ENABLE_VALIDATION=1` to catch API/resource misuse.
-- **Memory blow-up / suspected leak** → run under `scripts/mem_monitor.py` with `--kill-gb`; constant-rate growth = unbounded accumulation loop, stepwise growth = per-phase leak.
-- **Ray-query all-miss / dx-passes-vk-fails** → check the `Mesh` outlives the `Accel`; a helper returning only the `Accel` leaves a dangling BLAS whose freed memory vk reuses immediately (dx hides it via GC).
+- **Memory blow-up / suspected leak** → run under `scripts/mem_monitor.py` with `--kill-gb` (Windows/Linux); constant-rate growth = unbounded accumulation loop, stepwise growth = per-phase leak.

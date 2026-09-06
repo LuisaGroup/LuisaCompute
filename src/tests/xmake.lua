@@ -70,7 +70,7 @@ test_proj("test_command_reorder_bindless", "unit/ext/test_command_reorder_bindle
     add_includedirs("../backends/common")
 end)
 test_proj("test_vk_cuda_launch_command", "unit/ext/test_vk_cuda_launch_command.cpp")
-if has_config("lc_vk_cuda_interop") then
+if has_config("lc_vk_cuda_interop") and has_config("lc_cuda_backend") then
     test_proj("test_vk_cuda_kernel_launch", "integration/runtime/test_vk_cuda_kernel_launch.cpp")
 end
 if has_config("lc_vk_backend") or has_config("lc_dx_backend") then

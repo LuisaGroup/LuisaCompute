@@ -5,6 +5,8 @@
 // - KernelLauncher argument packing order, uniform offsets and alignment
 // - traverse_arguments coverage with stored usages
 // - uniform blob roundtrip through ShaderDispatchCommandBase::uniform
+// - dispatch_size semantics: exact thread count on the thread-count
+// overloads, grid * block on the explicit-geometry dispatch
 
 #include "ut/ut.hpp"
 
@@ -24,7 +26,7 @@ int main() {
     "uuid_and_metadata"_test = [] {
         KernelLauncher launcher;
         auto cmd = std::move(launcher).build(
-            0xfeedu, uint3{4u, 2u, 1u}, uint3{128u, 1u, 1u}, 1024u);
+            0xfeedu, uint3{512u, 2u, 1u}, uint3{128u, 1u, 1u}, 1024u);
         expect(cmd->custom_cmd_uuid() ==
                luisa::to_underlying(CustomCommandUUID::VK_CUDA_LAUNCH_KERNEL));
         expect(luisa::to_underlying(CustomCommandUUID::VK_CUDA_LAUNCH_KERNEL) == 0x0500u);
@@ -34,9 +36,11 @@ int main() {
         expect(cmd->cuda_function() == 0xfeedu);
         expect(luisa::all(cmd->grid_dim() == uint3{4u, 2u, 1u}));
         expect(luisa::all(cmd->block_dim() == uint3{128u, 1u, 1u}));
-        // max_dispatch_size reports threads (grid * block), matching the
-      // command-reorder budget's units.
-      expect(luisa::all(cmd->max_dispatch_size() == uint3{512u, 2u, 1u}));
+        // The recorded dispatch size is the exact thread count.
+        expect(luisa::all(cmd->dispatch_size() == uint3{512u, 2u, 1u}));
+        // max_dispatch_size reports the exact dispatch size, matching the
+        // command-reorder budget's units.
+        expect(luisa::all(cmd->max_dispatch_size() == uint3{512u, 2u, 1u}));
         expect(cmd->shared_mem_bytes() == 1024u);
         expect(cmd->requires_resource_state_isolation());
         expect(cmd->arguments().empty());
@@ -158,7 +162,7 @@ int main() {
                 .add_uniform(2.5f)
                 .add_uniform(7u);
             return std::move(launcher).build(
-                0xbeefu, uint3{4u, 1u, 1u}, uint3{256u, 1u, 1u}, 0u);
+                0xbeefu, uint3{1024u, 1u, 1u}, uint3{256u, 1u, 1u}, 0u);
         }();
 
         // Untyped kernel with usage-tagged raw handles via BufferView-less
@@ -198,18 +202,64 @@ int main() {
     };
 
     "typed_kernel_dispatch_thread_count"_test = [] {
-        // dispatch(thread_count_x, block) computes grid = ceil(tc / block.x).
+        // dispatch(thread_count_x, block) computes grid = ceil(tc / block.x)
+        // and records the exact thread count (for the DSL ls_kid trailer).
         CudaKernelInvoke invoke{1u};
         invoke << 1u;
         auto cmd = std::move(invoke).dispatch(1000u, uint3{256u, 1u, 1u});
         expect(luisa::all(cmd->grid_dim() == uint3{4u, 1u, 1u}));
         expect(luisa::all(cmd->block_dim() == uint3{256u, 1u, 1u}));
+        expect(luisa::all(cmd->dispatch_size() == uint3{1000u, 1u, 1u}));
+        expect(luisa::all(cmd->max_dispatch_size() == uint3{1000u, 1u, 1u}));
 
         // Exact multiples must not add an extra block.
         CudaKernelInvoke invoke2{1u};
         invoke2 << 1u;
         auto cmd2 = std::move(invoke2).dispatch(1024u, uint3{256u, 1u, 1u});
         expect(luisa::all(cmd2->grid_dim() == uint3{4u, 1u, 1u}));
+        expect(luisa::all(cmd2->dispatch_size() == uint3{1024u, 1u, 1u}));
+    };
+
+    "thread_count_launch_overloads"_test = [] {
+        // KernelLauncher::build with a bare uint3 thread count: grid =
+        // ceil(threads / block), dispatch size = exact thread count.
+        {
+            KernelLauncher launcher;
+            launcher.add_uniform(1.0f);
+            auto cmd = std::move(launcher).build(
+                7u, uint3{1000u, 2u, 1u}, uint3{256u, 2u, 1u});
+            expect(luisa::all(cmd->grid_dim() == uint3{4u, 1u, 1u}));
+            expect(luisa::all(cmd->block_dim() == uint3{256u, 2u, 1u}));
+            expect(luisa::all(cmd->dispatch_size() == uint3{1000u, 2u, 1u}));
+        }
+        // 1D thread count.
+        {
+            KernelLauncher launcher;
+            launcher.add_uniform(1.0f);
+            auto cmd = std::move(launcher).build(
+                7u, uint3{777u, 1u, 1u}, uint3{256u, 1u, 1u}, 0u);
+            expect(luisa::all(cmd->grid_dim() == uint3{4u, 1u, 1u}));
+            expect(luisa::all(cmd->dispatch_size() == uint3{777u, 1u, 1u}));
+        }
+    };
+
+    "shader_block_size_dispatch"_test = [] {
+        // dispatch(thread_count) without an explicit block dimension uses the
+        // block size carried by the (imported) shader.
+        CudaKernelInvoke invoke{1u, uint3{128u, 1u, 1u}};
+        invoke << 1u;
+        auto cmd = std::move(invoke).dispatch(1000u);
+        expect(luisa::all(cmd->grid_dim() == uint3{8u, 1u, 1u}));
+        expect(luisa::all(cmd->block_dim() == uint3{128u, 1u, 1u}));
+        expect(luisa::all(cmd->dispatch_size() == uint3{1000u, 1u, 1u}));
+
+        // The uint3 thread-count overload behaves identically.
+        CudaKernelInvoke invoke3{1u, uint3{64u, 2u, 1u}};
+        invoke3 << 1u;
+        auto cmd3 = std::move(invoke3).dispatch(uint3{100u, 5u, 1u});
+        expect(luisa::all(cmd3->grid_dim() == uint3{2u, 3u, 1u}));
+        expect(luisa::all(cmd3->block_dim() == uint3{64u, 2u, 1u}));
+        expect(luisa::all(cmd3->dispatch_size() == uint3{100u, 5u, 1u}));
     };
 
     "cuda_kernel_operator_call"_test = [] {

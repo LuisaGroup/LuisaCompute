@@ -27,9 +27,15 @@ struct CudaKernelLaunchFuncs {
 
 // Heap-allocated CUDA kernel shader (VkCudaModuleNV + VkCudaFunctionNV pair);
 // the object address is exposed publicly as an opaque uint64_t handle.
+// Imported from a DSL kernel compiled by the cuda backend; the recorded
+// usages/argument count/block size mirror the source shader's metadata for
+// launch-time validation.
 struct CudaKernelShader {
     VkCudaModuleNV module{};
     VkCudaFunctionNV function{};
+    luisa::vector<Usage> usages{};
+    size_t argument_count{0u};
+    uint3 block_size{0u, 0u, 0u};
 };
 
 class VkCudaInteropImpl : public VkCudaInterop {
@@ -38,7 +44,6 @@ class VkCudaInteropImpl : public VkCudaInterop {
     int _cuda_device{-1};
     Device *_device{};
     CudaKernelLaunchFuncs _cuda_launch_funcs{};
-    uint32_t _cuda_compute_capability{0u};// major * 10 + minor, 0 when unknown
 public:
     VkCudaInteropImpl(Device *device) noexcept;
     VkCudaInteropImpl(VkCudaInteropImpl const &) = delete;
@@ -62,8 +67,7 @@ public:
 
 public:
     [[nodiscard]] bool cuda_kernel_launch_supported() const noexcept override;
-    [[nodiscard]] uint64_t create_cuda_kernel_shader(
-        const vk_cuda_interop::CudaKernelShaderOption &option) noexcept override;
+    [[nodiscard]] uint64_t create_cuda_kernel_shader(uint64_t cuda_shader_handle) noexcept override;
     void destroy_cuda_kernel_shader(uint64_t handle) noexcept override;
     [[nodiscard]] const CudaKernelLaunchFuncs &cuda_kernel_launch_funcs() const noexcept {
         return _cuda_launch_funcs;
@@ -71,8 +75,9 @@ public:
 };
 
 // Records a vkCmdCudaLaunchKernelNV for the given command into cmdbuffer.
-// Buffer arguments are packed as 64-bit device addresses; uniform arguments
-// point into the command's embedded uniform blob.
+// The command's arguments are packed into the DSL kernel ABI: a single
+// by-value Params blob (16-byte-aligned slots; buffers as LCBuffer
+// {ptr, size_bytes} bindings) plus the ls_kid dispatch-size trailer.
 void cuda_launch_kernel(Device *device, VkCommandBuffer cmdbuffer,
                         const vk_cuda_interop::CudaKernelLaunchCommand *cmd) noexcept;
 }// namespace lc::vk

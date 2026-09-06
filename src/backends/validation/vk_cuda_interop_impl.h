@@ -39,9 +39,8 @@ public:
     bool cuda_kernel_launch_supported() const noexcept override {
         return impl->cuda_kernel_launch_supported();
     }
-    uint64_t create_cuda_kernel_shader(
-        const vk_cuda_interop::CudaKernelShaderOption &option) noexcept override {
-        return impl->create_cuda_kernel_shader(option);
+    uint64_t create_cuda_kernel_shader(uint64_t cuda_shader_handle) noexcept override {
+        return impl->create_cuda_kernel_shader(cuda_shader_handle);
     }
     void destroy_cuda_kernel_shader(uint64_t handle) noexcept override {
         impl->destroy_cuda_kernel_shader(handle);

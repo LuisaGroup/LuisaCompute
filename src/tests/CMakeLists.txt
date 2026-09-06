@@ -320,7 +320,9 @@ luisa_compute_add_test(test_command_reorder_bindless unit/ext/test_command_reord
 target_include_directories(test_command_reorder_bindless PRIVATE ../backends/common)
 luisa_compute_add_test(test_vk_cuda_launch_command unit/ext/test_vk_cuda_launch_command.cpp LABELS "unit;unit_ext")
 get_property(LUISA_COMPUTE_VK_CUDA_INTEROP_ENABLED GLOBAL PROPERTY LUISA_COMPUTE_VK_CUDA_INTEROP_ENABLED)
-if (LUISA_COMPUTE_VK_CUDA_INTEROP_ENABLED)
+# Kernels are compiled from the DSL on a paired cuda device and imported into
+# the VK extension, so the cuda backend is required.
+if (LUISA_COMPUTE_VK_CUDA_INTEROP_ENABLED AND LUISA_COMPUTE_ENABLE_CUDA)
     luisa_compute_add_test(test_vk_cuda_kernel_launch integration/runtime/test_vk_cuda_kernel_launch.cpp)
 endif ()
 luisa_compute_add_test(test_spirv_motion_patch unit/ext/test_spirv_motion_patch.cpp  LABELS "unit;unit_ext")

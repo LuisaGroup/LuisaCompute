@@ -50,6 +50,12 @@ public:
                     luisa::vector<ShaderDispatchCommand::Argument> bound_arguments = {}) noexcept;
     ~CUDAShaderOptiX() noexcept override;
     [[nodiscard]] void *handle() const noexcept override { return _pipeline; }
+    // OptiX shaders launch through an OptiX pipeline with __constant__ params
+    // and own no importable module image; cross-backend import rejects them.
+    [[nodiscard]] luisa::span<const std::byte> module_image() const noexcept override { return {}; }
+    [[nodiscard]] luisa::string_view entry() const noexcept override { return {}; }
+    [[nodiscard]] uint3 block_size() const noexcept override { return uint3{}; }
+    [[nodiscard]] size_t bound_argument_count() const noexcept override { return _bound_arguments.size(); }
 };
 
 }// namespace luisa::compute::cuda

@@ -8,6 +8,7 @@
 #include <luisa/runtime/buffer.h>
 #include <luisa/runtime/image.h>
 #include <luisa/runtime/device.h>
+#include <luisa/runtime/shader.h>
 #include <luisa/runtime/stream.h>
 #include <luisa/runtime/volume.h>
 #include <luisa/vstl/meta_lib.h>
@@ -30,32 +31,26 @@ struct Wait {
     void operator()(DeviceInterface *device, uint64_t stream_handle) const && noexcept;
 };
 
-// Options for compiling (or ingesting) a CUDA kernel "shader" for in-command-buffer
-// dispatch through VK_NV_cuda_kernel_launch (VkCudaModuleNV + VkCudaFunctionNV pair).
-struct CudaKernelShaderOption {
-    luisa::string_view source;                  // CUDA C++ source, or PTX text when source_is_ptx
-    luisa::string_view kernel_name;             // __global__ entry point name; NVRTC mangles C++
-                                                // symbols, so the kernel must be declared
-                                                // extern "C" (or the mangled name passed here)
-    bool source_is_ptx{false};                  // true when `source` holds precompiled PTX
-    luisa::vector<luisa::string> compile_options{};// extra NVRTC compile options (source compiles only)
-    luisa::vector<char> *ptx_output{nullptr};   // optional sink receiving the compiled PTX text
-};
-
-// Custom dispatch command launching a CUDA kernel (created through
-// VkCudaInterop::create_cuda_kernel_shader) inside a Vulkan command buffer.
+// Custom dispatch command launching a CUDA kernel (imported from the cuda
+// backend through VkCudaInterop::create_cuda_kernel_shader) inside a Vulkan
+// command buffer.
 //
-// Buffer argument packing convention: every Argument::Buffer is passed to the
-// CUDA kernel as a raw 64-bit device address (VkDeviceAddress + argument
-// offset); declare the corresponding kernel parameter as a plain pointer
-// (e.g. `float *data`). Argument::Uniform values are passed by value from the
-// embedded uniform blob, in argument order.
+// Imported shaders are DSL kernels compiled by the cuda backend, whose ABI is
+// a single by-value `struct Params` parameter: every kernel argument occupies
+// a 16-byte-aligned slot in the blob (buffers as `LCBuffer { ptr, size_bytes
+// }` bindings, uniforms as raw values), followed by an `ls_kid` uint4 trailer
+// carrying {dispatch_size.xyz, kernel_id}. The vk backend builds this blob at
+// encode time from the command's Argument array, so the command additionally
+// records the exact thread count (`_dispatch_size`, used for `ls_kid`) next
+// to the grid/block geometry.
 class CudaKernelLaunchCommand final : public CustomDispatchCommand, public ShaderDispatchCommandBase {
 
 private:
     uint3 _grid_dim;
     uint3 _block_dim;
     uint32_t _shared_mem_bytes;
+    // Exact number of threads to launch (<= grid * block), for ls_kid.
+    uint3 _dispatch_size;
     // One entry per non-uniform argument, in argument order.
     luisa::vector<Usage> _argument_usages;
 
@@ -94,6 +89,7 @@ public:
     CudaKernelLaunchCommand(uint64_t cuda_function_handle,
                             uint3 grid_dim, uint3 block_dim,
                             uint32_t shared_mem_bytes,
+                            uint3 dispatch_size,
                             luisa::vector<std::byte> &&argument_buffer,
                             size_t argument_count,
                             luisa::vector<Usage> &&argument_usages) noexcept
@@ -103,11 +99,22 @@ public:
           _grid_dim{grid_dim},
           _block_dim{block_dim},
           _shared_mem_bytes{shared_mem_bytes},
+          _dispatch_size{dispatch_size},
           _argument_usages{std::move(argument_usages)} {
         LUISA_ASSERT(grid_dim.x > 0u && grid_dim.y > 0u && grid_dim.z > 0u,
                      "CUDA kernel launch grid dimension must be nonzero.");
         LUISA_ASSERT(block_dim.x > 0u && block_dim.y > 0u && block_dim.z > 0u,
                      "CUDA kernel launch block dimension must be nonzero.");
+        LUISA_ASSERT(dispatch_size.x > 0u && dispatch_size.y > 0u && dispatch_size.z > 0u,
+                     "CUDA kernel launch dispatch size must be nonzero.");
+        auto fits = [](uint32_t d, uint32_t g, uint32_t b) noexcept {
+            return static_cast<uint64_t>(d) <=
+                   static_cast<uint64_t>(g) * static_cast<uint64_t>(b);
+        };
+        LUISA_ASSERT(fits(dispatch_size.x, grid_dim.x, block_dim.x) &&
+                         fits(dispatch_size.y, grid_dim.y, block_dim.y) &&
+                         fits(dispatch_size.z, grid_dim.z, block_dim.z),
+                     "CUDA kernel launch dispatch size exceeds grid * block.");
     }
     CudaKernelLaunchCommand(CudaKernelLaunchCommand const &) = delete;
     CudaKernelLaunchCommand(CudaKernelLaunchCommand &&) noexcept = default;
@@ -123,18 +130,12 @@ public:
     [[nodiscard]] uint3 grid_dim() const noexcept { return _grid_dim; }
     [[nodiscard]] uint3 block_dim() const noexcept { return _block_dim; }
     [[nodiscard]] uint32_t shared_mem_bytes() const noexcept { return _shared_mem_bytes; }
+    // The exact number of threads the kernel is launched with (the `ls_kid`
+    // trailer payload); equals grid * block for explicit-geometry launches.
+    [[nodiscard]] uint3 dispatch_size() const noexcept { return _dispatch_size; }
     [[nodiscard]] luisa::span<const Usage> argument_usages() const noexcept { return _argument_usages; }
-    // The reorder budget counts threads, so report grid * block (saturating).
-    [[nodiscard]] uint3 max_dispatch_size() const noexcept override {
-        auto saturate_mul = [](uint32_t a, uint32_t b) noexcept {
-            auto v = static_cast<uint64_t>(a) * static_cast<uint64_t>(b);
-            constexpr auto m = std::numeric_limits<uint32_t>::max();
-            return static_cast<uint32_t>(v > m ? m : v);
-        };
-        return uint3{saturate_mul(_grid_dim.x, _block_dim.x),
-                     saturate_mul(_grid_dim.y, _block_dim.y),
-                     saturate_mul(_grid_dim.z, _block_dim.z)};
-    }
+    // The reorder budget counts threads, so report the exact dispatch size.
+    [[nodiscard]] uint3 max_dispatch_size() const noexcept override { return _dispatch_size; }
     [[nodiscard]] bool requires_resource_state_isolation() const noexcept override { return true; }
     void traverse_arguments(ArgumentVisitor &visitor) const noexcept override {
         traverse(*this, visitor);
@@ -150,6 +151,11 @@ public:
 // them into a CudaKernelLaunchCommand. Uniform values are copied into the
 // command; resource arguments are referenced by handle and must outlive the
 // dispatch.
+//
+// At encode time the vk backend converts the argument list into the DSL
+// kernel ABI blob: buffers become `LCBuffer { ptr = VkDeviceAddress + offset,
+// size_bytes = size }` slots, so the order of add_* calls must match the
+// imported kernel's parameter order exactly.
 class KernelLauncher {
 
 private:
@@ -161,10 +167,39 @@ private:
         return _arguments.emplace_back();
     }
 
+    [[nodiscard]] luisa::unique_ptr<CudaKernelLaunchCommand> _build(
+        uint64_t cuda_function_handle,
+        uint3 grid_dim, uint3 block_dim,
+        uint32_t shared_mem_bytes, uint3 dispatch_size) && noexcept {
+        auto argument_header_size = _arguments.size() * sizeof(Argument);
+        luisa::vector<std::byte> argument_buffer;
+        luisa::vector_resize(argument_buffer, argument_header_size + _uniform_blob.size());
+        if (argument_header_size > 0u) {
+            std::memcpy(argument_buffer.data(), _arguments.data(), argument_header_size);
+        }
+        if (!_uniform_blob.empty()) {
+            std::memcpy(argument_buffer.data() + argument_header_size,
+                        _uniform_blob.data(), _uniform_blob.size());
+        }
+        // Shift uniform offsets past the argument header.
+        if (argument_header_size > 0u) {
+            auto *args = std::launder(reinterpret_cast<Argument *>(argument_buffer.data()));
+            for (auto i = 0u; i < _arguments.size(); ++i) {
+                if (args[i].tag == Argument::Tag::UNIFORM) {
+                    args[i].uniform.offset += argument_header_size;
+                }
+            }
+        }
+        return luisa::make_unique<CudaKernelLaunchCommand>(
+            cuda_function_handle, grid_dim, block_dim, shared_mem_bytes,
+            dispatch_size, std::move(argument_buffer), _arguments.size(),
+            std::move(_argument_usages));
+    }
+
 public:
     KernelLauncher() noexcept = default;
-    // Buffers are passed to the CUDA kernel as raw 64-bit device addresses
-    // (VkDeviceAddress + offset); declare the kernel parameter as a pointer.
+    // Buffer arguments arrive in the imported DSL kernel as LCBuffer bindings
+    // (base device address + offset, size in bytes).
     KernelLauncher &add_buffer(uint64_t handle, size_t offset, size_t size, Usage usage) noexcept {
         auto &&arg = _create_argument();
         arg.tag = Argument::Tag::BUFFER;
@@ -199,40 +234,32 @@ public:
     KernelLauncher &add_uniform(const T &value) noexcept {
         return add_uniform(&value, sizeof(T), alignof(T));
     }
+    // Exact-thread-count launch: grid = ceil(thread_count / block_dim) and
+    // the command records `thread_count` as the dispatch size (the `ls_kid`
+    // trailer payload). This matches the cuda backend's launch semantics and
+    // is the launch form for imported DSL kernels.
     [[nodiscard]] luisa::unique_ptr<CudaKernelLaunchCommand> build(
         uint64_t cuda_function_handle,
-        uint3 grid_dim, uint3 block_dim,
+        uint3 thread_count, uint3 block_dim,
         uint32_t shared_mem_bytes = 0u) && noexcept {
-        auto argument_header_size = _arguments.size() * sizeof(Argument);
-        luisa::vector<std::byte> argument_buffer;
-        luisa::vector_resize(argument_buffer, argument_header_size + _uniform_blob.size());
-        if (argument_header_size > 0u) {
-            std::memcpy(argument_buffer.data(), _arguments.data(), argument_header_size);
-        }
-        if (!_uniform_blob.empty()) {
-            std::memcpy(argument_buffer.data() + argument_header_size,
-                        _uniform_blob.data(), _uniform_blob.size());
-        }
-          // Shift uniform offsets past the argument header.
-          if (argument_header_size > 0u) {
-              auto *args = std::launder(reinterpret_cast<Argument *>(argument_buffer.data()));
-              for (auto i = 0u; i < _arguments.size(); ++i) {
-                  if (args[i].tag == Argument::Tag::UNIFORM) {
-                      args[i].uniform.offset += argument_header_size;
-                  }
-              }
-          }
-        return luisa::make_unique<CudaKernelLaunchCommand>(
-            cuda_function_handle, grid_dim, block_dim, shared_mem_bytes,
-            std::move(argument_buffer), _arguments.size(),
-            std::move(_argument_usages));
+        LUISA_ASSERT(block_dim.x > 0u && block_dim.y > 0u && block_dim.z > 0u,
+                     "CUDA kernel launch block dimension must be nonzero.");
+        auto ceil_div = [](uint32_t t, uint32_t b) noexcept {
+            return (t + b - 1u) / b;
+        };
+        auto grid_dim = uint3{ceil_div(thread_count.x, block_dim.x),
+                              ceil_div(thread_count.y, block_dim.y),
+                              ceil_div(thread_count.z, block_dim.z)};
+        return std::move(*this)._build(cuda_function_handle, grid_dim, block_dim,
+                                       shared_mem_bytes, thread_count);
     }
 };
 
-// Attaches an explicit Usage to a resource argument. NVRTC-compiled CUDA
-// kernels have no AST, so read/write intent cannot be inferred like in the
-// DSL; use the read()/write()/read_write() helpers at the call site, or pass
-// a bare view (which defaults to READ_WRITE).
+// Attaches an explicit Usage to a resource argument. Although imported
+// shaders are DSL-compiled, the cuda backend does not retain the argument
+// position mapping needed to default usages at the vk call site; use the
+// read()/write()/read_write() helpers, or pass a bare view (which defaults
+// to READ_WRITE).
 template<typename T>
 struct UsageArg {
     T resource;
@@ -359,12 +386,15 @@ template<typename T>
 
 // DSL-style ratchet over KernelLauncher: arguments are fold-encoded through
 // operator<< (mirroring detail::ShaderInvokeBase), and the rvalue-qualified
-// dispatch(...) builds the CudaKernelLaunchCommand.
+// dispatch(...) builds the CudaKernelLaunchCommand. Carries the imported
+// shader's compiled block size so the thread-count dispatch overloads can
+// default the block dimension.
 class CudaKernelInvoke {
 
 private:
     KernelLauncher _launcher;
     uint64_t _function;
+    uint3 _block_size;
 
     template<typename R>
     static void _encode_resource(KernelLauncher &launcher, R &&resource, Usage usage) noexcept {
@@ -389,8 +419,9 @@ private:
     }
 
 public:
-    explicit CudaKernelInvoke(uint64_t cuda_function_handle) noexcept
-        : _function{cuda_function_handle} {}
+    explicit CudaKernelInvoke(uint64_t cuda_function_handle,
+                              uint3 block_size = uint3{0u, 0u, 0u}) noexcept
+        : _function{cuda_function_handle}, _block_size{block_size} {}
     CudaKernelInvoke(CudaKernelInvoke const &) = delete;
     CudaKernelInvoke(CudaKernelInvoke &&) noexcept = default;
 
@@ -424,37 +455,67 @@ public:
         return *this;
     }
 
-    // CUDA launches need both grid and block dimensions (unlike the DSL's
-    // thread-count dispatch). Returns the same command type as
-    // KernelLauncher::build, so `stream << ...` works unchanged.
+    // Explicit-geometry dispatch: grid and block dimensions are given
+    // directly; the recorded dispatch size is grid * block (saturating,
+    // padded), so imported DSL kernels guarding on dispatch_size() observe
+    // the padded count. Prefer the thread-count overloads for imported DSL
+    // kernels. Returns the same command type as KernelLauncher::build, so
+    // `stream << ...` works unchanged.
     [[nodiscard]] luisa::unique_ptr<CudaKernelLaunchCommand>
     dispatch(uint3 grid_dim, uint3 block_dim, uint32_t shared_mem_bytes = 0u) && noexcept {
-        return std::move(_launcher).build(_function, grid_dim, block_dim, shared_mem_bytes);
+        auto saturate_mul = [](uint32_t a, uint32_t b) noexcept {
+            auto v = static_cast<uint64_t>(a) * static_cast<uint64_t>(b);
+            constexpr auto m = std::numeric_limits<uint32_t>::max();
+            return static_cast<uint32_t>(v > m ? m : v);
+        };
+        auto thread_count = uint3{saturate_mul(grid_dim.x, block_dim.x),
+                                  saturate_mul(grid_dim.y, block_dim.y),
+                                  saturate_mul(grid_dim.z, block_dim.z)};
+        return std::move(_launcher).build(_function, thread_count, block_dim, shared_mem_bytes);
     }
-    // Ergonomic 1D overload: grid = ceil(thread_count_x / block_dim.x).
+    // 1D exact-thread-count overload with explicit block dimension:
+    // grid = ceil(thread_count_x / block_dim.x) and the command records the
+    // exact thread count for the `ls_kid` trailer.
     [[nodiscard]] luisa::unique_ptr<CudaKernelLaunchCommand>
     dispatch(uint32_t thread_count_x, uint3 block_dim, uint32_t shared_mem_bytes = 0u) && noexcept {
         LUISA_ASSERT(block_dim.x > 0u, "CUDA kernel launch block dimension must be nonzero.");
-        auto grid = uint3{(thread_count_x + block_dim.x - 1u) / block_dim.x, 1u, 1u};
-        return std::move(*this).dispatch(grid, block_dim, shared_mem_bytes);
+        return std::move(_launcher).build(
+            _function, uint3{thread_count_x, 1u, 1u}, block_dim, shared_mem_bytes);
+    }
+    // Exact-thread-count dispatch using the imported shader's compiled block
+    // size (see VkCudaInterop::create_cuda_kernel).
+    [[nodiscard]] luisa::unique_ptr<CudaKernelLaunchCommand>
+    dispatch(uint3 thread_count) && noexcept {
+        LUISA_ASSERT(_block_size.x > 0u && _block_size.y > 0u && _block_size.z > 0u,
+                     "This CUDA kernel shader carries no compiled block size "
+                     "(imported from a raw handle?); dispatch with an "
+                     "explicit block dimension instead.");
+        return std::move(_launcher).build(_function, thread_count, _block_size, 0u);
+    }
+    // Ergonomic 1D overload of the above.
+    [[nodiscard]] luisa::unique_ptr<CudaKernelLaunchCommand>
+    dispatch(uint32_t thread_count_x) && noexcept {
+        return std::move(*this).dispatch(uint3{thread_count_x, 1u, 1u});
     }
 };
 
-// Untyped DSL-style CUDA kernel: `cuda_kernel(args...).dispatch(grid, block)`.
+// Untyped DSL-style CUDA kernel: `cuda_kernel(args...).dispatch(...)`.
 // Usage must be supplied via read()/write()/read_write() wrappers, or bare
 // views default to READ_WRITE.
 class CudaKernel {
 
 protected:
     uint64_t _handle;
+    uint3 _block_size;
 
 public:
-    explicit CudaKernel(uint64_t cuda_function_handle) noexcept
-        : _handle{cuda_function_handle} {}
+    explicit CudaKernel(uint64_t cuda_function_handle,
+                        uint3 block_size = uint3{0u, 0u, 0u}) noexcept
+        : _handle{cuda_function_handle}, _block_size{block_size} {}
 
     template<typename... Args>
     [[nodiscard]] CudaKernelInvoke operator()(Args &&...args) const noexcept {
-        CudaKernelInvoke invoke{_handle};
+        CudaKernelInvoke invoke{_handle, _block_size};
         static_cast<void>((invoke << ... << std::forward<Args>(args)));
         return invoke;
     }
@@ -511,10 +572,10 @@ using cuda_arg_traits_t = cuda_arg_traits<std::remove_cvref_t<T>>;
 // parameter's Usage is declared in the signature (via CudaArg<T, U>, or
 // READ_WRITE for a bare resource type) and baked into the instance — dispatch
 // sites pass bare views only. Declare by-value parameters as their scalar
-// types. The CUDA source itself is opaque, so this checks shape, not the
+// types. The imported module image is opaque, so this checks shape, not the
 // device signature (same trust level as AOT Shader<dim, Args...> loaded from
 // file); the declared usages are likewise trusted, not verified against the
-// NVRTC source. Per-launch usage overrides are only available through the
+// compiled kernel. Per-launch usage overrides are only available through the
 // untyped CudaKernel / KernelLauncher path.
 template<concepts::non_cvref... Args>
 class CudaKernelT final : public CudaKernel {
@@ -538,7 +599,7 @@ private:
     template<size_t... I>
     [[nodiscard]] CudaKernelInvoke _invoke(std::index_sequence<I...>,
                                            typename cuda_arg_traits_t<Args>::arg_type... args) const noexcept {
-        CudaKernelInvoke invoke{this->_handle};
+        CudaKernelInvoke invoke{this->_handle, this->_block_size};
         (static_cast<void>(I, _encode_arg<Args>(invoke, args)), ...);
         return invoke;
     }
@@ -603,19 +664,36 @@ public:
     // with CUDA interop and the device extension/feature could be enabled
     // (owned logical devices only).
     [[nodiscard]] virtual bool cuda_kernel_launch_supported() const noexcept = 0;
-    // Compiles CUDA C++ source with NVRTC (or ingests precompiled PTX when
-    // option.source_is_ptx) into a CUDA kernel shader usable with
-    // vk_cuda_interop::KernelLauncher/CudaKernelLaunchCommand.
-    // Returns 0 when CUDA kernel launch is unsupported.
-    [[nodiscard]] virtual uint64_t create_cuda_kernel_shader(
-        const vk_cuda_interop::CudaKernelShaderOption &option) noexcept = 0;
+    // Imports a compute shader compiled by the *cuda backend* from a DSL
+    // kernel — cuda_shader_handle is Shader::handle() of a shader compiled
+    // with cuda_device.compile(kernel) on the same physical GPU (pair the
+    // devices via cuda_device_index()). The imported shader is usable with
+    // vk_cuda_interop::KernelLauncher/CudaKernelLaunchCommand; its launch ABI
+    // is the DSL kernel ABI (a single by-value `struct Params` blob with
+    // 16-byte-aligned argument slots, buffers as LCBuffer { ptr, size_bytes }
+    // bindings, and an `ls_kid` uint4 trailer carrying the exact dispatch
+    // size).
+    // Returns 0 when CUDA kernel launch is unsupported or the shader is not
+    // importable (OptiX ray-tracing shaders, shaders with bound arguments, or
+    // shaders using device printing). The vk shader is self-contained after
+    // import; the cuda shader may be destroyed once this call returns.
+    [[nodiscard]] virtual uint64_t create_cuda_kernel_shader(uint64_t cuda_shader_handle) noexcept = 0;
     virtual void destroy_cuda_kernel_shader(uint64_t handle) noexcept = 0;
 
     // RAII wrapper around create_cuda_kernel_shader; the returned object
     // destroys the shader handle on destruction. Evaluates to false when
-    // CUDA kernel launch is unsupported or compilation failed.
-    [[nodiscard]] vk_cuda_interop::CudaShader create_cuda_kernel(
-        const vk_cuda_interop::CudaKernelShaderOption &option) noexcept;
+    // CUDA kernel launch is unsupported or the shader is not importable.
+    // This overload does not record a block size, so the thread-count
+    // dispatch overloads are unavailable; use explicit geometry or the
+    // Shader-taking overload below.
+    [[nodiscard]] vk_cuda_interop::CudaShader create_cuda_kernel(uint64_t cuda_shader_handle) noexcept;
+    // Imports a shader compiled on a cuda device (cuda_device.compile(kernel))
+    // and records its compiled block size, enabling the thread-count dispatch
+    // overloads. Passing a shader not compiled by the cuda backend is a
+    // contract violation: null/invalid shaders return an empty CudaShader,
+    // but a wild handle is still UB (same trust level as other handle APIs).
+    template<size_t N, typename... Args>
+    [[nodiscard]] vk_cuda_interop::CudaShader create_cuda_kernel(const Shader<N, Args...> &shader) noexcept;
 
     vk_cuda_interop::Signal vk_signal(TimelineEvent const &cuda_event, uint64_t fence_index) noexcept {
         return vk_cuda_interop::Signal{
@@ -701,11 +779,14 @@ inline void Wait::operator()(DeviceInterface *device, uint64_t stream_handle) co
 
 // RAII owner of a CUDA kernel shader handle created through
 // VkCudaInterop::create_cuda_kernel_shader; destroys it on destruction.
+// Optionally carries the source DSL kernel's compiled block size, which the
+// thread-count dispatch overloads use as the default block dimension.
 class CudaShader {
 
 private:
     VkCudaInterop *_ext{nullptr};
     uint64_t _handle{0u};
+    uint3 _block_size{0u, 0u, 0u};
 
     void _destroy() noexcept {
         if (_handle != 0u) {
@@ -716,13 +797,14 @@ private:
 
 public:
     CudaShader() noexcept = default;
-    CudaShader(VkCudaInterop &ext, uint64_t handle) noexcept
-        : _ext{&ext}, _handle{handle} {}
+    CudaShader(VkCudaInterop &ext, uint64_t handle,
+               uint3 block_size = uint3{0u, 0u, 0u}) noexcept
+        : _ext{&ext}, _handle{handle}, _block_size{block_size} {}
     ~CudaShader() noexcept { _destroy(); }
     CudaShader(CudaShader const &) = delete;
     CudaShader &operator=(CudaShader const &) = delete;
     CudaShader(CudaShader &&rhs) noexcept
-        : _ext{rhs._ext}, _handle{rhs._handle} {
+        : _ext{rhs._ext}, _handle{rhs._handle}, _block_size{rhs._block_size} {
         rhs._handle = 0u;
     }
     CudaShader &operator=(CudaShader &&rhs) noexcept {
@@ -730,12 +812,16 @@ public:
             _destroy();
             _ext = rhs._ext;
             _handle = rhs._handle;
+            _block_size = rhs._block_size;
             rhs._handle = 0u;
         }
         return *this;
     }
     explicit operator bool() const noexcept { return _handle != 0u; }
     [[nodiscard]] uint64_t handle() const noexcept { return _handle; }
+    // The source DSL kernel's compiled block size, or (0, 0, 0) when unknown
+    // (raw-handle imports).
+    [[nodiscard]] uint3 block_size() const noexcept { return _block_size; }
     uint64_t release() noexcept {
         auto handle = _handle;
         _handle = 0u;
@@ -744,19 +830,23 @@ public:
     // Typed DSL-style kernel bound to this shader's handle.
     template<concepts::non_cvref... KArgs>
     [[nodiscard]] CudaKernelT<KArgs...> kernel() const noexcept {
-        return CudaKernelT<KArgs...>{_handle};
+        return CudaKernelT<KArgs...>{_handle, _block_size};
     }
     // Untyped DSL-style kernel bound to this shader's handle.
     [[nodiscard]] CudaKernel kernel() const noexcept {
-        return CudaKernel{_handle};
+        return CudaKernel{_handle, _block_size};
     }
 };
 
 }// namespace vk_cuda_interop
 
-inline vk_cuda_interop::CudaShader VkCudaInterop::create_cuda_kernel(
-    const vk_cuda_interop::CudaKernelShaderOption &option) noexcept {
-    return vk_cuda_interop::CudaShader{*this, create_cuda_kernel_shader(option)};
+inline vk_cuda_interop::CudaShader VkCudaInterop::create_cuda_kernel(uint64_t cuda_shader_handle) noexcept {
+    return vk_cuda_interop::CudaShader{*this, create_cuda_kernel_shader(cuda_shader_handle)};
+}
+template<size_t N, typename... Args>
+inline vk_cuda_interop::CudaShader VkCudaInterop::create_cuda_kernel(const Shader<N, Args...> &shader) noexcept {
+    if (!shader) { return {}; }
+    return vk_cuda_interop::CudaShader{*this, create_cuda_kernel_shader(shader.handle()), shader.block_size()};
 }
 
 }// namespace luisa::compute

@@ -1,14 +1,18 @@
-// Test for VK_NV_cuda_kernel_launch: dispatching CUDA kernels inside a Vulkan
-// command buffer through the VkCudaInterop extension.
-// - cuda_source_vector_op: NVRTC-compiled CUDA C++ source kernel (axpy) on
-//   interop buffers with upload/verify
-// - ptx_roundtrip: compile with ptx_output, rebuild a shader from the PTX and
-//   run it
+// Test for VK_NV_cuda_kernel_launch: dispatching DSL kernels compiled by the
+// cuda backend inside a Vulkan command buffer through the VkCudaInterop
+// extension.
+// - dsl_kernel_vector_op: imported DSL axpy kernel (typed API) on interop
+//   buffers with upload/verify
+// - reimport_twice: import the same cuda shader twice and dispatch both after
+//   the source shader's destruction (import self-containedness)
 // - multi_launch_one_command_list: two chained CUDA launches in one CommandList
 // - interop_with_dsl_kernel: DSL Kernel1D dispatches on the same stream before
 //   and after a CUDA launch (barrier correctness)
+// - reject_printing_kernel: shaders using device printing must not import
 //
 // Skips gracefully unless run as: test_vk_cuda_kernel_launch vk
+// Also skips when the cuda backend is not installed or no CUDA device matches
+// the Vulkan device.
 
 #include "ut/ut.hpp"
 #include "test_device.h"
@@ -22,6 +26,7 @@
 #include <luisa/backends/ext/vk_cuda_interop.h>
 
 #include <cmath>
+#include <cstring>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -32,27 +37,23 @@ namespace {
 
 constexpr uint32_t k_block_size = 256u;
 
-[[nodiscard]] constexpr uint3 grid_for(uint32_t n) noexcept {
-    return uint3{(n + k_block_size - 1u) / k_block_size, 1u, 1u};
+[[nodiscard]] auto make_axpy_kernel() noexcept {
+    return Kernel1D{[](BufferFloat x, BufferFloat y, Float a, UInt n) {
+        set_block_size(k_block_size);
+        auto i = dispatch_x();
+        if_(i < n, [&] {
+            y->write(i, a * x->read(i) + y->read(i));
+        });
+    }};
 }
 
-constexpr luisa::string_view axpy_source = R"(
-extern "C" __global__ void axpy(const float *x, float *y, float a, unsigned int n) {
-    auto i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i < n) {
-        y[i] = a * x[i] + y[i];
-    }
+[[nodiscard]] auto make_fill_kernel() noexcept {
+    return Kernel1D{[](BufferFloat data, Float value, UInt n) {
+        set_block_size(k_block_size);
+        auto i = dispatch_x();
+        if_(i < n, [&] { data->write(i, value); });
+    }};
 }
-)";
-
-constexpr luisa::string_view fill_source = R"(
-extern "C" __global__ void fill(float *data, float value, unsigned int n) {
-    auto i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i < n) {
-        data[i] = value;
-    }
-}
-)";
 
 void expect_span_near(luisa::span<const float> result,
                       luisa::span<const float> expected) noexcept {
@@ -64,9 +65,13 @@ void expect_span_near(luisa::span<const float> result,
     }
 }
 
-void test_cuda_source_vector_op(Device &device, VkCudaInterop *ext) {
+void test_dsl_kernel_vector_op(Device &device, VkCudaInterop *ext, Device &cuda_device) {
     static constexpr uint32_t n = 1024u;
     constexpr auto a = 2.0f;
+
+    auto shader = ext->create_cuda_kernel(cuda_device.compile(make_axpy_kernel()));
+    expect(static_cast<bool>(shader)) << "create_cuda_kernel should succeed";
+    if (!shader) { return; }
 
     auto stream = device.create_stream();
     auto x = ext->create_buffer<float>(n);
@@ -81,82 +86,73 @@ void test_cuda_source_vector_op(Device &device, VkCudaInterop *ext) {
            << y.view().copy_from(luisa::span{host_y})
            << synchronize();
 
-    auto shader = ext->create_cuda_kernel_shader(
-        {.source = axpy_source, .kernel_name = "axpy"});
-    expect(shader != 0u) << "create_cuda_kernel_shader should succeed";
-    if (shader == 0u) { return; }
-
-    vk_cuda_interop::KernelLauncher launcher;
-    launcher.add_buffer(x.view(), Usage::READ)
-        .add_buffer(y.view(), Usage::READ_WRITE)
-        .add_uniform(a)
-        .add_uniform(n);
-    stream << std::move(launcher).build(
-                  shader, grid_for(n), uint3{k_block_size, 1u, 1u}, 0u)
+    // Typed DSL-style invocation with the imported shader's compiled block
+    // size as the default block dimension.
+    auto axpy = shader.kernel<vk_cuda_interop::CudaArg<Buffer<float>, Usage::READ>,
+                              vk_cuda_interop::CudaArg<Buffer<float>, Usage::READ_WRITE>,
+                              float, uint32_t>();
+    stream << axpy(x.view(), y.view(), a, n)
+                  .dispatch(n)
            << y.view().copy_to(luisa::span{host_out})
            << synchronize();
-    ext->destroy_cuda_kernel_shader(shader);
 
     luisa::vector<float> expected(n);
     for (auto i = 0u; i < n; ++i) {
         expected[i] = a * host_x[i] + host_y[i];
     }
     expect_span_near(host_out, expected);
-    LUISA_INFO("cuda_source_vector_op passed.");
+    LUISA_INFO("dsl_kernel_vector_op passed.");
 }
 
-void test_ptx_roundtrip(Device &device, VkCudaInterop *ext) {
+void test_reimport_twice(Device &device, VkCudaInterop *ext, Device &cuda_device) {
     static constexpr uint32_t n = 512u;
     constexpr auto value = 42.5f;
 
-    luisa::vector<char> ptx;
-    auto shader_from_source = ext->create_cuda_kernel_shader(
-        {.source = fill_source, .kernel_name = "fill", .ptx_output = &ptx});
-    expect(shader_from_source != 0u);
-    expect(!ptx.empty()) << "ptx_output should receive the compiled PTX";
-    if (shader_from_source == 0u || ptx.empty()) { return; }
-
-    // Rebuild the shader from the PTX text.
-    auto shader_from_ptx = ext->create_cuda_kernel_shader(
-        {.source = luisa::string_view{ptx.data(), ptx.size()},
-         .kernel_name = "fill",
-         .source_is_ptx = true});
-    expect(shader_from_ptx != 0u) << "PTX roundtrip shader creation should succeed";
-    if (shader_from_ptx == 0u) {
-        ext->destroy_cuda_kernel_shader(shader_from_source);
-        return;
+    vk_cuda_interop::CudaShader shader_a;
+    vk_cuda_interop::CudaShader shader_b;
+    {
+        auto cuda_shader = cuda_device.compile(make_fill_kernel());
+        shader_a = ext->create_cuda_kernel(cuda_shader);
+        shader_b = ext->create_cuda_kernel(cuda_shader);
+        // The source DSL shader is destroyed here; the imported vk shaders
+        // must remain usable.
     }
+    expect(static_cast<bool>(shader_a)) << "first import should succeed";
+    expect(static_cast<bool>(shader_b)) << "second import should succeed";
+    if (!shader_a || !shader_b) { return; }
 
     auto stream = device.create_stream();
-    auto buffer = ext->create_buffer<float>(n);
-    luisa::vector<float> host_out(n, 0.0f);
+    auto buffer_a = ext->create_buffer<float>(n);
+    auto buffer_b = ext->create_buffer<float>(n);
+    luisa::vector<float> host_a(n, 0.0f);
+    luisa::vector<float> host_b(n, 0.0f);
 
-    vk_cuda_interop::KernelLauncher launcher;
-    launcher.add_buffer(buffer.view(), Usage::WRITE)
-        .add_uniform(value)
-        .add_uniform(n);
-    stream << std::move(launcher).build(
-                  shader_from_ptx, grid_for(n), uint3{k_block_size, 1u, 1u}, 0u)
-           << buffer.view().copy_to(luisa::span{host_out})
-           << synchronize();
-    ext->destroy_cuda_kernel_shader(shader_from_ptx);
-    ext->destroy_cuda_kernel_shader(shader_from_source);
+    auto fill_a = shader_a.kernel<vk_cuda_interop::CudaArg<Buffer<float>, Usage::WRITE>,
+                                  float, uint32_t>();
+    auto fill_b = shader_b.kernel<vk_cuda_interop::CudaArg<Buffer<float>, Usage::WRITE>,
+                                  float, uint32_t>();
+    CommandList cmdlist;
+    cmdlist << fill_a(buffer_a.view(), value, n).dispatch(n);
+    cmdlist << fill_b(buffer_b.view(), value + 1.0f, n).dispatch(n);
+    cmdlist << buffer_a.view().copy_to(luisa::span{host_a})
+            << buffer_b.view().copy_to(luisa::span{host_b});
+    stream << cmdlist.commit() << synchronize();
 
     for (auto i = 0u; i < n; ++i) {
-        expect(host_out[i] == value) << "mismatch at index " << i;
+        expect(host_a[i] == value) << "mismatch at index " << i;
+        expect(host_b[i] == value + 1.0f) << "mismatch at index " << i;
     }
-    LUISA_INFO("ptx_roundtrip passed.");
+    LUISA_INFO("reimport_twice passed.");
 }
 
-void test_multi_launch_one_command_list(Device &device, VkCudaInterop *ext) {
+void test_multi_launch_one_command_list(Device &device, VkCudaInterop *ext, Device &cuda_device) {
     static constexpr uint32_t n = 1024u;
     constexpr auto a = 2.0f;
     constexpr auto b = 3.0f;
 
-    auto shader = ext->create_cuda_kernel_shader(
-        {.source = axpy_source, .kernel_name = "axpy"});
-    expect(shader != 0u);
-    if (shader == 0u) { return; }
+    auto shader = ext->create_cuda_kernel(cuda_device.compile(make_axpy_kernel()));
+    expect(static_cast<bool>(shader));
+    if (!shader) { return; }
 
     auto stream = device.create_stream();
     auto x = ext->create_buffer<float>(n);
@@ -183,17 +179,17 @@ void test_multi_launch_one_command_list(Device &device, VkCudaInterop *ext) {
         .add_uniform(b)
         .add_uniform(n);
 
+    auto block = uint3{k_block_size, 1u, 1u};
     CommandList cmdlist;
     cmdlist << x.view().copy_from(luisa::span{host_x})
             << y.view().copy_from(luisa::span{host_y})
             << z.view().copy_from(luisa::span{host_z});
     cmdlist << std::move(first_launcher).build(
-        shader, grid_for(n), uint3{k_block_size, 1u, 1u}, 0u);
+        shader.handle(), uint3{n, 1u, 1u}, block, 0u);
     cmdlist << std::move(second_launcher).build(
-        shader, grid_for(n), uint3{k_block_size, 1u, 1u}, 0u);
+        shader.handle(), uint3{n, 1u, 1u}, block, 0u);
     cmdlist << z.view().copy_to(luisa::span{host_out});
     stream << cmdlist.commit() << synchronize();
-    ext->destroy_cuda_kernel_shader(shader);
 
     luisa::vector<float> expected(n);
     for (auto i = 0u; i < n; ++i) {
@@ -203,19 +199,18 @@ void test_multi_launch_one_command_list(Device &device, VkCudaInterop *ext) {
     LUISA_INFO("multi_launch_one_command_list passed.");
 }
 
-void test_interop_with_dsl_kernel(Device &device, VkCudaInterop *ext) {
+void test_interop_with_dsl_kernel(Device &device, VkCudaInterop *ext, Device &cuda_device) {
     static constexpr uint32_t n = 1024u;
     constexpr auto a = 2.0f;
     constexpr auto y_init = 1.0f;
     constexpr auto y_post = 10.0f;
 
-    auto shader = ext->create_cuda_kernel_shader(
-        {.source = axpy_source, .kernel_name = "axpy"});
-    expect(shader != 0u);
-    if (shader == 0u) { return; }
+    auto shader = ext->create_cuda_kernel(cuda_device.compile(make_axpy_kernel()));
+    expect(static_cast<bool>(shader));
+    if (!shader) { return; }
 
     // DSL kernels running on the same Vulkan stream, before and after the
-    // CUDA launch.
+    // imported CUDA launch.
     Kernel1D index_kernel = [](BufferFloat buffer) {
         auto i = dispatch_x();
         buffer->write(i, cast<float>(i));
@@ -246,11 +241,11 @@ void test_interop_with_dsl_kernel(Device &device, VkCudaInterop *ext) {
     cmdlist << index_shader(x.view()).dispatch(n)
             << fill_shader(y.view(), y_init).dispatch(n);
     cmdlist << std::move(launcher).build(
-        shader, grid_for(n), uint3{k_block_size, 1u, 1u}, 0u);
+        shader.handle(), uint3{n, 1u, 1u},
+        uint3{k_block_size, 1u, 1u}, 0u);
     cmdlist << add_shader(y.view(), y_post).dispatch(n)
             << y.view().copy_to(luisa::span{host_out});
     stream << cmdlist.commit() << synchronize();
-    ext->destroy_cuda_kernel_shader(shader);
 
     luisa::vector<float> expected(n);
     for (auto i = 0u; i < n; ++i) {
@@ -260,10 +255,31 @@ void test_interop_with_dsl_kernel(Device &device, VkCudaInterop *ext) {
     LUISA_INFO("interop_with_dsl_kernel passed.");
 }
 
+void test_reject_printing_kernel(Device &device, VkCudaInterop *ext, Device &cuda_device) {
+    static_cast<void>(device);
+    // Kernels using device printing gain an LCPrintBuffer Params member that
+    // the vk side cannot encode; import must fail closed.
+    Kernel1D print_kernel = [](BufferFloat buffer) {
+        set_block_size(k_block_size);
+        auto i = dispatch_x();
+        device_log("value: {}", buffer->read(i));
+    };
+    auto cuda_shader = cuda_device.compile(print_kernel);
+    expect(static_cast<bool>(cuda_shader)) << "printing kernel should compile on the cuda backend";
+    if (!cuda_shader) { return; }
+    auto imported = ext->create_cuda_kernel(cuda_shader);
+    expect(!static_cast<bool>(imported))
+        << "kernels using device printing must not be importable";
+    LUISA_INFO("reject_printing_kernel passed.");
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
-    if (argc <= 1 || argv[1] == nullptr || luisa::string_view{argv[1]} != "vk") {
+    // Note: keep the backend check on raw argv (strcmp) instead of
+    // luisa::string_view — the string_view construction in the || chain is
+    // miscompiled in this unity-build TU (speculative strlen on argv[1]).
+    if (argc <= 1 || argv[1] == nullptr || std::strcmp(argv[1], "vk") != 0) {
         LUISA_INFO("test_vk_cuda_kernel_launch requires the vk backend; skipping.");
         return 0;
     }
@@ -279,11 +295,28 @@ int main(int argc, char *argv[]) {
         LUISA_WARNING("VK_NV_cuda_kernel_launch is not supported on this device; skipping test.");
         return 0;
     }
+    if (ext->cuda_device_index() < 0) {
+        LUISA_WARNING("No CUDA device matches this Vulkan device; skipping test.");
+        return 0;
+    }
+    auto cuda_backend_installed = false;
+    for (auto &&name : dc->context.installed_backends()) {
+        if (name == "cuda") { cuda_backend_installed = true; }
+    }
+    if (!cuda_backend_installed) {
+        LUISA_WARNING("The cuda backend is not installed; skipping test.");
+        return 0;
+    }
+    // Pair the cuda device with the same physical GPU (LUID-matched): the
+    // compiled module image targets that GPU's compute capability.
+    DeviceConfig cuda_config{.device_index = static_cast<size_t>(ext->cuda_device_index())};
+    Device cuda_device = dc->context.create_device("cuda", &cuda_config);
     log_level_verbose();
 
-    test_cuda_source_vector_op(device, ext);
-    test_ptx_roundtrip(device, ext);
-    test_multi_launch_one_command_list(device, ext);
-    test_interop_with_dsl_kernel(device, ext);
+    test_dsl_kernel_vector_op(device, ext, cuda_device);
+    test_reimport_twice(device, ext, cuda_device);
+    test_multi_launch_one_command_list(device, ext, cuda_device);
+    test_interop_with_dsl_kernel(device, ext, cuda_device);
+    test_reject_printing_kernel(device, ext, cuda_device);
     return 0;
 }
