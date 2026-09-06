@@ -41,7 +41,7 @@ void reg_coro_persistent_integration(luisa::test::coro_test::Options options) {
         auto output = device.create_buffer<uint>(dispatch_size);
         luisa::vector<uint> initial(dispatch_size, ~0u);
         stream << output.copy_from(luisa::span{initial});
-        scheduler(output).dispatch(dispatch_size)(stream);
+        stream << scheduler(output).dispatch(dispatch_size);
 
         luisa::vector<uint> host(dispatch_size);
         stream << output.copy_to(luisa::span{host}) << synchronize();

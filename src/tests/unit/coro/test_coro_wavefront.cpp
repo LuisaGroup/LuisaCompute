@@ -267,7 +267,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
                     .counter_readback_pipeline_depth = pipeline_depth,
                     .tail_megakernel_threshold = 0u,
                     .report_stats = true}};
-            scheduler(output, loop_visits).dispatch(N)(stream);
+            stream << scheduler(output, loop_visits).dispatch(N);
 
             luisa::vector<uint> host_output(N);
             luisa::vector<uint> host_visits(N);
@@ -458,9 +458,9 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
         auto large_output = device.create_buffer<uint>(N);
         auto automatic_output = device.create_buffer<uint>(N);
         auto stream = device.create_stream();
-        small(small_output).dispatch(N)(stream);
-        large(large_output).dispatch(N)(stream);
-        automatic(automatic_output).dispatch(N)(stream);
+        stream << small(small_output).dispatch(N);
+        stream << large(large_output).dispatch(N);
+        stream << automatic(automatic_output).dispatch(N);
         luisa::vector<uint> small_host(N);
         luisa::vector<uint> large_host(N);
         luisa::vector<uint> automatic_host(N);
@@ -525,7 +525,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
                 .counter_readback_pipeline_depth = 1u,
                 .tail_megakernel_threshold = 0u,
                 .report_stats = true}};
-        scheduler(output, visits).dispatch(N)(stream);
+        stream << scheduler(output, visits).dispatch(N);
 
         luisa::vector<uint> host_output(N);
         luisa::vector<uint> host_visits(N);
@@ -608,7 +608,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
             if (scheduler.config().hint_fields.size() == 1u) {
                 expect(scheduler.config().hint_fields.front() == "sort_me");
             }
-            scheduler(output, visits).dispatch(N)(stream);
+            stream << scheduler(output, visits).dispatch(N);
 
             luisa::vector<uint> host_output(N);
             luisa::vector<uint> host_visits(N);
@@ -705,7 +705,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
                     .hint_range = hint_range,
                     .hint_fields = {"sort_me"},
                     .hint_partition_size = partition_size}};
-            scheduler(output, order).dispatch(N)(stream);
+            stream << scheduler(output, order).dispatch(N);
 
             luisa::vector<uint> host_output(N);
             luisa::vector<uint> host_order(N);
@@ -768,7 +768,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
                     .counter_readback_pipeline_depth = 1u,
                     .tail_megakernel_threshold = capacity,
                     .report_stats = true}};
-            scheduler(output).dispatch(N)(stream);
+            stream << scheduler(output).dispatch(N);
 
             luisa::vector<uint> host_output(N);
             stream << output.copy_to(luisa::span{host_output})
@@ -828,7 +828,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
                     .counter_readback_pipeline_depth = 1u,
                     .tail_megakernel_threshold = N,
                     .report_stats = true}};
-            scheduler(output).dispatch(N)(stream);
+            stream << scheduler(output).dispatch(N);
 
             luisa::vector<uint> host_output(N);
             stream << output.copy_to(luisa::span{host_output})
@@ -884,7 +884,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
             device, coro, WavefrontCoroSchedulerConfig{.thread_count = N}};
         LUISA_INFO("Wavefront scheduler created, dispatching {} instances", N);
 
-        scheduler().dispatch(N)(stream);
+        stream << scheduler().dispatch(N);
         stream << synchronize();
         LUISA_INFO("Dispatch complete");
         expect(scheduler.config().thread_count == N)
@@ -914,7 +914,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
             device, coro, WavefrontCoroSchedulerConfig{.thread_count = N}};
         LUISA_INFO("Wavefront scheduler created, dispatching {} instances", N);
 
-        scheduler(output).dispatch(N)(stream);
+        stream << scheduler(output).dispatch(N);
         luisa::vector<uint> host(N);
         stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("Dispatch complete");
@@ -953,7 +953,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
             device, coro, WavefrontCoroSchedulerConfig{.thread_count = N}};
         LUISA_INFO("Wavefront scheduler created, dispatching {} instances", N);
 
-        scheduler(42).dispatch(N)(stream);
+        stream << scheduler(42).dispatch(N);
         stream << synchronize();
         LUISA_INFO("Dispatch complete");
         expect(scheduler.config().thread_count == N)
@@ -987,7 +987,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
                 .gather_by_sorting = false,
                 .frame_buffer_compaction = true,
                 .report_stats = true}};
-        scheduler(output).dispatch(N)(stream);
+        stream << scheduler(output).dispatch(N);
         stream << synchronize();
 
         auto &&stats = scheduler.last_dispatch_stats();
@@ -1099,8 +1099,8 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
                     .largest_continuation_first = true,
                     .incremental_continuation_counts = incremental}};
             scheduler.register_auxiliary_work(auxiliary);
-            scheduler(main_visits, auxiliary_visits, overflow)
-                .dispatch(N)(stream);
+            stream << scheduler(main_visits, auxiliary_visits, overflow)
+                .dispatch(N);
 
             luisa::vector<uint> host_main(N);
             luisa::vector<uint> host_auxiliary(N);
@@ -1169,7 +1169,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
                     .frame_buffer_compaction = compaction,
                 };
                 WavefrontCoroScheduler<Buffer<uint>> scheduler{device, coro, cfg};
-                scheduler(output).dispatch(N)(stream);
+                stream << scheduler(output).dispatch(N);
 
                 luisa::vector<uint> host(N);
                 stream << output.copy_to(luisa::span{host}) << synchronize();
@@ -1212,7 +1212,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
                 .gather_by_sorting = false,
                 .frame_buffer_compaction = false}};
 
-        scheduler(output).dispatch(N)(stream);
+        stream << scheduler(output).dispatch(N);
         expect(scheduler.config().thread_count == capacity)
             << "the allocated pool ceiling must remain unchanged";
         expect(scheduler.active_frame_capacity() == N)
@@ -1255,7 +1255,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
         WavefrontCoroScheduler<Buffer<uint>> scheduler{device, coro, cfg};
         expect(scheduler.config().gather_by_sorting) << "sorting gather should not be silently disabled";
 
-        scheduler(output).dispatch(N)(stream);
+        stream << scheduler(output).dispatch(N);
         luisa::vector<uint> host(N);
         stream << output.copy_to(luisa::span{host}) << synchronize();
 
@@ -1303,7 +1303,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
         expect(scheduler.config().gather_by_sorting == true);
         expect(scheduler.config().frame_buffer_compaction == false);
 
-        scheduler(output).dispatch(N)(stream);
+        stream << scheduler(output).dispatch(N);
         luisa::vector<uint> host(N);
         stream << output.copy_to(luisa::span{host}) << synchronize();
 
@@ -1353,7 +1353,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
                     .frame_buffer_compaction = compaction,
                 };
                 WavefrontCoroScheduler<Buffer<uint>> scheduler{device, coro, cfg};
-                scheduler(output).dispatch(N)(stream);
+                stream << scheduler(output).dispatch(N);
 
                 luisa::vector<uint> host(N);
                 stream << output.copy_to(luisa::span{host}) << synchronize();
@@ -1417,7 +1417,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
                 .frame_buffer_compaction = true,
             };
             WavefrontCoroScheduler<Buffer<uint>> scheduler{device, coro, cfg};
-            scheduler(output).dispatch(N)(stream);
+            stream << scheduler(output).dispatch(N);
 
             luisa::vector<uint> host(N);
             stream << output.copy_to(luisa::span{host}) << synchronize();
@@ -1477,7 +1477,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
                 << "hint field should resolve by suspend name";
         }
 
-        scheduler(output).dispatch(N)(stream);
+        stream << scheduler(output).dispatch(N);
         luisa::vector<uint> host(N);
         stream << output.copy_to(luisa::span{host}) << synchronize();
 
@@ -1522,7 +1522,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
         expect(scheduler.config().hint_fields.empty())
             << "an ordinary diagnostic name must not become scheduler ABI";
 
-        scheduler(output).dispatch(N)(stream);
+        stream << scheduler(output).dispatch(N);
         luisa::vector<uint> host(N);
         stream << output.copy_to(luisa::span{host}) << synchronize();
         auto correct = true;
@@ -1577,7 +1577,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
             << "wavefront hint locality partition must remain explicit";
         expect(scheduler.config().hint_fields.size() == 1u);
 
-        scheduler(output, order).dispatch(N)(stream);
+        stream << scheduler(output, order).dispatch(N);
         luisa::vector<uint> host(N);
         luisa::vector<uint> host_order(N);
         stream << output.copy_to(luisa::span{host})
@@ -1645,7 +1645,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
                    radix_sort::warp_size));
         expect(scheduler.config().gather_by_sorting == true);
 
-        scheduler(output).dispatch(N)(stream);
+        stream << scheduler(output).dispatch(N);
         luisa::vector<uint> host(N);
         stream << output.copy_to(luisa::span{host}) << synchronize();
 
@@ -1704,7 +1704,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
                            device.compute_warp_size() ==
                            radix_sort::warp_size));
 
-                scheduler(output).dispatch(N)(stream);
+                stream << scheduler(output).dispatch(N);
                 luisa::vector<uint> host(N);
                 stream << output.copy_to(luisa::span{host}) << synchronize();
 
@@ -1766,7 +1766,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
         };
         WavefrontCoroScheduler<Buffer<uint>, Buffer<uint>> scheduler{
             device, coro, cfg};
-        scheduler(order, visits).dispatch(N)(stream);
+        stream << scheduler(order, visits).dispatch(N);
 
         luisa::vector<uint> host_order(N + 1u);
         luisa::vector<uint> host_visits(N);
@@ -1813,7 +1813,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
             .refill_continuations = {"checkpoint"},
         };
         WavefrontCoroScheduler<Buffer<uint>> scheduler{device, coro, cfg};
-        scheduler(visits).dispatch(N)(stream);
+        stream << scheduler(visits).dispatch(N);
 
         luisa::vector<uint> host(N);
         stream << visits.copy_to(luisa::span{host}) << synchronize();
@@ -1866,7 +1866,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
         };
         WavefrontCoroScheduler<Buffer<uint>, Buffer<uint>> scheduler{
             device, coro, cfg};
-        scheduler(log, visits).dispatch(N)(stream);
+        stream << scheduler(log, visits).dispatch(N);
 
         luisa::vector<uint> host_log(log_capacity);
         luisa::vector<uint> host_visits(N);
@@ -1951,7 +1951,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
                     };
                     WavefrontCoroScheduler<Buffer<uint>, Buffer<uint>> scheduler{
                         device, coro, cfg};
-                    scheduler(output, visits).dispatch(N)(stream);
+                    stream << scheduler(output, visits).dispatch(N);
 
                     luisa::vector<uint> host_output(N);
                     luisa::vector<uint> host_visits(N);

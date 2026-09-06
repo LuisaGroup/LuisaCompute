@@ -224,7 +224,7 @@ void verify_scheduler_compaction(Device &device, bool soa, luisa::string_view la
                           .report_stats = true}};
     expect(scheduler.config().thread_count == kCompactionCapacity);
     expect(scheduler.config().frame_buffer_compaction);
-    scheduler(stage, output, execution_count).dispatch(kCompactionInstances)(stream);
+    stream << scheduler(stage, output, execution_count).dispatch(kCompactionInstances);
 
     luisa::vector<int> host_stage(kCompactionInstances);
     luisa::vector<int> host_output(kCompactionInstances);
@@ -283,8 +283,8 @@ void verify_tagged_union_scheduler_compaction(
                           .gather_by_sorting = false,
                           .frame_buffer_compaction = true,
                           .report_stats = true}};
-    scheduler(output, execution_count)
-        .dispatch(kCompactionInstances)(stream);
+    stream << scheduler(output, execution_count)
+        .dispatch(kCompactionInstances);
 
     luisa::vector<uint> host_output(kCompactionInstances);
     luisa::vector<uint> host_execution_count(kCompactionInstances);
@@ -338,7 +338,7 @@ void reg_coro_wavefront_integration(luisa::test::coro_test::Options options) {
 
         auto output = device.create_buffer<int>(kTestInstances);
         StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
-        scheduler(output).dispatch(kTestInstances)(stream);
+        stream << scheduler(output).dispatch(kTestInstances);
         luisa::vector<int> host(kTestInstances);
         stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("StateMachine: dispatch complete — PASSED");
@@ -373,7 +373,7 @@ void reg_coro_wavefront_integration(luisa::test::coro_test::Options options) {
                               .frame_buffer_compaction = false}};
         expect(scheduler.config().thread_count == kTestInstances);
         expect(!scheduler.config().frame_buffer_compaction);
-        scheduler(output).dispatch(kTestInstances)(stream);
+        stream << scheduler(output).dispatch(kTestInstances);
         luisa::vector<int> host(kTestInstances);
         stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("Wavefront AoS (no comp): dispatch complete — PASSED");
@@ -419,7 +419,7 @@ void reg_coro_wavefront_integration(luisa::test::coro_test::Options options) {
                               .frame_buffer_compaction = false}};
         expect(scheduler.config().thread_count == kTestInstances);
         expect(!scheduler.config().frame_buffer_compaction);
-        scheduler(output).dispatch(kTestInstances)(stream);
+        stream << scheduler(output).dispatch(kTestInstances);
         luisa::vector<int> host(kTestInstances);
         stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("Wavefront SoA (no comp): dispatch complete — PASSED");

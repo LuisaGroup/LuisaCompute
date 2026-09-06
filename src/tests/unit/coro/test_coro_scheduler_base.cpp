@@ -84,7 +84,7 @@ void reg_coro_scheduler_base() {
         // _dispatch not called until invoked with a stream
         expect(!sched.called);
 
-        dispatched(dummy_stream);
+        dummy_stream << dispatched;
 
         expect(sched.called);
         expect(sched.last_size.x == 16u);
@@ -102,7 +102,7 @@ void reg_coro_scheduler_base() {
 
         i = -1;
         f = 0.0f;
-        dispatched(dummy_stream);
+        dummy_stream << dispatched;
 
         expect(sched.last_int == 42);
         expect(sched.last_float == 3.14_f);
@@ -110,7 +110,7 @@ void reg_coro_scheduler_base() {
 
     "dispatch_1d_convenience"_test = [] {
         TestScheduler sched;
-        sched(7, 2.71f).dispatch(32u)(dummy_stream);
+        dummy_stream << sched(7, 2.71f).dispatch(32u);
         expect(sched.called);
         expect(sched.last_size.x == 32u);
         expect(sched.last_size.y == 1u);
@@ -121,7 +121,7 @@ void reg_coro_scheduler_base() {
 
     "dispatch_2d_convenience"_test = [] {
         TestScheduler sched;
-        sched(-1, 0.5f).dispatch(8u, 4u)(dummy_stream);
+        dummy_stream << sched(-1, 0.5f).dispatch(8u, 4u);
         expect(sched.called);
         expect(sched.last_size.x == 8u);
         expect(sched.last_size.y == 4u);
@@ -130,7 +130,7 @@ void reg_coro_scheduler_base() {
 
     "dispatch_3d_convenience"_test = [] {
         TestScheduler sched;
-        sched(100, 9.99f).dispatch(2u, 3u, 4u)(dummy_stream);
+        dummy_stream << sched(100, 9.99f).dispatch(2u, 3u, 4u);
         expect(sched.called);
         expect(sched.last_size.x == 2u);
         expect(sched.last_size.y == 3u);
@@ -139,7 +139,7 @@ void reg_coro_scheduler_base() {
 
     "dispatch_with_rvalue_args"_test = [] {
         TestScheduler sched;
-        sched(1 + 2, 3.0f + 0.14f).dispatch(1u)(dummy_stream);
+        dummy_stream << sched(1 + 2, 3.0f + 0.14f).dispatch(1u);
         expect(sched.called);
         expect(sched.last_int == 3);
         expect(sched.last_float == 3.14_f);

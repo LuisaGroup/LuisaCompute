@@ -151,7 +151,7 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
 
         StateMachineCoroScheduler<Buffer<uint>> scheduler{device, coro};
         LUISA_INFO("StateMachineCoroScheduler: dispatching {} threads", N);
-        scheduler(output).dispatch(N)(stream);
+        stream << scheduler(output).dispatch(N);
         luisa::vector<uint> host(N);
         stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("StateMachineCoroScheduler: dispatch complete");
@@ -178,7 +178,7 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
 
         WavefrontCoroScheduler<Buffer<uint>> scheduler{device, coro};
         LUISA_INFO("WavefrontCoroScheduler: dispatching {} instances", N);
-        scheduler(output).dispatch(N)(stream);
+        stream << scheduler(output).dispatch(N);
         luisa::vector<uint> host(N);
         stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("WavefrontCoroScheduler: dispatch complete");
@@ -207,7 +207,7 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
             device, coro,
             PersistentThreadsCoroSchedulerConfig{.thread_count = N, .block_size = N}};
         LUISA_INFO("PersistentThreadsCoroScheduler: dispatching {} logical instances", N);
-        scheduler(output).dispatch(N)(stream);
+        stream << scheduler(output).dispatch(N);
         luisa::vector<uint> host(N);
         stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("PersistentThreadsCoroScheduler: dispatch complete");
@@ -277,15 +277,15 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
             {
                 StateMachineCoroScheduler<uint, uint>
                     scheduler{device, coroutine};
-                scheduler(entry_base, resume_base)
-                    .dispatch(N)(stream);
+                stream << scheduler(entry_base, resume_base)
+                    .dispatch(N);
                 check("projected_arguments_state_machine");
             }
             {
                 WavefrontCoroScheduler<uint, uint>
                     scheduler{device, coroutine};
-                scheduler(entry_base, resume_base)
-                    .dispatch(N)(stream);
+                stream << scheduler(entry_base, resume_base)
+                    .dispatch(N);
                 check("projected_arguments_wavefront");
             }
             {
@@ -294,8 +294,8 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
                         device, coroutine,
                         PersistentThreadsCoroSchedulerConfig{
                             .thread_count = N, .block_size = N}};
-                scheduler(entry_base, resume_base)
-                    .dispatch(N)(stream);
+                stream << scheduler(entry_base, resume_base)
+                    .dispatch(N);
                 check("projected_arguments_persistent");
             }
         };
@@ -328,12 +328,12 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
             };
             {
                 StateMachineCoroScheduler<uint> scheduler{device, coroutine};
-                scheduler(base).dispatch(N)(stream);
+                stream << scheduler(base).dispatch(N);
                 check("continuation_local_resource_state_machine");
             }
             {
                 WavefrontCoroScheduler<uint> scheduler{device, coroutine};
-                scheduler(base).dispatch(N)(stream);
+                stream << scheduler(base).dispatch(N);
                 check("continuation_local_resource_wavefront");
             }
             {
@@ -341,7 +341,7 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
                     device, coroutine,
                     PersistentThreadsCoroSchedulerConfig{
                         .thread_count = N, .block_size = N}};
-                scheduler(base).dispatch(N)(stream);
+                stream << scheduler(base).dispatch(N);
                 check("continuation_local_resource_persistent");
             }
         };
@@ -377,13 +377,13 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
             {
                 StateMachineCoroScheduler<Buffer<uint>, uint> scheduler{
                     device, coroutine};
-                scheduler(output, base).dispatch(N)(stream);
+                stream << scheduler(output, base).dispatch(N);
                 check("continuation_local_builtins_state_machine");
             }
             {
                 WavefrontCoroScheduler<Buffer<uint>, uint> scheduler{
                     device, coroutine};
-                scheduler(output, base).dispatch(N)(stream);
+                stream << scheduler(output, base).dispatch(N);
                 check("continuation_local_builtins_wavefront");
             }
             {
@@ -391,7 +391,7 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
                     device, coroutine,
                     PersistentThreadsCoroSchedulerConfig{
                         .thread_count = N, .block_size = N}};
-                scheduler(output, base).dispatch(N)(stream);
+                stream << scheduler(output, base).dispatch(N);
                 check("continuation_local_builtins_persistent");
             }
         };
@@ -422,7 +422,7 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
 
         StateMachineCoroScheduler<Buffer<uint>> scheduler{device, coro};
         LUISA_INFO("StateMachineCoroScheduler: dispatching {} threads", N);
-        scheduler(output).dispatch(N)(stream);
+        stream << scheduler(output).dispatch(N);
         luisa::vector<uint> host(N);
         stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("StateMachineCoroScheduler: dispatch complete");
@@ -451,7 +451,7 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
 
         WavefrontCoroScheduler<Buffer<uint>> scheduler{device, coro};
         LUISA_INFO("WavefrontCoroScheduler: dispatching {} instances", N);
-        scheduler(output).dispatch(N)(stream);
+        stream << scheduler(output).dispatch(N);
         luisa::vector<uint> host(N);
         stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("WavefrontCoroScheduler: dispatch complete");
@@ -482,7 +482,7 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
             device, coro,
             PersistentThreadsCoroSchedulerConfig{.thread_count = N, .block_size = N}};
         LUISA_INFO("PersistentThreadsCoroScheduler: dispatching {} logical instances", N);
-        scheduler(output).dispatch(N)(stream);
+        stream << scheduler(output).dispatch(N);
         luisa::vector<uint> host(N);
         stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("PersistentThreadsCoroScheduler: dispatch complete");
@@ -566,14 +566,14 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
             StateMachineCoroScheduler<Buffer<uint>> state_machine{
                 device, coro};
             clear_and_check(
-                [&] { state_machine(output).dispatch(N)(stream); },
+                [&] { stream << state_machine(output).dispatch(N); },
                 "ray query/state machine");
 
             WavefrontCoroScheduler<Buffer<uint>> wavefront{
                 device, coro,
                 WavefrontCoroSchedulerConfig{.thread_count = N}};
             clear_and_check(
-                [&] { wavefront(output).dispatch(N)(stream); },
+                [&] { stream << wavefront(output).dispatch(N); },
                 "ray query/wavefront");
 
             PersistentThreadsCoroScheduler<Buffer<uint>> persistent{
@@ -581,7 +581,7 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
                 PersistentThreadsCoroSchedulerConfig{
                     .thread_count = N, .block_size = N}};
             clear_and_check(
-                [&] { persistent(output).dispatch(N)(stream); },
+                [&] { stream << persistent(output).dispatch(N); },
                 "ray query/persistent");
         };
 
@@ -628,12 +628,12 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
 
         StateMachineCoroScheduler<Buffer<uint>> state_machine{device, coro};
         clear_and_check(
-            [&] { state_machine(output).dispatch(N)(stream); },
+            [&] { stream << state_machine(output).dispatch(N); },
             "dead_suspend_sparse_token_state_machine");
 
         WavefrontCoroScheduler<Buffer<uint>> wavefront{device, coro};
         clear_and_check(
-            [&] { wavefront(output).dispatch(N)(stream); },
+            [&] { stream << wavefront(output).dispatch(N); },
             "dead_suspend_sparse_token_wavefront");
 
         PersistentThreadsCoroScheduler<Buffer<uint>> persistent{
@@ -641,7 +641,7 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
             PersistentThreadsCoroSchedulerConfig{
                 .thread_count = N, .block_size = N}};
         clear_and_check(
-            [&] { persistent(output).dispatch(N)(stream); },
+            [&] { stream << persistent(output).dispatch(N); },
             "dead_suspend_sparse_token_persistent");
     };
 
@@ -680,12 +680,12 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
 
         StateMachineCoroScheduler<Buffer<uint>> state_machine{device, coro};
         clear_and_check(
-            [&] { state_machine(output).dispatch(N)(stream); },
+            [&] { stream << state_machine(output).dispatch(N); },
             "all_dead_suspend_state_machine");
 
         WavefrontCoroScheduler<Buffer<uint>> wavefront{device, coro};
         clear_and_check(
-            [&] { wavefront(output).dispatch(N)(stream); },
+            [&] { stream << wavefront(output).dispatch(N); },
             "all_dead_suspend_wavefront");
 
         PersistentThreadsCoroScheduler<Buffer<uint>> persistent{
@@ -693,7 +693,7 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
             PersistentThreadsCoroSchedulerConfig{
                 .thread_count = N, .block_size = N}};
         clear_and_check(
-            [&] { persistent(output).dispatch(N)(stream); },
+            [&] { stream << persistent(output).dispatch(N); },
             "all_dead_suspend_persistent");
     };
 
@@ -727,12 +727,12 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
 
         StateMachineCoroScheduler<Buffer<uint>> state_machine{device, coro};
         clear_and_check(
-            [&] { state_machine(output).dispatch(N)(stream); },
+            [&] { stream << state_machine(output).dispatch(N); },
             "zero_frontend_suspend_state_machine");
 
         WavefrontCoroScheduler<Buffer<uint>> wavefront{device, coro};
         clear_and_check(
-            [&] { wavefront(output).dispatch(N)(stream); },
+            [&] { stream << wavefront(output).dispatch(N); },
             "zero_frontend_suspend_wavefront");
 
         PersistentThreadsCoroScheduler<Buffer<uint>> persistent{
@@ -740,7 +740,7 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
             PersistentThreadsCoroSchedulerConfig{
                 .thread_count = N, .block_size = N}};
         clear_and_check(
-            [&] { persistent(output).dispatch(N)(stream); },
+            [&] { stream << persistent(output).dispatch(N); },
             "zero_frontend_suspend_persistent");
     };
 
@@ -807,12 +807,12 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
             StateMachineCoroScheduler<Buffer<uint>, uint> state_machine{
                 device, coro};
             clear_and_check(
-                [&] { state_machine(output, sample_count).dispatch(N)(stream); },
+                [&] { stream << state_machine(output, sample_count).dispatch(N); },
                 "nested_loop_sparse_token_state_machine");
 
             WavefrontCoroScheduler<Buffer<uint>, uint> wavefront{device, coro};
             clear_and_check(
-                [&] { wavefront(output, sample_count).dispatch(N)(stream); },
+                [&] { stream << wavefront(output, sample_count).dispatch(N); },
                 "nested_loop_sparse_token_wavefront");
 
             PersistentThreadsCoroScheduler<Buffer<uint>, uint> persistent{
@@ -820,7 +820,7 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
                 PersistentThreadsCoroSchedulerConfig{
                     .thread_count = N, .block_size = N}};
             clear_and_check(
-                [&] { persistent(output, sample_count).dispatch(N)(stream); },
+                [&] { stream << persistent(output, sample_count).dispatch(N); },
                 "nested_loop_sparse_token_persistent");
         };
 
@@ -857,7 +857,7 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
                 .direct_clamp = 3.5f,
                 .indirect_clamp = 7.25f,
                 .background = float3{0.25f, 0.5f, 0.75f}};
-            scheduler(output, parameters).dispatch(N)(stream);
+            stream << scheduler(output, parameters).dispatch(N);
 
             luisa::vector<float4> host(N);
             stream << output.copy_to(luisa::span{host}) << synchronize();
@@ -940,7 +940,7 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
                 state_machine{device, coroutine};
             clear_and_check(
                 [&] {
-                    state_machine(input, output).dispatch(N)(stream);
+                    stream << state_machine(input, output).dispatch(N);
                 },
                 "ssa_float3_state_machine");
 
@@ -948,7 +948,7 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
                 Buffer<float3>, Buffer<float3>>
                 wavefront{device, coroutine};
             clear_and_check(
-                [&] { wavefront(input, output).dispatch(N)(stream); },
+                [&] { stream << wavefront(input, output).dispatch(N); },
                 "ssa_float3_wavefront");
 
             PersistentThreadsCoroScheduler<
@@ -958,7 +958,7 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
                     PersistentThreadsCoroSchedulerConfig{
                         .thread_count = N, .block_size = N}};
             clear_and_check(
-                [&] { persistent(input, output).dispatch(N)(stream); },
+                [&] { stream << persistent(input, output).dispatch(N); },
                 "ssa_float3_persistent");
         };
 
@@ -1038,7 +1038,7 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
                 state_machine{device, coroutine};
             clear_and_check(
                 [&] {
-                    state_machine(input, output).dispatch(N)(stream);
+                    stream << state_machine(input, output).dispatch(N);
                 },
                 "packed_bool_state_machine");
 
@@ -1046,7 +1046,7 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
                 Buffer<uint>, Buffer<uint>>
                 wavefront{device, coroutine};
             clear_and_check(
-                [&] { wavefront(input, output).dispatch(N)(stream); },
+                [&] { stream << wavefront(input, output).dispatch(N); },
                 "packed_bool_wavefront");
 
             PersistentThreadsCoroScheduler<
@@ -1056,7 +1056,7 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
                     PersistentThreadsCoroSchedulerConfig{
                         .thread_count = N, .block_size = N}};
             clear_and_check(
-                [&] { persistent(input, output).dispatch(N)(stream); },
+                [&] { stream << persistent(input, output).dispatch(N); },
                 "packed_bool_persistent");
         };
 
