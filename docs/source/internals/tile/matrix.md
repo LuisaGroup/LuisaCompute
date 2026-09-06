@@ -222,9 +222,9 @@ remain in force.
 
 For BM=128, BN=32, BK=1024, this can remove the nominal 640 KiB A/B staging
 requirement even when the final contraction is short. The existing resource
-solver sees the resulting physical allocations; its work score still charges
-nominal K conservatively. This extends legality, not the cost model's accuracy
-or a claim of MPS parity. M/N edges require the separate capability below;
+solver sees the resulting physical allocations. The MPP v3 work score below
+also uses a proved mean physical K when available; unknown expressions retain
+nominal K. Neither fact establishes model accuracy or MPS parity. M/N edges require the separate capability below;
 automatic physical K retiming remains separate work. The patch ABI and build order are documented in
 [the TVM patch README](https://github.com/LuisaGroup/LuisaCompute/blob/codex/tile-programming-design/src/tile/bridge/tirx/patches/README.md).
 
@@ -260,7 +260,7 @@ output or silently assume finite values. No A/B staging allocation is needed.
 The separately versioned capability retains both older ABIs. Without it the
 bridge keeps the previous M/N-tail fallback. The empty-rectangle scan
 is a correctness realization, not a calibrated performance model: the solver
-still scores nominal work, and default-off forwarding remains opt-in.
+still scores nominal M/N work, and default-off forwarding remains opt-in.
 Noncanonical masks, nonzero fill, unequal K intervals, mutable inputs and
 manual memory retain snapshots. See the
 [performance checkpoint](../../performance/tile/results.md#bounded-m-n-inputs-remove-an-admission-barrier)
@@ -486,7 +486,9 @@ direct global stores  = U * V * E / L        [proved direct output]
 live fragment scalars/lane R = 2 * (rm*rn + rm + rn)
                             = 6              [reference]
 
-work     = I * matrix_issue + transfers * shared_fragment_transfer
+work     = I * matrix_issue
+           + (input transfers + accumulator transfers + direct global stores)
+             * shared_fragment_transfer
 pressure = max(1, R / preferred_fragment_scalars_per_lane)
 parallel = max(1, min(preferred_subgroups, U*V) / G)
 score    = sum(work * pressure * parallel)
@@ -496,12 +498,11 @@ score    = sum(work * pressure * parallel)
 
 Transfers count subgroup fragment operations, not unique DRAM bytes. Fragment
 scalar counts are live logical state, not compiler register allocations.
-Direct global stores are reported separately. They are not free: the original
-logical independent-element work still prices the output conservatively. It
-also still includes an elided literal fill; this bootstrap does not yet assign
-calibrated prices to different output protocols.
-In this reference basis, ordinary independent-element work is recorded but
-constant across the first mapping family; it does not yet predict the effect
+Direct global stores are reported separately and priced as fragment transfers,
+even when the corresponding scalar sink disappears. This bootstrap does not
+yet assign calibrated prices to different output protocols. The candidate's
+proved-eliminated scalar loops are excluded as described below.
+In this reference basis, remaining ordinary independent-element work does not predict the effect
 of thread count on copy throughput. Logical program count uses a coarse
 preferred-program wave prior. The pressure/parallelism factors are explicit
 heuristics with replaceable coefficients. General bank-conflict, spill,
@@ -526,14 +527,16 @@ but more live per-subgroup state. A model must eventually price both using
 target evidence. Counting static matrix call sites in generated source is not
 counting dynamic instruction work.
 
-### Metal MPP memory v2 basis
+(metal-mpp-memory-v2-basis)=
+### Metal MPP memory v3 basis
 
 MPP memory-input operations do not have the reference realization's shared A/B
-fragment copies. The v2 feature vector instead records:
+fragment copies. The v3 feature vector records:
 
 | Feature | Meaning and limitation |
 |---|---|
-| `matrix_issues` | Logical 8×8 result atoms × K atoms × executions; target issue work, not a source call-site count |
+| `matrix_issues` | Logical 8×8 result atoms × mean physical K / 8 × executions; normalized work, not measured instruction issues or hardware padding |
+| `nominal_matrix_issues` | The corresponding nominal-K work; remains available for diagnosing padding and unknown extents |
 | `metal_mpp_operations` | Participating subgroup tensor operations × executions |
 | `memory_fragment_reads` | Per-subgroup A/B memory fragment requests; separate from unique footprints |
 | `lhs/rhs_footprint_fragments` | Unique logical A/B footprints with asymmetric reuse priors, not claimed DRAM transactions |
@@ -541,7 +544,8 @@ fragment copies. The v2 feature vector instead records:
 | output/shared transfers | Derived from direct-output and persistent-accumulator proofs |
 | Tile/local aspect terms | Target-versioned rectangle priors; not layout-equivalence claims |
 | `fragment_scalars_per_lane` | Opaque-output logical live state, not measured registers |
-| `independent_elements` | Scalar address/guard/store work outside the matrix atom |
+| `independent_elements` | Remaining scalar address/guard/store work outside the matrix atom |
+| `elided_independent_elements` | Disjoint source-domain elements removed by the selected recurrence/direct-output realization |
 
 For one group realization, the code computes:
 
@@ -561,10 +565,63 @@ outer machine demand once. The default concurrent-subgroup prior is 512 for the
 tested M1-class profile. It is deliberately replaceable and fractional—neither
 a target query nor a claim about physical residency boundaries.
 
-The {download}`v1→v2 study <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-mpp-cost-v2-search/notes.md>`
+The historical {download}`v1→v2 study <../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-mpp-cost-v2-search/notes.md>`
 shows why both terms matter and retains every invalid candidate. The v2 score
 reduces in-cohort mean regret from 74.18% to 8.82%, but the 34.37% maximum miss
 and absence of held-out data keep measured Staged/JIT ranking authoritative.
+
+### Realization-derived work, before candidate pruning
+
+The v3 correction changes work features, not fitted coefficients or numerical
+permissions. The matrix matcher supplies the **same bounded K expression**
+used by the MPP emitter. Over positive, static, unit-step rectangular ancestor
+domains, the analyzer computes the mean of a constant or a one-varying-axis
+affine expression, optionally capped by a positive constant. It sums a capped
+arithmetic progression analytically, including either traversal direction.
+It preserves the cap before simplifying its operand because equivalent TVM
+canonical forms can move `min` into a subtraction of `max`. Dynamic domains,
+unsupported nonlinear/multi-axis expressions and unproved endpoints retain
+nominal K. This is a cost fact, never authority to omit a load or computation.
+
+The recurrence proof also identifies disjoint counted scalar domains: its
+yield copy, and the literal initializer plus scalar output sink. A candidate
+removes the first subset only when it retains the accumulator, and the second
+only when it realizes direct output. A direct-only overwrite proof cannot
+remove initialization cost when the candidate still loads shared C.
+
+```text
+IR semantics + ownership/bounds proofs
+                  |
+matrix work + optional scalar domains
+                  |
+candidate realization
+(retained / direct / bounded input)
+                  |
+remaining work + physical resources
+                  |
+score -> Pareto -> group plan -> emit
+```
+
+Candidate-dependent scalar work is priced **before** Pareto pruning. Common
+work is added once afterward; subtracting it only after selecting a frontier
+can discard the true minimum. The public workload rejects subset totals that
+exceed the group count without overflowing; the internal proof supplies operation identities
+to establish actual disjointness. Tests independently enumerate two-operation
+objectives under different scalar prices and shared-capacity constraints.
+
+For a 32×64 tile with three nominal K=16 iterations spanning physical K=45,
+the MPP model records 192 nominal versus 180 physical-equivalent matrix atoms.
+A direct resident candidate removes 10,240 source scalar elements; a resident
+candidate retaining its scalar sink removes only the 6,144-element yield copy.
+Global stores remain charged. These are exact lookup examples of the analysis,
+not latency predictions.
+
+This mechanism is structural within the admitted matrix family, with no
+operator-name or benchmark-shape dispatch. It does **not** yet model M/N edge
+fractions, hardware K rounding, internal MPP registers/spills or cache traffic.
+It does not automatically improve native Metal, XIR/SIMD, or non-matrix
+operators. [Performance evidence](../../performance/tile/results.md) is kept
+separate from the analysis contract.
 
 ### Cooperative copy batching
 

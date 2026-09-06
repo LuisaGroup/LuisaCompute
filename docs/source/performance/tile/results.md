@@ -548,9 +548,91 @@ CPU/Metal execution and operator regressions, and native Metal Runtime. The
 {download}`final receipt
 <../../../../scripts/benchmark/tile_torch/results/m1-max-20260906-mpp-state-budget/final-correctness/results.json>`
 keeps failures against the old library as explicit negative controls.
-The planned held-out cohort and six-round frozen performance acceptance have
-not run in a quiet window. Physical K, eliminated scalar work and memory-path
-features still need scoring work; native MPP/SIMD gain no new performance claim.
+At that checkpoint, the planned held-out cohort and six-round frozen replay
+had not run in a quiet window. The next correction addresses physical K and
+eliminated scalar work; native MPP/SIMD gain no new performance claim.
+
+### Realization-derived work and model selection
+
+The [v3 matrix work model](../../internals/tile/matrix.md#realization-derived-work-before-candidate-pruning)
+uses the bounded K expression actually emitted by MPP and excludes scalar
+loops only when the selected recurrence/direct-output realization removes
+them. Those costs enter the Pareto objective before pruning. It also prices
+the global fragment store replacing a scalar sink. **No coefficient, budget,
+numerical permission or operator-name/shape dispatch rule is added.**
+
+The registered experiment uses eight shapes through **8192³**, fifteen
+identical candidates per model, and four protocol-held-out shapes. Selection
+uses only model scores, not timings. All 240 trials and 16 freshly compiled
+selections pass full native/Torch/direct-MPS checks: **768 complete outputs**.
+Among 120 fixed-block old/new pairs, 118 have identical mappings and identical
+Metal source; two are remapped. Thus this is primarily a correction to model
+ranking, not a faster emitter for an unchanged schedule.
+
+The final model choices change on three shapes. Schedules below are shown as
+BM×BN×BK, threads:
+
+```{table}
+:class: benchmark-table
+
+| M×N×K | Previous model | Realized-work model |
+|---|---|---|
+| 1025×1025×1024 | 32×64×512, 64 | 64×64×4096, 128 |
+| 4096×4096×11008 | 128×64×512, 256 | 128×64×4096, 256 |
+| 2049×4097×1025 | 64×64×128, 128 | 64×64×4096, 128 |
+```
+
+The other five selections retain byte-identical source. Frozen replay keeps
+both block and solved thread width, with six fresh-JIT rounds, all six
+native/Torch/MPS orders, counterbalanced old/new order, nine samples,
+30 ms requested windows and 100 ms warmup. Its **288 complete outputs** are
+checked separately from selection. GPU numbers use no-counter command-buffer
+intervals including work/gaps; E2E includes host dispatch and synchronization.
+Neither is an isolated kernel timestamp. Outputs are preallocated; existing
+TVM/Torch arithmetic policies are unchanged, not claimed identical.
+
+*M1 Max FP32 frozen replay: paired batch-time ratios, lower is better.*
+
+```{table}
+:class: benchmark-table
+
+| M×N×K | GPU new/old (round range) | GPU wins / 6 | E2E new/old | GPU new/Torch | GPU new/MPS |
+|---|---:|---:|---:|---:|---:|
+| 512³ † | 1.005 (0.995–1.015) | 2 | 1.003 | 1.166 | 0.966 |
+| 4096³ † | 0.993 (0.988–1.008) | 5 | 1.004 | 1.270 | 1.162 |
+| 1025×1025×1024 | 0.961 (0.944–0.970) | 6 | 0.945 | 1.097 | 0.867 |
+| 4096×4096×11008 | 0.938 (0.929–0.949) | 6 | 0.949 | 1.286 | 1.202 |
+| 257×769×113 † | 0.995 (0.938–1.013) | 4 | 0.990 | 1.371 | 1.273 |
+| 2049×4097×1025 | 0.823 (0.809–0.839) | 6 | 0.816 | 1.150 | 1.052 |
+| 4097×4097×4096 † | 0.998 (0.972–1.015) | 3 | 0.989 | 1.061 | 0.962 |
+| 8192³ † | 1.002 (0.993–1.005) | 2 | 1.002 | 1.337 | 1.371 |
+```
+
+Ratios are medians of six paired batch-time ratios, not ratios of pooled
+minima or confidence intervals. **† identifies byte-identical source controls,
+not compiler speedups.** The three changed schedules win all six GPU pairs,
+with median GPU time reductions **3.88%, 6.16%, 17.75%** and E2E reductions
+**5.53%, 5.06%, 18.39%**, in the order of the mapping table. This supports a
+bounded model-selection improvement in this session. **All eight candidate
+GPU medians remain slower than Torch.** Only three MPS ratios are below one,
+two on unchanged-source controls, so MPS parity is not general either.
+
+Concurrent desktop activity was observed. Same-source median GPU new/old
+ratios span 0.993–1.005, but individual pairs span 0.938–1.015. These controls
+and the consistent changed-schedule wins improve interpretability; they do
+not establish idle-machine causality, cross-device calibration or universal
+speedup. No timing-fitted coefficient or per-shape dispatch table is promoted.
+
+The {download}`source-backed methods and limits
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260906-realized-work/notes.md>`
+retain complete samples, source fingerprints, all round reversals, and the
+separate GPU/E2E batch/single metrics. Same-source timing changes are controls,
+not compiler speedups. This model correction does not establish universal
+Torch/MPS parity; M/N edge fractions, cache traffic and opaque MPP state remain
+unmodeled. Native Metal, XIR/SIMD and other operators do not inherit a new
+speed claim. The full CPU/Metal matrix/execution/operator regressions pass;
+28 new numerical matrix programs cover traversal direction, transposes,
+partial bounds and realization choices, with four capacity rejections retained.
 
 ### K partition and program walks: diagnostics, not new defaults
 

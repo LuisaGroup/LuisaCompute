@@ -48,12 +48,14 @@ class LoweringComparisonTest(unittest.TestCase):
         result = dict(metal_mpp=True, forward_readonly_tile_loads=False, simdgroup_intrinsics=0, mpp_intrinsics=1, matrix_intrinsics=1,
                       execution_plans=[dict(metal_mpp=True, cost_basis="metal_mpp_memory_v2")])
         validate_mpp_tirx(result)
+        validate_mpp_tirx(result | dict(execution_plans=[dict(metal_mpp=True, cost_basis="metal_mpp_memory_v3")]))
         validate_mpp_tirx(result | dict(forward_readonly_tile_loads=True), views=True)
         with self.assertRaises(ValueError):
             validate_mpp_tirx(result, views=True)
         for change in (dict(metal_mpp=False), dict(forward_readonly_tile_loads=True), dict(simdgroup_intrinsics=1), dict(mpp_intrinsics=0),
                        dict(mpp_intrinsics=True), dict(matrix_intrinsics=2), dict(execution_plans=[]),
-                       dict(execution_plans=[dict(metal_mpp=True, cost_basis="simdgroup_reference_geometry")])):
+                       dict(execution_plans=[dict(metal_mpp=True, cost_basis="simdgroup_reference_geometry")]),
+                       dict(execution_plans=[dict(metal_mpp=True, cost_basis="metal_mpp_memory_v4")])):
             with self.assertRaises(ValueError):
                 validate_mpp_tirx(result | change)
 

@@ -274,9 +274,19 @@ struct MatrixWorkload {
     // observation of C/D inside this many loop iterations. Zero disables it.
     uint64_t accumulator_iterations{0u};
     bool has_direct_output{false};
-    // A proved one-iteration, positive-zero recurrence that may use MPP's
-    // D=A*B mode. This is a semantic proof result, not a profitability hint.
+    // A literal positive-zero MMA, or a proved one-iteration positive-zero
+    // recurrence whose direct output may use MPP's D=A*B mode.
     bool overwrites_accumulator{false};
+    // Mean positive physical K over the static execution domain, derived
+    // from the same bounded input expression emitted by MPP. Zero means
+    // unknown/use nominal contraction. This cost fact never grants legality.
+    double mean_contraction{0.0};
+    // Disjoint subsets of GroupWorkload::independent_elements. The closed
+    // recurrence removes its yield copy; direct output also replaces the
+    // initial fill and scalar sink. Charge each subset unless that candidate
+    // actually performs the corresponding realization.
+    uint64_t recurrence_elements{0u};
+    uint64_t direct_output_elements{0u};
 };
 
 struct GroupWorkload {
@@ -303,6 +313,7 @@ struct MatrixDistribution {
 
 struct PlanCost {
     double matrix_issues{0.0};
+    double nominal_matrix_issues{0.0};
     double shared_fragment_transfers{0.0};
     double direct_fragment_stores{0.0};
     double metal_mpp_operations{0.0};
@@ -314,6 +325,7 @@ struct PlanCost {
     double local_row_aspect_issues{0.0};
     double local_column_aspect_issues{0.0};
     double independent_elements{0.0};
+    double elided_independent_elements{0.0};
     uint64_t fragment_scalars_per_lane{0u};
     // score is local program work. Solvers minimize kernel_score, which may
     // also include machine service demand. A custom reduction policy owns the

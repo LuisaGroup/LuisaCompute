@@ -41,7 +41,7 @@ def validate_mpp_tirx(result: dict[str, Any], views: bool = False) -> None:
         raise ValueError("TIRx MPP must report actual generated MPP call sites")
     plans = result.get("execution_plans")
     if not isinstance(plans, list) or not plans or any(
-        p.get("metal_mpp") is not True or p.get("cost_basis") != "metal_mpp_memory_v2" for p in plans
+        p.get("metal_mpp") is not True or p.get("cost_basis") not in ("metal_mpp_memory_v2", "metal_mpp_memory_v3") for p in plans
     ):
         raise ValueError("TIRx MPP must identify its explicit MPP memory cost basis")
 
@@ -253,7 +253,7 @@ def save(report: dict[str, Any], folder: Path) -> None:
              "can still differ; this is not an isolated GPU execution-overhead measurement.", "",
              "Optional TIRx→MPP is the patched TVM Metal code generator using non-owning memory inputs, "
              "not the native MPP emitter. It reuses the frozen TIRx geometry; current MPP reports use the separately "
-             "versioned metal_mpp_memory_v2 relative-work model, not an instruction count, measured register use, "
+             "versioned metal_mpp_memory_v2/v3 relative-work model identified in each plan, not an instruction count, measured register use, "
              "or calibrated time prediction.", "",
              "Optional TIRx→MPP views enables proven read-only snapshot forwarding, with a separately frozen schedule. "
              "It is not a same-geometry ablation unless the recorded schedules match; original TIRx and non-forwarding MPP remain controls.", "",

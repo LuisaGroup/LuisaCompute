@@ -44,7 +44,7 @@ struct Shape {
 }
 
 [[nodiscard]] Kernel gemm(const Runtime &runtime, Shape cfg, uint32_t window, uint32_t interval = 1u,
-                          bool literal_initial = false, float literal_value = 0.5f) {
+                          bool literal_initial = false, float literal_value = 0.5f, bool reverse_k = false) {
     auto scope = runtime.target() == "metal" ? exec::Scope::GROUP : exec::Scope::WORKER;
     auto definition = tile_kernel("matrix_gemm", [=](TensorView<const float, 2> A, TensorView<const float, 2> B,
                                                      TensorView<const float, 2> C, TensorView<float, 2> D) {
@@ -59,7 +59,8 @@ struct Shape {
             auto acc = literal_initial ? full<float>(shape(m, n), literal_value) : C.tile(coord(m0, n0), shape(m, n)).load();
             for (auto &step : nest.pipeline(shape(ceil_div(cfg.k, cfg.bk)), {.stages = window, .initiation_interval = interval})) {
                 step.stage("load");
-                auto k0 = step.index() * cfg.bk;
+                auto ordinal = reverse_k ? ceil_div(cfg.k, cfg.bk) - 1 - step.index() : step.index();
+                auto k0 = ordinal * cfg.bk;
                 auto a = cfg.transpose_a ? A.tile(coord(k0, m0), shape(k, m)).load() : A.tile(coord(m0, k0), shape(m, k)).load();
                 auto b = cfg.transpose_b ? B.tile(coord(n0, k0), shape(n, k)).load() : B.tile(coord(k0, n0), shape(k, n)).load();
                 step.stage("compute");
@@ -368,6 +369,57 @@ void test_mpp_output_only_fragment_budget(Runtime &runtime) {
                 }
                 auto source = metal_source(executable.module.value());
                 expect(std::string_view{source.data(), source.size()}.find("mpp::tensor_ops::matmul2d<") != std::string_view::npos);
+                check_gemm(runtime, executable, cfg, 1.0, true, false, false, initial);
+            }
+        }
+    }
+}
+
+void test_mpp_realized_work(Runtime &runtime) {
+    if (runtime.target() != "metal" || !tvm::ffi::Function::GetGlobal("target.metal.mpp_bounded_store_contract_version")) { return; }
+    for (auto cfg : {Shape{33, 47, 5, 32, 32, 16}, Shape{37, 71, 45, 32, 64, 16, true, false},
+                     Shape{64, 64, 17, 32, 32, 64, false, true}, Shape{65, 97, 1025, 64, 32, 512, true, true}}) {
+        auto iterations = ceil_div(cfg.k, cfg.bk);
+        auto atoms = static_cast<double>(cfg.bm * cfg.bn / 64);
+        for (auto views : {false, true}) {
+            for (auto mode = 0u; mode < 4u; mode++) {
+                // Mode three reverses the temporal walk. The positive
+                // bounded extent now increases instead of decreasing.
+                auto reverse_k = mode == 3u;
+                auto initial = mode == 0u ? 0.0f : 0.5f;
+                auto kernel = gemm(runtime, cfg, 1u, 1u, true, initial, reverse_k);
+                auto native = bridge::tirx::lower(kernel.function());
+                expect(native.ok()) << native.error;
+                if (!native) { continue; }
+                bridge::tirx::PlannerOptions planner;
+                planner.threads_per_group = 128u;
+                planner.direct_accumulator_store = mode != 1u;
+                planner.retain_accumulators = mode != 2u;
+                auto executable = compile_native(runtime, kernel, std::move(native.value), 32u, 256u, planner, false, true, views);
+                // Oversized manual staging is still subject to real capacity.
+                if (!views && cfg.bk == 512) {
+                    expect(!executable.ok() && executable.error.find("shared-memory capacity") != string::npos);
+                    continue;
+                }
+                expect(executable.ok()) << executable.error;
+                if (!executable.ok()) { continue; }
+                expect(eq(executable.plans.size(), size_t{1u}));
+                for (auto &plan : executable.plans) {
+                    auto nominal_k = static_cast<double>(iterations * cfg.bk);
+                    auto physical_k = views ? static_cast<double>(cfg.k) : nominal_k;
+                    auto all_scalar = static_cast<double>(cfg.bm * cfg.bn * (iterations + 2) +
+                                                          (views ? 0 : (cfg.bm + cfg.bn) * cfg.bk * iterations));
+                    auto removed = static_cast<double>(cfg.bm * cfg.bn *
+                                                       (mode == 0u || reverse_k ? iterations + 2 : mode == 1u ? iterations :
+                                                                                                                0));
+                    expect(std::abs(plan.cost.matrix_issues - atoms * physical_k / 8.0) < 1e-8)
+                        << cfg.k << views << reverse_k << plan.cost.matrix_issues << atoms * physical_k / 8.0;
+                    expect(eq(plan.cost.nominal_matrix_issues, atoms * nominal_k / 8.0));
+                    expect(eq(plan.cost.elided_independent_elements, removed));
+                    expect(eq(plan.cost.independent_elements, all_scalar - removed));
+                    auto overwrite = mode == 0u && iterations == 1;
+                    expect(eq(plan.cost.accumulator_initializations, overwrite ? 0.0 : atoms * (mode == 2u ? iterations : 1)));
+                }
                 check_gemm(runtime, executable, cfg, 1.0, true, false, false, initial);
             }
         }
@@ -2420,6 +2472,7 @@ int main(int argc, char *argv[]) {
     "tile_matrix_mpp_typed_contract_and_rejections"_test = [&] { test_mpp_typed_contract(runtime); };
     "tile_matrix_mpp_readonly_view_proofs"_test = [&] { test_mpp_readonly_views(runtime); };
     "tile_matrix_mpp_output_only_fragment_budget"_test = [&] { test_mpp_output_only_fragment_budget(runtime); };
+    "tile_matrix_mpp_realized_work"_test = [&] { test_mpp_realized_work(runtime); };
     "tile_matrix_mpp_bounded_k_views"_test = [&] { test_mpp_bounded_k_views(runtime); };
     "tile_matrix_mpp_bounded_mn_semantics"_test = [&] { test_mpp_bounded_mn_contract(runtime); };
     "tile_matrix_mpp_bounded_store_contract"_test = [&] { test_mpp_bounded_store_contract(runtime); };

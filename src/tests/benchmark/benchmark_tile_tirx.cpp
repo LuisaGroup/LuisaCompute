@@ -155,7 +155,7 @@ void print_plans(luisa::span<const bridge::tirx::GroupPlan> plans, std::string_v
                           plan.reduction_subgroups_per_program != 0u ?
                                                                         reduction_cost_profile == "analytic" ? "metal_subgroup_reduction_v1" : "metal_reduction_service_v1" :
                           plan.cost_basis == bridge::tirx::MatrixCostBasis::METAL_MPP_MEMORY ?
-                                                                        "metal_mpp_memory_v2" :
+                                                                        "metal_mpp_memory_v3" :
                                                                         "simdgroup_reference_geometry";
         std::cout << separator << "{\"threads\":" << plan.threads
                   << ",\"metal_mpp\":" << (plan.metal_mpp ? "true" : "false")
@@ -192,6 +192,7 @@ void print_plans(luisa::span<const bridge::tirx::GroupPlan> plans, std::string_v
                   << ",\"normalized_cost\":" << plan.cost.score
                   << ",\"normalized_kernel_cost\":" << plan.cost.kernel_score
                   << ",\"matrix_issues\":" << plan.cost.matrix_issues
+                  << ",\"nominal_matrix_issues\":" << plan.cost.nominal_matrix_issues
                   << ",\"shared_fragment_transfers\":" << plan.cost.shared_fragment_transfers
                   << ",\"direct_fragment_stores\":" << plan.cost.direct_fragment_stores
                   << ",\"metal_mpp_operations\":" << plan.cost.metal_mpp_operations
@@ -203,6 +204,7 @@ void print_plans(luisa::span<const bridge::tirx::GroupPlan> plans, std::string_v
                   << ",\"local_row_aspect_issues\":" << plan.cost.local_row_aspect_issues
                   << ",\"local_column_aspect_issues\":" << plan.cost.local_column_aspect_issues
                   << ",\"independent_elements\":" << plan.cost.independent_elements
+                  << ",\"elided_independent_elements\":" << plan.cost.elided_independent_elements
                   << ",\"fragment_scalars_per_lane\":" << plan.cost.fragment_scalars_per_lane
                   << ",\"concurrent_waves\":" << plan.cost.concurrent_waves
                   << ",\"matrices\":[";

@@ -12,7 +12,11 @@ namespace {
     return workload.rows != 0u && workload.columns != 0u && workload.contraction != 0u &&
            workload.rows % 8u == 0u && workload.columns % 8u == 0u && workload.contraction % 8u == 0u &&
            workload.rows / 8u <= std::numeric_limits<uint64_t>::max() / (workload.columns / 8u) &&
+           std::isfinite(workload.mean_contraction) && workload.mean_contraction >= 0.0 &&
+           workload.mean_contraction <= static_cast<double>(workload.contraction) &&
            (!workload.has_direct_output || workload.accumulator_iterations != 0u) &&
+           (workload.recurrence_elements == 0u || workload.accumulator_iterations != 0u) &&
+           (workload.direct_output_elements == 0u || workload.has_direct_output) &&
            (workload.accumulator_iterations == 0u || workload.executions % workload.accumulator_iterations == 0u);
 }
 
@@ -29,6 +33,7 @@ namespace {
     auto groups = threads / limits.subgroup_size;
     PlanCost result;
     result.matrix_issues = atoms * steps * static_cast<double>(workload.executions);
+    result.nominal_matrix_issues = result.matrix_issues;
     auto inputs = distribution.rectangular() ?
                       static_cast<double>(groups) * static_cast<double>(distribution.atom_rows + distribution.atom_columns) :
                       2.0 * atoms;
@@ -38,8 +43,8 @@ namespace {
                                       static_cast<double>(workload.executions);
     result.shared_fragment_transfers = inputs * steps * static_cast<double>(workload.executions);
     if (distribution.direct_accumulator_store) {
-        // The global output still exists. Its logical element work remains in
-        // GroupWorkload::independent_elements; do not call the transfer free.
+        // The scalar sink is replaced, not the global write. Its transfer
+        // remains explicit and is priced below even when its loop disappears.
         result.direct_fragment_stores = atoms * accumulator_executions;
     } else {
         result.shared_fragment_transfers += 2.0 * atoms * accumulator_executions;
@@ -48,7 +53,8 @@ namespace {
                                            (64u / limits.subgroup_size) * (distribution.atom_rows * distribution.atom_columns + distribution.atom_rows + distribution.atom_columns) :
                                            3u * (64u / limits.subgroup_size);
     auto &model = options.cost;
-    auto issue_work = result.matrix_issues * model.matrix_issue + result.shared_fragment_transfers * model.shared_fragment_transfer;
+    auto issue_work = result.matrix_issues * model.matrix_issue +
+                      (result.shared_fragment_transfers + result.direct_fragment_stores) * model.shared_fragment_transfer;
     auto state_pressure = std::max(1.0, static_cast<double>(result.fragment_scalars_per_lane) / model.preferred_fragment_scalars_per_lane);
     // This is a tunable parallelism prior, not an occupancy calculation. The
     // actual register file, scheduler residency, and launch cost need profiling.
@@ -61,13 +67,15 @@ namespace {
 [[nodiscard]] PlanCost mpp_matrix_cost(const MatrixWorkload &workload, const MatrixDistribution &distribution,
                                        uint32_t threads, const ExecutionLimits &limits, const PlannerOptions &options) noexcept {
     auto atoms = static_cast<double>(workload.rows / 8u) * static_cast<double>(workload.columns / 8u);
-    auto steps = static_cast<double>(workload.contraction / 8u);
+    auto nominal_steps = static_cast<double>(workload.contraction / 8u);
+    auto steps = workload.mean_contraction > 0.0 ? workload.mean_contraction / 8.0 : nominal_steps;
     auto executions = static_cast<double>(workload.executions);
     auto groups = threads / limits.subgroup_size;
     PlanCost result;
     if (!distribution.rectangular()) { return result; }
 
     result.matrix_issues = atoms * steps * executions;
+    result.nominal_matrix_issues = atoms * nominal_steps * executions;
     result.metal_mpp_operations = static_cast<double>(groups) * executions;
     result.memory_fragment_reads = static_cast<double>(groups) *
                                    static_cast<double>(distribution.atom_rows + distribution.atom_columns) *
@@ -82,7 +90,9 @@ namespace {
     auto accumulator_executions = distribution.persistent_accumulator ?
                                       executions / static_cast<double>(workload.accumulator_iterations) :
                                       executions;
-    if (!workload.overwrites_accumulator) {
+    auto overwrite = workload.overwrites_accumulator &&
+                     (workload.accumulator_iterations == 0u || distribution.direct_accumulator_store);
+    if (!overwrite) {
         result.accumulator_initializations = atoms * accumulator_executions;
     }
     if (distribution.direct_accumulator_store) {
@@ -129,13 +139,27 @@ namespace {
 [[nodiscard]] PlanCost matrix_cost(const MatrixWorkload &workload, const MatrixDistribution &distribution,
                                    uint32_t threads, const ExecutionLimits &limits, const PlannerOptions &options,
                                    MatrixCostBasis cost_basis) noexcept {
+    PlanCost result;
     switch (cost_basis) {
         case MatrixCostBasis::SIMDGROUP_REFERENCE:
-            return reference_matrix_cost(workload, distribution, threads, limits, options);
+            result = reference_matrix_cost(workload, distribution, threads, limits, options);
+            break;
         case MatrixCostBasis::METAL_MPP_MEMORY:
-            return mpp_matrix_cost(workload, distribution, threads, limits, options);
+            result = mpp_matrix_cost(workload, distribution, threads, limits, options);
+            break;
     }
-    return {};
+    auto account = [&](uint64_t elements, bool elided) noexcept {
+        (elided ? result.elided_independent_elements : result.independent_elements) += static_cast<double>(elements);
+    };
+    account(workload.recurrence_elements, distribution.persistent_accumulator);
+    account(workload.direct_output_elements, distribution.direct_accumulator_store);
+    // Include candidate-dependent scalar work before Pareto pruning. Adding
+    // this only after selecting a frontier can discard the true minimum.
+    result.score += result.independent_elements *
+                    (cost_basis == MatrixCostBasis::METAL_MPP_MEMORY ?
+                         options.cost.metal_mpp_independent_element / static_cast<double>(threads / limits.subgroup_size) :
+                         options.cost.independent_element);
+    return result;
 }
 
 [[nodiscard]] bool valid_options(const PlannerOptions &options, MatrixCostBasis cost_basis) noexcept {
@@ -171,6 +195,7 @@ struct PartialPlan {
 
 void add_cost(PlanCost &destination, const PlanCost &source) noexcept {
     destination.matrix_issues += source.matrix_issues;
+    destination.nominal_matrix_issues += source.nominal_matrix_issues;
     destination.shared_fragment_transfers += source.shared_fragment_transfers;
     destination.direct_fragment_stores += source.direct_fragment_stores;
     destination.metal_mpp_operations += source.metal_mpp_operations;
@@ -182,6 +207,7 @@ void add_cost(PlanCost &destination, const PlanCost &source) noexcept {
     destination.local_row_aspect_issues += source.local_row_aspect_issues;
     destination.local_column_aspect_issues += source.local_column_aspect_issues;
     destination.independent_elements += source.independent_elements;
+    destination.elided_independent_elements += source.elided_independent_elements;
     destination.fragment_scalars_per_lane = std::max(destination.fragment_scalars_per_lane,
                                                      source.fragment_scalars_per_lane);
     destination.score += source.score;
@@ -290,10 +316,18 @@ PlanningResult plan_group(const GroupWorkload &workload, const ExecutionLimits &
         result.error = "requested group thread count exceeds target capacity";
         return result;
     }
+    auto common_elements = workload.independent_elements;
     for (auto &matrix : workload.matrices) {
         if (!valid_matrix(matrix)) {
             result.error = "matrix planner requires a proved positive 8x8 FP32 atom domain";
             return result;
+        }
+        for (auto elements : {matrix.recurrence_elements, matrix.direct_output_elements}) {
+            if (elements > common_elements) {
+                result.error = "matrix scalar-work subsets exceed group independent elements";
+                return result;
+            }
+            common_elements -= elements;
         }
     }
     plan.shared_memory_bytes = workload.shared_memory_bytes;
@@ -412,9 +446,9 @@ PlanningResult plan_group(const GroupWorkload &workload, const ExecutionLimits &
         }
         for (auto &candidate : frontier) {
             auto shared_bytes = workload.shared_memory_bytes - candidate.released_bytes;
-            candidate.cost.independent_elements = static_cast<double>(workload.independent_elements);
+            candidate.cost.independent_elements += static_cast<double>(common_elements);
             if (cost_basis == MatrixCostBasis::METAL_MPP_MEMORY) {
-                candidate.cost.score += candidate.cost.independent_elements * options.cost.metal_mpp_independent_element /
+                candidate.cost.score += static_cast<double>(common_elements) * options.cost.metal_mpp_independent_element /
                                             static_cast<double>(groups) +
                                         options.cost.metal_mpp_group_setup;
                 // Logical programs compete for subgroup slots. Fractional
@@ -424,7 +458,7 @@ PlanningResult plan_group(const GroupWorkload &workload, const ExecutionLimits &
                     1.0, static_cast<double>(workload.programs) * static_cast<double>(groups) /
                              static_cast<double>(options.cost.metal_mpp_concurrent_subgroups));
             } else {
-                candidate.cost.score += candidate.cost.independent_elements * options.cost.independent_element +
+                candidate.cost.score += static_cast<double>(common_elements) * options.cost.independent_element +
                                         groups * options.cost.subgroup_setup;
                 candidate.cost.concurrent_waves = std::max(
                     1.0, static_cast<double>(workload.programs) /

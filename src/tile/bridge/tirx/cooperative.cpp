@@ -163,6 +163,7 @@ private:
     luisa::vector<const tvm::tirx::ForNode *> _ancestors;
     luisa::unordered_map<const tvm::tirx::VarNode *, tvm::tirx::BufferVar> _buffers;
     luisa::span<const tvm::tirx::BufferVar> _readonly_inputs;
+    luisa::unordered_map<const tvm::tirx::ForNode *, uint64_t> _element_work;
 
     [[nodiscard]] tvm::tirx::BufferVar _matrix_buffer(tvm::tirx::BufferVar buffer) const {
         if (auto iter = _buffers.find(buffer.get()); iter != _buffers.end()) { return iter->second; }
@@ -286,6 +287,7 @@ private:
         if (result_allocations != 1u || update == nullptr) { return; }
         auto index = matrices.at(matrix);
         workload.matrices[index].accumulator_iterations = static_cast<uint64_t>(extent->value);
+        workload.matrices[index].recurrence_elements = _element_work.at(update);
         accumulators.emplace(loop, AccumulatorLoop{matrix, update, *carry, index, static_cast<uint64_t>(extent->value)});
     }
 
@@ -299,6 +301,10 @@ protected:
                 if (auto direct = _find_direct_output(sequence, loop, iter->second.carry)) {
                     iter->second.direct = std::move(direct);
                     workload.matrices[iter->second.matrix_index].has_direct_output = true;
+                    auto &matrix = workload.matrices[iter->second.matrix_index];
+                    auto initial_work = _element_work.at(iter->second.direct->initial);
+                    auto store_work = _element_work.at(iter->second.direct->store);
+                    matrix.direct_output_elements = initial_work + std::min(store_work, std::numeric_limits<uint64_t>::max() - initial_work);
                     workload.matrices[iter->second.matrix_index].overwrites_accumulator =
                         iter->second.iterations == 1u && is_positive_zero(iter->second.direct->value);
                 }
@@ -332,6 +338,7 @@ protected:
                     workload.matrices.emplace_back(*matrix);
                 } else {
                     auto work = saturating_multiply(domain.count, _executions);
+                    _element_work.emplace(loop, work);
                     workload.independent_elements += std::min(work, std::numeric_limits<uint64_t>::max() - workload.independent_elements);
                 }
             }

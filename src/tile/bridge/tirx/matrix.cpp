@@ -5,6 +5,7 @@
 #include <optional>
 #include <stdexcept>
 
+#include <tvm/arith/analyzer.h>
 #include <tvm/ffi/extra/structural_equal.h>
 #include <tvm/ffi/function.h>
 #include <tvm/tirx/analysis.h>
@@ -345,6 +346,78 @@ struct MatchedMatrix {
     tvm::PrimExpr reduction_length;
 };
 
+// Mean of a positive constant/affine extent, optionally capped by a constant,
+// over a rectangular static domain. The common bounded-memory K prefix is
+// min(cap, base + stride * ordinal). Sum it analytically, without unrolling
+// kernels or sampling endpoints as a proxy for a nonlinear expression.
+// More general piecewise/multi-axis cases retain the nominal cost bound.
+[[nodiscard]] std::optional<double> mean_extent(
+    const tvm::PrimExpr &expression, luisa::span<const tvm::tirx::ForNode *const> domain) {
+    tvm::arith::Analyzer analyzer;
+    tvm::ffi::Array<tvm::tirx::PrimVar> variables;
+    for (auto loop : domain) {
+        auto minimum = loop->min.as<tvm::IntImmNode>();
+        auto extent = loop->extent.as<tvm::IntImmNode>();
+        auto step = loop->step ? loop->step.value().as<tvm::IntImmNode>() : nullptr;
+        if (minimum == nullptr || extent == nullptr || extent->value <= 0 || loop->kind != tvm::tirx::ForKind::kSerial ||
+            loop->thread_binding || (loop->step && (step == nullptr || step->value != 1))) { return {}; }
+        if (minimum->value > std::numeric_limits<int64_t>::max() - (extent->value - 1)) { return {}; }
+        analyzer->Bind(loop->loop_var, tvm::Range::FromMinExtent(loop->min, loop->extent));
+        variables.push_back(loop->loop_var);
+    }
+    auto value = analyzer->Simplify(expression);
+    if (auto constant = value.as<tvm::IntImmNode>()) {
+        return constant->value > 0 ? std::optional{static_cast<double>(constant->value)} : std::nullopt;
+    }
+    auto cap = std::numeric_limits<int64_t>::max();
+    // Preserve the original cap before simplifying its affine operand.
+    // Canonical simplification may turn min(c - i*s, k) into c - max(i*s, c-k).
+    auto minimum = expression.as<tvm::tirx::MinNode>();
+    if (minimum == nullptr) { minimum = value.as<tvm::tirx::MinNode>(); }
+    if (minimum != nullptr) {
+        auto constant = minimum->a.as<tvm::IntImmNode>();
+        auto linear = minimum->b;
+        if (constant == nullptr) {
+            constant = minimum->b.as<tvm::IntImmNode>();
+            linear = minimum->a;
+        }
+        if (constant == nullptr || constant->value <= 0) { return {}; }
+        cap = constant->value;
+        value = analyzer->Simplify(linear);
+    }
+    static auto detect_linear = tvm::ffi::Function::GetGlobalRequired("arith.DetectLinearEquation");
+    auto coefficients = detect_linear(value, variables).cast<tvm::ffi::Array<tvm::PrimExpr>>();
+    if (coefficients.size() != variables.size() + 1u) { return {}; }
+    const tvm::tirx::ForNode *varying = nullptr;
+    auto stride = int64_t{0};
+    for (auto i = 0u; i < variables.size(); i++) {
+        auto coefficient = analyzer->Simplify(coefficients[i]);
+        auto constant = coefficient.as<tvm::IntImmNode>();
+        if (constant == nullptr) { return {}; }
+        if (constant->value != 0) {
+            if (varying != nullptr || constant->value == std::numeric_limits<int64_t>::min()) { return {}; }
+            varying = domain[i];
+            stride = std::abs(constant->value);
+        }
+    }
+    if (varying == nullptr) { return {}; }
+    auto count = varying->extent.as<tvm::IntImmNode>()->value;
+    auto first = analyzer->Simplify(tvm::tirx::Substitute(value, Coordinates{{varying->loop_var, varying->min}}));
+    auto last = analyzer->Simplify(tvm::tirx::Substitute(value, Coordinates{{varying->loop_var, varying->min + varying->extent - 1}}));
+    auto a = first.as<tvm::IntImmNode>();
+    auto b = last.as<tvm::IntImmNode>();
+    if (a == nullptr || b == nullptr || a->value <= 0 || b->value <= 0) { return {}; }
+    auto low = std::min(a->value, b->value);
+    auto high = std::max(a->value, b->value);
+    if (low >= cap) { return static_cast<double>(cap); }
+    if (high <= cap) { return 0.5 * static_cast<double>(low) + 0.5 * static_cast<double>(high); }
+    auto uncapped = (cap - low) / stride + 1;
+    auto fraction = static_cast<double>(uncapped) / static_cast<double>(count);
+    auto last_uncapped = low + (uncapped - 1) * stride;
+    return fraction * (0.5 * static_cast<double>(low) + 0.5 * static_cast<double>(last_uncapped)) +
+           (1.0 - fraction) * static_cast<double>(cap);
+}
+
 [[gnu::noinline]] int32_t native_fragment_index(const tvm::tirx::Layout &layout,
                                                 const tvm::ffi::Array<tvm::PrimExpr> &shape, int64_t row, int64_t column) {
     auto placement = layout->Apply({tvm::IntImm::Int64(row), tvm::IntImm::Int64(column)}, shape);
@@ -594,7 +667,12 @@ std::optional<MatrixWorkload> metal_matrix_workload(
     const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer,
     bool bounded_k, luisa::span<const tvm::tirx::ForNode *const> ancestors) {
     if (auto matched = match_metal_matrix(loop, map_buffer, bounded_k, ancestors)) {
-        return MatrixWorkload{static_cast<uint64_t>(matched->m), static_cast<uint64_t>(matched->n), static_cast<uint64_t>(matched->k)};
+        MatrixWorkload result{static_cast<uint64_t>(matched->m), static_cast<uint64_t>(matched->n), static_cast<uint64_t>(matched->k)};
+        result.overwrites_accumulator = !matched->c && is_positive_zero(matched->initial);
+        if (matched->reduction_length.defined()) {
+            if (auto mean = mean_extent(matched->reduction_length, ancestors)) { result.mean_contraction = *mean; }
+        }
+        return result;
     }
     return {};
 }

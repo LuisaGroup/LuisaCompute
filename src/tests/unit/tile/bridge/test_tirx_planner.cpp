@@ -482,6 +482,108 @@ void test_realization_fragment_state_budget() {
     expect(!plan_group(work, {32u, 32u, work.shared_memory_bytes - 1u}, options, MatrixCostBasis::METAL_MPP_MEMORY));
 }
 
+void test_realized_matrix_work() {
+    GroupWorkload work;
+    work.programs = 1u;
+    work.max_independent_elements = 2048u;
+    work.shared_memory_bytes = 16384u;
+    work.matrices.push_back({32u, 64u, 32u, 3u, 3u, true, false, 17.0 / 3.0, 6144u, 4096u});
+    work.independent_elements = 6144u + 4096u + 17u;
+    PlannerOptions options;
+    options.threads_per_group = 32u;
+    options.max_fragment_scalars_per_lane = 128u;
+    options.cost.preferred_fragment_scalars_per_lane = 128u;
+    ExecutionLimits limits{32u, 32u, work.shared_memory_bytes};
+    for (auto basis : {MatrixCostBasis::SIMDGROUP_REFERENCE, MatrixCostBasis::METAL_MPP_MEMORY}) {
+        for (auto retain : {false, true}) {
+            for (auto direct : {false, true}) {
+                options.retain_accumulators = retain;
+                options.direct_accumulator_store = direct;
+                auto result = plan_group(work, limits, options, basis);
+                expect(result.ok()) << result.error;
+                if (!result) { continue; }
+                expect(result.plan.matrices[0].rectangular());
+                auto elided = (retain ? 6144u : 0u) + (retain && direct ? 4096u : 0u);
+                expect(eq(result.plan.cost.elided_independent_elements, static_cast<double>(elided)));
+                expect(eq(result.plan.cost.independent_elements, static_cast<double>(work.independent_elements - elided)));
+                expect(eq(result.plan.cost.nominal_matrix_issues, 32.0 * 12.0));
+                auto physical = basis == MatrixCostBasis::METAL_MPP_MEMORY ? 32.0 * 17.0 / 8.0 : 32.0 * 12.0;
+                expect(std::abs(result.plan.cost.matrix_issues - physical) < 1e-10);
+                expect(eq(result.plan.cost.direct_fragment_stores, retain && direct ? 32.0 : 0.0));
+            }
+        }
+    }
+    // A direct-only overwrite proof must not discount initialization if the
+    // candidate retains the scalar fill and loads C instead.
+    auto &matrix = work.matrices[0];
+    matrix.executions = matrix.accumulator_iterations = 1u;
+    matrix.overwrites_accumulator = true;
+    matrix.recurrence_elements = 2048u;
+    options.direct_accumulator_store = false;
+    auto shared = plan_group(work, limits, options, MatrixCostBasis::METAL_MPP_MEMORY);
+    expect(shared.ok() && shared.plan.cost.accumulator_initializations == 32.0);
+    options.direct_accumulator_store = true;
+    auto direct = plan_group(work, limits, options, MatrixCostBasis::METAL_MPP_MEMORY);
+    expect(direct.ok() && direct.plan.cost.accumulator_initializations == 0.0);
+    // Invalid accounting cannot subtract another operation's work or wrap.
+    matrix.direct_output_elements = work.independent_elements;
+    expect(!plan_group(work, limits, options));
+    matrix.direct_output_elements = 4096u;
+    for (auto invalid : {-1.0, 33.0, std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity()}) {
+        matrix.mean_contraction = invalid;
+        expect(!plan_group(work, limits, options));
+    }
+}
+
+void test_realized_work_pareto_objective() {
+    // Independent enumeration of two atom/reference choices per operation.
+    // The two identical output footprints have different recurrence counts
+    // and K work, so released storage alone does not determine scalar savings.
+    for (auto scalar_cost : {0.0, 0.1, 1.0, 10.0}) {
+        for (auto required_resident : {0u, 1u, 2u}) {
+            GroupWorkload work;
+            work.programs = 1u;
+            work.max_independent_elements = 2048u;
+            work.shared_memory_bytes = 32768u;
+            work.matrices = {{32u, 64u, 8u, 1u, 1u, true, true, 0.0, 2048u, 4096u},
+                             {32u, 64u, 32u, 7u, 7u, true, false, 0.0, 14336u, 4096u}};
+            work.independent_elements = 24576u + 19u;
+            PlannerOptions options;
+            options.threads_per_group = 32u;
+            options.max_fragment_scalars_per_lane = 88u;
+            options.cost.preferred_fragment_scalars_per_lane = 8u;
+            // Neutralize the separate subgroup-count prior: this oracle
+            // enumerates state pressure and retained work, not that prior.
+            options.cost.preferred_subgroups = 1u;
+            options.cost.independent_element = scalar_cost;
+            ExecutionLimits limits{32u, 32u, work.shared_memory_bytes - required_resident * 16384u};
+            auto best = std::numeric_limits<double>::infinity();
+            for (auto choices = 0u; choices < 4u; choices++) {
+                auto resident = (choices & 1u) + ((choices >> 1u) & 1u);
+                if (resident < required_resident) { continue; }
+                auto score = 19.0 * scalar_cost + 8.0;
+                for (auto index = 0u; index < 2u; index++) {
+                    auto &matrix = work.matrices[index];
+                    auto steps = static_cast<double>(matrix.contraction / 8u * matrix.executions);
+                    if ((choices & (1u << index)) != 0u) {
+                        score += (32.0 * steps + 2.0 * (12.0 * steps + 32.0)) * 11.0;
+                    } else {
+                        score += 32.0 * steps + 2.0 * (64.0 * steps + 64.0 * matrix.executions) +
+                                 (matrix.recurrence_elements + matrix.direct_output_elements) * scalar_cost;
+                    }
+                }
+                best = std::min(best, score);
+            }
+            auto planned = plan_group(work, limits, options);
+            expect(planned.ok()) << planned.error;
+            if (planned) {
+                expect(std::abs(planned.plan.cost.kernel_score - best) < 1e-8)
+                    << scalar_cost << required_resident << planned.plan.cost.kernel_score << best;
+            }
+        }
+    }
+}
+
 void test_reduction_access_service_policy() {
     ReductionCandidate candidate;
     candidate.scalar_rounds = 12.0;
@@ -584,6 +686,8 @@ int main(int argc, char *argv[]) {
     "tile_planner_mpp_cost_basis_and_shape_ranking"_test = [] { test_mpp_cost_basis_and_shape_ranking(); };
     "tile_planner_mpp_subgroup_critical_path_and_machine_waves"_test = [] { test_mpp_subgroup_critical_path_and_machine_waves(); };
     "tile_planner_realization_fragment_state_budget"_test = [] { test_realization_fragment_state_budget(); };
+    "tile_planner_realized_matrix_work"_test = [] { test_realized_matrix_work(); };
+    "tile_planner_realized_work_pareto_objective"_test = [] { test_realized_work_pareto_objective(); };
     "tile_planner_backend_cost_policy"_test = [] { test_backend_cost_policy(); };
     "tile_planner_reduction_access_service_policy"_test = [] { test_reduction_access_service_policy(); };
     "tile_planner_reduction_machine_cost"_test = [] { test_reduction_machine_cost(); };

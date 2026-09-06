@@ -83,8 +83,14 @@ the same uncommitted barrier edit, documented with the artifact fingerprints.
 The [realization-state budget correction](results.md#mpp-state-budget-and-candidate-admission)
 then expands a fixed MPP search from 6 to 10 valid candidates per shape by
 removing nonexistent A/B fragment charges. Correctness and source controls
-pass, but unstable exploratory timing prevents a new performance claim;
-held-out and balanced acceptance remain pending. No cost calibration changes.
+pass, but unstable exploratory timing prevents a new performance claim.
+The subsequent [realized-work model](results.md#realization-derived-work-and-model-selection)
+prices proved physical K and candidate-specific scalar-loop elimination,
+with no coefficient fitting. Its eight-shape model-selection/frozen-replay
+study records 3.88–17.75% median GPU batch-time reductions on three changed
+choices (six wins each), with five identical-source controls. All eight GPU
+medians still lose to Torch. It does not establish general Torch/MPS parity
+or improve the independent native/SIMD routes by implication.
 
 The [K/walk diagnostics](results.md#k-partition-and-program-walks-diagnostics-not-new-defaults)
 find shape-dependent K sensitivity, reject simple row-stripe traversal, and
