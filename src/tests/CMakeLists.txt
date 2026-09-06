@@ -779,6 +779,8 @@ luisa_compute_add_test(test_coro_soa_layout     unit/coro/test_coro_soa_layout.c
 luisa_compute_add_test(test_coro_wavefront      unit/coro/test_coro_wavefront.cpp)
 luisa_compute_add_test(test_coro_wavefront_auxiliary_pipeline
         unit/coro/test_coro_wavefront_auxiliary_pipeline.cpp)
+luisa_compute_add_test(test_coro_wavefront_resume_annotation
+        unit/coro/test_coro_wavefront_resume_annotation.cpp)
 luisa_compute_add_test(test_coro_radix_sort     unit/coro/test_coro_radix_sort.cpp)
 luisa_compute_add_test(test_coro_all_schedulers unit/coro/test_coro_all_schedulers.cpp)
 foreach (_target test_coro_wavefront test_coro_all_schedulers)

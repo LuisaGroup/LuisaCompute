@@ -15,6 +15,15 @@ using namespace boost::ut;
 
 namespace {
 
+class ResumeAnnotation final : public WavefrontCoroSchedulerExtensionHandler {
+public:
+    [[nodiscard]] string_view name() const noexcept override { return "producer annotation"; }
+    [[nodiscard]] WavefrontCoroExtensionExecution execution() const noexcept override {
+        return WavefrontCoroExtensionExecution::before_resume;
+    }
+    void dispatch(const WavefrontCoroExtensionDispatchContext &) noexcept override {}
+};
+
 // One pool, three independently scheduled stages. This deliberately uses a
 // tiny stable-slot allocator: no renderer, tracing, or floating-point code is
 // involved in the admission and scheduling counterexample.
@@ -184,16 +193,25 @@ int main(int argc, char *argv[]) {
         auto &device = dc.device;
         auto stream = device.create_stream();
         for (auto soa : {false, true}) {
-            for (auto incremental : {false, true}) {
+            for (auto mode = 0u; mode < 6u; ++mode) {
+                auto annotated = mode >= 3u;
                 auto visits = device.create_buffer<uint>(N * 3u);
                 auto diagnostics = device.create_buffer<uint>(N + 2u);
                 auto work = luisa::make_shared<Pipeline>(device, capacity);
                 auto coro = Coroutine<void(Buffer<uint>, Buffer<uint>)>(
-                    [work, capacity](BufferUInt, BufferUInt diagnostics) {
+                    [work, capacity, annotated](BufferUInt, BufferUInt diagnostics) {
                         auto id = dispatch_x();
-                        $suspend("sparse_publish");
+                        if (annotated) {
+                            $suspend("sparse_publish", coro_annotation("luisa.test.producer").read("id", id));
+                        } else {
+                            $suspend("sparse_publish");
+                        }
                         $if(id % capacity == 0u) { work->publish(id, 2u, diagnostics); };
-                        $suspend("dense_publish");
+                        if (annotated) {
+                            $suspend("dense_publish", coro_annotation("luisa.test.producer").read("id", id));
+                        } else {
+                            $suspend("dense_publish");
+                        }
                         work->publish(id, 0u, diagnostics);
                         $suspend("main_after_publish");
                         work->observe_independent_main(diagnostics);
@@ -208,15 +226,22 @@ int main(int argc, char *argv[]) {
                      .report_stats = true,
                      .execution_block_size = 32u,
                      .largest_continuation_first = true,
-                     .incremental_continuation_counts = incremental}};
+                     .incremental_continuation_counts = mode % 3u != 0u,
+                     .fused_continuation_counts = mode % 3u == 2u}};
                 scheduler.register_auxiliary_work(work);
+                if (annotated) {
+                    scheduler.register_extension_handler(stream, [](auto &, auto &)
+                                                             -> unique_ptr<WavefrontCoroSchedulerExtensionHandler> {
+                        return make_unique<ResumeAnnotation>();
+                    });
+                }
                 // Reuse also checks reset after a completely drained dispatch.
                 for (auto repeat = 0u; repeat < 2u; ++repeat) {
                     luisa::vector<uint> host_visits(N * 3u, 0u);
                     luisa::vector<uint> host_diagnostics(N + 2u, 0u);
                     stream << visits.copy_from(span{host_visits})
                            << diagnostics.copy_from(span{host_diagnostics});
-                    scheduler(visits, diagnostics).dispatch(N)(stream);
+                    stream << scheduler(visits, diagnostics).dispatch(N);
                     stream << visits.copy_to(span{host_visits})
                            << diagnostics.copy_to(span{host_diagnostics})
                            << synchronize();

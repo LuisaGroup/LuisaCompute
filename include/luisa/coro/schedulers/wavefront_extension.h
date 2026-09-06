@@ -15,10 +15,11 @@ namespace luisa::compute::coro {
 
 /// Stable scheduler identity for one Extension at one static suspend site.
 ///
-/// The complete normalized Extension remains owned by CoroGraph. This view
+/// The complete normalized Extension is retained in the scheduler's immutable
+/// copy of the CoroGraph boundary descriptors. This view
 /// only joins it with the compiler-proved partial-frame dataflow and the
 /// scheduler queue that will execute the stage. It never allocates another
-/// copy of an Extension binding or frame slot.
+/// frame slot. It remains valid after the source Coroutine is destroyed.
 struct WavefrontCoroExtensionStage {
     size_t queue_index{0u};
     const CoroGraph::Boundary *boundary{nullptr};
@@ -77,6 +78,13 @@ struct WavefrontCoroExtensionDispatchContext {
     const WavefrontCoroExtensionStage &stage;
 };
 
+enum class WavefrontCoroExtensionExecution : uint8_t {
+    // Independent scheduler queue; only frame effects survive a later gather.
+    stage,
+    // A read-only annotation suffix, executed together with its continuation.
+    before_resume
+};
+
 /// One prepared handler for one static suspend Extension stage.
 ///
 /// WavefrontCoroScheduler::register_extension_handler accepts a facade
@@ -95,14 +103,37 @@ struct WavefrontCoroExtensionDispatchContext {
 /// Stage::required_writeback_slot_span() before returning. The scheduler owns
 /// frame allocation, queue selection, stage ordering, and continuation resume;
 /// handlers own only their external operation and explicitly bound resources.
+///
+/// A before_resume handler must implement a read-only annotation. Such
+/// handlers must form a suffix of the handled Extensions at a static suspend
+/// boundary. The scheduler selects this suffix and its target continuation as
+/// one unit: there is no gather, refill, or relocation between handlers and
+/// resume. Different static boundaries retain their own typed binding plans.
+///
+/// dispatch_queue() may return a different buffer view, but it must contain
+/// an exact permutation of the input queue (same membership and cardinality).
+/// The view and its storage must stay valid until the enqueued work completes.
+/// The returned view is passed directly to the next handler or continuation.
+/// Ordinary stage handlers still make no ordering promise across a later
+/// gather. Existing handlers can continue to override only dispatch().
 class WavefrontCoroSchedulerExtensionHandler {
 
 public:
     virtual ~WavefrontCoroSchedulerExtensionHandler() noexcept = default;
 
     [[nodiscard]] virtual luisa::string_view name() const noexcept = 0;
+    [[nodiscard]] virtual WavefrontCoroExtensionExecution execution() const noexcept {
+        return WavefrontCoroExtensionExecution::stage;
+    }
     virtual void dispatch(
-        const WavefrontCoroExtensionDispatchContext &context) noexcept = 0;
+        const WavefrontCoroExtensionDispatchContext &) noexcept {
+        LUISA_ERROR_WITH_LOCATION("Extension handler must implement dispatch or dispatch_queue.");
+    }
+    [[nodiscard]] virtual BufferView<uint> dispatch_queue(
+        const WavefrontCoroExtensionDispatchContext &context) noexcept {
+        dispatch(context);
+        return context.frame_indices;
+    }
 };
 
 }// namespace luisa::compute::coro
