@@ -1,4 +1,7 @@
 #pragma once
+#include <array>
+#include <utility>
+#include <luisa/core/concepts.h>
 #include <luisa/runtime/rhi/device_interface.h>
 #include <luisa/runtime/rhi/command.h>
 #include <luisa/runtime/byte_buffer.h>
@@ -225,6 +228,353 @@ public:
             std::move(_argument_usages));
     }
 };
+
+// Attaches an explicit Usage to a resource argument. NVRTC-compiled CUDA
+// kernels have no AST, so read/write intent cannot be inferred like in the
+// DSL; use the read()/write()/read_write() helpers at the call site, or pass
+// a bare view (which defaults to READ_WRITE).
+template<typename T>
+struct UsageArg {
+    T resource;
+    Usage usage;
+};
+
+// Per-argument adapter carrying a view and its usage through the
+// CudaKernelInvoke ratchet. Typed kernels (CudaKernelT) construct these
+// internally from the usage baked into their signature; the untyped path
+// accepts bare views (READ_WRITE) or usage-tagged views (read()/write()/
+// read_write()).
+template<typename View>
+struct ResourceArg {
+    View view;
+    Usage usage;
+    ResourceArg(View v) noexcept
+        : view{v}, usage{Usage::READ_WRITE} {}
+    ResourceArg(UsageArg<View> a) noexcept
+        : view{a.resource}, usage{a.usage} {}
+};
+
+namespace detail {
+
+// Resource types accepted by the typed CUDA kernel launch API. Everything
+// else that is trivially copyable is packed as a by-value uniform.
+template<typename T>
+struct is_cuda_launch_resource : std::false_type {};
+template<typename T>
+struct is_cuda_launch_resource<BufferView<T>> : std::true_type {};
+template<typename T>
+struct is_cuda_launch_resource<Buffer<T>> : std::true_type {};
+template<typename T>
+struct is_cuda_launch_resource<ImageView<T>> : std::true_type {};
+template<typename T>
+struct is_cuda_launch_resource<Image<T>> : std::true_type {};
+template<typename T>
+struct is_cuda_launch_resource<VolumeView<T>> : std::true_type {};
+template<typename T>
+struct is_cuda_launch_resource<Volume<T>> : std::true_type {};
+template<>
+struct is_cuda_launch_resource<ByteBuffer> : std::true_type {};
+template<>
+struct is_cuda_launch_resource<ByteBufferView> : std::true_type {};
+
+template<typename T>
+inline constexpr auto is_cuda_launch_resource_v =
+    is_cuda_launch_resource<std::remove_cvref_t<T>>::value;
+
+// Maps owning resources to their view types; views map to themselves.
+template<typename T>
+struct cuda_resource_view {
+    using type = T;
+};
+template<typename T>
+struct cuda_resource_view<Buffer<T>> {
+    using type = BufferView<T>;
+};
+template<>
+struct cuda_resource_view<ByteBuffer> {
+    using type = ByteBufferView;
+};
+template<typename T>
+struct cuda_resource_view<Image<T>> {
+    using type = ImageView<T>;
+};
+template<typename T>
+struct cuda_resource_view<Volume<T>> {
+    using type = VolumeView<T>;
+};
+template<typename T>
+using cuda_resource_view_t = typename cuda_resource_view<std::remove_cvref_t<T>>::type;
+
+template<typename T>
+struct is_cuda_launch_texture : std::false_type {};
+template<typename T>
+struct is_cuda_launch_texture<ImageView<T>> : std::true_type {};
+template<typename T>
+struct is_cuda_launch_texture<VolumeView<T>> : std::true_type {};
+template<typename T>
+inline constexpr auto is_cuda_launch_texture_v =
+    is_cuda_launch_texture<std::remove_cvref_t<T>>::value;
+
+template<typename T>
+struct is_usage_arg : std::false_type {};
+template<typename T>
+struct is_usage_arg<UsageArg<T>> : std::true_type {};
+template<typename T>
+struct is_resource_arg : std::false_type {};
+template<typename T>
+struct is_resource_arg<ResourceArg<T>> : std::true_type {};
+
+// True when the signature parameter is a resource type (owning or view).
+template<typename T>
+inline constexpr auto is_cuda_arg_resource_v =
+    is_cuda_launch_resource_v<T> ||
+    is_cuda_launch_resource_v<cuda_resource_view_t<T>>;
+
+}// namespace detail
+
+///@name Usage tagging helpers for typed CUDA kernel launches
+///@{
+template<typename T>
+[[nodiscard]] UsageArg<BufferView<T>> read(BufferView<T> view) noexcept { return {view, Usage::READ}; }
+template<typename T>
+[[nodiscard]] UsageArg<BufferView<T>> write(BufferView<T> view) noexcept { return {view, Usage::WRITE}; }
+template<typename T>
+[[nodiscard]] UsageArg<BufferView<T>> read_write(BufferView<T> view) noexcept { return {view, Usage::READ_WRITE}; }
+template<typename T>
+[[nodiscard]] UsageArg<ImageView<T>> read(ImageView<T> view) noexcept { return {view, Usage::READ}; }
+template<typename T>
+[[nodiscard]] UsageArg<ImageView<T>> write(ImageView<T> view) noexcept { return {view, Usage::WRITE}; }
+template<typename T>
+[[nodiscard]] UsageArg<ImageView<T>> read_write(ImageView<T> view) noexcept { return {view, Usage::READ_WRITE}; }
+template<typename T>
+[[nodiscard]] UsageArg<VolumeView<T>> read(VolumeView<T> view) noexcept { return {view, Usage::READ}; }
+template<typename T>
+[[nodiscard]] UsageArg<VolumeView<T>> write(VolumeView<T> view) noexcept { return {view, Usage::WRITE}; }
+template<typename T>
+[[nodiscard]] UsageArg<VolumeView<T>> read_write(VolumeView<T> view) noexcept { return {view, Usage::READ_WRITE}; }
+[[nodiscard]] inline UsageArg<ByteBufferView> read(ByteBufferView view) noexcept { return {view, Usage::READ}; }
+[[nodiscard]] inline UsageArg<ByteBufferView> write(ByteBufferView view) noexcept { return {view, Usage::WRITE}; }
+[[nodiscard]] inline UsageArg<ByteBufferView> read_write(ByteBufferView view) noexcept { return {view, Usage::READ_WRITE}; }
+///@}
+
+// DSL-style ratchet over KernelLauncher: arguments are fold-encoded through
+// operator<< (mirroring detail::ShaderInvokeBase), and the rvalue-qualified
+// dispatch(...) builds the CudaKernelLaunchCommand.
+class CudaKernelInvoke {
+
+private:
+    KernelLauncher _launcher;
+    uint64_t _function;
+
+    template<typename R>
+    static void _encode_resource(KernelLauncher &launcher, R &&resource, Usage usage) noexcept {
+        using Res = std::remove_cvref_t<R>;
+        using View = detail::cuda_resource_view_t<Res>;
+        static_assert(detail::is_cuda_launch_resource_v<Res>,
+                      "CUDA kernel launch arguments must be buffers, images, "
+                      "volumes, or trivially-copyable uniforms.");
+        // Owning resources are converted to views; views pass through.
+        auto view = [&]() noexcept -> View {
+            if constexpr (std::is_same_v<Res, View>) {
+                return resource;
+            } else {
+                return resource.view();
+            }
+        }();
+        if constexpr (detail::is_cuda_launch_texture_v<View>) {
+            launcher.add_texture(view.handle(), view.level(), usage);
+        } else {
+            launcher.add_buffer(view.handle(), view.offset_bytes(), view.size_bytes(), usage);
+        }
+    }
+
+public:
+    explicit CudaKernelInvoke(uint64_t cuda_function_handle) noexcept
+        : _function{cuda_function_handle} {}
+    CudaKernelInvoke(CudaKernelInvoke const &) = delete;
+    CudaKernelInvoke(CudaKernelInvoke &&) noexcept = default;
+
+    // Usage-tagged resource arguments.
+    template<typename R>
+    CudaKernelInvoke &operator<<(UsageArg<R> arg) noexcept {
+        _encode_resource(_launcher, arg.resource, arg.usage);
+        return *this;
+    }
+    // Typed-kernel resource arguments (bare or usage-tagged).
+    template<typename R>
+    CudaKernelInvoke &operator<<(ResourceArg<R> arg) noexcept {
+        _encode_resource(_launcher, arg.view, arg.usage);
+        return *this;
+    }
+    // Bare resource arguments default to READ_WRITE (barrier-safe).
+    template<typename R>
+        requires detail::is_cuda_launch_resource_v<R>
+    CudaKernelInvoke &operator<<(R &&resource) noexcept {
+        _encode_resource(_launcher, std::forward<R>(resource), Usage::READ_WRITE);
+        return *this;
+    }
+    // Trivially-copyable by-value uniforms.
+    template<typename T>
+        requires(!detail::is_cuda_launch_resource_v<T> &&
+                 !detail::is_usage_arg<std::remove_cvref_t<T>>::value &&
+                 !detail::is_resource_arg<std::remove_cvref_t<T>>::value &&
+                 std::is_trivially_copyable_v<std::remove_cvref_t<T>>)
+    CudaKernelInvoke &operator<<(T &&value) noexcept {
+        _launcher.add_uniform(std::forward<T>(value));
+        return *this;
+    }
+
+    // CUDA launches need both grid and block dimensions (unlike the DSL's
+    // thread-count dispatch). Returns the same command type as
+    // KernelLauncher::build, so `stream << ...` works unchanged.
+    [[nodiscard]] luisa::unique_ptr<CudaKernelLaunchCommand>
+    dispatch(uint3 grid_dim, uint3 block_dim, uint32_t shared_mem_bytes = 0u) && noexcept {
+        return std::move(_launcher).build(_function, grid_dim, block_dim, shared_mem_bytes);
+    }
+    // Ergonomic 1D overload: grid = ceil(thread_count_x / block_dim.x).
+    [[nodiscard]] luisa::unique_ptr<CudaKernelLaunchCommand>
+    dispatch(uint32_t thread_count_x, uint3 block_dim, uint32_t shared_mem_bytes = 0u) && noexcept {
+        LUISA_ASSERT(block_dim.x > 0u, "CUDA kernel launch block dimension must be nonzero.");
+        auto grid = uint3{(thread_count_x + block_dim.x - 1u) / block_dim.x, 1u, 1u};
+        return std::move(*this).dispatch(grid, block_dim, shared_mem_bytes);
+    }
+};
+
+// Untyped DSL-style CUDA kernel: `cuda_kernel(args...).dispatch(grid, block)`.
+// Usage must be supplied via read()/write()/read_write() wrappers, or bare
+// views default to READ_WRITE.
+class CudaKernel {
+
+protected:
+    uint64_t _handle;
+
+public:
+    explicit CudaKernel(uint64_t cuda_function_handle) noexcept
+        : _handle{cuda_function_handle} {}
+
+    template<typename... Args>
+    [[nodiscard]] CudaKernelInvoke operator()(Args &&...args) const noexcept {
+        CudaKernelInvoke invoke{_handle};
+        static_cast<void>((invoke << ... << std::forward<Args>(args)));
+        return invoke;
+    }
+};
+
+// Usage-carrying signature parameter for typed CUDA kernels. A kernel's
+// per-argument read/write intent is a property of the kernel signature, not
+// of an individual launch, so it is declared once when creating the typed
+// kernel (create_cuda_kernel(...).kernel<CudaArg<Buffer<float>, Usage::READ>,
+// ...>()) and baked into the CudaKernelT instance; dispatch sites then pass
+// bare views only, mirroring the DSL where usage is inferred from the
+// compiled kernel and never appears at the call site.
+template<typename T, Usage U = Usage::READ_WRITE>
+struct CudaArg {
+    using resource_type = std::remove_cvref_t<T>;
+    static constexpr auto usage = U;
+};
+
+// Traits mapping a declared typed-kernel signature parameter to its call-site
+// argument type and baked usage:
+// - CudaArg<T, U> (T an owning resource or view): call site passes the bare
+//   view; usage is U.
+// - bare resource type (Buffer<float>, ByteBuffer, Image<float>,
+//   Volume<float>, BufferView<float>, ...): same, defaulting to READ_WRITE
+//   (barrier-safe, matching the untyped path's bare-view behavior).
+// - anything else (trivially-copyable scalars/aggregates): passed by const
+//   reference as a by-value uniform; carries no usage.
+template<typename T>
+struct cuda_arg_traits {
+    using type = std::remove_cvref_t<T>;
+    static constexpr bool is_resource = detail::is_cuda_arg_resource_v<type>;
+    static constexpr Usage usage = Usage::READ_WRITE;
+    using view_type = std::conditional_t<is_resource,
+                                         detail::cuda_resource_view_t<type>,
+                                         void>;
+    using arg_type = std::conditional_t<is_resource, view_type, const type &>;
+};
+template<typename T, Usage U>
+struct cuda_arg_traits<CudaArg<T, U>> {
+    using type = std::remove_cvref_t<T>;
+    static_assert(detail::is_cuda_arg_resource_v<type>,
+                  "CudaArg<T, U> requires a CUDA launch resource type "
+                  "(buffer/image/volume/byte-buffer, owning or view).");
+    static constexpr bool is_resource = true;
+    static constexpr Usage usage = U;
+    using view_type = detail::cuda_resource_view_t<type>;
+    using arg_type = view_type;
+};
+template<typename T>
+using cuda_arg_traits_t = cuda_arg_traits<std::remove_cvref_t<T>>;
+
+// Typed DSL-style CUDA kernel mirroring Shader<dim, Args...>: the host-side
+// argument list is checked against the declared signature, and each resource
+// parameter's Usage is declared in the signature (via CudaArg<T, U>, or
+// READ_WRITE for a bare resource type) and baked into the instance — dispatch
+// sites pass bare views only. Declare by-value parameters as their scalar
+// types. The CUDA source itself is opaque, so this checks shape, not the
+// device signature (same trust level as AOT Shader<dim, Args...> loaded from
+// file); the declared usages are likewise trusted, not verified against the
+// NVRTC source. Per-launch usage overrides are only available through the
+// untyped CudaKernel / KernelLauncher path.
+template<concepts::non_cvref... Args>
+class CudaKernelT final : public CudaKernel {
+
+private:
+    template<typename Arg, typename A>
+    static void _encode_arg(CudaKernelInvoke &invoke, A &&arg) noexcept {
+        using traits = cuda_arg_traits_t<Arg>;
+        if constexpr (traits::is_resource) {
+            // Construct ResourceArg explicitly so overload resolution against
+            // CudaKernelInvoke::operator<< is deterministic.
+            invoke << ResourceArg<typename traits::view_type>{
+                UsageArg<typename traits::view_type>{arg, traits::usage}};
+        } else {
+            invoke << arg;
+        }
+    }
+
+    // Positional pairing of Args... with the call-site arguments; a plain
+    // comma fold would lose the per-position Arg association.
+    template<size_t... I>
+    [[nodiscard]] CudaKernelInvoke _invoke(std::index_sequence<I...>,
+                                           typename cuda_arg_traits_t<Args>::arg_type... args) const noexcept {
+        CudaKernelInvoke invoke{this->_handle};
+        (static_cast<void>(I, _encode_arg<Args>(invoke, args)), ...);
+        return invoke;
+    }
+
+public:
+    using CudaKernel::CudaKernel;
+
+    [[nodiscard]] static constexpr size_t arg_count() noexcept {
+        return sizeof...(Args);
+    }
+
+    // The per-resource-argument usages baked into this instance, in argument
+    // order (uniform parameters are skipped), matching the layout of
+    // CudaKernelLaunchCommand::argument_usages().
+    [[nodiscard]] static constexpr auto argument_usages() noexcept {
+        std::array<Usage, (0u + ... + (cuda_arg_traits_t<Args>::is_resource ? 1u : 0u))> usages{};
+        auto index = 0u;
+        auto append = [&index, &usages]<typename Arg>() noexcept {
+            if constexpr (cuda_arg_traits_t<Arg>::is_resource) {
+                usages[index++] = cuda_arg_traits_t<Arg>::usage;
+            }
+        };
+        (append.template operator()<Args>(), ...);
+        return usages;
+    }
+
+    [[nodiscard]] CudaKernelInvoke operator()(typename cuda_arg_traits_t<Args>::arg_type... args) const noexcept {
+        return _invoke(std::index_sequence_for<Args...>{}, args...);
+    }
+};
+
+// RAII owner of a CUDA kernel shader handle created through
+// VkCudaInterop::create_cuda_kernel_shader; destroys it on destruction.
+// Defined at the end of this header (needs the complete VkCudaInterop type).
+class CudaShader;
+
 }// namespace vk_cuda_interop
 
 class VkCudaInterop : public DeviceExtension {
@@ -260,6 +610,12 @@ public:
     [[nodiscard]] virtual uint64_t create_cuda_kernel_shader(
         const vk_cuda_interop::CudaKernelShaderOption &option) noexcept = 0;
     virtual void destroy_cuda_kernel_shader(uint64_t handle) noexcept = 0;
+
+    // RAII wrapper around create_cuda_kernel_shader; the returned object
+    // destroys the shader handle on destruction. Evaluates to false when
+    // CUDA kernel launch is unsupported or compilation failed.
+    [[nodiscard]] vk_cuda_interop::CudaShader create_cuda_kernel(
+        const vk_cuda_interop::CudaKernelShaderOption &option) noexcept;
 
     vk_cuda_interop::Signal vk_signal(TimelineEvent const &cuda_event, uint64_t fence_index) noexcept {
         return vk_cuda_interop::Signal{
@@ -342,5 +698,65 @@ inline void Signal::operator()(DeviceInterface *device, uint64_t stream_handle) 
 inline void Wait::operator()(DeviceInterface *device, uint64_t stream_handle) const && noexcept {
     ext->vk_wait(handle, stream_handle, fence);
 }
+
+// RAII owner of a CUDA kernel shader handle created through
+// VkCudaInterop::create_cuda_kernel_shader; destroys it on destruction.
+class CudaShader {
+
+private:
+    VkCudaInterop *_ext{nullptr};
+    uint64_t _handle{0u};
+
+    void _destroy() noexcept {
+        if (_handle != 0u) {
+            _ext->destroy_cuda_kernel_shader(_handle);
+            _handle = 0u;
+        }
+    }
+
+public:
+    CudaShader() noexcept = default;
+    CudaShader(VkCudaInterop &ext, uint64_t handle) noexcept
+        : _ext{&ext}, _handle{handle} {}
+    ~CudaShader() noexcept { _destroy(); }
+    CudaShader(CudaShader const &) = delete;
+    CudaShader &operator=(CudaShader const &) = delete;
+    CudaShader(CudaShader &&rhs) noexcept
+        : _ext{rhs._ext}, _handle{rhs._handle} {
+        rhs._handle = 0u;
+    }
+    CudaShader &operator=(CudaShader &&rhs) noexcept {
+        if (this != &rhs) {
+            _destroy();
+            _ext = rhs._ext;
+            _handle = rhs._handle;
+            rhs._handle = 0u;
+        }
+        return *this;
+    }
+    explicit operator bool() const noexcept { return _handle != 0u; }
+    [[nodiscard]] uint64_t handle() const noexcept { return _handle; }
+    uint64_t release() noexcept {
+        auto handle = _handle;
+        _handle = 0u;
+        return handle;
+    }
+    // Typed DSL-style kernel bound to this shader's handle.
+    template<concepts::non_cvref... KArgs>
+    [[nodiscard]] CudaKernelT<KArgs...> kernel() const noexcept {
+        return CudaKernelT<KArgs...>{_handle};
+    }
+    // Untyped DSL-style kernel bound to this shader's handle.
+    [[nodiscard]] CudaKernel kernel() const noexcept {
+        return CudaKernel{_handle};
+    }
+};
+
 }// namespace vk_cuda_interop
+
+inline vk_cuda_interop::CudaShader VkCudaInterop::create_cuda_kernel(
+    const vk_cuda_interop::CudaKernelShaderOption &option) noexcept {
+    return vk_cuda_interop::CudaShader{*this, create_cuda_kernel_shader(option)};
+}
+
 }// namespace luisa::compute

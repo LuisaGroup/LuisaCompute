@@ -4,9 +4,16 @@
 #include "attention_kernels.h"
 #include "attention_runner.h"
 
+#include <algorithm>
+#include <numeric>
+#include <random>
+
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
 #include <luisa/runtime/command_list.h>
+#include <luisa/runtime/sparse_buffer.h>
+#include <luisa/runtime/sparse_heap.h>
+#include <luisa/runtime/sparse_command_list.h>
 #include <luisa/dsl/syntax.h>
 
 using namespace luisa;
@@ -183,6 +190,183 @@ void run_attention(Device &device, Stream &stream, AttentionDeviceBuffers &buffe
     } else {
         run_mha(device, stream, buffers, opt, compile_clock);
     }
+}
+
+bool run_paged_attention(Device &device, Stream &stream, AttentionDeviceBuffers &buffers) {
+    // A paged_attention_block_size-thread block spans consecutive i of the
+    // same (b, h), so the block-table read in the attention kernel is
+    // block-uniform.
+    static_assert(seq_len % paged_attention_block_size == 0u,
+                  "seq_len must be a multiple of the block size");
+
+    // -- Geometry discovery --------------------------------------------------
+    // The sparse tile size is chosen by the device and only known after
+    // creating a sparse buffer; probe it before sizing the real pools.
+    auto probe = device.create_sparse_buffer<float>(1u);
+    if (!probe) [[unlikely]] {
+        LUISA_WARNING("Paged attention requires a sparse-buffer-capable backend "
+                      "(vk/cuda/dx/hip); falling back to dense MHA.");
+        return false;
+    }
+    const auto tile_bytes = probe.tile_size_bytes();
+    const auto elems_per_page = static_cast<uint>(probe.tile_size());
+    constexpr auto elems_per_token_page = num_heads * head_dim;// [h][d] slice per token
+    const auto token_capacity = elems_per_page / elems_per_token_page;
+    if (token_capacity == 0u) [[unlikely]] {
+        LUISA_WARNING("Sparse tile ({} B) cannot hold one token of all heads ({} floats); "
+                      "falling back to dense MHA.",
+                      tile_bytes, elems_per_token_page);
+        return false;
+    }
+    // tokens_per_page = vLLM block_size: the largest divisor of seq_len that
+    // fits one tile, so every page is fully packed with whole tokens.
+    const auto tokens_per_page = paged_largest_divisor(seq_len, token_capacity);
+    const auto pages_per_seq = seq_len / tokens_per_page;
+    const auto total_pages = batch * pages_per_seq;
+    // The kernel stages sub-tiles of (sub_tile * head_dim) floats filled
+    // cooperatively by one block; a degenerate geometry that cannot fill the
+    // sub-tile with the block falls back to dense MHA instead of asserting.
+    if (const auto sub_tile = paged_sub_tile(tokens_per_page);
+        (sub_tile * head_dim) % paged_attention_block_size != 0u) [[unlikely]] {
+        LUISA_WARNING("Paged geometry (tokens/page={}, sub-tile={}) is incompatible with "
+                      "the {}-thread attention block; falling back to dense MHA.",
+                      tokens_per_page, sub_tile, paged_attention_block_size);
+        return false;
+    }
+    LUISA_INFO("Paged KV: tile={} B, tokens/page={} (vLLM block_size), pages/seq={}, "
+               "total pages={}, layout [page][h][t][d]",
+               tile_bytes, tokens_per_page, pages_per_seq, total_pages);
+    if (pages_per_seq == 1u) {
+        LUISA_INFO("  Note: device tile granularity forces single-page sequences; "
+                   "the block table is still a shuffled permutation.");
+    }
+    if (const auto padding = elems_per_page - tokens_per_page * elems_per_token_page) {
+        LUISA_INFO("  Internal fragmentation: {} unused floats per tile", padding);
+    }
+
+    // -- Sparse pools, heaps, block-table buffer -----------------------------
+    // One SparseBufferHeap per physical page: the backend sparse-residency
+    // registry forbids one heap backing multiple live ranges, so a heap
+    // allocation IS a KV block here (the vLLM BlockPool block analog).
+    // Heaps are declared before the buffers they back so they are destroyed
+    // last (reverse declaration order), never outliving a mapping.
+    const auto pool_elems = static_cast<size_t>(total_pages) * elems_per_page;
+    luisa::vector<SparseBufferHeap> heaps_k(total_pages);
+    luisa::vector<SparseBufferHeap> heaps_v(total_pages);
+    for (uint p = 0u; p < total_pages; ++p) {
+        heaps_k[p] = device.allocate_sparse_buffer_heap(tile_bytes);
+        heaps_v[p] = device.allocate_sparse_buffer_heap(tile_bytes);
+    }
+    auto paged_k = device.create_sparse_buffer<float>(pool_elems);
+    auto paged_v = device.create_sparse_buffer<float>(pool_elems);
+    auto block_table_buf = device.create_buffer<uint>(total_pages);
+    if (!paged_k || !paged_v || !block_table_buf ||
+        !std::all_of(heaps_k.begin(), heaps_k.end(), [](auto &h) { return static_cast<bool>(h); }) ||
+        !std::all_of(heaps_v.begin(), heaps_v.end(), [](auto &h) { return static_cast<bool>(h); })) [[unlikely]] {
+        LUISA_WARNING("Failed to allocate sparse paged-KV resources; "
+                      "falling back to dense MHA.");
+        return false;
+    }
+
+    // -- Block table (the vLLM KVCacheManager/BlockPool analog) --------------
+    // A shuffled permutation of [0, total_pages) so physical pages are
+    // maximally scattered, proving the indirection path correct.
+    luisa::vector<uint> block_table(total_pages);
+    std::iota(block_table.begin(), block_table.end(), 0u);
+    std::shuffle(block_table.begin(), block_table.end(), std::mt19937{42});
+    // No host synchronize here: stream commands execute in FIFO order, so the
+    // single synchronize after the sparse-map commit below also covers this
+    // upload (batched submission, one host stall -- lc_optimize sec.8).
+    stream << block_table_buf.copy_from(luisa::span{block_table});
+    {
+        luisa::string mapping;
+        for (uint p = 0u; p < pages_per_seq; ++p) {
+            if (p != 0u) { mapping.append(", "); }
+            mapping.append(luisa::format("{}", block_table[p]));
+        }
+        LUISA_INFO("  Block table, seq 0: logical [0..{}) -> physical [{}]",
+                   pages_per_seq, mapping);
+    }
+
+    // -- Block allocation: map one sparse tile per physical page -------------
+    // Per-page map ops mirror vLLM's incremental per-block allocation.
+    {
+        SparseCommandList map;
+        for (uint p = 0u; p < total_pages; ++p) {
+            map << paged_k.map_tile(p, 1u, heaps_k[p])
+                << paged_v.map_tile(p, 1u, heaps_v[p]);
+        }
+        // The map commit must complete before any kernel touches the tiles.
+        stream << map.commit() << synchronize();
+    }
+
+    // -- Compile -------------------------------------------------------------
+    LUISA_INFO("Compiling paged attention kernels ...");
+    Clock compile_clock;
+    ShaderOption opt{.enable_debug_info = false};
+    opt.name = "paged_reshape_kv";
+    auto reshape_shader = device.compile(create_reshape_kv_to_paged_kernel(), opt);
+    opt.name = "paged_attention";
+    auto paged_shader = device.compile(
+        create_paged_attention_kernel(tokens_per_page, elems_per_page), opt);
+    LUISA_INFO("  Paged attention kernels compiled in {:.2f} ms", compile_clock.toc());
+
+    // -- Warm-up dispatch (not measured) -------------------------------------
+    {
+        CommandList warmup = CommandList::create();
+        warmup << reshape_shader(buffers.k_buf, buffers.v_buf,
+                                 paged_k.view(), paged_v.view(),
+                                 block_table_buf,
+                                 tokens_per_page, pages_per_seq, elems_per_page)
+                      .dispatch(qkv_size)
+               << paged_shader(buffers.q_buf, paged_k.view(), paged_v.view(),
+                               buffers.o_buf, block_table_buf, pages_per_seq)
+                      .dispatch(batch * num_heads * seq_len);
+        stream << warmup.commit() << synchronize();
+    }
+
+    // -- Timed dispatch ------------------------------------------------------
+    LUISA_INFO("Dispatching paged attention GPU kernels ...");
+    Clock dispatch_clock;
+    {
+        CommandList cmd_list = CommandList::create();
+        cmd_list << reshape_shader(buffers.k_buf, buffers.v_buf,
+                                   paged_k.view(), paged_v.view(),
+                                   block_table_buf,
+                                   tokens_per_page, pages_per_seq, elems_per_page)
+                        .dispatch(qkv_size)
+                 << paged_shader(buffers.q_buf, paged_k.view(), paged_v.view(),
+                                 buffers.o_buf, block_table_buf, pages_per_seq)
+                        .dispatch(batch * num_heads * seq_len);
+        stream << cmd_list.commit() << synchronize();
+    }
+    LUISA_INFO("  Paged GPU dispatch + sync: {:.2f} ms", dispatch_clock.toc());
+
+    // -- Eviction / reuse demo (vLLM BlockPool free-queue analog) ------------
+    const auto last_page = total_pages - 1u;
+    {
+        SparseCommandList evict;
+        evict << paged_k.unmap_tile(last_page, 1u);
+        stream << evict.commit() << synchronize();
+    }
+    LUISA_INFO("  KV block {} evicted (ref_cnt -> 0)", last_page);
+    {
+        SparseCommandList realloc_cmd;
+        realloc_cmd << paged_k.map_tile(last_page, 1u, heaps_k[last_page]);
+        stream << realloc_cmd.commit() << synchronize();
+    }
+    LUISA_INFO("  KV block {} reallocated from the block-pool free queue", last_page);
+
+    // -- Explicit teardown ---------------------------------------------------
+    // Vulkan requires no active mappings when a sparse resource or heap is
+    // destroyed; unmap everything before the locals go out of scope.
+    {
+        SparseCommandList unmap;
+        unmap << paged_k.unmap_tile(0u, total_pages)
+              << paged_v.unmap_tile(0u, total_pages);
+        stream << unmap.commit() << synchronize();
+    }
+    return true;
 }
 
 void download_output(Stream &stream, AttentionDeviceBuffers &buffers, luisa::vector<float> &output) {

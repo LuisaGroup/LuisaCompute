@@ -116,4 +116,53 @@ constexpr auto rope_index = [](uint32_t b, uint32_t h, uint32_t i, uint32_t d) c
     return std::make_pair(x0 * c - x1 * s, x0 * s + x1 * c);
 }
 
+// -- Paged KV cache (vLLM-style) -------------------------------------------
+// The paged path models vLLM's PagedAttention: the KV cache lives in
+// fixed-size physical pages (one sparse-buffer tile each). Every sequence's
+// tokens are cut into same-sized logical pages, and a block table maps each
+// logical page to a (scattered) physical page -- the OS "page table" analog.
+//
+// Physical page layout is [h][t_in_page][d]: a page holds all `num_heads`
+// heads for `tokens_per_page` tokens. Because the tile size is chosen by the
+// device at runtime, the page geometry (tokens_per_page, pages_per_seq,
+// elems_per_page) is discovered on the host and passed to the kernels as
+// runtime `uint` arguments -- it cannot be constexpr.
+//
+// In-page element offset of (head h, in-page token t, dim d):
+constexpr auto paged_page_offset = [](uint32_t h, uint32_t t, uint32_t d, uint32_t tokens_per_page) constexpr noexcept {
+    return (h * tokens_per_page + t) * head_dim + d;
+};
+// Physical element index of a page-local offset within the paged pool:
+constexpr auto paged_kv_index = [](uint32_t phys_page, uint32_t page_offset, uint32_t elems_per_page) constexpr noexcept {
+    return phys_page * elems_per_page + page_offset;
+};
+
+// Shared-memory sub-tile cap for the paged attention kernel. The real
+// sub-tile is the largest divisor of the runtime tokens_per_page that is <=
+// this cap, so the shared K/V tile stays small. 16 tokens/sub-tile pairs with
+// the kernel's 128-thread block: 16*64 floats = 8 loads/thread/fill and two
+// barriers per 16 tokens (half the barrier rate of the 8-token MHA tile).
+constexpr uint32_t paged_sub_tile_max = 16u;
+// Thread-block size of the paged attention kernel (4 warps). A block spans
+// consecutive i of one (b, h), so the block-table read is block-uniform.
+constexpr uint32_t paged_attention_block_size = 128u;
+static_assert(seq_len % paged_attention_block_size == 0u);
+
+// Largest divisor of `value` that is <= `cap`. Requires cap >= 1; always
+// returns at least 1 (1 divides everything), so the result is a safe loop
+// bound even when the device tile is much smaller than requested.
+[[nodiscard]] inline uint32_t paged_largest_divisor(uint32_t value, uint32_t cap) noexcept {
+    uint32_t limit = cap < value ? cap : value;
+    while (limit > 1u && value % limit != 0u) {
+        --limit;
+    }
+    return limit;
+}
+
+// Tokens per shared-memory sub-tile for the paged attention kernel: the
+// largest divisor of the runtime tokens_per_page that is <= paged_sub_tile_max.
+[[nodiscard]] inline uint32_t paged_sub_tile(uint32_t tokens_per_page) noexcept {
+    return paged_largest_divisor(tokens_per_page, paged_sub_tile_max);
+}
+
 }// namespace mla

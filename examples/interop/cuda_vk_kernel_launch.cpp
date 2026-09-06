@@ -9,7 +9,8 @@
 //   3. run_chained_command_list   - two chained CUDA launches in one CommandList
 //   4. run_dsl_interop            - DSL dispatches before/after a CUDA launch
 //                                   on the same VK stream (barrier correctness)
-//   5. run_histogram              - integer output buffer + atomicAdd interop
+//   5. run_histogram              - integer output buffer + atomicAdd interop,
+//                                   using the DSL-style typed CudaKernelT API
 //   6. run_ptx_roundtrip          - compile to PTX, recreate the shader from PTX
 //
 // Argument packing convention (see include/luisa/backends/ext/vk_cuda_interop.h):
@@ -17,6 +18,20 @@
 //     parameters must be plain pointers (e.g. `float *data`);
 //   - uniform arguments are passed by value in argument order;
 //   - kernels must be `extern "C"` (NVRTC otherwise mangles the entry name).
+//
+// Two call styles are demonstrated:
+//   - manual:  KernelLauncher{}.add_buffer(...).add_uniform(...)
+//                .build(shader, grid, block, shared)
+//   - DSL-like typed API (scenarios 1 & 5): argument usages are declared
+//     once in the signature (CudaArg<T, Usage>) and baked into the kernel
+//     instance, so the dispatch site passes bare views only:
+//       auto saxpy = ext->create_cuda_kernel(
+//                        {.source = ..., .kernel_name = "saxpy"})
+//                        .kernel<CudaArg<Buffer<float>, Usage::READ>,
+//                                CudaArg<Buffer<float>, Usage::READ_WRITE>,
+//                                float, uint32_t>();
+//       stream << saxpy(x.view(), y.view(), a, n)
+//                   .dispatch(n, uint3{k_block_size, 1u, 1u});
 //
 // Usage: cuda_vk_kernel_launch [backend]   (backend defaults to "vk")
 // Skips gracefully (exit code 0) when VK_NV_cuda_kernel_launch is unavailable.
@@ -164,6 +179,7 @@ extern "C" __global__ void fill(float *data, float value, unsigned int n) {
 
 // ---------------------------------------------------------------------------
 // Scenario 1: single SAXPY launch streamed directly into the VK stream
+// (DSL-style typed API: create_cuda_kernel + kernel<Args...>() + .dispatch())
 // ---------------------------------------------------------------------------
 
 [[nodiscard]] bool run_saxpy(Device &device, VkCudaInterop *ext) {
@@ -181,23 +197,23 @@ extern "C" __global__ void fill(float *data, float value, unsigned int n) {
            << y.view().copy_from(luisa::span{host_y})
            << synchronize();
 
-    auto shader = ext->create_cuda_kernel_shader(
+    auto shader = ext->create_cuda_kernel(
         {.source = saxpy_source, .kernel_name = "saxpy"});
-    if (shader == 0u) {
-        LUISA_WARNING("[saxpy] create_cuda_kernel_shader failed; skipping.");
+    if (!shader) {
+        LUISA_WARNING("[saxpy] create_cuda_kernel failed; skipping.");
         return false;
     }
-
-    vk_cuda_interop::KernelLauncher launcher;
-    launcher.add_buffer(x.view(), Usage::READ)
-        .add_buffer(y.view(), Usage::READ_WRITE)
-        .add_uniform(a)
-        .add_uniform(n);
-    stream << std::move(launcher).build(
-                  shader, grid_for(n), uint3{k_block_size, 1u, 1u}, 0u)
+    // Typed DSL-style invocation: signature checked at compile time; the
+    // per-argument usage is baked into the kernel instance at creation, so
+    // the dispatch site passes bare views, uniforms by value.
+    auto saxpy = shader.kernel<vk_cuda_interop::CudaArg<Buffer<float>, Usage::READ>,
+                               vk_cuda_interop::CudaArg<Buffer<float>, Usage::READ_WRITE>,
+                               float, uint32_t>();
+    stream << saxpy(x.view(), y.view(), a, n)
+                 .dispatch(n, uint3{k_block_size, 1u, 1u})
            << y.view().copy_to(luisa::span{host_out})
            << synchronize();
-    ext->destroy_cuda_kernel_shader(shader);
+    // No manual destroy_cuda_kernel_shader: CudaShader is RAII.
 
     luisa::vector<float> expected(n);
     for (auto i = 0u; i < n; ++i) { expected[i] = a * host_x[i] + host_y[i]; }
@@ -381,18 +397,23 @@ extern "C" __global__ void fill(float *data, float value, unsigned int n) {
 
 // ---------------------------------------------------------------------------
 // Scenario 5: histogram with atomicAdd into an integer output buffer
+// (DSL-style typed API with a uint buffer argument)
 // ---------------------------------------------------------------------------
 
 [[nodiscard]] bool run_histogram(Device &device, VkCudaInterop *ext) {
     static constexpr uint32_t n = 1024u;
     static constexpr uint32_t bin_count = 16u;
 
-    auto shader = ext->create_cuda_kernel_shader(
+    auto shader = ext->create_cuda_kernel(
         {.source = histogram_source, .kernel_name = "histogram"});
-    if (shader == 0u) {
+    if (!shader) {
         LUISA_WARNING("[histogram] shader compilation failed; skipping.");
         return false;
     }
+    auto histogram = shader.kernel<
+        vk_cuda_interop::CudaArg<Buffer<float>, Usage::READ>,
+        vk_cuda_interop::CudaArg<Buffer<uint>, Usage::READ_WRITE>,
+        uint32_t, uint32_t>();
 
     auto stream = device.create_stream();
     auto data = ext->create_buffer<float>(n);
@@ -405,20 +426,13 @@ extern "C" __global__ void fill(float *data, float value, unsigned int n) {
         host_data[i] = static_cast<float>(i % bin_count) + 0.5f;
     }
 
-    vk_cuda_interop::KernelLauncher launcher;
-    launcher.add_buffer(data.view(), Usage::READ)
-        .add_buffer(bins.view(), Usage::READ_WRITE)
-        .add_uniform(n)
-        .add_uniform(bin_count);
-
     CommandList cmdlist;
     cmdlist << data.view().copy_from(luisa::span{host_data})
             << bins.view().copy_from(luisa::span{zero_bins});
-    cmdlist << std::move(launcher).build(
-        shader, grid_for(n), uint3{k_block_size, 1u, 1u}, 0u);
+    cmdlist << histogram(data.view(), bins.view(), n, bin_count)
+                 .dispatch(grid_for(n), uint3{k_block_size, 1u, 1u});
     cmdlist << bins.view().copy_to(luisa::span{host_bins});
     stream << cmdlist.commit() << synchronize();
-    ext->destroy_cuda_kernel_shader(shader);
 
     luisa::vector<uint> expected(bin_count, 0u);
     for (auto i = 0u; i < n; ++i) {
