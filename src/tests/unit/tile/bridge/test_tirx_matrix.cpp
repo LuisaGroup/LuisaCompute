@@ -157,7 +157,8 @@ void test_matrix_cases(Runtime &runtime) {
 
 [[nodiscard]] Executable compile_native(Runtime &runtime, const Kernel &kernel, tvm::tirx::PrimFunc native,
                                         uint32_t width = 32u, uint32_t threads = 256u,
-                                        const bridge::tirx::PlannerOptions &planner = {}, bool auto_vectorize = false) {
+                                        const bridge::tirx::PlannerOptions &planner = {}, bool auto_vectorize = false,
+                                        bool metal_mpp = false, bool forward = false) {
     using namespace luisa::compute::tile::bridge::tirx;
     CompileOptions options;
     options.target = runtime.target() == "metal" ?
@@ -165,6 +166,9 @@ void test_matrix_cases(Runtime &runtime) {
                          luisa::string{runtime.target()};
     options.cooperative_matrix = true;
     options.auto_vectorize = auto_vectorize;
+    options.metal_mpp = metal_mpp;
+    options.noalias = forward;
+    options.forward_readonly_tile_loads = forward;
     options.planner = planner;
     auto compilation = compile(std::move(native), kernel.function().name(), options);
     Executable executable;
@@ -973,6 +977,95 @@ void test_mpp_bounded_mn_contract(Runtime &runtime) {
             }
         }
         expect(all_valid);
+    }
+}
+
+void test_mpp_bounded_store_contract(Runtime &runtime) {
+    if (runtime.target() != "metal" || !tvm::ffi::Function::GetGlobal("target.metal.mpp_bounded_store_contract_version")) { return; }
+    auto i64 = [](int64_t value) { return tvm::IntImm::Int64(value); };
+    auto call = [](const char *name, tvm::ffi::Array<tvm::Expr> args) {
+        return tvm::tirx::Evaluate{tvm::Call{tvm::PrimType::Void(), tvm::Op::Get(name), std::move(args)}};
+    };
+    for (auto [m, n] : {std::pair{16, 16}, std::pair{16, 64}, std::pair{64, 16}, std::pair{8, 16}, std::pair{16, 8}}) {
+        auto kernel = gemm(runtime, {m, n, 8, m, n, 8}, 1u);
+        auto input = tvm::tirx::decl_buffer({i64(m), i64(n)}, tvm::PrimType::Float(32), "input");
+        auto fragment = tvm::tirx::decl_buffer({i64(m * n)}, tvm::PrimType::Float(32), "fragment", "metal.cooperative_tensor");
+        auto group = tvm::tirx::PrimVar{"program", tvm::PrimType::Int(64)};
+        auto worker = tvm::tirx::PrimVar{"worker", tvm::PrimType::Int(64)};
+        auto address = [](const tvm::tirx::BufferVar &buffer, tvm::ffi::Array<tvm::PrimExpr> indices) {
+            return tvm::Call{buffer.DataPointerType(), tvm::tirx::builtin::address_of(), {tvm::tirx::BufferLoad{buffer, std::move(indices)}}};
+        };
+        for (auto [rm, cn] : {std::pair{m, n}, std::pair{m - 1, n}, std::pair{m, n - 1}, std::pair{1, 1}, std::pair{0, n}, std::pair{m, 0}, std::pair{0, 0}}) {
+            for (auto transpose : {false, true}) {
+                // The backing can be smaller than the nominal tensor; leading
+                // strides, nonzero offsets and untouched sentinels matter.
+                auto rows = (transpose ? cn : rm) + 3;
+                auto columns = (transpose ? rm : cn) + 5;
+                auto output = tvm::tirx::decl_buffer({i64(2), i64(rows), i64(columns)}, tvm::PrimType::Float(32), "output");
+                for (auto dynamic : {false, true}) {
+                    tvm::PrimExpr actual_m = dynamic ? tvm::if_then_else(tvm::equal(group, i64(0)), i64(rm), i64(std::max(0, rm - 1))) : i64(rm);
+                    tvm::PrimExpr actual_n = dynamic ? tvm::if_then_else(tvm::equal(group, i64(0)), i64(cn), i64(std::max(0, cn - 1))) : i64(cn);
+                    auto make_function = [&](uint32_t malformed = 0u) {
+                        tvm::ffi::Array<tvm::Expr> load{fragment, i64(0), address(input, {i64(0), i64(0)}), i64(n), i64(m), i64(n), tvm::IntImm::Bool(false), i64(m), i64(n), i64(8), i64(2)};
+                        tvm::ffi::Array<tvm::Expr> store{fragment, i64(0), address(output, {group, i64(1), i64(2)}), i64(columns), i64(m), i64(n), tvm::IntImm::Bool(transpose), i64(m), i64(n), i64(8), i64(2), actual_m, actual_n};
+                        if (malformed >= 1u && malformed <= 4u) { store.Set(11u + (malformed - 1u) / 2u, i64(malformed % 2u ? -1 : m + 1)); }
+                        if (malformed == 5u) { store.Set(11u, tvm::FloatImm{tvm::PrimType::Float(32), 16.0}); }
+                        if (malformed == 6u) { store.Set(12u, tvm::IntImm::Bool(true)); }
+                        if (malformed == 7u) { store.Set(11u, tvm::IntImm{tvm::PrimType::UInt(32), 16}); }
+                        if (malformed >= 8u && malformed <= 11u) { store.Set(3u, i64(malformed == 11u ? int64_t{2147483648} : static_cast<int64_t>(malformed) - 9)); }
+                        if (malformed == 12u) { store.pop_back(); }
+                        if (malformed == 13u) {
+                            load.push_back(i64(m));
+                            load.push_back(i64(n));
+                        }
+                        if (malformed == 14u) { store.Set(10u, i64(0)); }
+                        if (malformed == 15u) { store.Set(4u, i64(8)); }
+                        if (malformed == 16u) { store.Set(1u, i64(1)); }
+                        auto body = tvm::tirx::SeqStmt::Flatten(tvm::ffi::Array<tvm::tirx::Stmt>{tvm::tirx::AllocBuffer{fragment}, call("tirx.cooperative_tensor_load", std::move(load)), call("tirx.cooperative_tensor_store", std::move(store))});
+                        auto bind = [&](const tvm::tirx::PrimVar &index, int64_t extent, const char *tag, tvm::tirx::Stmt nested) {
+                            auto axis = tvm::tirx::IterVar{tvm::Range::FromMinExtent(i64(0), i64(extent)), index, tvm::tirx::IterVarType::kThreadIndex, tag};
+                            return tvm::tirx::For{index, i64(0), i64(extent), tvm::tirx::ForKind::kThreadBinding, std::move(nested), axis};
+                        };
+                        return tvm::tirx::PrimFunc{{input, output}, bind(group, 2, "blockIdx.x", bind(worker, 32, "threadIdx.x", std::move(body)))};
+                    };
+                    if (m == 16 && n == 16 && rm == m && cn == n && !transpose && !dynamic) {
+                        for (auto malformed = 1u; malformed <= 16u; malformed++) {
+                            auto rejected = compile_native(runtime, kernel, make_function(malformed));
+                            expect(!rejected.ok()) << "malformed bounded store=" << malformed;
+                        }
+                    }
+                    auto executable = compile_native(runtime, kernel, make_function());
+                    expect(executable.ok()) << executable.error;
+                    if (!executable.ok()) { continue; }
+                    for (auto payload = 0u; payload < 5u; payload++) {
+                        auto data = values(static_cast<size_t>(m * n), 0.371f);
+                        if (payload == 1u) { std::fill(data.begin(), data.end(), std::numeric_limits<float>::infinity()); }
+                        if (payload == 2u) { std::fill(data.begin(), data.end(), std::numeric_limits<float>::quiet_NaN()); }
+                        if (payload >= 3u) { std::fill(data.begin(), data.end(), payload == 3u ? -0.0f : 0.0f); }
+                        auto source = runtime.upload<float>({m, n}, data);
+                        auto count = static_cast<size_t>(2 * rows * columns);
+                        auto destination = runtime.upload<float>({2, rows, columns}, vector<float>(count, -17.25f));
+                        (*executable.entry)(source, destination);
+                        auto observed = runtime.download<float>(destination, count);
+                        auto valid = true;
+                        for (auto g = 0; g < 2; g++) {
+                            auto live_m = dynamic && g == 1 ? std::max(0, rm - 1) : rm;
+                            auto live_n = dynamic && g == 1 ? std::max(0, cn - 1) : cn;
+                            for (auto r = 0; r < rows; r++) {
+                                for (auto c = 0; c < columns; c++) {
+                                    auto y = transpose ? c - 2 : r - 1;
+                                    auto x = transpose ? r - 1 : c - 2;
+                                    auto expected = y >= 0 && y < live_m && x >= 0 && x < live_n ? data[y * n + x] : -17.25f;
+                                    auto actual = observed[(g * rows + r) * columns + c];
+                                    valid &= std::isnan(expected) ? std::isnan(actual) : actual == expected && std::signbit(actual) == std::signbit(expected);
+                                }
+                            }
+                        }
+                        expect(valid) << "bounded store " << m << "x" << n << " prefix=" << rm << "," << cn << " transpose=" << transpose << " dynamic=" << dynamic << " payload=" << payload;
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1842,7 +1935,7 @@ void test_observed_accumulator_stays_visible(Runtime &runtime) {
 class AdjustAccumulatorTest final : public tvm::tirx::StmtMutator {
 private:
     tvm::tirx::BufferVar _output, _initial;
-    bool _transpose, _pin;
+    bool _transpose, _pin, _mask;
 
 protected:
     [[nodiscard]] tvm::tirx::Stmt VisitStmt_(const tvm::tirx::AllocBufferNode *allocation) final {
@@ -1859,12 +1952,16 @@ protected:
             expect(eq(indices.size(), size_t{2u}));
             if (indices.size() == 2u) { result.CopyOnWrite()->indices = {indices[1], indices[0]}; }
         }
+        if (_mask && result->buffer.same_as(_output)) {
+            auto even = tvm::equal(tvm::bitwise_and(result->indices[1], tvm::IntImm::Int64(1)), tvm::IntImm::Int64(0));
+            return tvm::tirx::IfThenElse{even, result};
+        }
         return result;
     }
 
 public:
-    AdjustAccumulatorTest(const tvm::tirx::PrimFunc &function, bool transpose, bool pin)
-        : _output{function->params[2].as_or_throw<tvm::tirx::BufferVar>()}, _transpose{transpose}, _pin{pin} {
+    AdjustAccumulatorTest(const tvm::tirx::PrimFunc &function, bool transpose, bool pin, bool mask)
+        : _output{function->params[2].as_or_throw<tvm::tirx::BufferVar>()}, _transpose{transpose}, _pin{pin}, _mask{mask} {
         tvm::tirx::PostOrderVisit(function->body, [&](const tvm::ffi::ObjectRef &node) {
             if (auto store = node.as<tvm::tirx::BufferStoreNode>(); store != nullptr && store->value.as<tvm::FloatImmNode>() != nullptr) { _initial = store->buffer; }
         });
@@ -1873,7 +1970,8 @@ public:
     using StmtMutator::operator();
 };
 
-void test_direct_accumulator_output(Runtime &runtime) {
+void test_direct_accumulator_output(Runtime &runtime, bool mpp = false) {
+    if (mpp && (runtime.target() != "metal" || !tvm::ffi::Function::GetGlobal("target.metal.mpp_memory_contract_version"))) { return; }
     struct Case {
         Shape shape;
         int64_t row_offset{0}, column_offset{0};
@@ -1882,11 +1980,13 @@ void test_direct_accumulator_output(Runtime &runtime) {
         bool observe_accumulator{false};
         bool observe_old_output{false};
         bool pin_initial{false};
+        bool mask{false};
     };
     Case cases[]{
-        {{8, 16, 8, 8, 16, 8}}, {{16, 32, 24, 8, 16, 8}}, {{32, 64, 29, 16, 32, 16}}, {{37, 71, 45, 32, 64, 16}}, {{16, 24, 0, 8, 24, 8}}, {{16, 16, 8, 8, 8, 8}, 1, 3, 2, 6}, {{16, 16, 8, 8, 8, 8}, -1, -2}, {{32, 32, 24, 16, 16, 8}, 0, 0, 0, 0, true}, {{32, 48, 24, 16, 24, 8}, 0, 0, 0, 0, false, true}, {{32, 48, 24, 16, 24, 8}, 0, 0, 0, 0, false, false, true}, {{32, 48, 24, 16, 24, 8}, 0, 0, 0, 0, false, false, false, true}};
+        {{8, 16, 8, 8, 16, 8}}, {{16, 32, 24, 8, 16, 8}}, {{32, 64, 29, 16, 32, 16}}, {{37, 71, 45, 32, 64, 16}}, {{16, 24, 0, 8, 24, 8}}, {{16, 16, 8, 8, 8, 8}, 1, 3, 2, 6}, {{16, 16, 8, 8, 8, 8}, -1, -2}, {{32, 32, 24, 16, 16, 8}, 0, 0, 0, 0, true}, {{32, 48, 24, 16, 24, 8}, 0, 0, 0, 0, false, true}, {{32, 48, 24, 16, 24, 8}, 0, 0, 0, 0, false, false, true}, {{32, 48, 24, 16, 24, 8}, 0, 0, 0, 0, false, false, false, true}, {{1, 1, 1, 16, 16, 8}}, {{1, 17, 7, 16, 32, 16}}, {{17, 1, 7, 32, 16, 16}}, {{37, 37, 21, 32, 32, 16}, 1, 3, 6, 6, true}, {{17, 19, 7, 16, 32, 16}, 1, 2, 0, 0}, {{17, 19, 7, 16, 32, 16}, 0, 0, 0, 0, false, false, false, false, true}, {{17, 19, 7, 16, 32, 16}, 0, 0, 0, 0, false, true}, {{17, 19, 7, 16, 32, 16}, 0, 0, 0, 0, false, false, true}, {{17, 19, 7, 16, 32, 16}, 0, 0, 0, 0, false, false, false, true}};
     for (auto test : cases) {
         auto cfg = test.shape;
+        if (mpp && cfg.bm % 16 != 0 && cfg.bn % 16 != 0) { cfg.bm = 16; }
         auto rows = cfg.m + test.row_padding;
         auto columns = cfg.n + test.column_padding;
         auto input_k = std::max(int64_t{1}, cfg.k);
@@ -1923,28 +2023,45 @@ void test_direct_accumulator_output(Runtime &runtime) {
             // A square global projection exercises a transposed *destination*,
             // not an extra materialized transpose tile. Pinning C simulates the
             // hard allocation annotation the manual-memory API preserves.
-            AdjustAccumulatorTest adjust{native.value, test.transpose_output, test.pin_initial && runtime.target() == "metal"};
+            AdjustAccumulatorTest adjust{native.value, test.transpose_output, test.pin_initial && runtime.target() == "metal", test.mask};
             native.value.CopyOnWrite()->body = adjust(native.value->body);
             bridge::tirx::PlannerOptions planner;
             planner.direct_accumulator_store = enabled;
-            auto executable = compile_native(runtime, kernel, std::move(native.value), 32u, 256u, planner);
-            expect(executable.ok()) << executable.error;
+            auto diagnostic = native.value;
+            auto executable = compile_native(runtime, kernel, std::move(native.value), 32u, 256u, planner, false, mpp, mpp);
+            auto context = luisa::format("{}x{}x{}, block={}x{}x{}, offset={},{} transpose={} history={} observed={} pin={} mask={} direct={}",
+                                         cfg.m, cfg.n, cfg.k, cfg.bm, cfg.bn, cfg.bk, test.row_offset, test.column_offset,
+                                         test.transpose_output, test.observe_old_output, test.observe_accumulator, test.pin_initial, test.mask, enabled);
+            expect(executable.ok()) << context << executable.error;
             if (!executable.ok()) { continue; }
             if (runtime.target() == "metal") {
-                auto expected = enabled && cfg.k > 0 && cfg.m % cfg.bm == 0 && cfg.n % cfg.bn == 0 &&
-                                test.row_offset >= 0 && test.column_offset >= 0 && !test.observe_accumulator && !test.pin_initial;
+                auto full = ceil_div(cfg.m, cfg.bm) * cfg.bm + test.row_offset <= rows && ceil_div(cfg.n, cfg.bn) * cfg.bn + test.column_offset <= columns;
+                auto bounded = mpp && tvm::ffi::Function::GetGlobal("target.metal.mpp_bounded_store_contract_version").has_value();
+                auto expected = enabled && cfg.k > 0 && (full || bounded) && test.row_offset >= 0 && test.column_offset >= 0 &&
+                                !test.observe_accumulator && !test.pin_initial && !test.mask;
                 auto direct = false;
                 for (auto &plan : executable.plans) {
                     for (auto &matrix : plan.matrices) { direct |= matrix.direct_accumulator_store; }
                 }
-                expect(eq(direct, expected)) << cfg.m << "x" << cfg.n << "x" << cfg.k << " offset=" << test.row_offset << "," << test.column_offset;
-                if (direct) {
+                expect(eq(direct, expected)) << context << diagnostic;
+                if (direct && !mpp) {
                     auto source = metal_source(executable.module.value());
                     auto code = std::string_view{source.data(), source.size()};
                     auto store = code.rfind("simdgroup_store(");
                     expect(store != std::string_view::npos) << code;
                     if (store != std::string_view::npos) { expect(code.substr(store, code.find('\n', store) - store).find("_shared") == std::string_view::npos) << code; }
                     expect(executable.plans[0].cost.direct_fragment_stores > 0.0);
+                }
+                if (direct && mpp) {
+                    auto source = metal_source(executable.module.value());
+                    auto code = std::string_view{source.data(), source.size()};
+                    expect(eq(code.find("mpp_store_rows") != std::string_view::npos, !full));
+                    if (tvm::ffi::Function::GetGlobal("target.metal.mpp_bounded_mnk_contract_version")) {
+                        // An old-output observation still owns its snapshot;
+                        // only the closed accumulator may lose its backing.
+                        auto expected_shared = test.observe_old_output ? static_cast<uint64_t>(cfg.bm * cfg.bn) * sizeof(float) : 0u;
+                        expect(eq(executable.plans[0].shared_memory_bytes, expected_shared)) << context << code;
+                    }
                 }
             }
             for (auto repeat = 0u; repeat < 2u; repeat++) {
@@ -1963,7 +2080,7 @@ void test_direct_accumulator_output(Runtime &runtime) {
                     for (auto column = int64_t{0}; column < columns; column++) {
                         auto m = (test.transpose_output ? column : row) - test.row_offset;
                         auto n = (test.transpose_output ? row : column) - test.column_offset;
-                        auto written = m >= 0 && m < ceil_div(cfg.m, cfg.bm) * cfg.bm && n >= 0 && n < ceil_div(cfg.n, cfg.bn) * cfg.bn;
+                        auto written = m >= 0 && m < ceil_div(cfg.m, cfg.bm) * cfg.bm && n >= 0 && n < ceil_div(cfg.n, cfg.bn) * cfg.bn && (!test.mask || column % 2 == 0);
                         auto expected = written ? 0.375 : -17.25;
                         if (written && m < cfg.m && n < cfg.n) {
                             for (auto k = int64_t{0}; k < cfg.k; k++) { expected += static_cast<double>(a[m * input_k + k]) * b[k * cfg.n + n]; }
@@ -2259,6 +2376,7 @@ int main(int argc, char *argv[]) {
     "tile_matrix_mpp_readonly_view_proofs"_test = [&] { test_mpp_readonly_views(runtime); };
     "tile_matrix_mpp_bounded_k_views"_test = [&] { test_mpp_bounded_k_views(runtime); };
     "tile_matrix_mpp_bounded_mn_semantics"_test = [&] { test_mpp_bounded_mn_contract(runtime); };
+    "tile_matrix_mpp_bounded_store_contract"_test = [&] { test_mpp_bounded_store_contract(runtime); };
     "tile_matrix_mpp_bounded_mn_views"_test = [&] { test_mpp_bounded_mn_views(runtime); };
     "tile_matrix_mpp_independent_subgroups_and_sync_boundaries"_test = [&] { test_mpp_subgroup_isolation(runtime); };
     "tile_matrix_stale_marker_does_not_tensorize"_test = [&] { test_stale_matrix_marker(runtime); };
@@ -2278,6 +2396,7 @@ int main(int argc, char *argv[]) {
     "tile_matrix_late_prefetch_rejects_global_mutation"_test = [&] { test_matrix_prefetch_rejects_global_writes(runtime); };
     "tile_matrix_observed_carry_cannot_be_promoted"_test = [&] { test_observed_accumulator_stays_visible(runtime); };
     "tile_matrix_direct_output_and_observation_guards"_test = [&] { test_direct_accumulator_output(runtime); };
+    "tile_matrix_mpp_bounded_output_and_observation_guards"_test = [&] { test_direct_accumulator_output(runtime, true); };
     "tile_matrix_carry_operand_alias_must_not_be_promoted"_test = [&] { test_accumulator_as_multiplicand(runtime); };
     "tile_matrix_interrupted_yield_must_not_update_carry"_test = [&] { test_interrupted_accumulator_update(runtime); };
     "tile_cpu_whole_gemm_library_realization"_test = [&] { test_cpu_whole_gemm_library_realization(runtime); };

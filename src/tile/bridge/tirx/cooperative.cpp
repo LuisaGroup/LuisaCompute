@@ -200,7 +200,7 @@ private:
                     continue;
                 }
                 if (seen_loop) {
-                    if (auto output = metal_matrix_output(tvm::ffi::GetRef<tvm::tirx::For>(loop), carry, _ancestors)) {
+                    if (auto output = metal_matrix_output(tvm::ffi::GetRef<tvm::tirx::For>(loop), carry, _ancestors, _metal_mpp)) {
                         if (result) { return {}; }
                         result = AccumulatorLoop::DirectOutput{initial, loop, value, *output};
                         continue;

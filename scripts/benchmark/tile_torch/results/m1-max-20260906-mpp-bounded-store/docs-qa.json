@@ -1,0 +1,139 @@
+{
+  "surface": "existing Sphinx docs; no new reader pages",
+  "build": "/tmp/luisa-bounded-output-docs.USykle/html",
+  "sphinx_command": [
+    "uv",
+    "run",
+    "--offline",
+    "--no-project",
+    "--python",
+    "3.13",
+    "--with",
+    "sphinx",
+    "--with",
+    "sphinx-rtd-theme",
+    "--with",
+    "myst-parser",
+    "--with",
+    "breathe",
+    "sphinx-build",
+    "-b",
+    "html",
+    "-E",
+    "-a",
+    "-W",
+    "--keep-going",
+    "docs",
+    "/tmp/luisa-bounded-output-docs.USykle/html"
+  ],
+  "sphinx_exit": 1,
+  "warnings": [
+    "/Users/mike/CLionProjects/luisa/docs/source/api_reference.rst:246: WARNING: doxygenclass: Cannot find file: /Users/mike/CLionProjects/luisa/docs/output/xml/index.xml [docutils]",
+    "/Users/mike/CLionProjects/luisa/docs/source/api_reference.rst:271: WARNING: doxygenclass: Cannot find file: /Users/mike/CLionProjects/luisa/docs/output/xml/index.xml [docutils]",
+    "/Users/mike/CLionProjects/luisa/docs/source/api_reference.rst:335: WARNING: doxygenclass: Cannot find file: /Users/mike/CLionProjects/luisa/docs/output/xml/index.xml [docutils]",
+    "/Users/mike/CLionProjects/luisa/docs/source/api_reference.rst:364: WARNING: doxygenclass: Cannot find file: /Users/mike/CLionProjects/luisa/docs/output/xml/index.xml [docutils]",
+    "/Users/mike/CLionProjects/luisa/docs/source/api_reference.rst:367: WARNING: doxygenclass: Cannot find file: /Users/mike/CLionProjects/luisa/docs/output/xml/index.xml [docutils]",
+    "/Users/mike/CLionProjects/luisa/docs/source/api_reference.rst:424: WARNING: doxygenclass: Cannot find file: /Users/mike/CLionProjects/luisa/docs/output/xml/index.xml [docutils]",
+    "/Users/mike/CLionProjects/luisa/docs/source/api_reference.rst:468: WARNING: doxygenclass: Cannot find file: /Users/mike/CLionProjects/luisa/docs/output/xml/index.xml [docutils]",
+    "/Users/mike/CLionProjects/luisa/docs/source/api_reference.rst:510: WARNING: doxygenclass: Cannot find file: /Users/mike/CLionProjects/luisa/docs/output/xml/index.xml [docutils]",
+    "/Users/mike/CLionProjects/luisa/docs/source/api_reference.rst:595: WARNING: doxygenclass: Cannot find file: /Users/mike/CLionProjects/luisa/docs/output/xml/index.xml [docutils]",
+    "/Users/mike/CLionProjects/luisa/docs/source/api_reference.rst:806: WARNING: doxygenclass: Cannot find file: /Users/mike/CLionProjects/luisa/docs/output/xml/index.xml [docutils]"
+  ],
+  "new_tile_warnings": 0,
+  "local_links": "48 HTML pages; 3675 local links/assets; 199 compatibility anchors\nPASS: all checked local targets and anchors exist",
+  "records": [
+    {
+      "url": "file:///tmp/luisa-bounded-output-docs.USykle/html/source/performance/tile/results.html#bounded-output-removes-shared-c-not-the-whole-library-gap",
+      "viewport": {
+        "width": 1440,
+        "height": 1050
+      },
+      "dimensions": {
+        "viewport": 1440,
+        "page": 1440
+      },
+      "tableMatchesAudit": true,
+      "screenshot": "/tmp/luisa-bounded-output-docs.USykle/results-1440.png",
+      "tableScreenshots": [
+        "/tmp/luisa-bounded-output-docs.USykle/table-1440-left.png",
+        "/tmp/luisa-bounded-output-docs.USykle/table-1440-right.png"
+      ]
+    },
+    {
+      "url": "file:///tmp/luisa-bounded-output-docs.USykle/html/source/internals/tile/matrix.html#output-bounds-are-independent-of-input-padding",
+      "viewport": {
+        "width": 1440,
+        "height": 1050
+      },
+      "dimensions": {
+        "viewport": 1440,
+        "page": 1440
+      },
+      "tableMatchesAudit": null,
+      "screenshot": "/tmp/luisa-bounded-output-docs.USykle/proof-1440.png",
+      "tableScreenshots": []
+    },
+    {
+      "url": "file:///tmp/luisa-bounded-output-docs.USykle/html/source/performance/tile/index.html#current-conclusion",
+      "viewport": {
+        "width": 1440,
+        "height": 1050
+      },
+      "dimensions": {
+        "viewport": 1440,
+        "page": 1440
+      },
+      "tableMatchesAudit": null,
+      "screenshot": "/tmp/luisa-bounded-output-docs.USykle/index-1440.png",
+      "tableScreenshots": []
+    },
+    {
+      "url": "file:///tmp/luisa-bounded-output-docs.USykle/html/source/performance/tile/results.html#bounded-output-removes-shared-c-not-the-whole-library-gap",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "dimensions": {
+        "viewport": 390,
+        "page": 390
+      },
+      "tableMatchesAudit": true,
+      "screenshot": "/tmp/luisa-bounded-output-docs.USykle/results-390.png",
+      "tableScreenshots": [
+        "/tmp/luisa-bounded-output-docs.USykle/table-390-left.png",
+        "/tmp/luisa-bounded-output-docs.USykle/table-390-right.png"
+      ]
+    },
+    {
+      "url": "file:///tmp/luisa-bounded-output-docs.USykle/html/source/internals/tile/matrix.html#output-bounds-are-independent-of-input-padding",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "dimensions": {
+        "viewport": 390,
+        "page": 390
+      },
+      "tableMatchesAudit": null,
+      "screenshot": "/tmp/luisa-bounded-output-docs.USykle/proof-390.png",
+      "tableScreenshots": []
+    },
+    {
+      "url": "file:///tmp/luisa-bounded-output-docs.USykle/html/source/performance/tile/index.html#current-conclusion",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "dimensions": {
+        "viewport": 390,
+        "page": 390
+      },
+      "tableMatchesAudit": null,
+      "screenshot": "/tmp/luisa-bounded-output-docs.USykle/index-390.png",
+      "tableScreenshots": []
+    }
+  ],
+  "full_api_docs_certified": false,
+  "manual_image_inspection_required": false,
+  "manual_image_inspection": "Completed: desktop table and index, mobile table at both scroll edges, and desktop/mobile output-proof section; readable, no page overflow. Existing horizontal table/code scrolling is retained."
+}

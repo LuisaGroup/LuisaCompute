@@ -464,6 +464,56 @@ empty/partial M/N, Inf/NaN, signed zero and distinct C/D. This checkpoint does
 not change native-MPP or SIMD performance, other operators, or broader dtype
 coverage.
 
+### Bounded output removes shared C, not the whole library gap
+
+The September 6 [bounded-output realization](../../internals/tile/matrix.md#output-bounds-are-independent-of-input-padding)
+extends the existing direct-output legality proof. It composes the sink's
+valid rectangle with subgroup coordinates independently of input padding,
+removes C's shared backing, and derives one-shot overwrite mode where legal.
+It adds no kernel-name/size rule, DSL entity, solver or cost-model coefficient.
+
+Six paired fresh-JIT rounds hold the schedule fixed at 128×32×4096, 128 threads,
+four 32×32 subgroup outputs and pipeline window 1. All **216 complete outputs**
+validate against the FP64 oracle; 35 recorded artifacts remain unchanged.
+Both compiler stacks contain the same uncommitted shared-only barrier edit,
+which is excluded from the checkpoint commit; these absolute timings describe
+the fingerprinted experimental worktree. Torch/MPS outputs are preallocated.
+
+The table reports median per-round GPU batch microseconds and median **paired
+time ratios**; lower than 1 is better. Ranges are paired minima/maxima, not
+confidence intervals. GPU time is the no-counter command-buffer interval,
+including its GPU work/gaps, not an isolated pure-kernel timestamp.
+
+```{table} Bounded output: fixed-schedule GPU comparison, six rounds
+:class: benchmark-table
+
+| M×N×K | Old GPU µs | New GPU µs | New/old [range] | New/Torch | New/MPS |
+|---|---:|---:|---:|---:|---:|
+| 129×257×61 | 25.27 | 22.67 | 0.897 [0.806–1.015] | 1.522 | 1.290 |
+| 1025×1025×1024 | 528.86 | 521.69 | 0.986 [0.972–1.004] | 1.189 | 0.935 |
+| 2049×4097×1025 | 3723.00 | 3577.58 | 0.964 [0.927–0.979] | 1.142 | 1.050 |
+| 4097×4097×4096 | 23969.82 | 22719.67 | 0.971 [0.942–1.026] | 1.020 | 0.919 |
+| 1024³ — unchanged control | 322.63 | 322.40 | 1.003 [0.982–1.020] | 0.969 | 0.981 |
+| 4096³ — unchanged control | 19933.71 | 19870.46 | 1.003 [0.928–1.037] | 1.048 | 0.960 |
+```
+
+All four ragged programs remove 16 KiB of shared C. Their GPU pair wins versus
+old code are 5/6, 5/6, 6/6 and 5/6; median paired batched-E2E time reductions
+are 17.33%, 2.29%, 3.89% and 5.14%. **All four still have median GPU time above
+Torch.** The two larger MPS-relative wins are not universal: 1025×1025×1024
+wins all six MPS GPU pairs, while 4097×4097×4096 wins five. The aligned sources
+are byte-identical across variants; their variation is not a compiler gain.
+
+The {download}`checkpoint methods and limits
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260906-mpp-bounded-store/notes.md>`
+and {download}`independent four-metric audit
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260906-mpp-bounded-store/audit.json>`
+retain raw samples, all orders, single-call GPU/E2E results, failures and source
+controls. The proof generalizes across offsets, transposes and valid prefixes;
+performance remains a finite FP32 M1 Max cohort. Physical K, edge costs and
+reuse still need planner work; native MPP, SIMD and other operators do not
+inherit a new speed claim from this change.
+
 ### K partition and program walks: diagnostics, not new defaults
 
 The earlier September 6 K-partition experiment fixes the TIRx MPP output block at 128×32,

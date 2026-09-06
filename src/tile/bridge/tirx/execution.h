@@ -184,6 +184,9 @@ struct MatrixLoopEmission {
         tvm::tirx::PrimVar row, column;
         uint64_t stride;
         bool transpose;
+        // Optional logical row/column prefixes, independent of A/B padding.
+        // Both are present only for the versioned bounded MPP store contract.
+        tvm::PrimExpr rows, columns;
     };
     std::optional<Output> output;
 };
@@ -193,7 +196,7 @@ struct MatrixLoopEmission {
 // issue an unguarded cooperative store.
 [[nodiscard]] std::optional<MatrixLoopEmission::Output> metal_matrix_output(
     const tvm::tirx::For &loop, const MatrixCarry &carry,
-    luisa::span<const tvm::tirx::ForNode *const> ancestors);
+    luisa::span<const tvm::tirx::ForNode *const> ancestors, bool bounded = false);
 
 // Select a native 8x8 FP32 matrix atom only for a proved reference MMA body.
 // Undefined means the ordinary independent-element realization must be used.

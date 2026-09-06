@@ -151,6 +151,43 @@ new execution-distribution family. Forwarding stays default-off; nominal cost
 features are conservative and do not model empty-rectangle scans or measured
 profitability.
 
+### Optional bounded-output extension
+
+Apply `metal-mpp-bounded-store-v1.patch` after the three extensions above. It
+separately advertises `target.metal.mpp_bounded_store_contract_version() == 1`.
+The original 11-argument `cooperative_tensor_store` ABI is unchanged; a store
+may append signed scalar Int32/Int64 `actual_rows, actual_columns`. Loads
+still require exactly 11 arguments. The destination tensor keeps its nominal
+M/N/K, role, fragment identity and execution distribution. Both extents must
+be between zero and the corresponding nominal extent. Literal violations,
+wrong scalar types and incompatible known leading strides fail before launch.
+Dynamic extents, valid pointers/rectangles and uniform complete-subgroup
+participation remain caller preconditions, not runtime bounds assertions.
+
+Only that logical prefix rectangle is written. Full row-major interiors keep
+the static bulk MPP store; edges and column-major destinations compose MPP's
+public cooperative coordinates with the physical leading stride. Neither
+opaque lane layout nor an empty inline tensor is assumed. Empty outputs use
+a valid base pointer and leave every destination element untouched.
+
+The bridge proves the output bounds independently of A/B padding. It requires
+a closed, unobserved accumulator, a nonnegative affine unit projection and
+equivalence between the sink guard and the physical bounds under the ancestor
+execution domain. Permuted/reassociated conjunctions are matched in both
+directions; an unmatched mask is not dropped. Logical valid lengths are then
+composed with subgroup origins. A padded input element can still yield an
+observable output initializer/NaN, so input lengths cannot substitute for
+these output lengths. Manual memory, observed carry state, negative origins,
+extra masks and missing capability retain the previous output realization.
+Other resources, including a snapshot of the old output, retain their lifetime
+and original store order.
+
+This enlarges the existing planner's legal direct-output family, including
+its derived shared-storage release and one-shot overwrite mode. It adds no
+DSL entity, operator-name/size rule, solver or cost coefficient. The current
+model does not separately price bounded coordinate stores or edge fractions;
+removing a temporary is not by itself a performance guarantee.
+
 ### Commands
 
 Use a clean checkout at the pinned commit; initialize its `3rdparty/tvm-ffi`
@@ -170,6 +207,9 @@ git -C "$TVM_SRC" apply "$LUISA_SRC/src/tile/bridge/tirx/patches/metal-mpp-bound
 # Optional: also enable proved M/N edges, including empty subgroup rectangles.
 git -C "$TVM_SRC" apply --check "$LUISA_SRC/src/tile/bridge/tirx/patches/metal-mpp-bounded-mnk-v1.patch"
 git -C "$TVM_SRC" apply "$LUISA_SRC/src/tile/bridge/tirx/patches/metal-mpp-bounded-mnk-v1.patch"
+# Optional: store proved output prefixes without a shared accumulator sink.
+git -C "$TVM_SRC" apply --check "$LUISA_SRC/src/tile/bridge/tirx/patches/metal-mpp-bounded-store-v1.patch"
+git -C "$TVM_SRC" apply "$LUISA_SRC/src/tile/bridge/tirx/patches/metal-mpp-bounded-store-v1.patch"
 
 cmake -S "$TVM_SRC" -B "$TVM_BUILD" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DUSE_LLVM=/opt/homebrew/opt/llvm@21/bin/llvm-config \
@@ -209,6 +249,16 @@ large full-K strides, manual memory with/without placement, mutable inputs and
 address indices, address escape, and malformed intrinsic rejection. The
 latter covers Luisa buffer offsets, guards, resource ownership, and aliases.
 The unpatched build checks that the explicit MPP request is rejected.
+
+The optional bounded-output tests additionally cover full, partial and empty
+store prefixes, nonzero offsets, narrow physical strides, transposed output,
+NaN/Inf/signed zero and malformed typed ABI. High-level checks preserve
+initializers, output padding, old-output snapshots, manual/observed carry and
+the arbitrary-mask/negative-origin fallback. A current bridge linked with a
+compiler lacking bounded-store-v1 retains the old output path. The
+[fixed-schedule evidence](../../../../../scripts/benchmark/tile_torch/results/m1-max-20260906-mpp-bounded-store/notes.md)
+separates legal storage removal from measured profitability and records the
+remaining Torch/MPS gaps; it does not promote new default tuning parameters.
 
 `benchmark_tile_tirx` accepts `mpp` in its matrix-mode argument. It records
 separate static SIMD-group/MPP call counts and the planner's cost basis. Use

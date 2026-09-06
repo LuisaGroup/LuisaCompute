@@ -67,8 +67,18 @@ selected GPU batch time falls to 15–22% of the old restricted schedule on
 three larger ragged shapes, up to 4097×4097×4096. It narrowly beats MPS on
 two of them but still loses to Torch on all four ragged shapes. Same-BK
 small-shape regressions remain; no cost-model/default promotion is claimed.
-The aligned control source is unchanged. Physical K/reuse choices and masked
-direct output remain open.
+The aligned control source is unchanged. Physical K/reuse choices remain open;
+the next checkpoint below adds a bounded direct-output realization.
+
+The [bounded-output follow-up](results.md#bounded-output-removes-shared-c-not-the-whole-library-gap)
+removes 16 KiB of shared C from four ragged programs through a general guard,
+layout and recurrence proof. With parameters fixed, six paired rounds show
+1.36–10.33% median GPU time reductions and 2.29–17.33% batched-E2E reductions.
+All 216 complete outputs pass. The four ragged GPU medians still lose to Torch;
+two beat MPS, with retained round reversals and unchanged-source controls.
+This extends the existing planner's legal family, not its cost calibration or
+the independent native-MPP/SIMD routes. Both measured compiler stacks include
+the same uncommitted barrier edit, documented with the artifact fingerprints.
 
 The [K/walk diagnostics](results.md#k-partition-and-program-walks-diagnostics-not-new-defaults)
 find shape-dependent K sensitivity, reject simple row-stripe traversal, and

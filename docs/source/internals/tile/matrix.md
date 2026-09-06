@@ -238,6 +238,46 @@ manual memory retain snapshots. See the
 [performance checkpoint](../../performance/tile/results.md#bounded-m-n-inputs-remove-an-admission-barrier)
 for actual timings rather than inferring speed from removed storage.
 
+## Output bounds are independent of input padding
+
+The optional bounded-store contract extends the existing direct accumulator
+realization to guarded output prefixes. The key distinction is **three
+independent access maps, one execution distribution**: the valid A/B input
+rectangle does not determine which C elements the program stores. A zero-padded
+input can still produce an observable initializer, NaN or signed zero.
+
+For logical output-axis extent `T`, nonnegative program origin `p`, physical
+destination extent `D`, subgroup origin `s` and local subgroup extent `t`,
+the proved output prefix is:
+
+```text
+logical valid length = clamp(D - p, 0, T)
+subgroup store length = clamp(logical valid length - s, 0, t)
+```
+
+Each physical axis must have a unit projection onto exactly one logical
+output axis; a transpose permutes these projections. The sink guard must be
+equivalent to the memory bounds throughout the ancestor execution domain.
+Bidirectional matching of nontrivial conjunction clauses handles reordered
+or reassociated bounds without admitting extra masks. Empty prefixes select
+a valid buffer-base pointer and perform no writes. Full row-major interiors
+keep MPP's bulk store; partial/column-major outputs use only the cooperative
+tensor's public coordinates and the independently proved memory stride.
+
+Closed recurrence, original sink position, literal initialization and manual
+resource/observation checks remain unchanged. For example, a snapshot of the
+old output must survive even when C itself no longer needs shared backing.
+Missing capability, negative origins, arbitrary masks, observed accumulators
+and unproved layouts retain the previous realization.
+
+The existing planner consumes this legality fact through
+`has_direct_output`: it accounts for released storage and may derive one-shot
+overwrite mode. There is no new kernel-name rule, geometry table, DSL concept,
+solver or cost coefficient. This is not yet a general schedule search: the
+bounded-store work and edge fraction are not separately calibrated, and the
+independent native Metal emitter/XIR route do not automatically acquire this
+TIRx extension. See the [patch contract and build order](https://github.com/LuisaGroup/LuisaCompute/blob/codex/tile-programming-design/src/tile/bridge/tirx/patches/README.md#optional-bounded-output-extension).
+
 ## Physical program traversal remains a candidate
 
 Program-grid traversal is another execution-layout choice, independent of
