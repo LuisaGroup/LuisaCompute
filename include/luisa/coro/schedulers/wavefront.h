@@ -1630,19 +1630,28 @@ private:
                         registered.max_emitted_per_continuation[selected_continuation];
                     if (bound == 0u) { continue; }
                     auto queued = registered.work->host_count();
+                    auto capacity = registered.work->capacity();
+                    registered.work->prepare_for_admission(stream);
+                    auto available = registered.work->host_available_slots();
+                    LUISA_ASSERT(registered.work->host_count() == queued &&
+                                     registered.work->capacity() == capacity &&
+                                     available <= capacity - queued &&
+                                     (queued != 0u || available == capacity),
+                                 "Auxiliary '{}' admission preparation changed occupancy/capacity "
+                                 "or supplied invalid materializable storage.", registered.work->name());
                     auto required =
                         static_cast<uint64_t>(selected_count) * bound;
                     if (!wavefront_auxiliary_queue_can_admit(
-                            registered.work->capacity(), queued,
-                            selected_count, bound)) {
+                            capacity, queued, selected_count, bound) ||
+                        required > available) {
                         LUISA_ASSERT(
                             queued != 0u,
                             "Wavefront auxiliary queue '{}' cannot admit "
                             "continuation '{}' even while empty (required={}, "
-                            "capacity={}).",
+                            "capacity={}, available={}).",
                             registered.work->name(),
                             _last_dispatch_stats.continuations[selected_continuation].name,
-                            required, registered.work->capacity());
+                            required, capacity, available);
                         if (queued > forced_auxiliary_count) {
                             forced_auxiliary = i;
                             forced_auxiliary_count = queued;

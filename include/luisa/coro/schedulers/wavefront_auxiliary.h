@@ -49,6 +49,11 @@ struct WavefrontCoroAuxiliaryProducer {
 ///     the next readback on the same stream;
 ///  6. prepare_for_producer() may reorder storage, without changing live work,
 ///     to make the admitted number of free slots available to the producer.
+///  7. before admission, prepare_for_admission() may reclaim/reorder storage
+///     without changing capacity, items, or any stage count. Afterwards,
+///     host_available_slots() reports materializable producer storage A,
+///     with 0 <= A <= capacity() - host_count(). This need not include dead
+///     holes which the client's allocator deliberately leaves unreclaimed.
 ///
 /// Stage indices are stable for the lifetime of the registration. Each stage
 /// competes separately with main continuations by cardinality. If a main
@@ -59,9 +64,15 @@ struct WavefrontCoroAuxiliaryProducer {
 ///
 /// Every producer must enforce its declared emission bound independently of
 /// scheduling. Given the invariant q <= C, admission requires n * b <= C - q;
-/// therefore the next occupancy q' <= q + n * b <= C. The scheduler checks
+/// and also n * b <= A for the prepared materializable storage. Therefore the
+/// next occupancy q' <= q + n * b <= C. The scheduler checks
 /// this predicate before every producer dispatch and validates observed queue
 /// counts after every synchronization.
+/// An empty queue must materialize its full capacity during admission
+/// preparation, preserving the existing bounded-producer progress guarantee.
+/// Both preparation hooks enqueue work on the same stream as the producer;
+/// they must not execute semantic stages or change observed queue populations.
+/// Defaults retain the original fully reclaimable C - q contract.
 ///
 /// The default stage methods preserve the original single-stage protocol:
 /// dispatch() consumes all items and leaves device and host counts zero.
@@ -96,6 +107,10 @@ public:
             if (stage_host_count(i) != 0u) { return i; }
         }
         return stage_count();
+    }
+    virtual void prepare_for_admission(Stream &) noexcept {}
+    [[nodiscard]] virtual uint host_available_slots() const noexcept {
+        return capacity() - host_count();
     }
     virtual void prepare_for_producer(Stream &, uint) noexcept {}
     virtual void dispatch_stage(
