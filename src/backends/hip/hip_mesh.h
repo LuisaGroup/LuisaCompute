@@ -51,6 +51,7 @@ private:
     AccelOption _option;
     hiprtContext _hiprt_ctx{nullptr};
     hiprtGeometry _geometry{nullptr};
+    hiprtBuildFlags _build_flags{};
     hipDeviceptr_t _vertex_buffer{};
     size_t _vertex_buffer_size{};
     size_t _vertex_stride{};

@@ -631,6 +631,15 @@ void CUDACodegenAST::visit(const UnaryExpr *expr) {
 }
 
 void CUDACodegenAST::visit(const BinaryExpr *expr) {
+    if (expr->op() == BinaryOp::MOD &&
+        expr->type()->is_float_or_float_vector()) {
+        _scratch << "lc_fmod(";
+        expr->lhs()->accept(*this);
+        _scratch << ", ";
+        expr->rhs()->accept(*this);
+        _scratch << ")";
+        return;
+    }
     _scratch << "(";
     expr->lhs()->accept(*this);
     switch (expr->op()) {
@@ -1053,6 +1062,13 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
             _scratch << ">";
             break;
         }
+        case CallOp::UNDEFINED: {
+            // Zero is a legal concrete refinement for direct AST codegen.
+            _scratch << "lc_zero<";
+            _emit_type_name(expr->type());
+            _scratch << ">";
+            break;
+        }
         case CallOp::ONE: {
             _scratch << "lc_one<";
             _emit_type_name(expr->type());
@@ -1075,6 +1091,7 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR: _scratch << "lc_accel_query_all_motion_blur"; break;
         case CallOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR: _scratch << "lc_accel_query_any_motion_blur"; break;
         case CallOp::RAY_QUERY_WORLD_SPACE_RAY: _scratch << "LC_RAY_QUERY_WORLD_RAY"; break;
+        case CallOp::RAY_QUERY_OBJECT_SPACE_RAY: _scratch << "LC_RAY_QUERY_OBJECT_RAY"; break;
         case CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT: _scratch << "LC_RAY_QUERY_PROCEDURAL_CANDIDATE_HIT"; break;
         case CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT: _scratch << "LC_RAY_QUERY_TRIANGLE_CANDIDATE_HIT"; break;
         case CallOp::RAY_QUERY_COMMITTED_HIT: _scratch << "lc_ray_query_committed_hit"; break;
@@ -1215,6 +1232,52 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
             _scratch << ")";
         }
             return;
+        // Future cooperative-vector element-wise operations (native IR operators
+        // reserved for backend implementation — TODO: implement in CUDA AST codegen).
+        case CallOp::COOPERATIVE_VECTOR_DOT:
+        case CallOp::COOPERATIVE_VECTOR_ABS:
+        case CallOp::COOPERATIVE_VECTOR_SIGN:
+        case CallOp::COOPERATIVE_VECTOR_FLOOR:
+        case CallOp::COOPERATIVE_VECTOR_CEIL:
+        case CallOp::COOPERATIVE_VECTOR_FRACT:
+        case CallOp::COOPERATIVE_VECTOR_TRUNC:
+        case CallOp::COOPERATIVE_VECTOR_ROUND:
+        case CallOp::COOPERATIVE_VECTOR_RINT:
+        case CallOp::COOPERATIVE_VECTOR_SQRT:
+        case CallOp::COOPERATIVE_VECTOR_RSQRT:
+        case CallOp::COOPERATIVE_VECTOR_EXP2:
+        case CallOp::COOPERATIVE_VECTOR_EXP10:
+        case CallOp::COOPERATIVE_VECTOR_LOG2:
+        case CallOp::COOPERATIVE_VECTOR_LOG10:
+        case CallOp::COOPERATIVE_VECTOR_SATURATE:
+        case CallOp::COOPERATIVE_VECTOR_ISINF:
+        case CallOp::COOPERATIVE_VECTOR_ISNAN:
+        case CallOp::COOPERATIVE_VECTOR_SIN:
+        case CallOp::COOPERATIVE_VECTOR_COS:
+        case CallOp::COOPERATIVE_VECTOR_TAN:
+        case CallOp::COOPERATIVE_VECTOR_ASIN:
+        case CallOp::COOPERATIVE_VECTOR_ACOS:
+        case CallOp::COOPERATIVE_VECTOR_SINH:
+        case CallOp::COOPERATIVE_VECTOR_COSH:
+        case CallOp::COOPERATIVE_VECTOR_ASINH:
+        case CallOp::COOPERATIVE_VECTOR_ACOSH:
+        case CallOp::COOPERATIVE_VECTOR_ATANH:
+        case CallOp::COOPERATIVE_VECTOR_MIX:
+        case CallOp::COOPERATIVE_VECTOR_LERP:
+        case CallOp::COOPERATIVE_VECTOR_POW:
+        case CallOp::COOPERATIVE_VECTOR_STEP:
+        case CallOp::COOPERATIVE_VECTOR_SMOOTHSTEP:
+        case CallOp::COOPERATIVE_VECTOR_ADD:
+        case CallOp::COOPERATIVE_VECTOR_SUB:
+        case CallOp::COOPERATIVE_VECTOR_MUL:
+        case CallOp::COOPERATIVE_VECTOR_DIV:
+        case CallOp::COOPERATIVE_VECTOR_LESS:
+        case CallOp::COOPERATIVE_VECTOR_LESS_EQUAL:
+        case CallOp::COOPERATIVE_VECTOR_GREATER:
+        case CallOp::COOPERATIVE_VECTOR_GREATER_EQUAL:
+        case CallOp::COOPERATIVE_VECTOR_EQUAL:
+        case CallOp::COOPERATIVE_VECTOR_NOT_EQUAL:
+            LUISA_NOT_IMPLEMENTED("Cooperative-vector element-wise operations are not implemented in the CUDA AST backend yet.");
         // not supported
         case CallOp::TYPED_BINDLESS_COOPERATIVE_MUL: [[fallthrough]];
         case CallOp::TYPED_BINDLESS_COOPERATIVE_MUL_ADD: [[fallthrough]];
@@ -1239,17 +1302,36 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_SAMPLER: [[fallthrough]];
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER: [[fallthrough]];
         case CallOp::ASYNC_COPY: {
-            // Emit: lc_pipeline_memcpy_async(dst, src, num * elem_bytes)
-            // AST args: [scope, dst, src, elem_bytes, num, stride, event]
-            _scratch << "lc_pipeline_memcpy_async(";
-            args[1]->accept(*this);  // dst (shared memory pointer)
-            _scratch << ", ";
-            args[2]->accept(*this);  // src (global memory pointer)
+            // Emit: lc_pipeline_memcpy_async(&dst, (void*)src, num * elem_bytes)
+            // AST args: [scope, dst_lvalue, src_addr, elem_bytes, num, stride, event]
+            // dst is an lvalue of the shared-memory destination; taking its
+            // address directly (&shared[i]) keeps the shared-memory provenance
+            // visible to NVVM/NVRTC, which is required for cp.async. src is a
+            // 64-bit device address of the global source.
+            luisa::fixed_vector<const Expression *, 8> chain;
+            {
+                luisa::fixed_vector<const Expression *, 8> reversed;
+                const Expression *cur = args[1];
+                while (cur->tag() == Expression::Tag::ACCESS) {
+                    auto acc = static_cast<const AccessExpr *>(cur);
+                    reversed.emplace_back(acc->index());
+                    cur = acc->range();
+                }
+                chain.emplace_back(cur);
+                for (auto it = reversed.rbegin();
+                     it != reversed.rend(); ++it) {
+                    chain.emplace_back(*it);
+                }
+            }
+            _scratch << "lc_pipeline_memcpy_async(&";
+            _emit_access_chain(chain);  // &(s2[i]) shared destination
+            _scratch << ", (void*)";
+            args[2]->accept(*this);     // src (global memory address)
             _scratch << ", ";
             // size = num * elem_bytes
-            args[4]->accept(*this);  // num
+            args[4]->accept(*this);     // num
             _scratch << " * ";
-            args[3]->accept(*this);  // elem_bytes
+            args[3]->accept(*this);     // elem_bytes
             _scratch << ")";
             return;
         }
@@ -1928,6 +2010,13 @@ void CUDACodegenAST::_emit_type_name(const Type *type, bool hack_float_to_int) n
         case Type::Tag::FLOAT64: _scratch << (hack_float_to_int ? "lc_ulong" : "lc_double"); break;
         case Type::Tag::INT8: _scratch << "lc_byte"; break;
         case Type::Tag::UINT8: _scratch << "lc_ubyte"; break;
+        // FP8 / I4 / FP4 have no CUDA scalar type.  Placeholder: map to
+        // byte storage so the type switch is exhaustive.  Standalone
+        // sub-byte typed buffers are not yet exercised on CUDA.
+        case Type::Tag::FLOAT8_E4M3:
+        case Type::Tag::FLOAT8_E5M2:
+        case Type::Tag::FP4_E2M1: _scratch << "lc_ubyte"; break;
+        case Type::Tag::INT4: _scratch << "lc_byte"; break;
         case Type::Tag::INT16: _scratch << "lc_short"; break;
         case Type::Tag::UINT16: _scratch << "lc_ushort"; break;
         case Type::Tag::INT32: _scratch << "lc_int"; break;

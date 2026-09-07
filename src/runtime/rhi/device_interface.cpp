@@ -9,6 +9,12 @@ DeviceInterface::DeviceInterface(Context &&ctx) noexcept
 
 DeviceInterface::~DeviceInterface() noexcept = default;
 
+ShaderCreationInfo DeviceInterface::create_tile_kernel(
+    const ShaderOption &, const tile::Function &,
+    const tile::CompileOptions &, tile::KernelMetadata &) noexcept {
+    return ShaderCreationInfo::make_invalid();
+}
+
 Context DeviceInterface::context() const noexcept {
     return Context{_ctx_impl};
 }
@@ -19,12 +25,9 @@ void DeviceInterface::set_stream_log_callback(uint64_t stream_handle,
                                 "implemented. Calls to this method are ignored.");
 }
 
-ShaderCreationInfo DeviceInterface::create_shader(const ShaderOption &option, const ir_v2::KernelModule &kernel) noexcept {
-    LUISA_NOT_IMPLEMENTED("DeviceInterface::create_shader(const ShaderOption &option, const ir_v2::KernelModule &kernel) is not implemented.");
-}
-
 ResourceCreationInfo DeviceInterface::create_curve(const AccelOption &option) noexcept {
     LUISA_NOT_IMPLEMENTED();
+    return {};
 }
 
 void DeviceInterface::destroy_curve(uint64_t handle) noexcept {
@@ -33,10 +36,10 @@ void DeviceInterface::destroy_curve(uint64_t handle) noexcept {
 
 ResourceCreationInfo DeviceInterface::create_motion_instance(const AccelMotionOption &option) noexcept {
     LUISA_NOT_IMPLEMENTED();
+    return {};
 }
 
 void DeviceInterface::destroy_motion_instance(uint64_t handle) noexcept {
     LUISA_NOT_IMPLEMENTED();
 }
-
 }// namespace luisa::compute

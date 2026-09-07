@@ -40,34 +40,32 @@ endif ()
 
 add_subdirectory(core)
 add_subdirectory(vstl)
+add_subdirectory(tile)
 add_subdirectory(ast)
 add_subdirectory(xir)
-add_subdirectory(rust)
 add_subdirectory(runtime)
-add_subdirectory(ir)
 add_subdirectory(dsl)
 add_subdirectory(coro)
 # add_subdirectory(tensor)
 add_subdirectory(osl)
 add_subdirectory(gui)
 add_subdirectory(backends)
-add_subdirectory(api)
 add_subdirectory(clangcxx)
 
 add_library(compute INTERFACE)
+target_compile_features(compute INTERFACE cxx_std_20)
 
 target_link_libraries(compute INTERFACE
         luisa-compute-core
+        luisa-compute-tile
         luisa-compute-ast
         luisa-compute-xir
         luisa-compute-dsl
         luisa-compute-osl
         luisa-compute-runtime
         luisa-compute-gui
-        luisa-compute-api
         luisa-compute-backends
         luisa-compute-coro
-        luisa-compute-ir
         luisa-compute-clangcxx)
 
 if (LUISA_COMPUTE_ENABLE_CUDA_EXT_LCUB)
@@ -79,8 +77,11 @@ add_library(luisa::compute ALIAS compute)
 function(luisa_compute_add_executable name)
     add_executable(${name} ${ARGN})
     target_link_libraries(${name} PRIVATE luisa::compute)
-    install(TARGETS ${name} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endfunction()
+
+if (LUISA_COMPUTE_BUILD_IOS_TESTS)
+    add_subdirectory(tests/ios)
+endif ()
 
 if (LUISA_COMPUTE_BUILD_TESTS)
     enable_testing()
@@ -96,9 +97,9 @@ if (SKBUILD OR LUISA_COMPUTE_FORCE_PYTHON_BINDINGS)
     add_subdirectory(py)
 endif ()
 
-if (NOT SKBUILD)
+if (NOT SKBUILD AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
     install(EXPORT LuisaComputeTargets
             FILE LuisaComputeTargets.cmake
             NAMESPACE luisa::
-            DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/LuisaCompute)
+            DESTINATION ${LUISA_COMPUTE_INSTALL_CMAKEDIR})
 endif ()

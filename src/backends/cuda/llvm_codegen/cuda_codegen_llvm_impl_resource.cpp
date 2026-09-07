@@ -477,6 +477,60 @@ llvm::Value *CUDACodegenLLVMImpl::_translate_resource_read_inst(IB &b, const Fun
             auto llvm_ptr = b.CreateIntToPtr(llvm_address, b.getPtrTy());
             return _load_llvm_value(b, llvm_ptr, inst->type());
         }
+        case xir::ResourceReadOp::COOPERATIVE_MUL_ADD:
+        case xir::ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD:
+        case xir::ResourceReadOp::COOPERATIVE_MUL:
+        case xir::ResourceReadOp::BINDLESS_COOPERATIVE_MUL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LOAD:
+        case xir::ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SPLAT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_CAST:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD:
+        // Future cooperative-vector element-wise operations — TODO: implement
+        // in the CUDA LLVM backend.
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_DOT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ABS:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SIGN:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_FLOOR:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_CEIL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_FRACT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_TRUNC:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ROUND:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_RINT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SQRT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_RSQRT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_EXP2:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_EXP10:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LOG2:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LOG10:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SATURATE:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ISINF:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ISNAN:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SIN:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_COS:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_TAN:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ASIN:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ACOS:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SINH:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_COSH:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ASINH:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ACOSH:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ATANH:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_MIX:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LERP:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_POW:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_STEP:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SMOOTHSTEP:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ADD:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SUB:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_MUL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_DIV:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LESS:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LESS_EQUAL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_GREATER:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_GREATER_EQUAL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_EQUAL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_NOT_EQUAL: break;
     }
     LUISA_NOT_IMPLEMENTED();
 }
@@ -660,6 +714,11 @@ void CUDACodegenLLVMImpl::_translate_resource_write_inst(IB &b, FunctionContext 
         }
         case xir::ResourceWriteOp::INDIRECT_DISPATCH_SET_KERNEL: break;
         case xir::ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT: break;
+        case xir::ResourceWriteOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE:
+        case xir::ResourceWriteOp::COOPERATIVE_VECTOR_ACCUMULATE:
+        case xir::ResourceWriteOp::COOPERATIVE_VECTOR_STORE:
+        case xir::ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE:
+        case xir::ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE: break;
     }
     LUISA_NOT_IMPLEMENTED();
 }
@@ -994,6 +1053,41 @@ llvm::Value *CUDACodegenLLVMImpl::_call_optix_get_world_space_ray(IB &b) noexcep
     result = b.CreateInsertValue(result, dz, {llvm_ray_type_direction_index, 2});
     result = b.CreateInsertValue(result, tmin, llvm_ray_type_t_min_index);
     result = b.CreateInsertValue(result, tmax, llvm_ray_type_t_max_index);
+    return result;
+}
+
+llvm::Value *CUDACodegenLLVMImpl::_call_optix_get_object_space_ray(IB &b) noexcept {
+    auto f = [&](std::string_view component) {
+        auto asm_str = fmt::format("call ($0), _optix_get_{}, ();", component);
+        auto llvm_asm = _get_inline_asm(asm_str, "=f", false);
+        return b.CreateCall(llvm_asm, {});
+    };
+    auto ox = f("object_ray_origin_x");
+    auto oy = f("object_ray_origin_y");
+    auto oz = f("object_ray_origin_z");
+    auto dx = f("object_ray_direction_x");
+    auto dy = f("object_ray_direction_y");
+    auto dz = f("object_ray_direction_z");
+    auto tmin = f("ray_tmin");
+    auto tmax = f("ray_tmax");
+    auto result = static_cast<llvm::Value *>(
+        llvm::PoisonValue::get(_get_llvm_ray_type()));
+    result = b.CreateInsertValue(
+        result, ox, {llvm_ray_type_origin_index, 0});
+    result = b.CreateInsertValue(
+        result, oy, {llvm_ray_type_origin_index, 1});
+    result = b.CreateInsertValue(
+        result, oz, {llvm_ray_type_origin_index, 2});
+    result = b.CreateInsertValue(
+        result, dx, {llvm_ray_type_direction_index, 0});
+    result = b.CreateInsertValue(
+        result, dy, {llvm_ray_type_direction_index, 1});
+    result = b.CreateInsertValue(
+        result, dz, {llvm_ray_type_direction_index, 2});
+    result = b.CreateInsertValue(
+        result, tmin, llvm_ray_type_t_min_index);
+    result = b.CreateInsertValue(
+        result, tmax, llvm_ray_type_t_max_index);
     return result;
 }
 

@@ -199,6 +199,12 @@ void CUDACodegenXIR::_emit_type_name(const Type *type) noexcept {
         case Type::Tag::FLOAT64: _scratch << "lc_double"; break;
         case Type::Tag::INT8: _scratch << "lc_byte"; break;
         case Type::Tag::UINT8: _scratch << "lc_ubyte"; break;
+        // FP8 / I4 / FP4 placeholders: map to byte storage so the switch
+        // is exhaustive.  Standalone sub-byte buffers are not yet on CUDA.
+        case Type::Tag::FLOAT8_E4M3:
+        case Type::Tag::FLOAT8_E5M2:
+        case Type::Tag::FP4_E2M1: _scratch << "lc_ubyte"; break;
+        case Type::Tag::INT4: _scratch << "lc_byte"; break;
         case Type::Tag::INT16: _scratch << "lc_short"; break;
         case Type::Tag::UINT16: _scratch << "lc_ushort"; break;
         case Type::Tag::INT32: _scratch << "lc_int"; break;
@@ -372,6 +378,11 @@ void cuda_codegen_xir_emit_literal(StringScratch &s, const Type *type, const std
         case Type::Tag::BOOL: s << (cuda_codegen_xir_decode_literal<bool>(data) ? "true" : "false"); break;
         case Type::Tag::INT8: s << luisa::format("lc_byte({})", static_cast<int>(cuda_codegen_xir_decode_literal<int8_t>(data))); break;
         case Type::Tag::UINT8: s << luisa::format("lc_ubyte({})", static_cast<uint>(cuda_codegen_xir_decode_literal<uint8_t>(data))); break;
+        // FP8 / I4 / FP4 placeholders: emit as byte literal.
+        case Type::Tag::FLOAT8_E4M3:
+        case Type::Tag::FLOAT8_E5M2:
+        case Type::Tag::FP4_E2M1: s << luisa::format("lc_ubyte({})", static_cast<uint>(cuda_codegen_xir_decode_literal<uint8_t>(data))); break;
+        case Type::Tag::INT4: s << luisa::format("lc_byte({})", static_cast<int>(cuda_codegen_xir_decode_literal<int8_t>(data))); break;
         case Type::Tag::INT16: s << luisa::format("lc_short({})", cuda_codegen_xir_decode_literal<int16_t>(data)); break;
         case Type::Tag::UINT16: s << luisa::format("lc_ushort({})", cuda_codegen_xir_decode_literal<uint16_t>(data)); break;
         case Type::Tag::INT32: s << luisa::format("lc_int({})", cuda_codegen_xir_decode_literal<int32_t>(data)); break;
@@ -505,7 +516,9 @@ void CUDACodegenXIR::_emit_value_name(const xir::Value *value, bool is_use) noex
                 case xir::DerivedSpecialRegisterTag::DISPATCH_ID: _scratch << "sreg_did"; break;
                 case xir::DerivedSpecialRegisterTag::KERNEL_ID: _scratch << "sreg_kid"; break;
                 case xir::DerivedSpecialRegisterTag::RASTER_BARYCENTRICS:
-                case xir::DerivedSpecialRegisterTag::RASTER_OBJECT_ID: LUISA_NOT_IMPLEMENTED("Object ID is not supported in XIR-based CUDA codegen.");
+                case xir::DerivedSpecialRegisterTag::RASTER_OBJECT_ID:
+                case xir::DerivedSpecialRegisterTag::RASTER_FRONT_FACING:
+                case xir::DerivedSpecialRegisterTag::RASTER_BASE_INSTANCE: LUISA_NOT_IMPLEMENTED("Raster special registers are not supported in XIR-based CUDA codegen.");
                 case xir::DerivedSpecialRegisterTag::BLOCK_SIZE: _scratch << "sreg_bs"; break;
                 case xir::DerivedSpecialRegisterTag::WARP_SIZE: _scratch << "sreg_ws"; break;
                 case xir::DerivedSpecialRegisterTag::DISPATCH_SIZE: _scratch << "sreg_ls"; break;
@@ -895,6 +908,9 @@ void CUDACodegenXIR::_emit_metadata(const xir::MetadataList &md_list, int indent
                 _scratch << "reg2mem spill: " << xir::to_string(spill->kind());
                 break;
             }
+            case xir::DerivedMetadataTag::NO_INLINE:
+                _scratch << "no inline";
+                break;
         }
         _scratch << "\n";
     }
@@ -1327,7 +1343,13 @@ void CUDACodegenXIR::_emit_arithmetic_inst(const xir::ArithmeticInst *inst, int 
         case xir::ArithmeticOp::BINARY_SUB: b("-"); break;
         case xir::ArithmeticOp::BINARY_MUL: b("*"); break;
         case xir::ArithmeticOp::BINARY_DIV: b("/"); break;
-        case xir::ArithmeticOp::BINARY_MOD: b("%"); break;
+        case xir::ArithmeticOp::BINARY_MOD:
+            if (inst->type()->is_float_or_float_vector()) {
+                f("lc_fmod");
+            } else {
+                b("%");
+            }
+            break;
         case xir::ArithmeticOp::BINARY_BIT_AND: {
             if (auto t = inst->type(); t->is_bool() || t->is_bool_vector()) {
                 b("&&");
@@ -1656,6 +1678,61 @@ void CUDACodegenXIR::_emit_resource_read_inst(const xir::ResourceReadInst *inst)
             _scratch << " *>";
             break;
         }
+        case xir::ResourceReadOp::COOPERATIVE_MUL_ADD:
+        case xir::ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD:
+        case xir::ResourceReadOp::COOPERATIVE_MUL:
+        case xir::ResourceReadOp::BINDLESS_COOPERATIVE_MUL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LOAD:
+        case xir::ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SPLAT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_CAST:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD:
+        // Future cooperative-vector element-wise operations — TODO: implement
+        // in the CUDA XIR backend.
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_DOT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ABS:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SIGN:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_FLOOR:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_CEIL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_FRACT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_TRUNC:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ROUND:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_RINT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SQRT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_RSQRT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_EXP2:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_EXP10:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LOG2:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LOG10:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SATURATE:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ISINF:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ISNAN:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SIN:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_COS:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_TAN:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ASIN:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ACOS:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SINH:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_COSH:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ASINH:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ACOSH:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ATANH:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_MIX:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LERP:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_POW:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_STEP:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SMOOTHSTEP:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ADD:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SUB:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_MUL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_DIV:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LESS:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LESS_EQUAL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_GREATER:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_GREATER_EQUAL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_EQUAL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_NOT_EQUAL:
+            LUISA_NOT_IMPLEMENTED("Cooperative-vector element-wise operations are not implemented in the CUDA XIR backend yet.");
     }
     _scratch << "(";
     _emit_operand_list(inst->operand_uses());
@@ -1682,6 +1759,12 @@ void CUDACodegenXIR::_emit_resource_write_inst(const xir::ResourceWriteInst *ins
         case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_MOTION_SRT: _scratch << "lc_accel_set_instance_motion_srt"; break;
         case xir::ResourceWriteOp::INDIRECT_DISPATCH_SET_KERNEL: _scratch << "lc_indirect_set_dispatch_kernel"; break;
         case xir::ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT: _scratch << "lc_indirect_set_dispatch_count"; break;
+        case xir::ResourceWriteOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE:
+        case xir::ResourceWriteOp::COOPERATIVE_VECTOR_ACCUMULATE:
+        case xir::ResourceWriteOp::COOPERATIVE_VECTOR_STORE:
+        case xir::ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE:
+        case xir::ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE:
+            LUISA_NOT_IMPLEMENTED();
     }
     _scratch << "(";
     _emit_operand_list(inst->operand_uses());
@@ -1692,6 +1775,9 @@ void CUDACodegenXIR::_emit_ray_query_object_read_inst(const xir::RayQueryObjectR
     switch (inst->op()) {
         case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_WORLD_SPACE_RAY:
             _emit_intrinsic_call("LC_RAY_QUERY_WORLD_RAY", inst);
+            break;
+        case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY:
+            _emit_intrinsic_call("LC_RAY_QUERY_OBJECT_RAY", inst);
             break;
         case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT:
             _emit_intrinsic_call("LC_RAY_QUERY_PROCEDURAL_CANDIDATE_HIT", inst);

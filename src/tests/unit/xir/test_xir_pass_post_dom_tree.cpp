@@ -29,6 +29,51 @@ namespace {
 
 void register_post_dom_tree_tests() {
 
+    "dom_tree_dense_chk_has_sparse_linear_work_on_diamond_chain"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(m, body);
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        XIRBuilder b;
+        constexpr auto diamond_count = size_t{128u};
+        auto *cursor = body;
+        for (auto index = size_t{0u}; index < diamond_count; ++index) {
+            auto *left = kernel->create_basic_block();
+            auto *right = kernel->create_basic_block();
+            auto *merge = kernel->create_basic_block();
+            b.set_insertion_point(cursor);
+            b.cond_br(condition, left, right);
+            b.set_insertion_point(left);
+            b.br(merge);
+            b.set_insertion_point(right);
+            b.br(merge);
+            cursor = merge;
+        }
+        b.set_insertion_point(cursor);
+        b.return_void();
+
+        DomTreeBuildStats stats;
+        auto tree = compute_dom_tree(
+            kernel, {.compute_dominance_frontiers = false}, &stats);
+        const auto expected_block_count =
+            1u + 3u * diamond_count;
+        const auto expected_edge_count = 4u * diamond_count;
+        expect(tree.nodes().size() == expected_block_count);
+        expect(tree.dominates(body, cursor));
+        expect(stats.numbered_block_count == expected_block_count);
+        expect(stats.numbered_edge_count == expected_edge_count);
+        // RPO makes every predecessor available in the establishing pass;
+        // the second pass only confirms the fixed point. Work is proportional
+        // to the sparse graph, never to its Cartesian block relation.
+        expect(stats.fixed_point_iteration_count == 2u);
+        expect(stats.fixed_point_block_visit_count ==
+               2u * (expected_block_count - 1u));
+        expect(stats.fixed_point_edge_visit_count ==
+               2u * expected_edge_count);
+        expect(stats.intersect_step_count > 0u);
+    };
+
     "post_dom_tree_coro_terminate_is_exit"_test = [] {
         Module m;
         BasicBlock *body;
@@ -90,6 +135,12 @@ void register_post_dom_tree_tests() {
         auto tree = compute_post_dom_tree(kernel);
         expect(tree.immediate_post_dominator(body) == nullptr);
         expect(!tree.post_dominates(return_block, body));
+
+        auto terminating_tree = compute_post_dom_tree(
+            kernel, {.account_for_infinite_paths = false});
+        expect(terminating_tree.immediate_post_dominator(body) ==
+               return_block);
+        expect(terminating_tree.post_dominates(return_block, body));
     };
 
     "dom_tree_queries_reject_blocks_outside_the_analysis"_test = [] {
@@ -104,6 +155,10 @@ void register_post_dom_tree_tests() {
         auto post_dom_tree = compute_post_dom_tree(kernel);
         auto *foreign = reinterpret_cast<BasicBlock *>(uintptr_t{0xdead});
         expect(!dom_tree.dominates(foreign, foreign));
+        expect(!dom_tree.dominates(body, foreign));
+        expect(!dom_tree.dominates(foreign, body));
+        expect(!dom_tree.dominates(nullptr, body));
+        expect(!dom_tree.dominates(body, nullptr));
         expect(!dom_tree.strictly_dominates(foreign, foreign));
         expect(!post_dom_tree.post_dominates(foreign, foreign));
         expect(!post_dom_tree.strictly_post_dominates(foreign, foreign));
@@ -128,6 +183,74 @@ void register_post_dom_tree_tests() {
         auto tree = compute_dom_tree(kernel);
         auto frontiers = tree.root()->frontiers();
         expect(std::find(frontiers.begin(), frontiers.end(), tree.root()) != frontiers.end());
+    };
+
+    "dom_tree_frontiers_can_be_materialized_once_after_ancestry"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(m, body);
+        auto *left = kernel->create_basic_block();
+        auto *right = kernel->create_basic_block();
+        auto *condition = kernel->create_value_argument(Type::of<bool>());
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        b.cond_br(condition, left, right);
+        b.set_insertion_point(left);
+        b.br(body);
+        b.set_insertion_point(right);
+        b.br(body);
+
+        auto tree = compute_dom_tree(
+            kernel, {.compute_dominance_frontiers = false});
+        expect(tree.root()->frontiers().empty());
+        expect(tree.dominates(body, left));
+        expect(tree.dominates(body, right));
+        tree.compute_dominance_frontiers();
+        auto frontier_count = tree.root()->frontiers().size();
+        expect(frontier_count == 1u);
+        expect(tree.root()->frontiers().front() == tree.root());
+        tree.compute_dominance_frontiers();
+        expect(tree.root()->frontiers().size() == frontier_count);
+    };
+
+    "dom_tree_ancestry_queries_cover_deep_and_sibling_subtrees"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(m, body);
+        auto *left = kernel->create_basic_block();
+        auto *left_inner = kernel->create_basic_block();
+        auto *right = kernel->create_basic_block();
+        auto *merge = kernel->create_basic_block();
+        auto *tail = kernel->create_basic_block();
+        auto *condition = kernel->create_value_argument(Type::of<bool>());
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        b.cond_br(condition, left, right);
+        b.set_insertion_point(left);
+        b.br(left_inner);
+        b.set_insertion_point(left_inner);
+        b.br(merge);
+        b.set_insertion_point(right);
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.br(tail);
+        b.set_insertion_point(tail);
+        b.return_void();
+
+        auto tree = compute_dom_tree(kernel);
+        expect(tree.dominates(body, body));
+        expect(tree.dominates(body, left_inner));
+        expect(tree.dominates(left, left_inner));
+        expect(!tree.dominates(left_inner, left));
+        expect(!tree.dominates(left, right));
+        expect(!tree.dominates(right, left));
+        expect(!tree.dominates(left, merge));
+        expect(tree.dominates(merge, tail));
+        expect(tree.strictly_dominates(merge, tail));
+        expect(!tree.strictly_dominates(merge, merge));
+        expect(tree.node(body)->dominates(tree.node(left_inner)));
+        expect(!tree.node(left)->dominates(tree.node(right)));
+        expect(!tree.node(body)->dominates(nullptr));
     };
 
     "dom_trees_ignore_unreachable_predecessors"_test = [] {

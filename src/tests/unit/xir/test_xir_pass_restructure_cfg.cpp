@@ -12,6 +12,7 @@
 #include <luisa/xir/instructions/indexed_branch.h>
 #include <luisa/xir/instructions/load.h>
 #include <luisa/xir/instructions/phi.h>
+#include <luisa/xir/instructions/ray_query.h>
 #include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/instructions/store.h>
@@ -28,7 +29,7 @@
 #include <luisa/xir/passes/if_conversion.h>
 #include <luisa/xir/passes/local_load_elimination.h>
 #include <luisa/xir/passes/local_store_forward.h>
-#include <luisa/xir/passes/lower_ray_query_loop_to_loop.h>
+#include <luisa/xir/passes/lower_ray_query_to_loop.h>
 #include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/passes/phi_cleanup.h>
 #include <luisa/xir/passes/reg2mem.h>
@@ -37,6 +38,7 @@
 #include <luisa/xir/passes/simplify_cfg.h>
 #include <luisa/xir/passes/unused_callable_removal.h>
 #include <luisa/xir/translators/ast2xir.h>
+#include <luisa/xir/translators/xir2ast.h>
 #include <luisa/xir/verifier.h>
 
 #include <array>
@@ -44,6 +46,7 @@
 #include <limits>
 #include <optional>
 #include <string>
+#include <utility>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -257,9 +260,26 @@ struct ScopedEnvironmentVariable {
     return false;
 }
 
+[[nodiscard]] bool branch_chain_continues_to(
+    BasicBlock *from, BasicBlock *target) noexcept {
+    luisa::unordered_set<BasicBlock *> visited;
+    auto *cur = from;
+    while (cur != nullptr && visited.emplace(cur).second &&
+           cur->is_terminated()) {
+        auto *terminator = cur->terminator();
+        if (terminator->isa<ContinueInst>()) {
+            return static_cast<ContinueInst *>(terminator)
+                       ->target_block() == target;
+        }
+        if (!terminator->isa<BranchInst>()) { return false; }
+        cur = static_cast<BranchInst *>(terminator)->target_block();
+    }
+    return false;
+}
+
 void run_spirv_normalize_before_restructure(Module *m) noexcept {
     auto algebraic_options = AlgebraicSimplifyOptions{};
-    (void)lower_ray_query_loop_to_loop_pass_run_on_module(m);
+    (void)lower_ray_query_to_loop_pass_run_on_module(m);
     (void)destructure_cfg_pass_run_on_module(m);
     (void)mem2reg_pass_run_on_module(m);
     (void)algebraic_simplify_pass_run_on_module(m, algebraic_options);
@@ -287,6 +307,62 @@ void expect_no_structured_cfg(FunctionDefinition *def) noexcept {
 }// namespace
 
 void reg_restructure_cfg() {
+
+    "restructure_post_dom_dense_solver_scales_with_sparse_cfg"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(module, entry);
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        XIRBuilder builder;
+        constexpr auto diamond_count = size_t{128u};
+        auto *cursor = entry;
+        for (auto index = size_t{0u};
+             index < diamond_count; ++index) {
+            builder.set_insertion_point(cursor);
+            auto *selection = builder.if_(condition);
+            auto *left = selection->create_true_block();
+            auto *right = selection->create_false_block();
+            auto *merge = selection->create_merge_block();
+            builder.set_insertion_point(left);
+            builder.br(merge);
+            builder.set_insertion_point(right);
+            builder.br(merge);
+            cursor = merge;
+        }
+        builder.set_insertion_point(cursor);
+        builder.return_void();
+
+        const auto expected_block_count =
+            1u + 3u * diamond_count;
+        const auto expected_edge_count =
+            4u * diamond_count;
+        expect(xir_verify_module(&module).succeeded());
+        auto info =
+            restructure_cfg_pass_run_on_function(kernel);
+        expect(info.succeeded());
+        expect(!info.changed());
+        expect(info.postdom_analysis_count > 0u);
+        // Each immutable analysis numbers the sparse graph once. The CHK
+        // solver converges in one establishing and one confirming RPO pass;
+        // no pointer-valued Cartesian relation can hide in these counts.
+        expect(info.postdom_numbered_block_count ==
+               info.postdom_analysis_count *
+                   expected_block_count);
+        expect(info.postdom_numbered_edge_count ==
+               info.postdom_analysis_count *
+                   expected_edge_count);
+        expect(info.postdom_active_block_count ==
+               info.postdom_numbered_block_count);
+        expect(info.postdom_fixed_point_iteration_count ==
+               2u * info.postdom_analysis_count);
+        expect(info.postdom_fixed_point_block_visit_count ==
+               2u * info.postdom_active_block_count);
+        expect(info.postdom_fixed_point_edge_visit_count ==
+               2u *
+                   (info.postdom_numbered_edge_count +
+                    info.postdom_analysis_count));
+    };
 
     "restructure_empty_function_noop"_test = [] {
         Module m;
@@ -674,6 +750,553 @@ void reg_restructure_cfg() {
         expect(xir_verify_module(&m).succeeded());
     };
 
+    "restructure_normalizes_loop_boundary_guard_before_entry_enforcement"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(module, entry);
+        auto *loop_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *boundary_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        XIRBuilder builder;
+
+        builder.set_insertion_point(entry);
+        auto *loop = builder.loop();
+        auto *prepare = loop->create_prepare_block();
+        auto *loop_body = loop->create_body_block();
+        auto *update = loop->create_update_block();
+        auto *loop_merge = loop->create_merge_block();
+
+        builder.set_insertion_point(prepare);
+        builder.cond_br(
+            loop_condition, loop_body, loop_merge);
+        builder.set_insertion_point(loop_body);
+        auto *boundary = builder.if_(boundary_condition);
+        boundary->set_true_target(prepare);
+        boundary->set_false_target(loop_merge);
+        auto *synthetic_merge = boundary->create_merge_block();
+        builder.set_insertion_point(synthetic_merge);
+        builder.unreachable_();
+        builder.set_insertion_point(update);
+        builder.br(prepare);
+        builder.set_insertion_point(loop_merge);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto block_count = count_owned_blocks(kernel);
+
+        auto info = restructure_cfg_pass_run_on_function(
+            kernel,
+            {.main_iteration_limit = 0u,
+             .post_iteration_limit = 64u});
+
+        expect(info.succeeded());
+        expect(info.changed());
+        expect(info.iteration_limit_count == 0u);
+        expect(info.invalid_construct_count == 0u);
+        expect(info.boundary_merge_rewrite_batch_count > 0u);
+        expect(count_owned_blocks(kernel) <= block_count + 4u)
+            << "normalizing a physical loop guard may add only constant-size "
+               "boundary proxies, not clone the loop prepare region";
+        expect(entry->terminator() == loop);
+        expect(boundary->merge_block() ==
+               boundary->false_block());
+        auto *boundary_merge_terminator =
+            boundary->false_block()->terminator();
+        expect(
+            branch_chain_reaches(
+                boundary->false_block(), loop_merge) ||
+            (boundary_merge_terminator->isa<BreakInst>() &&
+             static_cast<BreakInst *>(
+                 boundary_merge_terminator)
+                     ->target_block() == loop_merge));
+        expect(xir_verify_module(
+                   &module,
+                   {.require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets = true})
+                   .succeeded());
+    };
+
+    "restructure_proxies_the_actual_true_merge_arm"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(module, entry);
+        auto *outer_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *boundary_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        XIRBuilder builder;
+
+        builder.set_insertion_point(entry);
+        auto *loop = builder.simple_loop();
+        auto *loop_body = loop->create_body_block();
+        auto *loop_merge = loop->create_merge_block();
+
+        builder.set_insertion_point(loop_body);
+        auto *outer = builder.if_(outer_condition);
+        auto *outer_true = outer->create_true_block();
+        auto *outer_false = outer->create_false_block();
+        auto *outer_merge = outer->create_merge_block();
+
+        builder.set_insertion_point(outer_true);
+        auto *boundary = builder.if_(boundary_condition);
+        auto *boundary_break = boundary->create_false_block();
+        // Both selections deliberately own outer_merge, and the ordinary
+        // fallthrough is the true arm. This is the mirror image of the usual
+        // false-merge spelling and used to make merge canonicalization proxy
+        // the wrong arm. Construct-exit repair would then wrap that result,
+        // producing an unbounded two-pass rewrite cycle.
+        boundary->set_true_target(outer_merge);
+        boundary->set_merge_block(outer_merge);
+        builder.set_insertion_point(boundary_break);
+        builder.break_(loop_merge);
+        builder.set_insertion_point(outer_false);
+        builder.br(outer_merge);
+        builder.set_insertion_point(outer_merge);
+        builder.continue_(loop_body);
+        builder.set_insertion_point(loop_merge);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = restructure_cfg_pass_run_on_function(
+            kernel,
+            {.main_iteration_limit = 0u,
+             .post_iteration_limit = 8u});
+        expect(info.succeeded());
+        expect(info.iteration_limit_count == 0u);
+        expect(info.boundary_merge_rewrite_batch_count > 0u);
+        expect(boundary->merge_block() != outer_merge);
+        expect(boundary->true_block() == boundary->merge_block());
+        // SimpleLoop continue canonicalization may split the shared
+        // outer_merge payload into per-predecessor Continue blocks. Accept
+        // either representation while still proving that proxying the true
+        // merge arm preserved its executable continuation.
+        expect(
+            branch_chain_reaches(
+                boundary->merge_block(), outer_merge) ||
+            branch_chain_continues_to(
+                boundary->merge_block(), loop_body));
+        expect(xir_verify_module(
+                   &module,
+                   {.require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets = true})
+                   .succeeded());
+
+        auto stable_block_count = count_owned_blocks(kernel);
+        auto rerun = restructure_cfg_pass_run_on_function(kernel);
+        expect(rerun.succeeded());
+        expect(rerun.iteration_limit_count == 0u);
+        expect(count_owned_blocks(kernel) == stable_block_count);
+    };
+
+    "restructure_does_not_treat_payload_path_as_physical_loop_guard"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(module, entry);
+        auto *loop_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *guard_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *buffer = kernel->create_resource_argument(
+            Type::buffer(Type::of<uint32_t>()));
+        auto *zero =
+            module.create_constant_zero(Type::of<uint32_t>());
+        XIRBuilder builder;
+
+        builder.set_insertion_point(entry);
+        auto *loop = builder.loop();
+        auto *prepare = loop->create_prepare_block();
+        auto *body = loop->create_body_block();
+        auto *update = loop->create_update_block();
+        auto *loop_merge = loop->create_merge_block();
+
+        builder.set_insertion_point(prepare);
+        builder.cond_br(loop_condition, body, loop_merge);
+        builder.set_insertion_point(body);
+        auto *guard = builder.if_(guard_condition);
+        auto *payload_arm = guard->create_false_block();
+        auto *original_merge = guard->create_merge_block();
+        guard->set_true_target(original_merge);
+
+        builder.set_insertion_point(payload_arm);
+        builder.call(ResourceWriteOp::BUFFER_WRITE,
+                     {buffer, zero, zero});
+        builder.br(update);
+        builder.set_insertion_point(original_merge);
+        builder.br(update);
+        builder.set_insertion_point(update);
+        builder.br(prepare);
+        builder.set_insertion_point(loop_merge);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info =
+            restructure_cfg_pass_run_on_function(kernel);
+
+        expect(info.succeeded());
+        expect(info.changed());
+        // A selection may exit directly through the nearest enclosing loop's
+        // continue target. This is a legal SPIR-V structured exit, so there is
+        // no reason to force both arms through a synthetic physical merge.
+        // The payload arm must remain a real selection arm (rather than being
+        // misclassified as a side-effect-free loop-boundary guard), while its
+        // executable target is normalized to the exact loop continue block.
+        expect(guard->merge_block() == original_merge);
+        expect(payload_arm->terminator()->isa<ContinueInst>());
+        if (payload_arm->terminator()->isa<ContinueInst>()) {
+            expect(static_cast<ContinueInst *>(
+                       payload_arm->terminator())
+                       ->target_block() == update);
+        }
+        auto *physical_merge = guard->merge_block();
+        expect(branch_chain_reaches(
+            guard->true_block(), physical_merge));
+        if (physical_merge->terminator()->isa<BranchInst>()) {
+            expect(static_cast<BranchInst *>(
+                       physical_merge->terminator())
+                       ->target_block() == update);
+        } else {
+            expect(physical_merge->terminator()
+                       ->isa<ContinueInst>());
+            if (physical_merge->terminator()
+                    ->isa<ContinueInst>()) {
+                expect(static_cast<ContinueInst *>(
+                           physical_merge->terminator())
+                           ->target_block() == update);
+            }
+        }
+        expect(xir_verify_module(
+                   &module,
+                   {.require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets =
+                        true})
+                   .succeeded());
+    };
+
+    "restructure_generated_dispatch_uses_physical_loop_boundary_arms"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(module, entry);
+        auto *loop_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *outer_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *dispatch_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *buffer = kernel->create_resource_argument(
+            Type::buffer(Type::of<uint32_t>()));
+        auto *zero =
+            module.create_constant_zero(Type::of<uint32_t>());
+        XIRBuilder builder;
+
+        builder.set_insertion_point(entry);
+        auto *loop = builder.loop();
+        auto *prepare = loop->create_prepare_block();
+        auto *body = loop->create_body_block();
+        auto *update = loop->create_update_block();
+        auto *loop_merge = loop->create_merge_block();
+        builder.set_insertion_point(prepare);
+        builder.cond_br(loop_condition, body, loop_merge);
+
+        builder.set_insertion_point(body);
+        auto *outer = builder.if_(outer_condition);
+        auto *nested_header = outer->create_true_block();
+        auto *payload = outer->create_false_block();
+        auto *outer_merge = outer->create_merge_block();
+
+        builder.set_insertion_point(nested_header);
+        auto *nested = builder.if_(dispatch_condition);
+        auto *direct_continue = nested->create_true_block();
+        nested->set_false_target(payload);
+        auto *nested_merge = nested->create_merge_block();
+        builder.set_insertion_point(direct_continue);
+        builder.br(prepare);
+        builder.set_insertion_point(nested_merge);
+        builder.unreachable_();
+
+        builder.set_insertion_point(payload);
+        auto *payload_write = builder.call(
+            ResourceWriteOp::BUFFER_WRITE,
+            {buffer, zero, zero});
+        builder.br(prepare);
+        builder.set_insertion_point(outer_merge);
+        builder.unreachable_();
+        builder.set_insertion_point(update);
+        builder.br(prepare);
+        builder.set_insertion_point(loop_merge);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        const auto initial_block_count =
+            count_owned_blocks(kernel);
+        auto first = restructure_cfg_pass_run_on_function(
+            kernel,
+            {.main_iteration_limit = 64u,
+             .post_iteration_limit = 8u});
+        expect(first.succeeded());
+        expect(first.iteration_limit_count == 0u);
+        expect(payload_write->parent_block() == payload)
+            << "the non-boundary arm's payload must not be folded into a "
+               "physical continue edge";
+        expect(count_owned_blocks(kernel) <=
+               initial_block_count + 20u)
+            << "a generated exit dispatch must be consumed once instead of "
+               "being wrapped once per fixed-point round";
+        auto verification = xir_verify_module(
+            &module,
+            {.require_unique_merge_blocks = true,
+             .require_canonical_break_continue_targets = true});
+        expect(verification.succeeded())
+            << (verification.errors.empty() ?
+                    "unknown verification failure" :
+                    verification.errors.front().message);
+
+        const auto stable_block_count =
+            count_owned_blocks(kernel);
+        auto second =
+            restructure_cfg_pass_run_on_function(kernel);
+        expect(second.succeeded());
+        expect(!second.changed());
+        expect(count_owned_blocks(kernel) ==
+               stable_block_count);
+    };
+
+    "restructure_exit_dispatch_sink_priority_converges_for_target_orders"_test = [] {
+        std::optional<uint64_t> expected_hash;
+        auto terminal_target_count = size_t{0u};
+        auto terminal_fallback_reorder_count = size_t{0u};
+        for (auto sink_created_first : {false, true}) {
+            Module module;
+            BasicBlock *entry;
+            auto *kernel = make_kernel_with_body(module, entry);
+            auto *definition = kernel->definition();
+            auto *loop_condition =
+                kernel->create_value_argument(Type::of<bool>());
+            auto *outer_condition =
+                kernel->create_value_argument(Type::of<bool>());
+            auto *nested_condition =
+                kernel->create_value_argument(Type::of<bool>());
+            auto *ordinary_condition =
+                kernel->create_value_argument(Type::of<bool>());
+
+            // Build both ownership orders. The state-dispatch selector must be
+            // ordered by target semantics, not by which target happened to be
+            // allocated first.
+            BasicBlock *return_block = nullptr;
+            if (sink_created_first) {
+                return_block = definition->create_basic_block();
+            }
+            auto *ordinary_header =
+                definition->create_basic_block();
+
+            XIRBuilder builder;
+            builder.set_insertion_point(entry);
+            auto *loop = builder.loop();
+            auto *prepare = loop->create_prepare_block();
+            auto *body = loop->create_body_block();
+            auto *update = loop->create_update_block();
+            auto *loop_merge = loop->create_merge_block();
+            builder.set_insertion_point(prepare);
+            builder.cond_br(loop_condition, body, loop_merge);
+
+            // The nested selection does not dominate this payload selection
+            // because the sibling outer arm reaches it directly. The IfInst
+            // keeps it as an ordinary continuation target instead of an empty
+            // proxy that canonical_exit_target would contract to the loop
+            // boundary.
+            builder.set_insertion_point(ordinary_header);
+            auto *ordinary = builder.if_(ordinary_condition);
+            auto *ordinary_true = ordinary->create_true_block();
+            auto *ordinary_false = ordinary->create_false_block();
+            auto *ordinary_merge = ordinary->create_merge_block();
+            builder.set_insertion_point(ordinary_true);
+            builder.br(prepare);
+            if (!sink_created_first) {
+                // Allocate the terminal target after every block in the
+                // ordinary target's local construct. Stable ownership order
+                // alone would therefore place it in the ladder fallback.
+                return_block = definition->create_basic_block();
+            }
+            builder.set_insertion_point(ordinary_false);
+            builder.br(return_block);
+            builder.set_insertion_point(ordinary_merge);
+            builder.unreachable_();
+            builder.set_insertion_point(return_block);
+            builder.return_void();
+
+            builder.set_insertion_point(body);
+            auto *outer = builder.if_(outer_condition);
+            auto *nested_header = outer->create_true_block();
+            outer->set_false_target(ordinary_header);
+            auto *outer_merge = outer->create_merge_block();
+            builder.set_insertion_point(nested_header);
+            auto *nested = builder.if_(nested_condition);
+            auto *return_proxy = nested->create_true_block();
+            nested->set_false_target(ordinary_header);
+            auto *nested_merge = nested->create_merge_block();
+            builder.set_insertion_point(return_proxy);
+            builder.br(return_block);
+            builder.set_insertion_point(nested_merge);
+            builder.unreachable_();
+            builder.set_insertion_point(outer_merge);
+            builder.unreachable_();
+
+            builder.set_insertion_point(update);
+            builder.br(prepare);
+            builder.set_insertion_point(loop_merge);
+            builder.return_void();
+
+            expect(xir_verify_module(&module).succeeded());
+            auto initial_block_count = count_owned_blocks(definition);
+            auto first = restructure_cfg_pass_run_on_function(
+                kernel,
+                {.main_iteration_limit = 64u,
+                 .post_iteration_limit = 12u});
+            expect(first.succeeded());
+            expect(first.iteration_limit_count == 0u);
+            expect(first.selection_exit_cfg_invalidation_count > 0u)
+                << "the fixture must exercise a multi-target exit dispatch";
+            terminal_target_count +=
+                first.selection_exit_terminal_target_count;
+            terminal_fallback_reorder_count +=
+                first.selection_exit_terminal_fallback_reorder_count;
+            expect(count_terminator_kind(
+                       definition,
+                       DerivedInstructionTag::CONDITIONAL_BRANCH) ==
+                   count_canonical_conditional_loop_prepare(definition));
+            expect(count_owned_blocks(definition) <=
+                   initial_block_count + 48u)
+                << "terminal-target dispatch normalization must have bounded "
+                   "CFG growth";
+            expect(xir_verify_module(
+                       &module,
+                       {.require_unique_merge_blocks = true,
+                        .require_canonical_break_continue_targets = true})
+                       .succeeded());
+            auto ast = xir_to_ast_translate(*kernel, {});
+            expect(ast != nullptr);
+            if (ast != nullptr) {
+                auto hash = ast->hash();
+                if (!expected_hash) {
+                    expected_hash.emplace(hash);
+                } else {
+                    expect(hash == *expected_hash)
+                        << "terminal targets must keep the same direct-arm "
+                           "polarity for both block ownership orders";
+                }
+            }
+
+            auto stable_block_count = count_owned_blocks(definition);
+            auto second = restructure_cfg_pass_run_on_function(
+                kernel,
+                {.main_iteration_limit = 64u,
+                 .post_iteration_limit = 12u});
+            expect(second.succeeded());
+            expect(!second.changed());
+            expect(count_owned_blocks(definition) == stable_block_count)
+                << "terminal-target dispatch normalization must be a fixed "
+                   "point for both target ownership orders";
+        }
+        expect(terminal_target_count > 0u)
+            << "the fixture must route a terminal target through an exit "
+               "selector";
+        expect(terminal_fallback_reorder_count > 0u)
+            << "one ownership order must prove that semantic sink priority "
+               "overrides the stable block-order fallback";
+    };
+
+    "restructure_exit_selector_order_is_deterministic"_test = [] {
+        std::optional<uint64_t> expected_hash;
+        for (auto iteration = 0u; iteration < 24u; ++iteration) {
+            // Keep a differently sized block allocation alive while building
+            // the fixture. Pointer-keyed unordered containers then receive a
+            // different address distribution on every iteration, while the
+            // fixture's owned-block order and executable CFG stay identical.
+            Module allocation_perturbation;
+            auto *padding_kernel =
+                allocation_perturbation.create_kernel();
+            padding_kernel->create_body_block();
+            for (auto i = 0u; i < iteration * 7u; ++i) {
+                static_cast<void>(
+                    padding_kernel->create_basic_block());
+            }
+
+            Module module;
+            BasicBlock *entry;
+            auto *kernel = make_kernel_with_body(module, entry);
+            auto *loop_condition =
+                kernel->create_value_argument(Type::of<bool>());
+            auto *outer_condition =
+                kernel->create_value_argument(Type::of<bool>());
+            auto *dispatch_condition =
+                kernel->create_value_argument(Type::of<bool>());
+            auto *buffer = kernel->create_resource_argument(
+                Type::buffer(Type::of<uint32_t>()));
+            auto *zero = module.create_constant_zero(
+                Type::of<uint32_t>());
+            XIRBuilder builder;
+
+            builder.set_insertion_point(entry);
+            auto *loop = builder.loop();
+            auto *prepare = loop->create_prepare_block();
+            auto *body = loop->create_body_block();
+            auto *update = loop->create_update_block();
+            auto *loop_merge = loop->create_merge_block();
+            builder.set_insertion_point(prepare);
+            builder.cond_br(loop_condition, body, loop_merge);
+
+            builder.set_insertion_point(body);
+            auto *outer = builder.if_(outer_condition);
+            auto *nested_header = outer->create_true_block();
+            auto *payload = outer->create_false_block();
+            auto *outer_merge = outer->create_merge_block();
+
+            builder.set_insertion_point(nested_header);
+            auto *nested = builder.if_(dispatch_condition);
+            auto *direct_continue = nested->create_true_block();
+            nested->set_false_target(payload);
+            auto *nested_merge = nested->create_merge_block();
+            builder.set_insertion_point(direct_continue);
+            builder.br(prepare);
+            builder.set_insertion_point(nested_merge);
+            builder.unreachable_();
+
+            builder.set_insertion_point(payload);
+            builder.call(ResourceWriteOp::BUFFER_WRITE,
+                         {buffer, zero, zero});
+            builder.br(prepare);
+            builder.set_insertion_point(outer_merge);
+            builder.unreachable_();
+            builder.set_insertion_point(update);
+            builder.br(prepare);
+            builder.set_insertion_point(loop_merge);
+            builder.return_void();
+
+            auto info = restructure_cfg_pass_run_on_function(
+                kernel,
+                {.main_iteration_limit = 64u,
+                 .post_iteration_limit = 8u});
+            expect(info.succeeded());
+            expect(info.iteration_limit_count == 0u);
+            auto verification = xir_verify_module(
+                &module,
+                {.require_unique_merge_blocks = true,
+                 .require_canonical_break_continue_targets = true});
+            expect(verification.succeeded());
+            auto ast = xir_to_ast_translate(*kernel, {});
+            expect(ast != nullptr);
+            if (ast == nullptr) { continue; }
+            auto hash = ast->hash();
+            if (!expected_hash) {
+                expected_hash.emplace(hash);
+            } else {
+                expect(hash == *expected_hash)
+                    << "selector target IDs must depend on stable CFG order, "
+                       "not pointer-hash iteration";
+            }
+        }
+    };
+
     "restructure_module_late_failure_is_atomic_across_functions"_test = [] {
         Module m;
         BasicBlock *first_entry;
@@ -874,6 +1497,121 @@ void reg_restructure_cfg() {
         expect(count_terminator_kind(def, DerivedInstructionTag::CONTINUE) == 1u);
     };
 
+    "restructure_loop_continue_analysis_is_versioned"_test = [] {
+        Module module;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(module, body);
+        auto *definition = kernel->definition();
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        XIRBuilder builder;
+        constexpr auto loop_count = size_t{64u};
+        auto *insertion = body;
+        for (auto i = size_t{0u}; i < loop_count; ++i) {
+            builder.set_insertion_point(insertion);
+            auto *loop = builder.loop();
+            auto *prepare = loop->create_prepare_block();
+            auto *loop_body = loop->create_body_block();
+            auto *update = loop->create_update_block();
+            auto *merge = loop->create_merge_block();
+            builder.set_insertion_point(prepare);
+            builder.cond_br(condition, loop_body, merge);
+            builder.set_insertion_point(loop_body);
+            builder.continue_(update);
+            builder.set_insertion_point(update);
+            builder.br(prepare);
+            insertion = merge;
+        }
+        builder.set_insertion_point(insertion);
+        builder.return_void();
+
+        expect(xir_verify_module(
+                   &module,
+                   {.require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets = true})
+                   .succeeded());
+        auto info =
+            restructure_cfg_pass_run_on_function(kernel);
+        expect(info.succeeded());
+        expect(!info.changed());
+        expect(count_terminator_kind(
+                   definition,
+                   DerivedInstructionTag::LOOP) ==
+               loop_count);
+        expect(info.loop_continue_analysis_count > 0u);
+        expect(info.loop_continue_invalidation_count == 0u);
+        expect(info.loop_continue_dominance_rebuild_count == 0u);
+        expect(
+            info.loop_continue_site_query_count ==
+            loop_count * info.loop_continue_analysis_count)
+            << "all loop sites in an immutable CFG version must share "
+               "one ownership/dominance analysis";
+    };
+
+    "restructure_loop_continue_batches_rewrites_at_version_boundary"_test = [] {
+        Module module;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(module, body);
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        XIRBuilder builder;
+        constexpr auto loop_count = size_t{16u};
+        auto *insertion = body;
+        for (auto i = size_t{0u}; i < loop_count; ++i) {
+            builder.set_insertion_point(insertion);
+            auto *loop = builder.loop();
+            auto *prepare = loop->create_prepare_block();
+            auto *loop_body = loop->create_body_block();
+            auto *update = loop->create_update_block();
+            auto *merge = loop->create_merge_block();
+            builder.set_insertion_point(prepare);
+            builder.cond_br(condition, loop_body, merge);
+            builder.set_insertion_point(loop_body);
+            builder.br(update);
+            builder.set_insertion_point(update);
+            builder.br(prepare);
+            insertion = merge;
+        }
+        builder.set_insertion_point(insertion);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info =
+            restructure_cfg_pass_run_on_function(kernel);
+        expect(info.succeeded());
+        expect(info.changed());
+        expect(info.loop_continue_invalidation_count >= loop_count);
+        expect(info.loop_continue_planned_rewrite_count ==
+               info.loop_continue_applied_rewrite_count)
+            << "disjoint loop sites must plan only edges present in the "
+               "immutable input CFG; a rewrite may not become eligible "
+               "because an earlier rewrite created its source edge";
+        expect(info.loop_continue_applied_rewrite_count >= loop_count);
+        expect(info.loop_continue_region_block_visit_count > 0u);
+        expect(info.loop_continue_region_edge_visit_count > 0u);
+        expect(
+            info.loop_continue_dominance_rebuild_count > 0u);
+        expect(
+            info.loop_continue_dominance_rebuild_count <
+            info.loop_continue_invalidation_count)
+            << "all guarded actions populated from one immutable CFG "
+               "version must share its final exact dominance rebuild";
+        expect(
+            info.selection_reentry_frontier_materialization_count ==
+            info.selection_reentry_boundary_analysis_count + 1u)
+            << "loop-continue analysis consumes ancestry only; the sparse "
+               "post-merge re-entry consumer must materialize exactly one "
+               "frontier per transform query plus the final audit";
+        expect(info.loop_continue_dom_numbered_block_count > 0u);
+        expect(info.loop_continue_dom_numbered_edge_count > 0u);
+        expect(
+            info.loop_continue_dom_fixed_point_iteration_count >=
+            info.loop_continue_dominance_rebuild_count);
+        expect(info.loop_continue_dom_fixed_point_block_visit_count > 0u);
+        expect(info.loop_continue_dom_fixed_point_edge_visit_count > 0u);
+        expect(info.loop_continue_dom_intersect_step_count > 0u);
+    };
+
     "restructure_loop_body_break_or_continue_through_proxy_chain"_test = [] {
         Module m;
         BasicBlock *body;
@@ -1010,6 +1748,19 @@ void reg_restructure_cfg() {
         // sufficient. The count may grow only after an actual CFG mutation.
         expect(
             info.construct_entry_dom_tree_count == 1u);
+        // Loop-boundary membership is another value of this immutable CFG,
+        // independent of the number of construct queries.
+        expect(
+            info.construct_entry_boundary_analysis_count ==
+            1u);
+        expect(
+            info.construct_exit_boundary_analysis_count ==
+            1u);
+        // Each diamond ends at its merge before the next begins. The sparse
+        // dominator event walk suspends the completed construct for the merge
+        // subtree, so there are no pairwise parent candidates to inspect.
+        expect(
+            info.construct_exit_parent_query_count == 0u);
         // Selection-exit legality for all 256 sites observes the same CFG.
         // The loop-boundary relation is materialized once, not rediscovered
         // by a full-function scan for every site.
@@ -1022,6 +1773,167 @@ void reg_restructure_cfg() {
         expect(
             info.selection_exit_enclosing_loop_query_count ==
             construct_count);
+        // Every diamond has two disjoint one-block arms. Region traversal
+        // visits each arm and edge once.
+        expect(
+            info.selection_exit_region_block_visit_count ==
+            2u * construct_count);
+        expect(
+            info.selection_exit_region_edge_visit_count ==
+            2u * construct_count);
+        // The final post-merge audit asks each merge's sparse dominance
+        // frontier. These sequential diamonds have empty frontiers, so graph
+        // width cannot turn the audit into construct_count * block_count.
+        expect(
+            info.selection_reentry_audit_selection_query_count ==
+            construct_count);
+        expect(
+            info.selection_reentry_audit_frontier_query_count ==
+            0u);
+        expect(
+            info.selection_reentry_audit_predecessor_query_count ==
+            0u);
+    };
+
+    "restructure_selection_exit_loop_context_is_sparse_per_cfg_version"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel =
+            make_kernel_with_body(module, entry);
+        auto *loop_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *selection_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        XIRBuilder builder;
+
+        builder.set_insertion_point(entry);
+        auto *loop = builder.loop();
+        auto *prepare = loop->create_prepare_block();
+        auto *body = loop->create_body_block();
+        auto *update = loop->create_update_block();
+        auto *merge = loop->create_merge_block();
+        builder.set_insertion_point(prepare);
+        builder.cond_br(
+            loop_condition, body, merge);
+        builder.set_insertion_point(body);
+        constexpr auto selection_count = size_t{128u};
+        for (auto i = size_t{0u};
+             i < selection_count; ++i) {
+            auto *selection =
+                builder.if_(selection_condition);
+            auto *true_block =
+                selection->create_true_block();
+            auto *false_block =
+                selection->create_false_block();
+            auto *selection_merge =
+                selection->create_merge_block();
+            builder.set_insertion_point(true_block);
+            builder.br(selection_merge);
+            builder.set_insertion_point(false_block);
+            builder.br(selection_merge);
+            builder.set_insertion_point(selection_merge);
+        }
+        builder.continue_(update);
+        builder.set_insertion_point(update);
+        builder.br(prepare);
+        builder.set_insertion_point(merge);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info =
+            restructure_cfg_pass_run_on_function(kernel);
+        expect(info.succeeded());
+        expect(
+            count_terminator_kind(
+                kernel->definition(),
+                DerivedInstructionTag::IF) ==
+            selection_count);
+        expect(
+            info.selection_exit_boundary_analysis_count >
+            0u);
+        // This CFG has one reachable structured loop. Every observed CFG
+        // version therefore allocates one persistent context node, regardless
+        // of the 128 selections and hundreds of dominated blocks.
+        expect(
+            info.selection_exit_loop_context_count ==
+            info.selection_exit_boundary_analysis_count);
+        // Value numbering builds one sparse reverse-CFG solution per loop
+        // and reduces every arm classification to one array lookup. The
+        // number of dataflow solutions is independent of the 128 IfInsts;
+        // only the constant-time lookup counter grows with their two arms.
+        expect(
+            info.selection_exit_boundary_dataflow_count ==
+            info.selection_exit_boundary_analysis_count);
+        expect(
+            info.selection_exit_boundary_classification_count ==
+            2u * selection_count *
+                info.selection_exit_boundary_analysis_count);
+        // Merge canonicalization obeys the same immutable-version contract:
+        // this function has one loop, so every numbered snapshot has exactly
+        // one sparse dataflow solution. All 128 selections contribute only
+        // two constant-time arm lookups and require no invalidating rewrite.
+        expect(info.boundary_merge_analysis_count > 0u);
+        expect(
+            info.boundary_merge_dataflow_count ==
+            info.boundary_merge_analysis_count);
+        expect(
+            info.boundary_merge_classification_count ==
+            2u * selection_count *
+                info.boundary_merge_dataflow_count);
+        expect(info.boundary_merge_rewrite_batch_count == 0u);
+        expect(
+            info.selection_exit_site_query_count >=
+            selection_count);
+    };
+
+    "restructure_loop_boundary_dataflow_visits_induced_regions"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel =
+            make_kernel_with_body(module, entry);
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        XIRBuilder builder;
+        constexpr auto loop_count = size_t{64u};
+        auto *cursor = entry;
+        for (auto i = size_t{0u}; i < loop_count; ++i) {
+            builder.set_insertion_point(cursor);
+            auto *loop = builder.loop();
+            auto *prepare = loop->create_prepare_block();
+            auto *body = loop->create_body_block();
+            auto *update = loop->create_update_block();
+            auto *merge = loop->create_merge_block();
+            builder.set_insertion_point(prepare);
+            builder.cond_br(condition, body, merge);
+            builder.set_insertion_point(body);
+            builder.continue_(update);
+            builder.set_insertion_point(update);
+            builder.br(prepare);
+            cursor = merge;
+        }
+        builder.set_insertion_point(cursor);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info =
+            restructure_cfg_pass_run_on_function(kernel);
+        expect(info.succeeded());
+        expect(
+            info.selection_exit_boundary_dataflow_count ==
+            loop_count *
+                info.selection_exit_boundary_analysis_count);
+        // The 64 loops are sequential and each induced region contains only
+        // its body/update plus the explicit prepare/merge boundaries. A
+        // whole-function solve would visit Theta(loop_count^2) blocks; the
+        // region-closed solution stays linear in the number of loop contexts.
+        expect(
+            info.selection_exit_boundary_block_visit_count <=
+            4u *
+                info.selection_exit_boundary_dataflow_count);
+        expect(
+            info.selection_exit_boundary_edge_visit_count <=
+            4u *
+                info.selection_exit_boundary_dataflow_count);
     };
 
     "restructure_empty_module_noop"_test = [] {
@@ -1084,6 +1996,56 @@ void reg_restructure_cfg() {
         expect(function_info.restructured_if_count == 1u);
         expect(function_info.boundary_verifier_count == 2u);
         expect(function_info.intermediate_verifier_count == 0u);
+
+        Module enclosing_module;
+        auto *enclosing_kernel = append_diamond(
+            enclosing_module);
+        auto verification_transaction =
+            begin_xir_pass_verification_transaction(
+                &enclosing_module);
+        auto enclosing_info =
+            restructure_cfg_pass_run_on_function(
+                enclosing_kernel,
+                {.mutation_mode =
+                     RestructureCFGMutationMode::
+                         IN_PLACE_DISCARDABLE,
+                 .verification_transaction =
+                     &verification_transaction});
+        expect(enclosing_info.succeeded());
+        expect(enclosing_info.restructured_if_count == 1u);
+        expect(enclosing_info.boundary_verifier_count == 0u);
+        expect(enclosing_info.intermediate_verifier_count == 0u);
+        expect(verification_transaction
+                   .verify_output(
+                       {.require_no_phi = true,
+                        .require_unique_merge_blocks = true,
+                        .require_canonical_break_continue_targets = true})
+                   .succeeded());
+
+        Module enclosing_module_batch;
+        append_diamond(enclosing_module_batch);
+        append_diamond(enclosing_module_batch);
+        auto module_verification_transaction =
+            begin_xir_pass_verification_transaction(
+                &enclosing_module_batch);
+        auto enclosing_module_info =
+            restructure_cfg_pass_run_on_module(
+                &enclosing_module_batch, nullptr,
+                {.mutation_mode =
+                     RestructureCFGMutationMode::
+                         IN_PLACE_DISCARDABLE,
+                 .verification_transaction =
+                     &module_verification_transaction});
+        expect(enclosing_module_info.succeeded());
+        expect(enclosing_module_info.restructured_if_count == 2u);
+        expect(enclosing_module_info.boundary_verifier_count == 0u);
+        expect(enclosing_module_info.intermediate_verifier_count == 0u);
+        expect(module_verification_transaction
+                   .verify_output(
+                       {.require_no_phi = true,
+                        .require_unique_merge_blocks = true,
+                        .require_canonical_break_continue_targets = true})
+                   .succeeded());
     };
 
     "restructure_intermediate_verification_is_explicitly_opt_in"_test = [] {
@@ -1201,6 +2163,7 @@ void reg_restructure_cfg() {
         auto *condition =
             kernel->create_value_argument(Type::of<bool>());
         constexpr auto diamond_count = size_t{64u};
+        constexpr auto unreachable_block_count = size_t{256u};
         XIRBuilder builder;
         auto *header = body;
         for (auto i = size_t{0u};
@@ -1223,21 +2186,55 @@ void reg_restructure_cfg() {
         builder.set_insertion_point(header);
         builder.return_void();
 
+        // These blocks belong to the definition's physical block table but
+        // cannot contribute support to any reachable selection query. They
+        // make a whole-function scoring scan observable without changing the
+        // reachable CFG or the expected structured result.
+        for (auto i = size_t{0u};
+             i < unreachable_block_count;
+             ++i) {
+            auto *unreachable =
+                kernel->create_basic_block();
+            builder.set_insertion_point(unreachable);
+            builder.return_void();
+        }
+
         auto info = restructure_cfg_pass_run_on_function(
             kernel,
             {.main_iteration_limit = 1u,
              .post_iteration_limit = 64u});
 
-        // Candidate discovery uses one dom/post-dom snapshot. Every diamond's
-        // merge remains inferable from the refreshed dominance tree, so no
-        // post-mutation candidate consumes a rebuilt post-dom fallback.
+        // Candidate discovery uses one immutable dom/post-dom snapshot. Each
+        // rewrite adds only a transparent merge; contracting those overlays
+        // restores the original graph, so all 64 lexical merges are queried
+        // exactly once without a per-candidate dominance rebuild.
         expect(info.succeeded());
         expect(info.iteration_limit_count == 0u);
         expect(info.restructured_if_count ==
                diamond_count);
+        expect(info.if_batch_analysis_count > 0u);
         expect(
-            info.if_batch_post_dom_rebuild_count ==
-            0u);
+            info.if_batch_candidate_query_count ==
+            diamond_count * info.if_batch_analysis_count);
+        expect(info.if_batch_overlay_block_query_count == 0u);
+        expect(
+            info.if_batch_merge_query_count ==
+            2u * info.if_batch_candidate_query_count);
+        expect(info.if_batch_merge_block_visit_count > 0u);
+        expect(info.if_batch_merge_edge_visit_count > 0u);
+        expect(info.if_batch_merge_aggregate_scan_count > 0u);
+        expect(
+            info.if_batch_merge_aggregate_scan_count <=
+            2u * info.if_batch_merge_block_visit_count)
+            << "merge scoring must enumerate only the per-query support; "
+               "the factor two accounts for the recovered-construct "
+               "fallback";
+        expect(
+            info.if_batch_merge_aggregate_scan_count <
+            info.if_batch_merge_query_count *
+                unreachable_block_count)
+            << "unreachable physical blocks must not make selection-merge "
+               "scoring scale with the function block table";
         expect(count_terminator_kind(
                    kernel,
                    DerivedInstructionTag::
@@ -1297,6 +2294,85 @@ void reg_restructure_cfg() {
         expect(count_non_canonical_loop_update(def) == 0u);
     };
 
+    "restructure_natural_loop_can_start_with_structured_loop"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(module, entry);
+        auto *definition = kernel->definition();
+        auto *inner_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *outer_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *inner_owner = definition->create_basic_block();
+        auto *outer_exit = definition->create_basic_block();
+        XIRBuilder builder;
+
+        builder.set_insertion_point(entry);
+        builder.br(inner_owner);
+        builder.set_insertion_point(inner_owner);
+        auto *inner_loop = builder.loop();
+        auto *inner_prepare = inner_loop->create_prepare_block();
+        auto *inner_body = inner_loop->create_body_block();
+        auto *inner_update = inner_loop->create_update_block();
+        auto *inner_merge = inner_loop->create_merge_block();
+        builder.set_insertion_point(inner_prepare);
+        builder.cond_br(
+            inner_condition, inner_body, inner_merge);
+        builder.set_insertion_point(inner_body);
+        builder.br(inner_update);
+        builder.set_insertion_point(inner_update);
+        builder.br(inner_prepare);
+        builder.set_insertion_point(inner_merge);
+        builder.cond_br(
+            outer_condition, inner_owner, outer_exit);
+        builder.set_insertion_point(outer_exit);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        const auto initial_block_count =
+            count_owned_blocks(definition);
+        auto first = restructure_cfg_pass_run_on_function(
+            kernel,
+            {.main_iteration_limit = 64u,
+             .post_iteration_limit = 8u});
+        expect(first.succeeded());
+        expect(first.iteration_limit_count == 0u);
+        expect(first.restructured_loop_count == 1u)
+            << "the outer natural loop must wrap the existing structured "
+               "inner loop instead of being reinterpreted as a selection";
+        expect(count_terminator_kind(
+                   definition, DerivedInstructionTag::LOOP) +
+                   count_terminator_kind(
+                       definition,
+                       DerivedInstructionTag::SIMPLE_LOOP) ==
+               2u);
+        expect(count_terminator_kind(
+                   definition,
+                   DerivedInstructionTag::CONDITIONAL_BRANCH) ==
+               count_canonical_conditional_loop_prepare(
+                   definition));
+        expect(count_owned_blocks(definition) <=
+               initial_block_count + 8u)
+            << "recovering the outer loop must have bounded CFG growth";
+        auto verification = xir_verify_module(
+            &module,
+            {.require_unique_merge_blocks = true,
+             .require_canonical_break_continue_targets = true});
+        expect(verification.succeeded())
+            << (verification.errors.empty() ?
+                    "unknown verification failure" :
+                    verification.errors.front().message);
+
+        const auto stable_block_count =
+            count_owned_blocks(definition);
+        auto second =
+            restructure_cfg_pass_run_on_function(kernel);
+        expect(second.succeeded());
+        expect(!second.changed());
+        expect(count_owned_blocks(definition) ==
+               stable_block_count);
+    };
+
     "restructure_nested_loop_shared_outer_continue_collapses_exit_dispatch"_test = [] {
         Module m;
         BasicBlock *body;
@@ -1344,9 +2420,22 @@ void reg_restructure_cfg() {
         b.set_insertion_point(exit);
         b.return_void();
 
-        auto info = restructure_cfg_pass_run_on_function(k);
+        // Regression: construct repair may produce two distinct empty proxy
+        // chains that both end in Break(M). The generated exit selector must
+        // collapse those equal boundary effects instead of alternating among
+        // selection-exit, loop-boundary, and construct-exit rewrites. Four
+        // post rounds cover the finite forward normalization; the historical
+        // bug kept allocating blocks until the safety budget was exhausted.
+        auto info = restructure_cfg_pass_run_on_function(
+            k, {.post_iteration_limit = 4u});
         expect(info.succeeded());
+        expect(info.iteration_limit_count == 0u);
         expect(info.restructured_loop_count == 2u);
+        // Recovering the two raw loops changes the construct hierarchy before
+        // the post-restructure phase starts. Its construct-exit closure must
+        // therefore run before selection-exit repair; otherwise that later
+        // phase builds a redundant state dispatch for the stale hierarchy.
+        expect(info.selection_exit_cfg_invalidation_count == 0u);
         expect(count_terminator_kind(
                    def, DerivedInstructionTag::LOOP) ==
                2u);
@@ -1381,6 +2470,76 @@ void reg_restructure_cfg() {
         expect(rerun_block_count == block_count);
         expect(count_non_canonical_loop_prepare(def) == 0u);
         expect(count_non_canonical_loop_update(def) == 0u);
+    };
+
+    "restructure_nested_loop_boundary_selections_converge_with_exact_guards"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *def = k->definition();
+        auto *loop_condition =
+            k->create_value_argument(Type::of<bool>());
+        auto *outer_condition =
+            k->create_value_argument(Type::of<bool>());
+        auto *first_boundary_condition =
+            k->create_value_argument(Type::of<bool>());
+        auto *second_boundary_condition =
+            k->create_value_argument(Type::of<bool>());
+
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *loop = b.loop();
+        auto *prepare = loop->create_prepare_block();
+        auto *loop_body = loop->create_body_block();
+        auto *update = loop->create_update_block();
+        auto *merge = loop->create_merge_block();
+
+        b.set_insertion_point(prepare);
+        b.cond_br(loop_condition, loop_body, merge);
+        b.set_insertion_point(loop_body);
+        auto *outer = b.if_(outer_condition);
+        auto *first = outer->create_true_block();
+        auto *second = outer->create_false_block();
+        auto *outer_merge = outer->create_merge_block();
+
+        auto build_boundary_selection =
+            [&](BasicBlock *header, Value *condition) noexcept {
+                b.set_insertion_point(header);
+                auto *selection = b.if_(condition);
+                auto *merge_arm = selection->create_true_block();
+                auto *break_arm = selection->create_false_block();
+                selection->set_merge_block(merge_arm);
+                b.set_insertion_point(merge_arm);
+                b.break_(merge);
+                b.set_insertion_point(break_arm);
+                b.break_(merge);
+            };
+        build_boundary_selection(
+            first, first_boundary_condition);
+        build_boundary_selection(
+            second, second_boundary_condition);
+        b.set_insertion_point(outer_merge);
+        b.unreachable_();
+        b.set_insertion_point(update);
+        b.br(prepare);
+        b.set_insertion_point(merge);
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = restructure_cfg_pass_run_on_function(k);
+        expect(info.succeeded());
+        expect(info.iteration_limit_count == 0u);
+        expect(
+            info.selection_exit_boundary_classification_count >
+            0u);
+        auto verification = xir_verify_module(
+            &m,
+            {.require_unique_merge_blocks = true,
+             .require_canonical_break_continue_targets = true});
+        expect(verification.succeeded())
+            << (verification.errors.empty() ?
+                    "unknown verification failure" :
+                    verification.errors.front().message);
     };
 
     "restructure_outer_update_path_with_inner_loop"_test = [] {
@@ -1859,6 +3018,94 @@ void reg_restructure_cfg() {
         expect(count_terminator_kind(def, DerivedInstructionTag::CONDITIONAL_BRANCH) == 0u);
     };
 
+    "restructure_indexes_remaining_divergent_tree_once_per_drain"_test = [] {
+        Module module;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(module, body);
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        constexpr auto tree_depth = size_t{6u};
+        constexpr auto branch_count =
+            (size_t{1u} << tree_depth) - 1u;
+        constexpr auto leaf_count =
+            size_t{1u} << tree_depth;
+        constexpr auto input_block_count =
+            branch_count + leaf_count;
+
+        luisa::vector<BasicBlock *> level{body};
+        XIRBuilder builder;
+        for (auto depth = size_t{0u};
+             depth < tree_depth; ++depth) {
+            luisa::vector<BasicBlock *> next_level;
+            next_level.reserve(level.size() * 2u);
+            for (auto *header : level) {
+                auto *true_block =
+                    kernel->create_basic_block();
+                auto *false_block =
+                    kernel->create_basic_block();
+                builder.set_insertion_point(header);
+                builder.cond_br(
+                    condition, true_block, false_block);
+                next_level.emplace_back(true_block);
+                next_level.emplace_back(false_block);
+            }
+            level = std::move(next_level);
+        }
+        for (auto *leaf : level) {
+            builder.set_insertion_point(leaf);
+            builder.return_void();
+        }
+        expect(level.size() == leaf_count);
+        expect(count_terminator_kind(
+                   kernel,
+                   DerivedInstructionTag::CONDITIONAL_BRANCH) ==
+               branch_count);
+        expect(xir_verify_module(&module).succeeded());
+
+        auto info = restructure_cfg_pass_run_on_function(
+            kernel,
+            {.mutation_mode =
+                 RestructureCFGMutationMode::IN_PLACE_DISCARDABLE,
+             .verify_remaining_divergent_index = true});
+
+        expect(info.succeeded());
+        expect(info.definition_transform_invocation_count == 1u);
+        expect(info.remaining_divergent_rewrite_count ==
+               branch_count);
+        expect(info.remaining_divergent_candidate_count ==
+               branch_count);
+        expect(info.remaining_divergent_candidate_query_count ==
+               branch_count);
+        expect(info.remaining_divergent_dominance_rebuild_count == 1u);
+        expect(info.remaining_divergent_postdom_incremental_update_count ==
+               0u);
+        expect(info.remaining_divergent_postdom_rebuild_count == 0u);
+        expect(info.remaining_divergent_analysis_count > 0u);
+        expect(info.remaining_divergent_analysis_count <
+               info.remaining_divergent_rewrite_count)
+            << "one immutable candidate index must serve the complete "
+               "remaining-divergent drain";
+        expect(info.remaining_divergent_indexed_block_count <
+               branch_count * input_block_count)
+            << "candidate indexing must not rescan the complete CFG for "
+               "every consumed conditional";
+        expect(info.postdom_common_ancestor_query_count >=
+               branch_count);
+        expect(info.postdom_common_ancestor_step_count > 0u);
+        expect(count_terminator_kind(
+                   kernel,
+                   DerivedInstructionTag::CONDITIONAL_BRANCH) ==
+               0u);
+        expect(count_terminator_kind(
+                   kernel,
+                   DerivedInstructionTag::IF) == branch_count);
+        expect(xir_verify_module(
+                   &module,
+                   {.require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets = true})
+                   .succeeded());
+    };
+
     "restructure_fixup_nested_if_cross_hierarchy"_test = [] {
         Module m;
         BasicBlock *body;
@@ -1929,9 +3176,19 @@ void reg_restructure_cfg() {
         b.return_void();
 
         expect(xir_verify_module(&m).succeeded());
-        auto info = restructure_cfg_pass_run_on_function(k);
+        auto info = restructure_cfg_pass_run_on_function(
+            k,
+            {.mutation_mode =
+                 RestructureCFGMutationMode::IN_PLACE_DISCARDABLE,
+             .verify_remaining_divergent_index = true});
         expect(info.succeeded());
         expect(info.unstructured_branch_count == 0u);
+        expect(info.remaining_divergent_postdom_incremental_update_count >
+               0u)
+            << "a reachable shared successor must exercise the exact "
+               "transparent-merge postdom update";
+        expect(info.remaining_divergent_postdom_rebuild_count == 0u)
+            << "the transparent-merge model must not need a fresh CHK solve";
         expect(original_store->parent_block() == shared);
         size_t writes_to_slot = 0u;
         def->traverse_instructions([&](Instruction *instruction) noexcept {
@@ -2027,6 +3284,391 @@ void reg_restructure_cfg() {
                    .succeeded());
     };
 
+    "restructure_selection_uses_exact_common_exit_as_merge"_test = [] {
+        Module module;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(module, body);
+        auto *definition = kernel->definition();
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *shared_exit = definition->create_basic_block();
+        auto *late_merge = definition->create_basic_block();
+        XIRBuilder builder;
+
+        builder.set_insertion_point(body);
+        auto *selection = builder.if_(condition);
+        auto *true_block = selection->create_true_block();
+        auto *false_block = selection->create_false_block();
+        selection->set_merge_block(late_merge);
+        builder.set_insertion_point(true_block);
+        builder.br(shared_exit);
+        builder.set_insertion_point(false_block);
+        builder.br(shared_exit);
+        builder.set_insertion_point(shared_exit);
+        builder.br(late_merge);
+        builder.set_insertion_point(late_merge);
+        builder.return_void();
+
+        const auto initial_block_count =
+            count_owned_blocks(definition);
+        expect(xir_verify_module(&module).succeeded());
+        auto first =
+            restructure_cfg_pass_run_on_function(kernel);
+        expect(first.succeeded());
+        expect(first.iteration_limit_count == 0u);
+        expect(first.selection_exit_merge_canonicalization_count > 0u);
+        expect(selection->merge_block() == shared_exit)
+            << "the declared selection merge must be the first exact "
+               "executable convergence block";
+        expect(count_owned_blocks(definition) == initial_block_count)
+            << "canonicalizing a declarative merge must not synthesize CFG";
+        expect(xir_verify_module(
+                   &module,
+                   {.require_unique_merge_blocks = true})
+                   .succeeded());
+
+        auto second =
+            restructure_cfg_pass_run_on_function(kernel);
+        expect(second.succeeded());
+        expect(!second.changed());
+        expect(count_owned_blocks(definition) == initial_block_count);
+        expect(selection->merge_block() == shared_exit);
+    };
+
+    "restructure_simple_loop_selection_exit_dispatch_converges"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(module, entry);
+        auto *definition = kernel->definition();
+        auto *selector =
+            kernel->create_value_argument(Type::of<uint32_t>());
+        XIRBuilder builder;
+
+        builder.set_insertion_point(entry);
+        auto *loop = builder.simple_loop();
+        auto *loop_body = loop->create_body_block();
+        auto *loop_merge = loop->create_merge_block();
+
+        builder.set_insertion_point(loop_body);
+        auto *selection = builder.switch_(selector);
+        auto *continue_arm = selection->create_default_block();
+        auto *break_arm = selection->create_case_block(1u);
+        auto *unreachable_merge = selection->create_merge_block();
+        builder.set_insertion_point(continue_arm);
+        builder.continue_(loop_body);
+        builder.set_insertion_point(break_arm);
+        builder.break_(loop_merge);
+        builder.set_insertion_point(unreachable_merge);
+        builder.unreachable_();
+        builder.set_insertion_point(loop_merge);
+        builder.return_void();
+
+        const auto initial_block_count =
+            count_owned_blocks(definition);
+        expect(xir_verify_module(&module).succeeded());
+        auto first = restructure_cfg_pass_run_on_function(
+            kernel,
+            {.main_iteration_limit = 64u,
+             .post_iteration_limit = 8u});
+        expect(first.succeeded());
+        expect(first.iteration_limit_count == 0u);
+        // Both Switch arms already target the nearest SimpleLoop
+        // break/continue boundaries. The formal structured-exit rule accepts
+        // them directly, so no state-dispatch CFG invalidation is required.
+        expect(first.selection_exit_cfg_invalidation_count == 0u);
+        expect(count_terminator_kind(
+                   definition,
+                   DerivedInstructionTag::CONDITIONAL_BRANCH) == 0u);
+        expect(count_owned_blocks(definition) <=
+               initial_block_count + 12u)
+            << "SimpleLoop boundary normalization must consume the generated "
+               "exit dispatch instead of wrapping one copy per post round";
+        expect(xir_verify_module(
+                   &module,
+                   {.require_no_unstructured_control_flow = true,
+                    .require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets = true})
+                   .succeeded());
+
+        const auto stable_block_count =
+            count_owned_blocks(definition);
+        auto second = restructure_cfg_pass_run_on_function(
+            kernel,
+            {.main_iteration_limit = 64u,
+             .post_iteration_limit = 8u});
+        expect(second.succeeded());
+        expect(!second.changed());
+        expect(count_owned_blocks(definition) == stable_block_count)
+            << "the SimpleLoop exit protocol must be a fixed point";
+    };
+
+    "restructure_remaining_branch_uses_lexical_loop_epoch_merge"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(module, entry);
+        auto *definition = kernel->definition();
+        auto *exit_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *continuation_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        XIRBuilder builder;
+
+        builder.set_insertion_point(entry);
+        auto *payload_slot =
+            builder.alloca_local(Type::of<uint32_t>());
+        auto *loop = builder.loop();
+        auto *prepare = loop->create_prepare_block();
+        auto *body = loop->create_body_block();
+        auto *update = loop->create_update_block();
+        auto *loop_merge = loop->create_merge_block();
+
+        builder.set_insertion_point(prepare);
+        builder.br(body);
+
+        // The raw branch has one ordinary arm followed by a recovered
+        // statement and one payload-bearing exit from the current loop
+        // epoch. The payload prevents the exit arm from being classified as
+        // a physical, merge-less loop guard.
+        auto *ordinary_arm = definition->create_basic_block();
+        auto *exit_arm = definition->create_basic_block();
+        builder.set_insertion_point(body);
+        builder.cond_br(
+            exit_condition, exit_arm, ordinary_arm);
+
+        auto *continuation_header =
+            definition->create_basic_block();
+        builder.set_insertion_point(ordinary_arm);
+        builder.br(continuation_header);
+        builder.set_insertion_point(continuation_header);
+        auto *continuation = builder.if_(
+            continuation_condition);
+        auto *continuation_true =
+            continuation->create_true_block();
+        auto *continuation_false =
+            continuation->create_false_block();
+        auto *continuation_merge =
+            continuation->create_merge_block();
+        builder.set_insertion_point(continuation_true);
+        builder.br(continuation_merge);
+        builder.set_insertion_point(continuation_false);
+        builder.br(continuation_merge);
+        builder.set_insertion_point(continuation_merge);
+        builder.break_(loop_merge);
+
+        builder.set_insertion_point(exit_arm);
+        builder.store(
+            payload_slot,
+            module.create_constant_one(Type::of<uint32_t>()));
+        builder.break_(loop_merge);
+        builder.set_insertion_point(update);
+        builder.br(prepare);
+        builder.set_insertion_point(loop_merge);
+        builder.return_void();
+
+        const auto initial_block_count =
+            count_owned_blocks(definition);
+        expect(xir_verify_module(&module).succeeded());
+        auto first = restructure_cfg_pass_run_on_function(
+            kernel,
+            {.main_iteration_limit = 0u,
+             .post_iteration_limit = 8u});
+        expect(first.succeeded());
+        expect(first.iteration_limit_count == 0u);
+        expect(first.unstructured_branch_count == 0u);
+        expect(first.remaining_divergent_rewrite_count == 1u);
+        expect(body->terminator()->isa<IfInst>());
+        auto *recovered =
+            static_cast<IfInst *>(body->terminator());
+        expect(branch_chain_reaches(
+            recovered->merge_block(), continuation_header))
+            << "the current-epoch continuation, not the enclosing loop exit "
+               "or a next-epoch post-dominator, must be the recovered merge";
+        expect(count_owned_blocks(definition) <=
+               initial_block_count + 8u)
+            << "lexical merge recovery must not enter the exit-dispatch "
+               "restructuring cycle";
+        expect(count_terminator_kind(
+                   definition,
+                   DerivedInstructionTag::CONDITIONAL_BRANCH) == 0u);
+        expect(count_non_canonical_loop_prepare(definition) == 0u);
+        auto verification = xir_verify_module(
+            &module,
+            {.require_no_unstructured_control_flow = true,
+             .require_unique_merge_blocks = true,
+             .require_canonical_break_continue_targets = true});
+        expect(verification.succeeded())
+            << (verification.errors.empty() ?
+                    "strict structured verification failed" :
+                    verification.errors.front().message);
+
+        const auto stable_block_count =
+            count_owned_blocks(definition);
+        auto second = restructure_cfg_pass_run_on_function(
+            kernel,
+            {.main_iteration_limit = 64u,
+             .post_iteration_limit = 8u});
+        expect(second.succeeded());
+        expect(!second.changed());
+        expect(count_owned_blocks(definition) ==
+               stable_block_count);
+    };
+
+    "restructure_splits_dispatch_reentry_through_fallback_proxy"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *def = k->definition();
+        auto *selector =
+            k->create_value_argument(Type::of<uint32_t>());
+        auto *root_condition =
+            k->create_value_argument(Type::of<bool>());
+        auto *nested_condition =
+            k->create_value_argument(Type::of<bool>());
+        auto *query_type =
+            Type::custom("LC_RayQueryAll");
+        auto *query_source =
+            k->create_reference_argument(query_type);
+        XIRBuilder b;
+
+        b.set_insertion_point(body);
+        auto *query_slot = b.alloca_local(query_type);
+        auto *root = b.if_(root_condition);
+        auto *scenario_body =
+            root->create_true_block();
+        auto *noise_body =
+            root->create_false_block();
+        auto *root_merge =
+            root->create_merge_block();
+        b.set_insertion_point(scenario_body);
+        auto *selection = b.switch_(selector);
+        auto *first_return_arm =
+            selection->create_case_block(1u);
+        auto *second_return_arm =
+            selection->create_case_block(2u);
+        auto *cross_arm =
+            selection->create_case_block(3u);
+        auto *nested_header =
+            selection->create_default_block();
+        auto *original_merge =
+            selection->create_merge_block();
+        auto *nested_merge =
+            def->create_basic_block();
+        auto *first_return =
+            def->create_basic_block();
+        auto *second_return =
+            def->create_basic_block();
+
+        b.set_insertion_point(first_return_arm);
+        b.br(first_return);
+        b.set_insertion_point(second_return_arm);
+        b.br(second_return);
+        b.set_insertion_point(cross_arm);
+        b.br(nested_merge);
+        b.set_insertion_point(nested_header);
+        auto *nested = b.if_(nested_condition);
+        auto *nested_true = nested->create_true_block();
+        auto *nested_false = nested->create_false_block();
+        nested->set_merge_block(nested_merge);
+        b.set_insertion_point(nested_true);
+        b.br(nested_merge);
+        b.set_insertion_point(nested_false);
+        b.br(nested_merge);
+        b.set_insertion_point(nested_merge);
+        auto *query_value =
+            b.load(query_type, query_source);
+        b.store(query_slot, query_value);
+        b.return_void();
+        b.set_insertion_point(original_merge);
+        b.unreachable_();
+        b.set_insertion_point(first_return);
+        b.return_void();
+        b.set_insertion_point(second_return);
+        b.return_void();
+        constexpr auto noise_selection_count =
+            size_t{128u};
+        b.set_insertion_point(noise_body);
+        for (auto i = size_t{0u};
+             i < noise_selection_count;
+             ++i) {
+            auto *noise =
+                b.if_(nested_condition);
+            auto *noise_true =
+                noise->create_true_block();
+            auto *noise_false =
+                noise->create_false_block();
+            auto *noise_merge =
+                noise->create_merge_block();
+            b.set_insertion_point(noise_true);
+            b.br(noise_merge);
+            b.set_insertion_point(noise_false);
+            b.br(noise_merge);
+            b.set_insertion_point(noise_merge);
+        }
+        b.return_void();
+        b.set_insertion_point(root_merge);
+        b.unreachable_();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto initial_block_count = count_owned_blocks(def);
+        auto first = restructure_cfg_pass_run_on_function(
+            k, {.main_iteration_limit = 64u,
+                .post_iteration_limit = 8u});
+        expect(first.succeeded());
+        expect(first.iteration_limit_count == 0u);
+        expect(first.unstructured_branch_count == 0u);
+        expect(count_post_merge_selection_reentries(k) ==
+               0u);
+        expect(
+            first.selection_reentry_boundary_analysis_count >
+            0u);
+        expect(
+            first.selection_reentry_edge_query_count >
+            0u);
+        // The 128 structured selections in the sibling root arm are
+        // reachable but cannot dominate the re-entered block. Owner queries
+        // therefore follow only the destination's dominator ancestors and
+        // remain independent of that unrelated graph width.
+        expect(
+            first.selection_reentry_owner_query_count <
+            noise_selection_count);
+        expect(
+            first.selection_reentry_owner_query_count <=
+            first.selection_reentry_edge_query_count *
+                8u);
+        auto query_alloca_count = size_t{0u};
+        def->traverse_instructions(
+            [&](Instruction *instruction) noexcept {
+                query_alloca_count +=
+                    instruction->isa<AllocaInst>() &&
+                    instruction->type() == query_type;
+            });
+        // The outer switch sees three non-local targets: two returns and the
+        // nested selection's merge. Its generated state-dispatch ladder
+        // reaches the last target through an unconditional fallback proxy.
+        // The nested arms retain their original paths to that merge, so the
+        // outer header still dominates it while the switch's new merge does
+        // not. Node splitting must follow the proxy and split the exact edge
+        // that crosses this post-merge selection boundary.
+        expect(query_alloca_count == 2u);
+        expect(count_owned_blocks(def) <=
+               initial_block_count * 5u);
+        expect(xir_verify_module(
+                   &m,
+                   {.require_no_unstructured_control_flow = true,
+                    .require_unique_merge_blocks = true})
+                   .succeeded());
+
+        auto block_count = count_owned_blocks(def);
+        auto second = restructure_cfg_pass_run_on_function(
+            k, {.main_iteration_limit = 64u,
+                .post_iteration_limit = 8u});
+        expect(second.succeeded());
+        expect(second.iteration_limit_count == 0u);
+        expect(count_owned_blocks(def) == block_count);
+        expect(count_post_merge_selection_reentries(k) ==
+               0u);
+    };
+
     "restructure_state_dispatch_transports_path_local_values"_test = [] {
         Module m;
         auto *f = m.create_callable(Type::of<int>());
@@ -2073,6 +3715,83 @@ void reg_restructure_cfg() {
         auto promoted = mem2reg_pass_run_on_function(f);
         expect(promoted.promoted_alloca_count >= 1u);
         expect(audit_reg2mem_spills_on_function(f).succeeded());
+        expect(xir_verify_module(
+                   &m, {.require_unique_merge_blocks = true})
+                   .succeeded());
+    };
+
+    "restructure_batches_state_dispatch_ssa_repair_at_drain_boundary"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<int>());
+        auto *body = f->create_body_block();
+        auto *selector =
+            f->create_value_argument(Type::of<uint32_t>());
+        auto *first_return = f->create_basic_block();
+        auto *first_alternative_return = f->create_basic_block();
+        auto *second_return = f->create_basic_block();
+        auto *second_alternative_return = f->create_basic_block();
+        XIRBuilder b;
+        auto *one = m.create_constant_one(Type::of<int>());
+        auto *zero = m.create_constant_zero(Type::of<int>());
+
+        b.set_insertion_point(body);
+        auto *first = b.switch_(selector);
+        auto *first_fallthrough = first->create_default_block();
+        auto *first_value_arm = first->create_case_block(1u);
+        auto *first_alternative_arm = first->create_case_block(2u);
+        auto *first_merge = first->create_merge_block();
+        b.set_insertion_point(first_value_arm);
+        auto *first_value = b.call(
+            Type::of<int>(), ArithmeticOp::BINARY_ADD,
+            {one, one});
+        b.br(first_return);
+        b.set_insertion_point(first_alternative_arm);
+        b.br(first_alternative_return);
+        b.set_insertion_point(first_fallthrough);
+        b.br(first_merge);
+
+        b.set_insertion_point(first_merge);
+        auto *second = b.switch_(selector);
+        auto *second_fallthrough = second->create_default_block();
+        auto *second_value_arm = second->create_case_block(1u);
+        auto *second_alternative_arm = second->create_case_block(2u);
+        auto *second_merge = second->create_merge_block();
+        b.set_insertion_point(second_value_arm);
+        auto *second_value = b.call(
+            Type::of<int>(), ArithmeticOp::BINARY_ADD,
+            {one, one});
+        b.br(second_return);
+        b.set_insertion_point(second_alternative_arm);
+        b.br(second_alternative_return);
+        b.set_insertion_point(second_fallthrough);
+        b.br(second_merge);
+        b.set_insertion_point(second_merge);
+        b.return_(zero);
+
+        b.set_insertion_point(first_return);
+        auto *first_value_return = b.return_(first_value);
+        b.set_insertion_point(first_alternative_return);
+        b.return_(zero);
+        b.set_insertion_point(second_return);
+        auto *second_value_return = b.return_(second_value);
+        b.set_insertion_point(second_alternative_return);
+        b.return_(zero);
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = restructure_cfg_pass_run_on_function(f);
+        expect(info.succeeded());
+        expect(info.unstructured_branch_count == 0u);
+        expect(info.selection_exit_ssa_repair_request_count >= 2u);
+        expect(info.selection_exit_ssa_repair_count > 0u);
+        expect(info.selection_exit_ssa_repair_request_count >
+               info.selection_exit_ssa_repair_count)
+            << "multiple state dispatches in one drain must share the "
+               "final-CFG SSA repair";
+        expect(info.selection_exit_ssa_repaired_value_count >= 2u);
+        auto spills = audit_reg2mem_spills_on_function(f);
+        expect(spills.remaining_cross_block_spill_count == 2u);
+        expect(first_value_return->return_value()->isa<LoadInst>());
+        expect(second_value_return->return_value()->isa<LoadInst>());
         expect(xir_verify_module(
                    &m, {.require_unique_merge_blocks = true})
                    .succeeded());
@@ -2259,7 +3978,339 @@ void reg_restructure_cfg() {
         expect(static_cast<BranchInst *>(inner_case->terminator())->target_block() == inner->merge_block());
         expect(static_cast<BranchInst *>(inner->merge_block()->terminator())->target_block() == outer->merge_block());
         expect(static_cast<BranchInst *>(outer_case->terminator())->target_block() == outer->merge_block());
-        expect(static_cast<BranchInst *>(outer->merge_block()->terminator())->target_block() == ret);
+        expect(outer->merge_block() == ret)
+            << "the first exact common exit is the canonical outer merge";
+        expect(info.selection_exit_merge_canonicalization_count > 0u);
+    };
+
+    "restructure_if_may_exit_to_nearest_enclosing_switch_merge"_test = [] {
+        Module module;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(module, body);
+        auto *selector =
+            kernel->create_value_argument(Type::of<uint32_t>());
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        XIRBuilder builder;
+
+        builder.set_insertion_point(body);
+        auto *outer = builder.switch_(selector);
+        auto *outer_default = outer->create_default_block();
+        auto *outer_case = outer->create_case_block(1u);
+        auto *outer_merge = outer->create_merge_block();
+
+        builder.set_insertion_point(outer_default);
+        auto *inner = builder.if_(condition);
+        auto *direct_switch_exit = inner->create_true_block();
+        auto *normal_arm = inner->create_false_block();
+        auto *inner_merge = inner->create_merge_block();
+        builder.set_insertion_point(direct_switch_exit);
+        builder.br(outer_merge);
+        builder.set_insertion_point(normal_arm);
+        builder.br(inner_merge);
+        builder.set_insertion_point(inner_merge);
+        builder.br(outer_merge);
+        builder.set_insertion_point(outer_case);
+        builder.br(outer_merge);
+        builder.set_insertion_point(outer_merge);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info =
+            restructure_cfg_pass_run_on_function(kernel);
+        expect(info.succeeded());
+        // SPIR-V permits a non-Switch selection to leave through the nearest
+        // enclosing Switch merge. No exit-state protocol is needed, and the
+        // inner merge identity remains stable.
+        expect(inner->merge_block() == inner_merge);
+        expect(direct_switch_exit->terminator()->isa<BranchInst>());
+        if (direct_switch_exit->terminator()->isa<BranchInst>()) {
+            expect(static_cast<BranchInst *>(
+                       direct_switch_exit->terminator())
+                       ->target_block() == outer_merge);
+        }
+        expect(xir_verify_module(
+                   &module,
+                   {.require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets = true})
+                   .succeeded());
+    };
+
+    "restructure_switch_cannot_exit_to_enclosing_switch_merge"_test = [] {
+        Module module;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(module, body);
+        auto *selector =
+            kernel->create_value_argument(Type::of<uint32_t>());
+        XIRBuilder builder;
+
+        builder.set_insertion_point(body);
+        auto *outer = builder.switch_(selector);
+        auto *outer_default = outer->create_default_block();
+        auto *outer_case = outer->create_case_block(1u);
+        auto *outer_merge = outer->create_merge_block();
+
+        builder.set_insertion_point(outer_default);
+        auto *inner = builder.switch_(selector);
+        auto *direct_outer_exit = inner->create_default_block();
+        auto *normal_case = inner->create_case_block(2u);
+        auto *old_inner_merge = inner->create_merge_block();
+        builder.set_insertion_point(direct_outer_exit);
+        builder.br(outer_merge);
+        builder.set_insertion_point(normal_case);
+        builder.br(old_inner_merge);
+        builder.set_insertion_point(old_inner_merge);
+        builder.br(outer_merge);
+        builder.set_insertion_point(outer_case);
+        builder.br(outer_merge);
+        builder.set_insertion_point(outer_merge);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info =
+            restructure_cfg_pass_run_on_function(kernel);
+        expect(info.succeeded());
+        // OpSwitch is deliberately excluded from the enclosing-Switch exit
+        // exception. Its direct outer exit must be routed through a private
+        // inner merge rather than borrowing the parent's merge role.
+        expect(inner->merge_block() != old_inner_merge);
+        expect(branch_chain_reaches(
+            direct_outer_exit, inner->merge_block()));
+        expect(branch_chain_reaches(
+            normal_case, inner->merge_block()));
+        expect(xir_verify_module(
+                   &module,
+                   {.require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets = true})
+                   .succeeded());
+    };
+
+    "restructure_switch_case_outer_loop_break_is_plain_branch"_test = [] {
+        Module module;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(module, body);
+        auto *definition = kernel->definition();
+        auto *selector =
+            kernel->create_value_argument(Type::of<uint32_t>());
+        XIRBuilder builder;
+
+        builder.set_insertion_point(body);
+        auto *loop = builder.simple_loop();
+        auto *loop_body = loop->create_body_block();
+        auto *loop_merge = loop->create_merge_block();
+        builder.set_insertion_point(loop_body);
+        auto *selection = builder.switch_(selector);
+        auto *default_block = selection->create_default_block();
+        auto *break_case = selection->create_case_block(1u);
+        auto *switch_merge = selection->create_merge_block();
+        builder.set_insertion_point(default_block);
+        builder.br(switch_merge);
+        builder.set_insertion_point(break_case);
+        builder.break_(loop_merge);
+        builder.set_insertion_point(switch_merge);
+        builder.continue_(loop_body);
+        builder.set_insertion_point(loop_merge);
+        auto *continuation = definition->create_basic_block();
+        builder.br(continuation);
+        builder.set_insertion_point(continuation);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info =
+            restructure_cfg_pass_run_on_function(kernel);
+        expect(info.succeeded());
+        expect(info.iteration_limit_count == 0u);
+        // XIR BreakInst denotes the nearest lexical break scope, which is the
+        // Switch here. The SPIR-V-legal exit to its nearest enclosing Loop is
+        // represented by an ordinary branch with the same executable target.
+        expect(break_case->terminator()->isa<BranchInst>());
+        if (break_case->terminator()->isa<BranchInst>()) {
+            expect(static_cast<BranchInst *>(
+                       break_case->terminator())
+                       ->target_block() == loop_merge);
+        }
+        // The loop merge remains a structural boundary even though it is an
+        // empty forwarding block. Contracting through it would make the arm
+        // appear to target `continuation`, causing selection-exit repair and
+        // loop-boundary canonicalization to alternately add fresh proxies.
+        expect(loop_merge->terminator()->isa<BranchInst>());
+        if (loop_merge->terminator()->isa<BranchInst>()) {
+            expect(static_cast<BranchInst *>(
+                       loop_merge->terminator())
+                       ->target_block() == continuation);
+        }
+        auto stable_block_count = count_owned_blocks(definition);
+        auto rerun =
+            restructure_cfg_pass_run_on_function(kernel);
+        expect(rerun.succeeded());
+        expect(rerun.iteration_limit_count == 0u);
+        expect(count_owned_blocks(definition) ==
+               stable_block_count);
+        expect(xir_verify_module(
+                   &module,
+                   {.require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets = true})
+                   .succeeded());
+    };
+
+    "restructure_selection_cannot_skip_nearest_enclosing_loop"_test = [] {
+        Module module;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(module, body);
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        XIRBuilder builder;
+
+        builder.set_insertion_point(body);
+        auto *outer = builder.simple_loop();
+        auto *outer_body = outer->create_body_block();
+        auto *outer_merge = outer->create_merge_block();
+        builder.set_insertion_point(outer_body);
+        auto *inner = builder.simple_loop();
+        auto *inner_body = inner->create_body_block();
+        auto *inner_merge = inner->create_merge_block();
+        builder.set_insertion_point(inner_body);
+        auto *guard = builder.if_(condition);
+        auto *far_exit = guard->create_true_block();
+        auto *near_exit = guard->create_false_block();
+        auto *guard_merge = guard->create_merge_block();
+        builder.set_insertion_point(far_exit);
+        builder.br(outer_merge);
+        builder.set_insertion_point(near_exit);
+        builder.br(guard_merge);
+        builder.set_insertion_point(guard_merge);
+        builder.break_(inner_merge);
+        builder.set_insertion_point(inner_merge);
+        builder.continue_(outer_body);
+        builder.set_insertion_point(outer_merge);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info =
+            restructure_cfg_pass_run_on_function(kernel);
+        expect(info.succeeded());
+        // The inner Loop terminates the lexical exit search. The selection
+        // cannot use the outer Loop merge as though an empty proxy made that
+        // farther boundary adjacent; the edge must be routed through a local
+        // structured exit protocol before reaching the same semantic target.
+        expect(!far_exit->terminator()->isa<BranchInst>() ||
+               static_cast<BranchInst *>(far_exit->terminator())
+                       ->target_block() != outer_merge);
+        expect(xir_verify_module(
+                   &module,
+                   {.require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets = true})
+                   .succeeded());
+    };
+
+    "restructure_selection_region_stops_at_enclosing_loop_epoch"_test = [] {
+        Module module;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(module, body);
+        auto *outer_break =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *inner_break =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *inner_continue =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *outer_continue =
+            kernel->create_value_argument(Type::of<bool>());
+        XIRBuilder builder;
+
+        builder.set_insertion_point(body);
+        auto *outer = builder.simple_loop();
+        auto *outer_body = outer->create_body_block();
+        auto *outer_merge = outer->create_merge_block();
+
+        builder.set_insertion_point(outer_body);
+        auto *outer_break_guard = builder.if_(outer_break);
+        auto *outer_break_arm =
+            outer_break_guard->create_true_block();
+        auto *outer_fallthrough =
+            outer_break_guard->create_false_block();
+        auto *outer_guard_merge =
+            outer_break_guard->create_merge_block();
+        builder.set_insertion_point(outer_break_arm);
+        builder.break_(outer_merge);
+        builder.set_insertion_point(outer_fallthrough);
+        builder.br(outer_guard_merge);
+
+        builder.set_insertion_point(outer_guard_merge);
+        auto *inner = builder.simple_loop();
+        auto *inner_body = inner->create_body_block();
+        auto *inner_merge = inner->create_merge_block();
+
+        builder.set_insertion_point(inner_body);
+        auto *inner_break_guard = builder.if_(inner_break);
+        auto *inner_break_arm =
+            inner_break_guard->create_true_block();
+        auto *inner_fallthrough =
+            inner_break_guard->create_false_block();
+        auto *inner_break_merge =
+            inner_break_guard->create_merge_block();
+        builder.set_insertion_point(inner_break_arm);
+        builder.break_(inner_merge);
+        builder.set_insertion_point(inner_fallthrough);
+        builder.br(inner_break_merge);
+
+        builder.set_insertion_point(inner_break_merge);
+        auto *inner_continue_guard =
+            builder.if_(inner_continue);
+        auto *inner_continue_arm =
+            inner_continue_guard->create_true_block();
+        auto *inner_exit_arm =
+            inner_continue_guard->create_false_block();
+        auto *inner_continue_merge =
+            inner_continue_guard->create_merge_block();
+        builder.set_insertion_point(inner_continue_arm);
+        builder.continue_(inner_body);
+        builder.set_insertion_point(inner_exit_arm);
+        builder.br(inner_continue_merge);
+        builder.set_insertion_point(inner_continue_merge);
+        builder.break_(inner_merge);
+
+        builder.set_insertion_point(inner_merge);
+        auto *outer_continue_guard =
+            builder.if_(outer_continue);
+        auto *outer_continue_arm =
+            outer_continue_guard->create_true_block();
+        auto *outer_exit_arm =
+            outer_continue_guard->create_false_block();
+        auto *outer_continue_merge =
+            outer_continue_guard->create_merge_block();
+        builder.set_insertion_point(outer_continue_arm);
+        builder.continue_(outer_body);
+        builder.set_insertion_point(outer_exit_arm);
+        builder.br(outer_continue_merge);
+        builder.set_insertion_point(outer_continue_merge);
+        builder.break_(outer_merge);
+        builder.set_insertion_point(outer_merge);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info =
+            restructure_cfg_pass_run_on_function(kernel);
+        expect(info.succeeded());
+        expect(info.iteration_limit_count == 0u);
+        // Each selection arm that reaches its nearest enclosing loop boundary
+        // ends that selection's structural epoch. In particular, the inner
+        // selection must not absorb the outer loop's later break/continue
+        // blocks merely because ordinary CFG dominance still reaches them.
+        expect(outer_break_guard->merge_block() ==
+               outer_guard_merge);
+        expect(inner_break_guard->merge_block() ==
+               inner_break_merge);
+        // The opposing continue/break guards may be normalized into physical
+        // loop-boundary selections, which intentionally changes their merge
+        // identity and arm proxies. Successful convergence plus the strict
+        // verifier below proves those rewritten physical roles remain valid.
+        expect(inner_continue_guard->merge_block() != nullptr);
+        expect(outer_continue_guard->merge_block() != nullptr);
+        expect(xir_verify_module(
+                   &module,
+                   {.require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets = true})
+                   .succeeded());
     };
 
     "restructure_routes_nested_if_exits_through_merges"_test = [] {
@@ -2310,12 +4361,13 @@ void reg_restructure_cfg() {
     };
 
     "restructure_drains_more_than_64_independent_selection_exits"_test = [] {
+        ScopedEnvironmentVariable verify_relation_updates{
+            "LUISA_XIR_VERIFY_SELECTION_EXIT_RELATION_UPDATES", "1"};
         Module m;
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);
         auto *def = k->definition();
         auto *condition = k->create_value_argument(Type::of<bool>());
-        auto *ret = def->create_basic_block();
         struct Site {
             IfInst *selection;
             BasicBlock *exit_arm;
@@ -2324,7 +4376,23 @@ void reg_restructure_cfg() {
         luisa::vector<Site> sites;
         sites.reserve(65u);
         XIRBuilder b;
-        auto *cursor = body;
+        // Give the common return block an existing structured role. The 65
+        // nested selections therefore cannot reuse it as their own merge and
+        // must exercise the explicit one-target exit-funnel path rather than
+        // the metadata-only exact-common-exit canonicalization. Keep the
+        // chain inside a loop so every incremental update must also refresh
+        // and verify a non-empty lexical context relation.
+        b.set_insertion_point(body);
+        auto *loop = b.simple_loop();
+        auto *loop_body = loop->create_body_block();
+        auto *loop_merge = loop->create_merge_block();
+        b.set_insertion_point(loop_body);
+        auto *root = b.if_(condition);
+        auto *cursor = root->create_true_block();
+        auto *root_false = root->create_false_block();
+        auto *ret = root->create_merge_block();
+        b.set_insertion_point(root_false);
+        b.br(ret);
         for (size_t i = 0u; i < 65u; i++) {
             b.set_insertion_point(cursor);
             auto *selection = b.if_(condition);
@@ -2341,12 +4409,46 @@ void reg_restructure_cfg() {
         b.set_insertion_point(cursor);
         b.br(ret);
         b.set_insertion_point(ret);
+        b.break_(loop_merge);
+        b.set_insertion_point(loop_merge);
         b.return_void();
 
         auto first = restructure_cfg_pass_run_on_function(k);
         expect(first.succeeded());
         expect(first.iteration_limit_count == 0u);
         expect(first.unstructured_branch_count == 0u);
+        expect(
+            first.selection_exit_cfg_invalidation_count >=
+            sites.size());
+        expect(
+            first.selection_exit_local_invalidation_count ==
+            first.selection_exit_cfg_invalidation_count);
+        expect(
+            first.selection_exit_global_invalidation_count == 0u);
+        expect(
+            first.selection_exit_relation_incremental_update_count ==
+            first.selection_exit_cfg_invalidation_count);
+        // The 65 funnels preserve the relation version. A fresh relation is
+        // still rebuilt by the diagnostic oracle after every update, but
+        // those oracle builds are deliberately excluded from pass counters.
+        expect(
+            first.selection_exit_boundary_analysis_count <
+            first.selection_exit_cfg_invalidation_count);
+        // Each local rewrite dirties only itself and physical enclosing
+        // selections. The common-merge role owner adds one enclosing query
+        // per rewrite, so the 65-site chain must still drain linearly instead
+        // of restarting a full scan after every rewrite.
+        expect(
+            first.selection_exit_site_query_count <=
+            4u * sites.size());
+        expect(
+            first.selection_exit_postdom_refresh_count > 0u);
+        // All 65 independent rewrites are one drain batch. Dominance must be
+        // refreshed between writes because the next query observes it, while
+        // post-dominance has no observer until the following phase.
+        expect(
+            first.selection_exit_postdom_refresh_count <
+            first.selection_exit_cfg_invalidation_count);
         luisa::vector<BasicBlock *> rewritten_merges;
         rewritten_merges.reserve(sites.size());
         for (auto site : sites) {
@@ -2410,7 +4512,7 @@ void reg_restructure_cfg() {
                    .succeeded());
     };
 
-    "restructure_structurizes_one_sided_branch_before_nested_selection"_test = [] {
+    "restructure_preserves_parent_boundary_guard_before_nested_selection"_test = [] {
         Module m;
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);
@@ -2424,7 +4526,8 @@ void reg_restructure_cfg() {
         auto *nested_header = k->create_basic_block();
 
         b.set_insertion_point(raw_header);
-        b.cond_br(condition, nested_header, outer_merge);
+        auto *raw_guard =
+            b.cond_br(condition, nested_header, outer_merge);
         b.set_insertion_point(nested_header);
         auto *nested = b.if_(condition);
         auto *nested_true = nested->create_true_block();
@@ -2441,17 +4544,34 @@ void reg_restructure_cfg() {
         b.set_insertion_point(outer_merge);
         b.return_void();
 
+        const auto initial_block_count =
+            count_owned_blocks(k->definition());
         auto info = restructure_cfg_pass_run_on_function(k);
         auto verification = xir_verify_module(
             &m, {.require_unique_merge_blocks = true});
         expect(info.succeeded());
-        expect(info.restructured_if_count >= 1u);
-        expect(raw_header->terminator()->isa<IfInst>());
-        auto *structured = static_cast<IfInst *>(raw_header->terminator());
-        expect(structured->merge_block() != outer_merge);
+        expect(info.iteration_limit_count == 0u);
+        expect(info.restructured_if_count == 0u);
+        expect(raw_header->terminator() == raw_guard);
+        expect(raw_header->terminator()->isa<ConditionalBranchInst>());
         expect(nested_header->terminator() == nested);
-        expect(count_terminator_kind(k->definition(), DerivedInstructionTag::CONDITIONAL_BRANCH) == 0u);
+        expect(count_terminator_kind(
+                   k->definition(),
+                   DerivedInstructionTag::CONDITIONAL_BRANCH) == 1u)
+            << "a raw guard with one ordinary arm and one direct enclosing "
+               "merge arm is the residual LLVM SPIRVStructurizer form";
+        expect(count_owned_blocks(k->definition()) ==
+               initial_block_count)
+            << "parent-boundary classification must not grow the CFG";
         expect(verification.succeeded());
+
+        auto second = restructure_cfg_pass_run_on_function(k);
+        expect(second.succeeded());
+        expect(!second.changed());
+        expect(raw_header->terminator() == raw_guard);
+        expect(count_owned_blocks(k->definition()) ==
+               initial_block_count)
+            << "the accepted parent-boundary guard must be a fixed point";
     };
 
     "restructure_does_not_reenter_selection_after_its_merge"_test = [] {
@@ -2735,7 +4855,113 @@ void reg_restructure_cfg() {
         }
     };
 
-    "restructure_rebuilds_zero_case_indexed_branch"_test = [] {
+    "restructure_recovers_cyclic_indexed_branch_without_cloning_loop_body"_test = [] {
+        struct SelectorCase {
+            const Type *type;
+            uint64_t back_edge_literal;
+            uint64_t exit_literal;
+        };
+        const std::array selector_cases{
+            SelectorCase{Type::of<bool>(), 0u, 1u},
+            SelectorCase{Type::of<int8_t>(), 0xffu, 0x80u},
+            SelectorCase{Type::of<uint8_t>(), 0xffu, 0x80u},
+            SelectorCase{Type::of<int16_t>(), 0xffffu, 0x8000u},
+            SelectorCase{Type::of<uint16_t>(), 0xffffu, 0x8000u},
+            SelectorCase{
+                Type::of<int32_t>(), 0xffffffffu, 0x80000000u},
+            SelectorCase{
+                Type::of<uint32_t>(), 0xffffffffu, 0x80000000u},
+            SelectorCase{
+                Type::of<int64_t>(),
+                std::numeric_limits<uint64_t>::max(),
+                uint64_t{1u} << 63u},
+            SelectorCase{
+                Type::of<uint64_t>(),
+                std::numeric_limits<uint64_t>::max(),
+                uint64_t{1u} << 63u},
+        };
+
+        auto exercise = [](SelectorCase selector_case,
+                           size_t payload_block_count) noexcept {
+            Module module;
+            BasicBlock *body;
+            auto *kernel = make_kernel_with_body(module, body);
+            auto *selector =
+                kernel->create_value_argument(selector_case.type);
+            auto *definition = kernel->definition();
+            auto *header = definition->create_basic_block();
+            luisa::vector<BasicBlock *> payload;
+            payload.reserve(payload_block_count);
+            for (auto i = size_t{0u}; i < payload_block_count; ++i) {
+                payload.emplace_back(definition->create_basic_block());
+            }
+            auto *latch = definition->create_basic_block();
+            auto *case_exit = definition->create_basic_block();
+            auto *default_exit = definition->create_basic_block();
+
+            XIRBuilder builder;
+            builder.set_insertion_point(body);
+            builder.br(header);
+            builder.set_insertion_point(header);
+            builder.br(payload.empty() ? latch : payload.front());
+            for (auto i = size_t{0u}; i < payload.size(); ++i) {
+                builder.set_insertion_point(payload[i]);
+                builder.br(i + 1u == payload.size() ?
+                               latch :
+                               payload[i + 1u]);
+            }
+            builder.set_insertion_point(latch);
+            auto *indexed = builder.indexed_branch(selector);
+            // The first case is a natural-loop back edge; the second proves
+            // that cyclic multi-way branches, rather than a one-case special
+            // form, are handled by the same lowering. Boundary bit patterns
+            // exercise every verifier-supported selector width and signedness.
+            indexed->add_case(
+                selector_case.back_edge_literal, header);
+            indexed->add_case(
+                selector_case.exit_literal, case_exit);
+            indexed->set_default_block(default_exit);
+            builder.set_insertion_point(case_exit);
+            builder.return_void();
+            builder.set_insertion_point(default_exit);
+            builder.return_void();
+
+            auto block_count_before =
+                definition->basic_blocks().count_size();
+            expect(xir_verify_module(&module).succeeded());
+            auto info =
+                restructure_cfg_pass_run_on_function(kernel);
+            auto block_count_after =
+                definition->basic_blocks().count_size();
+            expect(info.succeeded());
+            expect(info.restructured_loop_count == 1u);
+            expect(info.canonicalized_cfg_count != 0u);
+            expect(count_terminator_kind(
+                       definition,
+                       DerivedInstructionTag::INDEXED_BRANCH) == 0u);
+            expect(count_terminator_kind(
+                       definition,
+                       DerivedInstructionTag::SWITCH) == 0u);
+            expect(block_count_after >= block_count_before);
+            expect(xir_verify_module(
+                       &module,
+                       {.require_no_unstructured_control_flow = true,
+                        .require_unique_merge_blocks = true})
+                       .succeeded());
+            return block_count_after - block_count_before;
+        };
+
+        for (auto selector_case : selector_cases) {
+            auto small_body_growth = exercise(selector_case, 4u);
+            auto large_body_growth = exercise(selector_case, 128u);
+            expect(small_body_growth == large_body_growth)
+                << "structural recovery overhead must be independent of the "
+                   "number of blocks in the natural-loop body for selector "
+                << selector_case.type->description();
+        }
+    };
+
+    "restructure_canonicalizes_zero_case_indexed_branch"_test = [] {
         Module m;
         BasicBlock *body;
         auto *kernel = make_kernel_with_body(m, body);
@@ -2755,14 +4981,13 @@ void reg_restructure_cfg() {
 
         auto info = restructure_cfg_pass_run_on_function(kernel);
         expect(info.succeeded());
-        expect(info.restructured_switch_count == 1u);
-        expect(body->terminator()->isa<SwitchInst>());
-        auto *switch_inst =
-            static_cast<SwitchInst *>(body->terminator());
-        expect(switch_inst->case_count() == 0u);
-        expect(switch_inst->merge_block() != nullptr);
-        expect(branch_chain_reaches(
-            switch_inst->merge_block(), default_block));
+        expect(info.restructured_switch_count == 0u);
+        expect(info.canonicalized_cfg_count != 0u);
+        expect(body->terminator()->isa<BranchInst>());
+        if (body->terminator()->isa<BranchInst>()) {
+            expect(static_cast<BranchInst *>(body->terminator())
+                       ->target_block() == default_block);
+        }
         expect(xir_verify_module(
                    &m,
                    {.require_no_unstructured_control_flow = true,
@@ -2806,6 +5031,114 @@ void reg_restructure_cfg() {
                    {.require_no_unstructured_control_flow = true,
                     .require_unique_merge_blocks = true})
                    .succeeded());
+    };
+
+    "restructure_keeps_dominated_terminal_arm_inside_enclosing_selection"_test = [] {
+        Module module;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(module, body);
+        auto *outer_condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *selector =
+            kernel->create_value_argument(Type::of<uint32_t>());
+        auto *definition = kernel->definition();
+        XIRBuilder builder;
+
+        builder.set_insertion_point(body);
+        auto *outer = builder.if_(outer_condition);
+        auto *raw_switch_header = outer->create_true_block();
+        auto *outer_false = outer->create_false_block();
+        auto *outer_merge = outer->create_merge_block();
+
+        auto *case_block = definition->create_basic_block();
+        auto *default_unreachable =
+            definition->create_basic_block();
+        builder.set_insertion_point(raw_switch_header);
+        auto *indexed = builder.indexed_branch(selector);
+        indexed->add_case(1u, case_block);
+        indexed->set_default_block(default_unreachable);
+        builder.set_insertion_point(case_block);
+        builder.br(outer_merge);
+        builder.set_insertion_point(default_unreachable);
+        builder.unreachable_(
+            "the inlined callable has no implementation for this tag");
+        builder.set_insertion_point(outer_false);
+        builder.br(outer_merge);
+        builder.set_insertion_point(outer_merge);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info =
+            restructure_cfg_pass_run_on_function(kernel);
+        expect(info.succeeded());
+        expect(info.iteration_limit_count == 0u);
+        expect(outer->merge_block() == outer_merge)
+            << "a header-dominated terminal block has no outgoing edge from "
+               "the enclosing selection and is not a non-local exit";
+        expect(default_unreachable->terminator()->isa<UnreachableInst>());
+        expect(xir_verify_module(
+                   &module,
+                   {.require_no_unstructured_control_flow = true,
+                    .require_unique_merge_blocks = true})
+                   .succeeded());
+    };
+
+    "restructure_rebuilds_terminal_indexed_branch_with_aliased_cases"_test = [] {
+        Module module;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(module, body);
+        auto *selector =
+            kernel->create_value_argument(Type::of<uint32_t>());
+        auto *definition = kernel->definition();
+        auto *shared_return = definition->create_basic_block();
+        auto *default_unreachable = definition->create_basic_block();
+        XIRBuilder builder;
+
+        builder.set_insertion_point(body);
+        auto *indexed_branch = builder.indexed_branch(selector);
+        indexed_branch->set_default_block(default_unreachable);
+        for (auto case_value = uint64_t{0u};
+             case_value < 5u; ++case_value) {
+            indexed_branch->add_case(
+                case_value, shared_return);
+        }
+        builder.set_insertion_point(shared_return);
+        builder.return_void();
+        builder.set_insertion_point(default_unreachable);
+        builder.unreachable_();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info =
+            restructure_cfg_pass_run_on_function(kernel);
+        expect(info.succeeded());
+        expect(info.restructured_switch_count == 1u);
+        expect(info.iteration_limit_count == 0u);
+        expect(count_post_merge_selection_reentries(kernel) ==
+               0u);
+        expect(body->terminator()->isa<SwitchInst>());
+        auto *switch_inst =
+            static_cast<SwitchInst *>(body->terminator());
+        luisa::unordered_set<BasicBlock *> arm_entries;
+        arm_entries.emplace(switch_inst->default_block());
+        for (auto i = size_t{0u};
+             i < switch_inst->case_count(); ++i) {
+            auto *case_entry = switch_inst->case_block(i);
+            expect(arm_entries.emplace(case_entry).second);
+            expect(branch_chain_reaches(
+                case_entry, shared_return));
+        }
+        expect(xir_verify_module(
+                   &module,
+                   {.require_no_unstructured_control_flow = true,
+                    .require_unique_merge_blocks = true})
+                   .succeeded());
+
+        auto block_count = count_owned_blocks(definition);
+        auto second =
+            restructure_cfg_pass_run_on_function(kernel);
+        expect(second.succeeded());
+        expect(!second.changed());
+        expect(count_owned_blocks(definition) == block_count);
     };
 
     "restructure_roundtrips_loop_switch_nested_break_continue"_test = [] {
@@ -2900,6 +5233,11 @@ void reg_restructure_cfg() {
         expect(restructured.succeeded());
         expect(restructured.iteration_limit_count == 0u);
         expect(restructured.restructured_switch_count == 1u);
+        expect(
+            restructured.if_batch_merge_loop_context_count > 0u)
+            << "nested selection merge queries must reuse the enclosing "
+               "loop-context tree";
+        expect(restructured.if_batch_merge_query_count > 0u);
         expect(count_terminator_kind(
                    k->definition(),
                    DerivedInstructionTag::INDEXED_BRANCH) == 0u);
@@ -3070,6 +5408,302 @@ void reg_restructure_cfg() {
             expect(invalid_indexed->case_value(0u) == 0u);
             expect(invalid_indexed->case_value(1u) == 0u);
         }
+    };
+
+    "restructure_orphan_loop_body_role_does_not_hide_reachable_cycle"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(module, entry);
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *definition = kernel->definition();
+        auto *cycle_header = definition->create_basic_block();
+        auto *cycle_latch = definition->create_basic_block();
+        auto *exit = definition->create_basic_block();
+        auto *orphan_owner = definition->create_basic_block();
+        auto *orphan_update = definition->create_basic_block();
+        auto *orphan_merge = definition->create_basic_block();
+
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        builder.br(cycle_header);
+        builder.set_insertion_point(cycle_header);
+        builder.cond_br(condition, cycle_latch, exit);
+        builder.set_insertion_point(cycle_latch);
+        builder.br(cycle_header);
+        builder.set_insertion_point(exit);
+        builder.return_void();
+
+        // This disconnected descriptor names the reachable cycle header as
+        // Loop.body. Loop.body is not a physical SPIR-V loop header, and an
+        // unreachable owner cannot establish a lexical loop scope for any
+        // reachable source edge. The old global target set nevertheless hid
+        // cycle_latch -> cycle_header from natural-loop recovery.
+        builder.set_insertion_point(orphan_owner);
+        auto *orphan_loop = builder.loop();
+        orphan_loop->set_prepare_block(cycle_latch);
+        orphan_loop->set_body_block(cycle_header);
+        orphan_loop->set_update_block(orphan_update);
+        orphan_loop->set_merge_block(orphan_merge);
+        builder.set_insertion_point(orphan_update);
+        builder.br(cycle_latch);
+        builder.set_insertion_point(orphan_merge);
+        builder.unreachable_();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = restructure_cfg_pass_run_on_function(kernel);
+        expect(info.succeeded());
+        expect(info.restructured_loop_count >= 1u);
+
+        auto dom = compute_dom_tree(kernel);
+        auto reachable_owner = false;
+        for (auto *block : definition->basic_blocks()) {
+            if (!dom.contains(block) || !block->is_terminated()) {
+                continue;
+            }
+            auto *terminator = block->terminator();
+            if (terminator->isa<LoopInst>()) {
+                reachable_owner |=
+                    static_cast<LoopInst *>(terminator)
+                            ->prepare_block() == cycle_header;
+            } else if (terminator->isa<SimpleLoopInst>()) {
+                reachable_owner |=
+                    static_cast<SimpleLoopInst *>(terminator)
+                            ->body_block() == cycle_header;
+            }
+        }
+        expect(reachable_owner)
+            << "the reachable dominance cycle must be owned by a reachable "
+               "physical loop header, not by the orphan descriptor";
+        expect(xir_verify_module(
+                   &module,
+                   {.require_no_unstructured_control_flow = true,
+                    .require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets = true})
+                   .succeeded());
+
+        auto rerun = restructure_cfg_pass_run_on_function(kernel);
+        expect(rerun.succeeded());
+        expect(!rerun.changed());
+    };
+
+    "restructure_separates_preceding_selection_merge_from_loop_header"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(module, entry);
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *definition = kernel->definition();
+        auto *false_arm = definition->create_basic_block();
+        auto *loop_header = definition->create_basic_block();
+        auto *loop_body = definition->create_basic_block();
+        auto *exit = definition->create_basic_block();
+
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *selection = builder.if_(condition);
+        // Exercise both executable retargeting forms: one selection arm names
+        // the merge directly, while the other reaches it through Branch.
+        selection->set_true_target(loop_header);
+        selection->set_false_target(false_arm);
+        selection->set_merge_block(loop_header);
+        builder.set_insertion_point(false_arm);
+        builder.br(loop_header);
+        builder.set_insertion_point(loop_header);
+        builder.cond_br(condition, loop_body, exit);
+        builder.set_insertion_point(loop_body);
+        builder.br(loop_header);
+        builder.set_insertion_point(exit);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = restructure_cfg_pass_run_on_function(kernel);
+        expect(info.succeeded());
+        expect(info.iteration_limit_count == 0u);
+        expect(selection->merge_block() != loop_header)
+            << "the selection must end before the loop begins; keeping the "
+               "natural-loop header as its merge makes every backedge a "
+               "post-merge selection re-entry";
+        expect(selection->merge_block()->is_terminated());
+        expect(selection->merge_block()->terminator()->isa<LoopInst>() ||
+               selection->merge_block()->terminator()->isa<SimpleLoopInst>())
+            << "the relocated merge is the sequential owner of the loop";
+        expect(xir_verify_module(
+                   &module,
+                   {.require_no_unstructured_control_flow = true,
+                    .require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets = true})
+                   .succeeded());
+
+        const auto block_count = count_owned_blocks(definition);
+        auto rerun = restructure_cfg_pass_run_on_function(kernel);
+        expect(rerun.succeeded());
+        expect(!rerun.changed());
+        expect(count_owned_blocks(definition) == block_count);
+    };
+
+    "restructure_does_not_retarget_declarative_merge_as_executable_edge"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(module, entry);
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *definition = kernel->definition();
+        auto *true_arm = definition->create_basic_block();
+        auto *false_arm = definition->create_basic_block();
+        auto *loop_header = definition->create_basic_block();
+        auto *loop_body = definition->create_basic_block();
+        auto *exit = definition->create_basic_block();
+
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *selection = builder.if_(condition);
+        selection->set_true_target(true_arm);
+        selection->set_false_target(false_arm);
+        selection->set_merge_block(loop_header);
+        builder.set_insertion_point(true_arm);
+        builder.br(loop_header);
+        builder.set_insertion_point(false_arm);
+        builder.br(loop_header);
+        builder.set_insertion_point(loop_header);
+        builder.cond_br(condition, loop_body, exit);
+        builder.set_insertion_point(loop_body);
+        builder.br(loop_header);
+        builder.set_insertion_point(exit);
+        builder.return_void();
+
+        // The selection owner names loop_header only through its raw
+        // declarative merge link; its encoded executable successors are the
+        // two arm blocks. Relocating the merge must therefore leave both arm
+        // choices intact while subdividing only their Branch edges.
+        expect(xir_verify_module(&module).succeeded());
+        auto info = restructure_cfg_pass_run_on_function(kernel);
+        expect(info.succeeded());
+        expect(info.iteration_limit_count == 0u);
+        expect(selection->true_block() == true_arm);
+        expect(selection->false_block() == false_arm);
+        expect(selection->merge_block() != loop_header);
+        expect(selection->merge_block()->is_terminated());
+        expect(selection->merge_block()->terminator()->isa<LoopInst>() ||
+               selection->merge_block()->terminator()->isa<SimpleLoopInst>());
+        expect(xir_verify_module(
+                   &module,
+                   {.require_no_unstructured_control_flow = true,
+                    .require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets = true})
+                   .succeeded());
+
+        const auto block_count = count_owned_blocks(definition);
+        auto rerun = restructure_cfg_pass_run_on_function(kernel);
+        expect(rerun.succeeded());
+        expect(!rerun.changed());
+        expect(count_owned_blocks(definition) == block_count);
+    };
+
+    "restructure_retargets_structured_break_when_merge_precedes_loop"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(module, entry);
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *definition = kernel->definition();
+        auto *outer_body = definition->create_basic_block();
+        auto *loop_header = definition->create_basic_block();
+        auto *loop_body = definition->create_basic_block();
+        auto *exit = definition->create_basic_block();
+
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *preceding = builder.simple_loop();
+        preceding->set_body_block(outer_body);
+        preceding->set_merge_block(loop_header);
+        builder.set_insertion_point(outer_body);
+        auto *outer_break = builder.break_(loop_header);
+        builder.set_insertion_point(loop_header);
+        builder.cond_br(condition, loop_body, exit);
+        builder.set_insertion_point(loop_body);
+        builder.br(loop_header);
+        builder.set_insertion_point(exit);
+        builder.return_void();
+
+        expect(xir_verify_module(
+                   &module,
+                   {.require_canonical_break_continue_targets = true})
+                   .succeeded());
+        auto info = restructure_cfg_pass_run_on_function(kernel);
+        expect(info.succeeded());
+        expect(info.iteration_limit_count == 0u);
+        expect(preceding->merge_block() != loop_header);
+        expect(outer_break->target_block() == preceding->merge_block())
+            << "the executable predecessor relation includes Break; moving "
+               "the declared merge without moving that edge would split the "
+               "semantic and structural CFGs";
+        expect(preceding->merge_block()->is_terminated());
+        expect(preceding->merge_block()->terminator()->isa<LoopInst>() ||
+               preceding->merge_block()->terminator()->isa<SimpleLoopInst>());
+        expect(xir_verify_module(
+                   &module,
+                   {.require_no_unstructured_control_flow = true,
+                    .require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets = true})
+                   .succeeded());
+
+        const auto block_count = count_owned_blocks(definition);
+        auto rerun = restructure_cfg_pass_run_on_function(kernel);
+        expect(rerun.succeeded());
+        expect(!rerun.changed());
+        expect(count_owned_blocks(definition) == block_count);
+    };
+
+    "restructure_retargets_ray_query_dispatch_entry_to_recovered_loop"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(module, entry);
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *query = kernel->create_reference_argument(
+            Type::custom("LC_RayQueryAll"));
+        auto *definition = kernel->definition();
+        auto *loop_header = definition->create_basic_block();
+        auto *loop_body = definition->create_basic_block();
+        auto *procedural = definition->create_basic_block();
+        auto *exit = definition->create_basic_block();
+
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *dispatch = builder.ray_query_dispatch(query);
+        dispatch->set_exit_block(exit);
+        dispatch->set_on_surface_candidate_block(loop_header);
+        dispatch->set_on_procedural_candidate_block(procedural);
+        builder.set_insertion_point(loop_header);
+        builder.cond_br(condition, loop_body, exit);
+        builder.set_insertion_point(loop_body);
+        builder.br(loop_header);
+        builder.set_insertion_point(procedural);
+        builder.br(exit);
+        builder.set_insertion_point(exit);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = restructure_cfg_pass_run_on_function(kernel);
+        expect(info.succeeded());
+        expect(info.restructured_loop_count >= 1u);
+        expect(dispatch->on_surface_candidate_block() != loop_header)
+            << "predecessor discovery and executable-edge retargeting must "
+               "cover the same terminator domain";
+        expect(dispatch->on_surface_candidate_block()->is_terminated());
+        expect(dispatch->on_surface_candidate_block()
+                   ->terminator()
+                   ->isa<LoopInst>() ||
+               dispatch->on_surface_candidate_block()
+                   ->terminator()
+                   ->isa<SimpleLoopInst>());
+        expect(xir_verify_module(
+                   &module,
+                   {.require_no_unstructured_control_flow = true,
+                    .require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets = true})
+                   .succeeded());
     };
 }
 

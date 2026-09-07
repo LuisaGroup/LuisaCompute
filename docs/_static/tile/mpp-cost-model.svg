@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="650" viewBox="0 0 1120 650" role="img" aria-labelledby="title desc">
+  <title id="title">Metal MPP cost-model v2 and measured selection</title>
+  <desc id="desc">Semantic and target facts generate legal MPP candidates. Target-specific features estimate subgroup critical-path work and concurrent waves. Exact bounded search picks an analytic plan, while correctness-checked staged JIT measurements remain authoritative.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8" fill="none" stroke="#526170" stroke-width="1.3"/></marker>
+    <marker id="arrow-dashed" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8" fill="none" stroke="#94723f" stroke-width="1.3"/></marker>
+    <style>text{font-family:Arial,sans-serif;fill:#213547;font-size:15px}.title{font-size:22px;font-weight:700}.head{font-size:16px;font-weight:700}.small{font-size:13px}.box{fill:#f0f6fd;stroke:#6d8da9;stroke-width:1.4;rx:8}.legal{fill:#eef8f1;stroke:#679477;stroke-width:1.4;rx:8}.measure{fill:#fff5e6;stroke:#b78a4a;stroke-width:1.4;rx:8}.neutral{fill:#f7f8fa;stroke:#8793a1;stroke-width:1.4;rx:8}.edge{fill:none;stroke:#526170;stroke-width:1.5;marker-end:url(#arrow)}.feedback{fill:none;stroke:#94723f;stroke-width:1.5;stroke-dasharray:6 5;marker-end:url(#arrow-dashed)}</style>
+  </defs>
+  <rect width="1120" height="650" fill="white"/>
+  <text class="title" x="28" y="36">MPP v2: legality first, analytic shortlist second, measurement last</text>
+
+  <rect class="box" x="28" y="66" width="248" height="118"/>
+  <text class="head" x="46" y="92">Semantic facts</text>
+  <text class="small" x="46" y="116">Tile extents · K iterations · effects</text>
+  <text class="small" x="46" y="138">direct output · overwrite proof</text>
+  <text class="small" x="46" y="160">program count · independent work</text>
+
+  <rect class="box" x="28" y="216" width="248" height="118"/>
+  <text class="head" x="46" y="242">Target facts and policy</text>
+  <text class="small" x="46" y="266">thread/subgroup/shared limits</text>
+  <text class="small" x="46" y="288">fragment/code-size budget</text>
+  <text class="small" x="46" y="310">versioned coefficients and wave prior</text>
+
+  <path class="edge" d="M276 125 H320"/>
+  <path class="edge" d="M276 275 H300 V125 H320"/>
+  <rect class="legal" x="322" y="66" width="260" height="268"/>
+  <text class="head" x="340" y="92">Generate and prove candidates</text>
+  <text class="small" x="340" y="120">enumerate legal thread widths</text>
+  <text class="small" x="340" y="142">factor subgroups across M × N</text>
+  <text class="small" x="340" y="164">derive exact local atom extents</text>
+  <line x1="340" y1="182" x2="564" y2="182" stroke="#9bb5a3"/>
+  <text class="small" x="340" y="207">Hard rejection; score cannot override:</text>
+  <text class="small" x="352" y="231">• exact non-overlapping coverage</text>
+  <text class="small" x="352" y="253">• local M or N divisible by 16</text>
+  <text class="small" x="352" y="275">• fragment and generated-code budget</text>
+  <text class="small" x="352" y="297">• shared-memory capacity</text>
+  <text class="small" x="352" y="319">• semantic proof for each optimization</text>
+
+  <path class="edge" d="M582 200 H626"/>
+  <rect class="box" x="628" y="66" width="270" height="268"/>
+  <text class="head" x="646" y="92">Extract MPP realization features</text>
+  <text class="small" x="646" y="120">matrix issues · memory fragment reads</text>
+  <text class="small" x="646" y="142">A/B footprints · output stores</text>
+  <text class="small" x="646" y="164">tensor ops · accumulator initialization</text>
+  <text class="small" x="646" y="186">tile/local aspect terms · live state</text>
+  <text class="small" x="646" y="208">independent scalar work</text>
+  <line x1="646" y1="226" x2="880" y2="226" stroke="#a9bdcf"/>
+  <text class="small" x="646" y="251">program score = weighted work</text>
+  <text class="small" x="646" y="273">  × state pressure ÷ subgroups</text>
+  <text class="small" x="646" y="295">  + scalar work ÷ subgroups + setup</text>
+  <text class="small" x="646" y="317">kernel score = program score × waves</text>
+
+  <path class="edge" d="M898 200 H942"/>
+  <rect class="neutral" x="944" y="66" width="148" height="268"/>
+  <text class="head" x="962" y="92">Bounded solver</text>
+  <text class="small" x="962" y="120">exact enumeration</text>
+  <text class="small" x="962" y="142">+ Pareto DP for</text>
+  <text class="small" x="962" y="164">shared resources</text>
+  <line x1="962" y1="182" x2="1074" y2="182" stroke="#b4bcc5"/>
+  <text class="small" x="962" y="207">analytic winner</text>
+  <text class="small" x="962" y="229">and diagnostics:</text>
+  <text class="small" x="962" y="251">features · score</text>
+  <text class="small" x="962" y="273">waves · rejects</text>
+  <text class="small" x="962" y="295">realized mapping</text>
+
+  <path class="edge" d="M1018 334 V382 H845"/>
+  <rect class="measure" x="546" y="384" width="546" height="170"/>
+  <text class="head" x="564" y="412">Staged/JIT measurement is authoritative</text>
+  <text class="small" x="564" y="438">Compile a structurally diverse shortlist; validate every complete output.</text>
+  <text class="small" x="564" y="460">Rank fresh warm samples; recapture/JIT the winner.</text>
+  <text class="small" x="564" y="482">Freeze only that winner for a counterbalanced final replay.</text>
+  <text class="small" x="564" y="504">Report regret against the measured finite set—not a hardware optimum.</text>
+  <text class="small" x="564" y="526">v2 coefficients and the 512-subgroup prior are replaceable, not occupancy.</text>
+
+  <rect class="neutral" x="28" y="384" width="470" height="170"/>
+  <text class="head" x="46" y="412">Current evidence boundary</text>
+  <text class="small" x="46" y="438">v1 summed concurrent subgroup work.</text>
+  <text class="small" x="46" y="460">v2 uses subgroup critical path + machine waves.</text>
+  <text class="small" x="46" y="482">Mean regret: 74.2% → 8.8%; exact picks: 1/8 → 4/8.</text>
+  <text class="small" x="46" y="504">In-cohort short samples—not held-out generalization.</text>
+  <text class="small" x="46" y="526">Only the measured winner is frozen for final replay.</text>
+
+  <path class="feedback" d="M819 554 V592 H522 V360 H452 V336"/>
+  <text class="small" x="481" y="616">Future: fit a versioned target profile on training data, then report held-out regret and uncertainty.</text>
+</svg>

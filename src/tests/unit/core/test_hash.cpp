@@ -9,6 +9,7 @@
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/format.h>
 #include <luisa/core/logging.h>
+#include <luisa/runtime/rhi/resource.h>
 
 using namespace boost::ut;
 using namespace boost::ut::literals;
@@ -241,6 +242,32 @@ void reg_default_seed() {
     };
 }
 
+void reg_shader_option_hash() {
+
+    "shader_option_hash_covers_codegen_inputs"_test = [] {
+        using luisa::compute::ShaderOption;
+        auto base = ShaderOption{};
+        auto native_include = base;
+        native_include.native_include = "define i32 @external() { ret i32 1 }";
+        auto register_limit = base;
+        register_limit.max_registers = 32u;
+        auto retain_ray_query_loop = base;
+        retain_ray_query_loop.enable_ray_query_pipeline = false;
+        auto force_ray_query_pipeline = base;
+        force_ray_query_pipeline.force_ray_query_pipeline = true;
+
+        auto base_hash = luisa::hash_value(base);
+        expect(luisa::hash_value(native_include) != base_hash)
+            << "native_include changes generated shader code";
+        expect(luisa::hash_value(register_limit) != base_hash)
+            << "max_registers changes backend compilation semantics";
+        expect(luisa::hash_value(retain_ray_query_loop) != base_hash)
+            << "ray-query lowering mode changes generated shader code";
+        expect(luisa::hash_value(force_ray_query_pipeline) != base_hash)
+            << "forced ray-query policy changes generated shader code";
+    };
+}
+
 int main(int argc, char *argv[]) {
 
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
@@ -261,5 +288,6 @@ int main(int argc, char *argv[]) {
     reg_hash128_equality();
     reg_string_hash();
     reg_default_seed();
+    reg_shader_option_hash();
     return 0;
 }

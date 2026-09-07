@@ -6,7 +6,9 @@
 #include <luisa/xir/passes/simplify_cfg.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/builder.h>
+#include <luisa/xir/instructions/arithmetic.h>
 
+using luisa::compute::Type;
 using namespace luisa::compute::xir;
 using namespace boost::ut;
 using namespace boost::ut::literals;
@@ -249,6 +251,35 @@ int main() {
             saw_slp = saw_slp || record.name == "slp-vectorization";
         }
         expect(saw_slp);
+    };
+
+    "factory_fast_math_option_controls_radix_pow_canonicalization"_test = [] {
+        auto run = [](bool enable_fast_math) noexcept {
+            Module m;
+            auto *function = m.create_callable(Type::of<float>());
+            auto *exponent =
+                function->create_value_argument(Type::of<float>());
+            auto *body = function->create_body_block();
+            auto *one = m.create_constant_one(Type::of<float>());
+            XIRBuilder builder;
+            builder.set_insertion_point(body);
+            auto *base = builder.call(
+                Type::of<float>(), ArithmeticOp::BINARY_ADD,
+                {one, one});
+            auto *power = builder.call(
+                Type::of<float>(), ArithmeticOp::POW,
+                {base, exponent});
+            auto *ret = builder.return_(power);
+            auto pipeline = create_basic_optimization_pipeline(
+                {.enable_fast_math = enable_fast_math});
+            auto stats = pipeline.run(&m);
+            expect(stats.succeeded());
+            expect(ret->return_value()->isa<ArithmeticInst>());
+            return static_cast<ArithmeticInst *>(ret->return_value())
+                ->op();
+        };
+        expect(run(false) == ArithmeticOp::POW);
+        expect(run(true) == ArithmeticOp::EXP2);
     };
 
     "pass_report_set_overwrites"_test = [] {

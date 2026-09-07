@@ -148,7 +148,8 @@ SpirvAggregateIndexPlan plan_spirv_aggregate_indices(
                 break;
             }
             case Type::Tag::ARRAY:
-            case Type::Tag::VECTOR: {
+            case Type::Tag::VECTOR:
+            case Type::Tag::COOPERATIVE_VECTOR: {
                 if (is_constant &&
                     decoded.value >= current->dimension()) {
                     plan.diagnostic = luisa::format(

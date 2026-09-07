@@ -10,6 +10,7 @@
 #include <vector>
 
 #include <spirv-tools/libspirv.hpp>
+#include <spirv-tools/optimizer.hpp>
 
 #include "spirv_codegen/optimizer.h"
 
@@ -112,6 +113,106 @@ OpExecutionMode %main LocalSize 1 1 1
 OpReturn
 OpFunctionEnd
 )";
+
+constexpr auto counted_loop_module = R"(
+OpCapability Shader
+OpMemoryModel Logical GLSL450
+OpEntryPoint GLCompute %main "main"
+OpExecutionMode %main LocalSize 1 1 1
+%void = OpTypeVoid
+%function = OpTypeFunction %void
+%bool = OpTypeBool
+%uint = OpTypeInt 32 0
+%zero = OpConstant %uint 0
+%one = OpConstant %uint 1
+%four = OpConstant %uint 4
+%main = OpFunction %void None %function
+%entry = OpLabel
+OpBranch %header
+%header = OpLabel
+%index = OpPhi %uint %zero %entry %next %continue
+%condition = OpULessThan %bool %index %four
+OpLoopMerge %merge %continue $loop_control
+OpBranchConditional %condition %body %merge
+%body = OpLabel
+OpBranch %continue
+%continue = OpLabel
+%next = OpIAdd %uint %index %one
+OpBranch %header
+%merge = OpLabel
+OpReturn
+OpFunctionEnd
+)";
+
+// A loop-local floating-point definition may be referenced by a module-scope
+// annotation while an independent loop-local definition escapes through the
+// merge. The annotation is present in def-use, but is not an executable CFG
+// use and therefore must neither invalidate LCSSA nor be rewritten by LCSSA
+// construction.
+constexpr auto annotated_loop_lcssa_module = R"(
+OpCapability Shader
+OpMemoryModel Logical GLSL450
+OpEntryPoint GLCompute %main "main" %condition_buffer
+OpExecutionMode %main LocalSize 1 1 1
+OpDecorate %condition_block Block
+OpMemberDecorate %condition_block 0 Offset 0
+OpDecorate %condition_buffer DescriptorSet 0
+OpDecorate %condition_buffer Binding 0
+OpDecorate %sum NoContraction
+%void = OpTypeVoid
+%bool = OpTypeBool
+%float = OpTypeFloat 32
+%uint = OpTypeInt 32 0
+%function = OpTypeFunction %void
+%condition_block = OpTypeStruct %uint
+%condition_block_ptr = OpTypePointer Uniform %condition_block
+%condition_uint_ptr = OpTypePointer Uniform %uint
+%condition_buffer = OpVariable %condition_block_ptr Uniform
+%zero = OpConstant %uint 0
+%one = OpConstant %uint 1
+%limit = OpConstant %uint 4
+%float_zero = OpConstant %float 0
+%float_one = OpConstant %float 1
+%main = OpFunction %void None %function
+%entry = OpLabel
+%condition_address = OpAccessChain %condition_uint_ptr %condition_buffer %zero
+%condition_value = OpLoad %uint %condition_address
+%condition = OpINotEqual %bool %condition_value %zero
+OpBranch %header
+%header = OpLabel
+%index = OpPhi %uint %zero %entry %next %continue
+%accumulator = OpPhi %float %float_zero %entry %sum %continue
+OpLoopMerge %merge %continue None
+OpBranch %body
+%body = OpLabel
+%sum = OpFAdd %float %accumulator %float_one
+OpSelectionMerge %selection_merge None
+OpBranchConditional %condition %selection_true %selection_false
+%selection_true = OpLabel
+OpBranch %selection_merge
+%selection_false = OpLabel
+OpBranch %selection_merge
+%selection_merge = OpLabel
+OpBranch %continue
+%continue = OpLabel
+%next = OpIAdd %uint %index %one
+%more = OpULessThan %bool %next %limit
+OpBranchConditional %more %header %merge
+%merge = OpLabel
+%final = OpFAdd %float %accumulator %float_one
+OpReturn
+OpFunctionEnd
+)";
+
+[[nodiscard]] std::string make_counted_loop_module(
+    std::string_view loop_control) {
+    auto module = std::string{counted_loop_module};
+    constexpr auto placeholder = std::string_view{"$loop_control"};
+    auto offset = module.find(placeholder);
+    expect(offset != std::string::npos);
+    module.replace(offset, placeholder.size(), loop_control);
+    return module;
+}
 
 void set_environment_variable(const char *name, const char *value) noexcept {
 #ifdef _WIN32
@@ -259,6 +360,62 @@ int main(int argc, char *argv[]) {
             << "SPIR-V must remain valid after the lightweight preset";
         expect(disassemble(words).find("OpIAdd") == std::string::npos)
             << "the deliberately dead arithmetic must be eliminated";
+    };
+
+    "spirv_compute_optimizer_only_analyzes_requested_unrolls"_test = [] {
+        auto ordinary = assemble_test_module(
+            make_counted_loop_module("None"));
+        auto ordinary_report = lc::spirv::optimize_spirv(
+            ordinary, {.level = 2, .preset = "compute"});
+        expect(ordinary_report.succeeded);
+        expect(ordinary_report.output_validated);
+        expect(!ordinary_report.loop_unroll_registered)
+            << "a LoopControl None depth/runtime loop must not trigger the "
+               "whole-module unroll analysis";
+        expect(validates(ordinary));
+
+        auto requested = assemble_test_module(
+            make_counted_loop_module("Unroll"));
+        auto requested_report = lc::spirv::optimize_spirv(
+            requested, {.level = 2, .preset = "compute"});
+        expect(requested_report.succeeded);
+        expect(requested_report.output_validated);
+        expect(requested_report.loop_unroll_registered)
+            << "an explicit Unroll control must preserve the existing "
+               "SPIRV-Tools behavior";
+        expect(validates(requested));
+    };
+
+    "spirv_loop_unswitch_ignores_non_cfg_annotation_uses"_test = [] {
+        auto words = assemble_test_module(annotated_loop_lcssa_module);
+        spvtools::Optimizer optimizer{SPV_ENV_VULKAN_1_2};
+        optimizer.RegisterPass(spvtools::CreateLoopUnswitchPass());
+        std::vector<uint32_t> optimized;
+        expect(optimizer.Run(words.data(), words.size(), &optimized))
+            << "loop unswitch must accept annotations of loop-local values";
+        expect(validates(optimized))
+            << "loop unswitch and LCSSA construction must preserve valid SPIR-V";
+        expect(disassemble(optimized).find("NoContraction") != std::string::npos)
+            << "the non-semantic annotation must survive the CFG transform";
+    };
+
+    "spirv_native_presets_require_explicit_loop_unswitch"_test = [] {
+        ScopedEnvironmentVariable clear_custom_passes{
+            "LUISA_SPIRV_OPT_PASS_FLAGS", nullptr};
+        for (auto level : {2, 3}) {
+            auto words = assemble_test_module(annotated_loop_lcssa_module);
+            auto report = lc::spirv::optimize_spirv(
+                words, {.level = level});
+            expect(report.succeeded);
+            expect(report.output_validated);
+            auto registered = false;
+            for (const auto &pass : report.registered_passes) {
+                registered |= pass == "loop-unswitch";
+            }
+            expect(!registered)
+                << "an uncosted whole-loop cloning pass must not be native-default";
+            expect(validates(words));
+        }
     };
 
     "spirv_capability_reconciliation_expands_implicit_subgroup_parent"_test = [] {

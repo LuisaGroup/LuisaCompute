@@ -143,14 +143,22 @@ AggregateFieldBitmask::~AggregateFieldBitmask() {
 }
 
 AggregateFieldBitmask::AggregateFieldBitmask(const AggregateFieldBitmask &other) noexcept
-    : AggregateFieldBitmask{other.type()} { *this = other; }
-
-AggregateFieldBitmask::AggregateFieldBitmask(AggregateFieldBitmask &&other) noexcept
-    : AggregateFieldBitmask{other.type()} {
+    : _field_tree{other._field_tree}, _bits_small{} {
     if (_is_small()) {
         _bits_small = other._bits_small;
     } else {
-        std::swap(_bits_large, other._bits_large);
+        _bits_large = luisa::allocate_with_allocator<uint64_t>(size_buckets());
+        std::memcpy(_bits_large, other._bits_large, size_bytes());
+    }
+}
+
+AggregateFieldBitmask::AggregateFieldBitmask(AggregateFieldBitmask &&other) noexcept
+    : _field_tree{other._field_tree}, _bits_small{} {
+    if (_is_small()) {
+        _bits_small = other._bits_small;
+    } else {
+        _bits_large = other._bits_large;
+        other._bits_large = nullptr;
     }
 }
 
@@ -374,6 +382,66 @@ AggregateFieldBitmask::BitSpan AggregateFieldBitmask::access(std::initializer_li
 
 AggregateFieldBitmask::ConstBitSpan AggregateFieldBitmask::access(std::initializer_list<size_t> access_chain) const noexcept {
     return access(luisa::span{access_chain.begin(), access_chain.end()});
+}
+
+bool AggregateFieldBitmask::mark_access_pattern(
+    luisa::span<const luisa::optional<size_t>> access_pattern) noexcept {
+    AggregateFieldBitmask selected{type()};
+    luisa::vector<size_t> concrete_path;
+    concrete_path.reserve(access_pattern.size());
+    auto visit = [&](auto &&self, const Type *node_type,
+                     size_t depth) noexcept -> bool {
+        if (depth == access_pattern.size()) {
+            selected.access(luisa::span{concrete_path}).set(true);
+            return true;
+        }
+        if (node_type == nullptr) { return false; }
+        auto descend = [&](size_t index, const Type *child_type) noexcept {
+            concrete_path.emplace_back(index);
+            auto valid = self(self, child_type, depth + 1u);
+            concrete_path.pop_back();
+            return valid;
+        };
+        auto index = access_pattern[depth];
+        switch (node_type->tag()) {
+            case Type::Tag::VECTOR:
+            case Type::Tag::ARRAY: {
+                auto dimension = node_type->dimension();
+                auto *child_type = node_type->element();
+                if (index) {
+                    return *index < dimension &&
+                           descend(*index, child_type);
+                }
+                for (size_t i = 0u; i < dimension; ++i) {
+                    if (!descend(i, child_type)) { return false; }
+                }
+                return true;
+            }
+            case Type::Tag::MATRIX: {
+                auto dimension = node_type->dimension();
+                auto *child_type = Type::vector(
+                    node_type->element(), dimension);
+                if (index) {
+                    return *index < dimension &&
+                           descend(*index, child_type);
+                }
+                for (size_t i = 0u; i < dimension; ++i) {
+                    if (!descend(i, child_type)) { return false; }
+                }
+                return true;
+            }
+            case Type::Tag::STRUCTURE: {
+                if (!index) { return false; }
+                auto members = node_type->members();
+                return *index < members.size() &&
+                       descend(*index, members[*index]);
+            }
+            default: return false;
+        }
+    };
+    if (!visit(visit, type(), 0u)) { return false; }
+    *this |= selected;
+    return true;
 }
 
 AggregateFieldBitmask &AggregateFieldBitmask::operator|=(const AggregateFieldBitmask &rhs) noexcept {

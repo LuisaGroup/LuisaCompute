@@ -1,0 +1,207 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+# CMake versions before 3.30 allow nested find_dependency() calls to overwrite
+# PACKAGE_PREFIX_DIR. Preserve this package's prefix until all dependencies have
+# been loaded, then derive the public paths from the restored value.
+set(_LuisaCompute_PACKAGE_PREFIX_DIR "${PACKAGE_PREFIX_DIR}")
+
+find_dependency(Threads)
+
+if (@LUISA_COMPUTE_USE_SYSTEM_SPDLOG@)
+    find_dependency(spdlog)
+endif ()
+
+if (@LUISA_COMPUTE_USE_SYSTEM_XXHASH@)
+    find_package(xxHash CONFIG QUIET)
+    if (NOT TARGET xxHash::xxhash)
+        find_dependency(PkgConfig)
+        pkg_check_modules(XXHASH REQUIRED IMPORTED_TARGET libxxhash)
+    endif ()
+endif ()
+
+if (@LUISA_COMPUTE_USE_SYSTEM_MAGIC_ENUM@)
+    find_dependency(magic_enum)
+endif ()
+
+if (@LUISA_COMPUTE_ENABLE_GUI@ AND @LUISA_COMPUTE_USE_SYSTEM_GLFW@)
+    find_dependency(glfw3)
+endif ()
+
+if (@LUISA_COMPUTE_USE_SYSTEM_REPROC@)
+    find_dependency(reproc)
+    find_dependency(reproc++)
+endif ()
+
+if (@LUISA_COMPUTE_USE_SYSTEM_YYJSON@)
+    find_dependency(yyjson)
+endif ()
+
+if (@LUISA_COMPUTE_USE_SYSTEM_MARL@)
+    find_dependency(marl CONFIG)
+endif ()
+
+if (@LUISA_COMPUTE_USE_SYSTEM_LMDB@)
+    find_package(unofficial-lmdb CONFIG QUIET)
+    if (NOT TARGET unofficial::lmdb::lmdb)
+        find_dependency(PkgConfig)
+        pkg_check_modules(LMDB REQUIRED IMPORTED_TARGET lmdb)
+    endif ()
+endif ()
+
+if (@LUISA_COMPUTE_ENABLE_CUDA_EXT_LCUB@)
+    find_dependency(CUDAToolkit 12)
+endif ()
+
+set(PACKAGE_PREFIX_DIR "${_LuisaCompute_PACKAGE_PREFIX_DIR}")
+unset(_LuisaCompute_PACKAGE_PREFIX_DIR)
+
+set_and_check(LuisaCompute_RUNTIME_DIR "@PACKAGE_CMAKE_INSTALL_BINDIR@")
+set_and_check(LuisaCompute_LIBRARY_DIR "@PACKAGE_CMAKE_INSTALL_LIBDIR@")
+set_and_check(LuisaCompute_INCLUDE_DIR "@PACKAGE_CMAKE_INSTALL_INCLUDEDIR@")
+
+set(LuisaCompute_WITH_DSL "@LUISA_COMPUTE_ENABLE_DSL@")
+set(LuisaCompute_WITH_GUI "@LUISA_COMPUTE_ENABLE_GUI@")
+set(LuisaCompute_WITH_WAYLAND "@LUISA_COMPUTE_ENABLE_WAYLAND@")
+set(LuisaCompute_WITH_SAFE_MODE "@LUISA_COMPUTE_ENABLE_SAFE_MODE@")
+set(LuisaCompute_WITH_CLANG_CXX "@LUISA_COMPUTE_ENABLE_CLANG_CXX@")
+set(LuisaCompute_WITH_DX_CUDA_INTEROP
+        "@LUISA_COMPUTE_DX_CUDA_INTEROP_ENABLED@")
+set(LuisaCompute_DISTRIBUTION_PACKAGE
+        "@LUISA_COMPUTE_ENABLE_PACKAGE_DISTRIBUTION@")
+set(LuisaCompute_CXX_STANDARD 20)
+set(LuisaCompute_BACKENDS "@LUISA_COMPUTE_BUILT_BACKENDS@")
+
+set(LuisaCompute_USE_SYSTEM_STL "@LUISA_COMPUTE_USE_SYSTEM_STL@")
+set(LuisaCompute_USE_SYSTEM_GLFW "@LUISA_COMPUTE_USE_SYSTEM_GLFW@")
+set(LuisaCompute_USE_SYSTEM_LMDB "@LUISA_COMPUTE_USE_SYSTEM_LMDB@")
+set(LuisaCompute_USE_SYSTEM_REPROC "@LUISA_COMPUTE_USE_SYSTEM_REPROC@")
+set(LuisaCompute_USE_SYSTEM_SPDLOG "@LUISA_COMPUTE_USE_SYSTEM_SPDLOG@")
+set(LuisaCompute_USE_SYSTEM_XXHASH "@LUISA_COMPUTE_USE_SYSTEM_XXHASH@")
+set(LuisaCompute_USE_SYSTEM_YYJSON "@LUISA_COMPUTE_USE_SYSTEM_YYJSON@")
+set(LuisaCompute_USE_SYSTEM_MAGIC_ENUM "@LUISA_COMPUTE_USE_SYSTEM_MAGIC_ENUM@")
+set(LuisaCompute_USE_SYSTEM_MARL "@LUISA_COMPUTE_USE_SYSTEM_MARL@")
+
+set(LuisaCompute_SYSTEM_DEPENDENCIES "")
+set(LuisaCompute_BUNDLED_DEPENDENCIES "")
+foreach (_LuisaCompute_SYSTEM_DEPENDENCY IN ITEMS
+        STL GLFW LMDB REPROC SPDLOG XXHASH YYJSON MAGIC_ENUM MARL)
+    if (_LuisaCompute_SYSTEM_DEPENDENCY STREQUAL "GLFW" AND
+            NOT LuisaCompute_WITH_GUI)
+        continue()
+    endif ()
+    if (LuisaCompute_USE_SYSTEM_${_LuisaCompute_SYSTEM_DEPENDENCY})
+        list(APPEND LuisaCompute_SYSTEM_DEPENDENCIES
+                "${_LuisaCompute_SYSTEM_DEPENDENCY}")
+    else ()
+        list(APPEND LuisaCompute_BUNDLED_DEPENDENCIES
+                "${_LuisaCompute_SYSTEM_DEPENDENCY}")
+    endif ()
+endforeach ()
+unset(_LuisaCompute_SYSTEM_DEPENDENCY)
+set(LuisaCompute_BUILD_OPTIONS
+        "LUISA_COMPUTE_ENABLE_DSL=@LUISA_COMPUTE_ENABLE_DSL@"
+        "LUISA_COMPUTE_ENABLE_GUI=@LUISA_COMPUTE_ENABLE_GUI@"
+        "LUISA_COMPUTE_ENABLE_WAYLAND=@LUISA_COMPUTE_ENABLE_WAYLAND@"
+        "LUISA_COMPUTE_ENABLE_SAFE_MODE=@LUISA_COMPUTE_ENABLE_SAFE_MODE@"
+        "LUISA_COMPUTE_ENABLE_CLANG_CXX=@LUISA_COMPUTE_ENABLE_CLANG_CXX@"
+        "LUISA_COMPUTE_ENABLE_DX_CUDA_INTEROP=@LUISA_COMPUTE_DX_CUDA_INTEROP_ENABLED@")
+
+include("${CMAKE_CURRENT_LIST_DIR}/LuisaComputeTargets.cmake")
+
+set(LuisaCompute_COMPONENTS "")
+if (LuisaCompute_WITH_DSL)
+    list(APPEND LuisaCompute_COMPONENTS dsl)
+endif ()
+if (LuisaCompute_WITH_GUI)
+    list(APPEND LuisaCompute_COMPONENTS gui)
+endif ()
+list(APPEND LuisaCompute_COMPONENTS ${LuisaCompute_BACKENDS})
+
+foreach (_LuisaCompute_COMPONENT IN LISTS LuisaCompute_FIND_COMPONENTS)
+    if (_LuisaCompute_COMPONENT IN_LIST LuisaCompute_COMPONENTS)
+        set("LuisaCompute_${_LuisaCompute_COMPONENT}_FOUND" TRUE)
+    else ()
+        set("LuisaCompute_${_LuisaCompute_COMPONENT}_FOUND" FALSE)
+    endif ()
+endforeach ()
+unset(_LuisaCompute_COMPONENT)
+
+# LuisaCompute discovers backend modules and their support files beside the
+# consumer executable. Linking luisa::compute alone cannot express that runtime
+# payload, so consumers should call this once for every executable that creates
+# a Context.
+function(luisa_compute_deploy_runtime)
+    cmake_parse_arguments(PARSE_ARGV 0 _LuisaCompute_DEPLOY "" "TARGET" "")
+    if (_LuisaCompute_DEPLOY_UNPARSED_ARGUMENTS OR
+        _LuisaCompute_DEPLOY_KEYWORDS_MISSING_VALUES OR
+        NOT _LuisaCompute_DEPLOY_TARGET)
+        message(FATAL_ERROR
+                "luisa_compute_deploy_runtime requires exactly TARGET <target>.")
+    endif ()
+    if (NOT TARGET "${_LuisaCompute_DEPLOY_TARGET}")
+        message(FATAL_ERROR
+                "luisa_compute_deploy_runtime target does not exist: "
+                "${_LuisaCompute_DEPLOY_TARGET}")
+    endif ()
+    get_target_property(_LuisaCompute_DEPLOY_IMPORTED
+            "${_LuisaCompute_DEPLOY_TARGET}" IMPORTED)
+    if (_LuisaCompute_DEPLOY_IMPORTED)
+        message(FATAL_ERROR
+                "luisa_compute_deploy_runtime requires a non-imported target: "
+                "${_LuisaCompute_DEPLOY_TARGET}")
+    endif ()
+    get_target_property(_LuisaCompute_DEPLOY_TYPE
+            "${_LuisaCompute_DEPLOY_TARGET}" TYPE)
+    if (NOT _LuisaCompute_DEPLOY_TYPE STREQUAL "EXECUTABLE")
+        message(FATAL_ERROR
+                "luisa_compute_deploy_runtime requires an executable target: "
+                "${_LuisaCompute_DEPLOY_TARGET}")
+    endif ()
+    get_target_property(_LuisaCompute_DEPLOYED
+            "${_LuisaCompute_DEPLOY_TARGET}" LUISA_COMPUTE_RUNTIME_DEPLOYED)
+    if (_LuisaCompute_DEPLOYED)
+        return()
+    endif ()
+    set_property(TARGET "${_LuisaCompute_DEPLOY_TARGET}"
+            PROPERTY LUISA_COMPUTE_RUNTIME_DEPLOYED TRUE)
+
+    if (APPLE)
+        set_property(TARGET "${_LuisaCompute_DEPLOY_TARGET}" APPEND
+                PROPERTY BUILD_RPATH "@loader_path")
+        set_property(TARGET "${_LuisaCompute_DEPLOY_TARGET}" APPEND
+                PROPERTY INSTALL_RPATH "@loader_path")
+    elseif (UNIX)
+        set_property(TARGET "${_LuisaCompute_DEPLOY_TARGET}" APPEND
+                PROPERTY BUILD_RPATH "$ORIGIN")
+        set_property(TARGET "${_LuisaCompute_DEPLOY_TARGET}" APPEND
+                PROPERTY INSTALL_RPATH "$ORIGIN")
+    endif ()
+
+    add_custom_command(TARGET "${_LuisaCompute_DEPLOY_TARGET}" POST_BUILD
+            COMMAND "${CMAKE_COMMAND}" -E copy_directory_if_different
+            "${LuisaCompute_RUNTIME_DIR}"
+            "$<TARGET_FILE_DIR:${_LuisaCompute_DEPLOY_TARGET}>"
+            COMMENT "Deploying LuisaCompute runtime files for ${_LuisaCompute_DEPLOY_TARGET}"
+            VERBATIM)
+
+    # On Windows all runtime DLLs are already in RUNTIME_DIR. Unix-like installs
+    # keep linked shared libraries in LIBRARY_DIR, so copy those beside the
+    # consumer as well to make the staged output independent of the SDK prefix.
+    if (NOT WIN32)
+        file(GLOB _LuisaCompute_RUNTIME_LIBRARIES LIST_DIRECTORIES FALSE
+                "${LuisaCompute_LIBRARY_DIR}/*${CMAKE_SHARED_LIBRARY_SUFFIX}"
+                "${LuisaCompute_LIBRARY_DIR}/*${CMAKE_SHARED_LIBRARY_SUFFIX}.*"
+                "${LuisaCompute_LIBRARY_DIR}/*.*${CMAKE_SHARED_LIBRARY_SUFFIX}")
+        foreach (_LuisaCompute_RUNTIME_LIBRARY IN LISTS _LuisaCompute_RUNTIME_LIBRARIES)
+            add_custom_command(TARGET "${_LuisaCompute_DEPLOY_TARGET}" POST_BUILD
+                    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                    "${_LuisaCompute_RUNTIME_LIBRARY}"
+                    "$<TARGET_FILE_DIR:${_LuisaCompute_DEPLOY_TARGET}>"
+                    VERBATIM)
+        endforeach ()
+    endif ()
+endfunction()
+
+check_required_components(LuisaCompute)

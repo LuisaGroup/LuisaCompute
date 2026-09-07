@@ -15,6 +15,7 @@ set(LUISA_COMPUTE_VALIDATION_SOURCES
         procedural_primitives.h
         range.h
         raster_ext_impl.cpp raster_ext_impl.h
+        raster_shader.h
         resource.cpp resource.h
         rw_resource.cpp rw_resource.h
         shader.h
@@ -35,8 +36,10 @@ add_dependencies(luisa-compute-backends luisa-compute-validation-layer)
 set_target_properties(luisa-compute-validation-layer PROPERTIES
         UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD}
         DEBUG_POSTFIX ""
+        EXPORT_NAME validation_layer
         OUTPUT_NAME luisa-validation-layer)
 install(TARGETS luisa-compute-validation-layer
+        EXPORT LuisaComputeTargets
         LIBRARY DESTINATION ${CMAKE_INSTALL_BINDIR}
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})

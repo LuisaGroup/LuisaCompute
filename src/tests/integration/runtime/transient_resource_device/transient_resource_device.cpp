@@ -380,9 +380,6 @@ void TransientResourceDevice::_preprocess(luisa::span<luisa::unique_ptr<Command>
     }
 }
 
-BufferCreationInfo TransientResourceDevice::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count, void *external_memory /* nullptr if not imported from external memory */) noexcept {
-    LUISA_NOT_IMPL_RET;
-}
 BufferCreationInfo TransientResourceDevice::create_buffer(const Type *element, size_t elem_count, void *external_memory /* nullptr if not imported from external memory */) noexcept {
     if (_temp_name.empty()) [[unlikely]] {
         LUISA_ERROR("Texture must have name, call set_next_res_name first.");
@@ -568,12 +565,6 @@ void TransientResourceDevice::present_display_in_stream(uint64_t stream_handle, 
 
 // kernel
 ShaderCreationInfo TransientResourceDevice::create_shader(const ShaderOption &option, Function kernel) noexcept {
-    LUISA_NOT_IMPL_RET;
-}
-ShaderCreationInfo TransientResourceDevice::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept {
-    LUISA_NOT_IMPL_RET;
-}
-ShaderCreationInfo TransientResourceDevice::create_shader(const ShaderOption &option, const ir_v2::KernelModule &kernel) noexcept {
     LUISA_NOT_IMPL_RET;
 }
 ShaderCreationInfo TransientResourceDevice::load_shader(luisa::string_view name, luisa::span<const Type *const> arg_types) noexcept {

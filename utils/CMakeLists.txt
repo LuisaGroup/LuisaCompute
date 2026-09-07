@@ -1,9 +1,12 @@
-add_executable(luisa_embed_device_lib embed_device_lib.cpp)
-set_target_properties(luisa_embed_device_lib PROPERTIES EXCLUDE_FROM_ALL TRUE EXCLUDE_FROM_DEFAULT_BUILD TRUE)
-install(TARGETS luisa_embed_device_lib EXCLUDE_FROM_ALL)
+if (NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    add_executable(luisa_embed_device_lib embed_device_lib.cpp)
+    set_target_properties(luisa_embed_device_lib PROPERTIES EXCLUDE_FROM_ALL TRUE EXCLUDE_FROM_DEFAULT_BUILD TRUE)
+    install(TARGETS luisa_embed_device_lib EXCLUDE_FROM_ALL)
+endif ()
 
 find_package(hiprtc QUIET)
-if (hiprtc_FOUND OR TARGET hiprtc::hiprtc OR TARGET hip::hiprtc)
+if (NOT CMAKE_SYSTEM_NAME STREQUAL "iOS" AND
+        (hiprtc_FOUND OR TARGET hiprtc::hiprtc OR TARGET hip::hiprtc))
     add_executable(luisa_hip_compile_wrapper hip_compile_wrapper.cpp)
     set_target_properties(luisa_hip_compile_wrapper PROPERTIES EXCLUDE_FROM_ALL TRUE EXCLUDE_FROM_DEFAULT_BUILD TRUE)
     if (TARGET hiprtc::hiprtc)

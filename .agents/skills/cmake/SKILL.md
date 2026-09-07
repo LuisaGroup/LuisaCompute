@@ -40,7 +40,7 @@ bootstrap.prepare_msvc_environment()
 
 ### `scripts/agent_windows_cmake.py`
 
-One-shot configure + build + verify on Windows. CI-matching flags (`LUISA_COMPUTE_ENABLE_RUST=OFF`, `LUISA_COMPUTE_ENABLE_REMOTE=OFF`, `LUISA_COMPUTE_ENABLE_CPU=OFF`).
+One-shot configure + build + verify on Windows using the repository defaults.
 
 ```bash
 # Full pipeline: configure → build → verify
@@ -68,20 +68,20 @@ Auto-finds `cmake` and `ninja` (PATH → `.deps/` → pip). Auto-prepares MSVC e
 | `LUISA_COMPUTE_ENABLE_DSL` | ON | C++ DSL |
 | `LUISA_COMPUTE_ENABLE_CUDA` | ON | CUDA backend |
 | `LUISA_COMPUTE_ENABLE_METAL` | ON | Metal backend (macOS only) |
+| `LUISA_COMPUTE_ENABLE_METAL4` | OFF | Independent Metal4 XIR→LLVM→AIR backend; requires LLVM 22 and Apple Metal 4 tools |
 | `LUISA_COMPUTE_ENABLE_DX` | ON | DirectX backend (Windows only) |
 | `LUISA_COMPUTE_ENABLE_VULKAN` | ON | Vulkan backend |
 | `LUISA_COMPUTE_ENABLE_HIP` | OFF | HIP backend (work in progress) |
-| `LUISA_COMPUTE_ENABLE_CPU` | ON | CPU backend (requires Rust) |
-| `LUISA_COMPUTE_ENABLE_REMOTE` | ON | Remote backend (requires Rust) |
-| `LUISA_COMPUTE_ENABLE_FALLBACK` | ON | Fallback backend (requires LLVM + Embree) |
+| `LUISA_COMPUTE_ENABLE_FALLBACK` | Developer builds | Native C++ fallback backend (requires LLVM + Embree) |
 | `LUISA_COMPUTE_ENABLE_GUI` | ON | GUI support (GLFW/ImGui) |
 | `LUISA_COMPUTE_ENABLE_TENSOR` | OFF | C++ DSL tensor extension |
 | `LUISA_COMPUTE_ENABLE_CUDA_EXT_LCUB` | OFF | CUDA extension: LCUB |
 | `LUISA_COMPUTE_ENABLE_CLANG_CXX` | OFF | ClangTooling-based C++ shading language |
-| `LUISA_COMPUTE_ENABLE_RUST` | ON if cargo found, else OFF | Rust/IR support; required for CPU/Remote |
 | `LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV` | ON | Native XIR-to-SPIR-V codegen path for Vulkan |
 | `LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV` | OFF | Experimental AST→LLVM SPIR-V path; requires LLVM's native `SPIRV` target |
 | `LUISA_COMPUTE_BUILD_TESTS` | ON in master project | Build tests, examples and tutorials |
+| `LUISA_COMPUTE_BUILD_IOS_EXAMPLES` | OFF | Build the 19 opt-in UIKit rendering-example bundles; requires an iPhoneOS toolchain and Metal4 |
+| `LUISA_COMPUTE_BUILD_IOS_TESTS` | OFF | Build the independent iOS device-conformance bundle (or its host-AOT oracle on macOS) |
 | `LUISA_COMPUTE_ENABLE_SAFE_MODE` | OFF | Runtime safe mode |
 | `LUISA_COMPUTE_ENABLE_UNITY_BUILD` | OFF | Unity build |
 | `LUISA_COMPUTE_ENABLE_SANITIZERS` | OFF | Address/UB sanitizers |
@@ -103,8 +103,9 @@ utilities.
 **CI minimal build**:
 ```bash
 cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release \
-  -D LUISA_COMPUTE_ENABLE_RUST=OFF -D LUISA_COMPUTE_ENABLE_REMOTE=OFF \
-  -D LUISA_COMPUTE_ENABLE_CPU=OFF
+  -D LUISA_COMPUTE_ENABLE_CUDA=OFF \
+  -D LUISA_COMPUTE_ENABLE_VULKAN=OFF \
+  -D LUISA_COMPUTE_ENABLE_FALLBACK=OFF
 cmake --build build
 ```
 
@@ -122,21 +123,28 @@ cmake --build build
 ```
 luisa-compute-include (INTERFACE, header-only)
   → luisa-compute-ext (INTERFACE, third-party deps)
-    → luisa-compute-core (SHARED)
-      → luisa-compute-ast (SHARED)
-        → luisa-compute-xir (SHARED)
-        → luisa-compute-ir (SHARED when Rust enabled)
-      → luisa-compute-runtime (SHARED)
-        → luisa-compute-dsl, luisa-compute-gui, luisa-compute-ir
+    → luisa-compute-core
+      → luisa-compute-ast
+        → luisa-compute-xir
+      → luisa-compute-runtime
+        → luisa-compute-dsl, luisa-compute-gui
           → luisa-compute-backends (INTERFACE aggregator)
 ```
 
-Additional modules linked by the umbrella target `luisa::compute` include `luisa-compute-vstl` (object helper), `luisa-compute-osl`, `luisa-compute-api`, and `luisa-compute-clangcxx`.
+These libraries follow `BUILD_SHARED_LIBS`: ordinary desktop builds force it
+ON, while iOS forces it OFF so the signed app contains static core/runtime/XIR
+and backend slices.
+
+Additional modules linked by the umbrella target `luisa::compute` include `luisa-compute-vstl` (object helper), `luisa-compute-osl`, `luisa-compute-coro`, and `luisa-compute-clangcxx`.
 
 ## Custom CMake Functions
 
 ### `luisa_compute_add_backend(name [SOURCES ...] [SUPPORT_DIR dir])`
-Creates a backend plugin `MODULE` target. Links `luisa-compute-ast`, `luisa-compute-runtime`, and `luisa-compute-gui`. Output name is `luisa-backend-<name>` and runtime artifacts are installed to `bin/`. If `SUPPORT_DIR` is given, its contents are copied next to the runtime outputs and installed to `bin/`.
+Creates a backend `MODULE` target on desktop platforms and a `STATIC` target
+on iOS. It links `luisa-compute-ast`, `luisa-compute-runtime`, and
+`luisa-compute-gui`. Desktop output is named `luisa-backend-<name>` and runtime
+artifacts are installed to `bin/`. If `SUPPORT_DIR` is given, its contents are
+copied next to the runtime outputs and installed to `bin/`.
 ```cmake
 luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
 ```
@@ -154,7 +162,10 @@ luisa_compute_add_executable(my_app)
 ```
 
 ### `luisa_compute_add_test(name source [LABELS ...] [ARGS ...])`
-**File**: `src/tests/CMakeLists.txt`. Builds one standalone executable per source. With `LABELS`, registers a CTest entry (CPU-only tests). Without `LABELS`, just builds the binary (GPU-using tests are invoked manually with a backend arg).
+**File**: `src/tests/CMakeLists.txt`. Builds one standalone executable per
+source. With `LABELS`, registers a CTest entry; `ARGS` can pin a backend for a
+GPU integration test. Without `LABELS`, it just builds the binary and any
+device test is invoked manually with a backend argument.
 ```cmake
 luisa_compute_add_test(test_basic_traits unit/core/test_basic_traits.cpp LABELS "unit;unit_core")
 luisa_compute_add_test(test_my_gpu unit/runtime/test_my_gpu.cpp)  # no CTest
@@ -176,20 +187,43 @@ luisa_example_pair_link(example_cuda_lcub PRIVATE CUDA::cudart CUDA::cuda_driver
 
 ## Backend Plugin Build
 
-Backends built as `MODULE` (runtime-loadable shared libs):
+Desktop backends are built as `MODULE` runtime-loadable libraries:
 ```cmake
 luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
 ```
 
 Key: output renamed to `luisa-backend-<name>`, installed to `bin/`, supports `luisa_embed_device_lib` for builtin device libs.
 
-## Rust Integration
+On iOS, the same helper emits a static backend. A signed Metal4 AIR device app
+also requires static arm64 iPhoneOS LLVM 22 archives; an arm64 macOS LLVM build
+is not platform-compatible. Prefer the checked scripts so local and CI options
+remain identical:
 
-**File**: `src/rust/CMakeLists.txt`
+```bash
+scripts/build_ios_llvm.sh \
+  --host-llvm-prefix "$(brew --prefix llvm@22)"
+scripts/build_ios_metal4.sh \
+  --llvm-dir cmake-build-llvm22-ios/lib/cmake/llvm \
+  --team <team-id> --mode all
 
-Rust support is auto-enabled when a Rust toolchain is found (unless `LUISA_COMPUTE_ENABLE_RUST=OFF` is passed); the CPU and Remote backends require it. The custom command invokes `cargo build` (profile: `dev` for Debug, `release` for Release). CMake targets:
-- `luisa-compute-rust-meta` (INTERFACE): static Rust libs
-- `luisa_compute_backend_impl` (INTERFACE): shared Rust backend
+# CI/link closure only; these bundles are not installable.
+scripts/build_ios_metal4.sh \
+  --llvm-dir cmake-build-llvm22-ios/lib/cmake/llvm \
+  --mode all --unsigned
+scripts/audit_ios_bundles.sh \
+  --bin-dir cmake-build-ios-metal4-device-air-xcode/bin/Release
+```
+
+`build_ios_llvm.sh` downloads the official LLVM 22.1.8 source when needed and
+uses CMake/Ninja with `arm64-apple-ios<deployment>` host/default triples. The
+application script uses CMake's Xcode generator only because provisioning and
+automatic signing are Xcode workflows. `--mode examples`, `tests`, or `all`
+maps to `luisa-ios-rendering-examples`, `luisa-ios-device-tests`, or both.
+
+Metal4 user shaders and fixed runtime builtins are LLVM/AIR. BC6H/BC7 fixed
+support sources are compiled to target-specific metallibs by `xcrun metal`
+and `metallib` at build time; the runtime embeds and loads only their binary
+bytes.
 
 ## Third-Party Extension Pattern
 

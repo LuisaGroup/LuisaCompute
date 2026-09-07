@@ -110,6 +110,47 @@ int main(int argc, char *argv[]) {
         expect(!buffer_size.texture_2d && !buffer_size.texture_3d);
         expect(!byte_buffer_size.texture_2d &&
                !byte_buffer_size.texture_3d);
+
+        constexpr BindlessResourceAccess typed{.typed = true};
+        auto typed_buffer_size =
+            lc::spirv::spirv_bindless_resource_usage(
+                ResourceQueryOp::BINDLESS_BUFFER_SIZE, typed);
+        auto typed_byte_buffer_size =
+            lc::spirv::spirv_bindless_resource_usage(
+                ResourceQueryOp::BINDLESS_BYTE_BUFFER_SIZE, typed);
+        auto typed_device_address =
+            lc::spirv::spirv_bindless_resource_usage(
+                ResourceQueryOp::BINDLESS_BUFFER_DEVICE_ADDRESS, typed);
+        expect(!typed_buffer_size.buffer_heap &&
+               !typed_buffer_size.buffer_metadata);
+        expect(!typed_byte_buffer_size.buffer_heap &&
+               !typed_byte_buffer_size.buffer_metadata);
+        expect(!typed_device_address.buffer_heap &&
+               typed_device_address.buffer_metadata)
+            << "typed size/bias live in the slot record, but the 64-bit "
+               "device address remains in per-array metadata";
+    };
+
+    "spirv_bindless_xir_usage_typed_buffers_do_not_bind_redundant_metadata"_test = [] {
+        constexpr BindlessResourceAccess typed{.typed = true};
+        constexpr std::array reads{
+            ResourceReadOp::BINDLESS_BUFFER_READ,
+            ResourceReadOp::BINDLESS_BYTE_BUFFER_READ};
+        constexpr std::array writes{
+            ResourceWriteOp::BINDLESS_BUFFER_WRITE,
+            ResourceWriteOp::BINDLESS_BYTE_BUFFER_WRITE};
+        for (auto op : reads) {
+            auto usage = lc::spirv::spirv_bindless_resource_usage(
+                op, typed);
+            expect(usage.buffer_heap);
+            expect(!usage.buffer_metadata);
+        }
+        for (auto op : writes) {
+            auto usage = lc::spirv::spirv_bindless_resource_usage(
+                op, typed);
+            expect(usage.buffer_heap);
+            expect(!usage.buffer_metadata);
+        }
     };
 
     "spirv_bindless_xir_usage_classifies_every_supported_resource_domain"_test = [] {
@@ -268,6 +309,53 @@ int main(int argc, char *argv[]) {
         expect(metadata != nullptr &&
                metadata->space_index == 0u &&
                metadata->register_index == 2u);
+
+        spvtools::SpirvTools tools{SPV_ENV_VULKAN_1_2};
+        expect(tools.Validate(
+            result.spv_bin.data(), result.spv_bin.size()));
+    };
+
+    "spirv_typed_bindless_size_uses_slot_record_without_metadata_descriptor"_test = [] {
+        Kernel1D ast_kernel = [](BindlessVar) noexcept {};
+        auto ast_function = ast_kernel.function()->function();
+
+        Module module;
+        auto *xir_kernel = module.create_kernel();
+        xir_kernel->set_block_size(ast_function.block_size());
+        auto *bindless = xir_kernel->create_resource_argument(
+            Type::from("bindless_array"));
+        auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+        XIRBuilder builder;
+        builder.set_insertion_point(xir_kernel->create_body_block());
+        static_cast<void>(builder.call(
+            Type::of<uint32_t>(),
+            ResourceQueryOp::BINDLESS_BYTE_BUFFER_SIZE,
+            {bindless, zero}, {.typed = true}));
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        auto result = lc::spirv::SpirvCodegenEntry::compile_spirv_xir(
+            ast_function, &module,
+            ShaderOption{.enable_cache = false}, {});
+
+        expect(!result.useBufferBindless);
+        auto properties = luisa::span{
+            result.properties.data(), result.properties.size()};
+        expect(eq(count_properties(
+                      properties,
+                      lc::spirv::ShaderVariableType::StructuredBuffer,
+                      1u),
+                  1u));
+        expect(eq(count_properties(
+                      properties,
+                      lc::spirv::ShaderVariableType::SPIRVBindlessBufferMetadata,
+                      1u),
+                  0u))
+            << "typed size must consume its four-word slot record directly";
 
         spvtools::SpirvTools tools{SPV_ENV_VULKAN_1_2};
         expect(tools.Validate(

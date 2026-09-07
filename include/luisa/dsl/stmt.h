@@ -89,6 +89,57 @@ public:
     }
 };
 
+/// Build a condition-bearing loop while retaining the historical explicit
+/// guard in the AST. The condition is evaluated while the loop body is the
+/// active DSL scope, which is important for conditions that materialize
+/// temporaries or side-effecting calls.
+class WhileStmtBuilder {
+
+private:
+    LoopStmt *_stmt;
+    luisa::string _source_location;
+
+private:
+    explicit WhileStmtBuilder(luisa::string source_location) noexcept
+        : _stmt{FunctionBuilder::current()->loop_()},
+          _source_location{std::move(source_location)} {}
+
+public:
+    template<typename S>
+    [[nodiscard]] static auto create_with_comment(S &&s) noexcept {
+        auto source_location = luisa::string{std::forward<S>(s)};
+        luisa::compute::detail::comment(source_location);
+        return WhileStmtBuilder{std::move(source_location)};
+    }
+
+    template<typename Condition>
+    auto operator/(Condition &&condition) && noexcept {
+        auto builder = FunctionBuilder::current();
+        builder->with(_stmt->body(), [&] {
+            // Keep the condition's original value category and spelling for
+            // the explicit guard. In particular, a host `bool` must remain a
+            // host `bool` here instead of acquiring a DSL unary temporary.
+            decltype(auto) cond = condition();
+            auto condition_statement_count =
+                _stmt->body()->statements().size();
+            builder->mark_loop_as_while(
+                _stmt, extract_expression(cond),
+                condition_statement_count);
+            luisa::compute::detail::comment(_source_location);
+            IfStmtBuilder{Expr<bool>{!cond}} % []() noexcept {
+                FunctionBuilder::current()->break_();
+            };
+        });
+        return *this;
+    }
+
+    template<typename Body>
+    void operator%(Body &&body) && noexcept {
+        FunctionBuilder::current()->with(
+            _stmt->body(), std::forward<Body>(body));
+    }
+};
+
 /// Build AutoDiff statement
 class AutoDiffStmtBuilder {
 

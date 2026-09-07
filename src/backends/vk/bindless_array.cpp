@@ -2,6 +2,7 @@
 #include "compute_shader.h"
 #include "upload_buffer.h"
 #include "device.h"
+#include "command_buffer_sync.h"
 #include "resource_barrier.h"
 #include "sampler_anisotropy.h"
 #include "stream.h"
@@ -171,6 +172,22 @@ Device::HeapAlloc &get_alloc(Device &device, BindlessSlotType type) {
         buffer->device_address_capable());
 }
 
+[[nodiscard]] uint pack_texture_binding(
+    uint descriptor_index, Sampler sampler) {
+    LUISA_ASSERT(
+        descriptor_index <= BindlessArray::BindlessStruct::kMask,
+        "Vulkan typed bindless texture descriptor index {} exceeds its "
+        "28-bit shader ABI.",
+        descriptor_index);
+    auto sampler_index = lc::vk::detail::sampler_heap_index(
+        luisa::to_underlying(sampler.filter()),
+        luisa::to_underlying(sampler.address()));
+    LUISA_ASSERT(sampler_index < 16u,
+                 "Vulkan bindless sampler index {} exceeds its 4-bit ABI.",
+                 sampler_index);
+    return descriptor_index | (sampler_index << 28u);
+}
+
 template<typename Modification>
 void upload_buffer_metadata(
     CommandBuffer *cmdbuffer, DefaultBuffer *metadata_buffer,
@@ -220,7 +237,7 @@ void upload_buffer_metadata(
         metadata_buffer->vk_buffer(),
         static_cast<uint32_t>(regions.size()),
         regions.data()};
-    vkCmdCopyBuffer2(cmdbuffer->cmdbuffer(), &copy_info);
+    detail::cmd_copy_buffer(cmdbuffer->cmdbuffer(), cmdbuffer->device(), &copy_info);
 }
 
 template<typename Record, typename Modification>
@@ -257,7 +274,7 @@ void upload_slot_records(
         destination.vk_buffer(),
         static_cast<uint32_t>(regions.size()),
         regions.data()};
-    vkCmdCopyBuffer2(cmdbuffer->cmdbuffer(), &copy_info);
+    detail::cmd_copy_buffer(cmdbuffer->cmdbuffer(), cmdbuffer->device(), &copy_info);
 }
 }// namespace bdls_detail
 BindlessArray::BindlessArray(Device *device, BindlessSlotType type, size_t size)
@@ -288,6 +305,9 @@ BindlessArray::BindlessArray(Device *device, BindlessSlotType type, size_t size)
                 size, BindlessStruct::kInvalidPos);
             if (type == BindlessSlotType::BUFFER_ONLY) {
                 _typed_buffer_bindings.resize(size);
+            } else {
+                _typed_texture_bindings.resize(
+                    size, BindlessStruct::kInvalidPos);
             }
         } break;
     }
@@ -627,6 +647,8 @@ void BindlessArray::update(
             _return_value(
                 _encoded_ptr_map, retired_slots, resource_index, 1u,
                 _typed_descriptor_indices[mod.slot]);
+            _typed_texture_bindings[mod.slot] =
+                BindlessStruct::kInvalidPos;
             if (mod.tex2d.op == Ope::EMPLACE) {
                 _typed_descriptor_indices[mod.slot] =
                     device()->tex2d_heap_pool.alloc();
@@ -636,13 +658,16 @@ void BindlessArray::update(
         }
         if (mod.tex2d.op == Ope::EMPLACE) {
             auto idx = _typed_descriptor_indices[mod.slot];
+            _typed_texture_bindings[mod.slot] =
+                bdls_detail::pack_texture_binding(
+                    idx, mod.tex2d.sampler);
             auto img_view = &device()->tex2d_bindless_imgview[idx];
             _emplace_tex(*img_view, cmdbuffer, write_desc_sets, device()->bdls_tex2d_set(), idx, reinterpret_cast<Texture *>(mod.tex2d.handle));
         }
     }
     bdls_detail::upload_slot_records(
         cmdbuffer, _indices_buffer, mods,
-        luisa::span<const uint>{_typed_descriptor_indices});
+        luisa::span<const uint>{_typed_texture_bindings});
     if (!write_desc_sets.empty()) {
         vkUpdateDescriptorSets(
             device()->logic_device(),
@@ -678,6 +703,8 @@ void BindlessArray::update(
             _return_value(
                 _encoded_ptr_map, retired_slots, resource_index, 2u,
                 _typed_descriptor_indices[mod.slot]);
+            _typed_texture_bindings[mod.slot] =
+                BindlessStruct::kInvalidPos;
             if (mod.tex3d.op == Ope::EMPLACE) {
                 _typed_descriptor_indices[mod.slot] =
                     device()->tex3d_heap_pool.alloc();
@@ -687,13 +714,16 @@ void BindlessArray::update(
         }
         if (mod.tex3d.op == Ope::EMPLACE) {
             auto idx = _typed_descriptor_indices[mod.slot];
+            _typed_texture_bindings[mod.slot] =
+                bdls_detail::pack_texture_binding(
+                    idx, mod.tex3d.sampler);
             auto img_view = &device()->tex3d_bindless_imgview[idx];
             _emplace_tex(*img_view, cmdbuffer, write_desc_sets, device()->bdls_tex3d_set(), idx, reinterpret_cast<Texture *>(mod.tex3d.handle));
         }
     }
     bdls_detail::upload_slot_records(
         cmdbuffer, _indices_buffer, mods,
-        luisa::span<const uint>{_typed_descriptor_indices});
+        luisa::span<const uint>{_typed_texture_bindings});
     if (!write_desc_sets.empty()) {
         vkUpdateDescriptorSets(
             device()->logic_device(),

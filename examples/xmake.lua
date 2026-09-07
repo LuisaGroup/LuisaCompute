@@ -34,10 +34,6 @@ example_proj("example_procedural", "rendering/procedural.cpp", true)
 example_proj("example_shader_toy", "rendering/shader_toy.cpp", true)
 example_proj("example_shader_toy_spacex", "rendering/shader_toy_spacex.cpp", true)
 example_proj("example_shader_visuals_present", "rendering/shader_visuals_present.cpp", true)
-if has_config("lc_enable_ir") then
-    example_proj("example_path_tracing_ir", "rendering/path_tracing_ir.cpp", true)
-    example_proj("example_sdf_renderer_ir", "rendering/sdf_renderer_ir.cpp", true)
-end
 if has_config("lc_enable_xir") then
     example_proj("example_path_tracing_xir2ast", "rendering/path_tracing_xir2ast.cpp", true)
     example_proj("example_sdf_renderer_xir2ast", "rendering/sdf_renderer_xir2ast.cpp", true)
@@ -73,6 +69,9 @@ example_proj("example_win_hdr", "gui/win_hdr.cpp", true)
             end)
         end
         coro_example_proj("example_coro_sdf_renderer", "rendering/coro_sdf_renderer.cpp", false)
+        coro_example_proj("example_coro_external_stage_debug", "coro/external_stage_debug.cpp", false)
+        coro_example_proj("example_coro_external_stage_neural_sdf", "coro/external_stage_neural_sdf.cpp", false)
+        coro_example_proj("example_coro_on_demand_texture", "coro/on_demand_texture.cpp", false)
         coro_example_proj("example_coro_path_tracing", "rendering/coro_path_tracing.cpp", false)
         coro_example_proj("example_coro_path_tracing_wavefront", "rendering/coro_path_tracing.cpp", false, function()
             add_defines("LUISA_CORO_PATH_TRACING_SAMPLE_DISPATCH_DEFAULT=1")
@@ -82,6 +81,7 @@ example_proj("example_win_hdr", "gui/win_hdr.cpp", true)
         add_files("ml/attention_kernels.cpp", "ml/attention_host_data.cpp", "ml/attention_cpu_reference.cpp", "ml/attention_runner.cpp")
     end)
     includes("compute/tokenize")
+    includes("compute/compact")
 
 -- extension
 if has_config("lc_dx_backend") then
@@ -108,6 +108,9 @@ end
 if has_config("lc_dx_cuda_interop") then
     example_proj("example_cuda_dx_interop", "interop/cuda_dx_interop.cpp", false)
 end
-if has_config("lc_vk_cuda_interop") then
-    example_proj("example_cuda_vk_interop", "interop/cuda_vk_interop.cpp", false)
-end
+  if has_config("lc_vk_cuda_interop") and has_config("lc_cuda_backend") then
+      example_proj("example_cuda_vk_interop", "interop/cuda_vk_interop.cpp", false)
+  end
+  if has_config("lc_vk_cuda_interop") and has_config("lc_cuda_backend") then
+      example_proj("example_cuda_vk_kernel_launch", "interop/cuda_vk_kernel_launch.cpp", false)
+  end

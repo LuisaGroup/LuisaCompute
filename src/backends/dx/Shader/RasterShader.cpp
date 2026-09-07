@@ -189,8 +189,8 @@ D3D12_GRAPHICS_PIPELINE_STATE_DESC RasterShader::get_state(
         blend.BlendOpAlpha = D3D12_BLEND_OP_ADD;
         blend.SrcBlend = GetBlendState(v.prim_op);
         blend.DestBlend = GetBlendState(v.img_op);
-        blend.SrcBlendAlpha = D3D12_BLEND_ZERO;
-        blend.DestBlendAlpha = D3D12_BLEND_ONE;
+        blend.SrcBlendAlpha = GetBlendState(v.prim_op);
+        blend.DestBlendAlpha = GetBlendState(v.img_op);
         blend.LogicOp = D3D12_LOGIC_OP_NOOP;
 
         result.BlendState = {
@@ -439,6 +439,9 @@ ID3D12PipelineState *RasterShader::get_pso(
     }
     psoState.dsv_format = dsvFormat;
     psoState.raster_state = rasterState;
+    // The stencil reference is set dynamically with OMSetStencilRef and does
+    // not participate in D3D12 graphics pipeline creation.
+    psoState.raster_state.stencil_state.reference = 0u;
     {
         std::lock_guard lck{_pso_mtx};
         idx = _pso_map.try_emplace(psoState);

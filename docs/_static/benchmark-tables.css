@@ -1,0 +1,27 @@
+/* Keep dense measurements inside the existing documentation column. */
+.rst-content table.benchmark-table th,
+.rst-content table.benchmark-table td {
+    padding: 6px 8px;
+}
+
+.rst-content table.benchmark-table th,
+.rst-content table.benchmark-table td:first-child {
+    white-space: normal;
+}
+
+/* Concept comparisons should remain readable without wide measurement rows. */
+.rst-content table.design-table {
+    width: 100%;
+    table-layout: fixed;
+}
+
+.rst-content table.design-table th,
+.rst-content table.design-table td {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    padding: 8px;
+}
+
+.rst-content table.design-table code {
+    white-space: normal;
+}

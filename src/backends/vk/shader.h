@@ -45,6 +45,7 @@ public:
     auto shader_tag() const { return _shader_tag; }
     virtual PipelineRef *pipeline_ref() const noexcept { return nullptr; }
     virtual bool serialize_pso(vstd::vector<std::byte> &result) const { return false; }
+    [[nodiscard]] virtual uint64_t pipeline_cache_identity() const noexcept { return 0u; }
     auto binds() const { return vstd::span<const hlsl::Property>{_binds}; }
     auto captured() const { return vstd::span<const Argument>{_captured}; }
     auto desc_set_layout() const { return vstd::span{_desc_set_layout}; }

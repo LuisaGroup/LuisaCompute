@@ -15,10 +15,10 @@ option("lc_enable_pch", {default = true})
 option("lc_enable_simd", {default = true})
 -- enable DirectX-12 backend
 option("lc_dx_backend", {default = true})
--- enable fallback CPU backend for platforms without GPU support
+-- enable the native C++ fallback backend for platforms without GPU support
 option("lc_fallback_backend", {default = false})
 -- enable XIR (Intermediate Representation) support
-option("lc_enable_xir", {default = false})
+option("lc_enable_xir", {default = true})
 -- use external Marl library instead of bundled version
 option("lc_external_marl", {default = false})
 -- enable DirectX-CUDA interoperability
@@ -30,9 +30,31 @@ option("lc_use_lto", {default=false})
 -- enable Vulkan backend
 option("lc_vk_backend", {default = true})
 
+-- Android NDK installation directory (required when configuring for android)
+option("lc_ndk", {default = false,
+    description = "Android NDK installation directory. Required for -p android builds.",
+    showmenu = true})
+
+-- Vulkan backend: lower the requested update-after-bind heap capacity for
+-- low-end / mobile GPUs. Defaults to the desktop 262144-slot capacity.
+option("lc_vk_bindless_heap_capacity", {default = 262144,
+    description = "Requested Vulkan bindless heap capacity (0 disables bindless).",
+    showmenu = true})
+
+-- Vulkan backend: minimum supported Vulkan API version for device negotiation.
+-- "auto" (default) uses whatever the physical device exposes (preferring the
+-- sync2/copy2 paths on 1.3+ devices); "1.2" forces the legacy barrier/copy
+-- path (the Android-compatible floor) so CI can exercise it on a 1.3 device.
+option("lc_vk_min_api_version", {default = "auto",
+    description = "Minimum Vulkan API version for the Vulkan backend (auto, 1.2 or 1.3).",
+    showmenu = true})
+
 option("lc_vk_backend_use_xir_spirv", {default = false})
--- enable toy C backend for testing and debugging
-option("lc_toy_c_backend", {default = false})
+-- Keep the legacy runtime DXC route available for unsupported Vulkan shader
+-- features. Projects that require a native-only Vulkan build can disable it;
+-- the backend then fails at configuration time unless a native SPIR-V route
+-- is enabled.
+option("lc_vk_backend_enable_dxc_compatibility", {default = true})
 -- enable NVIDIA-CUDA backend
 option("lc_cuda_backend", {default = true})
 -- enable NVIDIA-CUDA Extension CUB, default false, because of long compile time

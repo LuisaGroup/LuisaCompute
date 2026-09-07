@@ -1,0 +1,45 @@
+
+Running test "tile_matrix_mpp_realized_work"... [31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m
+
+ 45 1
+Running test "tile_matrix_mpp_realized_work"... [31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m 45 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m
+
+ 45 1
+Running test "tile_matrix_mpp_realized_work"... [31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m 45 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m 45 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m
+
+ 45 1
+Running test "tile_matrix_mpp_realized_work"... [31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m 45 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m 45 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m 45 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m
+
+ 1025 1
+Running test "tile_matrix_mpp_realized_work"... [31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m 45 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m 45 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m 45 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m 1025 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m
+
+ 1025 1
+Running test "tile_matrix_mpp_realized_work"... [31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m 45 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m 45 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m 45 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m 1025 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m 1025 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m
+
+ 1025 1
+===============================================================================
+Suite global
+tests:   34 | [31m6 failed[0m
+asserts: 4235 | 33 passed | [31m6 failed[0m
+

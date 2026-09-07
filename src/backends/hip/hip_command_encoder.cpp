@@ -242,26 +242,33 @@ void HIPCommandEncoder::visit(TextureToBufferCopyCommand *command) noexcept {
 void HIPCommandEncoder::visit(AccelBuildCommand *command) noexcept {
     auto accel = reinterpret_cast<HIPAccel *>(command->handle());
     accel->build(*this, command);
+    if (!command->update_instance_buffer_only()) {
+        _stream->mark_hiprt_build_submitted();
+    }
 }
 
 void HIPCommandEncoder::visit(MeshBuildCommand *command) noexcept {
     auto mesh = reinterpret_cast<HIPMesh *>(command->handle());
     mesh->build(*this, command);
+    _stream->mark_hiprt_build_submitted();
 }
 
 void HIPCommandEncoder::visit(CurveBuildCommand *command) noexcept {
     auto curve = reinterpret_cast<HIPCurve *>(command->handle());
     curve->build(*this, command);
+    _stream->mark_hiprt_build_submitted();
 }
 
 void HIPCommandEncoder::visit(ProceduralPrimitiveBuildCommand *command) noexcept {
     auto prim = reinterpret_cast<HIPProceduralPrimitive *>(command->handle());
     prim->build(*this, command);
+    _stream->mark_hiprt_build_submitted();
 }
 
 void HIPCommandEncoder::visit(MotionInstanceBuildCommand *command) noexcept {
     auto instance = reinterpret_cast<HIPMotionInstance *>(command->handle());
     instance->build(*this, command);
+    _stream->mark_hiprt_build_submitted();
 }
 
 void HIPCommandEncoder::visit(BindlessArrayUpdateCommand *command) noexcept {

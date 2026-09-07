@@ -1,12 +1,15 @@
 #include <mutex>
 
 #include <luisa/core/logging.h>
+#include "metal_callback_context.h"
 #include "metal_event.h"
 
 namespace luisa::compute::metal {
 
 MetalEvent::MetalEvent(MTL::Device *device) noexcept
-    : _handle{device->newSharedEvent()} {}
+    : _handle{device->newSharedEvent()},
+      _host_completed_value{
+          luisa::make_shared<std::atomic_uint64_t>(0u)} {}
 
 MetalEvent::~MetalEvent() noexcept {
     _handle->release();
@@ -16,8 +19,21 @@ void MetalEvent::signal(MTL::CommandBuffer *command_buffer, uint64_t value) noex
     command_buffer->encodeSignalEvent(_handle, value);
 }
 
+MetalCallbackContext *MetalEvent::host_signal_callback(
+    uint64_t value) const noexcept {
+    return FunctionCallbackContext::create(
+        [completed = _host_completed_value, value]() noexcept {
+            auto current = completed->load(std::memory_order_relaxed);
+            while (current < value &&
+                   !completed->compare_exchange_weak(
+                       current, value, std::memory_order_release,
+                       std::memory_order_relaxed)) {}
+        });
+}
+
 bool MetalEvent::is_completed(uint64_t value) const noexcept {
-    return _handle->signaledValue() >= value;
+    return _handle->signaledValue() >= value &&
+           _host_completed_value->load(std::memory_order_acquire) >= value;
 }
 
 void MetalEvent::wait(MTL::CommandBuffer *command_buffer, uint64_t value) noexcept {
@@ -56,4 +72,3 @@ void MetalEvent::set_name(luisa::string_view name) noexcept {
 }
 
 }// namespace luisa::compute::metal
-

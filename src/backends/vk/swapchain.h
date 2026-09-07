@@ -27,6 +27,11 @@ class Swapchain : public Resource {
     uint64_t _display_handle{};
     uint64_t _window_handle{};
     uint2 _requested_size;
+    // The surface's currentTransform reported by the swapchain. On Android the
+    // swapchain is created with preTransform=IDENTITY and the application is
+    // responsible for rotating content by this amount (90/180/270 degrees).
+    VkSurfaceTransformFlagBitsKHR _surface_transform{
+        VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR};
     bool _requested_hdr{false};
     bool _requested_vsync{false};
     bool _requested_transparent{false};
@@ -36,6 +41,9 @@ class Swapchain : public Resource {
 public:
     explicit Swapchain(Device *device);
     [[nodiscard]] auto swapchain() const { return _swapchain; }
+    [[nodiscard]] auto surface_transform() const noexcept {
+        return _surface_transform;
+    }
     [[nodiscard]] bool is_hdr() const noexcept;
     ~Swapchain();
     void create_swapchain(

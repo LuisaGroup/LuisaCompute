@@ -64,8 +64,7 @@ if __name__ == "__main__":
     header_files = []
     base_modules = [f"{src_dir}/{f}" for f in listdir(src_dir) if isdir(f"{src_dir}/{f}") and f != "ext"]
     for m in base_modules:
-        recursive = not m.endswith("rust")
-        glob(source_files, header_files, m, recursive)
+        glob(source_files, header_files, m, True)
     source_files = [normalize(src_dir, f) for f in source_files]
     header_files = [normalize(src_dir, f) for f in header_files]
 

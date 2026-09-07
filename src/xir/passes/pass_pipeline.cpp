@@ -6,6 +6,7 @@
 #include <luisa/xir/passes/local_store_forward.h>
 #include <luisa/xir/passes/local_load_elimination.h>
 #include <luisa/xir/passes/algebraic_simplify.h>
+#include <luisa/xir/passes/fast_math_simplify.h>
 #include <luisa/xir/passes/const_fold.h>
 #include <luisa/xir/passes/promote_ref_arg.h>
 #include <luisa/xir/passes/sroa.h>
@@ -273,6 +274,8 @@ void PassPipeline::Stats::log(luisa::string_view pipeline_name) const noexcept {
 
 PassPipeline create_basic_optimization_pipeline(OptimizationPipelineOptions options) noexcept {
     auto alg_opts = AlgebraicSimplifyOptions{.enable_fast_math = options.enable_fast_math};
+    auto fast_math_opts = FastMathSimplifyOptions{
+        .enable_fast_math = options.enable_fast_math};
     PassPipeline p;
     // Structured loop transforms remain available as explicit passes, but are
     // excluded from default pipelines until they preserve structured ownership,
@@ -305,6 +308,11 @@ PassPipeline create_basic_optimization_pipeline(OptimizationPipelineOptions opti
         auto i = const_fold_pass_run_on_module(m, &r);
         return i.folded_inst_count > 0u;
     });
+    p.add("fast-math-simplify", [fast_math_opts](Module *m, PassReport &r) {
+        auto i = fast_math_simplify_pass_run_on_module(
+            m, fast_math_opts, &r);
+        return i.changed();
+    });
     p.add("dce", [](Module *m, PassReport &r) {
         auto i = dce_pass_run_on_module(m, &r);
         return i.changed();
@@ -330,6 +338,8 @@ PassPipeline create_basic_optimization_pipeline(OptimizationPipelineOptions opti
 
 PassPipeline create_post_inline_cleanup_pipeline(OptimizationPipelineOptions options) noexcept {
     auto alg_opts = AlgebraicSimplifyOptions{.enable_fast_math = options.enable_fast_math};
+    auto fast_math_opts = FastMathSimplifyOptions{
+        .enable_fast_math = options.enable_fast_math};
     PassPipeline p;
     // Inlining exposes new adjacent-store chains; vectorize them before the
     // scalarizer (running later) decomposes vector ops again.
@@ -365,6 +375,11 @@ PassPipeline create_post_inline_cleanup_pipeline(OptimizationPipelineOptions opt
         auto i = const_fold_pass_run_on_module(m, &r);
         return i.folded_inst_count > 0u;
     });
+    p.add("fast-math-simplify", [fast_math_opts](Module *m, PassReport &r) {
+        auto i = fast_math_simplify_pass_run_on_module(
+            m, fast_math_opts, &r);
+        return i.changed();
+    });
     p.add("dce", [](Module *m, PassReport &r) {
         auto i = dce_pass_run_on_module(m, &r);
         return i.changed();
@@ -386,6 +401,8 @@ PassPipeline create_post_inline_cleanup_pipeline(OptimizationPipelineOptions opt
 
 PassPipeline create_ssa_optimization_pipeline(OptimizationPipelineOptions options) noexcept {
     auto alg_opts = AlgebraicSimplifyOptions{.enable_fast_math = options.enable_fast_math};
+    auto fast_math_opts = FastMathSimplifyOptions{
+        .enable_fast_math = options.enable_fast_math};
     PassPipeline p;
     // See create_basic_optimization_pipeline: unsafe structured loop transforms
     // are intentionally opt-in for now.
@@ -403,6 +420,11 @@ PassPipeline create_ssa_optimization_pipeline(OptimizationPipelineOptions option
     });
     p.add("sccp", [](Module *m, PassReport &r) {
         auto i = sccp_pass_run_on_module(m, &r);
+        return i.changed();
+    });
+    p.add("fast-math-simplify", [fast_math_opts](Module *m, PassReport &r) {
+        auto i = fast_math_simplify_pass_run_on_module(
+            m, fast_math_opts, &r);
         return i.changed();
     });
     p.add("slp-vectorization", [](Module *m, PassReport &r) {
@@ -446,6 +468,8 @@ PassPipeline create_ssa_optimization_pipeline(OptimizationPipelineOptions option
 
 PassPipeline create_post_restructure_cleanup_pipeline(OptimizationPipelineOptions options) noexcept {
     auto alg_opts = AlgebraicSimplifyOptions{.enable_fast_math = options.enable_fast_math};
+    auto fast_math_opts = FastMathSimplifyOptions{
+        .enable_fast_math = options.enable_fast_math};
     PassPipeline p;
     p.add("const-fold", [](Module *m, PassReport &r) {
         auto i = const_fold_pass_run_on_module(m, &r);
@@ -454,6 +478,11 @@ PassPipeline create_post_restructure_cleanup_pipeline(OptimizationPipelineOption
     p.add("algebraic-simplify", [alg_opts](Module *m, PassReport &r) {
         auto i = algebraic_simplify_pass_run_on_module(m, alg_opts, &r);
         return i.simplified_inst_count > 0u;
+    });
+    p.add("fast-math-simplify", [fast_math_opts](Module *m, PassReport &r) {
+        auto i = fast_math_simplify_pass_run_on_module(
+            m, fast_math_opts, &r);
+        return i.changed();
     });
     p.add("dce", [](Module *m, PassReport &r) {
         auto i = dce_pass_run_on_module(m, &r);

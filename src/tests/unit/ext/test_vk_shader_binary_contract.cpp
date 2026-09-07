@@ -297,6 +297,59 @@ int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(
         argc, const_cast<const char **>(argv));
 
+    "vk_native_bindless_metadata_is_an_exact_optional_argument_role"_test = [] {
+        using namespace lc::vk;
+        using namespace lc::vk::detail;
+        using lc::hlsl::Property;
+        using lc::hlsl::ShaderVariableType;
+        constexpr auto unbounded =
+            std::numeric_limits<uint32_t>::max();
+        auto bindless_argument = SavedArgument{};
+        bindless_argument.tag =
+            luisa::compute::Type::Tag::BINDLESS_ARRAY;
+        bindless_argument.var_usage = luisa::compute::Usage::READ_WRITE;
+        bindless_argument.set_native_bindless_roles(
+            lc::spirv::kernel_argument_role::none);
+        constexpr std::array typed_properties{
+            Property{ShaderVariableType::StructuredBuffer, 0u, 0u, 1u},
+            Property{ShaderVariableType::SPIRVIndirectDispatch, 0u, 1u, 1u},
+            Property{ShaderVariableType::SamplerHeap, 1u, 0u,
+                     descriptor_interface_sampler_count},
+            Property{ShaderVariableType::SRVBufferHeap, 2u, 0u,
+                     unbounded}};
+        constexpr std::array mixed_properties{
+            Property{ShaderVariableType::StructuredBuffer, 0u, 0u, 1u},
+            Property{ShaderVariableType::SPIRVBindlessBufferMetadata,
+                     0u, 1u, 1u},
+            Property{ShaderVariableType::SPIRVIndirectDispatch, 0u, 2u, 1u},
+            Property{ShaderVariableType::SamplerHeap, 1u, 0u,
+                     descriptor_interface_sampler_count},
+            Property{ShaderVariableType::SRVBufferHeap, 2u, 0u,
+                     unbounded}};
+        auto request = [&](auto &&properties) noexcept {
+            return ShaderInterfaceRequest{
+                .properties = properties,
+                .arguments = luisa::span{&bindless_argument, 1u},
+                .stage_mask = DescriptorInterfaceStageMask::COMPUTE,
+                .dialect = ShaderCodegenDialect::XIR_SPIRV,
+                .use_buffer_bindless = true};
+        };
+
+        auto typed = plan_shader_interface(
+            request(luisa::span{typed_properties}));
+        expect(static_cast<bool>(typed))
+            << shader_interface_error_name(typed.error);
+        expect(eq(typed.resource_binding_count, 1u));
+        expect(eq(typed.local_binding_count, 2u));
+
+        auto mixed = plan_shader_interface(
+            request(luisa::span{mixed_properties}));
+        expect(static_cast<bool>(mixed))
+            << shader_interface_error_name(mixed.error);
+        expect(eq(mixed.resource_binding_count, 2u));
+        expect(eq(mixed.local_binding_count, 3u));
+    };
+
     "vk_shader_binary_sizes_are_overflow_checked"_test = [] {
         uint64_t value = 0u;
         expect(lc::vk::detail::checked_binary_product(7u, 11u, value));

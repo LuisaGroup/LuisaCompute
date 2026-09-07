@@ -24,7 +24,10 @@ namespace luisa::compute::xir {
 
 namespace detail {
 
-[[nodiscard]] static DestructureCFGInfo preflight_destructure_input(Function *function) noexcept {
+[[nodiscard]] static DestructureCFGInfo preflight_destructure_input(
+    Function *function,
+    const XIRPassVerificationTransaction *
+        verification_transaction) noexcept {
     DestructureCFGInfo info;
     if (function == nullptr) { return info; }
     auto *def = function->definition();
@@ -129,7 +132,10 @@ namespace detail {
     // targets, use-def linkage, and SSA dominance). Collapse all verifier
     // diagnostics to one rejected input so this preflight remains a
     // function-level transaction predicate rather than a diagnostic counter.
-    if (info.error_count == 0u) {
+    if (info.error_count == 0u &&
+        xir_pass_has_standalone_verification(
+            verification_transaction, function)) {
+        ++info.boundary_verifier_count;
         auto verification = xir_verify_function(
             function, {.require_terminated_blocks = false});
         if (!verification.succeeded()) {
@@ -413,12 +419,17 @@ static void destructure_in_function(Function *function, DestructureCFGInfo &info
 
 }// namespace detail
 
-DestructureCFGInfo destructure_cfg_pass_run_on_function(Function *function) noexcept {
+DestructureCFGInfo destructure_cfg_pass_run_on_function(
+    Function *function,
+    const DestructureCFGOptions &options) noexcept {
     DestructureCFGInfo info;
     if (function == nullptr) { return info; }
-    auto preflight = detail::preflight_destructure_input(function);
+    auto preflight = detail::preflight_destructure_input(
+        function, options.verification_transaction);
     info.error_count = preflight.error_count;
     info.leaked_block_count = preflight.leaked_block_count;
+    info.boundary_verifier_count =
+        preflight.boundary_verifier_count;
     if (!info.succeeded()) {
         LUISA_WARNING_WITH_LOCATION(
             "destructure_cfg: rejecting function with {} malformed or "
@@ -447,15 +458,21 @@ DestructureCFGInfo destructure_cfg_pass_run_on_module(Module *module, PassReport
                     info.destructured_early_return_count);
         report->set("leaked_block", info.leaked_block_count);
         report->set("error", info.error_count);
+        report->set(
+            "boundary_verifier",
+            info.boundary_verifier_count);
     };
     if (module == nullptr) {
         set_report();
         return info;
     }
     for (auto *f : module->function_list()) {
-        auto preflight = detail::preflight_destructure_input(f);
+        auto preflight = detail::preflight_destructure_input(
+            f, nullptr);
         info.error_count += preflight.error_count;
         info.leaked_block_count += preflight.leaked_block_count;
+        info.boundary_verifier_count +=
+            preflight.boundary_verifier_count;
     }
     if (!info.succeeded()) {
         LUISA_WARNING_WITH_LOCATION(
@@ -473,7 +490,8 @@ DestructureCFGInfo destructure_cfg_pass_run_on_module(Module *module, PassReport
 }
 
 DestructureCFGInfo destructure_cfg_pass_preflight_function(Function *function) noexcept {
-    return detail::preflight_destructure_input(function);
+    return detail::preflight_destructure_input(
+        function, nullptr);
 }
 
 }// namespace luisa::compute::xir

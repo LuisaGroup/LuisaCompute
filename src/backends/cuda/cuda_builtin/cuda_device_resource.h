@@ -2052,6 +2052,28 @@ void lc_ray_query_trace(LCRayQuery &q, lc_uint impl_tag, void *ctx) noexcept {
     return ray;
 }
 
+[[nodiscard]] auto lc_ray_query_object_ray() noexcept {
+    float ox, oy, oz, t_min, dx, dy, dz, t_max;
+    asm("call (%0), _optix_get_object_ray_origin_x, ();" : "=f"(ox) :);
+    asm("call (%0), _optix_get_object_ray_origin_y, ();" : "=f"(oy) :);
+    asm("call (%0), _optix_get_object_ray_origin_z, ();" : "=f"(oz) :);
+    asm("call (%0), _optix_get_ray_tmin, ();" : "=f"(t_min) :);
+    asm("call (%0), _optix_get_object_ray_direction_x, ();" : "=f"(dx) :);
+    asm("call (%0), _optix_get_object_ray_direction_y, ();" : "=f"(dy) :);
+    asm("call (%0), _optix_get_object_ray_direction_z, ();" : "=f"(dz) :);
+    asm("call (%0), _optix_get_ray_tmax, ();" : "=f"(t_max) :);
+    LCRay ray{};
+    ray.m0[0] = ox;
+    ray.m0[1] = oy;
+    ray.m0[2] = oz;
+    ray.m1 = t_min;
+    ray.m2[0] = dx;
+    ray.m2[1] = dy;
+    ray.m2[2] = dz;
+    ray.m3 = t_max;
+    return ray;
+}
+
 void lc_ray_query_report_intersection(lc_uint kind, lc_float t) noexcept {
     auto ret = 0u;
     asm volatile("call (%0), _optix_report_intersection_0"
@@ -2088,6 +2110,7 @@ struct LCIntersectionResult {
 #define LC_RAY_QUERY_PROCEDURAL_CANDIDATE_HIT(q) lc_ray_query_procedural_candidate()
 #define LC_RAY_QUERY_TRIANGLE_CANDIDATE_HIT(q) lc_ray_query_triangle_candidate()
 #define LC_RAY_QUERY_WORLD_RAY(q) lc_ray_query_world_ray()
+#define LC_RAY_QUERY_OBJECT_RAY(q) lc_ray_query_object_ray()
 #define LC_RAY_QUERY_COMMIT_TRIANGLE(q) static_cast<void>(result.committed = true)
 #define LC_RAY_QUERY_COMMIT_PROCEDURAL(q, t) \
     do {                                     \

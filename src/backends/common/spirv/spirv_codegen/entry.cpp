@@ -5,7 +5,9 @@
 #include "texture_sampling.h"
 #include "utils.h"
 #include "../../backend_print_code.h"
+#include "../../env_flag.h"
 #include <SPIRV/disassemble.h>
+#include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
 #include <fstream>
 #include <sstream>
@@ -15,6 +17,11 @@
 namespace lc::spirv {
 
 namespace {
+
+[[nodiscard]] bool profile_native_spirv() noexcept {
+    return luisa::compute::detail::env_flag(
+        "LUISA_VULKAN_PROFILE_COMPILATION");
+}
 
 [[nodiscard]] bool is_constant_ubo_element_layout_supported(
     const Type *type) noexcept {
@@ -37,6 +44,8 @@ namespace {
             return type->element() != nullptr;
         case Type::Tag::FLOAT8_E4M3:
         case Type::Tag::FLOAT8_E5M2:
+        case Type::Tag::INT4:
+        case Type::Tag::FP4_E2M1:
         case Type::Tag::FLOAT16:
         case Type::Tag::FLOAT32:
         case Type::Tag::FLOAT64:
@@ -188,7 +197,8 @@ SpirvCodegenEntry::_collect_kernel_argument_usages(Function kernel, const xir::M
         auto ast_arg = ast_args[i];
         auto usage = kernel.variable_usage(ast_arg.uid());
         if (i < xir_args.size()) {
-            auto xir_usage = _function_argument_usage_of(xir_kernel, xir_args[i]);
+            auto xir_usage = spirv_function_argument_usage_of(
+                _function_argument_usage, xir_kernel, xir_args[i]);
             if (ast_arg.type()->is_accel()) {
                 // Native accel descriptors are an exact optimized-XIR plan.
                 // Keeping dead AST reads here would make Usage disagree with
@@ -266,7 +276,18 @@ SpirvCodegenEntry::_collect_kernel_argument_roles(
 SpirvResult SpirvCodegenEntry::compile_spirv(
     Function kernel, const ShaderOption &opt,
     SpirvTargetFeatures target_features) {
+    auto profile = profile_native_spirv();
+    if (profile) {
+        LUISA_INFO(
+            "Vulkan native AST-to-XIR begin for kernel '{}'",
+            kernel.name());
+    }
     auto xir_module = luisa::compute::spirv::luisa_spirv_backend_translate_ast_to_xir(kernel, opt);
+    if (profile) {
+        LUISA_INFO(
+            "Vulkan native AST-to-XIR finished for kernel '{}'",
+            kernel.name());
+    }
     return compile_spirv_xir(
         kernel, xir_module.get(), opt, target_features);
 }
@@ -275,6 +296,20 @@ SpirvResult SpirvCodegenEntry::compile_spirv_xir(
     Function kernel, const xir::Module *xir_module,
     const ShaderOption &opt,
     SpirvTargetFeatures target_features) {
+    auto profile = profile_native_spirv();
+    Clock phase_clock;
+    auto report_phase = [&](const char *phase) noexcept {
+        if (profile) {
+            LUISA_INFO(
+                "Vulkan native SPIR-V phase '{}' kernel '{}': {:.3f} ms",
+                phase, kernel.name(), phase_clock.toc());
+        }
+        phase_clock.tic();
+    };
+    if (profile) {
+        LUISA_INFO("Vulkan native SPIR-V compile begin for kernel '{}'",
+                   kernel.name());
+    }
     LUISA_ASSERT(xir_module != nullptr,
                  "Cannot compile a null XIR module to SPIR-V.");
     auto kernel_abi = validate_spirv_xir_kernel_abi(kernel, xir_module);
@@ -294,6 +329,7 @@ SpirvResult SpirvCodegenEntry::compile_spirv_xir(
             dialect.diagnostics.front().message,
             dialect.diagnostics.size());
     }
+    report_phase("handoff validation");
     StringScratch scratch;
     SpirvCodegenEntry codegen{scratch, true};
     codegen._enable_fast_math = opt.enable_fast_math;
@@ -358,6 +394,7 @@ SpirvResult SpirvCodegenEntry::compile_spirv_xir(
         kernel, xir_module);
     auto argument_roles = codegen._collect_kernel_argument_roles(
         kernel, xir_module);
+    report_phase("module and target analysis");
 
     for (auto c : analysis.used_constants) {
         if (auto t = c->type();
@@ -386,9 +423,12 @@ SpirvResult SpirvCodegenEntry::compile_spirv_xir(
     auto *xir_kernel = static_cast<const xir::KernelFunction *>(
         analysis.used_functions_post_order.back());
     codegen.generate_binding(kernel, argument_usages, xir_kernel);
+    report_phase("binding planning");
     codegen.emit(xir_module, kernel.bound_arguments(), {}, opt.native_include);
+    report_phase("SPIR-V emission");
     std::vector<uint32_t> words;
     codegen._builder.dump(words);
+    report_phase("SPIR-V serialization");
     if (luisa::compute::backend_print_code_enabled()) {
         std::ostringstream disasm;
         spv::Disassemble(disasm, words);
@@ -403,8 +443,10 @@ SpirvResult SpirvCodegenEntry::compile_spirv_xir(
         file.write(reinterpret_cast<const char *>(words.data()), words.size() * sizeof(uint32_t));
     }
     luisa_spirv_validate(words, "pre-optimization");
+    report_phase("pre-optimization validation");
     auto optimizer_report = optimize_spirv(
         words, spirv_optimizer_options_from_environment());
+    report_phase("SPIR-V optimization");
     if (!optimizer_report.attempted) {
         LUISA_INFO("SPIR-V optimization skipped (preset={})",
                    optimizer_report.effective_preset);
@@ -427,6 +469,7 @@ SpirvResult SpirvCodegenEntry::compile_spirv_xir(
             optimizer_report.changed ? " (changed)" : " (unchanged)");
     }
     luisa_spirv_validate(words, "post-optimization");
+    report_phase("post-optimization validation");
     codegen._required_target_features = reconcile_spirv_target_features(
         words.data(), words.size(), codegen._required_target_features);
     auto feature_check = check_spirv_target_feature_requirements(
@@ -444,6 +487,11 @@ SpirvResult SpirvCodegenEntry::compile_spirv_xir(
             "Vulkan XIR-to-SPIR-V final optimized artifact requires target "
             "feature '{}', but it is not enabled for this logical device.",
             missing.features.front().name);
+    }
+    report_phase("target-feature reconciliation");
+    if (profile) {
+        LUISA_INFO("Vulkan native SPIR-V compile complete for kernel '{}'",
+                   kernel.name());
     }
     LUISA_INFO("SPIR-V compilation successful, binary size: {} words, properties: {} binds",
                words.size(), codegen._properties.size());

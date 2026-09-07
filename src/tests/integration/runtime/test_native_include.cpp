@@ -85,8 +85,8 @@ inline void offset_uv(thread float2 &uv, float2 delta) {
     uv += delta;
 }
     )";
-    } else if (device_name == "hip") {
-        // The HIP backend lowers XIR directly to LLVM. Native includes therefore
+    } else if (device_name == "hip" || device_name == "metal4") {
+        // The HIP and Metal4 backends lower XIR directly to LLVM. Native includes therefore
         // use LLVM IR (text shown here; bitcode is accepted as well) and expose
         // unmangled symbols with the exact ExternalCallable register ABI.
         option.native_include = R"(

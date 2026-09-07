@@ -1,5 +1,5 @@
 luisa_compute_link_llvm_into_backend(hip
-        COMPONENTS core ir amdgpucodegen support targetparser irreader bitreader passes analysis linker bitwriter asmparser
+        COMPONENTS core amdgpucodegen amdgpuasmparser support targetparser irreader bitreader passes analysis linker bitwriter asmparser
         DEFINITIONS LUISA_COMPUTE_ENABLE_LLVM=1)
 if (LUISA_COMPUTE_HIP_LINKED_LLVM)
     message(STATUS "Linking LLVM AMDGPU into the HIP backend")
@@ -43,6 +43,12 @@ if (LUISA_COMPUTE_HIP_LINKED_LLVM)
             hip_codegen_llvm_impl.cpp
             hip_codegen_llvm_impl_type.cpp
             hip_codegen_llvm_impl_func.cpp
+            hip_callable_abi.h
+            hip_callable_abi.cpp
+            hip_private_memory.h
+            hip_private_memory.cpp
+            hip_inlining_policy.h
+            hip_inlining_policy.cpp
             hip_codegen_llvm_impl_inst.cpp
             hip_codegen_llvm_impl_cflow.cpp
             hip_codegen_llvm_impl_arith.cpp
@@ -56,6 +62,8 @@ if (LUISA_COMPUTE_HIP_LINKED_LLVM)
             hip_codegen_llvm_impl_phi.cpp
             hip_codegen_llvm_impl_cta.cpp
             hip_codegen_llvm_impl_rq.cpp
+            hip_llvm_pipeline.h
+            hip_llvm_pipeline.cpp
     )
 
     # -----------------------------------------------------------------------

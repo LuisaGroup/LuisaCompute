@@ -1,8 +1,5 @@
 #pragma once
 
-#ifdef LUISA_ENABLE_IR
-#include <luisa/ir/ir2ast.h>
-#endif
 #include <luisa/ast/type_registry.h>
 #include <luisa/runtime/rhi/device_interface.h>
 
@@ -129,6 +126,9 @@ public:
     [[nodiscard]] auto const &impl_shared() const & noexcept { return _impl; }
     [[nodiscard]] auto &&impl_shared() && noexcept { return std::move(_impl); }
     [[nodiscard]] auto compute_warp_size() const noexcept { return _impl->compute_warp_size(); }
+    [[nodiscard]] auto compute_max_shared_memory_size() const noexcept {
+        return _impl->compute_max_shared_memory_size();
+    }
     [[nodiscard]] auto memory_granularity() const noexcept { return _impl->memory_granularity(); }
     // Is device initialized
     [[nodiscard]] explicit operator bool() const noexcept { return static_cast<bool>(_impl); }
@@ -265,7 +265,7 @@ public:
     }
 
     template<typename Kernel>
-    void compile_to(Kernel &&kernel,
+    [[nodiscard]] bool compile_to(Kernel &&kernel,
                     luisa::string_view name,
                     bool enable_fast_math = true,
                     bool enable_debug_info = false) noexcept {
@@ -275,7 +275,8 @@ public:
             .enable_debug_info = enable_debug_info,
             .compile_only = true,
             .name = luisa::string{name}};
-        static_cast<void>(this->compile(std::forward<Kernel>(kernel), option));
+        auto shader = this->compile(std::forward<Kernel>(kernel), option);
+        return shader.compile_ok();
     }
 
     template<size_t N, typename Func>
@@ -291,7 +292,7 @@ public:
     }
 
     template<size_t N, typename Kernel>
-    void compile_to(Kernel &&kernel,
+    [[nodiscard]] bool compile_to(Kernel &&kernel,
                     luisa::string_view name,
                     bool enable_fast_math = true,
                     bool enable_debug_info = false) noexcept {
@@ -301,16 +302,9 @@ public:
             .enable_debug_info = enable_debug_info,
             .compile_only = true,
             .name = luisa::string{name}};
-        static_cast<void>(this->compile<N>(std::forward<Kernel>(kernel), option));
+        auto shader = this->compile<N>(std::forward<Kernel>(kernel), option);
+        return shader.compile_ok();
     }
-
-#ifdef LUISA_ENABLE_IR
-    template<size_t N, typename... Args>
-    [[nodiscard]] auto compile(const ir::KernelModule *const module,
-                               const ShaderOption &option = {}) noexcept {
-        return _create<Shader<N, Args...>>(module, option);
-    }
-#endif
 
     template<typename V, typename P>
     [[nodiscard]] typename RasterKernel<V, P>::RasterShaderType compile(

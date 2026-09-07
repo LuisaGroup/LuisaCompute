@@ -144,6 +144,7 @@ public:
     static constexpr auto llvm_ray_query_state_procedural_candidate = 2;
 
     static constexpr std::string_view llvm_ray_query_intrinsic_name_world_space_ray = "luisa.ray.query.world.space.ray";
+    static constexpr std::string_view llvm_ray_query_intrinsic_name_object_space_ray = "luisa.ray.query.object.space.ray";
     static constexpr std::string_view llvm_ray_query_intrinsic_name_procedural_candidate_hit = "luisa.ray.query.procedural.candidate.hit";
     static constexpr std::string_view llvm_ray_query_intrinsic_name_surface_candidate_hit = "luisa.ray.query.surface.candidate.hit";
     static constexpr std::string_view llvm_ray_query_intrinsic_name_committed_hit = "luisa.ray.query.committed.hit";
@@ -375,6 +376,7 @@ private:
     [[nodiscard]] llvm::Value *_call_optix_get_hit_distance(IB &b) noexcept;
     [[nodiscard]] llvm::Value *_call_optix_get_hit_kind(IB &b) noexcept;
     [[nodiscard]] llvm::Value *_call_optix_get_world_space_ray(IB &b) noexcept;
+    [[nodiscard]] llvm::Value *_call_optix_get_object_space_ray(IB &b) noexcept;
     void _call_optix_report_intersection(IB &b, llvm::Value *hit_kind, llvm::Value *t) noexcept;
     void _call_optix_ignore_intersection(IB &b) noexcept;
     void _call_optix_terminate_ray(IB &b) noexcept;

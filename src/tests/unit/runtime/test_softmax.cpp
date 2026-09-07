@@ -213,10 +213,17 @@ void test_batch_softmax(Device &device, Stream &stream) {
     auto kernels = batch_softmax_kernel<float>(size);
     auto sum_shader = device.compile(kernels.calc_sum);
     auto final_shader = device.compile(kernels.final);
+    // Every shared reduction consumes all block_size slots. Dispatch complete
+    // blocks and let the explicit size guard initialize padding slots to zero;
+    // reading shared storage belonging to invocations outside an exact
+    // dispatch extent would otherwise depend on uninitialized scratch data.
+    constexpr auto padded_size =
+        partial_sum_count * batch_block_size;
 
     stream << buffer.copy_from(luisa::span{input})
            << sum_buffer.copy_from(luisa::span{partial_sums})
-           << sum_shader(buffer, sum_buffer, size, true).dispatch(size)
+           << sum_shader(buffer, sum_buffer, size, true)
+                  .dispatch(padded_size)
            << sum_shader(sum_buffer, sum_buffer, partial_sum_count, false)
                   .dispatch(batch_block_size)
            << final_shader(buffer, sum_buffer).dispatch(size)

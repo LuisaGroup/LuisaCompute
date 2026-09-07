@@ -481,6 +481,10 @@ void XIRDebugPrinter::emit_metadata_list(luisa::string &s, const MetadataList &m
                                      to_string(spill_md->kind()));
                     break;
                 }
+                case DerivedMetadataTag::NO_INLINE: {
+                    s.append("no_inline, "sv);
+                    break;
+                }
             }
         }
         s.pop_back();

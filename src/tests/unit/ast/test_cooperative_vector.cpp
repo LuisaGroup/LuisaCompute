@@ -45,7 +45,7 @@ public:
 };
 #endif
 
-// Create the requested test device (dx with experimental features, or vk).
+// Create the requested test device (dx with experimental features, vk, or metal4).
 // Returns std::nullopt if the backend is not supported on this platform.
 [[nodiscard]] std::optional<luisa::test::DeviceContext> create_test_device(
     const char *exe, luisa::string_view backend) {
@@ -66,12 +66,12 @@ public:
         return std::nullopt;
 #endif
     }
-    if (backend == "vk") {
+    if (backend == "vk" || backend == "metal4") {
         Context context{exe};
-        Device device = context.create_device("vk");
+        Device device = context.create_device(backend);
         return luisa::test::DeviceContext{std::move(context), std::move(device)};
     }
-    LUISA_INFO("This test only supports the dx or vk backend; got '{}'. Skipping device execution tests.", backend);
+    LUISA_INFO("This test only supports the dx, vk, or metal4 backend; got '{}'. Skipping device execution tests.", backend);
     return std::nullopt;
 }
 
@@ -550,6 +550,48 @@ void test_cooperative_vector_load_store_device(Device &device) {
         }
     }
     expect(ok) << "cooperative_vector_load should return the data that was previously stored";
+}
+
+// Device-side test for cooperative-vector workgroup (shared memory) load/store.
+void test_cooperative_vector_workgroup_load_store_device(Device &device) {
+    luisa::log_level_verbose();
+    LUISA_INFO("Running cooperative vector workgroup load/store device test on backend '{}'", device.backend_name());
+
+    Stream stream = device.create_stream();
+    constexpr auto n = 8u;
+
+    Buffer<float> output_buffer = device.create_buffer<float>(n);
+    luisa::vector<float> host(n);
+
+    Kernel1D kernel = [&](BufferVar<float> output) noexcept {
+        Shared<float> shared_mem{n};
+        CoopVector<float> input{n};
+        for (auto i = 0u; i < n; ++i) input[i] = static_cast<float>(i + 1);
+        cooperative_vector_workgroup_store(
+            shared_mem, 0u, Expr<CoopVector<float>>{input});
+        sync_block();
+        auto loaded = cooperative_vector_workgroup_load<float>(shared_mem, 0u);
+        for (auto i = 0u; i < n; ++i) {
+            output.write(i, loaded[i]);
+        }
+    };
+
+    auto shader = device.compile(kernel);
+
+    CommandList cmdlist = CommandList::create();
+    cmdlist << shader(output_buffer).dispatch(1u)
+            << output_buffer.copy_to(luisa::span{host});
+    stream << cmdlist.commit() << synchronize();
+
+    bool ok = true;
+    for (auto i = 0u; i < n; ++i) {
+        auto expected = static_cast<float>(i + 1);
+        if (std::abs(host[i] - expected) > 1e-4f) {
+            LUISA_WARNING("Workgroup load/store mismatch at [{}]: got {} expected {}", i, host[i], expected);
+            ok = false;
+        }
+    }
+    expect(ok) << "cooperative_vector_workgroup_load should return the data previously stored in shared memory";
 }
 
 // Device-side test for cooperative_vector_splat.
@@ -1034,6 +1076,7 @@ int main(int argc, char *argv[]) {
             "cooperative_vector_device"_test = [] { test_cooperative_vector_device(*g_device_for_tests); };
             "cooperative_vector_load_store_device"_test = [] { test_cooperative_vector_load_store_device(*g_device_for_tests); };
             "cooperative_vector_splat_device"_test = [] { test_cooperative_vector_splat_device(*g_device_for_tests); };
+            "cooperative_vector_workgroup_load_store_device"_test = [] { test_cooperative_vector_workgroup_load_store_device(*g_device_for_tests); };
         }
     }};
 

@@ -70,7 +70,7 @@ public:
             : Argument::Buffer{.handle = handle,
                                .offset = offset_bytes,
                                .size = size_bytes} {}
-        [[nodiscard]] uint64_t hash() const noexcept;
+        [[nodiscard]] LUISA_AST_API uint64_t hash() const noexcept;
     };
 
     /**
@@ -83,7 +83,7 @@ public:
         explicit TextureBinding(uint64_t handle, uint32_t level) noexcept
             : Argument::Texture{.handle = handle,
                                 .level = level} {}
-        [[nodiscard]] uint64_t hash() const noexcept;
+        [[nodiscard]] LUISA_AST_API uint64_t hash() const noexcept;
     };
 
     /**
@@ -95,7 +95,7 @@ public:
         BindlessArrayBinding() noexcept = default;
         explicit BindlessArrayBinding(uint64_t handle) noexcept
             : Argument::BindlessArray{.handle = handle} {}
-        [[nodiscard]] uint64_t hash() const noexcept;
+        [[nodiscard]] LUISA_AST_API uint64_t hash() const noexcept;
     };
 
     /**
@@ -107,7 +107,7 @@ public:
         AccelBinding() noexcept = default;
         explicit AccelBinding(uint64_t handle) noexcept
             : Argument::Accel{.handle = handle} {}
-        [[nodiscard]] uint64_t hash() const noexcept;
+        [[nodiscard]] LUISA_AST_API uint64_t hash() const noexcept;
     };
     using Binding = luisa::variant<
         luisa::monostate,// not bound
@@ -177,6 +177,8 @@ public:
     [[nodiscard]] bool requires_autodiff() const noexcept;
     /// Return whether the function requires printing
     [[nodiscard]] bool requires_printing() const noexcept;
+    /// Return whether calls to the function must not be inlined.
+    [[nodiscard]] bool requires_noinline() const noexcept;
     /// Return required curve bases
     [[nodiscard]] CurveBasisSet required_curve_bases() const noexcept;
     // warp size

@@ -1,4 +1,5 @@
 #include "helpers.h"
+#include "coro_frame_abi.h"
 
 #include <luisa/ast/type.h>
 #include <luisa/core/logging.h>
@@ -27,7 +28,8 @@ namespace luisa::compute::xir {
 
 namespace detail {
 
-static constexpr size_t FRAME_RESERVED_FIELD_COUNT = 7u;
+static constexpr size_t FRAME_RESERVED_FIELD_COUNT =
+    CORO_FRAME_RESERVED_FIELD_COUNT;
 static constexpr uint32_t FRAME_FIELD_TOKEN_CMAT = 6u;
 
 struct RegisterInfo {
@@ -139,13 +141,13 @@ struct RegisterInfo {
                                                  const CoroCfgDistillResult &cfg) noexcept {
     if (frame == nullptr || frame->type() == nullptr || !frame->type()->is_structure()) { return false; }
     auto members = frame->type()->members();
-    if (members.size() != FRAME_RESERVED_FIELD_COUNT + cfg.frame_values.size()) { return false; }
+    if (members.size() != FRAME_RESERVED_FIELD_COUNT + cfg.frame_slots.size()) { return false; }
     for (auto i = 0u; i < FRAME_RESERVED_FIELD_COUNT; ++i) {
         if (members[i] != Type::of<uint>()) { return false; }
     }
-    for (size_t i = 0u; i < cfg.frame_values.size(); ++i) {
-        if (cfg.frame_values[i].type == nullptr ||
-            members[FRAME_RESERVED_FIELD_COUNT + i] != cfg.frame_values[i].type) {
+    for (size_t i = 0u; i < cfg.frame_slots.size(); ++i) {
+        if (cfg.frame_slots[i].type == nullptr ||
+            members[FRAME_RESERVED_FIELD_COUNT + i] != cfg.frame_slots[i].type) {
             return false;
         }
     }
@@ -196,17 +198,17 @@ struct RegisterInfo {
     return valid;
 }
 
-static void clone_metadata(const MetadataListMixin &source,
+static void coro_materialize_clone_metadata(const MetadataListMixin &source,
                            MetadataListMixin &target) noexcept {
     for (auto *metadata : source.metadata_list()) {
         target.metadata_list().push_front(metadata->clone());
     }
 }
 
-static void clone_instruction_metadata(
+static void coro_materialize_clone_instruction_metadata(
     const Instruction *source, Instruction *target) noexcept {
     if (source == nullptr || target == nullptr) { return; }
-    clone_metadata(*source, *target);
+    coro_materialize_clone_metadata(*source, *target);
 }
 
 [[nodiscard]] static bool validate_resume_boundary(
@@ -328,7 +330,7 @@ static void process_callable(Module *mod, CallableFunction *func, Value *frame_a
         auto *tok_c = mod->create_constant(Type::of<uint32_t>(), &token);
         b.store(gep0, tok_c);
         auto *replacement = b.return_void();
-        clone_instruction_metadata(s, replacement);
+        coro_materialize_clone_instruction_metadata(s, replacement);
         s->remove_self();
         info.suspend_lowered_count++;
     }
@@ -352,7 +354,7 @@ static void process_callable(Module *mod, CallableFunction *func, Value *frame_a
         auto *term_c = mod->create_constant(Type::of<uint32_t>(), &term_tok);
         b.store(gep0, term_c);
         auto *replacement = b.return_void();
-        clone_instruction_metadata(t, replacement);
+        coro_materialize_clone_instruction_metadata(t, replacement);
         t->remove_self();
         info.terminal_lowered_count++;
     }
@@ -397,7 +399,7 @@ static void process_callable(Module *mod, CallableFunction *func, Value *frame_a
         // Resume has no runtime operation after materialization. Its parent
         // block is the unique continuation-entry boundary, so it owns the
         // source provenance once the marker is removed.
-        clone_metadata(*r, *r->parent_block());
+        coro_materialize_clone_metadata(*r, *r->parent_block());
         r->remove_self();
         info.resume_lowered_count++;
     }
@@ -446,32 +448,106 @@ static void populate_transition_edges(CoroMaterializeInfo &info,
     }
 }
 
-static void append_value_field_indices(luisa::vector<size_t> &dst,
-                                       const luisa::vector<Value *> &values,
-                                       const luisa::unordered_map<Value *, size_t> &field_map) noexcept {
-    luisa::unordered_set<size_t> seen;
-    for (auto *value : values) {
-        if (auto it = field_map.find(value); it != field_map.end()) {
-            auto field_index = it->second;
-            if (seen.emplace(field_index).second) {
-                dst.emplace_back(field_index);
-            }
+static void append_frame_value_field_indices(
+    luisa::vector<size_t> &dst,
+    luisa::span<const size_t> frame_value_indices,
+    const CoroCfgDistillResult &cfg) noexcept {
+    luisa::unordered_set<size_t> seen{dst.begin(), dst.end()};
+    for (auto frame_value_index : frame_value_indices) {
+        if (frame_value_index >= cfg.frame_values.size()) { continue; }
+        auto field_index = FRAME_RESERVED_FIELD_COUNT +
+                           cfg.frame_values[frame_value_index].slot;
+        if (seen.emplace(field_index).second) {
+            dst.emplace_back(field_index);
         }
     }
     luisa::sort(dst.begin(), dst.end());
 }
 
+[[nodiscard]] static luisa::vector<luisa::vector<size_t>>
+collect_partial_packed_word_input_fields(
+    const CoroCfgDistillResult &cfg) noexcept {
+    // A packed word is an indivisible physical transfer resource even though
+    // its logical Boolean values are independently live. For an outgoing
+    // edge e and physical word w, let D(e, w) be the mask of lanes stored by
+    // the continuation and L(e, w) the mask live after the transition. The
+    // split callable performs a read-modify-write when D is non-empty. It
+    // therefore needs the old physical word at entry exactly when
+    //
+    //     D(e, w) != 0 and (L(e, w) - D(e, w)) != 0.
+    //
+    // The second term denotes lanes that must pass through unchanged. Logical
+    // live-in alone is insufficient: a continuation need not evaluate those
+    // dormant values, while a compacting scheduler still has to preserve
+    // their bits during the whole-word store.
+    luisa::vector<luisa::vector<size_t>> fields(cfg.scopes.size());
+    luisa::vector<uint32_t> stored_masks(cfg.frame_slots.size(), 0u);
+    luisa::vector<uint32_t> live_masks(cfg.frame_slots.size(), 0u);
+    for (auto &transition : cfg.transition_edges) {
+        if (transition.from_scope >= fields.size()) { continue; }
+        std::fill(stored_masks.begin(), stored_masks.end(), 0u);
+        std::fill(live_masks.begin(), live_masks.end(), 0u);
+        for (auto index : transition.store_frame_value_indices) {
+            if (index >= cfg.frame_values.size()) { continue; }
+            auto &value = cfg.frame_values[index];
+            if (value.bit_offset && value.slot < stored_masks.size()) {
+                stored_masks[value.slot] |=
+                    uint32_t{1u} << *value.bit_offset;
+            }
+        }
+        for (auto index : transition.live_frame_value_indices) {
+            if (index >= cfg.frame_values.size()) { continue; }
+            auto &value = cfg.frame_values[index];
+            if (value.bit_offset && value.slot < live_masks.size()) {
+                live_masks[value.slot] |=
+                    uint32_t{1u} << *value.bit_offset;
+            }
+        }
+        auto &scope_fields = fields[transition.from_scope];
+        for (size_t slot = 0u; slot < stored_masks.size(); ++slot) {
+            auto stored = stored_masks[slot];
+            auto pass_through = live_masks[slot] & ~stored;
+            if (stored != 0u && pass_through != 0u) {
+                auto field = FRAME_RESERVED_FIELD_COUNT + slot;
+                if (std::find(scope_fields.begin(), scope_fields.end(), field) ==
+                    scope_fields.end()) {
+                    scope_fields.emplace_back(field);
+                }
+            }
+        }
+    }
+    for (auto &scope_fields : fields) {
+        luisa::sort(scope_fields.begin(), scope_fields.end());
+    }
+    return fields;
+}
+
 static void populate_value_transition_edges(CoroMaterializeInfo &info,
-                                            const CoroCfgDistillResult &cfg,
-                                            const luisa::unordered_map<Value *, size_t> &field_map) noexcept {
+                                            const CoroCfgDistillResult &cfg) noexcept {
     info.edges.clear();
+    auto partial_word_inputs =
+        collect_partial_packed_word_input_fields(cfg);
     for (auto &transition : cfg.transition_edges) {
         if (transition.to_scope >= cfg.scopes.size()) { continue; }
         CoroMaterializeInfo::TransitionEdge edge;
         edge.from_scope = transition.from_scope;
         edge.to_scope = transition.to_scope;
-        append_value_field_indices(edge.store_fields, transition.store_values, field_map);
-        append_value_field_indices(edge.load_fields, cfg.scopes[transition.to_scope].live_in_values, field_map);
+        append_frame_value_field_indices(
+            edge.store_fields, transition.store_frame_value_indices, cfg);
+        append_frame_value_field_indices(
+            edge.load_fields,
+            cfg.scopes[transition.to_scope].live_in_frame_value_indices,
+            cfg);
+        if (transition.to_scope < partial_word_inputs.size()) {
+            auto &preserved = partial_word_inputs[transition.to_scope];
+            for (auto field : preserved) {
+                if (std::find(edge.load_fields.begin(), edge.load_fields.end(),
+                              field) == edge.load_fields.end()) {
+                    edge.load_fields.emplace_back(field);
+                }
+            }
+            luisa::sort(edge.load_fields.begin(), edge.load_fields.end());
+        }
         info.edges.emplace_back(std::move(edge));
     }
 }
@@ -706,15 +782,14 @@ CoroMaterializeInfo coro_materialize_pass_run_on_module_with_cfg(
     for (auto &subroutine : split.subroutines) {
         subroutines[subroutine.scope_index] = &subroutine;
     }
-    luisa::unordered_map<Value *, size_t> value_field_map;
     info.register_count = cfg.frame_values.size();
-    info.frame_field_count = detail::FRAME_RESERVED_FIELD_COUNT + cfg.frame_values.size();
-    info.frame_fields.reserve(cfg.frame_values.size());
+    info.frame_field_count = detail::FRAME_RESERVED_FIELD_COUNT + cfg.frame_slots.size();
+    info.frame_fields.reserve(cfg.frame_slots.size());
     luisa::unordered_set<luisa::string> used_names;
-    for (size_t i = 0u; i < cfg.frame_values.size(); ++i) {
-        auto &value = cfg.frame_values[i];
+    for (size_t i = 0u; i < cfg.frame_slots.size(); ++i) {
+        auto &slot = cfg.frame_slots[i];
         auto field_index = i + detail::FRAME_RESERVED_FIELD_COUNT;
-        auto name = value.name;
+        auto name = slot.name;
         if (!used_names.emplace(name).second) {
             auto base = name;
             auto suffix = i;
@@ -724,14 +799,42 @@ CoroMaterializeInfo coro_materialize_pass_run_on_module_with_cfg(
         }
         info.frame_fields.emplace_back(CoroMaterializeInfo::FrameField{
             .name = name,
-            .type = value.type,
+            .type = slot.type,
             .index = field_index,
         });
         info.name_to_field.emplace(name, field_index);
-        info.name_to_type.emplace(name, value.type);
-        value_field_map.emplace(value.value, field_index);
+        info.name_to_type.emplace(name, slot.type);
     }
-    detail::populate_value_transition_edges(info, cfg, value_field_map);
+    for (auto &value : cfg.frame_values) {
+        auto field_index =
+            detail::FRAME_RESERVED_FIELD_COUNT + value.slot;
+        auto *physical_type = cfg.frame_slots[value.slot].type;
+        auto [field_iter, field_inserted] =
+            info.name_to_field.emplace(value.name, field_index);
+        auto [type_iter, type_inserted] =
+            info.name_to_type.emplace(value.name, physical_type);
+        LUISA_ASSERT(
+            (field_inserted || field_iter->second == field_index) &&
+                (type_inserted || type_iter->second == physical_type),
+            "Coroutine logical frame alias '{}' is inconsistent with its "
+            "physical slot.",
+            value.name);
+        for (auto &alias : value.aliases) {
+            auto [alias_field_iter, alias_field_inserted] =
+                info.name_to_field.emplace(alias, field_index);
+            auto [alias_type_iter, alias_type_inserted] =
+                info.name_to_type.emplace(alias, physical_type);
+            LUISA_ASSERT(
+                (alias_field_inserted ||
+                 alias_field_iter->second == field_index) &&
+                    (alias_type_inserted ||
+                     alias_type_iter->second == physical_type),
+                "Coroutine designated frame alias '{}' is inconsistent "
+                "with its physical slot.",
+                alias);
+        }
+    }
+    detail::populate_value_transition_edges(info, cfg);
 
     for (auto *subroutine : subroutines) {
         if (subroutine == nullptr) { continue; }

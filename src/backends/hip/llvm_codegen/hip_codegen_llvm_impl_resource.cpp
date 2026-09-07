@@ -1106,7 +1106,11 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_resource_query_inst(IB &b, FunctionC
             auto llvm_mask_ptr = b.CreateStructGEP(llvm_instance_type, llvm_instance_ptr, llvm_accel_instance_type_mask_index);
             auto llvm_mask = b.CreateLoad(llvm_instance_type->getStructElementType(llvm_accel_instance_type_mask_index), llvm_mask_ptr);
             auto llvm_result_type = _get_llvm_type(inst->type())->reg_type;
-            return b.CreateZExtOrTrunc(llvm_mask, llvm_result_type);
+            return b.CreateZExtOrTrunc(
+                b.CreateAnd(
+                    llvm_mask,
+                    llvm_accel_instance_visibility_mask_bits),
+                llvm_result_type);
         }
         case xir::ResourceQueryOp::RAY_TRACING_INSTANCE_MOTION_MATRIX: {
             LUISA_DEBUG_ASSERT(inst->type() == Type::of<luisa::float4x4>());
@@ -1220,13 +1224,17 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_resource_query_inst(IB &b, FunctionC
             auto llvm_dz = b.CreateExtractValue(llvm_ray, {llvm_ray_type_direction_index, 2u});
             // flags: 1 = terminate-on-first-hit (for "any" queries)
             auto llvm_flags = b.getInt32(is_any ? 1u : 0u);
+            auto llvm_state_address = b.CreatePtrToInt(
+                func_ctx.llvm_rq_state, _get_llvm_ray_query_type(),
+                "ray.query.state.address");
             llvm::SmallVector<llvm::Value *, 16> llvm_initialize_args{
                 llvm_accel_handle,
                 llvm_instance_data,
                 llvm_ox, llvm_oy, llvm_oz,
                 llvm_dx, llvm_dy, llvm_dz,
                 llvm_ray_t_min, llvm_ray_t_max};
-            if (!_uses_hardware_rt_stack) {
+            if (!_uses_hardware_rt_stack ||
+                !func_ctx.llvm_rq_state_uses_resumable_abi) {
                 llvm_initialize_args.emplace_back(llvm_time);
             }
             llvm_initialize_args.emplace_back(llvm_mask);
@@ -1239,20 +1247,12 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_resource_query_inst(IB &b, FunctionC
                 llvm_initialize_args);
             // Ray-query operations must follow the object operand instead of
             // implicitly using the current function's state. In particular,
-            // lower_ray_query_loop outlines candidate handlers into separate
+            // lower_ray_query_to_pipeline outlines candidate handlers into separate
             // callables, each of which has its own local state allocation.
             // Encode this query's actual private state pointer in the opaque
             // object so a reference passed to an outlined handler still refers
             // to the traversal initialized above.
-            auto llvm_query = static_cast<llvm::Value *>(
-                llvm::Constant::getNullValue(_get_llvm_ray_query_type()));
-            auto llvm_state_address = b.CreatePtrToInt(
-                func_ctx.llvm_rq_state, b.getInt64Ty(),
-                "ray.query.state.address");
-            return b.CreateInsertValue(
-                llvm_query, llvm_state_address,
-                llvm_ray_query_type_state_index,
-                "ray.query.object");
+            return llvm_state_address;
         }
         default: LUISA_NOT_IMPLEMENTED();
     }
@@ -1485,6 +1485,60 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_resource_read_inst(IB &b, const Func
             auto llvm_ptr = b.CreateIntToPtr(llvm_address, b.getPtrTy());
             return _load_llvm_value(b, llvm_ptr, inst->type());
         }
+        case xir::ResourceReadOp::COOPERATIVE_MUL_ADD:
+        case xir::ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD:
+        case xir::ResourceReadOp::COOPERATIVE_MUL:
+        case xir::ResourceReadOp::BINDLESS_COOPERATIVE_MUL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LOAD:
+        case xir::ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SPLAT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_CAST:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD:
+        // Future cooperative-vector element-wise operations — TODO: implement
+        // in the HIP LLVM backend.
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_DOT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ABS:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SIGN:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_FLOOR:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_CEIL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_FRACT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_TRUNC:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ROUND:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_RINT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SQRT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_RSQRT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_EXP2:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_EXP10:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LOG2:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LOG10:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SATURATE:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ISINF:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ISNAN:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SIN:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_COS:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_TAN:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ASIN:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ACOS:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SINH:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_COSH:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ASINH:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ACOSH:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ATANH:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_MIX:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LERP:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_POW:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_STEP:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SMOOTHSTEP:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ADD:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SUB:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_MUL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_DIV:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LESS:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LESS_EQUAL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_GREATER:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_GREATER_EQUAL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_EQUAL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_NOT_EQUAL: break;
     }
     LUISA_NOT_IMPLEMENTED();
 }
@@ -1643,10 +1697,20 @@ void HIPCodegenLLVMImpl::_translate_resource_write_inst(IB &b, FunctionContext &
             auto llvm_instance_index = _get_llvm_value(b, func_ctx, inst->operand(1));
             auto llvm_instance_type = _get_llvm_accel_instance_type();
             auto llvm_mask_type = llvm_instance_type->getStructElementType(llvm_accel_instance_type_mask_index);
-            auto llvm_mask = b.CreateZExtOrTrunc(_get_llvm_value(b, func_ctx, inst->operand(2)), llvm_mask_type);
             auto llvm_instance_ptr = _get_accel_instance_pointer(b, llvm_accel, llvm_instance_index);
             auto llvm_mask_ptr = b.CreateStructGEP(llvm_instance_type, llvm_instance_ptr, llvm_accel_instance_type_mask_index);
-            b.CreateStore(llvm_mask, llvm_mask_ptr);
+            auto llvm_old_mask = b.CreateLoad(llvm_mask_type, llvm_mask_ptr);
+            auto llvm_public_mask = b.CreateAnd(
+                b.CreateZExtOrTrunc(
+                    _get_llvm_value(b, func_ctx, inst->operand(2)),
+                    llvm_mask_type),
+                llvm_accel_instance_visibility_mask_bits);
+            auto llvm_packed_opacity = b.CreateAnd(
+                llvm_old_mask,
+                llvm_accel_instance_packed_opacity_bit);
+            b.CreateStore(
+                b.CreateOr(llvm_packed_opacity, llvm_public_mask),
+                llvm_mask_ptr);
             return;
         }
         case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_OPACITY: {
@@ -1713,6 +1777,11 @@ void HIPCodegenLLVMImpl::_translate_resource_write_inst(IB &b, FunctionContext &
             }
             return;
         }
+        case xir::ResourceWriteOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE:
+        case xir::ResourceWriteOp::COOPERATIVE_VECTOR_ACCUMULATE:
+        case xir::ResourceWriteOp::COOPERATIVE_VECTOR_STORE:
+        case xir::ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE:
+        case xir::ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE: break;
     }
     LUISA_NOT_IMPLEMENTED();
 }
@@ -1900,16 +1969,48 @@ void HIPCodegenLLVMImpl::_store_accel_affine_matrix(IB &b, llvm::Value *affine_p
 void HIPCodegenLLVMImpl::_set_accel_instance_opacity(IB &b, llvm::Value *accel, llvm::Value *instance_index, llvm::Value *is_opaque) noexcept {
     LUISA_DEBUG_ASSERT(is_opaque->getType()->isIntegerTy(1));
     auto instance_ptr = _get_accel_instance_pointer(b, accel, instance_index);
+    auto instances = b.CreateExtractValue(
+        accel, llvm_accel_type_instances_index);
+    auto metadata_ptr = b.CreateInBoundsGEP(
+        b.getInt8Ty(), instances,
+        b.getInt64(-static_cast<int64_t>(llvm_accel_metadata_size)),
+        "accel.metadata");
     using namespace std::string_view_literals;
     auto name = "luisa.accel.set.instance.opacity"sv;
     auto f = _llvm_module->getFunction(name);
     if (f == nullptr) {
         auto void_type = llvm::Type::getVoidTy(_llvm_context);
-        auto f_type = llvm::FunctionType::get(void_type, {instance_ptr->getType(), is_opaque->getType()}, false);
+        auto f_type = llvm::FunctionType::get(
+            void_type,
+            {instance_ptr->getType(), metadata_ptr->getType(),
+             is_opaque->getType()}, false);
         f = llvm::Function::Create(f_type, llvm::Function::PrivateLinkage, name, *_llvm_module);
-        f->addFnAttr(llvm::Attribute::AlwaysInline);
         auto entry = llvm::BasicBlock::Create(_llvm_context, "entry", f);
         IB fb{entry};
+        // The certificate is monotone. An atomic OR linearizes concurrent
+        // transitions to opaque; transitions to non-opaque deliberately leave
+        // it set. Codegen rejects the native effect-only route for any module
+        // that writes opacity, while later kernels still observe this durable
+        // proof invalidation.
+        auto mark_opaque = llvm::BasicBlock::Create(
+            _llvm_context, "mark.opaque", f);
+        auto update_instance = llvm::BasicBlock::Create(
+            _llvm_context, "update.instance", f);
+        fb.CreateCondBr(f->getArg(2), mark_opaque, update_instance);
+        fb.SetInsertPoint(mark_opaque);
+        auto certificate_ptr = fb.CreateInBoundsGEP(
+            fb.getInt8Ty(), f->getArg(1),
+            fb.getInt64(
+                llvm_accel_metadata_opacity_may_be_present_offset));
+        auto certificate = fb.CreateAtomicRMW(
+            llvm::AtomicRMWInst::Or, certificate_ptr,
+            fb.getInt32(1u), llvm::MaybeAlign{alignof(uint32_t)},
+            llvm::AtomicOrdering::Monotonic);
+        certificate->setSyncScopeID(
+            _llvm_context.getOrInsertSyncScopeID("agent"));
+        fb.CreateBr(update_instance);
+
+        fb.SetInsertPoint(update_instance);
         auto flags_ptr = fb.CreateStructGEP(_get_llvm_accel_instance_type(), f->getArg(0), llvm_accel_instance_type_flags_index);
         auto flags = fb.CreateLoad(fb.getInt32Ty(), flags_ptr);
         // HIP's codegen-visible instance ABI reserves bit 0 for opacity for
@@ -1917,13 +2018,29 @@ void HIPCodegenLLVMImpl::_set_accel_instance_opacity(IB &b, llvm::Value *accel, 
         // HIP ray-query traversal reads this compact flag word directly.
         constexpr auto instance_flag_opaque = 1u << 0u;
         auto cleared_flags = fb.CreateAnd(flags, ~instance_flag_opaque);
-        auto new_flag_bit = fb.CreateSelect(f->getArg(1),
+        auto new_flag_bit = fb.CreateSelect(f->getArg(2),
                                             fb.getInt32(instance_flag_opaque),
                                             fb.getInt32(0u));
         fb.CreateStore(fb.CreateOr(cleared_flags, new_flag_bit), flags_ptr);
+        // Mirror opacity into the private high bit of the packed visibility
+        // field. HIPAccel copies that field into HIPRT's instance node on the
+        // next build/refit; public visibility reads and writes mask it out.
+        auto mask_ptr = fb.CreateStructGEP(
+            _get_llvm_accel_instance_type(), f->getArg(0),
+            llvm_accel_instance_type_mask_index);
+        auto mask = fb.CreateLoad(fb.getInt32Ty(), mask_ptr);
+        auto cleared_mask = fb.CreateAnd(
+            mask, ~llvm_accel_instance_packed_opacity_bit);
+        auto new_packed_opacity = fb.CreateSelect(
+            f->getArg(2),
+            fb.getInt32(llvm_accel_instance_packed_opacity_bit),
+            fb.getInt32(0u));
+        fb.CreateStore(
+            fb.CreateOr(cleared_mask, new_packed_opacity),
+            mask_ptr);
         fb.CreateRetVoid();
     }
-    b.CreateCall(f, {instance_ptr, is_opaque});
+    b.CreateCall(f, {instance_ptr, metadata_ptr, is_opaque});
 }
 
 llvm::Value *HIPCodegenLLVMImpl::_accel_trace_closest(

@@ -101,6 +101,12 @@ class RayQueryAllType:
                                     [self.expr])
         return Ray, expr
     @BuiltinFuncBuilder
+    def object_space_ray(self):
+        expr = lcapi.builder().call(to_lctype(Ray),
+                                    lcapi.CallOp.RAY_QUERY_OBJECT_SPACE_RAY,
+                                    [self.expr])
+        return Ray, expr
+    @BuiltinFuncBuilder
     def proceed(self):
         expr = lcapi.builder().call(to_lctype(bool),
                                     lcapi.CallOp.RAY_QUERY_PROCEED,
@@ -175,6 +181,12 @@ class RayQueryAnyType:
     def world_space_ray(self):
         expr = lcapi.builder().call(to_lctype(Ray),
                                     lcapi.CallOp.RAY_QUERY_WORLD_SPACE_RAY,
+                                    [self.expr])
+        return Ray, expr
+    @BuiltinFuncBuilder
+    def object_space_ray(self):
+        expr = lcapi.builder().call(to_lctype(Ray),
+                                    lcapi.CallOp.RAY_QUERY_OBJECT_SPACE_RAY,
                                     [self.expr])
         return Ray, expr
 

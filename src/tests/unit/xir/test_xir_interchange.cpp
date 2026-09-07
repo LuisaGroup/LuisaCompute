@@ -18,6 +18,7 @@
 #include <luisa/xir/metadata/curve_basis.h>
 #include <luisa/xir/metadata/location.h>
 #include <luisa/xir/metadata/name.h>
+#include <luisa/xir/metadata/no_inline.h>
 #include <luisa/xir/metadata/reg2mem_spill.h>
 #include <luisa/xir/metadata/signature_constraint.h>
 #include <luisa/xir/module.h>
@@ -45,6 +46,7 @@ namespace {
 }
 
 void attach_all_metadata(MetadataListMixin &owner, luisa::string_view prefix) {
+    owner.metadata_list().push_front(luisa::make_managed<NoInlineMD>());
     owner.metadata_list().push_front(luisa::make_managed<SignatureConstraintMD>());
     owner.metadata_list().push_front(luisa::make_managed<CurveBasisMD>(
         CurveBasisSet::make(CurveBasis::PIECEWISE_LINEAR,
@@ -63,7 +65,8 @@ void expect_all_metadata(const MetadataListMixin &owner, luisa::string_view pref
         DerivedMetadataTag::LOCATION,
         DerivedMetadataTag::COMMENT,
         DerivedMetadataTag::CURVE_BASIS,
-        DerivedMetadataTag::SIGNATURE_CONSTRAINT};
+        DerivedMetadataTag::SIGNATURE_CONSTRAINT,
+        DerivedMetadataTag::NO_INLINE};
     size_t index = 0u;
     for (auto metadata : owner.metadata_list()) {
         expect(index < expected_tags.size());
@@ -118,6 +121,9 @@ void expect_all_metadata(const MetadataListMixin &owner, luisa::string_view pref
             }
             case 5u:
                 expect(metadata->isa<SignatureConstraintMD>());
+                break;
+            case 6u:
+                expect(metadata->isa<NoInlineMD>());
                 break;
             default: break;
         }
@@ -375,6 +381,102 @@ void reg_semantic_module_round_trip() {
     };
 }
 
+void reg_bindless_access_round_trip() {
+    "xir_interchange_bindless_access_axes_round_trip"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *bindless = kernel->create_resource_argument(
+            Type::from("bindless_array"));
+        auto *body = kernel->create_body_block();
+        auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+        auto *one = module.create_constant_one(Type::of<uint32_t>());
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        builder.call(
+            Type::of<uint32_t>(), ResourceReadOp::BINDLESS_BUFFER_READ,
+            {bindless, zero, zero},
+            {.typed = true, .uniform = true});
+        builder.call(
+            Type::of<uint32_t>(), ResourceQueryOp::BINDLESS_BUFFER_SIZE,
+            {bindless, zero, one},
+            {.typed = false, .uniform = true});
+        builder.call(
+            ResourceWriteOp::BINDLESS_BUFFER_WRITE,
+            {bindless, zero, zero, one},
+            {.typed = true, .uniform = false});
+        builder.return_void();
+        expect(xir_verify_module(&module).succeeded());
+
+        auto text = xir_to_interchange_text(&module);
+        expect(text.succeeded());
+        if (!text.succeeded()) { return; }
+        auto decoded = xir_from_interchange_text(text.text);
+        expect(decoded.succeeded());
+        if (!decoded.succeeded()) { return; }
+
+        std::array<bool, 3u> found{};
+        for (auto *function : decoded.module->function_list()) {
+            for (auto *block : function->basic_blocks()) {
+                for (auto *instruction : block->instructions()) {
+                    if (instruction->isa<ResourceReadInst>()) {
+                        auto access = static_cast<ResourceReadInst *>(
+                                          instruction)
+                                          ->bindless_access();
+                        found[0] |= access == BindlessResourceAccess{
+                                                  .typed = true,
+                                                  .uniform = true};
+                    } else if (instruction->isa<ResourceQueryInst>()) {
+                        auto access = static_cast<ResourceQueryInst *>(
+                                          instruction)
+                                          ->bindless_access();
+                        found[1] |= access == BindlessResourceAccess{
+                                                  .typed = false,
+                                                  .uniform = true};
+                    } else if (instruction->isa<ResourceWriteInst>()) {
+                        auto access = static_cast<ResourceWriteInst *>(
+                                          instruction)
+                                          ->bindless_access();
+                        found[2] |= access == BindlessResourceAccess{
+                                                  .typed = true,
+                                                  .uniform = false};
+                    }
+                }
+            }
+        }
+        expect(found[0] && found[1] && found[2]);
+        auto canonical = xir_to_interchange_text(decoded.module.get());
+        expect(canonical.succeeded());
+        expect(canonical.text == text.text);
+
+        auto bitcode = xir_to_bitcode(&module);
+        expect(bitcode.succeeded());
+        auto decoded_bitcode = xir_from_bitcode(bitcode.bitcode);
+        expect(decoded_bitcode.succeeded());
+        if (decoded_bitcode.succeeded()) {
+            auto bitcode_text = xir_to_interchange_text(
+                decoded_bitcode.module.get());
+            expect(bitcode_text.succeeded());
+            expect(bitcode_text.text == text.text);
+        }
+    };
+
+    "xir_interchange_rejects_bindless_access_on_direct_resource"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *buffer = kernel->create_resource_argument(
+            Type::buffer(Type::of<uint32_t>()));
+        auto *body = kernel->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        builder.call(
+            Type::of<uint32_t>(), ResourceQueryOp::BUFFER_SIZE,
+            {buffer}, {.typed = true});
+        builder.return_void();
+        expect(!xir_verify_module(&module).succeeded());
+        expect(!xir_to_interchange_text(&module).succeeded());
+    };
+}
+
 void reg_unsupported_instruction_fails_closed() {
     "xir_interchange_debug_break_null_callback_round_trip"_test = [] {
         Module module;
@@ -494,7 +596,10 @@ void reg_vulkan_priority_instruction_round_trip() {
         auto int_type = Type::of<int32_t>();
         auto uint_type = Type::of<uint32_t>();
         auto ulong_type = Type::of<uint64_t>();
+        auto float_type = Type::of<float>();
         auto buffer_type = Type::buffer(int_type);
+        float depth_value = 0.5f;
+        auto depth = module.create_constant(float_type, &depth_value);
 
         auto resource_callable = module.create_callable(nullptr);
         auto buffer = resource_callable->create_resource_argument(buffer_type);
@@ -509,6 +614,7 @@ void reg_vulkan_priority_instruction_round_trip() {
         builder.atomic_fetch_add(int_type, buffer, luisa::span<Value *const>{atomic_indices}, value);
         auto warp_sum = builder.call(int_type, ThreadGroupOp::WARP_ACTIVE_SUM, {value});
         builder.call(ResourceWriteOp::BUFFER_WRITE, {buffer, index, warp_sum});
+        builder.call(nullptr, ThreadGroupOp::RASTER_SET_Z_DEPTH, {depth});
         builder.return_void();
 
         auto break_callable = module.create_callable(nullptr);
@@ -540,6 +646,7 @@ void reg_vulkan_priority_instruction_round_trip() {
         expect(encoded.text.find("resource_read \"int\" buffer_read") != luisa::string::npos);
         expect(encoded.text.find("atomic \"int\" fetch_add") != luisa::string::npos);
         expect(encoded.text.find("thread_group \"int\" warp_active_sum") != luisa::string::npos);
+        expect(encoded.text.find("thread_group \"void\" raster_set_z_depth") != luisa::string::npos);
         expect(encoded.text.find("resource_write \"void\" buffer_write") != luisa::string::npos);
         expect(encoded.text.find(" break \"void\" -1") != luisa::string::npos);
         expect(encoded.text.find(" continue \"void\" -1") != luisa::string::npos);
@@ -547,7 +654,7 @@ void reg_vulkan_priority_instruction_round_trip() {
         auto decoded = xir_from_interchange_text(encoded.text);
         expect(decoded.succeeded());
         if (!decoded.succeeded()) { return; }
-        std::array seen{false, false, false, false, false, false, false};
+        std::array seen{false, false, false, false, false, false, false, false};
         for (auto function : decoded.module->function_list()) {
             for (auto block : function->basic_blocks()) {
                 for (auto instruction : block->instructions()) {
@@ -562,7 +669,8 @@ void reg_vulkan_priority_instruction_round_trip() {
                             seen[2] = static_cast<AtomicInst *>(instruction)->op() == AtomicOp::FETCH_ADD;
                             break;
                         case DerivedInstructionTag::THREAD_GROUP:
-                            seen[3] = static_cast<ThreadGroupInst *>(instruction)->op() == ThreadGroupOp::WARP_ACTIVE_SUM;
+                            seen[3] |= static_cast<ThreadGroupInst *>(instruction)->op() == ThreadGroupOp::WARP_ACTIVE_SUM;
+                            seen[7] |= static_cast<ThreadGroupInst *>(instruction)->op() == ThreadGroupOp::RASTER_SET_Z_DEPTH;
                             break;
                         case DerivedInstructionTag::RESOURCE_WRITE:
                             seen[4] = static_cast<ResourceWriteInst *>(instruction)->op() == ResourceWriteOp::BUFFER_WRITE;
@@ -1095,6 +1203,149 @@ void reg_remaining_misc_instruction_round_trip() {
         expect(canonical.succeeded());
         expect(canonical.text == encoded.text);
     };
+
+    "xir_interchange_preserves_complete_suspend_extensions"_test = [] {
+        Module module;
+        auto *function = module.create_callable(nullptr);
+        auto *read_value =
+            function->create_value_argument(Type::of<uint>());
+        auto *write_value =
+            function->create_reference_argument(Type::of<uint>());
+        auto *sort_value =
+            function->create_value_argument(Type::of<uint>());
+        auto *body = function->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+
+        luisa::vector<CoroSuspendExtensionPtr> extensions;
+        extensions.emplace_back(make_coro_suspend_extension_data(
+            "com.example.nn-shade", 7u,
+            CoroSuspendFallback::reject,
+            {{.name = "input",
+              .access = CoroSuspendBindingAccess::read,
+              .lifetime = CoroSuspendBindingLifetime::boundary,
+              .index = 0u},
+             {.name = "output",
+              .access = CoroSuspendBindingAccess::write,
+              .lifetime = CoroSuspendBindingLifetime::resumed,
+              .index = 1u}},
+            {{.name = "weight", .value = -0.0},
+             {.name = "unsigned",
+              .value = std::numeric_limits<uint64_t>::max()},
+             {.name = "string",
+              .value = luisa::string{"quoted=\"yes\"\nnext"}},
+             {.name = "signed", .value = int64_t{-17}},
+             {.name = "flag", .value = true}}));
+        extensions.emplace_back(make_coro_suspend_annotation_data(
+            "luisa.coro.schedule.sort", 1u,
+            CoroSuspendFallback::ignore,
+            {{.name = "key",
+              .access = CoroSuspendBindingAccess::read,
+              .lifetime = CoroSuspendBindingLifetime::queued,
+              .index = 2u}},
+            {{.name = "range", .value = uint64_t{4096u}}}));
+        luisa::vector<luisa::string> frame_export_names{"legacy"};
+        luisa::vector<Value *> frame_export_values{read_value};
+        luisa::vector<Value *> binding_values{
+            read_value, write_value, sort_value};
+        builder.coro_suspend(
+            29u, "full-extension", nullptr,
+            luisa::span{frame_export_names},
+            luisa::span{frame_export_values},
+            std::move(extensions), luisa::span{binding_values});
+
+        expect(xir_verify_module(&module).succeeded());
+        auto encoded = xir_to_interchange_text(&module);
+        expect(encoded.succeeded())
+            << (encoded.diagnostics.empty() ?
+                    luisa::string{"missing diagnostic"} :
+                    encoded.diagnostics.front().message);
+        if (!encoded.succeeded()) { return; }
+        expect(encoded.text.find("com.example.nn-shade") !=
+               luisa::string::npos);
+        expect(encoded.text.find("luisa.coro.schedule.sort") !=
+               luisa::string::npos);
+
+        auto decoded = xir_from_interchange_text(encoded.text);
+        expect(decoded.succeeded());
+        if (!decoded.succeeded()) { return; }
+        const CoroSuspendInst *suspend = nullptr;
+        for (auto *decoded_function :
+             decoded.module->function_list()) {
+            for (auto *block : decoded_function->basic_blocks()) {
+                for (auto *instruction : block->instructions()) {
+                    if (instruction->isa<CoroSuspendInst>()) {
+                        suspend = static_cast<const CoroSuspendInst *>(
+                            instruction);
+                    }
+                }
+            }
+        }
+        expect(suspend != nullptr);
+        if (suspend == nullptr) { return; }
+        expect(suspend->token() == 29u);
+        expect(suspend->name() == "full-extension");
+        expect(suspend->frame_export_count() == 1u);
+        expect(suspend->frame_export_name(0u) == "legacy");
+        expect(suspend->extensions().size() == 2u);
+        expect(suspend->extension_binding_value_count() == 3u);
+        expect(!suspend->extension_binding_value(0u)->is_lvalue());
+        expect(suspend->extension_binding_value(1u)->is_lvalue());
+        expect(!suspend->extension_binding_value(2u)->is_lvalue());
+        if (suspend->extensions().size() == 2u) {
+            auto &&semantic = suspend->extensions()[0u];
+            auto &&annotation = suspend->extensions()[1u];
+            expect(semantic->schema() == "com.example.nn-shade");
+            expect(semantic->version() == 7u);
+            expect(!semantic->is_annotation());
+            expect(semantic->fallback() ==
+                   CoroSuspendFallback::reject);
+            expect(semantic->bindings().size() == 2u);
+            expect(semantic->attributes().size() == 5u);
+            for (auto &&attribute : semantic->attributes()) {
+                if (attribute.name == "flag") {
+                    expect(luisa::get<bool>(attribute.value));
+                } else if (attribute.name == "signed") {
+                    expect(luisa::get<int64_t>(attribute.value) == -17);
+                } else if (attribute.name == "unsigned") {
+                    expect(luisa::get<uint64_t>(attribute.value) ==
+                           std::numeric_limits<uint64_t>::max());
+                } else if (attribute.name == "weight") {
+                    expect(luisa::bit_cast<uint64_t>(
+                               luisa::get<double>(attribute.value)) ==
+                           luisa::bit_cast<uint64_t>(-0.0));
+                } else if (attribute.name == "string") {
+                    expect(luisa::get<luisa::string>(attribute.value) ==
+                           "quoted=\"yes\"\nnext");
+                }
+            }
+            expect(annotation->schema() ==
+                   "luisa.coro.schedule.sort");
+            expect(annotation->is_annotation());
+            expect(annotation->fallback() ==
+                   CoroSuspendFallback::ignore);
+            expect(luisa::get<uint64_t>(
+                       annotation->attributes().front().value) ==
+                   4096u);
+        }
+        auto canonical = xir_to_interchange_text(
+            decoded.module.get());
+        expect(canonical.succeeded());
+        expect(canonical.text == encoded.text);
+
+        auto bitcode = xir_to_bitcode(decoded.module.get());
+        expect(bitcode.succeeded());
+        if (bitcode.succeeded()) {
+            auto bitcode_decoded = xir_from_bitcode(bitcode.bitcode);
+            expect(bitcode_decoded.succeeded());
+            if (bitcode_decoded.succeeded()) {
+                auto round_trip = xir_to_interchange_text(
+                    bitcode_decoded.module.get());
+                expect(round_trip.succeeded());
+                expect(round_trip.text == encoded.text);
+            }
+        }
+    };
 }
 
 void reg_autodiff_and_outline_round_trip() {
@@ -1201,6 +1452,7 @@ void reg_ray_query_instruction_round_trip() {
         auto distance = object_function->create_value_argument(float_type);
         builder.set_insertion_point(object_function->create_body_block());
         builder.call(ray, RayQueryObjectReadOp::RAY_QUERY_OBJECT_WORLD_SPACE_RAY, {query});
+        builder.call(ray, RayQueryObjectReadOp::RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY, {query});
         builder.call(procedural_hit, RayQueryObjectReadOp::RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT, {query});
         builder.call(surface_hit, RayQueryObjectReadOp::RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT, {query});
         builder.call(committed_hit, RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT, {query});
@@ -1279,7 +1531,7 @@ void reg_ray_query_instruction_round_trip() {
         }
         expect(counts[0u] == 1u);
         expect(counts[1u] == 1u);
-        expect(counts[2u] == 7u);
+        expect(counts[2u] == 8u);
         expect(counts[3u] == 4u);
         expect(counts[4u] == 1u);
         auto canonical = xir_to_interchange_text(decoded.module.get());
@@ -1611,6 +1863,12 @@ void reg_instruction_type_validation() {
         auto zero_float = module.create_constant_zero(float_type);
         auto float2_zero = module.create_constant_zero(float2_type);
         auto matrix2_zero = module.create_constant_zero(Type::matrix(2u));
+        int32_t negative_index_value = -1;
+        uint32_t upper_bound_index_value = 2u;
+        auto negative_index = module.create_constant(
+            int_type, &negative_index_value);
+        auto upper_bound_index = module.create_constant(
+            uint_type, &upper_bound_index_value);
         auto field_index = module.create_constant_one(uint_type);
         auto element_index = module.create_constant_zero(uint_type);
         auto callable = module.create_callable(nullptr);
@@ -1619,6 +1877,9 @@ void reg_instruction_type_validation() {
         builder.set_insertion_point(body);
         auto storage = builder.alloca_local(aggregate_type);
         builder.gep(float_type, storage, {field_index, element_index});
+        auto homogeneous_storage = builder.alloca_local(float_array_type);
+        builder.gep(float_type, homogeneous_storage, {negative_index});
+        builder.gep(float_type, homogeneous_storage, {upper_bound_index});
         builder.static_cast_(uint_type, one);
         builder.bit_cast_(float_type, one);
         builder.bit_cast_(ushort4_type, wide_one);
@@ -1631,6 +1892,9 @@ void reg_instruction_type_validation() {
         builder.call(
             float2_type, ArithmeticOp::SHUFFLE,
             {float2_zero, narrow_zero, wide_one});
+        builder.call(
+            float2_type, ArithmeticOp::SHUFFLE,
+            {float2_zero, negative_index, upper_bound_index});
         auto float_array = builder.call(
             float_array_type, ArithmeticOp::AGGREGATE,
             {zero_float, zero_float});
@@ -1638,8 +1902,14 @@ void reg_instruction_type_validation() {
             float_type, ArithmeticOp::EXTRACT,
             {float_array, narrow_zero});
         builder.call(
+            float_type, ArithmeticOp::EXTRACT,
+            {float_array, upper_bound_index});
+        builder.call(
             float_array_type, ArithmeticOp::INSERT,
             {float_array, zero_float, wide_one});
+        builder.call(
+            float_array_type, ArithmeticOp::INSERT,
+            {float_array, zero_float, negative_index});
         builder.call(float_type, ArithmeticOp::SATURATE, {zero_float});
         builder.call(float_type, ArithmeticOp::ACOS, {zero_float});
         builder.call(
@@ -1664,7 +1934,7 @@ void reg_instruction_type_validation() {
     };
 
     "xir_interchange_malformed_instruction_types_rejected"_test = [] {
-        constexpr std::array<luisa::string_view, 19u> malformed{
+        constexpr std::array<luisa::string_view, 15u> malformed{
             // Arithmetic result and operand types must agree.
             R"(xir.text 1 module { globals 0 functions 1 function 0 callable "void" 0 0 0 { arguments 2 argument 1 value "int" argument 2 value "int" blocks 1 block 3 body 3 instructions 2 instruction 4 3 arithmetic "float" binary_add 2 1 2 0 instruction 5 3 return "void" -1 1 -1 0 } })",
             // Comparison results must have the matching boolean shape.
@@ -1689,11 +1959,6 @@ void reg_instruction_type_validation() {
             R"(xir.text 1 module { globals 0 functions 1 function 0 callable "void" 0 0 0 { arguments 2 argument 1 reference "struct<4,int,uint>" argument 2 value "uint" blocks 1 block 3 body 3 instructions 2 instruction 4 3 gep "int" -1 2 1 2 0 instruction 5 3 return "void" -1 1 -1 0 } })",
             // Constant structure indices must be in range.
             R"(xir.text 1 module { globals 1 constant 0 "uint" "02000000" functions 1 function 1 callable "void" 0 0 0 { arguments 1 argument 2 reference "struct<4,int,uint>" blocks 1 block 3 body 3 instructions 2 instruction 4 3 gep "int" -1 2 2 0 0 instruction 5 3 return "void" -1 1 -1 0 } })",
-            // Constant aggregate/shuffle indices must be nonnegative and in range.
-            R"(xir.text 1 module { globals 1 constant 0 "int" "ffffffff" functions 1 function 1 callable "void" 0 0 0 { arguments 1 argument 2 value "vector<float,2>" blocks 1 block 3 body 3 instructions 2 instruction 4 3 arithmetic "vector<float,2>" shuffle 3 2 0 0 0 instruction 5 3 return "void" -1 1 -1 0 } })",
-            R"(xir.text 1 module { globals 1 constant 0 "uint" "02000000" functions 1 function 1 callable "void" 0 0 0 { arguments 1 argument 2 value "vector<float,2>" blocks 1 block 3 body 3 instructions 2 instruction 4 3 arithmetic "vector<float,2>" shuffle 3 2 0 0 0 instruction 5 3 return "void" -1 1 -1 0 } })",
-            R"(xir.text 1 module { globals 1 constant 0 "uint" "02000000" functions 1 function 1 callable "void" 0 0 0 { arguments 1 argument 2 value "array<float,2>" blocks 1 block 3 body 3 instructions 2 instruction 4 3 arithmetic "float" extract 2 2 0 0 instruction 5 3 return "void" -1 1 -1 0 } })",
-            R"(xir.text 1 module { globals 1 constant 0 "int" "ffffffff" functions 1 function 1 callable "void" 0 0 0 { arguments 2 argument 2 value "array<int,2>" argument 3 value "int" blocks 1 block 4 body 4 instructions 2 instruction 5 4 arithmetic "array<int,2>" insert 3 2 3 0 0 instruction 6 4 return "void" -1 1 -1 0 } })",
             // Switch selectors must be integer scalars.
             R"(xir.text 1 module { globals 0 functions 1 function 0 callable "void" 0 0 0 { arguments 1 argument 1 value "float" blocks 3 block 2 block 3 block 4 body 2 instructions 3 instruction 5 2 switch "void" -1 2 1 3 1 4 instruction 6 3 branch "void" -1 1 4 0 instruction 7 4 return "void" -1 1 -1 0 } })",
             // Integer vectors are not scalar switch selectors.
@@ -1891,6 +2156,38 @@ void reg_instruction_type_validation() {
 }
 
 void reg_metadata_round_trip() {
+    "xir_interchange_front_facing_round_trip"_test = [] {
+        Module module;
+        static_cast<void>(module.create_front_facing());
+        auto encoded = xir_to_interchange_text(&module);
+        expect(encoded.succeeded());
+        if (!encoded.succeeded()) { return; }
+        expect(encoded.text.find("front_facing") != luisa::string::npos);
+        auto decoded = xir_from_interchange_text(encoded.text);
+        expect(decoded.succeeded());
+        if (!decoded.succeeded()) { return; }
+        auto front_facing = decoded.module->special_register_list().front();
+        expect(front_facing->derived_special_register_tag() ==
+               DerivedSpecialRegisterTag::RASTER_FRONT_FACING);
+        expect(front_facing->type() == Type::of<bool>());
+    };
+
+    "xir_interchange_base_instance_round_trip"_test = [] {
+        Module module;
+        static_cast<void>(module.create_base_instance());
+        auto encoded = xir_to_interchange_text(&module);
+        expect(encoded.succeeded());
+        if (!encoded.succeeded()) { return; }
+        expect(encoded.text.find("base_instance") != luisa::string::npos);
+        auto decoded = xir_from_interchange_text(encoded.text);
+        expect(decoded.succeeded());
+        if (!decoded.succeeded()) { return; }
+        auto base_instance = decoded.module->special_register_list().front();
+        expect(base_instance->derived_special_register_tag() ==
+               DerivedSpecialRegisterTag::RASTER_BASE_INSTANCE);
+        expect(base_instance->type() == Type::of<uint>());
+    };
+
     "xir_interchange_all_metadata_round_trip"_test = [] {
         Module module;
         auto int_type = luisa::compute::Type::of<int32_t>();
@@ -2323,6 +2620,7 @@ int main(int argc, char *argv[]) {
     reg_malformed_text();
     reg_malformed_bitcode();
     reg_semantic_module_round_trip();
+    reg_bindless_access_round_trip();
     reg_unsupported_instruction_fails_closed();
     reg_symbolic_op_tokens_and_compatibility();
     reg_vulkan_priority_instruction_round_trip();

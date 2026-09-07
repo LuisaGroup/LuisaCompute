@@ -18,12 +18,12 @@ void Expression::mark(Usage usage) const noexcept {
 uint64_t Expression::hash() const noexcept {
     if (!_hash_computed) {
         using namespace std::string_view_literals;
-        static auto seed = hash_value("__hash_expression"sv);
+        static auto expression_seed = hash_value("__hash_expression"sv);
         _hash = hash_combine(
             {static_cast<uint64_t>(_tag),
              _compute_hash(),
              _type ? _type->hash() : 0ull},
-            seed);
+            expression_seed);
         _hash_computed = true;
     }
     return _hash;
@@ -42,6 +42,13 @@ uint64_t RefExpr::_compute_hash() const noexcept {
 void CallExpr::_mark() const noexcept {
     if (is_builtin()) {
         switch (_op) {
+            case CallOp::PACK:
+                LUISA_ASSERT(_arguments.size() == 3u,
+                             "PACK expects (value, buffer<uint>, offset).");
+                _arguments[0]->mark(Usage::READ);
+                _arguments[1]->mark(Usage::WRITE);
+                _arguments[2]->mark(Usage::READ);
+                break;
             case CallOp::BUFFER_VOLATILE_WRITE:
             case CallOp::BUFFER_WRITE:
             case CallOp::BINDLESS_BUFFER_WRITE:
@@ -103,6 +110,16 @@ void CallExpr::_mark() const noexcept {
                     _arguments[i]->mark(Usage::READ);
                 }
                 break;
+            case CallOp::ASYNC_COPY:
+                // args: [scope, dst_lvalue, src_addr, elem_bytes, num, stride, event]
+                // The async copy writes the shared-memory destination and reads
+                // the global-memory source.
+                _arguments[0]->mark(Usage::READ);
+                _arguments[1]->mark(Usage::WRITE);
+                for (size_t i = 2; i < _arguments.size(); i++) {
+                    _arguments[i]->mark(Usage::READ);
+                }
+                break;
             default:
                 for (auto arg : _arguments) {
                     arg->mark(Usage::READ);
@@ -118,7 +135,7 @@ void CallExpr::_mark() const noexcept {
         for (size_t i = 0; i < args.size(); i++) {
             auto arg = args[i];
             _arguments[i]->mark(
-                arg.is_reference() || arg.is_resource() ?
+                arg.is_reference() || arg.is_resource() || arg.type()->is_custom() ?
                     custom().variable_usage(arg.uid()) :
                     Usage::READ);
         }

@@ -160,6 +160,37 @@ LUISA_AST_API TypePromotion promote_types(BinaryOp op, const Type *lhs, const Ty
 
 LUISA_AST_API void check_builtin_call_valid(CallOp op, const Type *return_type, luisa::span<const Expression *const> args) noexcept {
     switch (op) {
+        case CallOp::UNDEFINED: {
+            LUISA_ASSERT(return_type != nullptr &&
+                             return_type != Type::of<void>() &&
+                             args.empty(),
+                         "UNDEFINED requires a non-void result type and no arguments.");
+            break;
+        }
+        case CallOp::PACK: {
+            if (!(return_type == Type::of<void>() &&
+                  args.size() == 3u &&
+                  !args[0]->type()->is_resource() &&
+                  !args[0]->type()->is_custom() &&
+                  args[1]->type()->is_buffer() &&
+                  args[1]->type()->element() == Type::of<uint32_t>() &&
+                  args[2]->type() == Type::of<uint32_t>())) [[unlikely]] {
+                LUISA_ERROR("PACK expects (packable value, buffer<uint>, uint offset).");
+            }
+            break;
+        }
+        case CallOp::UNPACK: {
+            if (!(return_type != Type::of<void>() &&
+                  !return_type->is_resource() &&
+                  !return_type->is_custom() &&
+                  args.size() == 2u &&
+                  args[0]->type()->is_buffer() &&
+                  args[0]->type()->element() == Type::of<uint32_t>() &&
+                  args[1]->type() == Type::of<uint32_t>())) [[unlikely]] {
+                LUISA_ERROR("UNPACK expects (buffer<uint>, uint offset) and a packable return type.");
+            }
+            break;
+        }
         case CallOp::RAY_TRACING_TRACE_CLOSEST:
         case CallOp::RAY_TRACING_TRACE_ANY:
         case CallOp::RAY_TRACING_QUERY_ALL:
@@ -353,9 +384,114 @@ LUISA_AST_API void check_builtin_call_valid(CallOp op, const Type *return_type, 
             }
             auto matrix_dimension = args[1]->type()->coop_matrix_dimension();// weight is KxN
             if (!(return_type->dimension() == matrix_dimension.y &&          // output is N
-                  args[2]->type()->dimension() == matrix_dimension.x         // input is K
+                  args[3]->type()->dimension() == matrix_dimension.x         // input is K
                   )) [[unlikely]] {
                 LUISA_ERROR("Cooperative-Mul call dimension mismatch.");
+            }
+            break;
+        }
+        // Future cooperative-vector element-wise operations. These validate only
+        // the general operand shape; every backend currently rejects them with a
+        // placeholder assertion until native support lands.
+        case CallOp::COOPERATIVE_VECTOR_DOT: {
+            if (!(return_type->is_scalar() &&
+                  args.size() == 2u &&
+                  args[0]->type()->is_cooperative_vector() &&
+                  args[1]->type()->is_cooperative_vector() &&
+                  args[0]->type()->dimension() == args[1]->type()->dimension())) [[unlikely]] {
+                LUISA_ERROR("Cooperative-Vector-Dot call argument type mismatch.");
+            }
+            break;
+        }
+        case CallOp::COOPERATIVE_VECTOR_ABS:
+        case CallOp::COOPERATIVE_VECTOR_SIGN:
+        case CallOp::COOPERATIVE_VECTOR_FLOOR:
+        case CallOp::COOPERATIVE_VECTOR_CEIL:
+        case CallOp::COOPERATIVE_VECTOR_FRACT:
+        case CallOp::COOPERATIVE_VECTOR_TRUNC:
+        case CallOp::COOPERATIVE_VECTOR_ROUND:
+        case CallOp::COOPERATIVE_VECTOR_RINT:
+        case CallOp::COOPERATIVE_VECTOR_SQRT:
+        case CallOp::COOPERATIVE_VECTOR_RSQRT:
+        case CallOp::COOPERATIVE_VECTOR_EXP2:
+        case CallOp::COOPERATIVE_VECTOR_EXP10:
+        case CallOp::COOPERATIVE_VECTOR_LOG2:
+        case CallOp::COOPERATIVE_VECTOR_LOG10:
+        case CallOp::COOPERATIVE_VECTOR_SATURATE:
+        case CallOp::COOPERATIVE_VECTOR_SIN:
+        case CallOp::COOPERATIVE_VECTOR_COS:
+        case CallOp::COOPERATIVE_VECTOR_TAN:
+        case CallOp::COOPERATIVE_VECTOR_ASIN:
+        case CallOp::COOPERATIVE_VECTOR_ACOS:
+        case CallOp::COOPERATIVE_VECTOR_SINH:
+        case CallOp::COOPERATIVE_VECTOR_COSH:
+        case CallOp::COOPERATIVE_VECTOR_ASINH:
+        case CallOp::COOPERATIVE_VECTOR_ACOSH:
+        case CallOp::COOPERATIVE_VECTOR_ATANH: {
+            if (!(return_type->is_cooperative_vector() &&
+                  args.size() == 1u &&
+                  args[0]->type()->is_cooperative_vector() &&
+                  args[0]->type()->dimension() == return_type->dimension())) [[unlikely]] {
+                LUISA_ERROR("Cooperative-Vector unary call argument type mismatch.");
+            }
+            break;
+        }
+        case CallOp::COOPERATIVE_VECTOR_ISINF:
+        case CallOp::COOPERATIVE_VECTOR_ISNAN: {
+            if (!(return_type->is_cooperative_vector() &&
+                  return_type->element()->is_bool() &&
+                  args.size() == 1u &&
+                  args[0]->type()->is_cooperative_vector() &&
+                  args[0]->type()->dimension() == return_type->dimension())) [[unlikely]] {
+                LUISA_ERROR("Cooperative-Vector-IsInf/IsNan call argument type mismatch.");
+            }
+            break;
+        }
+        case CallOp::COOPERATIVE_VECTOR_POW:
+        case CallOp::COOPERATIVE_VECTOR_STEP:
+        case CallOp::COOPERATIVE_VECTOR_ADD:
+        case CallOp::COOPERATIVE_VECTOR_SUB:
+        case CallOp::COOPERATIVE_VECTOR_MUL:
+        case CallOp::COOPERATIVE_VECTOR_DIV: {
+            if (!(return_type->is_cooperative_vector() &&
+                  args.size() == 2u &&
+                  args[0]->type()->is_cooperative_vector() &&
+                  args[1]->type()->is_cooperative_vector() &&
+                  args[0]->type()->dimension() == args[1]->type()->dimension() &&
+                  args[0]->type()->dimension() == return_type->dimension())) [[unlikely]] {
+                LUISA_ERROR("Cooperative-Vector binary call argument type mismatch.");
+            }
+            break;
+        }
+        case CallOp::COOPERATIVE_VECTOR_LESS:
+        case CallOp::COOPERATIVE_VECTOR_LESS_EQUAL:
+        case CallOp::COOPERATIVE_VECTOR_GREATER:
+        case CallOp::COOPERATIVE_VECTOR_GREATER_EQUAL:
+        case CallOp::COOPERATIVE_VECTOR_EQUAL:
+        case CallOp::COOPERATIVE_VECTOR_NOT_EQUAL: {
+            if (!(return_type->is_cooperative_vector() &&
+                  return_type->element()->is_bool() &&
+                  args.size() == 2u &&
+                  args[0]->type()->is_cooperative_vector() &&
+                  args[1]->type()->is_cooperative_vector() &&
+                  args[0]->type()->dimension() == args[1]->type()->dimension() &&
+                  args[0]->type()->dimension() == return_type->dimension())) [[unlikely]] {
+                LUISA_ERROR("Cooperative-Vector relational call argument type mismatch.");
+            }
+            break;
+        }
+        case CallOp::COOPERATIVE_VECTOR_MIX:
+        case CallOp::COOPERATIVE_VECTOR_LERP:
+        case CallOp::COOPERATIVE_VECTOR_SMOOTHSTEP: {
+            if (!(return_type->is_cooperative_vector() &&
+                  args.size() == 3u &&
+                  args[0]->type()->is_cooperative_vector() &&
+                  args[1]->type()->is_cooperative_vector() &&
+                  args[2]->type()->is_cooperative_vector() &&
+                  args[0]->type()->dimension() == args[1]->type()->dimension() &&
+                  args[0]->type()->dimension() == args[2]->type()->dimension() &&
+                  args[0]->type()->dimension() == return_type->dimension())) [[unlikely]] {
+                LUISA_ERROR("Cooperative-Vector ternary call argument type mismatch.");
             }
             break;
         }
@@ -378,15 +514,19 @@ LUISA_AST_API void check_builtin_call_valid(CallOp op, const Type *return_type, 
             break;
         }
         case CallOp::ASYNC_COPY: {
-            if (!(return_type->is_uint32() &&
+            // The op is emitted as a statement (void) by the DSL; the uint return
+            // type is kept for the SPIR-V event handle in the AST contract.
+            // dst is an lvalue of the shared-memory destination; src is the
+            // 64-bit device address of the global source.
+            if (!((return_type == nullptr || return_type->is_uint32()) &&
                   args.size() == 7 &&
                   args[0]->type()->is_uint32() &&
+                  is_lvalue_expression(args[1]) &&
+                  args[2]->type()->is_uint64() &&
                   args[3]->type()->is_uint32() &&
                   args[4]->type()->is_uint32() &&
                   args[5]->type()->is_uint32() &&
-                  args[6]->type()->is_uint32() &&
-                  is_lvalue_expression(args[1]) &&
-                  is_lvalue_expression(args[2]))) [[unlikely]] {
+                  args[6]->type()->is_uint32())) [[unlikely]] {
                 LUISA_ERROR("ASYNC_COPY argument type mismatch.");
             }
             break;

@@ -38,18 +38,6 @@ if has_config("lc_cuda_backend") then
     target_end()
 end
 
-if has_config("lc_toy_c_backend") then
-    target("lc-clanguage-codegen")
-    set_basename("luisa-clanguage-codegen")
-    _config_project({
-        project_kind = "static"
-    })
-    add_deps("lc-core", "lc-runtime", "lc-vstl")
-    add_files("c_codegen/*.cpp", "hlsl/string_builder.cpp")
-    lc_set_pcxxheader("c_codegen/lc_ccodegen_pch.h")
-    target_end()
-end
-
 if has_config("lc_cuda_backend") or has_config('lc_dx_cuda_interop') or has_config('lc_vk_cuda_interop') then
     target("_lc_cuda_base")
     set_kind('phony')

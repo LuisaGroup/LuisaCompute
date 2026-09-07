@@ -683,4 +683,170 @@ MhaOnlineAttentionKernel create_mha_online_attention_kernel() {
     return kernel;
 }
 
+// ---------------------------------------------------------------------------
+// Paged KV reshape kernel: dense K/V -> paged pool (vLLM block-table scatter)
+// ---------------------------------------------------------------------------
+ReshapeKVToPagedKernel create_reshape_kv_to_paged_kernel() {
+    // One thread per dense K/V element. The flat dense index `idx` already
+    // equals qkv_index(b, h, i, d), so decompose it and route the element to
+    // its paged location through the block table (the "page table" analog):
+    //   logical page   p    = i / tokens_per_page
+    //   token in page  t    = i % tokens_per_page
+    //   physical page  phys = block_table[b * pages_per_seq + p]
+    //   physical index      = phys * elems_per_page
+    //                       + (h * tokens_per_page + t) * head_dim + d
+    // The physical page layout is [h][t][d] (each page holds all heads for
+    // tokens_per_page tokens); elems_per_page is the tile stride (>= the used
+    // region, so coarse tiles leave padding -- vLLM "internal fragmentation").
+    // Grid: qkv_size. Block: 256 (no shared memory / no barriers, so a wide
+    // block is the occupancy-friendly default per lc_optimize sec.5.4).
+    ReshapeKVToPagedKernel kernel = [&](BufferFloat K, BufferFloat V,
+                                        BufferFloat paged_k, BufferFloat paged_v,
+                                        BufferUInt block_table,
+                                        UInt tokens_per_page, UInt pages_per_seq,
+                                        UInt elems_per_page) noexcept {
+        set_block_size(256u, 1u, 1u);
+        set_name("paged_reshape_kv");
+
+        Var idx = dispatch_id().x;
+        Var d = idx % head_dim;
+        Var i = (idx / head_dim) % seq_len;
+        Var h = (idx / (head_dim * seq_len)) % num_heads;
+        Var b = idx / (head_dim * seq_len * num_heads);
+
+        Var p = i / tokens_per_page;
+        Var t = i % tokens_per_page;
+        // Logical -> physical indirection.
+        Var phys = block_table.read(b * pages_per_seq + p);
+        Var dst = phys * elems_per_page + (h * tokens_per_page + t) * head_dim + d;
+
+        // idx == qkv_index(b, h, i, d) by construction of the decomposition.
+        paged_k.write(dst, K.read(idx));
+        paged_v.write(dst, V.read(idx));
+    };
+    return kernel;
+}
+
+// ---------------------------------------------------------------------------
+// Paged attention kernel: block-table-indirected online softmax
+// ---------------------------------------------------------------------------
+PagedAttentionKernel create_paged_attention_kernel(uint tokens_per_page_host,
+                                                   uint elems_per_page_host) {
+    // vLLM PagedAttention: a clone of create_mha_online_attention_kernel with
+    // the dense contiguous K/V addressing replaced by block-table indirection.
+    // One thread per (b, h, i) query row; a 128-thread block (4 warps) spans
+    // consecutive i of the same (b, h) (seq_len % 128 == 0), so the
+    // block_table read and the resolved physical page are block-uniform.
+    // Block-size scaling (lc_optimize sec.3.8/5.2): each staged K/V sub-tile
+    // is amortized over 128 query rows instead of 32 -- 4x fewer global K/V
+    // loads and barriers per output row, and 4 warps per block hide memory
+    // latency far better than single-warp blocks. Loop structure is
+    // page (runtime pages_per_seq) -> sub-tile (host-baked), each sub-tile
+    // filling a shared K/V tile like the MHA kernel. Softmax arithmetic is
+    // byte-identical to the verified MHA path -> same CPU reference.
+    //
+    // The page geometry (tokens_per_page, elems_per_page) and the shared-memory
+    // sub-tile are host values discovered at runtime from the sparse-buffer
+    // tile size, so they are baked into the kernel (compiled per geometry);
+    // pages_per_seq (the block-table stride) stays a runtime UInt argument.
+    constexpr uint kBlockSize = paged_attention_block_size;
+    static_assert((kBlockSize & (kBlockSize - 1u)) == 0u);
+    const uint tokens_per_page = tokens_per_page_host;
+    const uint elems_per_page = elems_per_page_host;
+    const uint sub_tile = paged_sub_tile(tokens_per_page_host);
+    const uint sub_tiles_per_page = tokens_per_page_host / sub_tile;
+    LUISA_ASSERT(tokens_per_page_host % sub_tile == 0u,
+                 "sub_tile must divide tokens_per_page");
+    LUISA_ASSERT((sub_tile * head_dim) % kBlockSize == 0u,
+                 "shared K/V sub-tile must be a multiple of the block size");
+
+    PagedAttentionKernel kernel = [&](BufferFloat Q, BufferFloat paged_k,
+                                      BufferFloat paged_v, BufferFloat O,
+                                      BufferUInt block_table,
+                                      UInt pages_per_seq) noexcept {
+        set_block_size(kBlockSize, 1u, 1u);
+        set_name("paged_attention");
+
+        Var idx = dispatch_id().x;
+        Var b = idx / (num_heads * seq_len);
+        Var h = (idx / seq_len) % num_heads;
+        Var i = idx % seq_len;
+
+        // Query row base (dense output layout, same as MHA).
+        Var qi_base = ((b * num_heads + h) * seq_len + i) * head_dim;
+
+        Var m = def(-1.0e30f);
+        Var s_norm = def(0.0f);
+
+        // Output accumulator kept in registers; written to global memory once.
+        $array<float, head_dim> o_acc;
+
+        // Hoist the loop-invariant query row into registers.
+        $array<float, head_dim> q_local;
+        $for (d, head_dim) {
+            q_local[d] = Q.read(qi_base + d);
+        };
+
+        Shared<float> K_shared{sub_tile * head_dim};
+        Shared<float> V_shared{sub_tile * head_dim};
+
+        // -- Page loop (runtime) -> sub-tile loop (host constant) --
+        // Hoist the loop-invariant block-table row base (strength reduction).
+        Var bt_row = b * pages_per_seq;
+        $for (p, pages_per_seq) {
+            // Logical -> physical indirection (block-uniform across the block).
+            Var phys = block_table.read(bt_row + p);
+            // Base of head h's token slice in the physical page ([h][t][d]).
+            Var page_base = phys * elems_per_page + h * tokens_per_page * head_dim;
+
+            $for (st, sub_tiles_per_page) {
+                // All 32 threads cooperatively load the sub_tile-token K/V tile.
+                Var kt_base = page_base + st * (sub_tile * head_dim);
+                $for (e, sub_tile * head_dim / kBlockSize) {
+                    Var e_idx = thread_x() + e * kBlockSize;
+                    K_shared[e_idx] = paged_k.read(kt_base + e_idx);
+                    V_shared[e_idx] = paged_v.read(kt_base + e_idx);
+                };
+                sync_block();
+
+                $for (jj, sub_tile) {
+                    Var tile_base = jj * head_dim;
+
+                    // Score = Q[i] . K[j] (read K from shared)
+                    Var score = def(0.0f);
+                    $for (d, head_dim / 4u) {
+                        Var d4 = d * 4u;
+                        score += q_local[d4] * K_shared[tile_base + d4]
+                               + q_local[d4 + 1u] * K_shared[tile_base + d4 + 1u]
+                               + q_local[d4 + 2u] * K_shared[tile_base + d4 + 2u]
+                               + q_local[d4 + 3u] * K_shared[tile_base + d4 + 3u];
+                    };
+                    score = score * attention_scale;
+
+                    Var m_new = max(m, score);
+                    Var exp_diff = exp(m - m_new);
+                    Var exp_score = exp(score - m_new);
+                    s_norm = s_norm * exp_diff + exp_score;
+
+                    // Update O with V from shared (register accumulator)
+                    $for (d, head_dim) {
+                        o_acc[d] = o_acc[d] * exp_diff + V_shared[tile_base + d] * exp_score;
+                    };
+
+                    m = m_new;
+                };
+                // All threads must finish consuming this K/V tile before the
+                // next sub-tile overwrites shared memory.
+                sync_block();
+            };
+        };
+
+        // Normalize output row by softmax sum (single global write)
+        $for (d, head_dim) {
+            O.write(qi_base + d, o_acc[d] / s_norm);
+        };
+    };
+    return kernel;
+}
+
 }// namespace mla

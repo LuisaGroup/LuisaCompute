@@ -1,12 +1,12 @@
 local lc_enable_gui = has_config("lc_enable_gui")
 
-local function test_proj(name, source, gui_dep, callable, kind)
+local function test_proj(name, source, gui_dep, callable, kind, cxx_standard)
     if gui_dep and not lc_enable_gui then
         return
     end
     target(name)
     add_deps("lc-backends-dummy", {inherit = false, links = false})
-    _config_project({project_kind = kind or "binary"})
+    _config_project({project_kind = kind or "binary", cxx_standard = cxx_standard})
     add_files(source)
     add_includedirs("./", "./common")
     add_deps("lc-runtime", "lc-dsl", "lc-vstl", "stb-image")
@@ -37,7 +37,6 @@ test_proj("test_pool", "unit/core/test_pool.cpp")
 test_proj("test_type", "unit/core/test_type.cpp")
 test_proj("test_stl_containers", "unit/core/test_stl_containers.cpp")
 test_proj("test_hash", "unit/core/test_hash.cpp")
-test_proj("test_integer_power_contract", "unit/core/test_integer_power_contract.cpp")
 test_proj("test_spin_mutex", "unit/core/test_spin_mutex.cpp")
 test_proj("test_fiber", "unit/core/test_fiber.cpp")
 test_proj("test_platform_utils", "unit/core/test_platform.cpp")
@@ -70,6 +69,10 @@ end)
 test_proj("test_command_reorder_bindless", "unit/ext/test_command_reorder_bindless.cpp", false, function()
     add_includedirs("../backends/common")
 end)
+test_proj("test_vk_cuda_launch_command", "unit/ext/test_vk_cuda_launch_command.cpp")
+if has_config("lc_vk_cuda_interop") and has_config("lc_cuda_backend") then
+    test_proj("test_vk_cuda_kernel_launch", "integration/runtime/test_vk_cuda_kernel_launch.cpp")
+end
 if has_config("lc_vk_backend") or has_config("lc_dx_backend") then
     test_proj("test_hlsl_validation_codegen", "unit/ext/test_hlsl_validation_codegen.cpp", false, function()
         add_includedirs("../backends/common/hlsl")
@@ -152,10 +155,6 @@ if has_config("lc_vk_backend") then
         add_includedirs("../backends/vk")
         add_deps("lc-volk")
     end)
-    test_proj("test_vk_device_feature_plan", "unit/ext/test_vk_device_feature_plan.cpp", false, function()
-        add_includedirs("../backends/vk")
-        add_deps("lc-volk")
-    end)
     test_proj("test_vk_native_route_guard", "unit/runtime/test_vk_native_route_guard.cpp", false, function()
         if has_config('lc_vk_backend_use_xir_spirv') then
             add_defines("LUISA_TEST_VK_HAS_NATIVE_XIR_SPIRV=1")
@@ -196,9 +195,13 @@ if has_config("lc_vk_backend") then
         add_includedirs("../backends/vk")
         add_files("../backends/vk/VulkanTools.cpp")
         add_deps("lc-volk")
-    end)
-    test_proj("test_vk_cuda_interop_texture_plan", "unit/ext/test_vk_cuda_interop_texture_plan.cpp", false, function()
-        add_includedirs("../backends/vk")
+  test_proj("test_vk_cuda_interop_texture_plan", "unit/ext/test_vk_cuda_interop_texture_plan.cpp", false, function()
+      add_includedirs("../backends/vk")
+  end)
+  test_proj("test_vk_android_plan", "unit/ext/test_vk_android_plan.cpp", false, function()
+      add_includedirs("../backends/vk")
+      add_deps("lc-volk")
+  end)
         add_deps("lc-volk")
     end)
     test_proj("test_vk_sparse_runtime", "unit/runtime/test_vk_sparse_runtime.cpp", false, function()
@@ -217,6 +220,43 @@ test_proj("test_manual_ast", "unit/ast/test_manual_ast.cpp")
 test_proj("test_cooperative_vector", "unit/ast/test_cooperative_vector.cpp")
 test_proj("test_async_copy_ast", "unit/ast/test_async_copy_ast.cpp")
 test_proj("test_bindless_write_usage", "unit/ast/test_bindless_write_usage.cpp")
+
+-- unit/tile
+test_proj("test_tile_layout", "unit/tile/test_tile_layout.cpp", false, function()
+    add_deps("lc-tile")
+end)
+test_proj("test_tile_ir", "unit/tile/test_tile_ir.cpp", false, function()
+    add_deps("lc-tile")
+end)
+test_proj("test_tile_dsl", "unit/tile/test_tile_dsl.cpp", false, function()
+    add_deps("lc-tile")
+end)
+test_proj("test_tile_memory", "unit/tile/test_tile_memory.cpp", false, function()
+    add_deps("lc-tile")
+end)
+for _, standard in ipairs({20, 23}) do
+    test_proj("test_tile_values_cpp" .. standard, "unit/tile/test_tile_values.cpp", false, function()
+        add_deps("lc-tile")
+        add_includedirs("$(projectdir)/docs/source/tile")
+        -- Keep the C++23 compatibility target opt-in on older toolchains.
+        if standard == 23 then
+            set_default(false)
+        end
+    end, nil, "cxx" .. standard)
+end
+if has_config("lc_metal_backend") and is_plat("macosx") then
+    test_proj("test_tile_native_codegen", "unit/tile/test_tile_native_codegen.cpp", false, function()
+        add_deps("lc-tile")
+        add_files("../backends/metal/tile/metal_tile_codegen.cpp")
+        add_includedirs("../backends/metal/tile")
+    end)
+    test_proj("test_tile_native_runtime", "unit/tile/test_tile_native_runtime.cpp", false, function()
+        add_deps("lc-tile")
+    end)
+    test_proj("benchmark_tile_native", "benchmark/benchmark_tile_native.cpp", false, function()
+        add_deps("lc-tile")
+    end)
+end
 
 -- unit/dsl
 test_proj("test_binding_group", "unit/dsl/test_binding_group.cpp")
@@ -243,6 +283,7 @@ test_proj("test_dsl_autodiff", "unit/dsl/test_autodiff.cpp")
 
 -- unit/runtime
 test_proj("test_accel_build_modes", "unit/runtime/test_accel_build_modes.cpp")
+test_proj("test_accel_blas_lifetime", "unit/runtime/test_accel_blas_lifetime.cpp")
 test_proj("test_accel_visibility", "unit/runtime/test_accel_visibility.cpp")
 test_proj("test_atomic", "unit/runtime/test_atomic.cpp")
 test_proj("test_atomic_queue", "unit/runtime/test_atomic_queue.cpp")
@@ -250,10 +291,12 @@ test_proj("test_byte_buffer", "unit/runtime/test_byte_buffer.cpp")
 test_proj("test_context", "unit/runtime/test_context.cpp")
 test_proj("test_copy", "unit/runtime/test_copy.cpp")
 test_proj("test_cpu_callable", "unit/runtime/test_cpu_callable.cpp")
+test_proj("test_hip_packed_pointer_effects", "unit/runtime/test_hip_packed_pointer_effects.cpp")
 test_proj("test_decoupled_look_back", "unit/runtime/test_decoupled_look_back.cpp")
 test_proj("test_complex_kernel", "unit/runtime/test_complex_kernel.cpp")
 test_proj("test_bindless_mip", "unit/runtime/test_bindless_mip.cpp")
 test_proj("test_direct_texture_sampling", "unit/runtime/test_direct_texture_sampling.cpp")
+test_proj("test_metal_codegen_regressions", "unit/runtime/test_metal_codegen_regressions.cpp")
 test_proj("test_mipmap", "unit/runtime/test_mipmap.cpp")
 test_proj("test_motion_instance_keyframes", "unit/runtime/test_motion_instance_keyframes.cpp")
 test_proj("test_pinned_mem", "unit/runtime/test_pinned_mem.cpp")
@@ -262,8 +305,6 @@ test_proj("test_printer_custom_callback", "unit/runtime/test_printer_custom_call
 test_proj("test_sampler", "unit/runtime/test_sampler.cpp")
 test_proj("test_shared_memory", "unit/runtime/test_shared_memory.cpp")
 test_proj("test_softmax", "unit/runtime/test_softmax.cpp")
--- test_tensor requires lc-tensor which is currently disabled
--- test_proj("test_tensor", "unit/runtime/test_tensor.cpp")
 test_proj("test_texture_compress", "unit/runtime/test_texture_compress.cpp")
 test_proj("test_pbrt_curve_parser", "unit/runtime/test_pbrt_curve_parser.cpp")
 test_proj("test_texture_io", "unit/runtime/test_texture_io.cpp")
@@ -284,6 +325,7 @@ test_proj("test_buffer_view", "unit/runtime/test_buffer_view.cpp")
 test_proj("test_device_test", "unit/runtime/test_device.cpp")
 test_proj("test_external_buffer", "unit/runtime/test_external_buffer.cpp")
 test_proj("test_gemm", "unit/runtime/test_gemm.cpp")
+test_proj("benchmark_simd_gemm", "unit/simd/benchmark_simd_gemm.cpp")
 test_proj("test_hip_codegen_arithmetic", "unit/runtime/test_hip_codegen_arithmetic.cpp")
 test_proj("test_hip_curve_ray_query", "unit/runtime/test_hip_curve_ray_query.cpp")
 test_proj("test_hip_motion_instance_matrix", "unit/runtime/test_hip_motion_instance_matrix.cpp")
@@ -309,10 +351,13 @@ test_proj("test_coro_radix_sort", "unit/coro/test_coro_radix_sort.cpp")
 
 -- unit/xir
 if has_config("lc_enable_xir") then
-    local function coro_xir_test_proj(name, source)
+    local function coro_xir_test_proj(name, source, needs_bigobj)
         test_proj(name, source, false, function()
             add_defines("LUISA_ENABLE_XIR")
             add_deps("lc-coro")
+            if needs_bigobj then
+                add_cxxflags("/bigobj", {tools = "cl"})
+            end
         end)
     end
     test_proj("test_ast_to_xir", "unit/xir/test_ast_to_xir.cpp", false, function()
@@ -383,6 +428,8 @@ if has_config("lc_enable_xir") then
     end)
     test_proj("test_xir_translators", "unit/xir/test_xir_translators.cpp", false, function()
         add_defines("LUISA_ENABLE_XIR")
+        -- the translator test exercises Coroutine/$suspend translation
+        add_deps("lc-coro")
     end)
     test_proj("test_xir_interchange", "unit/xir/test_xir_interchange.cpp", false, function()
         add_defines("LUISA_ENABLE_XIR")
@@ -399,7 +446,10 @@ if has_config("lc_enable_xir") then
     test_proj("test_xir_pass_early_cse", "unit/xir/test_xir_pass_early_cse.cpp", false, function()
         add_defines("LUISA_ENABLE_XIR")
     end)
-    test_proj("test_xir_pass_lower_ray_query_loop", "unit/xir/test_xir_pass_lower_ray_query_loop.cpp", false, function()
+    test_proj("test_xir_pass_lower_ray_query_to_pipeline", "unit/xir/test_xir_pass_lower_ray_query_to_pipeline.cpp", false, function()
+        add_defines("LUISA_ENABLE_XIR")
+    end)
+    test_proj("test_xir_pass_reconstruct_ray_query_loop", "unit/xir/test_xir_pass_reconstruct_ray_query_loop.cpp", false, function()
         add_defines("LUISA_ENABLE_XIR")
     end)
     test_proj("test_xir_pass_fuse_consecutive_buffer_reads", "unit/xir/test_xir_pass_fuse_consecutive_buffer_reads.cpp", false, function()
@@ -424,12 +474,14 @@ if has_config("lc_enable_xir") then
     coro_xir_test_proj("test_coro_persistent_opt", "unit/coro/test_coro_persistent_opt.cpp")
     coro_xir_test_proj("test_coro_persistent_integration", "unit/coro/test_coro_persistent_integration.cpp")
     coro_xir_test_proj("test_coro_soa_layout", "unit/coro/test_coro_soa_layout.cpp")
-    coro_xir_test_proj("test_coro_wavefront", "unit/coro/test_coro_wavefront.cpp")
-    coro_xir_test_proj("test_coro_all_schedulers", "unit/coro/test_coro_all_schedulers.cpp")
+    coro_xir_test_proj("test_coro_wavefront", "unit/coro/test_coro_wavefront.cpp", true)
+    coro_xir_test_proj("test_coro_all_schedulers", "unit/coro/test_coro_all_schedulers.cpp", true)
     coro_xir_test_proj("test_coro_wavefront_integration", "unit/coro/test_coro_wavefront_integration.cpp")
     coro_xir_test_proj("test_coro_pipeline_1suspend", "unit/coro/test_coro_pipeline_1suspend.cpp")
     coro_xir_test_proj("test_coro_pipeline_3suspend", "unit/coro/test_coro_pipeline_3suspend.cpp")
     coro_xir_test_proj("test_xir_coro_cfg_distill", "unit/xir/test_coro_cfg_distill.cpp")
+    coro_xir_test_proj("test_xir_coro_cfg_dataflow", "unit/xir/test_coro_cfg_dataflow.cpp")
+    coro_xir_test_proj("test_xir_pass_coro_alloca_scope", "unit/xir/test_xir_pass_coro_alloca_scope.cpp")
     coro_xir_test_proj("test_xir_coro_materialize", "unit/xir/test_coro_materialize.cpp")
     coro_xir_test_proj("test_coro_dead_field", "unit/xir/test_coro_dead_field.cpp")
     coro_xir_test_proj("test_coro_frame_size", "unit/xir/test_coro_frame_size.cpp")
@@ -469,6 +521,7 @@ test_proj("test_motion_blur", "integration/runtime/test_motion_blur.cpp", true)
 test_proj("test_motion_blur_vk", "integration/runtime/test_motion_blur_vk.cpp", true)
 if has_config("lc_vk_backend") and
    has_config("lc_vk_backend_use_xir_spirv") then
+    test_proj("test_vk_shader_cache", "unit/runtime/test_vk_shader_cache.cpp")
     test_proj("test_vk_spirv_codegen_path", "unit/runtime/test_vk_spirv_codegen_path.cpp", false, function()
         add_includedirs("../backends/vk")
         add_includedirs("../backends/common")
@@ -494,6 +547,25 @@ if has_config("lc_cuda_backend") then
     test_proj("test_cuda_graph", "integration/runtime/test_cuda_graph.cpp")
 end
 
+-- integration/runtime: external device config extension tests
+-- Exercises backend-specific DeviceConfigExt subclasses (CUDA/DX/Vulkan) and,
+-- for DX and Vulkan, the borrowed-command-list/command-buffer submission path.
+if has_config("lc_cuda_backend") or has_config("lc_dx_backend") or has_config("lc_vk_backend") then
+    test_proj("test_external_device", "integration/runtime/test_external_device.cpp", false, function()
+        if has_config("lc_cuda_backend") then
+            add_defines("LUISA_TEST_EXTERNAL_DEVICE_HAS_CUDA=1")
+        end
+        if has_config("lc_dx_backend") then
+            add_defines("LUISA_TEST_EXTERNAL_DEVICE_HAS_DX=1")
+            add_syslinks("dxgi", "d3d12")
+        end
+        if has_config("lc_vk_backend") then
+            add_defines("LUISA_TEST_EXTERNAL_DEVICE_HAS_VK=1")
+            add_deps("lc-volk")
+        end
+    end)
+end
+
 -- integration/runtime: DX-only tests
 if has_config("lc_dx_backend") then
     test_proj("test_raster", "integration/runtime/test_raster.cpp", true)
@@ -506,19 +578,8 @@ if has_config("lc_dx_backend") then
     -- test_proj("test_work_graph", "integration/runtime/test_work_graph.cpp")
 end
 
--- integration/ir (depends on lc-ir which requires Rust/lc-rust)
-if has_config("lc_enable_ir") then
-    test_proj("test_autodiff", "integration/ir/test_autodiff.cpp")
-    test_proj("test_autodiff_full", "integration/ir/test_autodiff_full.cpp")
-    test_proj("test_ast2ir", "integration/ir/test_ast2ir.cpp")
-    test_proj("test_ast2ir_headless", "integration/ir/test_ast2ir_headless.cpp")
-    test_proj("test_ast2ir_ir2ast", "integration/ir/test_ast2ir_ir2ast.cpp")
-    test_proj("test_hip_legacy_ir_device", "integration/ir/test_hip_legacy_ir_device.cpp")
-    test_proj("test_kernel_ir", "integration/ir/test_kernel_ir.cpp", true)
-end
-
 if has_config("lc_enable_xir") then
-    test_proj("test_xir2ast_roundtrip", "integration/ir/test_xir2ast_roundtrip.cpp", false, function()
+    test_proj("test_xir2ast_roundtrip", "integration/xir/test_xir2ast_roundtrip.cpp", false, function()
         add_defines("LUISA_ENABLE_XIR")
     end)
 end
@@ -531,3 +592,25 @@ test_proj("test_fp4", "unit/runtime/test_fp4.cpp")
 test_proj("test_fp4_quantization", "unit/runtime/test_fp4_quantization.cpp")
 test_proj("test_fp8", "unit/runtime/test_fp8.cpp")
 test_proj("test_fp8_quantization", "unit/runtime/test_fp8_quantization.cpp")
+
+-- standalone CUDA tensor dispatch example: raw CUDA runtime + driver API with
+-- runtime NVRTC JIT (kernel source is a C++ raw string; no .cu compilation).
+-- Deliberately depends only on lc-core + lc-cuda-backend-base (NOT lc-runtime,
+-- lc-dsl, lc-vstl, or lc-backends-dummy) so it stays a host-only example.
+if has_config("lc_cuda_backend") then
+    target("test_cuda_tensor_dispatch")
+    _config_project({project_kind = "binary"})
+    add_files("cuda/test_cuda_tensor_dispatch.cpp")
+    add_includedirs("./", "./common")
+    add_deps("lc-core", "lc-cuda-backend-base")
+    add_links("cuda", "cudart", "nvrtc")
+    on_load(function(target)
+        local cuda_path = os.getenv("CUDA_PATH")
+        if cuda_path then
+            local forward = (cuda_path:gsub("\\", "/"))
+            target:add("defines", string.format('LUISA_TEST_CUDA_PATH="%s"', forward))
+            target:add("runenvs", "PATH", path.join(cuda_path, "bin"))
+        end
+    end)
+    target_end()
+end

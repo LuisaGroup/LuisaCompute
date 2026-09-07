@@ -18,6 +18,7 @@
 #include <luisa/xir/passes/if_conversion.h>
 #include <luisa/xir/passes/inline.h>
 #include <luisa/xir/passes/lex_scope_analysis.h>
+#include <luisa/xir/passes/restructure_cfg.h>
 #include <luisa/xir/passes/scalarizer.h>
 #include <luisa/xir/verifier.h>
 
@@ -38,9 +39,207 @@ namespace {
     return count;
 }
 
+[[nodiscard]] KernelFunction *
+make_plain_diamond(Module &module) noexcept {
+    auto *kernel = module.create_kernel();
+    auto *entry = kernel->create_body_block();
+    auto *condition =
+        kernel->create_value_argument(Type::of<bool>());
+    auto *true_block = kernel->create_basic_block();
+    auto *false_block = kernel->create_basic_block();
+    auto *merge = kernel->create_basic_block();
+    XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    builder.cond_br(condition, true_block, false_block);
+    builder.set_insertion_point(true_block);
+    builder.br(merge);
+    builder.set_insertion_point(false_block);
+    builder.br(merge);
+    builder.set_insertion_point(merge);
+    builder.return_void();
+    return kernel;
+}
+
+[[nodiscard]] KernelFunction *
+make_iteration_limited_loop(Module &module) noexcept {
+    auto *kernel = module.create_kernel();
+    auto *entry = kernel->create_body_block();
+    auto *header_condition =
+        kernel->create_value_argument(Type::of<bool>());
+    auto *latch_condition =
+        kernel->create_value_argument(Type::of<bool>());
+    auto *header = kernel->create_basic_block();
+    auto *loop_body = kernel->create_basic_block();
+    auto *header_exit = kernel->create_basic_block();
+    auto *latch_exit = kernel->create_basic_block();
+    XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    builder.br(header);
+    builder.set_insertion_point(header);
+    builder.cond_br(
+        header_condition, loop_body, header_exit);
+    builder.set_insertion_point(loop_body);
+    builder.cond_br(
+        latch_condition, header, latch_exit);
+    builder.set_insertion_point(header_exit);
+    builder.return_void();
+    builder.set_insertion_point(latch_exit);
+    builder.return_void();
+    return kernel;
+}
+
 }// namespace
 
 void reg_xir_pass_mutation_safety() {
+    "restructure_in_place_matches_transactional_success_once"_test = [] {
+        Module transactional_module;
+        auto *transactional_kernel =
+            make_plain_diamond(transactional_module);
+        Module in_place_module;
+        auto *in_place_kernel =
+            make_plain_diamond(in_place_module);
+        Module function_in_place_module;
+        auto *function_in_place_kernel =
+            make_plain_diamond(function_in_place_module);
+
+        auto transactional =
+            restructure_cfg_pass_run_on_module(
+                &transactional_module);
+        auto in_place =
+            restructure_cfg_pass_run_on_module(
+                &in_place_module, nullptr,
+                {.mutation_mode =
+                     RestructureCFGMutationMode::
+                         IN_PLACE_DISCARDABLE});
+        auto function_in_place =
+            restructure_cfg_pass_run_on_function(
+                function_in_place_kernel,
+                {.mutation_mode =
+                     RestructureCFGMutationMode::
+                         IN_PLACE_DISCARDABLE});
+
+        expect(transactional.succeeded());
+        expect(in_place.succeeded());
+        expect(function_in_place.succeeded());
+        expect(transactional.changed());
+        expect(in_place.changed());
+        expect(function_in_place.changed());
+        expect(transactional.restructured_if_count == 1u);
+        expect(in_place.restructured_if_count ==
+               transactional.restructured_if_count);
+        expect(in_place.restructured_loop_count ==
+               transactional.restructured_loop_count);
+        expect(in_place.restructured_switch_count ==
+               transactional.restructured_switch_count);
+        expect(in_place.canonicalized_cfg_count ==
+               transactional.canonicalized_cfg_count);
+        expect(transactional.boundary_verifier_count == 2u);
+        expect(in_place.boundary_verifier_count == 2u);
+        expect(
+            transactional.definition_transform_invocation_count ==
+            2u);
+        expect(
+            in_place.definition_transform_invocation_count == 1u);
+        expect(
+            function_in_place
+                .definition_transform_invocation_count == 1u);
+        expect(function_in_place.boundary_verifier_count == 2u);
+        expect(
+            count_instructions(
+                transactional_kernel,
+                DerivedInstructionTag::CONDITIONAL_BRANCH) ==
+            0u);
+        expect(
+            count_instructions(
+                in_place_kernel,
+                DerivedInstructionTag::CONDITIONAL_BRANCH) ==
+            0u);
+        expect(count_instructions(
+                   transactional_kernel,
+                   DerivedInstructionTag::IF) == 1u);
+        expect(count_instructions(
+                   in_place_kernel,
+                   DerivedInstructionTag::IF) == 1u);
+        expect(count_instructions(
+                   function_in_place_kernel,
+                   DerivedInstructionTag::IF) == 1u);
+        expect(
+            transactional_kernel->basic_blocks().count_size() ==
+            in_place_kernel->basic_blocks().count_size());
+        auto output_requirements = XIRVerificationOptions{
+            .require_no_phi = true,
+            .require_unique_merge_blocks = true,
+            .require_canonical_break_continue_targets = true};
+        expect(xir_verify_module(
+                   &transactional_module,
+                   output_requirements)
+                   .succeeded());
+        expect(xir_verify_module(
+                   &in_place_module,
+                   output_requirements)
+                   .succeeded());
+        expect(xir_verify_module(
+                   &function_in_place_module,
+                   output_requirements)
+                   .succeeded());
+    };
+
+    "restructure_mutation_mode_defines_failure_atomicity"_test = [] {
+        Module transactional_module;
+        auto *transactional_kernel =
+            make_iteration_limited_loop(
+                transactional_module);
+        auto transactional_block_count =
+            transactional_kernel->basic_blocks().count_size();
+        Module in_place_module;
+        auto *in_place_kernel =
+            make_iteration_limited_loop(in_place_module);
+
+        auto transactional =
+            restructure_cfg_pass_run_on_module(
+                &transactional_module, nullptr,
+                {.main_iteration_limit = 1u,
+                 .post_iteration_limit = 64u});
+        auto in_place =
+            restructure_cfg_pass_run_on_module(
+                &in_place_module, nullptr,
+                {.main_iteration_limit = 1u,
+                 .post_iteration_limit = 64u,
+                 .mutation_mode =
+                     RestructureCFGMutationMode::
+                         IN_PLACE_DISCARDABLE});
+
+        expect(!transactional.succeeded());
+        expect(!in_place.succeeded());
+        expect(transactional.iteration_limit_count == 1u);
+        expect(in_place.iteration_limit_count == 1u);
+        expect(!transactional.changed());
+        expect(in_place.changed());
+        expect(
+            transactional.definition_transform_invocation_count ==
+            1u);
+        expect(
+            in_place.definition_transform_invocation_count == 1u);
+        expect(transactional.boundary_verifier_count == 1u);
+        expect(in_place.boundary_verifier_count == 1u);
+        expect(
+            transactional_kernel->basic_blocks().count_size() ==
+            transactional_block_count);
+        expect(count_instructions(
+                   transactional_kernel,
+                   DerivedInstructionTag::CONDITIONAL_BRANCH) ==
+               2u);
+        expect(count_instructions(
+                   in_place_kernel,
+                   DerivedInstructionTag::CONDITIONAL_BRANCH) ==
+               0u);
+        expect(xir_verify_module(
+                   &transactional_module)
+                   .succeeded());
+        // The in-place input is intentionally not passed to another transform
+        // after failure; its ownership contract requires module disposal.
+    };
+
     "dce_preserves_structured_merge_ownership"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -337,6 +536,43 @@ void reg_xir_pass_mutation_safety() {
         expect(xir_verify_module(&module).succeeded());
     };
 
+    "if_conversion_accepts_total_integer_to_float_cast"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *body = kernel->create_body_block();
+        auto *true_block = kernel->create_basic_block();
+        auto *false_block = kernel->create_basic_block();
+        auto *merge = kernel->create_basic_block();
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *integer =
+            kernel->create_value_argument(Type::of<int>());
+        auto *zero =
+            module.create_constant_zero(Type::of<float>());
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        builder.cond_br(condition, true_block, false_block);
+        builder.set_insertion_point(true_block);
+        auto *converted =
+            builder.static_cast_(Type::of<float>(), integer);
+        builder.br(merge);
+        builder.set_insertion_point(false_block);
+        builder.br(merge);
+        builder.set_insertion_point(merge);
+        builder.phi(
+            Type::of<float>(),
+            {{converted, true_block}, {zero, false_block}});
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = if_conversion_pass_run_on_function(kernel);
+        expect(info.converted_diamond_count == 1u);
+        expect(converted->parent_block() == body);
+        expect(body->terminator()->derived_instruction_tag() ==
+               DerivedInstructionTag::BRANCH);
+        expect(xir_verify_module(&module).succeeded());
+    };
+
     "if_conversion_rejects_speculative_dynamic_extract"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -366,9 +602,62 @@ void reg_xir_pass_mutation_safety() {
         expect(xir_verify_module(&module).succeeded());
         auto info = if_conversion_pass_run_on_function(kernel);
         expect(info.converted_diamond_count == 0u);
+        auto opt_in_info = if_conversion_pass_run_on_function(
+            kernel, {.allow_speculative_static_extract = true});
+        expect(opt_in_info.converted_diamond_count == 0u);
         expect(extracted->parent_block() == true_block);
         expect(body->terminator()->derived_instruction_tag() ==
                DerivedInstructionTag::CONDITIONAL_BRANCH);
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "if_conversion_accepts_opt_in_bounded_static_extract"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *body = kernel->create_body_block();
+        auto *true_block = kernel->create_basic_block();
+        auto *false_block = kernel->create_basic_block();
+        auto *merge = kernel->create_basic_block();
+        auto *condition = kernel->create_value_argument(Type::of<bool>());
+        auto *aggregate_type = Type::structure(
+            {Type::of<uint>(), Type::of<float2>()});
+        auto *aggregate = kernel->create_value_argument(aggregate_type);
+        auto member_index_value = uint32_t{1u};
+        auto component_index_value = uint32_t{0u};
+        auto *member_index = module.create_constant(
+            Type::of<uint>(), &member_index_value);
+        auto *component_index = module.create_constant(
+            Type::of<uint>(), &component_index_value);
+        auto *zero = module.create_constant_zero(Type::of<float>());
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        builder.cond_br(condition, true_block, false_block);
+        builder.set_insertion_point(true_block);
+        auto *member = builder.call(
+            Type::of<float2>(), ArithmeticOp::EXTRACT,
+            {aggregate, member_index});
+        auto *component = builder.call(
+            Type::of<float>(), ArithmeticOp::EXTRACT,
+            {member, component_index});
+        builder.br(merge);
+        builder.set_insertion_point(false_block);
+        builder.br(merge);
+        builder.set_insertion_point(merge);
+        builder.phi(Type::of<float>(),
+                    {{component, true_block}, {zero, false_block}});
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto default_info = if_conversion_pass_run_on_function(kernel);
+        expect(default_info.converted_diamond_count == 0u);
+        auto opt_in_info = if_conversion_pass_run_on_function(
+            kernel,
+            {.allow_speculative_static_extract = true});
+        expect(opt_in_info.converted_diamond_count == 1u);
+        expect(member->parent_block() == body);
+        expect(component->parent_block() == body);
+        expect(body->terminator()->derived_instruction_tag() ==
+               DerivedInstructionTag::BRANCH);
         expect(xir_verify_module(&module).succeeded());
     };
 
@@ -623,9 +912,11 @@ void reg_xir_pass_mutation_safety() {
         expect(valid->operand(0u) == valid);
         expect(invalid->operand(2u) == invalid);
         expect(valid_kernel->body_block()
-                   ->instructions().count_size() == valid_count);
+                   ->instructions()
+                   .count_size() == valid_count);
         expect(invalid_kernel->body_block()
-                   ->instructions().count_size() == invalid_count);
+                   ->instructions()
+                   .count_size() == invalid_count);
         expect(count_instructions(
                    valid_kernel,
                    DerivedInstructionTag::LOAD) == 0u);

@@ -8,6 +8,14 @@ namespace luisa::compute::xir {
 
 class PostDomTree;
 
+struct PostDomTreeOptions {
+    // When true, a reachable cycle may represent a maximal non-terminating
+    // execution and therefore contributes a conservative virtual exit.
+    // Analyses whose contract is conditional on eventual termination may
+    // disable this to compute post-dominance over terminating executions.
+    bool account_for_infinite_paths{true};
+};
+
 class LUISA_XIR_API PostDomTreeNode : public concepts::Noncopyable {
 
 private:
@@ -54,5 +62,7 @@ public:
 
 /// Null and declaration-only functions yield an empty tree.
 [[nodiscard]] LUISA_XIR_API PostDomTree compute_post_dom_tree(Function *function) noexcept;
+[[nodiscard]] LUISA_XIR_API PostDomTree compute_post_dom_tree(
+    Function *function, PostDomTreeOptions options) noexcept;
 
 }// namespace luisa::compute::xir

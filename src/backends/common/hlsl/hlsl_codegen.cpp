@@ -45,6 +45,20 @@ void StringStateVisitor::visit(const BinaryExpr *expr) {
         expr->rhs()->accept(*this);//Reverse matrix
         str << ')';
 
+    } else if (op == BinaryOp::MOD &&
+               (expr->type()->is_float() ||
+                (expr->type()->is_vector() &&
+                 expr->type()->element()->is_float()))) {
+        auto element = expr->type()->is_vector() ?
+                           expr->type()->element() :
+                           expr->type();
+        str << (util->opt->isSpirv && element->is_float32() ?
+                    "_lc_fmod("sv :
+                    "fmod("sv);
+        expr->lhs()->accept(*this);
+        str << ',';
+        expr->rhs()->accept(*this);
+        str << ')';
     } else if (op == BinaryOp::AND) {
         str << "and(";
         expr->lhs()->accept(*this);
@@ -138,7 +152,9 @@ void StringStateVisitor::visit(const MemberExpr *expr) {
 
         if (t->is_vector() && t->dimension() == 3 && !t->element()->is_bool()) {
             auto self_type = expr->self()->type();
-            if (!(self_type->is_structure() && !self_type->member_attributes().empty())) [[likely]] {
+            // Internal raster structs (_mesh, v2p) emit raw vectors — no .v wrapper
+            bool is_internal = (util->opt->internalStruct.find(self_type) != util->opt->internalStruct.end());
+            if (!is_internal && !(self_type->is_structure() && !self_type->member_attributes().empty())) [[likely]] {
                 str << ".v"sv;
             }
         }
@@ -636,11 +652,7 @@ StringStateVisitor::StringStateVisitor(
     CodegenUtility *util)
     : f(f), util(util), str(str), switchCount{}, lazyDeclVars{} {
 }
-void StringStateVisitor::VisitFunction(
-#ifdef LUISA_ENABLE_IR
-    vstd::unordered_set<Variable> const &grad_vars,
-#endif
-    Function func) {
+void StringStateVisitor::VisitFunction(Function func) {
     lazyDeclVars.clear();
     for (auto &&v : func.local_variables()) {
         Usage usage = func.variable_usage(v.uid());
@@ -669,15 +681,6 @@ void StringStateVisitor::VisitFunction(
         }
         str << ";\n";
     }
-#ifdef LUISA_ENABLE_IR
-    for (auto v : grad_vars) {
-        vstd::StringBuilder typeName;
-        util->GetTypeName(*v.type(), typeName, f.variable_usage(v.uid()));
-        vstd::StringBuilder varName;
-        util->GetVariableName(func, v, varName);
-        str << typeName << ' ' << varName << "_grad=("sv << typeName << ")0;\n"sv;
-    }
-#endif
     if (sharedVariables) {
         size_t shared_size{};
         for (auto &&v : func.shared_variables()) {

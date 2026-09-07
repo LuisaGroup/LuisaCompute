@@ -44,10 +44,12 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     bool isPixelShader : 1 = false;
     bool pixelFirstArgIsStruct : 1 = false;
     bool pixelUseBarycentric : 1 = false;
+    bool pixelUseFrontFacing : 1 = false;
     bool useTex2DBindless : 1 = false;
     bool useTex3DBindless : 1 = false;
     bool useBufferBindless : 1 = false;
     bool enable_debug_info : 1 = false;
+    bool enable_fast_math : 1 = false;
     bool use_8bit : 1 = false;
     // Key: pair of (function hash, variable uid) → validate index in _validate_N array
     struct ValidateKey {

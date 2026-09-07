@@ -7,6 +7,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/algorithm.h>
 #include <luisa/core/stl/string.h>
+#include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/ast/type.h>
 #include <luisa/dsl/var.h>
@@ -80,12 +81,33 @@ struct CoroFrameDesc {
 
 private:
     luisa::vector<FieldDescriptor> _fields;
+    luisa::unordered_map<luisa::string, size_t> _field_indices;
     size_t _total_size{0u};
+
+private:
+    void _reset() noexcept {
+        _fields.clear();
+        _field_indices.clear();
+        _total_size = 0u;
+    }
+
+    [[nodiscard]] bool _add_alias(
+        luisa::string_view name, size_t index) noexcept {
+        if (index >= _fields.size()) { return false; }
+        auto [iter, inserted] =
+            _field_indices.emplace(luisa::string{name}, index);
+        return inserted || iter->second == index;
+    }
 
 public:
     static constexpr size_t reserved_field_count = 7u;
 
     void add_field(luisa::string name, const Type *type) noexcept {
+        LUISA_ASSERT(type != nullptr, "CoroFrame field type is null.");
+        auto index = _fields.size();
+        LUISA_ASSERT(
+            _field_indices.find(name) == _field_indices.end(),
+            "Duplicate CoroFrame field name '{}'.", name);
         auto alignment = type->alignment();
         auto size = type->size();
         auto offset = (_total_size + alignment - 1u) / alignment * alignment;
@@ -94,6 +116,11 @@ public:
             type,
             offset,
             size});
+        auto inserted =
+            _field_indices.emplace(_fields.back().name, index).second;
+        LUISA_ASSERT(inserted,
+                     "Duplicate CoroFrame field name '{}'.",
+                     _fields.back().name);
         _total_size = offset + size;
         _total_size = (_total_size + alignment - 1u) / alignment * alignment;
     }
@@ -105,12 +132,18 @@ public:
     }
 
     [[nodiscard]] const FieldDescriptor *field(luisa::string_view name) const noexcept {
-        for (auto &field : _fields) {
-            if (field.name == name) {
-                return &field;
-            }
-        }
-        return nullptr;
+        auto index = field_index(name);
+        return index == static_cast<size_t>(-1) ?
+                   nullptr :
+                   &_fields[index];
+    }
+
+    [[nodiscard]] size_t field_index(
+        luisa::string_view name) const noexcept {
+        auto iter = _field_indices.find(luisa::string{name});
+        return iter == _field_indices.end() ?
+                   static_cast<size_t>(-1) :
+                   iter->second;
     }
 
     [[nodiscard]] auto total_size() const noexcept { return _total_size; }
@@ -194,8 +227,7 @@ public:
     }
 
     void from_materialize_info(const xir::CoroMaterializeInfo &info) noexcept {
-        _fields.clear();
-        _total_size = 0u;
+        _reset();
 
         if (!info.frame_fields.empty()) {
             luisa::vector<const xir::CoroMaterializeInfo::FrameField *> sorted_fields;
@@ -206,11 +238,23 @@ public:
             auto expected = reserved_field_count;
             for (auto *field : sorted_fields) {
                 if (field->type == nullptr || field->index != expected++) {
-                    _fields.clear();
-                    _total_size = 0u;
+                    _reset();
                     return;
                 }
                 add_field(field->name, field->type);
+            }
+            for (auto &[name, field_index] : info.name_to_field) {
+                auto type_iter = info.name_to_type.find(name);
+                if (field_index < reserved_field_count ||
+                    field_index >= reserved_field_count + _fields.size() ||
+                    type_iter == info.name_to_type.end() ||
+                    type_iter->second !=
+                        _fields[field_index - reserved_field_count].type ||
+                    !_add_alias(
+                        name, field_index - reserved_field_count)) {
+                    _reset();
+                    return;
+                }
             }
             return;
         }
@@ -240,12 +284,7 @@ private:
     const Expression *_expression{nullptr};
 
     [[nodiscard]] auto _field_index(luisa::string_view name) const noexcept -> size_t {
-        for (auto i = 0u; i < _desc->field_count(); i++) {
-            if (_desc->field(i).name == name) {
-                return i;
-            }
-        }
-        return static_cast<size_t>(-1);
+        return _desc->field_index(name);
     }
 
 public:

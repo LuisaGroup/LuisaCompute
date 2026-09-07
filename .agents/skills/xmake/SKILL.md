@@ -5,7 +5,7 @@ description: XMake build configuration, options, commands, and patterns for Luis
 
 # XMake Build System
 
-Primary build system. Requires XMake 3.0.6+. Optional: CUDA Toolkit, Vulkan SDK, LLVM 20, Rust.
+Primary build system. Requires XMake 3.0.6+. Optional: CUDA Toolkit, Vulkan SDK, LLVM 20, and Embree.
 
 ## Quick Start
 
@@ -379,7 +379,6 @@ These APIs pass compiler-specific flags:
 | `add_asflags(...)` | Assembly compilation flags |
 | `add_gcflags(...)` | Go compilation flags |
 | `add_dcflags(...)` | D language compilation flags |
-| `add_rcflags(...)` | Rust compilation flags |
 | `add_fcflags(...)` | Fortran compilation flags |
 | `add_zcflags(...)` | Zig compilation flags |
 | `add_cuflags(...)` | CUDA compilation flags |
@@ -750,7 +749,6 @@ target("my-target")
 add_rules("c.unity_build", {batchsize = 8})    -- Unity build
 add_rules("c++.unity_build", {batchsize = 8})
 add_rules("utils.bin2obj", {extensions = {".cu", ".h"}})  -- Binary embedding
-add_rules("build_cargo")   -- Rust/Cargo build
 add_rules("lc_llvm")       -- LLVM integration
 target_end()
 ```

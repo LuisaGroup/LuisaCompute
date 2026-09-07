@@ -1,15 +1,24 @@
 table.insert(_config_rules, "lc-rename-ext")
 local rename_rule_idx = table.getn(_config_rules)
 includes("volk", "stb")
+target("btree")
+set_kind("headeronly")
+add_includedirs("BTree/include", {public = true})
+target_end()
 -- ext
 lc_eastl_enable_custom_malloc = has_config("lc_enable_custom_malloc")
 lc_eastl_enable_mimalloc = has_config("lc_enable_mimalloc")
 includes("EASTL")
-local need_spv_codegen = has_config("lc_vk_backend") and
-                         (has_config("lc_vk_backend_use_xir_spirv") or
-                          has_config("lc_vk_backend_use_ast_llvm_spirv"))
-if need_spv_codegen then
+-- Every Vulkan build compiles its backend-private kernels to SPIR-V at build
+-- time. Native user-shader codegen is optional, but glslang and SPIRV-Tools
+-- are not: the builtins must never fall back to runtime DXC compilation.
+local need_vulkan_spirv_tools = has_config("lc_vk_backend")
+if need_vulkan_spirv_tools then
     includes("glslang")
+    target("lc-glslang")
+    add_defines("ENABLE_HLSL", {public = true})
+    add_files("glslang/glslang/HLSL/*.cpp")
+    target_end()
 end
 
 if not has_config("lc_spdlog_use_xrepo") then
@@ -44,7 +53,7 @@ end
 -- The HLSL validation test compiles DXC output to SPIR-V and validates it with
 -- SPIRV-Tools even when neither of the optional Vulkan SPIR-V code generators
 -- is enabled. Keep that test dependency aligned with src/tests/xmake.lua.
-local need_spv_tools = need_spv_codegen or
+local need_spv_tools = need_vulkan_spirv_tools or
                        (has_config("lc_enable_tests") and
                         (has_config("lc_vk_backend") or
                          has_config("lc_dx_backend")))

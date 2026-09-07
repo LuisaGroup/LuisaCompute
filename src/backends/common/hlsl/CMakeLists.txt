@@ -21,17 +21,24 @@ if (LUISA_COMPUTE_ENABLE_DX OR LUISA_COMPUTE_ENABLE_VULKAN)
             auto_diff.bytes
             reduce.bytes
             bindless_upload.bytes
-            bindless_upload_vk.bytes
             accel_process.bytes
-            accel_process_vk.bytes
             accel_process_vk_motion.bytes
             accel_process_vk.dxil
             load_bdls.dxil
             load_bdls_vk.dxil
             set_accel4.dxil
+            bc6_encode_block
+            bc6_header
+            bc6_trymode_g10cs
+            bc6_trymode_le10cs
             bc6_encodeblock.dxil
             bc6_trymodeg10.dxil
             bc6_trymodele10.dxil
+            bc7_encode_block
+            bc7_header
+            bc7_trymode_02cs
+            bc7_trymode_137cs
+            bc7_trymode_456cs
             bc7_encodeblock.dxil
             bc7_trymode02.dxil
             bc7_trymode137.dxil

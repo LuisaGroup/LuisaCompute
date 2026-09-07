@@ -1,0 +1,7 @@
+/cmake-build-*/
+/.idea/
+/.vscode/
+/vcpkg/
+CMakeLists.txt.user
+vcpkg
+VERSION.txt

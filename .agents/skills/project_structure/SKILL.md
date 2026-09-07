@@ -5,31 +5,28 @@ description: Project layout, module architecture, compiler pipeline, and design 
 
 # LuisaCompute Project Structure
 
-Layered architecture: **Core** → **AST/IR** → **DSL/Runtime** → **Backends**. `src/` + public headers `include/luisa/`. Dual build: CMake + XMake. Frontends: C++, Python, Rust.
+Layered architecture: **Core** → **AST/XIR** → **DSL/Runtime** → **Backends**. `src/` + public headers `include/luisa/`. Dual build: CMake + XMake. Frontends: C++ and Python.
 
 ## Top-Level Directory Map
 
 ```
 src/
-├── api/          C API & runtime API layer
 ├── ast/          AST (expressions, statements, types, function builder)
-├── backends/     Plugins: CUDA, DX, Metal, CPU, Vulkan, HIP, remote, fallback, common
+├── backends/     Plugins: CUDA, DX, Metal, Vulkan, HIP, fallback, common
 ├── clangcxx/     Clang-based C++→GPU shader compiler (experimental)
 ├── core/         Foundation: types, math, logging, platform, STL wrappers
 ├── dsl/          Embedded C++ DSL (kernel/callable lambda tracing)
 ├── ext/          Third-party deps (git submodules)
 ├── gui/          Windowing, ImGui, framerate
-├── ir/           IR bridge: AST↔IR transforms
 ├── osl/          Open Shading Language parser
 ├── py/           Python bindings (pybind11 + pure Python)
 ├── runtime/      Unified runtime: device, buffer, image, stream, RTX, raster
-├── rust/         Rust workspace: IR, CPU backend, remote
 ├── tensor/       Tensor ops & compute graph
 ├── tests/        Unit/integration/example tests
 ├── vstl/         Virtual STL: custom containers, allocators, hashes
 └── xir/          Extended IR: SSA, basic blocks, passes, translators
 
-include/luisa/    Public headers mirroring src/ layout (+ ir_v2/)
+include/luisa/    Public headers mirroring src/ layout
 
 Root also has: examples/, tests/, tutorials/, utils/, docs/
 ```
@@ -62,7 +59,7 @@ DSL traces C++ lambdas → AST nodes.
 - `ast2json.cpp` — AST→JSON serialization
 - `constant_data.cpp`, `callable_library.cpp`, `external_function.cpp`, `function_duplicator.cpp`, `atomic_ref_node.cpp`
 
-### `src/xir/` — Extended IR (Next-Gen)
+### `src/xir/` — Native C++ IR
 SSA IR with basic blocks, instructions, optimization passes. Receives AST via `ast2xir`.
 - `instructions/` — 30+ types: arithmetic, memory, control flow, resource, autodiff, atomic
 - `passes/` — DCE, mem2reg, SROA, autodiff, outline, dom-tree, GEP tracing, local load/store elimination, ray-query lowering, unused callable removal, LICM, GVN, SCCP, inlining, CFG simplification
@@ -70,9 +67,6 @@ SSA IR with basic blocks, instructions, optimization passes. Receives AST via `a
 - `metadata/` — source locations, names, comments, curve basis
 - `tests/` — XIR unit tests (enabled by `LUISA_COMPUTE_ENABLE_XIR_TESTS`)
 - Key classes: `Module`, `Function`, `BasicBlock`, `Instruction`, `Value`, `Use`, `Builder`
-
-### `src/ir/` — IR Bridge (Legacy)
-AST↔IR transforms, high-level transforms: `ast2ir.cpp`, `ir2ast.cpp`, `transform.cpp`.
 
 ### `src/dsl/` — Embedded DSL
 GPU kernels via lambda tracing.
@@ -97,7 +91,6 @@ Resource management, command scheduling, RHI abstraction.
 - `rhi/` — `device_interface.h`, `command.h`, `command_encoder.h`, `resource.h`
 - `rtx/` — `accel.cpp`, `mesh.cpp`, `curve.cpp`, `motion_instance.cpp`, `procedural_primitive.cpp`
 - `raster/` — `raster.cpp`, `depth_buffer.cpp`
-- `remote/` — remote device client/server
 
 ### `src/backends/` — Backend Plugins
 Dynamically loaded (`luisa-backend-<name>.dll/.so`). Each: codegen (AST/XIR→native) + compiler (NVRTC/DXC/etc.) + resources + command encoder.
@@ -107,27 +100,11 @@ Dynamically loaded (`luisa-backend-<name>.dll/.so`). Each: codegen (AST/XIR→na
 | **CUDA** (`cuda/`) | NVRTC + OptiX + CUDA driver |
 | **DirectX** (`dx/`) | DX12 + DXR + HLSL DXC |
 | **Metal** (`metal/`) | Metal 3 + MSL |
-| **CPU** (`cpu/`) | Rust-based (via `src/rust/`) |
 | **Vulkan** (`vk/`) | Vulkan + SPIR-V |
 | **HIP** (`hip/`) | AMD HIP |
-| **Remote** (`remote/`) | Network-distributed |
-| **Fallback** (`fallback/`) | Reference interpreter |
-| **Common** (`common/`) | `c_codegen/`, `hlsl/`, `spirv/`, `spirv_llvm/`, Vulkan swapchain helpers |
+| **Fallback** (`fallback/`) | Native C++ LLVM JIT + Embree |
+| **Common** (`common/`) | `hlsl/`, `spirv/`, `spirv_llvm/`, Vulkan swapchain helpers |
 | **Validation** (`validation/`) | Debug layer |
-| **Toy C** (`toy_c/`) | Minimal C codegen |
-
-### `src/rust/` — Rust Workspace
-- `luisa_compute_ir` — core IR: AST→IR, analysis, transforms (DCE, inliner, SSA, autodiff, vectorize)
-- `luisa_compute_ir_v2` — IR v2 bindings
-- `luisa_compute_ir_staticlib` — static library wrapper for C++ linking
-- `luisa_compute_backend` — backend proxy/message protocol
-- `luisa_compute_backend_impl` — CPU backend: LLVM JIT, C++ codegen, texture sampling, remote backend
-- `luisa_compute_cpu_kernel_defs` — CPU kernel ABI definitions
-- `luisa_compute_api_types` — C API types
-- Built via CMake/Cargo interop, linked into C++
-
-### `src/api/` — C API
-Stable C API for language bindings: `runtime.cpp`, `logging.cpp`, Rust binding/RPC generators.
 
 ### `src/py/` — Python
 - `lcapi.cpp` — pybind11 entry; `export_*.cpp` — per-component bindings
@@ -156,7 +133,7 @@ High-level tensor ops, expression DAG, graph passes.
 
 ## Build System
 
-- **CMake (primary)**: root + `src/CMakeLists.txt`, targets: `luisa-compute-<name>`, alias: `luisa::compute`. Backends as `MODULE` plugins named `luisa-backend-<name>`. Options: `LUISA_COMPUTE_ENABLE_CUDA|DX|METAL|CPU|VULKAN|HIP|DSL|RUST|TENSOR|GUI|...`
+- **CMake (primary)**: root + `src/CMakeLists.txt`, targets: `luisa-compute-<name>`, alias: `luisa::compute`. Backends as `MODULE` plugins named `luisa-backend-<name>`. Options: `LUISA_COMPUTE_ENABLE_CUDA|DX|METAL|VULKAN|HIP|FALLBACK|DSL|TENSOR|GUI|...`
 - **XMake (secondary)**: `xmake.lua` in root + `src/` and subdirs
 - **Bootstrap**: `bootstrap.py` at repo root
 - **IntelliSense**: `update_intellisense.lua`
@@ -164,21 +141,14 @@ High-level tensor ops, expression DAG, graph passes.
 ## Compiler Pipeline
 
 ```
-DSL Tracing (src/dsl/) → AST (src/ast/)
-                              │
-                    ┌─────────┴─────────┐
-                    ▼                   ▼
-              XIR (src/xir/)       IR (src/ir/ → src/rust/)
-                    │                   │
-                    └─────────┬─────────┘
-                              ▼
-                    Backend Codegen (src/backends/<name>/)
-                              │
-                              ▼
-                    GPU Execution (src/runtime/)
+DSL Tracing (src/dsl/) → AST (src/ast/) → XIR (src/xir/)
+                                              │
+                                              ▼
+                               Backend codegen / xir2ast
+                                              │
+                                              ▼
+                                  Runtime execution (src/runtime/)
 ```
-
-Rust IR path: `luisa_compute_ir` does autodiff, DCE, SSA, vectorize before codegen.
 
 ## Key Headers
 
@@ -197,8 +167,7 @@ Rust IR path: `luisa_compute_ir` does autodiff, DCE, SSA, vectorize before codeg
 3. **RAII Resources**: Move-only handles (`Buffer`, `Image`, `Stream`, `Accel`)
 4. **Command-Based**: Work encoded as `Command` → `CommandList` → `Stream`
 5. **DSL Tracing**: Operator overloading + lambda capture builds AST at definition time
-6. **Dual IR**: AST (frontend tree) + XIR (SSA backend with optimization passes)
-7. **Rust + C++ Hybrid**: IR/CPU backend in Rust; API/DSL in C++
+6. **AST + XIR**: AST frontend tree plus native C++ SSA IR and optimization passes
 
 ## Naming
 

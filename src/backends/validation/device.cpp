@@ -190,13 +190,6 @@ BufferCreationInfo Device::create_buffer(const Type *element,
                is_indirect_dispatch ? elem_count : 0u};
     return buffer;
 }
-BufferCreationInfo Device::create_buffer(const ir::CArc<ir::Type> *element,
-                                         size_t elem_count,
-                                         void *external_memory) noexcept {
-    auto buffer = _native->create_buffer(element, elem_count, external_memory);
-    new Buffer{buffer.handle, 0};
-    return buffer;
-}
 void Device::destroy_buffer(uint64_t handle) noexcept {
     RWResource::dispose(handle);
     _native->destroy_buffer(handle);
@@ -253,6 +246,7 @@ ResourceCreationInfo Device::create_stream(StreamTag stream_tag) noexcept {
                 opt.func = StreamFunc::All;
                 opt.supported_custom.emplace(to_underlying(CustomCommandUUID::RASTER_DRAW_SCENE));
                 opt.supported_custom.emplace(to_underlying(CustomCommandUUID::RASTER_CLEAR_DEPTH));
+                opt.supported_custom.emplace(to_underlying(CustomCommandUUID::RASTER_CLEAR_RENDER_TARGET));
                 break;
             case StreamTag::COPY:
                 opt.func = static_cast<StreamFunc>(
@@ -351,10 +345,11 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
     new Shader(shader.handle, kernel.bound_arguments());
     return shader;
 }
-ShaderCreationInfo Device::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept {
-    auto shader = _native->create_shader(option, kernel);
-    // TODO: IR binding test
-    //
+ShaderCreationInfo Device::create_tile_kernel(const ShaderOption &option, const tile::Function &kernel,
+                                             const tile::CompileOptions &tile_options,
+                                             tile::KernelMetadata &metadata) noexcept {
+    auto shader = _native->create_tile_kernel(option, kernel, tile_options, metadata);
+    if (shader.valid()) { new Shader(shader.handle, {}); }
     return shader;
 }
 ShaderCreationInfo Device::load_shader(luisa::string_view name, luisa::span<const Type *const> arg_types) noexcept {

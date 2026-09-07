@@ -158,7 +158,7 @@ struct VectorizationPlan {
     Instruction *recurrence{nullptr};
 };
 
-[[nodiscard]] bool loop_has_external_value_uses(
+[[nodiscard]] bool loop_vectorization_has_external_value_uses(
     const NaturalLoop &loop) noexcept {
     auto found = false;
     auto scan = [&](BasicBlock *block) noexcept {
@@ -657,7 +657,7 @@ namespace {
         // peeled IV. A loop-defined value observed after the loop would then
         // differ from the scalar loop's value at the original failing check.
         // Until the peel chain explicitly carries those live-outs, reject.
-        if (loop_has_external_value_uses(loop)) { return false; }
+        if (loop_vectorization_has_external_value_uses(loop)) { return false; }
         auto *exit_block = loop.exit_blocks.front();
         // Exit phis may only consume loop-invariant values from the header
         // edge (the peeled clones cannot reproduce loop-defined values on
@@ -999,7 +999,7 @@ namespace {
 
 }// namespace
 
-static void run(Function *function, LoopVectorizationInfo &info) noexcept {
+static void loop_vectorization_run(Function *function, LoopVectorizationInfo &info) noexcept {
     if (function == nullptr) { return; }
     auto *def = function->definition();
     if (def == nullptr) { return; }
@@ -1027,7 +1027,7 @@ static void run(Function *function, LoopVectorizationInfo &info) noexcept {
     }
 }
 
-[[nodiscard]] static bool preflight_module(
+[[nodiscard]] static bool loop_vectorization_preflight_module(
     Module *module, LoopVectorizationInfo &info) noexcept {
     if (module == nullptr) { return true; }
     for (auto *function : module->function_list()) {
@@ -1049,17 +1049,17 @@ static void run(Function *function, LoopVectorizationInfo &info) noexcept {
 
 LoopVectorizationInfo loop_vectorization_pass_run_on_function(Function *function) noexcept {
     LoopVectorizationInfo info;
-    detail::run(function, info);
+    detail::loop_vectorization_run(function, info);
     return info;
 }
 
 LoopVectorizationInfo loop_vectorization_pass_run_on_module(Module *module,
                                                             PassReport *report) noexcept {
     LoopVectorizationInfo info;
-    if (detail::preflight_module(module, info)) {
+    if (detail::loop_vectorization_preflight_module(module, info)) {
         if (module != nullptr) {
             for (auto *function : module->function_list()) {
-                detail::run(function, info);
+                detail::loop_vectorization_run(function, info);
             }
         }
     }

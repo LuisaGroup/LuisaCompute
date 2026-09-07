@@ -1,11 +1,15 @@
 ---
-name: backend_architecture
+name: backend-architecture
 description: Backend plugin architecture, DeviceInterface, dynamic loading, and command encoding.
 ---
 
 # Backend Plugin Architecture
 
-Backends are dynamically loaded shared libraries (`luisa-backend-<name>.dll/.so/.dylib`) implementing `DeviceInterface`. Discovered and loaded at runtime by `Context`.
+On desktop platforms, backends are dynamically loaded shared libraries
+(`luisa-backend-<name>.dll/.so/.dylib`) implementing `DeviceInterface` and
+discovered by `Context`. iOS links the selected backend and core runtime as
+static slices into the signed app; it calls an explicit static create/destroy
+bridge while preserving the same `DeviceInterface` ownership contract.
 
 **Header**: `include/luisa/runtime/rhi/device_interface.h`
 
@@ -16,12 +20,12 @@ All backends inherit from `DeviceInterface`:
 ### Resource Lifecycle (Handle-based)
 | Resource | Create | Destroy | Notes |
 |---|---|---|---|
-| Buffer | `create_buffer(const Type*, size_t elem_count, void* external_memory)` | `destroy_buffer(uint64_t)` | Overload also takes `const ir::CArc<ir::Type>*`; returns `BufferCreationInfo` |
+| Buffer | `create_buffer(const Type*, size_t elem_count, void* external_memory)` | `destroy_buffer(uint64_t)` | Returns `BufferCreationInfo` |
 | Texture | `create_texture(PixelFormat, uint dimension, w, h, d, mips, external_native_handle, simultaneous_access, allow_raster_target)` | `destroy_texture(uint64_t)` | Returns `ResourceCreationInfo` |
 | Bindless Array | `create_bindless_array(size_t, BindlessSlotType)` | `destroy_bindless_array(uint64_t)` | `BindlessSlotType` selects buffer/2D/3D-only or mixed slots |
 | Stream | `create_stream(StreamTag)` | `destroy_stream(uint64_t)` | Graphics/compute/copy queues |
 | Event | `create_event()` | `destroy_event(uint64_t)` | Timeline events |
-| Shader | `create_shader(ShaderOption, Function / ir::KernelModule* / ir_v2::KernelModule&)` | `destroy_shader(uint64_t)` | Also `load_shader(name, arg_types)` and `shader_argument_usage(handle, index)` |
+| Shader | `create_shader(ShaderOption, Function)` | `destroy_shader(uint64_t)` | Also `load_shader(name, arg_types)` and `shader_argument_usage(handle, index)` |
 | Mesh | `create_mesh(AccelOption)` | `destroy_mesh(uint64_t)` | |
 | Curve | `create_curve(AccelOption)` | `destroy_curve(uint64_t)` | Optional; default impl returns invalid |
 | Procedural Primitive | `create_procedural_primitive(AccelOption)` | `destroy_procedural_primitive(uint64_t)` | |
@@ -107,7 +111,7 @@ LUISA_EXPORT_API void destroy(DeviceInterface *device) noexcept {
 }
 LUISA_EXPORT_API void backend_device_names(vector<string> &names) noexcept {
     names.clear();
-    names.emplace_back("<name>"); // e.g., "cuda", "cpu", "dx", "vk", "metal", "hip", ...
+    names.emplace_back("<name>"); // e.g., "cuda", "dx", "vk", "metal", "hip", "fallback", ...
 }
 ```
 
@@ -115,6 +119,23 @@ Plus version export (`src/backends/common/export_version.inl.h`):
 ```cpp
 LUISA_EXPORT_API int backend_version() { return LUISA_COMPUTE_VERSION; }
 ```
+
+### Static iOS registration
+
+iOS cannot discover an in-bundle backend through desktop `MODULE` loading.
+The app calls `luisa_compute_metal4_register_static_backend()` from
+`src/backends/metal4/metal_static_backend.h` before device creation. That
+bridge registers the normal create/destroy/device-name functions through
+`Context::register_static_backend("metal4", ...)`; `Context` checks this
+case-insensitive registry before dynamic loading. Keep
+`create_device("metal4")`, ordinary `DeviceInterface` ownership, and the
+validation-layer path intact instead of constructing a backend directly in a
+UIKit host.
+
+Each iOS bundle is a static application closure (`BUILD_SHARED_LIBS=OFF`):
+runtime, DSL, XIR, Metal4, llvm-downgrade, and target LLVM archives are inside
+the arm64 Mach-O. Audit with `scripts/audit_ios_bundles.sh`; `otool -L` should
+show Apple system paths only.
 
 ## Command Encoder (Visitor Pattern)
 
@@ -144,6 +165,32 @@ class MyCommandEncoder : public MutableCommandVisitor {
 ```
 
 Architecture: each backend has a `*Stream` class owning the native stream/queue. `stream->dispatch(CommandList)` visits all commands via an encoder. User callbacks are executed after GPU work completes.
+
+### Metal4 acceleration capability boundary
+
+Creating an `MTL4::Compiler`, queue, or AIR pipeline does not prove that every
+MTL4 encoder feature is executable. Address-driven acceleration-structure
+builds and component motion require Apple9. Query the concrete device family:
+Apple9+ uses MTL4 primitive/instance descriptors and its compute encoder;
+Apple7/Apple8 synchronize only AS build/refit/compact through an isolated
+legacy `MTL::CommandQueue`. User shaders, PSOs, argument tables, command
+buffers, and dispatch remain MTL4 AIR on both paths.
+
+`MotionInstanceBuildCommand` is host-state capture: validate a built child and
+copy its matrix/SRT keyframes into the backend resource. Native motion TLAS
+packing occurs later in `AccelBuildCommand`. Preserve the shader-visible
+72-byte static instance ABI while creating separate 48-byte indirect-motion
+records and a transform buffer for the build descriptor. Matrix motion is
+available where primitive motion blur is reported; component/SRT motion must
+be rejected before resource creation below Apple9.
+
+On iOS, do not call
+`MTL::Device::isDepth24Stencil8PixelFormatSupported()` merely because
+metal-cpp's safe-send helper finds a method signature. Some AGX devices expose
+that signature without responding to the selector. Check real Objective-C
+class selector responsiveness first, then map logical D24S8 storage to
+D32S8A24 when unavailable; preserve the public logical format and execute both
+stencil paths.
 
 ### Command reordering and bindless hazards
 
@@ -194,6 +241,25 @@ When a backend permits multiple opaque handles to wrap the same native
 resource, the native resource identity is an additional alias boundary. Either
 canonicalize hazards by that identity or enforce a documented external-sync
 contract; pointer equality between backend wrappers is not enough.
+
+### Acceleration-structure (BLAS/TLAS) hazards
+
+A TLAS build dereferences every instanced BLAS through the raw device
+addresses baked into the instance buffer (instance AABBs derive from child
+BLAS contents). Two generic consequences:
+
+- **Barrier coverage must be per-referenced-BLAS, not per-modified-instance.**
+  Recording the child-BLAS read barrier only for instances appearing in the
+  current modification/refresh list misses the in-place BLAS update case: it
+  leaves both lists empty, so the TLAS update build races the BLAS build and
+  picks up stale geometry (or device-lost). Iterate the full instance table
+  and record a read on every live child BLAS buffer at every TLAS build.
+- **BLAS destruction must unlink the BLAS from every referencing TLAS's
+  pending refresh bookkeeping** (the per-TLAS set-map that a BLAS recreate
+  queues to refresh its device address). Only clearing the live-instance slot
+  leaves a dangling pooled handle the next TLAS build dereferences — a UAF
+  that typically manifests as a hang (spin lock inside freed memory), not a
+  crash. Applies to any backend with update-handle bookkeeping (vk, dx).
 
 For Vulkan-owned buffers and images, queue-family sharing is a separate
 creation-time contract. If graphics, compute, and copy select more than one
@@ -416,14 +482,19 @@ void destroy_buffer(uint64_t handle) noexcept {
 - `export_version.inl.h` — Version export
 - `hlsl/builtin/` — HLSL builtin headers/bytecode
 - `vulkan_swapchain.h/cpp` — Shared Vulkan swapchain
-- `rust_device_common.h/cpp` — Shared Rust/CPU backend helpers
 
 ## CMake Patterns
 
 ```cmake
 function(luisa_compute_add_backend name)
     cmake_parse_arguments(BACKEND "" "SUPPORT_DIR;BUILTIN_DIR" "SOURCES" ${ARGN})
-    add_library(luisa-compute-backend-${name} MODULE ${BACKEND_SOURCES})
+    if (CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        set(_LUISA_BACKEND_LIBRARY_TYPE STATIC)
+    else ()
+        set(_LUISA_BACKEND_LIBRARY_TYPE MODULE)
+    endif ()
+    add_library(luisa-compute-backend-${name}
+        ${_LUISA_BACKEND_LIBRARY_TYPE} ${BACKEND_SOURCES})
     target_link_libraries(luisa-compute-backend-${name} PRIVATE
         luisa-compute-ast
         luisa-compute-runtime
@@ -444,17 +515,6 @@ function(luisa_compute_add_backend name)
         add_custom_target(luisa-compute-backend-${name}-copy-support ALL ...)
     endif ()
 endfunction()
-```
-
-**Minimal (CPU)**:
-```cmake
-luisa_compute_add_backend(cpu SOURCES
-    ../common/rust_device_common.cpp ../common/rust_device_common.h
-    cpu_device.h cpu_device.cpp)
-target_link_libraries(luisa-compute-backend-cpu PRIVATE
-    luisa-compute-vulkan-swapchain
-    luisa-compute-rust-meta
-    luisa_compute_backend_impl)
 ```
 
 **Fallback** (LLVM + Embree):
@@ -499,7 +559,7 @@ AST Function / XIR KernelModule / IRv2 KernelModule
 
 ## Key Design Decisions
 
-1. **Plugin Architecture** — Backends are shared libs loaded at runtime, distributable separately
+1. **Backend Boundary** — Desktop backends are shared plugins; iOS statically links the selected backend but keeps the same `DeviceInterface` boundary
 2. **Handle-based Resources** — Opaque `uint64_t` handles for ABI stability
 3. **Visitor Pattern** — Double dispatch via `MutableCommandVisitor` for type-safe command handling
 4. **Version Checking** — Strict match between runtime and backend prevents ABI mismatches

@@ -17,6 +17,7 @@
 #include "hip_stage_buffer_pool.h"
 #include "hip_stream.h"
 #include "hip_device.h"
+#include "hip_geometry_build_policy.h"
 #include "hip_mesh.h"
 
 namespace luisa::compute::hip {
@@ -205,16 +206,6 @@ void HIPMesh::build(HIPCommandEncoder &encoder, MeshBuildCommand *command) noexc
 
         // HIPRT has no native deforming-triangle primitive. Build one custom
         // AABB leaf per triangle around the union of every keyframe instead.
-        // Recreating a HIPRT allocation is rare (primitive-count changes or
-        // explicit compaction). Destruction has no stream parameter, so retain
-        // a barrier only on that path; ordinary builds and updates stay fully
-        // asynchronous.
-        if (requires_build && recreate_geometry && _geometry) {
-            LUISA_CHECK_HIP(hipStreamSynchronize(hip_stream));
-            LUISA_CHECK_HIPRT(hiprtDestroyGeometry(_hiprt_ctx, _geometry));
-            _geometry = nullptr;
-        }
-
         // GPU preprocessing snapshots the exact positions and indices used by
         // custom intersection into mesh-owned allocations, while computing the
         // swept bounds from that same snapshot. This preserves source-resource
@@ -310,30 +301,39 @@ void HIPMesh::build(HIPCommandEncoder &encoder, MeshBuildCommand *command) noexc
         build_input.geomType = 0u;
         build_input.primitive.aabbList = aabb_primitive;
 
-        hiprtBuildOptions build_options{};
-        build_options.buildFlags = make_hiprt_build_flags(_option);
-
         if (requires_build) {
-            if (!_geometry) {
+            auto policy = select_hiprt_geometry_build_policy(
+                _hiprt_ctx, build_input, _option);
+            recreate_geometry = recreate_geometry ||
+                                (_geometry &&
+                                 policy.options.buildFlags != _build_flags);
+            if (recreate_geometry) {
+                if (_geometry) {
+                    // Geometry destruction has no stream parameter. Order it
+                    // after all prior uses and the preprocessing above.
+                    LUISA_CHECK_HIP(hipStreamSynchronize(hip_stream));
+                    LUISA_CHECK_HIPRT(hiprtDestroyGeometry(
+                        _hiprt_ctx, _geometry));
+                    _geometry = nullptr;
+                }
                 LUISA_CHECK_HIPRT(hiprtCreateGeometry(
-                    _hiprt_ctx, build_input, build_options, _geometry));
+                    _hiprt_ctx, build_input, policy.options, _geometry));
+                _build_flags = policy.options.buildFlags;
             }
-            size_t temporary_buffer_size{};
-            LUISA_CHECK_HIPRT(hiprtGetGeometryBuildTemporaryBufferSize(
-                _hiprt_ctx, build_input, build_options,
-                temporary_buffer_size));
             auto temporary_buffer =
                 encoder.stream()->rt_scratch_buffer(
-                    temporary_buffer_size);
+                    policy.temporary_buffer_size);
             LUISA_CHECK_HIPRT(hiprtBuildGeometry(
                 _hiprt_ctx, hiprtBuildOperationBuild,
-                build_input, build_options, temporary_buffer,
+                build_input, policy.options, temporary_buffer,
                 hip_stream, _geometry));
             if (_option.allow_compaction) {
                 LUISA_CHECK_HIPRT(hiprtCompactGeometry(
                     _hiprt_ctx, hip_stream, _geometry, _geometry));
             }
         } else {
+            hiprtBuildOptions build_options{};
+            build_options.buildFlags = _build_flags;
             LUISA_CHECK_HIPRT(hiprtBuildGeometry(
                 _hiprt_ctx, hiprtBuildOperationUpdate,
                 build_input, build_options, nullptr,
@@ -367,14 +367,22 @@ void HIPMesh::build(HIPCommandEncoder &encoder, MeshBuildCommand *command) noexc
 
     hiprtGeometryBuildInput build_input{};
     build_input.type = hiprtPrimitiveTypeTriangleMesh;
+    // Keep built-in triangles addressable by HIPRT's custom function table.
+    // Traversals with a null function table still take the native no-filter
+    // path; synchronous RayQuery pipelines pass a table so surface-candidate
+    // callbacks can execute inside traversal instead of forcing resumable
+    // per-candidate state.
+    build_input.geomType = 0u;
     build_input.primitive.triangleMesh = mesh_prim;
-
-    hiprtBuildOptions build_options{};
-    build_options.buildFlags = make_hiprt_build_flags(_option);
 
     auto hip_stream = encoder.stream()->handle();
 
     if (requires_build) {
+        auto policy = select_hiprt_geometry_build_policy(
+            _hiprt_ctx, build_input, _option);
+        recreate_geometry = recreate_geometry ||
+                            (_geometry &&
+                             policy.options.buildFlags != _build_flags);
         if (recreate_geometry) {
             if (_geometry) {
                 LUISA_CHECK_HIP(hipStreamSynchronize(hip_stream));
@@ -382,16 +390,16 @@ void HIPMesh::build(HIPCommandEncoder &encoder, MeshBuildCommand *command) noexc
                 _geometry = nullptr;
             }
             LUISA_CHECK_HIPRT(hiprtCreateGeometry(_hiprt_ctx, build_input,
-                                                  build_options, _geometry));
+                                                  policy.options, _geometry));
+            _build_flags = policy.options.buildFlags;
         }
 
-        size_t temp_size = 0;
-        LUISA_CHECK_HIPRT(hiprtGetGeometryBuildTemporaryBufferSize(_hiprt_ctx, build_input, build_options, temp_size));
         auto temp_buffer =
-            encoder.stream()->rt_scratch_buffer(temp_size);
+            encoder.stream()->rt_scratch_buffer(
+                policy.temporary_buffer_size);
 
         LUISA_CHECK_HIPRT(hiprtBuildGeometry(_hiprt_ctx, hiprtBuildOperationBuild,
-                                             build_input, build_options,
+                                             build_input, policy.options,
                                              temp_buffer, hip_stream, _geometry));
 
         if (_option.allow_compaction) {
@@ -399,6 +407,8 @@ void HIPMesh::build(HIPCommandEncoder &encoder, MeshBuildCommand *command) noexc
                 _hiprt_ctx, hip_stream, _geometry, _geometry));
         }
     } else {
+        hiprtBuildOptions build_options{};
+        build_options.buildFlags = _build_flags;
         LUISA_CHECK_HIPRT(hiprtBuildGeometry(_hiprt_ctx, hiprtBuildOperationUpdate,
                                              build_input, build_options,
                                              nullptr, hip_stream, _geometry));

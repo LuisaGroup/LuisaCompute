@@ -120,6 +120,92 @@ void test_shared_memory(Device &device) {
         << "the queue must contain exactly the host-computed LCG value multiset";
 }
 
+void test_shared_histogram_merge(Device &device) {
+    constexpr uint block_size = 128u;
+    constexpr uint block_count = 96u;
+    constexpr uint dispatch_size = block_size * block_count;
+    constexpr uint bucket_count = 2u;
+
+    auto histogram = device.create_buffer<uint>(bucket_count);
+    auto block_histogram = device.create_buffer<uint>(block_count);
+    auto keys = device.create_buffer<uint>(dispatch_size);
+    Kernel1D count = [=](BufferUInt global_histogram,
+                         BufferUInt block_counts, BufferUInt input_keys,
+                         UInt item_count, UInt n) noexcept {
+        set_block_size(block_size, 1u, 1u);
+        Shared<uint> local_histogram{bucket_count};
+        $if (thread_x() < bucket_count) {
+            local_histogram[thread_x()] = 0u;
+        };
+        sync_block();
+        $for (item, 0u, item_count) {
+            auto index = thread_x() + item * block_size +
+                         item_count * block_size * block_x();
+            $if (index < n) {
+                auto bucket = min(input_keys.read(index), bucket_count - 1u);
+                local_histogram.atomic(bucket).fetch_add(1u);
+            };
+        };
+        sync_block();
+        $if (thread_x() == 0u) {
+            block_counts.write(block_x(), local_histogram[0u]);
+        };
+        $if (thread_x() < bucket_count) {
+            global_histogram.atomic(thread_x()).fetch_add(
+                local_histogram[thread_x()]);
+        };
+    };
+    Kernel1D prefix = [=](BufferUInt global_histogram) noexcept {
+        set_block_size(32u, 1u, 1u);
+        $if (thread_x() == 0u) {
+            auto running = def(0u);
+            for (auto bucket = 0u; bucket < bucket_count; bucket++) {
+                auto count = global_histogram.read(bucket);
+                global_histogram.write(bucket, running);
+                running += count;
+            }
+        };
+    };
+    auto count_shader = device.compile(count);
+    auto prefix_shader = device.compile(prefix);
+    uint initial[bucket_count]{};
+    luisa::vector<uint> input_keys(dispatch_size, 0u);
+    uint raw[bucket_count]{};
+    luisa::vector<uint> raw_blocks(block_count);
+    uint offsets[bucket_count]{};
+    auto stream = device.create_stream();
+    stream << histogram.copy_from(luisa::span{initial, bucket_count})
+           << keys.copy_from(luisa::span{input_keys})
+           << count_shader(histogram, block_histogram, keys,
+                           1u, dispatch_size)
+                  .dispatch(dispatch_size)
+           << histogram.copy_to(luisa::span{raw, bucket_count})
+           << block_histogram.copy_to(luisa::span{raw_blocks})
+           << synchronize();
+    auto block_counts_correct = true;
+    for (auto block = 0u; block < block_count; block++) {
+        if (raw_blocks[block] != block_size) {
+            LUISA_WARNING("shared histogram block {} counted {}, expected {}",
+                          block, raw_blocks[block], block_size);
+            block_counts_correct = false;
+            break;
+        }
+    }
+    if (raw[0u] != dispatch_size || raw[1u] != 0u) {
+        LUISA_WARNING("shared histogram raw counts: [{}, {}], expected [{}, 0]",
+                      raw[0u], raw[1u], dispatch_size);
+    }
+    expect(block_counts_correct)
+        << "discarded LDS atomic results must complete before a block barrier";
+    expect(raw[0u] == dispatch_size && raw[1u] == 0u)
+        << "a shared block histogram must merge every item globally";
+    stream << prefix_shader(histogram).dispatch(32u)
+           << histogram.copy_to(luisa::span{offsets, bucket_count})
+           << synchronize();
+    expect(offsets[0u] == 0u && offsets[1u] == dispatch_size)
+        << "a following kernel must observe the complete histogram";
+}
+
 int main(int argc, char *argv[]) {
     auto dc = luisa::test::create_device_from_ut(argc, argv);
     if (!dc) {
@@ -129,4 +215,5 @@ int main(int argc, char *argv[]) {
 
     auto &device = dc->device;
     test_shared_memory(device);
+    test_shared_histogram_merge(device);
 }

@@ -35,7 +35,6 @@ public:
     void *native_handle() const noexcept override;
     // buffer
     BufferCreationInfo create_buffer(const Type *element, size_t elem_count, void *external_memory) noexcept override;
-    BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count, void *external_memory) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
     // texture
     ResourceCreationInfo create_texture(
@@ -60,7 +59,6 @@ public:
                                  const StreamLogCallback &callback) noexcept override;
     // kernel
     ShaderCreationInfo create_shader(const ShaderOption &option, Function kernel) noexcept override;
-    ShaderCreationInfo create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept override;
     ShaderCreationInfo load_shader(vstd::string_view file_name, vstd::span<Type const *const> types) noexcept override;
     Usage shader_argument_usage(uint64_t handle, size_t index) noexcept override;
     void destroy_shader(uint64_t handle) noexcept override;

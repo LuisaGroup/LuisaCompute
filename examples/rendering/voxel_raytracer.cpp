@@ -40,7 +40,7 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, cpu, metal", argv[0]);
+        LUISA_INFO("Usage: {} <backend> [--offline] [--iterations N] [-c <reference.png>]. <backend>: cuda, dx, metal, vk, hip, fallback", argv[0]);
         exit(1);
     }
     Device device = context.create_device(argv[1]);
@@ -53,6 +53,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     auto force_offline = opts.offline;
+    auto offline_iterations = opts.iterations;
     auto compare_path = opts.compare_path;
 
     // Image dimensions
@@ -317,11 +318,40 @@ int main(int argc, char *argv[]) {
 
     auto render = device.compile(render_kernel);
 
+    // Camera state is shared by keyboard and pointer/touch controls.
+    float3 cam_pos{32.0f, 40.0f, 80.0f};
+    float2 cam_rot{0.0f, -0.3f};
+    auto primary_pointer_down = false;
+    auto last_pointer_position = make_float2();
+
     // Setup window
     std::unique_ptr<Window> window;
     std::optional<Swapchain> swap_chain;
     if (!force_offline) {
         window = std::make_unique<Window>("Voxel Ray Tracer", make_uint2(width, height));
+        window->set_mouse_callback(
+            [&primary_pointer_down, &last_pointer_position](
+                MouseButton button, Action action, float2 position) noexcept {
+                if (button != MOUSE_BUTTON_LEFT) { return; }
+                primary_pointer_down = action != ACTION_RELEASED;
+                last_pointer_position = position;
+            });
+        window->set_cursor_position_callback(
+            [&cam_rot, &primary_pointer_down,
+             &last_pointer_position](float2 position) noexcept {
+                if (!primary_pointer_down) {
+                    last_pointer_position = position;
+                    return;
+                }
+                auto delta = position - last_pointer_position;
+                last_pointer_position = position;
+                cam_rot.x += delta.x * 0.005f;
+                cam_rot.y = clamp(
+                    cam_rot.y + delta.y * 0.005f, -1.5f, 1.5f);
+            });
+        window->set_scroll_callback([&cam_pos](float2 offset) noexcept {
+            cam_pos.z -= offset.y * 2.0f;
+        });
         swap_chain.emplace(device.create_swapchain(
             stream,
             SwapchainOption{
@@ -335,15 +365,19 @@ int main(int argc, char *argv[]) {
         (!force_offline && swap_chain.has_value()) ? swap_chain->backend_storage() : PixelStorage::BYTE4,
         make_uint2(width, height));
 
-    // Camera state
-    float3 cam_pos{32.0f, 40.0f, 80.0f};
-    float2 cam_rot{0.0f, -0.3f};
-
     if (force_offline) {
         luisa::vector<std::array<uint8_t, 4u>> host_image(width * height);
-        stream << render(display, cam_pos, cam_rot, voxel_grid).dispatch(width, height)
-               << display.copy_to(luisa::span{host_image})
-               << synchronize();
+        Clock benchmark_clock;
+        for (auto iteration = 0u; iteration < offline_iterations; iteration++) {
+            stream << render(display, cam_pos, cam_rot, voxel_grid).dispatch(width, height);
+        }
+        stream << synchronize();
+        auto elapsed_ms = benchmark_clock.toc();
+        LUISA_INFO(
+            "Offline voxel render: {} iterations in {:.3f} ms ({:.3f} ms/iteration).",
+            offline_iterations, elapsed_ms,
+            elapsed_ms / static_cast<double>(offline_iterations));
+        stream << display.copy_to(luisa::span{host_image}) << synchronize();
         stbi_write_png("test_voxel_raytracer.png", width, height, 4, host_image.data(), 0);
         if (compare_path) {
             auto result = luisa::ref::compare_with_reference_file(

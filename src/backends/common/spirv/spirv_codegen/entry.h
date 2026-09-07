@@ -146,6 +146,12 @@ private:
         _functions_requiring_dispatch_metadata;
     size_t _buffer_metadata_offset{0u};
     luisa::unordered_map<spv::Id, uint32_t> _direct_buffer_metadata_indices;
+    // A bound direct byte-buffer view has a compile-time logical offset. The
+    // Vulkan descriptor base is at least uint32-aligned, so gcd(offset, 4)
+    // also divides its runtime descriptor-relative bias. Unbound resources
+    // deliberately have no entry: their view offset remains runtime data.
+    luisa::unordered_map<const xir::Argument *, size_t>
+        _bound_direct_buffer_bias_alignments;
     luisa::unordered_map<spv::Id, spv::Id> _bindless_buffer_metadata_ids;
     bool _use_tex2d_bindless{false};
     bool _use_tex3d_bindless{false};
@@ -158,6 +164,7 @@ private:
     bool _runtime_target_plan_installed{false};
     SpirvTargetFeatureMask _required_target_features{};
     bool _uses_float8{false};
+ bool _uses_cooperative_vector{false};
     bool _uses_8bit_storage_buffer{false};
     bool _uses_8bit_uniform_storage{false};
     bool _uses_8bit_push_constant{false};
@@ -182,8 +189,8 @@ private:
     luisa::unordered_map<spv::Id, RayQueryState> _ray_query_states;
     luisa::unordered_map<const xir::Function *, luisa::vector<bool>> _callable_arg_used;
     SpirvFunctionArgumentAnalysisMap _function_argument_usage;
-    SpirvReadonlyResourceOriginMap
-        _readonly_resource_origins;
+    SpirvUniqueResourceOriginMap
+        _unique_resource_origins;
     luisa::unordered_set<const Type *> _needs_atomic_buffer_types;
     luisa::unordered_map<const Type *, SpirvAtomicBufferStoragePlan>
         _atomic_buffer_storage_plans;
@@ -205,6 +212,17 @@ private:
     enum class BufferIndexUnit : uint8_t {
         ELEMENT,
         BYTE
+    };
+
+    struct BindlessBufferBinding {
+        spv::Id buffer{spv::NoResult};
+        spv::Id slot_index{spv::NoResult};
+    };
+
+    struct BindlessTextureBinding {
+        spv::Id image{spv::NoResult};
+        spv::Id packed{spv::NoResult};
+        bool nonuniform{false};
     };
 
     struct InstructionUsageAnalysis {
@@ -295,11 +313,25 @@ private:
     void _emit_ray_query_traversal_to_completion(
         spv::Id ray_query) noexcept;
     void _emit_resource_query_inst(const xir::ResourceQueryInst *inst) noexcept;
-    void _emit_resource_read_inst(const xir::ResourceReadInst *inst) noexcept;
-    void _emit_resource_write_inst(const xir::ResourceWriteInst *inst) noexcept;
-    spv::Id _emit_buffer_read(spv::Id buffer, spv::Id index, const Type *read_type, const Type *buffer_type, BufferIndexUnit index_unit, spv::MemoryAccessMask memory_access = spv::MemoryAccessMask::MaskNone) noexcept;
+ void _emit_resource_read_inst(const xir::ResourceReadInst *inst) noexcept;
+ void _emit_resource_write_inst(const xir::ResourceWriteInst *inst) noexcept;
+ [[nodiscard]] spv::Id _emit_cooperative_array_pointer(spv::Id buffer) noexcept;
+    [[nodiscard]] bool _bindless_index_is_nonuniform(
+        const xir::Value *index,
+        xir::BindlessResourceAccess access) const noexcept;
+    [[nodiscard]] spv::Id _load_bindless_slot_word(
+        spv::Id bindless_array, spv::Id slot_index,
+        uint32_t stride_words, uint32_t field_word,
+        bool nonuniform) noexcept;
+    [[nodiscard]] BindlessBufferBinding _load_bindless_buffer_binding(
+        spv::Id bindless_array, const xir::Value *slot,
+        xir::BindlessResourceAccess access) noexcept;
+    [[nodiscard]] BindlessTextureBinding _load_bindless_texture_binding(
+        spv::Id bindless_array, const xir::Value *slot,
+        bool is_2d, xir::BindlessResourceAccess access) noexcept;
+    spv::Id _emit_buffer_read(spv::Id buffer, spv::Id index, const Type *read_type, const Type *buffer_type, BufferIndexUnit index_unit, spv::MemoryAccessMask memory_access = spv::MemoryAccessMask::MaskNone, size_t byte_index_alignment = 1u) noexcept;
     spv::Id _emit_buffer_read_impl(spv::Id buffer, spv::Id byte_offset, const Type *elem_type, size_t byte_alignment, spv::MemoryAccessMask memory_access = spv::MemoryAccessMask::MaskNone) noexcept;
-    void _emit_buffer_write(spv::Id buffer, spv::Id index, spv::Id value, const Type *value_type, const Type *buffer_type, BufferIndexUnit index_unit, spv::MemoryAccessMask memory_access = spv::MemoryAccessMask::MaskNone) noexcept;
+    void _emit_buffer_write(spv::Id buffer, spv::Id index, spv::Id value, const Type *value_type, const Type *buffer_type, BufferIndexUnit index_unit, spv::MemoryAccessMask memory_access = spv::MemoryAccessMask::MaskNone, size_t byte_index_alignment = 1u) noexcept;
     void _emit_buffer_write_impl(spv::Id buffer, spv::Id byte_offset, spv::Id value, const Type *elem_type, size_t byte_alignment, spv::MemoryAccessMask memory_access = spv::MemoryAccessMask::MaskNone) noexcept;
     void _emit_buffer_write_word_masked(spv::Id buffer, spv::Id word_index, spv::Id value, spv::Id mask) noexcept;
     [[nodiscard]] spv::Id _load_direct_buffer_metadata(
@@ -309,11 +341,13 @@ private:
         spv::Id bindless_array, spv::Id slot_index,
         StorageBufferMetadataField field,
         spv::Id target_type) noexcept;
+    [[nodiscard]] size_t _direct_buffer_bias_alignment(
+        const xir::Value *resource) const noexcept;
     [[nodiscard]] spv::Id _add_direct_buffer_bias(
         spv::Id buffer, spv::Id byte_offset) noexcept;
     [[nodiscard]] spv::Id _add_bindless_buffer_bias(
         spv::Id bindless_array, spv::Id slot_index,
-        spv::Id byte_offset) noexcept;
+        spv::Id byte_offset, xir::BindlessResourceAccess access) noexcept;
     void _emit_thread_group_inst(const xir::ThreadGroupInst *inst) noexcept;
     void _emit_ray_query_object_read_inst(const xir::RayQueryObjectReadInst *inst) noexcept;
     void _emit_ray_query_object_write_inst(const xir::RayQueryObjectWriteInst *inst) noexcept;

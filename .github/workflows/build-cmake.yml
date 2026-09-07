@@ -33,7 +33,7 @@ jobs:
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
           sudo ./llvm.sh 20 all
-          sudo apt-get -y install build-essential wget cmake ninja-build uuid-dev libxinerama-dev libxcursor-dev libxi-dev libembree-dev libvulkan-dev libembree-dev
+          sudo apt-get -y install build-essential wget cmake ninja-build uuid-dev libxinerama-dev libxcursor-dev libxi-dev libembree-dev libvulkan-dev libglfw3-dev libspdlog-dev libxxhash-dev liblmdb-dev libwayland-dev wayland-protocols
       - name: "Install CUDA Keyring"
         run: |
           wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/${{ matrix.platform.cuda-keyring }}/cuda-keyring_1.1-1_all.deb
@@ -61,13 +61,28 @@ jobs:
             export LUISA_CXX=clang++-20
             export LUISA_FLAGS="-stdlib=libc++"
           fi
-          cmake -S . -B build -G Ninja -D LUISA_COMPUTE_ENABLE_RUST=OFF -D LUISA_COMPUTE_ENABLE_REMOTE=OFF -D LUISA_COMPUTE_ENABLE_CPU=OFF -D LUISA_COMPUTE_ENABLE_UNITY_BUILD=${{ matrix.platform.unity }} -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=${LUISA_CC} -D CMAKE_CXX_COMPILER=${LUISA_CXX} -D CMAKE_CXX_FLAGS="${LUISA_FLAGS}"
-          cmake --build build -j ${{ matrix.platform.jobs }}
-      - name: "Install"
-        run: |
+          export LUISA_PACKAGE=OFF
           if [ "${{ matrix.config }}" = "Release" ]; then
-            cmake --install build --prefix dist -v
+            export LUISA_PACKAGE=ON
+            # A distribution consumer must not need an unexported global flag.
+            # Use Clang's platform-default system C++ runtime for the archive.
+            export LUISA_FLAGS=""
           fi
+          cmake -S . -B build -G Ninja -D LUISA_COMPUTE_ENABLE_PACKAGE_DISTRIBUTION=${LUISA_PACKAGE} -D LUISA_COMPUTE_ENABLE_UNITY_BUILD=${{ matrix.platform.unity }} -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=${LUISA_CC} -D CMAKE_CXX_COMPILER=${LUISA_CXX} -D CMAKE_CXX_FLAGS="${LUISA_FLAGS}"
+          cmake --build build -j ${{ matrix.platform.jobs }}
+      - name: "Build and Verify Distribution Package"
+        if: matrix.config == 'Release'
+        run: |
+          cmake --build build --target luisa-compute-package-e2e
+      - name: "Upload Distribution Package"
+        if: matrix.config == 'Release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: LuisaCompute-${{ matrix.platform.os }}-${{ matrix.platform.arch }}-${{ matrix.compiler }}
+          path: |
+            build/package/LuisaCompute-*.tar.gz
+            build/package/LuisaCompute-*.tar.gz.sha256
+          if-no-files-found: error
 
   build-macos:
     strategy:
@@ -84,27 +99,39 @@ jobs:
       - name: "Install Dependencies"
         run: |
           brew reinstall cmake
-          brew install llvm molten-vk ninja embree vulkan-headers vulkan-loader
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          brew install llvm molten-vk ninja embree vulkan-headers vulkan-loader glfw spdlog xxhash lmdb
       - name: "Configure and Build"
         run: |
-          export PATH="$PATH:/opt/homebrew/opt/llvm/bin"
+          export LUISA_LLVM_PREFIX="$(brew --prefix llvm)"
+          export PATH="$PATH:$LUISA_LLVM_PREFIX/bin"
           if [ "${{ matrix.compiler }}" = "homebrew-clang" ]; then
-            export CC=/opt/homebrew/opt/llvm/bin/clang
-            export CXX=/opt/homebrew/opt/llvm/bin/clang++
+            export CC="$LUISA_LLVM_PREFIX/bin/clang"
+            export CXX="$LUISA_LLVM_PREFIX/bin/clang++"
             export SDKROOT=$(xcrun --show-sdk-path)
           else
             export CC=/usr/bin/clang
             export CXX=/usr/bin/clang++
           fi
           export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
-          cmake -S . -B build -G Ninja -D LUISA_COMPUTE_ENABLE_RUST=OFF -D LUISA_COMPUTE_ENABLE_REMOTE=OFF -D LUISA_COMPUTE_ENABLE_CPU=OFF -D LUISA_COMPUTE_ENABLE_VULKAN=OFF -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D LUISA_COMPUTE_ENABLE_UNITY_BUILD=OFF
-          cmake --build build
-      - name: "Install"
-        run: |
+          export LUISA_PACKAGE=OFF
           if [ "${{ matrix.config }}" = "Release" ]; then
-            cmake --install build --prefix dist -v
+            export LUISA_PACKAGE=ON
           fi
+          cmake -S . -B build -G Ninja -D LUISA_COMPUTE_ENABLE_PACKAGE_DISTRIBUTION=${LUISA_PACKAGE} -D LUISA_COMPUTE_ENABLE_VULKAN=OFF -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D LUISA_COMPUTE_ENABLE_UNITY_BUILD=OFF
+          cmake --build build
+      - name: "Build and Verify Distribution Package"
+        if: matrix.config == 'Release'
+        run: |
+          cmake --build build --target luisa-compute-package-e2e
+      - name: "Upload Distribution Package"
+        if: matrix.config == 'Release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: LuisaCompute-macos-${{ matrix.compiler }}
+          path: |
+            build/package/LuisaCompute-*.tar.gz
+            build/package/LuisaCompute-*.tar.gz.sha256
+          if-no-files-found: error
 
   build-windows:
     strategy:
@@ -127,8 +154,6 @@ jobs:
         with:
           cuda: 12.8.1
           sub-packages: '[ "cudart", "nvrtc", "nvrtc_dev", "nvjitlink", "nvcc", "nvtx" ]'
-      - name: "Setup Rust"
-        uses: actions-rust-lang/setup-rust-toolchain@v1.10.1
       - name: "Setup Vulkan"
         uses: johnnynunez/setup-vulkan-sdk@v1
         with:
@@ -151,8 +176,21 @@ jobs:
             set CC=${{ matrix.compiler }}
             set CXX=${{ matrix.compiler }}
           )
-          cmake -S . -G Ninja -B build -D LUISA_COMPUTE_ENABLE_RUST=OFF -D LUISA_COMPUTE_ENABLE_REMOTE=OFF -D LUISA_COMPUTE_ENABLE_CPU=OFF -D CMAKE_BUILD_TYPE=${{ matrix.config }}
+          set LUISA_PACKAGE=OFF
+          IF "${{ matrix.config }}" == "Release" set LUISA_PACKAGE=ON
+          cmake -S . -G Ninja -B build -D LUISA_COMPUTE_ENABLE_PACKAGE_DISTRIBUTION=%LUISA_PACKAGE% -D CMAKE_BUILD_TYPE=${{ matrix.config }}
           cmake --build build
-      - name: "Install"
+      - name: "Build and Verify Distribution Package"
+        if: matrix.config == 'Release'
+        shell: pwsh
         run: |
-          cmake --install build --prefix dist -v
+          cmake --build build --target luisa-compute-package-e2e
+      - name: "Upload Distribution Package"
+        if: matrix.config == 'Release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: LuisaCompute-windows-${{ matrix.compiler }}
+          path: |
+            build/package/LuisaCompute-*.zip
+            build/package/LuisaCompute-*.zip.sha256
+          if-no-files-found: error

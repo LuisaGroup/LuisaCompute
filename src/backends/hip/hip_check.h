@@ -9,6 +9,15 @@
 #include <hip/hip_runtime.h>
 #include <hiprt/hiprt.h>
 
+// ROCm exposes CUDA keyword compatibility macros to ordinary host compilers.
+// Its empty GCC definition of __noinline__ corrupts libstdc++ 16 declarations
+// such as [[__gnu__::__noinline__]] when standard headers are included later.
+// The HIP/HIPRT headers have already consumed the keyword at this point, and
+// Luisa's host implementation does not use it.
+#if defined(__GNUC__) && !defined(__clang__) && defined(__noinline__)
+#undef __noinline__
+#endif
+
 #include <luisa/core/magic_enum.h>
 #include <luisa/core/logging.h>
 

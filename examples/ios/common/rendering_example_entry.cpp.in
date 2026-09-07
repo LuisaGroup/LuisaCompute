@@ -1,0 +1,5 @@
+// Compiles an existing desktop rendering example as a callable entry point
+// for the UIKit host without forking its implementation.
+#define main luisa_ios_rendering_example_main
+#include "@LUISA_IOS_RENDERING_EXAMPLE_SOURCE@"
+#undef main

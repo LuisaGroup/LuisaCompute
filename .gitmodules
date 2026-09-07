@@ -44,3 +44,6 @@
 [submodule "src/ext/spirv-headers"]
 	path = src/ext/spirv-headers
 	url = https://github.com/KhronosGroup/SPIRV-Headers.git
+[submodule "src/ext/llvm-downgrade"]
+	path = src/ext/llvm-downgrade
+	url = https://github.com/JuliaLLVM/llvm-downgrade.git

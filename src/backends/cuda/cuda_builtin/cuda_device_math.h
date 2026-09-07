@@ -4130,7 +4130,7 @@ template<typename I>
     return t * t * (lc_half(3.f) - lc_half(2.f) * t);
 }
 [[nodiscard]] __device__ inline auto lc_mod_impl(lc_half x, lc_half y) noexcept { return x - y * lc_floor(x / y); }
-[[nodiscard]] __device__ inline auto lc_fmod_impl(lc_half x, lc_half y) noexcept { return x - y * lc_trunc(x / y); }
+[[nodiscard]] __device__ inline auto lc_fmod_impl(lc_half x, lc_half y) noexcept { return lc_half(fmodf(float(x), float(y))); }
 [[nodiscard]] __device__ inline auto lc_fract_impl(lc_half x) noexcept { return x - lc_floor(x); }
 [[nodiscard]] __device__ inline auto lc_lerp_impl(lc_float a, lc_float b, lc_float t) noexcept { return t * (b - a) + a; }
 [[nodiscard]] __device__ inline auto lc_saturate(lc_float x) noexcept { return lc_clamp(x, lc_float(0.0f), lc_float(1.0f)); }
@@ -4162,7 +4162,7 @@ template<typename I>
     return t * t * (lc_double(3.f) - lc_double(2.f) * t);
 }
 [[nodiscard]] __device__ inline auto lc_mod_impl(lc_double x, lc_double y) noexcept { return x - y * lc_floor(x / y); }
-[[nodiscard]] __device__ inline auto lc_fmod_impl(lc_double x, lc_double y) noexcept { return fmodf(x, y); }
+[[nodiscard]] __device__ inline auto lc_fmod_impl(lc_double x, lc_double y) noexcept { return fmod(x, y); }
 [[nodiscard]] __device__ inline auto lc_fract_impl(lc_double x) noexcept { return x - lc_floor(x); }
 [[nodiscard]] __device__ inline lc_half lc_lerp(lc_half a, lc_half b, lc_half t) noexcept { return lc_lerp_impl(a, b, t); }
 [[nodiscard]] __device__ inline lc_half2 lc_lerp(lc_half2 a, lc_half2 b, lc_half2 t) noexcept { return lc_make_half2(lc_lerp_impl(a.x, b.x, t.x), lc_lerp_impl(a.y, b.y, t.y)); }

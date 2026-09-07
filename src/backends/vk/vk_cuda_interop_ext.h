@@ -1,16 +1,49 @@
 #pragma once
 #include <luisa/backends/ext/vk_cuda_interop.h>
 #include <luisa/runtime/device.h>
+#include <volk.h>
 #include <cuda.h>
 namespace lc::vk {
 class Device;
 using namespace luisa;
 using namespace luisa::compute;
+
+// Manually-loaded VK_NV_cuda_kernel_launch entry points. volk.c is compiled
+// without VK_ENABLE_BETA_EXTENSIONS, so its global table never contains these.
+struct CudaKernelLaunchFuncs {
+    PFN_vkCreateCudaModuleNV create_cuda_module{};
+    PFN_vkCreateCudaFunctionNV create_cuda_function{};
+    PFN_vkDestroyCudaModuleNV destroy_cuda_module{};
+    PFN_vkDestroyCudaFunctionNV destroy_cuda_function{};
+    PFN_vkCmdCudaLaunchKernelNV cmd_cuda_launch_kernel{};
+    [[nodiscard]] bool valid() const noexcept {
+        return create_cuda_module != nullptr &&
+               create_cuda_function != nullptr &&
+               destroy_cuda_module != nullptr &&
+               destroy_cuda_function != nullptr &&
+               cmd_cuda_launch_kernel != nullptr;
+    }
+};
+
+// Heap-allocated CUDA kernel shader (VkCudaModuleNV + VkCudaFunctionNV pair);
+// the object address is exposed publicly as an opaque uint64_t handle.
+// Imported from a DSL kernel compiled by the cuda backend; the recorded
+// usages/argument count/block size mirror the source shader's metadata for
+// launch-time validation.
+struct CudaKernelShader {
+    VkCudaModuleNV module{};
+    VkCudaFunctionNV function{};
+    luisa::vector<Usage> usages{};
+    size_t argument_count{0u};
+    uint3 block_size{0u, 0u, 0u};
+};
+
 class VkCudaInteropImpl : public VkCudaInterop {
     CUcontext _cu_context{};
     CUdevice _cu_device{};
     int _cuda_device{-1};
     Device *_device{};
+    CudaKernelLaunchFuncs _cuda_launch_funcs{};
 public:
     VkCudaInteropImpl(Device *device) noexcept;
     VkCudaInteropImpl(VkCudaInteropImpl const &) = delete;
@@ -31,5 +64,20 @@ public:
     [[nodiscard]] int cuda_device_index() const noexcept override {
         return _cuda_device;
     }
+
+public:
+    [[nodiscard]] bool cuda_kernel_launch_supported() const noexcept override;
+    [[nodiscard]] uint64_t create_cuda_kernel_shader(uint64_t cuda_shader_handle) noexcept override;
+    void destroy_cuda_kernel_shader(uint64_t handle) noexcept override;
+    [[nodiscard]] const CudaKernelLaunchFuncs &cuda_kernel_launch_funcs() const noexcept {
+        return _cuda_launch_funcs;
+    }
 };
+
+// Records a vkCmdCudaLaunchKernelNV for the given command into cmdbuffer.
+// The command's arguments are packed into the DSL kernel ABI: a single
+// by-value Params blob (16-byte-aligned slots; buffers as LCBuffer
+// {ptr, size_bytes} bindings) plus the ls_kid dispatch-size trailer.
+void cuda_launch_kernel(Device *device, VkCommandBuffer cmdbuffer,
+                        const vk_cuda_interop::CudaKernelLaunchCommand *cmd) noexcept;
 }// namespace lc::vk

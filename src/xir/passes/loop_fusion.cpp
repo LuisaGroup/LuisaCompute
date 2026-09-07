@@ -440,7 +440,7 @@ struct LoopMemoryFootprint {
 
 }// namespace
 
-static void run(Function *function, LoopFusionInfo &info) noexcept {
+static void loop_fusion_run(Function *function, LoopFusionInfo &info) noexcept {
     if (function == nullptr) { return; }
     auto *def = function->definition();
     if (def == nullptr) { return; }
@@ -469,7 +469,7 @@ static void run(Function *function, LoopFusionInfo &info) noexcept {
     }
 }
 
-[[nodiscard]] static bool preflight_module(
+[[nodiscard]] static bool loop_fusion_preflight_module(
     Module *module, LoopFusionInfo &info) noexcept {
     if (module == nullptr) { return true; }
     for (auto *function : module->function_list()) {
@@ -491,17 +491,17 @@ static void run(Function *function, LoopFusionInfo &info) noexcept {
 
 LoopFusionInfo loop_fusion_pass_run_on_function(Function *function) noexcept {
     LoopFusionInfo info;
-    detail::run(function, info);
+    detail::loop_fusion_run(function, info);
     return info;
 }
 
 LoopFusionInfo loop_fusion_pass_run_on_module(Module *module,
                                               PassReport *report) noexcept {
     LoopFusionInfo info;
-    if (detail::preflight_module(module, info)) {
+    if (detail::loop_fusion_preflight_module(module, info)) {
         if (module != nullptr) {
             for (auto *function : module->function_list()) {
-                detail::run(function, info);
+                detail::loop_fusion_run(function, info);
             }
         }
     }

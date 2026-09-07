@@ -1,0 +1,404 @@
+# LuisaCompute LLVM 22/AIR overlay for JuliaLLVM/llvm-downgrade.
+# Base commit: 6ab0b538c9302bd44f1d2a02f8d064ba9c5f2efb.
+# CMake applies this patch only to a disposable build-tree mirror.
+
+diff --git a/src/BitcodeWriter140.cpp b/src/BitcodeWriter140.cpp
+index 047e09b529e208cb24c3cff6bfac8814bacddeca..7a591c9a8c399961a676784c156c2d6a863ac308 100644
+--- a/src/BitcodeWriter140.cpp
++++ b/src/BitcodeWriter140.cpp
+@@ -155,6 +155,8 @@ protected:
+   /// The Module to write to bitcode.
+   const Module &M;
+ 
++  StructPointerTypeMap StructPointerMap;
++
+   /// Enumerates ids for all values in the module.
+   ValueEnumerator140 VE;
+ 
+@@ -183,7 +185,8 @@ public:
+                           bool ShouldPreserveUseListOrder,
+                           const ModuleSummaryIndex *Index)
+       : BitcodeWriterBase140(Stream, StrtabBuilder), M(M),
+-        VE(M, ShouldPreserveUseListOrder), Index(Index) {
++        StructPointerMap(PointerRewriter::buildStructPointerTypeMap(M)),
++        VE(M, ShouldPreserveUseListOrder, &StructPointerMap), Index(Index) {
+     // Enumerate typed pointers, in a deterministic module order so the emitted
+     // type table (and thus the whole bitcode) is reproducible across runs.
+     PointerMap = PointerRewriter::buildPointerMap(M);
+@@ -1086,8 +1089,13 @@ void ModuleBitcodeWriter140::writeTypeTable() {
+       // STRUCT: [ispacked, eltty x N]
+       TypeVals.push_back(ST->isPacked());
+       // Output all of the element types.
+-      for (Type *ET : ST->elements())
++      auto Overrides = StructPointerMap.find(ST);
++      for (unsigned I = 0; I < ST->getNumElements(); ++I) {
++        auto *ET = ST->getElementType(I);
++        if (Overrides != StructPointerMap.end() && Overrides->second[I])
++          ET = Overrides->second[I];
+         TypeVals.push_back(VE.getTypeID(ET));
++      }
+ 
+       if (ST->isLiteral()) {
+         Code = bitc::TYPE_CODE_STRUCT_ANON;
+@@ -2267,6 +2275,9 @@ void ModuleBitcodeWriter140::writeNamedMetadata(
+ 
+   unsigned Abbrev = createNamedMetadataAbbrev();
+   for (const NamedMDNode &NMD : M.named_metadata()) {
++    // This is an opaque-pointer downgrade directive, not runtime metadata.
++    if (NMD.getName() == "llvm.struct_eltypes")
++      continue;
+     // Write name.
+     StringRef Str = NMD.getName();
+     Record.append(Str.bytes_begin(), Str.bytes_end());
+@@ -2893,7 +2904,8 @@ void ModuleBitcodeWriter140::writeConstants(unsigned FirstVal, unsigned LastVal,
+       Record.push_back(VE.getValueID(NC->getGlobalValue()));
+     } else {
+ #ifndef NDEBUG
+-      C->dump();
++      C->print(errs());
++      errs() << '\n';
+ #endif
+       llvm_unreachable("Unknown constant!");
+     }
+diff --git a/src/BitcodeWriter50.cpp b/src/BitcodeWriter50.cpp
+index a7b7d1fed8d2c546feba609ede256ae6389ec19c..ba6c684be7b30fb885e329ab86eb551d4d4e1ddb 100644
+--- a/src/BitcodeWriter50.cpp
++++ b/src/BitcodeWriter50.cpp
+@@ -2625,7 +2625,8 @@ void ModuleBitcodeWriter50::writeConstants(unsigned FirstVal, unsigned LastVal,
+       Record.push_back(VE.getGlobalBasicBlockID(BA->getBasicBlock()));
+     } else {
+ #ifndef NDEBUG
+-      C->dump();
++      C->print(errs());
++      errs() << '\n';
+ #endif
+       llvm_unreachable("Unknown constant!");
+     }
+diff --git a/src/BitcodeWriter70.cpp b/src/BitcodeWriter70.cpp
+index 1c6dbe9c67d1a49ab7c193fe86bf45f3f00d4e32..c9e0d1a89b44e7fccad540934a90d2b614aa21d5 100644
+--- a/src/BitcodeWriter70.cpp
++++ b/src/BitcodeWriter70.cpp
+@@ -2678,7 +2678,8 @@ void ModuleBitcodeWriter70::writeConstants(unsigned FirstVal, unsigned LastVal,
+       Record.push_back(VE.getGlobalBasicBlockID(BA->getBasicBlock()));
+     } else {
+ #ifndef NDEBUG
+-      C->dump();
++      C->print(errs());
++      errs() << '\n';
+ #endif
+       llvm_unreachable("Unknown constant!");
+     }
+diff --git a/src/PointerRewriter.cpp b/src/PointerRewriter.cpp
+index 04d6773109acfd2a36f94a9ed87b4a0afe2dc482..d25008741b2db610d27ac5de2af148b8a5eea05b 100644
+--- a/src/PointerRewriter.cpp
++++ b/src/PointerRewriter.cpp
+@@ -298,10 +298,13 @@ static FunctionType *getTypedFunctionType(const Function *F) {
+     }
+   }
+ 
++  // Look at front-end pointer element metadata. `arg_eltypes` contains pairs
++  // of parameter indices and undef values whose types are the pointee types.
++  // `ret_eltype` contains one such undef value for a pointer return. The
++  // latter is needed by AIR functions such as air.get_read_sampler().
+   auto Args = FTy->params().vec();
++  auto *ReturnTy = FTy->getReturnType();
+   bool Changed = false;
+-
+-  // look at the !arg_eltypes metadata
+   if (MDNode *MD = F->getMetadata("arg_eltypes")) {
+     for (unsigned i = 0; i < MD->getNumOperands(); i += 2) {
+       auto IdxConstant = cast<ConstantAsMetadata>(MD->getOperand(i))->getValue();
+@@ -310,9 +313,8 @@ static FunctionType *getTypedFunctionType(const Function *F) {
+           cast<ValueAsMetadata>(MD->getOperand(i + 1))->getValue()->getType();
+ 
+       auto OpaquePtrTy = cast<PointerType>(Args[Idx]);
+-      auto TypedPtrTy =
++      Args[Idx] =
+           TypedPointerType::get(ElTy, OpaquePtrTy->getAddressSpace());
+-      Args[Idx] = TypedPtrTy;
+       Changed = true;
+     }
+   }
+@@ -340,9 +342,15 @@ static FunctionType *getTypedFunctionType(const Function *F) {
+     Changed = true;
+   }
+ 
+-  if (!Changed)
+-    return FTy;
+-  return FunctionType::get(FTy->getReturnType(), Args, FTy->isVarArg());
++  if (MDNode *MD = F->getMetadata("ret_eltype")) {
++    assert(MD->getNumOperands() == 1 && ReturnTy->isPointerTy() &&
++           "Invalid ret_eltype metadata");
++    Type *ElTy = cast<ValueAsMetadata>(MD->getOperand(0))->getValue()->getType();
++    auto OpaquePtrTy = cast<PointerType>(ReturnTy);
++    ReturnTy = TypedPointerType::get(ElTy, OpaquePtrTy->getAddressSpace());
++    Changed = true;
++  }
++  return Changed ? FunctionType::get(ReturnTy, Args, FTy->isVarArg()) : FTy;
+ }
+ 
+ static bool isNoopCast(const Value *V) {
+@@ -527,6 +535,7 @@ bool bitcastInstructionOperands(Module &M) {
+ // bitcast operands to calls, whose type can be altered by metadata attached to
+ // the function
+ bool bitcastFunctionOperands(Module &M) {
++  bool Changed = false;
+   for (Function &F : M) {
+     auto *FTy = F.getFunctionType();
+     auto *NewFTy = getTypedFunctionType(&F);
+@@ -543,18 +552,22 @@ bool bitcastFunctionOperands(Module &M) {
+             continue;
+ 
+           prependBitcast(M, CI, Idx);
++          Changed = true;
+         }
+         // A retyped return reads back with its typed pointer type; wrap the
+         // call's uses so operands the reader type-checks against their
+-        // user's opaque type (phi incoming values) see the opaque type.
+-        if (NewFTy->getReturnType() != FTy->getReturnType() &&
+-            !CI->use_empty())
++        // user's opaque type (phi incoming values) see the opaque type. Keep
++        // the cast even for an otherwise unused call: buildPointerMap relies
++        // on it to attach the legacy typed-pointer return type.
++        if (NewFTy->getReturnType() != FTy->getReturnType()) {
+           appendBitcast(M, CI);
++          Changed = true;
++        }
+       }
+     }
+   }
+ 
+-  return false;
++  return Changed;
+ }
+ 
+ // The value type a global value is emitted with (the pointee of its typed
+@@ -725,6 +738,15 @@ PointerTypeMap PointerRewriter::buildPointerMap(const Module &M) {
+         }
+       }
+     }
++    if (FTy->getReturnType() != NewFTy->getReturnType()) {
++      for (const User *U : F.users()) {
++        if (auto *CI = dyn_cast<CallInst>(U)) {
++          assert(CI->hasOneUse() && isNoopCast(CI->user_back()));
++          PointerMap[CI] =
++              cast<TypedPointerType>(NewFTy->getReturnType());
++        }
++      }
++    }
+   }
+ 
+   return PointerMap;
+@@ -982,6 +1004,46 @@ static bool bitcastBlockAddresses(Module &M) {
+   return !BAs.empty();
+ }
+ 
++// Build typed-pointer overrides for pointer fields embedded in structs. Opaque
++// LLVM IR cannot carry these types directly, but some legacy consumers (AIR in
++// particular) use the pointee types of argument-buffer fields as part of their
++// resource ABI. Front-ends describe those fields with named metadata entries:
++//
++//   !llvm.struct_eltypes = !{!0}
++//   !0 = !{!"struct.name", i32 1, %element.type undef, ...}
++StructPointerTypeMap
++PointerRewriter::buildStructPointerTypeMap(const Module &M) {
++  StructPointerTypeMap StructPointerMap;
++  auto *Named = M.getNamedMetadata("llvm.struct_eltypes");
++  if (!Named)
++    return StructPointerMap;
++
++  for (const MDNode *MD : Named->operands()) {
++    assert(MD->getNumOperands() >= 3 && (MD->getNumOperands() % 2) == 1 &&
++           "Invalid llvm.struct_eltypes metadata");
++    auto Name = cast<MDString>(MD->getOperand(0))->getString();
++    auto *Struct = StructType::getTypeByName(M.getContext(), Name);
++    assert(Struct && !Struct->isOpaque() &&
++           "Unknown struct in llvm.struct_eltypes metadata");
++    auto &Fields = StructPointerMap[Struct];
++    Fields.resize(Struct->getNumElements());
++    for (unsigned I = 1; I < MD->getNumOperands(); I += 2) {
++      auto *IndexValue =
++          cast<ConstantAsMetadata>(MD->getOperand(I))->getValue();
++      auto Index = cast<ConstantInt>(IndexValue)->getZExtValue();
++      assert(Index < Struct->getNumElements() &&
++             "Invalid struct field in llvm.struct_eltypes metadata");
++      auto *OpaquePointer =
++          cast<PointerType>(Struct->getElementType(Index));
++      auto *Element =
++          cast<ValueAsMetadata>(MD->getOperand(I + 1))->getValue()->getType();
++      Fields[Index] = TypedPointerType::get(
++          Element, OpaquePointer->getAddressSpace());
++    }
++  }
++  return StructPointerMap;
++}
++
+ bool PointerRewriter::run() {
+   bool Changed = demotePointerConstants(M);
+ 
+diff --git a/src/PointerRewriter.h b/src/PointerRewriter.h
+index c0532223fe7b7a0f1c094c743cc2316b39ebc7e4..50b0fbfd6b68a0495fbd57b8a74eef75199586f0 100644
+--- a/src/PointerRewriter.h
++++ b/src/PointerRewriter.h
+@@ -22,9 +22,12 @@ namespace llvm {
+ class Constant;
+ class Value;
+ class Module;
++class StructType;
+ class TypedPointerType;
+ 
+ using PointerTypeMap = DenseMap<const Value *, TypedPointerType *>;
++using StructPointerTypeMap =
++    DenseMap<const StructType *, SmallVector<TypedPointerType *, 4>>;
+ 
+ class PointerRewriter {
+ public:
+@@ -33,6 +36,7 @@ public:
+   bool run();
+ 
+   static PointerTypeMap buildPointerMap(const Module &M);
++  static StructPointerTypeMap buildStructPointerTypeMap(const Module &M);
+   static bool requiresPointerRewriting(const Constant *C);
+ 
+   // Lower intrinsics to their legacy form: drop lifetime markers (whose
+diff --git a/src/ValueEnumerator140.cpp b/src/ValueEnumerator140.cpp
+index 746330af92a98f061adf969d9c3bb760da184753..71da19baad82edeac6ae454d063f8e8d007078af 100644
+--- a/src/ValueEnumerator140.cpp
++++ b/src/ValueEnumerator140.cpp
+@@ -31,6 +31,7 @@
+ #include "llvm/IR/Module.h"
+ #include "llvm/IR/Operator.h"
+ #include "llvm/IR/Type.h"
++#include "llvm/IR/TypedPointerType.h"
+ #include "llvm/IR/Use.h"
+ #include "llvm/IR/User.h"
+ #include "llvm/IR/Value.h"
+@@ -367,9 +368,11 @@ static bool isIntOrIntVectorValue(const std::pair<const Value*, unsigned> &V) {
+   return V.first->getType()->isIntOrIntVectorTy();
+ }
+ 
+-ValueEnumerator140::ValueEnumerator140(const Module &M,
+-                                 bool ShouldPreserveUseListOrder)
+-    : ShouldPreserveUseListOrder(ShouldPreserveUseListOrder) {
++ValueEnumerator140::ValueEnumerator140(
++    const Module &M, bool ShouldPreserveUseListOrder,
++    const StructPointerTypeMap *StructPointerMap)
++    : ShouldPreserveUseListOrder(ShouldPreserveUseListOrder),
++      StructPointerMap(StructPointerMap) {
+   if (ShouldPreserveUseListOrder)
+     UseListOrders = predictUseListOrder(M);
+ 
+@@ -1022,10 +1025,22 @@ void ValueEnumerator140::EnumerateType(Type *Ty) {
+     if (!STy->isLiteral())
+       *TypeID = ~0U;
+ 
+-  // Enumerate all of the subtypes before we enumerate this type.  This ensures
++  // Enumerate all of the subtypes before we enumerate this type. This ensures
+   // that the type will be enumerated in an order that can be directly built.
+-  for (Type *SubTy : Ty->subtypes())
+-    EnumerateType(SubTy);
++  // For opaque-pointer downgrade directives, enumerate the replacement typed
++  // pointer in the same position where the writer will emit it.
++  if (auto *Struct = dyn_cast<StructType>(Ty); Struct && StructPointerMap) {
++    auto Overrides = StructPointerMap->find(Struct);
++    for (unsigned I = 0; I < Struct->getNumElements(); ++I) {
++      auto *SubTy = Struct->getElementType(I);
++      if (Overrides != StructPointerMap->end() && Overrides->second[I])
++        SubTy = Overrides->second[I];
++      EnumerateType(SubTy);
++    }
++  } else {
++    for (Type *SubTy : Ty->subtypes())
++      EnumerateType(SubTy);
++  }
+ 
+   // Refresh the TypeID pointer in case the table rehashed.
+   TypeID = &TypeMap[Ty];
+diff --git a/src/ValueEnumerator140.h b/src/ValueEnumerator140.h
+index de6f81c23e065ed9f6d8bd15833644553a46699b..8b26b3e16a957ad287151c3a3bedeb0e146e214a 100644
+--- a/src/ValueEnumerator140.h
++++ b/src/ValueEnumerator140.h
+@@ -13,6 +13,7 @@
+ #ifndef LLVM_LIB_BITCODE_LEGACYWRITER_VALUEENUMERATOR140_H
+ #define LLVM_LIB_BITCODE_LEGACYWRITER_VALUEENUMERATOR140_H
+ 
++#include "PointerRewriter.h"
+ #include "llvm/ADT/ArrayRef.h"
+ #include "llvm/ADT/DenseMap.h"
+ #include "llvm/ADT/UniqueVector.h"
+@@ -115,6 +116,7 @@ private:
+   SmallDenseMap<unsigned, MDRange, 1> FunctionMDInfo;
+ 
+   bool ShouldPreserveUseListOrder;
++  const StructPointerTypeMap *StructPointerMap;
+ 
+   using AttributeGroupMapType = DenseMap<IndexAndAttrSet, unsigned>;
+   AttributeGroupMapType AttributeGroupMap;
+@@ -149,7 +151,8 @@ private:
+   unsigned FirstInstID;
+ 
+ public:
+-  ValueEnumerator140(const Module &M, bool ShouldPreserveUseListOrder);
++  ValueEnumerator140(const Module &M, bool ShouldPreserveUseListOrder,
++                     const StructPointerTypeMap *StructPointerMap = nullptr);
+   ValueEnumerator140(const ValueEnumerator140 &) = delete;
+   ValueEnumerator140 &operator=(const ValueEnumerator140 &) = delete;
+ 
+diff --git a/test/tests/ret_eltype.ll b/test/tests/ret_eltype.ll
+new file mode 100644
+index 0000000000000000000000000000000000000000..45a6d49d3e6b5dfe0db75d212e8900c0a853892c
+--- /dev/null
++++ b/test/tests/ret_eltype.ll
+@@ -0,0 +1,23 @@
++; MIN-LLVM: 15  (uses opaque `ptr`; opaque pointers are LLVM 15+)
++; VERSIONS: 14.0
++; Pointer-returning functions use ret_eltype to recover the typed pointer in
++; LLVM 14 bitcode. The call result must carry that same type so its inserted
++; no-op cast and downstream typed call remain well-formed.
++%resource = type { i8 }
++
++declare !ret_eltype !0 ptr addrspace(2) @get_resource()
++declare !arg_eltypes !1 void @consume_resource(ptr addrspace(2))
++
++define void @test() {
++  %resource = call ptr addrspace(2) @get_resource()
++  call void @consume_resource(ptr addrspace(2) %resource)
++  ret void
++}
++
++!0 = !{%resource undef}
++!1 = !{i32 0, %resource undef}
++
++; CHECK: declare{{.*}}%resource addrspace(2)* @get_resource()
++; CHECK: declare{{.*}}void @consume_resource(%resource addrspace(2)*)
++; CHECK: call %resource addrspace(2)* @get_resource()
++; CHECK: call void @consume_resource(%resource addrspace(2)*
+diff --git a/test/tests/struct_eltypes.ll b/test/tests/struct_eltypes.ll
+new file mode 100644
+index 0000000000000000000000000000000000000000..d6db9495315496828de11e61e7d55198884c7f87
+--- /dev/null
++++ b/test/tests/struct_eltypes.ll
+@@ -0,0 +1,22 @@
++; MIN-LLVM: 15  (uses opaque `ptr`; opaque pointers are LLVM 15+)
++; VERSIONS: 14.0
++; llvm.struct_eltypes restores typed pointers embedded in named structs. This
++; nested wrapper shape also checks that replacement pointee types are enumerated
++; before the containing structs are emitted to the LLVM 14 type table.
++%texture = type { i8 }
++%resource_wrapper = type { ptr addrspace(1) }
++%argument_buffer = type { i32, ptr addrspace(2) }
++
++define void @consume_argument_buffer(ptr addrspace(2) %buffer) !arg_eltypes !2 {
++  ret void
++}
++
++!llvm.struct_eltypes = !{!0, !1}
++!0 = !{!"resource_wrapper", i32 0, %texture undef}
++!1 = !{!"argument_buffer", i32 1, %resource_wrapper undef}
++!2 = !{i32 0, %argument_buffer undef}
++
++; CHECK-DAG: %resource_wrapper = type { %texture addrspace(1)* }
++; CHECK-DAG: %argument_buffer = type { i32, %resource_wrapper addrspace(2)* }
++; CHECK: define void @consume_argument_buffer(%argument_buffer addrspace(2)*
++; CHECK-NOT: !llvm.struct_eltypes
+

@@ -55,6 +55,12 @@ DepthBuffer::DepthBuffer(
     texDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
     texDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
     texDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+
+    D3D12_CLEAR_VALUE optimizedClear{};
+    optimizedClear.Format = static_cast<DXGI_FORMAT>(this->format);
+    optimizedClear.DepthStencil.Depth = 1.0f;
+    optimizedClear.DepthStencil.Stencil = 0;
+
     if (!alloc) {
         auto prop = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
         D3D12_HEAP_PROPERTIES const *propPtr = &prop;
@@ -63,7 +69,7 @@ DepthBuffer::DepthBuffer(
             D3D12_HEAP_FLAG_NONE,
             &texDesc,
             GetInitState(),
-            nullptr,
+            &optimizedClear,
             IID_PPV_ARGS(&allocHandle.resource)));
     } else {
         ID3D12Heap *heap;
@@ -83,7 +89,7 @@ DepthBuffer::DepthBuffer(
             offset,
             &texDesc,
             GetInitState(),
-            nullptr,
+            &optimizedClear,
             IID_PPV_ARGS(&allocHandle.resource)));
     }
 }

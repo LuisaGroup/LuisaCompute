@@ -1,0 +1,9 @@
+// Single source of truth for the host and Vulkan built-in shader ABI.
+// Define LC_INDIRECT_LAYOUT(shader_name, cpp_name, value) before including.
+LC_INDIRECT_LAYOUT(HEADER_WORDS, header_word_count, 1u)
+LC_INDIRECT_LAYOUT(RECORD_WORDS, record_word_count, 7u)
+LC_INDIRECT_LAYOUT(LOGICAL_WORD, logical_size_word, 0u)
+LC_INDIRECT_LAYOUT(KERNEL_ID_WORD, kernel_id_word, 3u)
+LC_INDIRECT_LAYOUT(GROUP_WORD, group_count_word, 4u)
+LC_INDIRECT_LAYOUT(COMMAND_WORDS, command_word_count, 3u)
+LC_INDIRECT_LAYOUT(PREPARE_BLOCK_SIZE, prepare_block_size, 64u)

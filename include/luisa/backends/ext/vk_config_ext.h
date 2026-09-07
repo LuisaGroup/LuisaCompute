@@ -79,6 +79,21 @@ public:
     [[nodiscard]] virtual bool enable_bindless_feature() const noexcept {
         return true;
     }
+    // Requested update-after-bind heap capacity for the three global bindless
+    // heaps. Return 0 to use the backend default (262144 on desktop). Mobile
+    // builds can lower this to reduce maxUpdateAfterBindDescriptorsInAllPools
+    // pressure.
+    [[nodiscard]] virtual uint32_t requested_bindless_heap_capacity() const noexcept {
+        return 0u;
+    }
+    // Minimum Vulkan API version the backend must honor during device
+    // capability negotiation. Return VK_API_VERSION_1_2 to force the legacy
+    // barrier/copy paths (the Android-compatible floor), VK_API_VERSION_1_3 to
+    // require synchronization2/copy_commands2, or 0 for "auto" (use whatever
+    // the physical device exposes).
+    [[nodiscard]] virtual uint32_t min_api_version() const noexcept {
+        return 0u;
+    }
     [[nodiscard]] virtual bool enable_raytracing_feature() const noexcept {
         return true;
     }

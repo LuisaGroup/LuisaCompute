@@ -588,6 +588,23 @@ __builtin_spv_InsertIntoCooperativeVector(
     typename vk::nv::CooperativeVector<ComponentType, components>::SpirvVectorType vec,
     uint32_t index);
 
+// Literal-index variants. OpCompositeExtract and OpCompositeInsert require
+// their indices to be compile-time literals, so the index parameter is marked
+// with [[vk::ext_literal]].
+template <typename ComponentType, uint components>
+[[vk::ext_instruction(/* OpCompositeExtract */ 81)]] ComponentType
+__builtin_spv_ExtractFromCooperativeVectorLit(
+    typename vk::nv::CooperativeVector<ComponentType, components>::SpirvVectorType vec,
+    [[vk::ext_literal]] uint32_t index);
+
+template <typename ComponentType, uint components>
+[[vk::ext_instruction(/* OpCompositeInsert */ 82)]]
+typename vk::nv::CooperativeVector<ComponentType, components>::SpirvVectorType
+__builtin_spv_InsertIntoCooperativeVectorLit(
+    ComponentType value,
+    typename vk::nv::CooperativeVector<ComponentType, components>::SpirvVectorType vec,
+    [[vk::ext_literal]] uint32_t index);
+
 // --- Matrix-times-scalar for scalar multiplication ---
 
 template <typename ResultType, typename ComponentType>
@@ -827,18 +844,62 @@ uint32_t CooperativeVector<ComponentType, components>::GetLength() {
   return components;
 }
 
+// OpCompositeExtract/OpCompositeInsert require compile-time literal indices,
+// so a runtime index is dispatched to the literal-index builtins through a
+// recursive template chain. After the dispatch is inlined, constant indices
+// are folded to a single literal-index instruction.
+template <uint32_t I, uint32_t N, class ComponentType>
+struct CooperativeVectorSetDispatch {
+  static void
+  apply(inout typename CooperativeVector<ComponentType, N>::SpirvVectorType v,
+        ComponentType value, uint32_t index) {
+    if (index == I)
+      v = __builtin_spv_InsertIntoCooperativeVectorLit<ComponentType, N>(value,
+                                                                         v, I);
+    else
+      CooperativeVectorSetDispatch<I + 1, N, ComponentType>::apply(v, value,
+                                                                   index);
+  }
+};
+template <uint32_t N, class ComponentType>
+struct CooperativeVectorSetDispatch<N, N, ComponentType> {
+  static void
+  apply(inout typename CooperativeVector<ComponentType, N>::SpirvVectorType v,
+        ComponentType value, uint32_t index) {}
+};
+template <uint32_t I, uint32_t N, class ComponentType>
+struct CooperativeVectorGetDispatch {
+  static ComponentType
+  apply(typename CooperativeVector<ComponentType, N>::SpirvVectorType v,
+        uint32_t index) {
+    if (index == I)
+      return __builtin_spv_ExtractFromCooperativeVectorLit<ComponentType, N>(v,
+                                                                             I);
+    return CooperativeVectorGetDispatch<I + 1, N, ComponentType>::apply(v,
+                                                                        index);
+  }
+};
+template <uint32_t N, class ComponentType>
+struct CooperativeVectorGetDispatch<N, N, ComponentType> {
+  static ComponentType
+  apply(typename CooperativeVector<ComponentType, N>::SpirvVectorType v,
+        uint32_t index) {
+    return (ComponentType)0;
+  }
+};
+
 template <class ComponentType, uint components>
 ComponentType CooperativeVector<ComponentType, components>::Get(
     uint32_t index) {
-  return __builtin_spv_ExtractFromCooperativeVector<ComponentType, components>(
+  return CooperativeVectorGetDispatch<0, components, ComponentType>::apply(
       _vector, index);
 }
 
 template <class ComponentType, uint components>
 void CooperativeVector<ComponentType, components>::Set(
     ComponentType value, uint32_t index) {
-  _vector = __builtin_spv_InsertIntoCooperativeVector<ComponentType, components>(
-      value, _vector, index);
+  CooperativeVectorSetDispatch<0, components, ComponentType>::apply(
+      _vector, value, index);
 }
 
 

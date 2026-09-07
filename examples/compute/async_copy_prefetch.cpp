@@ -1,11 +1,9 @@
 // Async Copy (LDGSTS) prefetch example.
 // Demonstrates multi-stage data prefetching using CUDA cp.async + pipeline
-// or Vulkan SPIR-V OpGroupAsyncCopy via HLSL fallback.
-// Requires CUDA CC 8.0+ or Vulkan with VK_KHR_workgroup_memory_explicit_layout.
+// primitives. Requires CUDA CC 8.0+.
 //
 // Usage:
 //   xmake run example_async_copy_prefetch cuda
-//   xmake run example_async_copy_prefetch vk
 //   LUISA_DUMP_SOURCE=1 xmake run example_async_copy_prefetch cuda
 
 #include <luisa/luisa-compute.h>
@@ -42,14 +40,18 @@ int main(int argc, char *argv[]) {
         $shared<float> tile_b{block_size};
         $uint tid = thread_x();
 
+        auto src_base = src_buf.device_address();
+
         // Stage 1: Prefetch first tile into tile_a
         $uint base_a = block_x() * 2u * block_size + tid;
-        async_copy(1u, tid, base_a, 4u, 1u, 4u, 0u);
+        async_copy(1u, tile_a[tid],
+                   src_base + cast<luisa::ulong>(base_a * 4u), 4u, 1u, 4u, 0u);
         pipeline_commit();
 
         // Stage 2: Prefetch second tile into tile_b
         $uint base_b = base_a + block_size;
-        async_copy(1u, tid, base_b, 4u, 1u, 4u, 0u);
+        async_copy(1u, tile_b[tid],
+                   src_base + cast<luisa::ulong>(base_b * 4u), 4u, 1u, 4u, 0u);
         pipeline_commit();
 
         // Wait for stage 1 to complete (1 prior stage still in flight)
@@ -79,7 +81,9 @@ int main(int argc, char *argv[]) {
     auto num_blocks = (N + 2u * block_size - 1u) / (2u * block_size);
 
     auto time = Clock{};
-    stream << shader(src, dst).dispatch(num_blocks) << synchronize();
+    // Each thread handles two elements (one per tile), so dispatch
+    // num_blocks * block_size total threads.
+    stream << shader(src, dst).dispatch(num_blocks * block_size) << synchronize();
     auto elapsed = time.toc();
 
     // Verify results

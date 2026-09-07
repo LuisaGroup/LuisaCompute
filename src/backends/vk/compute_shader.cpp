@@ -2,10 +2,13 @@
 #include "device.h"
 #include "log.h"
 #include "../common/hlsl/hlsl_codegen.h"
+#include "../common/env_flag.h"
 #include <luisa/core/stl/filesystem.h>
 #include "shader_serializer.h"
+#include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
 #include "../common/hlsl/shader_compiler.h"
+#include <cstdlib>
 
 namespace lc::vk {
 
@@ -25,8 +28,15 @@ ComputeShader::ComputeShader(
     uint validation_count,
     luisa::optional<uint8_t> required_subgroup_size,
     uint32_t push_constant_size,
-    detail::ShaderCodegenDialect codegen_dialect)
-    : Shader{device, ShaderTag::kComputeShader, std::move(captured), std::move(saved_args), binds, use_tex2d_bindless, use_tex3d_bindless, use_buffer_bindless, std::move(printers), constant_ubo_data, validation_count, push_constant_size, codegen_dialect}, _block_size(block_size) {
+    detail::ShaderCodegenDialect codegen_dialect,
+    bool enable_driver_optimization)
+    : Shader{device, ShaderTag::kComputeShader, std::move(captured), std::move(saved_args), binds, use_tex2d_bindless, use_tex3d_bindless, use_buffer_bindless, std::move(printers), constant_ubo_data, validation_count, push_constant_size, codegen_dialect},
+      _block_size(block_size),
+      _pipeline_create_flags{
+          pipeline_create_flags(enable_driver_optimization)} {
+    auto profile =
+        luisa::compute::detail::env_flag("LUISA_VULKAN_PROFILE_COMPILATION");
+    Clock phase_clock;
     VkPipelineCacheCreateInfo pso_ci{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
     if (!cache_code.empty()) {
@@ -35,12 +45,24 @@ ComputeShader::ComputeShader(
     }
     VkPipelineCache pipe_cache{VK_NULL_HANDLE};
     VK_CHECK_RESULT(vkCreatePipelineCache(device->logic_device(), &pso_ci, Device::alloc_callbacks(), &pipe_cache));
+    if (profile) {
+        LUISA_INFO(
+            "Vulkan compute pipeline-cache creation: {:.3f} ms",
+            phase_clock.toc());
+    }
+    phase_clock.tic();
     VkShaderModuleCreateInfo module_create_info{
         .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
         .codeSize = spv_code.size_bytes(),
         .pCode = spv_code.data()};
     VkShaderModule shader_module;
     VK_CHECK_RESULT(vkCreateShaderModule(device->logic_device(), &module_create_info, Device::alloc_callbacks(), &shader_module));
+    if (profile) {
+        LUISA_INFO(
+            "Vulkan compute shader-module creation: {:.3f} ms",
+            phase_clock.toc());
+    }
+    phase_clock.tic();
     auto dispose_module = vstd::scope_exit([&] {
         vkDestroyShaderModule(device->logic_device(), shader_module, Device::alloc_callbacks());
     });
@@ -64,7 +86,7 @@ ComputeShader::ComputeShader(
     }
     VkComputePipelineCreateInfo pipe_ci{
         .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
-        .flags = 0,
+        .flags = _pipeline_create_flags,
         .stage = {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
             .pNext = stage_next,
@@ -76,6 +98,11 @@ ComputeShader::ComputeShader(
 
     VkPipeline pipeline;
     VK_CHECK_RESULT(vkCreateComputePipelines(device->logic_device(), pipe_cache, 1, &pipe_ci, Device::alloc_callbacks(), &pipeline));
+    if (profile) {
+        LUISA_INFO(
+            "Vulkan compute pipeline creation: {:.3f} ms",
+            phase_clock.toc());
+    }
     _pipeline_ref = PipelineRef::create(device->logic_device(), pipeline, pipe_cache, Device::alloc_callbacks());
 }
 bool ComputeShader::serialize_pso(vstd::vector<std::byte> &result) const {
@@ -113,7 +140,8 @@ ComputeShader *ComputeShader::compile(
     luisa::optional<uint8_t> required_subgroup_size,
     bool requires_sampler_anisotropy,
     uint32_t push_constant_size,
-    detail::ShaderCodegenDialect codegen_dialect) {
+    detail::ShaderCodegenDialect codegen_dialect,
+    bool enable_driver_optimization) {
 
     auto required_spirv_features =
         device->enabled_spirv_artifact_features();
@@ -143,7 +171,8 @@ ComputeShader *ComputeShader::compile(
                            .type_md5 = expected_type_md5,
                            .codegen_dialect = codegen_dialect},
                           std::move(bindings), file_name, serde_type, bin_io,
-                          push_constant_size);
+                          push_constant_size,
+                          enable_driver_optimization);
     // cache invalid, need compile
     bool write_cache = !required_subgroup_size && !file_name.empty();
     if (!result.shader) {
@@ -209,7 +238,8 @@ ComputeShader *ComputeShader::compile(
                     validation_count,
                     required_subgroup_size,
                     push_constant_size,
-                    codegen_dialect);
+                    codegen_dialect,
+                    enable_driver_optimization);
                 if (write_cache) {
                     ShaderSerializer::serialize_bytecode(
                         shader->binds(),
@@ -246,45 +276,4 @@ ComputeShader *ComputeShader::compile(
     return static_cast<ComputeShader *>(result.shader);
 }
 
-ComputeShader *ComputeShader::compile_builtin_hlsl_to_spirv(
-    BinaryIO const *bin_io,
-    Device *device,
-    vstd::vector<SavedArgument> &&saved_args,
-    vstd::function<hlsl::CodegenResult()> const &codegen,
-    vstd::optional<vstd::MD5> const &code_md5,
-    vstd::vector<Argument> &&bindings,
-    uint3 block_size,
-    vstd::string_view file_name,
-    SerdeType serde_type,
-    uint shader_model,
-    bool unsafe_math,
-    uint validation_count,
-    luisa::optional<uint8_t> required_subgroup_size,
-    bool requires_sampler_anisotropy,
-    uint32_t push_constant_size) {
-
-    if (serde_type != SerdeType::kBuiltin) [[unlikely]] {
-        LUISA_ERROR("Vulkan HLSL-to-SPIR-V compute compilation is restricted to internal builtins. "
-                    "User compute shaders must use native SPIR-V codegen.");
-    }
-
-    return compile(
-        bin_io,
-        device,
-        std::move(saved_args),
-        codegen,
-        code_md5,
-        luisa::nullopt,
-        std::move(bindings),
-        block_size,
-        file_name,
-        serde_type,
-        shader_model,
-        unsafe_math,
-        validation_count,
-        required_subgroup_size,
-        requires_sampler_anisotropy,
-        push_constant_size,
-        detail::ShaderCodegenDialect::VULKAN_BUILTIN);
-}
 }// namespace lc::vk

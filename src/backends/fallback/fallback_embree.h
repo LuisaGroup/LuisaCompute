@@ -11,7 +11,13 @@
 namespace luisa::compute::fallback {
 
 inline void luisa_fallback_accel_set_flags(RTCScene scene, const AccelOption &option) noexcept {
-    auto scene_flags = 0u;
+    // Preserve the hardware ray-tracing shared-edge ownership invariant: a ray
+    // on a manifold shared edge may choose either adjacent primitive, but it
+    // must not miss both. Embree's default fast mode can lose a sloped
+    // shared-edge hit and expose a farther surface instead. Robust mode is the
+    // documented Embree mechanism for enforcing this invariant, and must be
+    // enabled on both BLAS and TLAS scenes.
+    auto scene_flags = static_cast<unsigned>(RTC_SCENE_FLAG_ROBUST);
 #if LUISA_COMPUTE_FALLBACK_EMBREE_VERSION == 3
     scene_flags |= RTC_SCENE_FLAG_CONTEXT_FILTER_FUNCTION;
 #endif

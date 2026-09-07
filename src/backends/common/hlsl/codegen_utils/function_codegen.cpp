@@ -16,11 +16,6 @@ extern bool shown_buffer_warning;
 
 namespace lc::hlsl {
 
-#ifdef LUISA_ENABLE_IR
-// Defined in entry_points.cpp — collects gradient variables from a function body.
-void glob_variables_with_grad(Function f, vstd::unordered_set<Variable> &gradient_variables) noexcept;
-#endif
-
 namespace {
 
 [[nodiscard]] bool is_validation_resource(Type const *type) noexcept {
@@ -408,13 +403,29 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "isnan"sv;
             break;
         case CallOp::ACOS:
-            str << "acos"sv;
+            if (opt->isSpirv &&
+                !opt->enable_fast_math &&
+                (expr->type()->is_float32() ||
+                 (expr->type()->is_vector() &&
+                  expr->type()->element()->is_float32()))) {
+                str << "_lc_strict_acos"sv;
+            } else {
+                str << "acos"sv;
+            }
             break;
         case CallOp::ACOSH:
             str << "_acosh"sv;
             break;
         case CallOp::ASIN:
-            str << "asin"sv;
+            if (opt->isSpirv &&
+                !opt->enable_fast_math &&
+                (expr->type()->is_float32() ||
+                 (expr->type()->is_vector() &&
+                  expr->type()->element()->is_float32()))) {
+                str << "_lc_strict_asin"sv;
+            } else {
+                str << "asin"sv;
+            }
             break;
         case CallOp::ASINH:
             str << "_asinh"sv;
@@ -1699,6 +1710,13 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             GetTypeName(*args[0]->type(), str, Usage::NONE, false);
             str << '>';
             break;
+        case CallOp::RAY_QUERY_OBJECT_SPACE_RAY:
+            str << "_RayQueryGetObjectRay<"sv;
+            GetTypeName(*expr->type(), str, Usage::NONE, false);
+            str << ',';
+            GetTypeName(*args[0]->type(), str, Usage::NONE, false);
+            str << '>';
+            break;
         case CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT:
             str << "_GetTriangleCandidateHit"sv;
             break;
@@ -1734,6 +1752,13 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << ".CandidateType()!=CANDIDATE_NON_OPAQUE_TRIANGLE)"sv;
             return;
         case CallOp::ZERO: {
+            str << "_zero("sv;
+            GetTypeName(*expr->type(), str, Usage::READ, true);
+            str << ')';
+            return;
+        }
+        case CallOp::UNDEFINED: {
+            // Zero is a legal concrete refinement for direct AST codegen.
             str << "_zero("sv;
             GetTypeName(*expr->type(), str, Usage::READ, true);
             str << ')';
@@ -1974,6 +1999,52 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             GetTypeName(*args[0]->type(), str, args[0]->usage());
             str << '>';
         } break;
+        // Future cooperative-vector element-wise operations (native IR operators
+        // reserved for backend implementation — TODO: implement in HLSL codegen).
+        case CallOp::COOPERATIVE_VECTOR_DOT:
+        case CallOp::COOPERATIVE_VECTOR_ABS:
+        case CallOp::COOPERATIVE_VECTOR_SIGN:
+        case CallOp::COOPERATIVE_VECTOR_FLOOR:
+        case CallOp::COOPERATIVE_VECTOR_CEIL:
+        case CallOp::COOPERATIVE_VECTOR_FRACT:
+        case CallOp::COOPERATIVE_VECTOR_TRUNC:
+        case CallOp::COOPERATIVE_VECTOR_ROUND:
+        case CallOp::COOPERATIVE_VECTOR_RINT:
+        case CallOp::COOPERATIVE_VECTOR_SQRT:
+        case CallOp::COOPERATIVE_VECTOR_RSQRT:
+        case CallOp::COOPERATIVE_VECTOR_EXP2:
+        case CallOp::COOPERATIVE_VECTOR_EXP10:
+        case CallOp::COOPERATIVE_VECTOR_LOG2:
+        case CallOp::COOPERATIVE_VECTOR_LOG10:
+        case CallOp::COOPERATIVE_VECTOR_SATURATE:
+        case CallOp::COOPERATIVE_VECTOR_ISINF:
+        case CallOp::COOPERATIVE_VECTOR_ISNAN:
+        case CallOp::COOPERATIVE_VECTOR_SIN:
+        case CallOp::COOPERATIVE_VECTOR_COS:
+        case CallOp::COOPERATIVE_VECTOR_TAN:
+        case CallOp::COOPERATIVE_VECTOR_ASIN:
+        case CallOp::COOPERATIVE_VECTOR_ACOS:
+        case CallOp::COOPERATIVE_VECTOR_SINH:
+        case CallOp::COOPERATIVE_VECTOR_COSH:
+        case CallOp::COOPERATIVE_VECTOR_ASINH:
+        case CallOp::COOPERATIVE_VECTOR_ACOSH:
+        case CallOp::COOPERATIVE_VECTOR_ATANH:
+        case CallOp::COOPERATIVE_VECTOR_MIX:
+        case CallOp::COOPERATIVE_VECTOR_LERP:
+        case CallOp::COOPERATIVE_VECTOR_POW:
+        case CallOp::COOPERATIVE_VECTOR_STEP:
+        case CallOp::COOPERATIVE_VECTOR_SMOOTHSTEP:
+        case CallOp::COOPERATIVE_VECTOR_ADD:
+        case CallOp::COOPERATIVE_VECTOR_SUB:
+        case CallOp::COOPERATIVE_VECTOR_MUL:
+        case CallOp::COOPERATIVE_VECTOR_DIV:
+        case CallOp::COOPERATIVE_VECTOR_LESS:
+        case CallOp::COOPERATIVE_VECTOR_LESS_EQUAL:
+        case CallOp::COOPERATIVE_VECTOR_GREATER:
+        case CallOp::COOPERATIVE_VECTOR_GREATER_EQUAL:
+        case CallOp::COOPERATIVE_VECTOR_EQUAL:
+        case CallOp::COOPERATIVE_VECTOR_NOT_EQUAL:
+            LUISA_NOT_IMPLEMENTED("Cooperative-vector element-wise operations are not implemented in the HLSL backend yet.");
         case CallOp::COOPERATIVE_MUL_ADD: {
             auto matrix_dimension = args[1]->type()->coop_matrix_dimension();// weight is KxN
             str << "dx::linalg::CoopMulAdd<";
@@ -2187,18 +2258,10 @@ void CodegenUtility::CodegenVertex(Function vert, vstd::StringBuilder &result, b
         opt->arguments.try_emplace(i.uid(), idx);
         ++idx;
     }
-#ifdef LUISA_ENABLE_IR
-    vstd::unordered_set<Variable> grad_vars;
-    glob_variables_with_grad(vert, grad_vars);
-#endif
     {
         StringStateVisitor vis(vert, result, this);
         vis.sharedVariables = &opt->sharedVariable;
-        vis.VisitFunction(
-#ifdef LUISA_ENABLE_IR
-            grad_vars,
-#endif
-            vert);
+        vis.VisitFunction(vert);
     }
     result << "}\n"sv;
 }
@@ -2206,6 +2269,7 @@ void CodegenUtility::CodegenVertex(Function vert, vstd::StringBuilder &result, b
 void CodegenUtility::CodegenPixel(Function pixel, vstd::StringBuilder &result, bool cBufferNonEmpty) {
     opt->isPixelShader = true;
     opt->pixelUseBarycentric = false;
+    opt->pixelUseFrontFacing = false;
     auto resetPixelShaderKey = vstd::scope_exit([&] { opt->isPixelShader = false; });
     CodegenFunction(pixel, result, cBufferNonEmpty, false);
     vstd::StringBuilder retName;
@@ -2214,7 +2278,7 @@ void CodegenUtility::CodegenPixel(Function pixel, vstd::StringBuilder &result, b
     auto set_depth = pixel.propagated_builtin_callables().test(CallOp::RASTER_SET_Z_DEPTH);
     auto set_depth_lequal = pixel.propagated_builtin_callables().test(CallOp::RASTER_SET_Z_DEPTH_LESS_EQUAL);
     auto set_depth_gequal = pixel.propagated_builtin_callables().test(CallOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL);
-    result << retName << " pixel(v2p p,uint primId,float3 bary"sv;
+    result << retName << " pixel(v2p p,uint primId,float3 bary,bool front_facing"sv;
     if (set_depth) {
         result << ",out float _z_depth"sv;
     }
@@ -2237,23 +2301,18 @@ void CodegenUtility::CodegenPixel(Function pixel, vstd::StringBuilder &result, b
         opt->arguments.try_emplace(i.uid(), idx);
         ++idx;
     }
-#ifdef LUISA_ENABLE_IR
-    vstd::unordered_set<Variable> grad_vars;
-    glob_variables_with_grad(pixel, grad_vars);
-#endif
     {
         StringStateVisitor vis(pixel, result, this);
         vis.sharedVariables = &opt->sharedVariable;
-        vis.VisitFunction(
-#ifdef LUISA_ENABLE_IR
-            grad_vars,
-#endif
-            pixel);
+        vis.VisitFunction(pixel);
     }
     result << "\n}\nvoid main(v2p p"sv;
     result << ",uint primId:SV_PrimitiveID"sv;
     if (opt->pixelUseBarycentric) {
         result << ",float3 bary:SV_Barycentrics"sv;
+    }
+    if (opt->pixelUseFrontFacing) {
+        result << ",bool front_facing:SV_IsFrontFace"sv;
     }
     if (set_depth) {
         result << ",out float _z_depth:SV_Depth"sv;
@@ -2269,6 +2328,11 @@ void CodegenUtility::CodegenPixel(Function pixel, vstd::StringBuilder &result, b
             result << ",bary"sv;
         } else {
             result << ",float3(0,0,0)"sv;
+        }
+        if (opt->pixelUseFrontFacing) {
+            result << ",front_facing"sv;
+        } else {
+            result << ",false"sv;
         }
         if (set_depth) {
             result << ",_z_depth"sv;

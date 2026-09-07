@@ -49,6 +49,10 @@ private:
     size_t _slot_count;
     vstd::vector<uint> _typed_descriptor_indices;
     vstd::vector<TypedBufferBinding> _typed_buffer_bindings;
+    // Texture-only arrays keep descriptor ownership separate from the shader
+    // record. The latter also carries the per-slot default sampler in its
+    // upper four bits, matching the mixed bindless texture ABI.
+    vstd::vector<uint> _typed_texture_bindings;
     vstd::variant<
         vstd::vector<std::pair<BindlessStruct, MapIndices>>,
         vstd::vector<MapIndex>>

@@ -6,6 +6,8 @@
 
 #include <vulkan/vulkan_core.h>
 
+#include "vk_shader_untyped_pointers.h"
+
 namespace lc::vk::detail {
 
 // The three global update-after-bind heaps contain C storage buffers, C 2D
@@ -18,11 +20,17 @@ namespace lc::vk::detail {
 // The DSL currently caps a callable at 64 arguments; 256 leaves room for
 // multi-descriptor arguments and backend-internal bindings without materially
 // reducing the requested global heaps on conformant descriptor-indexing GPUs.
+#ifdef LC_VK_BINDLESS_HEAP_CAPACITY
+inline constexpr uint32_t requested_bindless_heap_capacity =
+    LC_VK_BINDLESS_HEAP_CAPACITY;
+#else
 inline constexpr uint32_t requested_bindless_heap_capacity = 262144u;
+#endif
 inline constexpr uint32_t local_per_stage_descriptor_budget = 256u;
 inline constexpr uint32_t fixed_sampler_descriptor_count = 16u;
 
 struct BindlessHeapLimits {
+    uint32_t max_per_set_descriptors{};
     uint32_t max_per_stage_update_after_bind_samplers{};
     uint32_t max_descriptor_set_update_after_bind_samplers{};
     uint32_t max_per_stage_update_after_bind_storage_buffers{};
@@ -54,6 +62,7 @@ struct BindlessHeapLimits {
     // local storage + C, local sampled + 2C, and local resources + 3C. The
     // all-pools limit covers only the three persistent update-after-bind pools.
     return std::min({requested_capacity,
+                     limits.max_per_set_descriptors,
                      reserve_local_descriptors(
                          limits.max_per_stage_update_after_bind_storage_buffers),
                      reserve_local_descriptors(
@@ -68,6 +77,137 @@ struct BindlessHeapLimits {
                          limits.max_per_stage_update_after_bind_resources) /
                          3u,
                      limits.max_update_after_bind_descriptors_in_all_pools / 3u});
+}
+
+template<typename F>
+[[nodiscard]] uint32_t negotiate_bindless_heap_capacity(
+    uint32_t upper_bound, F &&supports_capacity) noexcept {
+    auto lower = 0u;
+    while (lower < upper_bound) {
+        auto capacity = lower + (upper_bound - lower + 1u) / 2u;
+        if (supports_capacity(capacity)) {
+            lower = capacity;
+        } else {
+            upper_bound = capacity - 1u;
+        }
+    }
+    return lower;
+}
+
+// Per-stream descriptor pools are sized for desktop hardware today
+// (maxSets=262144, 65536 descriptors per type). Low-end / mobile devices have
+// much smaller per-stage and per-set descriptor budgets and are sensitive to
+// large host-side pool reservations. Clamp every pool size to the
+// corresponding physical-device limit while keeping the desktop defaults
+// unchanged whenever the device allows them.
+struct DescriptorPoolSizePlan {
+    uint32_t max_sets{262144u};
+    uint32_t storage_buffers{65536u};
+    uint32_t storage_images{65536u};
+    uint32_t sampled_images{65536u};
+    uint32_t samplers{65536u};
+    uint32_t uniform_buffers{65536u};
+    uint32_t acceleration_structures{65536u};
+};
+
+[[nodiscard]] constexpr DescriptorPoolSizePlan plan_descriptor_pool_sizes(
+    uint32_t max_per_stage_storage_buffers,
+    uint32_t max_per_stage_storage_images,
+    uint32_t max_per_stage_sampled_images,
+    uint32_t max_per_stage_samplers,
+    uint32_t max_per_stage_uniform_buffers,
+    uint32_t max_descriptor_set_storage_buffers,
+    uint32_t max_descriptor_set_storage_images,
+    uint32_t max_descriptor_set_sampled_images,
+    uint32_t max_descriptor_set_samplers,
+    uint32_t max_descriptor_set_uniform_buffers,
+    bool raytracing,
+    uint32_t requested_max_sets = 262144u,
+    uint32_t requested_per_type_count = 65536u) noexcept {
+    // A pool must be able to allocate at least one full descriptor set, so
+    // each per-type count is bounded below by maxDescriptorSet* and above by
+    // the requested desktop default.
+    auto clamp_count = [requested_per_type_count](
+                           uint32_t per_stage,
+                           uint32_t per_set) noexcept {
+        auto budget = std::min(requested_per_type_count,
+                               std::max(per_stage, per_set));
+        return std::max(1u, budget);
+    };
+    DescriptorPoolSizePlan plan{
+        .storage_buffers =
+            clamp_count(max_per_stage_storage_buffers,
+                        max_descriptor_set_storage_buffers),
+        .storage_images =
+            clamp_count(max_per_stage_storage_images,
+                        max_descriptor_set_storage_images),
+        .sampled_images =
+            clamp_count(max_per_stage_sampled_images,
+                        max_descriptor_set_sampled_images),
+        .samplers = clamp_count(max_per_stage_samplers,
+                                max_descriptor_set_samplers),
+        .uniform_buffers =
+            clamp_count(max_per_stage_uniform_buffers,
+                        max_descriptor_set_uniform_buffers),
+        .acceleration_structures =
+            clamp_count(max_descriptor_set_storage_buffers,
+                        max_descriptor_set_storage_buffers)};
+    // maxSets must never exceed the total descriptor capacity of the pool;
+    // otherwise the driver has to reserve host memory for sets that can never
+    // be allocated. Desktop defaults are preserved when the capacity allows.
+    auto total_descriptor_capacity =
+        plan.storage_buffers + plan.storage_images + plan.sampled_images +
+        plan.samplers + plan.uniform_buffers;
+    if (raytracing) {
+        total_descriptor_capacity += plan.acceleration_structures;
+    }
+    plan.max_sets = std::min(
+        requested_max_sets, std::max(64u, total_descriptor_capacity));
+    return plan;
+}
+
+struct DefaultDeviceCandidate {
+    bool supports_graphics_compute{false};
+    uint32_t bindless_heap_capacity{};
+    VkPhysicalDeviceType device_type{VK_PHYSICAL_DEVICE_TYPE_OTHER};
+    uint32_t api_version{};
+};
+
+// Device auto-selection scoring used on every platform. A candidate must be
+// usable (graphics+compute queues, and bindless when required). Among usable
+// candidates prefer a real GPU over a virtual/CPU device (so Android
+// emulators do not silently pick SwiftShader when a hardware GPU exists),
+// then a higher API version, then a larger bindless heap.
+[[nodiscard]] constexpr int default_device_type_rank(
+    VkPhysicalDeviceType type) noexcept {
+    switch (type) {
+        case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU: return 4;
+        case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU: return 3;
+        case VK_PHYSICAL_DEVICE_TYPE_OTHER: return 2;
+        case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU: return 1;
+        case VK_PHYSICAL_DEVICE_TYPE_CPU: return 0;
+    }
+    return 0;
+}
+
+[[nodiscard]] constexpr bool prefer_default_device_candidate(
+    DefaultDeviceCandidate candidate, DefaultDeviceCandidate current,
+    bool require_bindless) noexcept {
+    auto usable = [require_bindless](DefaultDeviceCandidate value) noexcept {
+        return value.supports_graphics_compute &&
+               (!require_bindless || value.bindless_heap_capacity != 0u);
+    };
+    auto candidate_usable = usable(candidate);
+    auto current_usable = usable(current);
+    if (candidate_usable != current_usable) { return candidate_usable; }
+    if (!candidate_usable) { return false; }
+    auto candidate_rank = default_device_type_rank(candidate.device_type);
+    auto current_rank = default_device_type_rank(current.device_type);
+    if (candidate_rank != current_rank) { return candidate_rank > current_rank; }
+    if (candidate.api_version != current.api_version) {
+        return candidate.api_version > current.api_version;
+    }
+    return candidate.bindless_heap_capacity > current.bindless_heap_capacity;
 }
 
 // robustBufferAccess and storage-buffer update-after-bind can only be enabled
@@ -139,6 +279,7 @@ inline constexpr VkStructureType backend_owned_device_feature_structure_types[]{
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_VECTOR_FEATURES_NV,
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_WORKGROUP_MEMORY_EXPLICIT_LAYOUT_FEATURES_KHR,
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_5_FEATURES_KHR,
+    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_UNTYPED_POINTERS_FEATURES_KHR,
 
     // Aliases promoted into VkPhysicalDeviceVulkan11Features (VUID 02829).
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES,
@@ -247,6 +388,12 @@ struct RequiredDeviceFeatureSupport {
     bool synchronization2_core{false};
     bool synchronization2_extension{false};
     bool synchronization2_feature{false};
+    // copy_commands2 availability is preferred (Vulkan 1.3 core or the
+    // VK_KHR_copy_commands2 extension) but not required: the backend falls
+    // back to classic vkCmdCopyBuffer on 1.2 devices.
+    bool copy_commands2_core{false};
+    bool copy_commands2_extension{false};
+    // Kept for diagnostics only; the backend no longer requires Vulkan 1.3.
     bool physical_device_api_1_3{false};
 };
 
@@ -254,6 +401,7 @@ struct RequiredDeviceFeaturePlan {
     bool supported{false};
     bool enable_timeline_semaphore_extension{false};
     bool enable_synchronization2_extension{false};
+    bool enable_copy_commands2_extension{false};
 };
 
 struct InstanceRuntimeCapabilityPlan {
@@ -369,7 +517,7 @@ struct ExternalInstanceApiResult {
         case ExternalInstanceApiStatus::SUCCESS: return "success";
         case ExternalInstanceApiStatus::MISSING_VERSION: return "effective instance API version was not supplied";
         case ExternalInstanceApiStatus::UNSUPPORTED_VARIANT: return "effective instance API uses a non-Vulkan variant";
-        case ExternalInstanceApiStatus::VERSION_TOO_OLD: return "effective instance API version is below Vulkan 1.3";
+        case ExternalInstanceApiStatus::VERSION_TOO_OLD: return "effective instance API version is below Vulkan 1.2";
     }
     return "unknown imported-instance API error";
 }
@@ -391,7 +539,7 @@ validate_external_instance_api(
     }
     auto major = VK_API_VERSION_MAJOR(api_version);
     auto minor = VK_API_VERSION_MINOR(api_version);
-    if (major < 1u || (major == 1u && minor < 3u)) {
+    if (major < 1u || (major == 1u && minor < 2u)) {
         return {ExternalInstanceApiStatus::VERSION_TOO_OLD};
     }
     return {ExternalInstanceApiStatus::SUCCESS};
@@ -443,22 +591,27 @@ validate_external_required_features(
     auto synchronization2_available =
         support.synchronization2_core ||
         support.synchronization2_extension;
+    // The backend no longer requires a Vulkan 1.3 physical device: timeline
+    // semaphores and synchronization2 are available through their extensions
+    // on 1.1/1.2 devices, and copy_commands2 falls back to the classic
+    // vkCmdCopyBuffer path. physical_device_api_1_3 remains only as a
+    // diagnostic preference.
     return RequiredDeviceFeaturePlan{
         .supported = timeline_available &&
                      support.timeline_semaphore_feature &&
                      synchronization2_available &&
-                     support.synchronization2_feature &&
-                     support.physical_device_api_1_3,
+                     support.synchronization2_feature,
         .enable_timeline_semaphore_extension =
-            support.physical_device_api_1_3 &&
             !support.timeline_semaphore_core &&
             support.timeline_semaphore_extension &&
             support.timeline_semaphore_feature,
         .enable_synchronization2_extension =
-            support.physical_device_api_1_3 &&
             !support.synchronization2_core &&
             support.synchronization2_extension &&
-            support.synchronization2_feature};
+            support.synchronization2_feature,
+        .enable_copy_commands2_extension =
+            !support.copy_commands2_core &&
+            support.copy_commands2_extension};
 }
 
 // Vulkan exposes arithmetic and storage support for narrow scalar widths as

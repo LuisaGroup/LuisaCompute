@@ -4,12 +4,15 @@
 
 #pragma once
 
+#include <cstddef>
+
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/ast/function.h>
 #include <luisa/runtime/rhi/curve_basis.h>
 
 namespace luisa::compute::xir {
+class Function;
 class Module;
 }// namespace luisa::compute::xir
 
@@ -25,6 +28,10 @@ struct HIPCodegenLLVMConfig {
     };
 
     luisa::string source_file{};
+    // The externally visible AMDGPU kernel symbol. Anonymous JIT kernels use
+    // a deterministic structural name so profilers can distinguish modules;
+    // explicitly named AOT packages retain the stable `kernel_main` ABI.
+    luisa::string entry_point{"kernel_main"};
     luisa::string native_include{};
     luisa::span<const Function::Binding> bindings{};
     std::array<uint32_t, 3> block_size{};
@@ -40,13 +47,48 @@ struct HIPCodegenLLVMConfig {
     bool requires_static_trace{false};
     bool requires_motion_ray_query{false};
     bool requires_printing{false};
+    // Internal retry control. The first translation may prove that a
+    // synchronous query's callback environment is too large to materialize
+    // profitably. A whole-module incompatibility uses the force flag; an
+    // otherwise eligible module records the function-local state domains whose
+    // callback products require the resumable gfx12 ABI. Every ray query in one
+    // XIR function shares one `rq.state` allocation, so a function is the
+    // smallest representation-safe retry unit; selecting individual pipelines
+    // in that domain would make one allocation serve two incompatible ABIs.
+    // These pointers are internal to one synchronous two-pass translation of
+    // the same immutable XIR module and never enter shader cache identity.
+    bool force_resumable_ray_query_pipeline{false};
+    luisa::vector<const xir::Function *>
+        resumable_ray_query_state_functions{};
     CurveBasisSet curve_bases{CurveBasisSet::make_all()};
 };
+
+// The synchronous pipeline copies its projected callback product once per
+// query and reloads it at every exact callback boundary. When either the
+// parent observes query post-state or a handler observes full candidate state,
+// restrict that hot object to four 16-byte ABI quanta. Larger environments use
+// the resumable hardware query whose handler values remain in their ordinary
+// SSA/callable context. A compact handler-only pipeline has separately proven
+// input and result products and is classified independently.
+inline constexpr size_t hip_synchronous_ray_query_environment_budget = 64u;
+
+// Shared with the native LuisaPipelineRayQueryState static assertion. Both
+// the kernel-owned exact state and the scalar-replaceable compact transaction
+// must allocate the same cross-bitcode ABI object.
+inline constexpr size_t hip_synchronous_ray_query_state_size = 112u;
+
+[[nodiscard]] constexpr bool
+hip_synchronous_ray_query_environment_is_profitable(
+    size_t projected_bytes) noexcept {
+    return projected_bytes <=
+           hip_synchronous_ray_query_environment_budget;
+}
 
 struct HIPCodegenLLVMResult {
     luisa::string code;
     luisa::vector<std::pair<luisa::string, luisa::string>> format_types;
     bool requires_global_rt_stack{false};
+    bool uses_static_global_rt_stack{false};
 };
 
 [[nodiscard]] HIPCodegenLLVMResult hip_codegen_llvm(

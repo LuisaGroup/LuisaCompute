@@ -21,6 +21,11 @@ llvm::Value *CUDACodegenLLVMImpl::_get_llvm_literal(IB &b, const Type *type, con
         case Type::Tag::BOOL: return b.getInt1(decode_scalar(data, bool{}));
         case Type::Tag::INT8: [[fallthrough]];
         case Type::Tag::UINT8: return b.getInt8(decode_scalar(data, uint8_t{}));
+        // FP8 / I4 / FP4 placeholders: constant as i8.
+        case Type::Tag::FLOAT8_E4M3: [[fallthrough]];
+        case Type::Tag::FLOAT8_E5M2: [[fallthrough]];
+        case Type::Tag::INT4: [[fallthrough]];
+        case Type::Tag::FP4_E2M1: return b.getInt8(decode_scalar(data, uint8_t{}));
         case Type::Tag::INT16: [[fallthrough]];
         case Type::Tag::UINT16: return b.getInt16(decode_scalar(data, uint16_t{}));
         case Type::Tag::INT32: [[fallthrough]];

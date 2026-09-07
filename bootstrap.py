@@ -6,10 +6,10 @@ import shutil
 from subprocess import Popen, call, DEVNULL, check_output
 from typing import List
 
-ALL_FEATURES = ['dsl', 'python', 'gui', 'cuda', 'hip', 'cpu', 'remote', 'dx', 'metal', 'vulkan', 'tests', 'clangcxx']
-ALL_DEPENDENCIES = ['rust', 'ninja', 'xmake', 'cmake']
-ALL_CMAKE_DEPENDENCIES = ['ninja', 'cmake', 'rust']
-ALL_XMAKE_DEPENDENCIES = ['xmake', 'rust']
+ALL_FEATURES = ['dsl', 'python', 'gui', 'cuda', 'hip', 'dx', 'metal', 'vulkan', 'tests', 'clangcxx']
+ALL_DEPENDENCIES = ['ninja', 'xmake', 'cmake']
+ALL_CMAKE_DEPENDENCIES = ['ninja', 'cmake']
+ALL_XMAKE_DEPENDENCIES = ['xmake']
 
 DEPS_DIR = '.deps'
 DOWNLOAD_DIR = f'{DEPS_DIR}/downloads'
@@ -21,21 +21,6 @@ class Colors:
     YELLOW = '\033[93m'
     BOLD = '\033[1m'
     END = '\033[0m'
-
-
-def check_rust():
-    try:
-        ret = call(['rustc', '--version'], stdout=DEVNULL, stderr=DEVNULL)
-        return ret == 0
-    except FileNotFoundError:
-        # try the default install location
-        # %USERPROFILE%\.cargo\bin
-        try:
-            ret = call([os.path.expanduser('~/.cargo/bin/rustc'), '--version'], stdout=DEVNULL, stderr=DEVNULL)
-            return ret == 0
-        except FileNotFoundError:
-            pass
-    return False
 
 
 def check_cmake(cmake_exe):
@@ -89,30 +74,8 @@ def print_red(msg, *args, **kwargs):
     print(Colors.RED + msg.format(*args, **kwargs) + Colors.END, *args, **kwargs)
 
 
-print_missing_rust_warning = False
-
-
-def missing_rust_warning():
-    print_red("Warning: Rust is required for future releases.", file=sys.stderr)
-    print_red('We strongly recommend you to install Rust **now** to prevent future breakage.', file=sys.stderr)
-    print_red("Please install Rust manually or by running `python bootstrap.py -i rust`.", file=sys.stderr)
-    print_red('Features require Rust:', file=sys.stderr)
-    print_red('  - CPU backend', file=sys.stderr)
-    print_red('  - Remote backend', file=sys.stderr)
-    print_red('  - IR module', file=sys.stderr)
-    print_red('  - Automatic differentiation', file=sys.stderr)
-
-
 def get_available_features():
-    global print_missing_rust_warning
-    # CPU and Remote are always enabled
     features = ['dsl', 'python', 'gui', 'tests']
-    if check_rust():
-        features.append('cpu')
-        features.append('remote')
-    else:
-        print_missing_rust_warning = True
-
     # enable DirectX on Windows by default
     if sys.platform == 'win32':
         features.append('dx')
@@ -266,27 +229,11 @@ def install_cmake(skip_installed):
             f.write(f"{DEPS_DIR}/{cmake_file}/bin/cmake")
 
 
-def install_rust(skip_installed):
-    if skip_installed and check_rust():
-        return
-    if sys.platform == 'win32':
-        # download https://static.rust-lang.org/rustup/dist/i686-pc-windows-gnu/rustup-init.exe
-        rustup_init_exe = download_file('https://static.rust-lang.org/rustup/dist/i686-pc-windows-gnu/rustup-init.exe',
-                                        'rustup-init.exe')
-        call([rustup_init_exe, '-y'])
-    elif sys.platform == 'linux' or sys.platform == 'darwin':
-        os.system('curl https://sh.rustup.rs -sSf | sh -s -- -y')
-    else:
-        raise ValueError(f'Unknown platform: {sys.platform}')
-
-
 def install_deps(deps, skip_installed):
     if deps:
         print(f'Installing dependencies: {", ".join(deps)}')
         for dep in deps:
-            if dep == 'rust':
-                install_rust(skip_installed)
-            elif dep == 'ninja':
+            if dep == 'ninja':
                 install_ninja(skip_installed)
             elif dep == 'cmake':
                 install_cmake(skip_installed)
@@ -369,8 +316,6 @@ def print_help():
     print('          [no-]gui           Enable (disable) GUI support')
     print('          [no-]cuda          Enable (disable) CUDA backend')
     print('          [no-]hip          Enable (disable) HIP backend')
-    print('          [no-]cpu           Enable (disable) CPU backend')
-    print('          [no-]remote        Enable (disable) remote backend')
     print('          [no-]dx            Enable (disable) DirectX backend')
     print('          [no-]metal         Enable (disable) Metal backend')
     print('          [no-]vulkan        Enable (disable) Vulkan backend')
@@ -385,7 +330,6 @@ def print_help():
           '(' + ', '.join(ALL_CMAKE_DEPENDENCIES) + ')')
     print('          all-xmake          Install all dependencies required by XMake builds',
           '(' + ', '.join(ALL_XMAKE_DEPENDENCIES) + ')')
-    print('          rust               Install Rust toolchain')
     print('          cmake              Install CMake')
     print('          xmake              Install xmake')
     print('          ninja              Install Ninja')
@@ -429,9 +373,6 @@ def dump_xmake_options(config: dict):
         cmd += add_feature("cuda_backend", "cuda")
         cmd += add_feature("hip_backend", "hip")
         cmd += add_feature("metal_backend", "metal")
-        # cmd += add_feature("remote_backend", "remote")
-        cmd += add_feature("cpu_backend", "cpu")
-        cmd += add_feature("enable_ir", "cpu")
     os.system(cmd)
 
 
@@ -1057,6 +998,4 @@ if __name__ == '__main__':
     script_path = os.path.dirname(os.path.realpath(__file__))
     os.chdir(script_path)
     ec = main(sys.argv)
-    if print_missing_rust_warning:
-        missing_rust_warning()
     sys.exit(ec)

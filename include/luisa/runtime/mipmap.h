@@ -42,8 +42,9 @@ public:
         return pixel_storage_size(_storage, _size);
     }
 
-    template<typename U>
-    [[nodiscard]] auto copy_from(luisa::span<U> data) const noexcept {
+    template<typename U, size_t Extent>
+    [[nodiscard]] auto copy_from(
+        luisa::span<U, Extent> data) const noexcept {
 #ifndef NDEBUG
         luisa::compute::detail::assert_same_size(data.size_bytes(), size_bytes(), "texture");
 #endif
@@ -108,9 +109,10 @@ public:
         return copy_to(buffer.view());
     }
 
-    template<typename T>
+    template<typename T, size_t Extent>
         requires(!std::is_const_v<T>)
-    [[nodiscard]] auto copy_to(luisa::span<T> data) const noexcept {
+    [[nodiscard]] auto copy_to(
+        luisa::span<T, Extent> data) const noexcept {
 #ifndef NDEBUG
         luisa::compute::detail::assert_same_size(data.size_bytes(), size_bytes(), "texture");
 #endif

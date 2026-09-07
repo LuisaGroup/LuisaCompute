@@ -6,8 +6,6 @@ option(LUISA_COMPUTE_ENABLE_METAL "Enable Metal backend" [[feature_metal]])
 option(LUISA_COMPUTE_ENABLE_CUDA "Enable CUDA backend" [[feature_cuda]])
 option(LUISA_COMPUTE_ENABLE_HIP "Enable HIP backend" [[feature_hip]])
 option(LUISA_COMPUTE_ENABLE_VULKAN "Enable Vulkan backend" [[feature_vulkan]])
-option(LUISA_COMPUTE_ENABLE_CPU "Enable CPU backend" [[feature_cpu]])
-option(LUISA_COMPUTE_ENABLE_REMOTE "Enable Remote backend" [[feature_remote]])
 option(LUISA_COMPUTE_ENABLE_GUI "Enable GUI support" [[feature_gui]])
 option(LUISA_COMPUTE_ENABLE_CLANG_CXX "Enable ClangTooling-based C++ shading language" [[feature_clangcxx]])
 

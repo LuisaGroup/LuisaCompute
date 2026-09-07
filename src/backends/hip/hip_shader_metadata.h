@@ -28,6 +28,10 @@ struct HIPShaderMetadata {
     bool requires_printing;
     bool requires_motion_blur;
     bool requires_global_rt_stack;
+    // Proven native closest queries use a launch-sized, per-stream global
+    // stack. General/reentrant traversal retains HIPRT's dynamically assigned
+    // device-wide stack. Both modes share the same kernarg tuple.
+    bool uses_static_global_rt_stack;
     uint max_register_count;
     uint3 block_size;
     luisa::vector<luisa::string> argument_types;
@@ -45,6 +49,8 @@ struct HIPShaderMetadata {
                requires_printing == rhs.requires_printing &&
                requires_motion_blur == rhs.requires_motion_blur &&
                requires_global_rt_stack == rhs.requires_global_rt_stack &&
+               uses_static_global_rt_stack ==
+                   rhs.uses_static_global_rt_stack &&
                max_register_count == rhs.max_register_count &&
                all(block_size == rhs.block_size) &&
                argument_types == rhs.argument_types &&

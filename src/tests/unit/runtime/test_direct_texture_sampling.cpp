@@ -234,7 +234,7 @@ void test_direct_texture_sampling(Device &device) {
             explicit_point_level,
             builder.call(
                 Type::of<float4>(), CallOp::TEXTURE2D_SAMPLE_LEVEL,
-                {texture_expression, literal(uv), literal(2.0f),
+                {texture_expression, literal(uv), literal(1.6f),
                  filter(Sampler::Filter::POINT),
                  address(Sampler::Address::EDGE)}));
         write_call(
@@ -302,10 +302,10 @@ void test_direct_texture_sampling(Device &device) {
             base_level, "implicit point/repeat sampling");
         expect_close(
             host[base + explicit_point_level],
-            sample_lod(base_level, uv, 2.0f,
+            sample_lod(base_level, uv, 1.6f,
                        Sampler::Filter::POINT,
                        Sampler::Address::EDGE),
-            base_level, "explicit point LOD");
+            base_level, "fractional point LOD");
         expect_close(
             host[base + explicit_trilinear],
             sample_lod(base_level, uv, 1.25f,

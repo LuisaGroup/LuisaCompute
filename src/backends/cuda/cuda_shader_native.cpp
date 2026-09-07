@@ -51,6 +51,11 @@ CUDAShaderNative::CUDAShaderNative(CUDADevice *device, luisa::vector<std::byte> 
         }
         LUISA_CHECK_CUDA(cuLinkComplete(link_state, &cubin, &cubin_size));
         LUISA_CHECK_CUDA(cuModuleLoadData(&_module, cubin));
+        // Retain the linked cubin as the module image for cross-backend
+        // import: the pre-link PTX references cudadevrt symbols (through
+        // kernel_launcher) and would fail a standalone (re)load.
+        auto image = static_cast<const std::byte *>(cubin);
+        _module_image.assign(image, image + cubin_size);
         LUISA_CHECK_CUDA(cuModuleGetFunction(&_function, _module, entry));
         if (!devrt.empty()) {
             if (cuModuleGetFunction(&_indirect_function, _module, "kernel_launcher") != CUDA_SUCCESS) {
@@ -70,6 +75,11 @@ CUDAShaderNative::CUDAShaderNative(CUDADevice *device, luisa::vector<std::byte> 
         ret = load_ptx(ptx.data(), ptx.size());
     }
     LUISA_CHECK_CUDA(ret);
+    if (_module_image.empty()) {
+        // Plain-PTX load path (no cudadevrt link): retain the loaded (and
+        // possibly version-patched) PTX text for cross-backend import.
+        _module_image = std::move(ptx);
+    }
 }
 
 CUDAShaderNative::~CUDAShaderNative() noexcept {
@@ -82,8 +92,8 @@ void CUDAShaderNative::_launch(CUDACommandEncoder &encoder, ShaderDispatchComman
 
     auto argument_buffer_offset = static_cast<size_t>(0u);
     auto allocate_argument = [&](size_t bytes) noexcept {
-        static constexpr auto alignment = 16u;
-        auto offset = (argument_buffer_offset + alignment - 1u) / alignment * alignment;
+        static constexpr auto cuda_shader_native_alignment = 16u;
+        auto offset = (argument_buffer_offset + cuda_shader_native_alignment - 1u) / cuda_shader_native_alignment * cuda_shader_native_alignment;
         LUISA_ASSERT(offset + bytes <= argument_buffer.size(),
                      "Too many arguments in ShaderDispatchCommand");
         argument_buffer_offset = offset + bytes;

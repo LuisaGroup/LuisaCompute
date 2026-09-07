@@ -67,7 +67,7 @@ int main(int argc, char *argv[]) {
             return 1;
         }
         static constexpr luisa::string_view preferred_backends[] = {
-            "cuda", "dx", "metal", "vk", "fallback", "cpu", "remote"};
+            "cuda", "dx", "metal", "vk", "hip", "fallback"};
         for (auto preferred : preferred_backends) {
             for (auto const &candidate : backends) {
                 if (candidate == preferred && !context.backend_device_names(candidate).empty()) {

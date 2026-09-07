@@ -244,15 +244,15 @@ public:
 };
 
 void export_runtime(py::module &m) {
-    // py::class_<ManagedMeshFormat>(m, "MeshFormat")
-    //     .def(py::init<>())
-    //     .def("add_attribute", [](ManagedMeshFormat &fmt, VertexAttributeType type, VertexElementFormat format) {
-    //         fmt.attributes.emplace_back(VertexAttribute{.type = type, .format = format});
-    //     })
-    //     .def("add_stream", [](ManagedMeshFormat &fmt) {
-    //         fmt.format.emplace_vertex_stream(fmt.attributes);
-    //         fmt.attributes.clear();
-    //     });
+    py::class_<ManagedMeshFormat>(m, "MeshFormat")
+        .def(py::init<>())
+        .def("add_attribute", [](ManagedMeshFormat &fmt, VertexAttributeType type, PixelFormat format) {
+            fmt.attributes.emplace_back(VertexAttribute{.type = type, .format = format});
+        })
+        .def("add_stream", [](ManagedMeshFormat &fmt) {
+            fmt.format.emplace_vertex_stream(fmt.attributes);
+            fmt.attributes.clear();
+        });
     py::class_<ResourceCreationInfo>(m, "ResourceCreationInfo")
         .def(py::init<>())
         .def("handle", [](ResourceCreationInfo &self) { return self.handle; })
@@ -465,7 +465,7 @@ void export_runtime(py::module &m) {
                 }
             }
             return 0; })
-        .def("save_raster_shader", [](DeviceInterface &self, Function vertex, Function pixel, luisa::string_view str) {
+        .def("save_raster_shader", [](DeviceInterface &self, const ManagedMeshFormat &mesh_format, Function vertex, Function pixel, luisa::string_view str) {
             ShaderOption option;
             option.compile_only = true;
             if (!output_path.empty()) {
@@ -475,10 +475,10 @@ void export_runtime(py::module &m) {
                 option.name = str;
             }
             static_cast<void>(static_cast<RasterExt *>(self.extension(RasterExt::name))
-                                  ->create_raster_shader(vertex, pixel, option)); })
-        .def("save_raster_shader_async", [](DeviceInterface &self, luisa::shared_ptr<FunctionBuilder> const &vertex, luisa::shared_ptr<FunctionBuilder> const &pixel, luisa::string_view str) {
+                                  ->create_raster_shader(mesh_format.format, vertex, pixel, option)); })
+        .def("save_raster_shader_async", [](DeviceInterface &self, const ManagedMeshFormat &mesh_format, luisa::shared_ptr<FunctionBuilder> const &vertex, luisa::shared_ptr<FunctionBuilder> const &pixel, luisa::string_view str) {
             thread_pool.create();
-            futures.emplace_back(luisa::fiber::async([str = luisa::string{str}, vertex, pixel, &self]() {
+            futures.emplace_back(luisa::fiber::async([str = luisa::string{str}, mesh_format = mesh_format.format, vertex, pixel, &self]() {
                 ShaderOption option;
                 option.compile_only = true;
                 if (!output_path.empty()) {
@@ -488,7 +488,7 @@ void export_runtime(py::module &m) {
                     option.name = str;
                 }
                 static_cast<void>(static_cast<RasterExt *>(self.extension(RasterExt::name))
-                                      ->create_raster_shader(vertex->function(), pixel->function(), option));
+                                      ->create_raster_shader(mesh_format, vertex->function(), pixel->function(), option));
             })); })
         .def("destroy_shader", [](DeviceInterface &self, uint64_t handle) { RefCounter::current->DeRef(handle); })
         .def("create_buffer", [](DeviceInterface &d, const Type *type, size_t size) -> ResourceCreationInfo{

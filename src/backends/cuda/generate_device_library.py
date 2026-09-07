@@ -624,11 +624,15 @@ struct lc_float{i}x{i} {{
             # fmod
             if t == "half":
                 print(
-                    f"[[nodiscard]] __device__ inline auto lc_fmod_impl(lc_{t} x, lc_{t} y) noexcept {{ return x - y * lc_trunc(x / y); }}",
+                    f"[[nodiscard]] __device__ inline auto lc_fmod_impl(lc_{t} x, lc_{t} y) noexcept {{ return lc_half(fmodf(float(x), float(y))); }}",
+                    file=file)
+            elif t == "float":
+                print(
+                    f"[[nodiscard]] __device__ inline auto lc_fmod_impl(lc_{t} x, lc_{t} y) noexcept {{ return fmodf(x, y); }}",
                     file=file)
             else:
                 print(
-                    f"[[nodiscard]] __device__ inline auto lc_fmod_impl(lc_{t} x, lc_{t} y) noexcept {{ return fmodf(x, y); }}",
+                    f"[[nodiscard]] __device__ inline auto lc_fmod_impl(lc_{t} x, lc_{t} y) noexcept {{ return fmod(x, y); }}",
                     file=file)
 
             # fract

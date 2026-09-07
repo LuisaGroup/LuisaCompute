@@ -78,6 +78,11 @@ struct ReorderFuncTable {
             });
     }
     Usage get_usage(uint64_t shader_handle, size_t argument_index) const noexcept {
+        if (shader_handle == 0u) {
+            // Raster draw commands may not carry a shader handle through the
+            // reorder visitor. Conservatively serialize their resource use.
+            return Usage::READ_WRITE;
+        }
         auto shader = reinterpret_cast<Shader const *>(shader_handle);
         auto arguments = shader->args();
         LUISA_ASSERT(

@@ -50,7 +50,7 @@ int test_dstorage(Device &device) {
 int main(int argc, char *argv[]) {
     log_level_verbose();
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, cpu, metal", argv[0]);
+        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, metal, vk, hip, fallback", argv[0]);
         return 1;
     }
     Context context{argv[0]};

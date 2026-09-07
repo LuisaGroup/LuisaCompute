@@ -95,7 +95,6 @@ int main(int argc, char *argv[]) {
         std::string_view{argv[2]} == child_probe) {
         return run_strict_native_route_probe(argc, argv);
     }
-
     std::vector<const char *> ut_argv;
     ut_argv.reserve(static_cast<size_t>(argc));
     ut_argv.emplace_back(argv[0]);

@@ -73,18 +73,23 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_atomic_inst(IB &b, FunctionContext &
         elem_type = base->type()->element();
         LUISA_DEBUG_ASSERT(elem_type != nullptr);
 
+        auto llvm_base_ptr =
+            b.CreateExtractValue(llvm_base, llvm_buffer_type_ptr_index);
+
         llvm_buf_rsrc = make_buffer_resource_descriptor(b, llvm_base);
 
         auto index_i64 = b.CreateZExt(llvm_index, b.getInt64Ty(), "", true);
         auto offset_bytes = b.CreateMul(index_i64, b.getInt64(elem_type->size()), "", true, true);
 
+        auto flat_ptr =
+            b.CreateInBoundsGEP(b.getInt8Ty(), llvm_base_ptr, offset_bytes);
+        llvm_elem_ptr = flat_ptr;
         if (!index_uses.empty()) {
-            auto llvm_base_ptr = b.CreateExtractValue(llvm_base, llvm_buffer_type_ptr_index);
-            auto flat_ptr = b.CreateInBoundsGEP(b.getInt8Ty(), llvm_base_ptr, offset_bytes);
             auto [chain_ptr, chain_type] = _lower_access_chain_address(b, func_ctx, flat_ptr, elem_type, index_uses);
             auto chain_ptr_int = b.CreatePtrToInt(chain_ptr, b.getInt64Ty());
             auto base_ptr_int = b.CreatePtrToInt(llvm_base_ptr, b.getInt64Ty());
             offset_bytes = b.CreateSub(chain_ptr_int, base_ptr_int);
+            llvm_elem_ptr = chain_ptr;
             elem_type = chain_type;
         }
 
@@ -111,6 +116,60 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_atomic_inst(IB &b, FunctionContext &
                                       llvm::AtomicOrdering::Monotonic);
         rmw->setSyncScopeID(agent_scope);
         return rmw;
+    };
+
+    // AMDGPU's native floating-point atomic add can put excessive pressure on
+    // the L2 atomic units when the return value is consumed. Keep the CAS-loop
+    // implementation, but express every access through LLVM's atomic memory
+    // model. A raw-buffer load followed by a raw-buffer cmpxchg intrinsic has
+    // no LLVM atomic ordering or synchronization scope connecting the two. On
+    // gfx12 that sequence can successfully replace a value observed through a
+    // stale cache domain after another kernel updated the same film pixel.
+    //
+    // The monotonic agent-scope load and cmpxchg below establish one device-wide
+    // modification order for the atomic object. A failed cmpxchg returns the
+    // current bit pattern and feeds it back into the loop; success is taken
+    // from cmpxchg's explicit success result, so NaNs and signed zero retain
+    // bitwise compare-exchange semantics.
+    auto emit_float_cas_rmw = [&](llvm::Value *value,
+                                  bool subtract) -> llvm::Value * {
+        LUISA_DEBUG_ASSERT(elem_type->is_float() &&
+                           value->getType()->isFloatTy());
+        auto *function = b.GetInsertBlock()->getParent();
+        auto *preheader = b.GetInsertBlock();
+        auto *loop = llvm::BasicBlock::Create(
+            _llvm_context, "float.cas.loop", function);
+        auto *exit = llvm::BasicBlock::Create(
+            _llvm_context, "float.cas.exit", function);
+
+        auto *initial = b.CreateAlignedLoad(
+            b.getInt32Ty(), llvm_elem_ptr,
+            llvm::MaybeAlign{elem_type->alignment()}, "float.cas.initial");
+        initial->setAtomic(llvm::AtomicOrdering::Monotonic, agent_scope);
+        b.CreateBr(loop);
+
+        b.SetInsertPoint(loop);
+        auto *old_bits = b.CreatePHI(b.getInt32Ty(), 2, "float.cas.old");
+        old_bits->addIncoming(initial, preheader);
+        auto *old_value = b.CreateBitCast(
+            old_bits, b.getFloatTy(), "float.cas.old.value");
+        auto *new_value = subtract ?
+                              b.CreateFSub(old_value, value) :
+                              b.CreateFAdd(old_value, value);
+        auto *new_bits = b.CreateBitCast(
+            new_value, b.getInt32Ty(), "float.cas.new");
+        auto *exchange = b.CreateAtomicCmpXchg(
+            llvm_elem_ptr, old_bits, new_bits,
+            llvm::MaybeAlign{elem_type->alignment()},
+            llvm::AtomicOrdering::Monotonic,
+            llvm::AtomicOrdering::Monotonic, agent_scope);
+        auto *observed = b.CreateExtractValue(exchange, 0u);
+        auto *success = b.CreateExtractValue(exchange, 1u);
+        old_bits->addIncoming(observed, loop);
+        b.CreateCondBr(success, exit, loop);
+
+        b.SetInsertPoint(exit);
+        return b.CreateBitCast(observed, b.getFloatTy());
     };
 
     switch (inst->op()) {
@@ -172,35 +231,7 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_atomic_inst(IB &b, FunctionContext &
             LUISA_DEBUG_ASSERT(llvm_values.size() == 1);
             if (is_buffer) {
                 if (elem_type->is_float()) {
-                    // CAS loop instead of native fadd: fire-and-forget fadd floods L2 atomic units on RDNA 4
-                    auto *func = b.GetInsertBlock()->getParent();
-                    auto *loop_bb = llvm::BasicBlock::Create(_llvm_context, "cas.loop", func);
-                    auto *exit_bb = llvm::BasicBlock::Create(_llvm_context, "cas.exit", func);
-
-                    auto *load_func = llvm::Intrinsic::getOrInsertDeclaration(
-                        _llvm_module.get(), llvm::Intrinsic::amdgcn_raw_buffer_load, {b.getFloatTy()});
-                    auto *initial = b.CreateCall(load_func,
-                                                 {llvm_buf_rsrc, llvm_buf_voffset, b.getInt32(0), b.getInt32(0)});
-                    auto *initial_i32 = b.CreateBitCast(initial, b.getInt32Ty());
-                    b.CreateBr(loop_bb);
-
-                    b.SetInsertPoint(loop_bb);
-                    auto *old_phi = b.CreatePHI(b.getInt32Ty(), 2, "cas.old");
-                    old_phi->addIncoming(initial_i32, loop_bb->getSinglePredecessor());
-
-                    auto *old_f = b.CreateBitCast(old_phi, b.getFloatTy());
-                    auto *new_f = b.CreateFAdd(old_f, llvm_values[0]);
-                    auto *new_i32 = b.CreateBitCast(new_f, b.getInt32Ty());
-
-                    auto *prev = emit_buffer_atomic_cmpswap(b, _llvm_module.get(), _llvm_context,
-                                                            new_i32, old_phi, llvm_buf_rsrc, llvm_buf_voffset);
-
-                    auto *success = b.CreateICmpEQ(prev, old_phi);
-                    old_phi->addIncoming(prev, loop_bb);
-                    b.CreateCondBr(success, exit_bb, loop_bb);
-
-                    b.SetInsertPoint(exit_bb);
-                    return b.CreateBitCast(prev, b.getFloatTy());
+                    return emit_float_cas_rmw(llvm_values[0], false);
                 } else {
                     return emit_buffer_atomic(b, _llvm_module.get(), _llvm_context,
                                               llvm::Intrinsic::amdgcn_raw_buffer_atomic_add,
@@ -214,36 +245,7 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_atomic_inst(IB &b, FunctionContext &
             LUISA_DEBUG_ASSERT(llvm_values.size() == 1);
             if (is_buffer) {
                 if (elem_type->is_float()) {
-                    auto *neg_val = b.CreateFNeg(llvm_values[0]);
-                    // CAS loop instead of native fadd: fire-and-forget fadd floods L2 atomic units on RDNA 4
-                    auto *func = b.GetInsertBlock()->getParent();
-                    auto *loop_bb = llvm::BasicBlock::Create(_llvm_context, "cas.loop", func);
-                    auto *exit_bb = llvm::BasicBlock::Create(_llvm_context, "cas.exit", func);
-
-                    auto *load_func = llvm::Intrinsic::getOrInsertDeclaration(
-                        _llvm_module.get(), llvm::Intrinsic::amdgcn_raw_buffer_load, {b.getFloatTy()});
-                    auto *initial = b.CreateCall(load_func,
-                                                 {llvm_buf_rsrc, llvm_buf_voffset, b.getInt32(0), b.getInt32(0)});
-                    auto *initial_i32 = b.CreateBitCast(initial, b.getInt32Ty());
-                    b.CreateBr(loop_bb);
-
-                    b.SetInsertPoint(loop_bb);
-                    auto *old_phi = b.CreatePHI(b.getInt32Ty(), 2, "cas.old");
-                    old_phi->addIncoming(initial_i32, loop_bb->getSinglePredecessor());
-
-                    auto *old_f = b.CreateBitCast(old_phi, b.getFloatTy());
-                    auto *new_f = b.CreateFAdd(old_f, neg_val);
-                    auto *new_i32 = b.CreateBitCast(new_f, b.getInt32Ty());
-
-                    auto *prev = emit_buffer_atomic_cmpswap(b, _llvm_module.get(), _llvm_context,
-                                                            new_i32, old_phi, llvm_buf_rsrc, llvm_buf_voffset);
-
-                    auto *success = b.CreateICmpEQ(prev, old_phi);
-                    old_phi->addIncoming(prev, loop_bb);
-                    b.CreateCondBr(success, exit_bb, loop_bb);
-
-                    b.SetInsertPoint(exit_bb);
-                    return b.CreateBitCast(prev, b.getFloatTy());
+                    return emit_float_cas_rmw(llvm_values[0], true);
                 } else {
                     return emit_buffer_atomic(b, _llvm_module.get(), _llvm_context,
                                               llvm::Intrinsic::amdgcn_raw_buffer_atomic_sub,

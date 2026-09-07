@@ -7,6 +7,74 @@ template<typename T>
 T _asinh(T v){return log(v+sqrt(v*v+1.0));}
 template<typename T>
 T _atanh(T v){return 0.5*log((1.0+v)/(1.0-v));}
+// Float32 asin with explicit range reduction for strict SPIR-V shaders.
+// Native extended instructions have no portable error bound across drivers.
+template<typename T>
+T _lc_strict_asin(T x){
+precise T magnitude=abs(x);
+precise T reduced_complement=sqrt(((T)1.0-magnitude)*(T)0.5);
+precise T reduced=select(magnitude>(T)0.5,reduced_complement,magnitude);
+precise T squared=reduced*reduced;
+precise T polynomial=(T)4.2163199048e-2;
+polynomial=polynomial*squared+(T)2.4181311049e-2;
+polynomial=polynomial*squared+(T)4.5470025998e-2;
+polynomial=polynomial*squared+(T)7.4953002686e-2;
+polynomial=polynomial*squared+(T)1.6666752422e-1;
+precise T reduced_result=reduced+(reduced*squared)*polynomial;
+precise T complement_result=(T)1.57079632679489661923-(T)2.0*reduced_result;
+precise T result_magnitude=select(magnitude>(T)0.5,complement_result,reduced_result);
+return asfloat((asuint(result_magnitude)&0x7fffffffu)|(asuint(x)&0x80000000u));
+}
+// Cancellation-free float32 acos for strict SPIR-V shaders. Reuse the
+// bounded asin polynomial after reducing both halves of [-1, 1] to
+// [0, 1/sqrt(2)].
+template<typename T>
+T _lc_strict_acos(T x){
+precise T magnitude=abs(x);
+precise T reduced=sqrt(((T)1.0-magnitude)*(T)0.5);
+precise T positive_result=(T)2.0*_lc_strict_asin(reduced);
+precise T negative_result=(T)3.14159265358979323846-positive_result;
+return select(x<(T)0.0,negative_result,positive_result);
+}
+// Exact IEEE-754 binary32 remainder for SPIR-V targets. Some Vulkan drivers
+// lower OpFRem through a rounded quotient, which loses the remainder when the
+// exponent gap exceeds the float32 significand.
+float _lc_fmod_scalar(float x,float y){
+uint xb=asuint(x),yb=asuint(y);
+uint ax=xb&0x7fffffffu,ay=yb&0x7fffffffu;
+uint xe=(ax>>23)&0xffu,ye=(ay>>23)&0xffu;
+uint sx=(ax&0x007fffffu)|(xe!=0u?0x00800000u:0u);
+uint sy=(ay&0x007fffffu)|(ye!=0u?0x00800000u:0u);
+uint xs=xe!=0u?xe-1u:0u,ys=ye!=0u?ye-1u:0u;
+uint delta=xs>=ys?xs-ys:0u;
+uint safe_sy=sy!=0u?sy:1u;
+uint64_t wide_sy=(uint64_t)safe_sy;
+uint64_t remainder=(uint64_t)sx%wide_sy;
+uint64_t factor=(uint64_t)2%wide_sy;
+[unroll] for(uint bit=0u;bit<8u;++bit){
+uint64_t reduced=(remainder*factor)%wide_sy;
+remainder=(delta&(1u<<bit))!=0u?reduced:remainder;
+if(bit+1u<8u){factor=(factor*factor)%wide_sy;}
+}
+uint rb=(uint)remainder;
+uint msb=rb!=0u?(uint)firstbithigh(rb):0u;
+uint exponent_sum=msb+ye;
+bool normal=rb!=0u&&exponent_sum>=24u;
+uint normalized=rb<<(23u-msb);
+uint normal_bits=((exponent_sum-23u)<<23)|(normalized&0x007fffffu);
+uint subnormal_shift=ye!=0u?ye-1u:0u;
+subnormal_shift=min(subnormal_shift,23u);
+uint magnitude=normal?normal_bits:rb<<subnormal_shift;
+uint signed_remainder=magnitude|(xb&0x80000000u);
+bool invalid=ax>=0x7f800000u||ay>0x7f800000u||ay==0u;
+bool compute=!invalid&&ay<0x7f800000u&&ax>=ay;
+uint result=invalid?0x7fc00000u:(compute?signed_remainder:xb);
+return asfloat(result);
+}
+float _lc_fmod(float x,float y){return _lc_fmod_scalar(x,y);}
+float2 _lc_fmod(float2 x,float2 y){return float2(_lc_fmod_scalar(x.x,y.x),_lc_fmod_scalar(x.y,y.y));}
+float3 _lc_fmod(float3 x,float3 y){return float3(_lc_fmod_scalar(x.x,y.x),_lc_fmod_scalar(x.y,y.y),_lc_fmod_scalar(x.z,y.z));}
+float4 _lc_fmod(float4 x,float4 y){return float4(_lc_fmod_scalar(x.x,y.x),_lc_fmod_scalar(x.y,y.y),_lc_fmod_scalar(x.z,y.z),_lc_fmod_scalar(x.w,y.w));}
 template<typename T>
 T _exp10(T v){return pow(10,v);};
 template<typename T>

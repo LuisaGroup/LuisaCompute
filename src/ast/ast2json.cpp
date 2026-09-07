@@ -452,7 +452,18 @@ public:
                 case '\n': ss.append("\\n"); break;
                 case '\r': ss.append("\\r"); break;
                 case '\t': ss.append("\\t"); break;
-                default: ss.push_back(c); break;
+                default: {
+                    auto u = static_cast<unsigned char>(c);
+                    if (u < 0x20u) {
+                        constexpr auto hex = "0123456789abcdef";
+                        ss.append("\\u00");
+                        ss.push_back(hex[u >> 4u]);
+                        ss.push_back(hex[u & 0x0fu]);
+                    } else {
+                        ss.push_back(c);
+                    }
+                    break;
+                }
             }
         }
         ss.push_back('"');
@@ -660,10 +671,15 @@ private:
         auto tag = (v.is_local() || v.is_builtin()) && is_argument ?
                        "ARGUMENT" :
                        luisa::to_string(v.tag());
-        vars.emplace_back(JSON::Object{
+        auto variable = JSON{JSON::Object{
             {"tag", tag},
             {"type", _type_index(v.type())},
-        });
+            {"usage", luisa::to_string(_func_ctx->f.variable_usage(v.uid()))},
+        }};
+        if (auto name = _func_ctx->f.get_variable_name(v.uid()); !name.empty()) {
+            variable["name"] = name;
+        }
+        vars.emplace_back(std::move(variable));
         return index;
     }
     [[nodiscard]] uint _constant_index(ConstantData c) noexcept {
@@ -747,6 +763,10 @@ private:
         auto old_ctx = std::exchange(_func_ctx, &ctx);
         // convert
         ctx.j["tag"] = luisa::to_string(f.tag());
+        if (!f.name().empty()) { ctx.j["name"] = f.name(); }
+        if (auto warp_size = f.allowed_warp_size()) {
+            ctx.j["allowed_warp_size"] = static_cast<uint32_t>(*warp_size);
+        }
         ctx.j["curve_bases"] = [bs = f.required_curve_bases()] {
             JSON::Array a;
             a.reserve(bs.count());
@@ -908,6 +928,18 @@ private:
             }
             return a;
         }();
+        if (expr->is_builtin() && expr->curve_basis_set().any()) {
+            j["curve_bases"] = [bs = expr->curve_basis_set()] {
+                JSON::Array a;
+                a.reserve(bs.count());
+                for (auto i = 0u; i < curve_basis_count; i++) {
+                    if (auto basis = static_cast<CurveBasis>(i); bs.test(basis)) {
+                        a.emplace_back(luisa::to_string(basis));
+                    }
+                }
+                return a;
+            }();
+        }
     }
     void _convert_cast_expr(JSON &j, const CastExpr *expr) noexcept {
         j["op"] = luisa::to_string(expr->op());
@@ -1025,6 +1057,66 @@ private:
     void _convert_suspend_stmt(JSON &j, const SuspendStmt *stmt) noexcept {
         j["token"] = stmt->token();
         j["name"] = stmt->name();
+        j["frame_exports"] = [&] {
+            JSON::Array a;
+            a.reserve(stmt->frame_exports().size());
+            for (auto &&frame_export : stmt->frame_exports()) {
+                JSON value;
+                value["name"] = frame_export.name;
+                value["value"] =
+                    _convert_expr(frame_export.value);
+                a.emplace_back(std::move(value));
+            }
+            return a;
+        }();
+        j["extensions"] = [&] {
+            JSON::Array extensions;
+            extensions.reserve(stmt->extensions().size());
+            for (auto &&extension : stmt->extensions()) {
+                JSON e;
+                e["schema"] = extension->schema();
+                e["version"] = extension->version();
+                e["annotation"] = extension->is_annotation();
+                e["fallback"] = static_cast<uint8_t>(
+                    extension->fallback());
+                e["bindings"] = [&] {
+                    JSON::Array bindings;
+                    bindings.reserve(extension->bindings().size());
+                    for (auto &&binding : extension->bindings()) {
+                        JSON b;
+                        b["name"] = binding.name;
+                        b["access"] = static_cast<uint8_t>(
+                            binding.access);
+                        b["lifetime"] = static_cast<uint8_t>(
+                            binding.lifetime);
+                        b["index"] = binding.index;
+                        b["value"] = _convert_expr(
+                            stmt->extension_binding_values()[binding.index]);
+                        bindings.emplace_back(std::move(b));
+                    }
+                    return bindings;
+                }();
+                e["attributes"] = [&] {
+                    JSON::Array attributes;
+                    attributes.reserve(extension->attributes().size());
+                    for (auto &&attribute : extension->attributes()) {
+                        JSON a;
+                        a["name"] = attribute.name;
+                        a["type"] = static_cast<uint8_t>(
+                            attribute.value.index());
+                        luisa::visit(
+                            [&](auto &&value) noexcept {
+                                a["value"] = value;
+                            },
+                            attribute.value);
+                        attributes.emplace_back(std::move(a));
+                    }
+                    return attributes;
+                }();
+                extensions.emplace_back(std::move(e));
+            }
+            return extensions;
+        }();
     }
     void _convert_ray_query_stmt(JSON &j, const RayQueryStmt *stmt) noexcept {
         j["query"] = _convert_expr(stmt->query());
@@ -1053,6 +1145,8 @@ public:
         LUISA_ASSERT(converter._func_ctx == nullptr,
                      "Function context stack corrupted.");
         auto j = std::move(converter._root);
+        j["schema"] = "luisa.compute.ast";
+        j["version"] = ast_json_schema_version;
         j["entry"] = entry;
         return j;
     }
@@ -1060,6 +1154,8 @@ public:
         AST2JSON converter;
         auto t = converter._type_index(type);
         auto j = std::move(converter._root);
+        j["schema"] = "luisa.compute.type";
+        j["version"] = ast_json_schema_version;
         j["root"] = t;
         return j;
     }

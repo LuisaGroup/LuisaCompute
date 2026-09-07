@@ -5,9 +5,11 @@
 namespace lc::spirv {
 
 struct SpirvBindlessResourceUsage {
-    // Buffer size/address queries consume only the per-array local metadata
-    // buffer. Actual reads/writes additionally consume the global unbounded
-    // heap.
+    // Buffer descriptors and buffer-view metadata are independent domains.
+    // Mixed-layout size/address queries consume per-array metadata and mixed
+    // reads/writes consume metadata plus the global heap. Typed size/bias
+    // live in the slot record, so typed reads/writes consume only the heap;
+    // typed device-address queries still consume metadata.
     bool buffer_heap{false};
     bool buffer_metadata{false};
     bool texture_2d{false};
@@ -26,14 +28,17 @@ struct SpirvBindlessResourceUsage {
 // planning deliberately does not consult the broader AST builtin bitset.
 [[nodiscard]] SpirvBindlessResourceUsage
 spirv_bindless_resource_usage(
-    luisa::compute::xir::ResourceQueryOp op) noexcept;
+    luisa::compute::xir::ResourceQueryOp op,
+    luisa::compute::xir::BindlessResourceAccess access = {}) noexcept;
 
 [[nodiscard]] SpirvBindlessResourceUsage
 spirv_bindless_resource_usage(
-    luisa::compute::xir::ResourceReadOp op) noexcept;
+    luisa::compute::xir::ResourceReadOp op,
+    luisa::compute::xir::BindlessResourceAccess access = {}) noexcept;
 
 [[nodiscard]] SpirvBindlessResourceUsage
 spirv_bindless_resource_usage(
-    luisa::compute::xir::ResourceWriteOp op) noexcept;
+    luisa::compute::xir::ResourceWriteOp op,
+    luisa::compute::xir::BindlessResourceAccess access = {}) noexcept;
 
 }// namespace lc::spirv

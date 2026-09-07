@@ -1,4 +1,7 @@
 #include <luisa/coro/coro_graph.h>
+#include <luisa/ast/function_builder.h>
+#include <luisa/ast/op.h>
+#include <luisa/core/logging.h>
 #include <luisa/core/stl/algorithm.h>
 #include <luisa/core/stl/format.h>
 #include <luisa/core/stl/memory.h>
@@ -7,6 +10,7 @@
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/coro_cfg_distill.h>
 #include <luisa/xir/passes/coro_materialize.h>
+#include <luisa/xir/passes/pointer_usage.h>
 #include <luisa/xir/passes/coro_split.h>
 
 namespace luisa::compute::coro {
@@ -19,13 +23,253 @@ static void append_unique(luisa::vector<size_t> &fields, size_t field) noexcept 
     }
 }
 
-static void append_reserved_fields(luisa::vector<size_t> &fields) noexcept {
-    for (auto i = 0u; i < CoroFrameDesc::reserved_field_count; i++) {
-        append_unique(fields, i);
+static void sort_unique(luisa::vector<size_t> &values) noexcept {
+    luisa::sort(values.begin(), values.end());
+    values.erase(std::unique(values.begin(), values.end()), values.end());
+}
+
+[[nodiscard]] static CoroGraph::SlotSet make_slot_set(
+    luisa::span<const size_t> frame_value_indices,
+    const xir::CoroCfgDistillResult &cfg) noexcept {
+    CoroGraph::SlotSet result;
+    result.frame_values.assign(
+        frame_value_indices.begin(), frame_value_indices.end());
+    sort_unique(result.frame_values);
+    result.slots.reserve(result.frame_values.size());
+    for (auto frame_value_index : result.frame_values) {
+        LUISA_ASSERT(
+            frame_value_index < cfg.frame_values.size() &&
+                cfg.frame_values[frame_value_index].slot <
+                    cfg.frame_slots.size(),
+            "Coroutine stage references out-of-range frame value {}.",
+            frame_value_index);
+        result.slots.emplace_back(
+            CoroFrameDesc::reserved_field_count +
+            cfg.frame_values[frame_value_index].slot);
+    }
+    sort_unique(result.slots);
+    return result;
+}
+
+[[nodiscard]] static luisa::vector<size_t> sorted_difference(
+    luisa::span<const size_t> lhs,
+    luisa::span<const size_t> rhs) noexcept {
+    luisa::vector<size_t> result;
+    result.reserve(lhs.size());
+    size_t i = 0u;
+    size_t j = 0u;
+    while (i < lhs.size()) {
+        while (j < rhs.size() && rhs[j] < lhs[i]) { ++j; }
+        if (j == rhs.size() || lhs[i] < rhs[j]) {
+            result.emplace_back(lhs[i]);
+        }
+        ++i;
+    }
+    return result;
+}
+
+[[nodiscard]] static luisa::vector<size_t> sorted_intersection(
+    luisa::span<const size_t> lhs,
+    luisa::span<const size_t> rhs) noexcept {
+    luisa::vector<size_t> result;
+    result.reserve(std::min(lhs.size(), rhs.size()));
+    size_t i = 0u;
+    size_t j = 0u;
+    while (i < lhs.size() && j < rhs.size()) {
+        if (lhs[i] < rhs[j]) {
+            ++i;
+        } else if (rhs[j] < lhs[i]) {
+            ++j;
+        } else {
+            result.emplace_back(lhs[i]);
+            ++i;
+            ++j;
+        }
+    }
+    return result;
+}
+
+[[nodiscard]] static const Type *projected_child_type(
+    const Type *type, uint32_t index) noexcept {
+    LUISA_ASSERT(type != nullptr,
+                 "Cannot project a null coroutine binding type.");
+    switch (type->tag()) {
+        case Type::Tag::STRUCTURE: {
+            auto members = type->members();
+            LUISA_ASSERT(index < members.size(),
+                         "Coroutine binding structure access is out of range.");
+            return members[index];
+        }
+        case Type::Tag::ARRAY:
+        case Type::Tag::VECTOR:
+            LUISA_ASSERT(index < type->dimension(),
+                         "Coroutine binding aggregate access is out of range.");
+            return type->element();
+        case Type::Tag::MATRIX:
+            LUISA_ASSERT(index < type->dimension(),
+                         "Coroutine binding matrix access is out of range.");
+            return Type::vector(type->element(), type->dimension());
+        default:
+            LUISA_ERROR_WITH_LOCATION(
+                "Cannot project scalar coroutine binding type '{}'.",
+                type->description());
     }
 }
 
+[[nodiscard]] static const Expression *project_static_access(
+    detail::FunctionBuilder *builder, const Type *root_type,
+    const Expression *root,
+    luisa::span<const uint32_t> access_chain) noexcept {
+    auto *type = root_type;
+    auto *expression = root;
+    for (auto index : access_chain) {
+        auto *child = projected_child_type(type, index);
+        if (type->tag() == Type::Tag::STRUCTURE) {
+            expression = builder->member(child, expression, index);
+        } else {
+            expression = builder->access(
+                child, expression,
+                builder->literal(Type::of<uint>(), index));
+        }
+        type = child;
+    }
+    return expression;
+}
+
+[[nodiscard]] static luisa::vector<CoroSuspendExtensionPtr>
+clone_extensions(const xir::CoroSuspendExtensionOwner &owner) noexcept {
+    luisa::vector<CoroSuspendExtensionPtr> extensions;
+    extensions.reserve(owner.extensions.size());
+    for (auto &&extension : owner.extensions) {
+        extensions.emplace_back(
+            extension == nullptr ? nullptr : extension->clone());
+    }
+    return extensions;
+}
+
 }// namespace
+
+CoroSlotAccess::CoroSlotAccess(
+    const Type *type, CoroSuspendBindingAccess access,
+    CoroSuspendBindingLifetime lifetime,
+    luisa::vector<Piece> pieces) noexcept
+    : _type{type}, _access{access}, _lifetime{lifetime},
+      _pieces{std::move(pieces)} {
+    for (auto &piece : _pieces) {
+        if (_access != CoroSuspendBindingAccess::write) {
+            _use_frame_values.emplace_back(piece.frame_value_index);
+            _use_slots.emplace_back(piece.field_index);
+        }
+        if (_access != CoroSuspendBindingAccess::read) {
+            _def_frame_values.emplace_back(piece.frame_value_index);
+            _def_slots.emplace_back(piece.field_index);
+            // A packed Boolean occupies one bit in a shared uint slot. Even a
+            // logically write-only binding must preserve its neighboring bits.
+            if (piece.bit_offset.has_value()) {
+                _rmw_slots.emplace_back(piece.field_index);
+            }
+        }
+    }
+    _reconstruct_slots = _use_slots;
+    _reconstruct_slots.insert(
+        _reconstruct_slots.end(),
+        _rmw_slots.begin(), _rmw_slots.end());
+    sort_unique(_use_frame_values);
+    sort_unique(_def_frame_values);
+    sort_unique(_use_slots);
+    sort_unique(_def_slots);
+    sort_unique(_rmw_slots);
+    sort_unique(_reconstruct_slots);
+}
+
+const Expression *CoroSlotAccess::_read(CoroFrame &frame) const noexcept {
+    LUISA_ASSERT(materialized(),
+                 "Coroutine binding has no materialized frame access.");
+    LUISA_ASSERT(frame.desc() != nullptr && _type != nullptr,
+                 "Coroutine binding read has no frame/type metadata.");
+    auto *builder = detail::FunctionBuilder::current();
+    auto *result = builder->local(_type);
+    builder->assign(result, builder->call(_type, CallOp::ZERO, {}));
+    for (auto &piece : _pieces) {
+        LUISA_ASSERT(
+            piece.field_index < frame.desc()->frame_field_count() &&
+                frame.desc()->frame_field_type(piece.field_index) ==
+                    piece.physical_type,
+            "Coroutine binding frame field {} does not match its access plan.",
+            piece.field_index);
+        auto *field = builder->member(
+            piece.physical_type, frame.expression(), piece.field_index);
+        const Expression *logical = field;
+        if (piece.bit_offset) {
+            LUISA_ASSERT(piece.logical_type == Type::of<bool>() &&
+                             piece.physical_type == Type::of<uint>() &&
+                             *piece.bit_offset < 32u,
+                         "Invalid packed-boolean coroutine binding piece.");
+            auto mask_value = uint{1u} << *piece.bit_offset;
+            auto *mask = builder->literal(
+                Type::of<uint>(), mask_value);
+            auto *zero = builder->literal(Type::of<uint>(), uint{0u});
+            auto *masked = builder->binary(
+                Type::of<uint>(), BinaryOp::BIT_AND, field, mask);
+            logical = builder->binary(
+                Type::of<bool>(), BinaryOp::NOT_EQUAL, masked, zero);
+        }
+        auto *destination = project_static_access(
+            builder, _type, result, piece.access_chain);
+        LUISA_ASSERT(destination->type() == piece.logical_type &&
+                         logical->type() == piece.logical_type,
+                     "Coroutine binding read projection type mismatch.");
+        builder->assign(destination, logical);
+    }
+    return result;
+}
+
+void CoroSlotAccess::_write(
+    CoroFrame &frame, const Expression *value) const noexcept {
+    LUISA_ASSERT(materialized(),
+                 "Coroutine binding has no materialized frame access.");
+    LUISA_ASSERT(frame.desc() != nullptr && value != nullptr &&
+                     value->type() == _type,
+                 "Coroutine binding write has invalid frame/value metadata.");
+    auto *builder = detail::FunctionBuilder::current();
+    for (auto &piece : _pieces) {
+        LUISA_ASSERT(
+            piece.field_index < frame.desc()->frame_field_count() &&
+                frame.desc()->frame_field_type(piece.field_index) ==
+                    piece.physical_type,
+            "Coroutine binding frame field {} does not match its access plan.",
+            piece.field_index);
+        auto *field = builder->member(
+            piece.physical_type, frame.expression(), piece.field_index);
+        auto *logical = project_static_access(
+            builder, _type, value, piece.access_chain);
+        LUISA_ASSERT(logical->type() == piece.logical_type,
+                     "Coroutine binding write projection type mismatch.");
+        if (piece.bit_offset) {
+            LUISA_ASSERT(piece.logical_type == Type::of<bool>() &&
+                             piece.physical_type == Type::of<uint>() &&
+                             *piece.bit_offset < 32u,
+                         "Invalid packed-boolean coroutine binding piece.");
+            auto mask_value = uint{1u} << *piece.bit_offset;
+            auto clear_value = ~mask_value;
+            auto *mask = builder->literal(
+                Type::of<uint>(), mask_value);
+            auto *clear = builder->literal(
+                Type::of<uint>(), clear_value);
+            auto *zero = builder->literal(Type::of<uint>(), uint{0u});
+            auto *cleared = builder->binary(
+                Type::of<uint>(), BinaryOp::BIT_AND, field, clear);
+            auto *encoded = builder->call(
+                Type::of<uint>(), CallOp::SELECT,
+                {zero, mask, logical});
+            auto *merged = builder->binary(
+                Type::of<uint>(), BinaryOp::BIT_OR, cleared, encoded);
+            builder->assign(field, merged);
+        } else {
+            builder->assign(field, logical);
+        }
+    }
+}
 
 [[nodiscard]] size_t CoroGraph::node_count() const noexcept {
     return _nodes.size();
@@ -66,12 +310,40 @@ static void append_reserved_fields(luisa::vector<size_t> &fields) noexcept {
                                node.index, name, node.token, node.is_terminal));
         s.append(luisa::format("  Input Fields: {}\n", node.input_fields));
         s.append(luisa::format("  Output Fields: {}\n", node.output_fields));
+        s.append(luisa::format("  Relocation Fields: {}\n", node.relocation_fields));
         s.append(luisa::format("  Transition Targets: {}\n", node.targets));
     }
     for (auto &edge : _edges) {
         s.append(luisa::format("Edge {} -> {} load={} store={}\n",
                                edge.from_index, edge.to_index,
                                edge.load_fields, edge.store_fields));
+    }
+    for (auto &boundary : _boundaries) {
+        s.append(luisa::format(
+            "Boundary {}: {} -> {} token={} extensions={} bindings={} "
+            "source_store={} target_live={}\n",
+            boundary.index, boundary.from_index, boundary.to_index,
+            boundary.token, boundary.extensions.size(),
+            boundary.bindings.size(), boundary.source_store.slots,
+            boundary.target_live.slots));
+        for (size_t i = 0u; i < boundary.extensions.size(); ++i) {
+            auto &&extension = boundary.extensions[i];
+            s.append(luisa::format(
+                "  Extension {}: schema='{}' version={} annotation={}\n",
+                i, extension == nullptr ? "<null>" : extension->schema(),
+                extension == nullptr ? 0u : extension->version(),
+                extension != nullptr && extension->is_annotation()));
+            if (i < boundary.stages.size()) {
+                auto &stage = boundary.stages[i];
+                s.append(luisa::format(
+                    "    use={} def={} live_in={} live_out={} "
+                    "preserve={} required_def={} rmw={} reconstruct={}\n",
+                    stage.use.slots, stage.def.slots,
+                    stage.live_in.slots, stage.live_out.slots,
+                    stage.preserve.slots, stage.required_def.slots,
+                    stage.rmw_slots, stage.reconstruct_slots));
+            }
+        }
     }
     return s;
 }
@@ -93,10 +365,32 @@ static void append_reserved_fields(luisa::vector<size_t> &fields) noexcept {
     static_cast<void>(m);
     CoroGraph graph;
 
-    luisa::vector<const xir::CallableFunction *> callables(cfg.scopes.size(), nullptr);
+    luisa::vector<xir::CallableFunction *> callables(cfg.scopes.size(), nullptr);
+    luisa::vector<xir::Value *> frame_arguments(cfg.scopes.size(), nullptr);
     for (auto &subroutine : split.subroutines) {
-        if (subroutine.scope_index < callables.size()) {
-            callables[subroutine.scope_index] = subroutine.callable;
+        LUISA_ASSERT(
+            subroutine.scope_index < callables.size() &&
+                callables[subroutine.scope_index] == nullptr &&
+                subroutine.callable != nullptr &&
+                subroutine.trigger_token ==
+                    cfg.scopes[subroutine.scope_index].trigger_token,
+            "CoroGraph received inconsistent split metadata for scope {}.",
+            subroutine.scope_index);
+        callables[subroutine.scope_index] = subroutine.callable;
+        frame_arguments[subroutine.scope_index] =
+            subroutine.frame_argument;
+    }
+    if (!split.subroutines.empty()) {
+        LUISA_ASSERT(
+            split.subroutines.size() == cfg.scopes.size(),
+            "CoroGraph received {} callable(s) for {} scope(s).",
+            split.subroutines.size(), cfg.scopes.size());
+        for (size_t scope_index = 0u;
+             scope_index < callables.size(); ++scope_index) {
+            LUISA_ASSERT(
+                callables[scope_index] != nullptr,
+                "CoroGraph is missing the callable for scope {}.",
+                scope_index);
         }
     }
 
@@ -114,7 +408,11 @@ static void append_reserved_fields(luisa::vector<size_t> &fields) noexcept {
 
         // Build lookup maps (use the stored node, not the moved-from local)
         auto &stored = graph._nodes.back();
-        graph._token_to_index.emplace(stored.token, i);
+        auto [_, token_inserted] =
+            graph._token_to_index.emplace(stored.token, i);
+        LUISA_ASSERT(token_inserted,
+                     "CoroGraph received duplicate trigger token {}.",
+                     stored.token);
         if (!stored.name.empty()) {
             graph._name_to_index.emplace(stored.name, i);
         }
@@ -142,9 +440,225 @@ static void append_reserved_fields(luisa::vector<size_t> &fields) noexcept {
         }
     }
 
-    for (auto &node : graph._nodes) {
-        append_reserved_fields(node.input_fields);
-        append_reserved_fields(node.output_fields);
+    // Preserve every static suspend boundary independently. Edges above are
+    // allowed to merge load/store transport between the same scopes; semantic
+    // Extension objects are not. Each owner binding is projected through the
+    // already-colored logical frame values into a typed CoroSlotAccess.
+    for (auto &transition : cfg.transition_edges) {
+        if (!transition.is_suspend) { continue; }
+        LUISA_ASSERT(
+            transition.extension_owner.binding_values.size() ==
+                    transition.extension_binding_frame_value_indices.size() &&
+                transition.extension_owner.binding_values.size() ==
+                    transition.extension_binding_access_chains.size(),
+            "Coroutine extension binding projection count mismatch.");
+        auto &boundary = graph._boundaries.emplace_back();
+        boundary.index = graph._boundaries.size() - 1u;
+        boundary.from_index = transition.from_scope;
+        boundary.to_index = transition.to_scope;
+        boundary.token = transition.token;
+        boundary.extensions = clone_extensions(
+            transition.extension_owner);
+
+        auto binding_count =
+            transition.extension_owner.binding_values.size();
+        luisa::vector<const CoroSuspendBinding *> descriptors(
+            binding_count, nullptr);
+        for (auto &&extension :
+             transition.extension_owner.extensions) {
+            LUISA_ASSERT(extension != nullptr,
+                         "Coroutine boundary contains a null Extension.");
+            for (auto &&binding : extension->bindings()) {
+                LUISA_ASSERT(binding.index < descriptors.size() &&
+                                 descriptors[binding.index] == nullptr,
+                             "Coroutine boundary contains an invalid or "
+                             "duplicate binding index {}.",
+                             binding.index);
+                descriptors[binding.index] = &binding;
+            }
+        }
+        boundary.bindings.reserve(binding_count);
+        for (size_t binding_index = 0u;
+             binding_index < binding_count; ++binding_index) {
+            auto *descriptor = descriptors[binding_index];
+            auto *binding_value =
+                transition.extension_owner.binding_values[binding_index];
+            LUISA_ASSERT(descriptor != nullptr && binding_value != nullptr &&
+                             binding_value->type() != nullptr,
+                         "Coroutine boundary binding {} is incomplete.",
+                         binding_index);
+            auto &base =
+                transition.extension_binding_access_chains[binding_index];
+            luisa::vector<CoroSlotAccess::Piece> pieces;
+            for (auto frame_value_index :
+                 transition.extension_binding_frame_value_indices[binding_index]) {
+                LUISA_ASSERT(
+                    frame_value_index < cfg.frame_values.size(),
+                    "Coroutine boundary binding {} references out-of-range "
+                    "frame value {}.",
+                    binding_index, frame_value_index);
+                auto &frame_value = cfg.frame_values[frame_value_index];
+                LUISA_ASSERT(
+                    frame_value.slot < cfg.frame_slots.size() &&
+                        base.size() <= frame_value.access_chain.size() &&
+                        std::equal(base.begin(), base.end(),
+                                   frame_value.access_chain.begin()),
+                    "Coroutine boundary binding {} has an invalid frame "
+                    "projection.",
+                    binding_index);
+                auto relative = luisa::vector<uint32_t>{
+                    frame_value.access_chain.begin() + base.size(),
+                    frame_value.access_chain.end()};
+                pieces.emplace_back(CoroSlotAccess::Piece{
+                    .frame_value_index = frame_value_index,
+                    .field_index = CoroFrameDesc::reserved_field_count +
+                                   frame_value.slot,
+                    .access_chain = std::move(relative),
+                    .logical_type = frame_value.type,
+                    .physical_type =
+                        cfg.frame_slots[frame_value.slot].type,
+                    .bit_offset = frame_value.bit_offset});
+            }
+            LUISA_ASSERT(
+                descriptor->lifetime ==
+                        CoroSuspendBindingLifetime::boundary ||
+                    !pieces.empty(),
+                "Queued/resumed coroutine binding {} has no frame access.",
+                binding_index);
+            boundary.bindings.emplace_back(CoroSlotAccess{
+                binding_value->type(), descriptor->access,
+                descriptor->lifetime, std::move(pieces)});
+        }
+
+        boundary.source_store = make_slot_set(
+            transition.store_frame_value_indices, cfg);
+        boundary.target_live = make_slot_set(
+            transition.target_live_frame_value_indices, cfg);
+        LUISA_ASSERT(
+            transition.extension_stage_dataflow.size() ==
+                boundary.extensions.size(),
+            "Coroutine boundary extension/stage count mismatch.");
+        boundary.stages.reserve(boundary.extensions.size());
+        for (size_t extension_index = 0u;
+             extension_index < boundary.extensions.size();
+             ++extension_index) {
+            auto &dataflow =
+                transition.extension_stage_dataflow[extension_index];
+            auto &stage = boundary.stages.emplace_back();
+            stage.extension_index = extension_index;
+            stage.use = make_slot_set(
+                dataflow.use_frame_value_indices, cfg);
+            stage.def = make_slot_set(
+                dataflow.def_frame_value_indices, cfg);
+            stage.live_in = make_slot_set(
+                dataflow.live_in_frame_value_indices, cfg);
+            stage.live_out = make_slot_set(
+                dataflow.live_out_frame_value_indices, cfg);
+            stage.preserve = make_slot_set(
+                sorted_difference(
+                    stage.live_out.frame_values,
+                    stage.def.frame_values),
+                cfg);
+            stage.required_def = make_slot_set(
+                sorted_intersection(
+                    stage.def.frame_values,
+                    stage.live_out.frame_values),
+                cfg);
+
+            luisa::vector<size_t> binding_use;
+            luisa::vector<size_t> binding_def;
+            auto &&extension = boundary.extensions[extension_index];
+            LUISA_ASSERT(extension != nullptr,
+                         "Coroutine boundary contains a null Extension.");
+            for (auto &&binding : extension->bindings()) {
+                LUISA_ASSERT(
+                    binding.index < boundary.bindings.size(),
+                    "Coroutine Extension binding {} is out of range.",
+                    binding.index);
+                auto &access = boundary.bindings[binding.index];
+                binding_use.insert(
+                    binding_use.end(),
+                    access.use_frame_values().begin(),
+                    access.use_frame_values().end());
+                binding_def.insert(
+                    binding_def.end(),
+                    access.def_frame_values().begin(),
+                    access.def_frame_values().end());
+                stage.rmw_slots.insert(
+                    stage.rmw_slots.end(),
+                    access.rmw_slots().begin(),
+                    access.rmw_slots().end());
+            }
+            sort_unique(binding_use);
+            sort_unique(binding_def);
+            sort_unique(stage.rmw_slots);
+            LUISA_ASSERT(
+                binding_use == stage.use.frame_values &&
+                    binding_def == stage.def.frame_values,
+                "Coroutine Extension binding effects differ from the "
+                "distilled stage dataflow certificate.");
+            stage.reconstruct_slots = stage.use.slots;
+            stage.reconstruct_slots.insert(
+                stage.reconstruct_slots.end(),
+                stage.rmw_slots.begin(), stage.rmw_slots.end());
+            sort_unique(stage.reconstruct_slots);
+        }
+    }
+
+    // cfg-distill has already solved the backward may-liveness equation
+    //
+    //   L(s) = External(s) union U_(s -> t)
+    //          (F_extensions(L(t)) - K_source(s -> t))
+    //
+    // to its least fixed point. Every transition's live values are exactly
+    // L(target), so project that existing analysis certificate through the
+    // interference-colored physical-slot map instead of reconstructing an
+    // approximation from materialized load/store fields. In particular,
+    // load_fields only denotes values evaluated by the immediate callable;
+    // it deliberately omits dormant values that remain resident until a
+    // later continuation.
+    luisa::vector<uint8_t> has_relocation_certificate(graph._nodes.size(), 0u);
+    for (auto &transition : cfg.transition_edges) {
+        LUISA_ASSERT(
+            transition.to_scope < graph._nodes.size(),
+            "Coroutine transition {} -> {} has an out-of-range target.",
+            transition.from_scope, transition.to_scope);
+        auto projected = luisa::vector<size_t>{};
+        for (auto frame_value_index :
+             transition.live_frame_value_indices) {
+            LUISA_ASSERT(
+                frame_value_index < cfg.frame_values.size(),
+                "Coroutine transition {} -> {} references out-of-range "
+                "frame value {} (count {}).",
+                transition.from_scope, transition.to_scope,
+                frame_value_index, cfg.frame_values.size());
+            auto slot = cfg.frame_values[frame_value_index].slot;
+            LUISA_ASSERT(
+                slot < cfg.frame_slots.size(),
+                "Coroutine frame value {} references out-of-range slot {} "
+                "(count {}).",
+                frame_value_index, slot, cfg.frame_slots.size());
+            append_unique(
+                projected,
+                CoroFrameDesc::reserved_field_count + slot);
+        }
+        luisa::sort(projected.begin(), projected.end());
+        auto &target = graph._nodes[transition.to_scope];
+        if (has_relocation_certificate[transition.to_scope] == 0u) {
+            target.relocation_fields = std::move(projected);
+            has_relocation_certificate[transition.to_scope] = 1u;
+        } else {
+            // Ordinary L(target) is identical for every predecessor, while
+            // boundary-local Extension operands form a tagged union. Preserve
+            // the union of their already-colored physical fields; this adds no
+            // slots and lets one token queue relocate frames from all legal
+            // incoming suspension sites.
+            for (auto field : projected) {
+                append_unique(target.relocation_fields, field);
+            }
+            luisa::sort(target.relocation_fields.begin(),
+                        target.relocation_fields.end());
+        }
     }
     for (auto &edge : graph._edges) {
         if (edge.from_index < graph._nodes.size()) {
@@ -161,9 +675,112 @@ static void append_reserved_fields(luisa::vector<size_t> &fields) noexcept {
             }
         }
     }
+
+    // The six immutable invocation-identity fields are scheduler ABI state,
+    // not ordinary user frame values. Analyze their actual reads in each
+    // materialized continuation, then solve the immutable-state liveness
+    // equation
+    //
+    //   I(n) = UseIdentity(n) union U_(n -> t) I(t)
+    //
+    // to its least fixed point. Since continuations never redefine identity,
+    // there is no kill term. A queued frame for token n must relocate exactly
+    // I(n), while only an entry transition has to initialize I(t) in external
+    // storage; later transitions retain the resident immutable fields. Pointer
+    // analysis is field-sensitive and projected to the frame reference. Any
+    // malformed/unsupported callable fails closed to all identity fields.
+    constexpr auto identity_field_count =
+        CoroFrameDesc::reserved_field_count - 1u;
+    luisa::vector<luisa::vector<uint8_t>> identity_live(
+        graph._nodes.size(),
+        luisa::vector<uint8_t>(identity_field_count, 0u));
+    for (size_t scope_index = 0u;
+         scope_index < graph._nodes.size(); ++scope_index) {
+        auto fail_closed = split.subroutines.empty();
+        if (!fail_closed) {
+            auto *callable = callables[scope_index];
+            auto *frame_argument = frame_arguments[scope_index];
+            auto *definition = callable == nullptr ?
+                                   nullptr :
+                                   callable->definition();
+            auto *body = definition == nullptr ?
+                             nullptr :
+                             definition->body_block();
+            xir::PointerUsageAnalysis analysis;
+            xir::Value *requested[]{frame_argument};
+            auto info = analysis.analyze(
+                definition,
+                luisa::span<xir::Value *const>{requested});
+            auto *usage = info.succeeded() && body != nullptr &&
+                                  frame_argument != nullptr ?
+                              analysis.in_usage(body, frame_argument) :
+                              nullptr;
+            fail_closed = !info.succeeded() || usage == nullptr;
+            if (!fail_closed) {
+                for (auto field = 0u;
+                     field < identity_field_count; ++field) {
+                    if (usage->live.access(field).any()) {
+                        identity_live[scope_index][field] = 1u;
+                        append_unique(
+                            graph._nodes[scope_index].input_fields,
+                            field);
+                    }
+                }
+            }
+        }
+        if (fail_closed) {
+            for (auto field = 0u;
+                 field < identity_field_count; ++field) {
+                identity_live[scope_index][field] = 1u;
+                append_unique(
+                    graph._nodes[scope_index].input_fields, field);
+            }
+        }
+    }
+    auto changed = true;
+    while (changed) {
+        changed = false;
+        for (auto &&edge : graph._edges) {
+            auto &source = identity_live[edge.from_index];
+            auto &target = identity_live[edge.to_index];
+            for (auto field = 0u;
+                 field < identity_field_count; ++field) {
+                if (source[field] == 0u && target[field] != 0u) {
+                    source[field] = 1u;
+                    changed = true;
+                }
+            }
+        }
+    }
+    for (size_t node_index = 1u;
+         node_index < graph._nodes.size(); ++node_index) {
+        for (auto field = 0u;
+             field < identity_field_count; ++field) {
+            if (identity_live[node_index][field] != 0u) {
+                append_unique(
+                    graph._nodes[node_index].relocation_fields,
+                    field);
+            }
+        }
+    }
+    for (auto &edge : graph._edges) {
+        if (edge.from_index == graph.entry_index()) {
+            for (auto field = 0u;
+                 field < identity_field_count; ++field) {
+                if (identity_live[edge.to_index][field] != 0u) {
+                    append_unique(edge.store_fields, field);
+                }
+            }
+        }
+        auto &from_node = graph._nodes[edge.from_index];
+        for (auto field : edge.store_fields) {
+            append_unique(from_node.output_fields, field);
+        }
+    }
     for (auto &node : graph._nodes) {
         luisa::sort(node.input_fields.begin(), node.input_fields.end());
         luisa::sort(node.output_fields.begin(), node.output_fields.end());
+        luisa::sort(node.relocation_fields.begin(), node.relocation_fields.end());
         luisa::sort(node.targets.begin(), node.targets.end());
     }
 

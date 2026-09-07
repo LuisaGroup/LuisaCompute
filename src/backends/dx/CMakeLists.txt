@@ -52,7 +52,7 @@ if (WIN32)
             SOURCES ${LC_BACKEND_DX_SOURCES}
             SUPPORT_DIR ${LUISA_COMPUTE_DX_SDK_DIR})
     target_include_directories(luisa-compute-backend-dx PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(luisa-compute-backend-dx PRIVATE D3D12 d3dcompiler dxgi DirectML dcomp luisa-compute-hlsl-codegen)
+    target_link_libraries(luisa-compute-backend-dx PRIVATE D3D12 d3dcompiler dxgi DirectML dcomp luisa-compute-hlsl-codegen luisa-compute-xir)
     target_compile_definitions(luisa-compute-backend-dx PRIVATE UNICODE)
     if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         target_compile_definitions(luisa-compute-backend-dx PRIVATE
@@ -61,11 +61,18 @@ if (WIN32)
                 m128_u32=vector4_u32)
     endif ()
 
-    # for inter-op
-    find_package(CUDAToolkit 11.7 QUIET)
-    if (CUDAToolkit_FOUND)
-        target_link_libraries(luisa-compute-backend-dx PRIVATE CUDA::cuda_driver)
-        target_compile_definitions(luisa-compute-backend-dx PRIVATE LCDX_ENABLE_CUDA)
+    # CUDA interop links the driver API (nvcuda.dll), which is not present on
+    # systems without an NVIDIA driver even when the CUDA toolkit is installed.
+    # Keep the historical developer-build default, but make it opt-in for a
+    # redistributable package so the DirectX module remains loadable there.
+    if (LUISA_COMPUTE_ENABLE_DX_CUDA_INTEROP)
+        find_package(CUDAToolkit 11.7 QUIET)
+        if (CUDAToolkit_FOUND)
+            target_link_libraries(luisa-compute-backend-dx PRIVATE CUDA::cuda_driver)
+            target_compile_definitions(luisa-compute-backend-dx PRIVATE LCDX_ENABLE_CUDA)
+            set_property(GLOBAL PROPERTY
+                    LUISA_COMPUTE_DX_CUDA_INTEROP_ENABLED ON)
+        endif ()
     endif ()
 
     if (TARGET luisa-compute-oidn-ext)

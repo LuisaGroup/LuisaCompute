@@ -2,6 +2,12 @@
 // Covers: vector + helpers (enlarge_by, size_bytes, vector_resize),
 //         string + format, map/set, unordered_map/set, optional, lru_cache.
 
+// Keep this first: the memory wrapper must provide its own trait dependencies.
+#include <luisa/core/stl/memory.h>
+
+static_assert(sizeof(luisa::aligned_storage_t<32u, 16u>) >= 32u);
+static_assert(alignof(luisa::aligned_storage_t<32u, 16u>) == 16u);
+
 #include "ut/ut.hpp"
 
 #include <luisa/core/stl/vector.h>
@@ -11,7 +17,6 @@
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/optional.h>
 #include <luisa/core/stl/lru_cache.h>
-#include <luisa/core/stl/memory.h>
 #include <luisa/core/logging.h>
 
 using namespace boost::ut;
@@ -204,6 +209,33 @@ void reg_map_basic() {
         expect(m.size() == 2u);
         expect(m.find(2) == m.end());
     };
+}
+
+void reg_map_at_missing_key() {
+
+#if __cpp_exceptions
+    "map_at_missing_key_throws"_test = [] {
+        luisa::map<int, luisa::string> m;
+        m.emplace(1, "one");
+
+        auto mutable_threw = false;
+        try {
+            static_cast<void>(m.at(2));
+        } catch (const std::out_of_range &) {
+            mutable_threw = true;
+        }
+        expect(mutable_threw);
+
+        auto const_threw = false;
+        try {
+            const auto &cm = m;
+            static_cast<void>(cm.at(2));
+        } catch (const std::out_of_range &) {
+            const_threw = true;
+        }
+        expect(const_threw);
+    };
+#endif
 }
 
 void reg_set_basic() {
@@ -515,6 +547,7 @@ int main(int argc, char *argv[]) {
     reg_format_basic();
     reg_format_hash_to_string();
     reg_map_basic();
+    reg_map_at_missing_key();
     reg_set_basic();
     reg_unordered_map_basic();
     reg_unordered_set_basic();

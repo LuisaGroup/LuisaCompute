@@ -101,8 +101,8 @@ int main(int argc, char **argv) {
     auto out_fp32_buf = device.create_buffer<float>(N);
 
     // Upload
-    stream << input_fp4_buf.copy_from(eastl::span{packed_input.data(), packed_input.size()})
-           << input_float_buf.copy_from(eastl::span{test_values.data(), test_values.size()})
+    stream << input_fp4_buf.copy_from(luisa::span{packed_input})
+           << input_float_buf.copy_from(luisa::span{test_values})
            << synchronize();
 
     auto fp4_shader = device.compile(fp4_test_kernel);
@@ -146,7 +146,7 @@ int main(int argc, char **argv) {
 
     // Validate FP4 output against CPU reference
     std::vector<uint> gpu_packed(N / 8);
-    stream << out_fp4_buf.copy_to(eastl::span{gpu_packed.data(), gpu_packed.size()})
+    stream << out_fp4_buf.copy_to(luisa::span{gpu_packed})
            << synchronize();
 
     size_t mismatch = 0;

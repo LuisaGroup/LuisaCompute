@@ -493,6 +493,7 @@ private:
 
 public:
     static constexpr auto block_size = FallbackTexture::block_size;
+    [[nodiscard]] std::byte *data() noexcept { return _data; }
     [[nodiscard]] const std::byte *data() const noexcept { return _data; }
     [[nodiscard]] PixelStorage storage() const noexcept { return _storage; }
     [[nodiscard]] size_t size_bytes() const noexcept { return pixel_storage_size(storage(), size3d()); }
