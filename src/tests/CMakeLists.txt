@@ -772,6 +772,13 @@ if (TARGET luisa-compute-backend-fallback)
     # uniform arguments. Kept out of unattended CTest because it requires the
     # optional LLVM/Embree fallback backend at runtime.
     luisa_compute_add_test(test_fallback_shader_cache unit/runtime/test_fallback_shader_cache.cpp)
+    luisa_compute_add_test(test_fallback_coro_allocation
+            unit/runtime/test_fallback_coro_allocation.cpp
+            LABELS "unit;unit_runtime;integration_fallback")
+    add_dependencies(test_fallback_coro_allocation luisa-compute-backend-fallback)
+    luisa_compute_add_test(test_fallback_coro_arena
+            unit/fallback/test_fallback_coro_arena.cpp LABELS "unit;unit_fallback")
+    target_include_directories(test_fallback_coro_arena PRIVATE ../backends/fallback)
 endif ()
 luisa_compute_add_test(test_bindless_mip        unit/runtime/test_bindless_mip.cpp)
 luisa_compute_add_test(test_direct_texture_sampling unit/runtime/test_direct_texture_sampling.cpp)
