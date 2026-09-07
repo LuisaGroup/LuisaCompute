@@ -27,6 +27,9 @@ import time
 from typing import Any, Callable
 
 
+MATRIX_OPERATIONS = ("gemm", "gemm_relu", "gemm_gelu")
+
+
 @dataclasses.dataclass(frozen=True)
 class Case:
     operation: str
@@ -37,7 +40,7 @@ class Case:
     @property
     def name(self) -> str:
         shape = f"{self.m}x{self.n}"
-        return f"{self.operation}_{shape}x{self.k}" if self.operation == "gemm" else f"{self.operation}_{shape}"
+        return f"{self.operation}_{shape}x{self.k}" if self.operation in MATRIX_OPERATIONS else f"{self.operation}_{shape}"
 
 
 def parse_row_shapes(specification: str) -> list[tuple[int, int]]:
@@ -85,7 +88,7 @@ def make_cases(operations: list[str], quick: bool = False,
         gemm = gemm_shapes
     cases: list[Case] = []
     for operation in operations:
-        if operation == "gemm":
+        if operation in MATRIX_OPERATIONS:
             cases.extend(Case(operation, *shape) for shape in gemm)
         elif operation in ("add", "gelu_add", "sigmoid_pair", "gelu_pair", "sum", "softmax", "rmsnorm", "layernorm", "residual_layernorm", "cross_entropy"):
             cases.extend(Case(operation, *shape) for shape in (elementwise if operation in ("add", "gelu_add", "sigmoid_pair", "gelu_pair") else reduction))
@@ -249,7 +252,7 @@ def time_torch(invoke: Callable[[], Any], synchronize: Callable[[], None], args:
 def tolerance(operation: str) -> tuple[float, float]:
     if operation == "add":
         return 0.0, 0.0
-    if operation == "gemm":
+    if operation in MATRIX_OPERATIONS:
         return 1e-4, 1e-4
     if operation == "sum":
         return 1e-5, 1e-5
@@ -270,7 +273,7 @@ def validate(torch: Any, actual: Any, expected: Any, operation: str) -> dict[str
 
 
 def block_shape(case: Case, gemm_block: tuple[int, int, int]) -> tuple[int, int, int]:
-    if case.operation == "gemm":
+    if case.operation in MATRIX_OPERATIONS:
         return gemm_block
     return (1, 256 if case.operation in ("add", "gelu_add", "sigmoid_pair", "gelu_pair") else case.n, 1)
 
@@ -373,7 +376,7 @@ def validate_native_metadata(native: dict[str, Any], case: Case, backend: str, e
         raise RuntimeError("native execution-scope metadata does not match the request")
     if native.get("pipeline_window") != pipeline_window:
         raise RuntimeError("native pipeline-window metadata does not match the request")
-    if case.operation == "gemm" and native.get("mma_operations") != 1:
+    if case.operation in MATRIX_OPERATIONS and native.get("mma_operations") != 1:
         raise RuntimeError("GEMM must contain one semantic TileIR MMA, not a scalar-memory substitute")
     if native.get("cooperative_matrix") is not cooperative_matrix:
         raise RuntimeError("native cooperative-matrix metadata does not match the request")
@@ -432,7 +435,7 @@ def validate_native_metadata(native: dict[str, Any], case: Case, backend: str, e
     if type(calls) is not int or calls < 0:
         raise RuntimeError("native matrix-intrinsic count must be a nonnegative integer")
     eligible = (cooperative_matrix and backend == "metal" and execution_scope == "group"
-                and case.operation == "gemm" and all(size % 8 == 0 for size in gemm_block)
+                and case.operation in MATRIX_OPERATIONS and all(size % 8 == 0 for size in gemm_block)
                 and (group_threads == 0 or group_threads >= 32 and group_threads % 32 == 0))
     if bool(calls) != eligible:
         raise RuntimeError("generated matrix-intrinsic calls do not match the benchmark's eligible path")
@@ -629,6 +632,8 @@ def optional_native_arguments(args: argparse.Namespace) -> list[str]:
         (getattr(args, "reduction_cost_profile", "analytic"), getattr(args, "reduction_cost_profile", "analytic") != "analytic"),
         (str(getattr(args, "program_order_rows", 1)), getattr(args, "program_order_rows", 1) != 1),
         (str(getattr(args, "program_order_columns", 1)), getattr(args, "program_order_columns", 1) != 1),
+        ("fuse-fragment-epilogues" if getattr(args, "fuse_matrix_epilogues", False) else "retain-fragment-epilogues",
+         getattr(args, "fuse_matrix_epilogues", False)),
     ]
     count = max((i + 1 for i, (_, requested) in enumerate(slots) if requested), default=0)
     return [value for value, _ in slots[:count]]
@@ -775,18 +780,48 @@ def paired_activation_invoker(torch: Any, a: Any, out: Any, operation: str) -> t
     raise ValueError("unknown paired activation")
 
 
+def matrix_reference(torch: Any, a: Any, b: Any, operation: str) -> Any:
+    product = a.double() @ b.double()
+    if operation == "gemm":
+        return product
+    value = 0.125 * product + 0.25
+    if operation == "gemm_relu":
+        return value.clamp_min(0)
+    if operation == "gemm_gelu":
+        return torch.nn.functional.gelu(value, approximate="tanh")
+    raise ValueError("unknown matrix operation")
+
+
+def matrix_invoker(torch: Any, a: Any, b: Any, out: Any, scratch: Any,
+                   operation: str) -> tuple[Callable[[], Any], list[str]]:
+    if operation == "gemm":
+        return lambda: torch.mm(a, b, out=out), ["mm.out"]
+    if operation not in MATRIX_OPERATIONS or scratch is None:
+        raise ValueError("matrix epilogue requires a known operation and preallocated scratch")
+
+    def invoke():
+        torch.mm(a, b, out=scratch)
+        scratch.mul_(0.125).add_(0.25)
+        if operation == "gemm_relu":
+            return torch.clamp_min(scratch, 0, out=out)
+        return torch.ops.aten.gelu.out(scratch, approximate="tanh", out=out)
+
+    activation = "clamp_min.out(0)" if operation == "gemm_relu" else "gelu.out(approximate=tanh)"
+    return invoke, ["mm.out", "mul_(0.125)", "add_(0.25)", activation]
+
+
 def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend: str, ordinal: int) -> dict[str, Any]:
     def inputs(rows: int, columns: int, seed: int) -> Any:
         indices = torch.arange(rows * columns, dtype=torch.int64)
         return (((indices * seed + 17) % 127 - 63).float() / 64).reshape(rows, columns)
 
-    a_host = inputs(case.m, case.k if case.operation == "gemm" else case.n, 5)
+    a_host = inputs(case.m, case.k if case.operation in MATRIX_OPERATIONS else case.n, 5)
     labels_host = (torch.arange(case.m, dtype=torch.int64) * 13 + 7) % case.n
-    b_rows = (case.k if case.operation == "gemm" else 1 if case.operation == "rmsnorm" else
+    b_rows = (case.k if case.operation in MATRIX_OPERATIONS else 1 if case.operation == "rmsnorm" else
               2 if case.operation == "layernorm" else case.m)
-    b_host = inputs(b_rows, case.n, 11) if case.operation in ("gemm", "add", "gelu_add", "rmsnorm", "layernorm", "residual_layernorm") else None
-    if case.operation == "gemm":
-        reference = a_host.double() @ b_host.double()
+    b_host = inputs(b_rows, case.n, 11) if case.operation in (*MATRIX_OPERATIONS, "add", "gelu_add", "rmsnorm", "layernorm", "residual_layernorm") else None
+    if case.operation in MATRIX_OPERATIONS:
+        reference = matrix_reference(torch, a_host, b_host, case.operation)
     elif case.operation == "add":
         reference = a_host.double() + b_host.double()
     elif case.operation == "gelu_add":
@@ -876,6 +911,8 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
                 if not destination.exists():
                     destination.write_bytes(source)
             validate_tirx_realization(native, realization, cpu_views, getattr(args, "metal_subgroup_reductions", False), getattr(args, "input_views", False))
+            if native.get("fuse_matrix_epilogues", False) is not getattr(args, "fuse_matrix_epilogues", False):
+                raise ValueError("native fragment epilogue policy differs from the request")
             validate_subgroup_policy(native, elide)
             validate_cpu_storage_policy(native, cpu_stack)
             validate_cpu_vector_policy(native, cpu_lanes)
@@ -907,13 +944,14 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
         b = b_host.to(device) if b_host is not None else None
         labels = labels_host.to(device) if case.operation == "cross_entropy" else None
         out = None if case.operation in ("rmsnorm", "layernorm", "residual_layernorm", "cross_entropy") else torch.empty(reference.shape, dtype=torch.float32, device=device)
-        scratch = torch.empty_like(out) if case.operation == "gelu_add" else None
+        scratch = torch.empty_like(out) if case.operation in ("gelu_add", "gemm_relu", "gemm_gelu") else None
         paired_invoke, paired_sequence = (paired_activation_invoker(torch, a, out, case.operation)
                                            if case.operation in ("sigmoid_pair", "gelu_pair") else (None, None))
         synchronize()
         allocation_upload_ms = (time.perf_counter_ns() - start) / 1e6
-        if case.operation == "gemm":
-            invoke = lambda: torch.mm(a, b, out=out)
+        matrix_sequence = None
+        if case.operation in MATRIX_OPERATIONS:
+            invoke, matrix_sequence = matrix_invoker(torch, a, b, out, scratch, case.operation)
         elif case.operation == "add":
             invoke = lambda: torch.add(a, b, out=out)
         elif case.operation == "gelu_add":
@@ -948,6 +986,9 @@ def run_case(torch: Any, np: Any, args: argparse.Namespace, case: Case, backend:
         if case.operation == "gelu_add":
             measured["intermediate_policy"] = "preallocated_add_result"
             measured["operator_sequence"] = ["add.out", "gelu.out(approximate=tanh)"]
+        if matrix_sequence is not None:
+            measured["operator_sequence"] = matrix_sequence
+            measured["intermediate_policy"] = "none" if scratch is None else "preallocated_matrix_result"
         if paired_sequence is not None:
             measured["operator_sequence"] = paired_sequence
             measured["intermediate_policy"] = "preallocated_output_views_and_unit_gradient"
@@ -1204,6 +1245,7 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True, help="new directory for JSON and Markdown results")
     parser.add_argument("--backends", default="cpu,metal")
     parser.add_argument("--operations", default="gemm,add,sum,softmax")
+    parser.add_argument("--fuse-matrix-epilogues", action="store_true", help="opt-in closed scalar DAGs in MPP output fragments")
     parser.add_argument("--gemm-block", default="8,8,16")
     parser.add_argument("--tune-gemm-blocks", help="opt-in JIT search, e.g. '8,8,16;16,32,32;32,32,32'; final timing is a fresh run")
     parser.add_argument("--tune-pipeline-windows", help="opt-in JIT windows, e.g. '1,2'; combined with tuning blocks")
@@ -1308,6 +1350,8 @@ def main() -> int:
     if min(args.threads, args.samples, args.sample_ms, args.warmup_ms) <= 0:
         parser.error("block dimensions, thread count, and timing parameters must be positive")
     backends = args.backends.split(",")
+    if args.fuse_matrix_epilogues and args.matrix_realization == "simdgroup":
+        parser.error("fragment epilogues require an MPP realization")
     if args.reduction_cost_profile != "analytic" and (backends != ["metal"] or not args.metal_subgroup_reductions):
         parser.error("reduction service profiles require Metal subgroup reductions with the TVM runtime")
     if args.tuning_metric == "gpu-control" and args.metal_device_timing is None:
@@ -1348,7 +1392,7 @@ def main() -> int:
         parser.error("reduction packing/unroll/lane/cache tuning requires Metal subgroup reductions")
     if any(backend not in ("cpu", "metal") for backend in backends):
         parser.error("backends must be cpu and/or metal")
-    if args.matrix_realization != "simdgroup" and (backends != ["metal"] or args.operations != "gemm" or
+    if args.matrix_realization != "simdgroup" and (backends != ["metal"] or any(op not in MATRIX_OPERATIONS for op in requested_operations) or
                                                   args.execution_scope != "group" or not args.cooperative_matrix):
         parser.error("MPP realizations require only Metal group GEMM with cooperative matrices enabled")
     if not 0 <= args.group_threads <= 0xffffffff or (args.group_threads and
@@ -1445,7 +1489,7 @@ def main() -> int:
         for case in cases:
             print(f"{backend:5s} {case.name} ...", flush=True)
             try:
-                tune = ((case.operation == "gemm" and
+                tune = ((case.operation in MATRIX_OPERATIONS and
                          (args.tuning_candidates or args.mapping_tuning_candidates)) or
                         (args.metal_subgroup_reductions and
                          bool(args.mapping_tuning_candidates or args.packing_tuning_candidates or args.unroll_tuning_candidates or args.lane_tuning_candidates or args.input_cache_tuning_candidates)) or

@@ -188,6 +188,41 @@ DSL entity, operator-name/size rule, solver or cost coefficient. The current
 model does not separately price bounded coordinate stores or edge fractions;
 removing a temporary is not by itself a performance guarantee.
 
+### Optional fragment-element extension
+
+Apply `metal-mpp-element-v1.patch` after the four extensions above. The
+separate `target.metal.mpp_element_contract_version() == 1` capability
+exposes destination-fragment capacity, local-element validity, scalar loads
+and scalar stores as typed native TIRx operations. The fragment ordinal is
+constant; the local element ordinal is Int32. These are **thread-local
+ordinals, not matrix coordinates**. The existing declaration/MMA/transfer
+contract determines the cooperative layout. A caller must initialize the
+fragment and guard accesses by capacity and `is_valid_element`.
+
+Capacity/validity are pure queries, loads read state, and stores have opaque
+write effects. Scalar arithmetic and bindings remain ordinary, transformable
+TIRx IR. No named activation, serialized expression, Python callback, or
+guessed lane-to-matrix layout is introduced. Wrong scalar types, negative
+literal local indices, undeclared fragments and invalid fragment ordinals
+fail compilation; dynamic bounds remain caller preconditions.
+
+With `PlannerOptions::fuse_matrix_epilogues` (default off), the bridge admits
+a closed, same-owner scalar DAG between the accumulator
+and its sole global sink. Literals, ordinary scalar operations and calls
+with a pure effect contract compose; compiler-owned materializations become
+scalar bindings rather than repeated tile loads. Every load must refer to
+the same logical `(row, column)` of the carry or a dominating DAG producer.
+The whole group is audited for other observations and escapes. Manual
+memory, unmarked producers, neighbor/transposed reads, resource operands,
+free variables and extra consumers conservatively retain the previous path.
+Output bounds, layout and store position still use the bounded-output proof.
+
+Planner candidates release the proved additional DAG storage only when
+direct output is selected. Producer/sink arithmetic remains charged through
+the existing independent-element proxy; this does not claim calibrated
+instruction counts or actual register pressure. No new coefficient or
+operator/shape table is fitted. Missing capability preserves the old path.
+
 ### Commands
 
 Use a clean checkout at the pinned commit; initialize its `3rdparty/tvm-ffi`
@@ -210,6 +245,9 @@ git -C "$TVM_SRC" apply "$LUISA_SRC/src/tile/bridge/tirx/patches/metal-mpp-bound
 # Optional: store proved output prefixes without a shared accumulator sink.
 git -C "$TVM_SRC" apply --check "$LUISA_SRC/src/tile/bridge/tirx/patches/metal-mpp-bounded-store-v1.patch"
 git -C "$TVM_SRC" apply "$LUISA_SRC/src/tile/bridge/tirx/patches/metal-mpp-bounded-store-v1.patch"
+# Optional: compose closed scalar DAGs directly in MPP output fragments.
+git -C "$TVM_SRC" apply --check "$LUISA_SRC/src/tile/bridge/tirx/patches/metal-mpp-element-v1.patch"
+git -C "$TVM_SRC" apply "$LUISA_SRC/src/tile/bridge/tirx/patches/metal-mpp-element-v1.patch"
 
 cmake -S "$TVM_SRC" -B "$TVM_BUILD" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DUSE_LLVM=/opt/homebrew/opt/llvm@21/bin/llvm-config \

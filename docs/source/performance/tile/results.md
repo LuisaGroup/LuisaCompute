@@ -1,6 +1,6 @@
 # Tile performance by compiler route
 
-Saved comparisons through September 6, 2026. These are separate experiments,
+Saved comparisons through September 7, 2026. These are separate experiments,
 not a cross-route leaderboard with one matched timing and math policy.
 See [current status](index.md) for the conclusion and remaining goal.
 
@@ -765,6 +765,80 @@ not a shape-name table. This enlarges the supported mapping family; it does
 not claim a solved generic planner or faster native-MPP/XIR/SIMD paths. The
 {download}`complete methods and four-metric audit <../../../../scripts/benchmark/tile_torch/results/m1-max-20260906-program-order/notes.md>`
 retain all candidates, controls, failures and validation boundaries.
+
+### Closed matrix epilogues: general legality, mixed profitability
+
+The [fragment-element extension](../../internals/tile/matrix.md#scalar-epilogues-use-the-same-element-owner)
+admits closed, same-owner scalar DAGs after MMA. Ordinary typed arithmetic,
+pure calls and proven compiler-owned temporary lifetimes determine eligibility;
+production code does not recognize ReLU/GELU names. MPP exposes local element
+capacity, validity and scalar access through an optional native C++ contract.
+The planner counts released storage but retains scalar arithmetic work. **This
+is a new legal candidate, not calibrated ranking or a new default.**
+
+The fixed-schedule comparison uses the same final compiler, changing only
+`fuse_matrix_epilogues`. Every graph requests 64×64 output blocks, nominal
+BK=4096, 256 workers and one pipeline stage. Four rounds balance fusion and
+native/Torch order independently, with seven samples, 20 ms host windows and
+100 ms warmup. The 256-worker setting is a common legal diagnostic binding,
+not a universal planner recommendation. All **288 complete outputs** pass
+the FP64 expression oracle at atol=rtol=1e-4; the independent audit checks
+882,766,800 element-validation receipts, source hashes and raw GPU divisors.
+
+ReLU and GELU below mean `max(v, 0)` and tanh-GELU of
+`v = 0.125 * (A @ B) + 0.25`. Torch preallocates the output and matrix
+intermediate, using eager `mm.out`, in-place scale/shift and activation.out.
+It is **not compiled fused Torch or MPSGraph**; plain MPS GEMM would not be
+a matching baseline for these graphs. No independent native-MPP/CPU gain
+follows from this TIRx-only extension.
+
+```{table} FP32 matrix epilogues, M1 Max, four fixed-schedule paired rounds
+:class: benchmark-table
+
+| Graph / M×N×K | Reference GPU µs | Fragment GPU µs | Torch GPU µs | New/old median [range] | Faster / 4 | New/Torch |
+|---|---:|---:|---:|---:|---:|---:|
+| ReLU / 128³ | 9.601 | 8.985 | 20.449 | 0.938 [0.869–0.968] | 4 | 0.434 |
+| GELU / 128³ | 10.767 | 13.069 | 25.681 | 1.243 [1.150–1.270] | 0 | 0.513 |
+| ReLU / 127×193×61 | 22.733 | 19.061 | 19.415 | 0.845 [0.802–0.877] | 4 | 0.976 |
+| GELU / 127×193×61 | 24.355 | 20.939 | 21.326 | 0.856 [0.830–0.898] | 4 | 0.976 |
+| ReLU / 1024³ | 423.917 | 419.663 | 395.505 | 0.997 [0.986–1.054] | 2 | 1.062 |
+| GELU / 1024³ | 428.998 | 435.551 | 419.446 | 1.033 [1.013–1.067] | 0 | 1.036 |
+| ReLU / 4096³ | 35756.562 | 37842.229 | 20620.292 | 1.054 [1.028–1.088] | 0 | 1.844 |
+| GELU / 4096³ | 28988.562 | 39106.771 | 20622.875 | 1.351 [1.343–1.385] | 0 | 1.898 |
+| ReLU / 128×2048×512 | 50.449 | 48.768 | 61.934 | 0.965 [0.952–0.995] | 4 | 0.789 |
+| GELU / 128×2048×512 | 50.806 | 56.118 | 69.383 | 1.105 [1.065–1.126] | 0 | 0.811 |
+| ReLU / 2048×128×512 | 49.546 | 48.686 | 64.481 | 0.980 [0.972–0.985] | 4 | 0.751 |
+| GELU / 2048×128×512 | 50.083 | 56.444 | 93.836 | 1.123 [1.105–1.136] | 0 | 0.597 |
+```
+
+GPU times are **no-counter command-buffer batch intervals**, not isolated
+kernel durations. Ratios use within-round pairs, not the displayed medians;
+ranges are not confidence intervals. ReLU/GELU release 16/32 KiB of planned
+shared storage at this block size, but that does not imply faster execution:
+4096³ GELU regresses in all four GPU and E2E pairs (35.14%/32.42% median).
+Ragged ReLU/GELU improve all four GPU and E2E pairs, but their approximately
+2.4% GPU advantage over Torch reverses in two rounds each. Both larger
+squares still lose to Torch. Tiny ReLU's GPU improvement does not translate
+to batched E2E (new/old 1.001); latency is also mixed.
+
+Six plain-GEMM controls have byte-identical enabled/disabled source, yet
+individual GPU new/old ratios range from 0.790 to 1.049. Even the identical
+4096³ control favors one arm in all four GPU rounds. Desktop variation and
+order sensitivity therefore remain visible; this study does not justify
+fitting coefficients, claiming broad speedups or enabling fusion globally.
+The generated scalar DAG can still be expanded by later TVM simplification;
+live-state, preserved reuse and scalar instruction costs need investigation,
+not an assumed spill or occupancy diagnosis.
+
+The initial auto-worker screen also retains **three ragged failures per
+compiler**, at the pre-existing automatic 1024-worker binding. The baseline
+source compiles with the Metal compiler and runs with 256 workers; pipeline
+admission/resource attribution remains unresolved. The fixed replay is not
+evidence that auto-1024 was repaired. Default-off compatibility controls cover
+ten Metal and four CPU programs with 56 passing native/Torch outputs and
+unchanged executable IR. The
+{download}`complete protocol, six-metric audit and failure record <../../../../scripts/benchmark/tile_torch/results/m1-max-20260907-fragment-epilogue/notes.md>`
+retain all 144 replay rows, 30 sources, original screens and test boundaries.
 
 ### CPU TIRx: reference gaps and proved provider realizations
 

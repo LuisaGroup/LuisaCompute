@@ -142,6 +142,10 @@ struct PlannerOptions {
     // One row retains the original row-major traversal. Both sizes are positive.
     uint32_t program_order_rows{1u};
     uint32_t program_order_columns{1u};
+    // Opt-in closed scalar DAGs in MPP output fragments. A legality proof is
+    // not a profitability proof; retain the established path until calibrated
+    // cost policies or measured JIT selection choose this candidate.
+    bool fuse_matrix_epilogues{false};
     // A compiler search/code-size budget, not a claimed hardware register limit.
     uint32_t max_fragment_scalars_per_lane{64u};
     // Bound compiler-created worker-private stripes for one logical row
@@ -294,6 +298,9 @@ struct MatrixWorkload {
     // actually performs the corresponding realization.
     uint64_t recurrence_elements{0u};
     uint64_t direct_output_elements{0u};
+    // Additional, disjoint compiler-owned scalar-DAG storage. It disappears
+    // only with direct output; its arithmetic is still independent work.
+    uint64_t epilogue_storage_bytes{0u};
 };
 
 struct GroupWorkload {

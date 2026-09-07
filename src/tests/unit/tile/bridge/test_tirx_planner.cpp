@@ -271,6 +271,23 @@ void test_direct_output_requires_proof_and_releases_both_buffers() {
         expect(shared.plan.cost.shared_fragment_transfers > direct.plan.cost.shared_fragment_transfers);
     }
     options.direct_accumulator_store = true;
+    // A closed scalar DAG releases only its own additional storage. Its
+    // arithmetic remains in independent_elements, even for direct output.
+    matrix.epilogue_storage_bytes = 4096u;
+    work.shared_memory_bytes += 4096u;
+    limits.shared_memory_bytes = 16384u;
+    auto epilogue = plan_group(work, limits, options);
+    expect(epilogue.ok()) << epilogue.error;
+    if (epilogue) {
+        expect(eq(epilogue.plan.shared_memory_bytes, 16384ull));
+        expect(eq(epilogue.plan.cost.independent_elements, direct.plan.cost.independent_elements));
+    }
+    options.direct_accumulator_store = false;
+    expect(!plan_group(work, limits, options));
+    options.direct_accumulator_store = true;
+    matrix.epilogue_storage_bytes = std::numeric_limits<uint64_t>::max();
+    expect(!plan_group(work, limits, options));
+    matrix.epilogue_storage_bytes = 4096u;
     matrix.accumulator_iterations = 0u;
     expect(!plan_group(work, limits, options).ok());
 }

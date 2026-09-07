@@ -7,6 +7,22 @@ Metal / PyTorch MPS.
 GEMM includes small/large squares, tall/wide matrices, and non-multiple tail
 sizes; reductions vary both row count and width.
 
+`--operations gemm_relu,gemm_gelu` also measures matrix-based expression graphs:
+`max(0.125 * (A @ B) + 0.25, 0)` and tanh-GELU of that affine transform.
+They share `--gemm-shapes` and matrix schedule controls with plain GEMM.
+Both outputs are checked against the complete FP64 expression. Torch uses
+preallocated intermediates and eager `mm.out`, scale/shift and activation;
+this is not a compiled Torch or MPSGraph fusion baseline. Direct MPS/BLAS
+comparison remains limited to plain GEMM, which has matching semantics.
+
+With `--cooperative-matrix --matrix-realization mpp-views`, the optional
+`--fuse-matrix-epilogues` enables the closed same-owner scalar-DAG candidate.
+It requires the optional MPP element extension and otherwise retains the
+established realization. The default is off: legality does not establish
+profitability. [Fixed-schedule evidence](results/m1-max-20260907-fragment-epilogue/notes.md)
+retains both improvements and large regressions. Operator names in this driver
+select test graphs, not production matching rules.
+
 The default GEMM cohort stops at 1024³. For explicit scale coverage, use
 `run.py --gemm-shapes 2048x2048x2048,8192x8192x8192,256x11008x4096`;
 `--row-shapes` independently selects non-GEMM M×N cases. Explicit lists keep

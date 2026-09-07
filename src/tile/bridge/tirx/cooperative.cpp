@@ -95,6 +95,7 @@ struct AccumulatorLoop {
         const tvm::tirx::ForNode *store;
         tvm::PrimExpr value;
         MatrixLoopEmission::Output destination;
+        luisa::vector<const tvm::tirx::AllocBufferNode *> temporaries;
     };
     std::optional<DirectOutput> direct;
 };
@@ -159,6 +160,7 @@ class GroupWorkloadAnalysis final : public tvm::tirx::StmtVisitor {
 private:
     bool _matrix;
     bool _metal_mpp;
+    bool _matrix_epilogues;
     uint32_t _lane_depth{0u};
     uint64_t _executions{1u};
     const tvm::tirx::ForNode *_root;
@@ -183,6 +185,9 @@ private:
         const tvm::tirx::ForNode *initial = nullptr;
         std::optional<AccumulatorLoop::DirectOutput> result;
         tvm::PrimExpr value;
+        MatrixEpilogue epilogue;
+        luisa::unordered_map<const tvm::tirx::VarNode *, const tvm::tirx::AllocBufferNode *> temporary_allocations;
+        luisa::vector<const tvm::tirx::AllocBufferNode *> temporaries;
         for (auto &&statement : sequence->seq) {
             if (statement.get() == recurrence) {
                 if (!allocated || initial == nullptr) { return {}; }
@@ -195,6 +200,16 @@ private:
                 initial_allocation = allocation;
                 continue;
             }
+            if (auto allocation = statement.as<tvm::tirx::AllocBufferNode>(); seen_loop && allocation != nullptr) {
+                auto buffer = allocation->buffer;
+                auto offset = buffer->elem_offset.as<tvm::IntImmNode>();
+                if (allocation->annotations.empty() && buffer.scope() == "local" && buffer->strides.empty() &&
+                    !buffer->layout && buffer->allocated_addr.empty() && offset && offset->value == 0 &&
+                    buffer->shape.size() == 2u && static_extent(buffer->shape[0]) == carry.rows &&
+                    static_extent(buffer->shape[1]) == carry.columns) {
+                    if (!temporary_allocations.emplace(buffer.get(), allocation).second) { return {}; }
+                }
+            }
             if (auto loop = statement.as<tvm::tirx::ForNode>()) {
                 if (auto fill = literal_initial(loop, carry); fill.defined()) {
                     if (!allocated || initial != nullptr || seen_loop) { return {}; }
@@ -203,9 +218,18 @@ private:
                     continue;
                 }
                 if (seen_loop) {
-                    if (auto output = metal_matrix_output(tvm::ffi::GetRef<tvm::tirx::For>(loop), carry, _ancestors, _metal_mpp)) {
+                    if (_metal_mpp && _matrix_epilogues && loop->annotations.count(materialized_pure_tile_annotation) &&
+                        metal_matrix_epilogue_binding(tvm::ffi::GetRef<tvm::tirx::For>(loop), carry, epilogue)) {
+                        if (result || epilogue.bindings.size() > 64u) { return {}; }
+                        auto allocation = temporary_allocations.find(epilogue.bindings.back().buffer.get());
+                        if (allocation == temporary_allocations.end()) { return {}; }
+                        temporaries.emplace_back(allocation->second);
+                        temporary_allocations.erase(allocation);
+                        continue;
+                    }
+                    if (auto output = metal_matrix_output(tvm::ffi::GetRef<tvm::tirx::For>(loop), carry, _ancestors, _metal_mpp, _matrix_epilogues ? &epilogue : nullptr)) {
                         if (result) { return {}; }
-                        result = AccumulatorLoop::DirectOutput{initial, loop, value, *output};
+                        result = AccumulatorLoop::DirectOutput{initial, loop, value, *output, temporaries};
                         continue;
                     }
                 }
@@ -221,10 +245,17 @@ private:
         auto closed = true;
         tvm::tirx::PreOrderVisit(_root->body, [&](const tvm::ffi::ObjectRef &node) {
             if (node.get() == initial_allocation || node.get() == initial || node.get() == recurrence || node.get() == result->store) { return false; }
+            for (auto allocation : temporaries) { if (node.get() == allocation) { return false; } }
+            for (auto &binding : epilogue.bindings) { if (node.get() == binding.producer) { return false; } }
             closed &= !node.same_as(carry.initial);
             if (auto load = node.as<tvm::tirx::BufferLoadNode>()) { closed &= !load->buffer.same_as(carry.initial); }
             if (auto store = node.as<tvm::tirx::BufferStoreNode>()) { closed &= !store->buffer.same_as(carry.initial); }
             if (auto allocation = node.as<tvm::tirx::AllocBufferNode>()) { closed &= !allocation->buffer.same_as(carry.initial); }
+            for (auto &binding : epilogue.bindings) {
+                closed &= !node.same_as(binding.buffer);
+                if (auto load = node.as<tvm::tirx::BufferLoadNode>()) { closed &= !load->buffer.same_as(binding.buffer); }
+                if (auto store = node.as<tvm::tirx::BufferStoreNode>()) { closed &= !store->buffer.same_as(binding.buffer); }
+            }
             return closed;
         });
         return closed ? result : std::nullopt;
@@ -304,8 +335,19 @@ protected:
                     iter->second.direct = std::move(direct);
                     workload.matrices[iter->second.matrix_index].has_direct_output = true;
                     auto &matrix = workload.matrices[iter->second.matrix_index];
+                    for (auto allocation : iter->second.direct->temporaries) {
+                        auto type = allocation->buffer->dtype;
+                        auto bytes = saturating_multiply(matrix.rows, matrix.columns);
+                        bytes = saturating_multiply(bytes, (type.bits() * type.lanes() + 7u) / 8u);
+                        matrix.epilogue_storage_bytes += std::min(bytes, std::numeric_limits<uint64_t>::max() - matrix.epilogue_storage_bytes);
+                    }
                     auto initial_work = _element_work.at(iter->second.direct->initial);
                     auto store_work = _element_work.at(iter->second.direct->store);
+                    // The epilogue's math still executes in fragment storage.
+                    // Keep its producer/sink work in the generic scalar proxy;
+                    // only the initializer is free. This is conservative, not
+                    // an instruction-count or hardware-register prediction.
+                    if (iter->second.direct->destination.epilogue) { store_work = 0u; }
                     matrix.direct_output_elements = initial_work + std::min(store_work, std::numeric_limits<uint64_t>::max() - initial_work);
                     workload.matrices[iter->second.matrix_index].overwrites_accumulator =
                         iter->second.iterations == 1u && is_positive_zero(iter->second.direct->value);
@@ -364,8 +406,8 @@ public:
     GroupWorkload workload;
     MatrixPlanIndices matrices;
     AccumulatorLoops accumulators;
-    GroupWorkloadAnalysis(bool matrix, bool metal_mpp, const tvm::tirx::ForNode *root, luisa::span<const tvm::tirx::BufferVar> readonly_inputs)
-        : _matrix{matrix}, _metal_mpp{metal_mpp}, _root{root}, _ancestors{root}, _readonly_inputs{readonly_inputs} {}
+    GroupWorkloadAnalysis(bool matrix, bool metal_mpp, bool matrix_epilogues, const tvm::tirx::ForNode *root, luisa::span<const tvm::tirx::BufferVar> readonly_inputs)
+        : _matrix{matrix}, _metal_mpp{metal_mpp}, _matrix_epilogues{matrix_epilogues}, _root{root}, _ancestors{root}, _readonly_inputs{readonly_inputs} {}
 };
 
 class CooperativeGroupMapper final : public tvm::tirx::StmtExprMutator {
@@ -704,6 +746,10 @@ public:
                 if (!accumulator.direct) { throw std::runtime_error{"direct matrix store lacks a proved initializer and sink"}; }
                 _elided_buffers.emplace(accumulator.carry.initial.get());
                 _elided_initializers.emplace(accumulator.direct->initial);
+                for (auto allocation : accumulator.direct->temporaries) { _elided_buffers.emplace(allocation->buffer.get()); }
+                if (auto &epilogue = accumulator.direct->destination.epilogue) {
+                    for (auto &binding : epilogue->bindings) { _elided_initializers.emplace(binding.producer); }
+                }
             }
         }
     }
@@ -723,7 +769,7 @@ tvm::tirx::Stmt map_metal_cooperative_group(const tvm::tirx::For &loop, uint32_t
                                             luisa::span<const tvm::tirx::BufferVar> readonly_inputs) {
     validate_domain(loop.get());
     auto groups = static_extent(loop->extent);
-    GroupWorkloadAnalysis analysis{cooperative_matrix, metal_mpp, loop.get(), readonly_inputs};
+    GroupWorkloadAnalysis analysis{cooperative_matrix, metal_mpp, options.fuse_matrix_epilogues, loop.get(), readonly_inputs};
     analysis.workload.programs = groups;
     analysis(loop->body);
     auto planned = plan_group(analysis.workload, ExecutionLimits{max_threads, 32u, shared_memory_limit}, options,

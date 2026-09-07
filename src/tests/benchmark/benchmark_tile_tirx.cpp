@@ -57,8 +57,12 @@ struct Configuration {
     uint32_t pipeline_window{2u};
 };
 
+[[nodiscard]] bool uses_matrix(std::string_view operation) noexcept {
+    return operation == "gemm" || operation == "gemm_relu" || operation == "gemm_gelu";
+}
+
 [[nodiscard]] bool uses_auxiliary_input(std::string_view operation) noexcept {
-    return operation == "gemm" || operation == "add" || operation == "gelu_add" ||
+    return uses_matrix(operation) || operation == "add" || operation == "gelu_add" ||
            operation == "rmsnorm" || operation == "layernorm" ||
            operation == "residual_layernorm";
 }
@@ -77,7 +81,7 @@ struct Configuration {
 
 [[nodiscard]] int64_t auxiliary_input_rows(
     std::string_view operation, const Configuration &cfg) noexcept {
-    if (operation == "gemm") { return cfg.k; }
+    if (uses_matrix(operation)) { return cfg.k; }
     if (operation == "rmsnorm") { return 1; }
     if (operation == "layernorm") { return 2; }
     return cfg.m;
@@ -325,7 +329,7 @@ void dump_source(const tvm::ffi::Module &module, std::string_view kind, const ch
 }
 
 [[nodiscard]] Kernel capture(std::string_view operation, Configuration cfg) {
-    if (operation == "gemm") {
+    if (uses_matrix(operation)) {
         auto definition = tile_kernel("benchmark_gemm", [=](TensorView<const float, 2> A,
                                                             TensorView<const float, 2> B,
                                                             TensorView<float, 2> C) {
@@ -347,7 +351,16 @@ void dump_source(const tvm::ffi::Module &module, std::string_view kind, const ch
                     step.stage("compute");
                     acc = mma(a, b, acc);
                 }
-                C(coord(m0, n0), shape(m, n)).store(acc);
+                if (operation == "gemm") {
+                    C(coord(m0, n0), shape(m, n)).store(acc);
+                } else {
+                    auto value = 0.125f * acc + 0.25f;
+                    if (operation == "gemm_relu") {
+                        C(coord(m0, n0), shape(m, n)).store(max(value, 0.0f));
+                    } else {
+                        C(coord(m0, n0), shape(m, n)).store(0.5f * value * (1.0f + tanh(0.7978845608f * (value + 0.044715f * value * value * value))));
+                    }
+                }
             }
         });
         return definition.capture(tensor_shape(cfg.m, cfg.k), tensor_shape(cfg.k, cfg.n), tensor_shape(cfg.m, cfg.n));
@@ -560,7 +573,7 @@ void run_luisa(const char *program, const char *output_path, std::string_view op
         file << shader.metadata().source;
         if (!file) { throw std::runtime_error{"cannot write generated source"}; }
     }
-    auto columns_a = operation == "gemm" ? cfg.k : cfg.n;
+    auto columns_a = uses_matrix(operation) ? cfg.k : cfg.n;
     auto rows_b = auxiliary_input_rows(operation, cfg);
     auto binary = uses_auxiliary_input(operation);
     auto labeled = uses_label_input(operation);
@@ -649,6 +662,7 @@ void run_luisa(const char *program, const char *output_path, std::string_view op
               << ",\"metal_subgroup_reductions\":" << (options.planner.metal_subgroup_reductions ? "true" : "false")
               << ",\"shared_tile_materialization\":\"preserve\""
               << ",\"forward_readonly_tile_loads\":" << (options.forward_readonly_tile_loads ? "true" : "false")
+              << ",\"fuse_matrix_epilogues\":" << (options.planner.fuse_matrix_epilogues ? "true" : "false")
               << ",\"elide_independent_subgroup_barriers\":" << (options.planner.elide_independent_subgroup_barriers ? "true" : "false")
               << ",\"vectorize\":" << (options.vectorize ? "true" : "false")
               << ",\"auto_vectorize\":" << (options.auto_vectorize ? "true" : "false")
@@ -675,9 +689,9 @@ void run_luisa(const char *program, const char *output_path, std::string_view op
 }// namespace
 
 int main(int argc, char *argv[]) {
-    if (argc < 13 || argc > 36) {
-        std::cerr << "Usage: benchmark_tile_tirx <cpu|metal> <gemm|add|gelu_add|sigmoid_pair|gelu_pair|sum|softmax|rmsnorm|layernorm|residual_layernorm|cross_entropy> M N K BM BN BK samples sample-ms warmup-ms output.f32 [auto|worker|group] [pipeline-window:1|2] [scalar|subgroup-reduce|matrix|mpp|mpp-views] [vectorize|no-vectorize|auto-vectorize] [group-threads:auto|N] [copy-batch:1..16] [tvm|luisa|luisa-fast] [retain-subgroup-fences|elide-subgroup-fences] [cpu-stack-bytes:0..65536] [cpu-vector-lanes:16|32|64|128] [retain-input-snapshots|forward-input-views] [cpu-model:generic|native] [cpu-matrix:reference|cblas] [cpu-math:reference|accelerate] [shared-tiles:preserve|expensive-only]\n";
-        std::cerr << "Additional mapping options: [reduction-programs:auto|1..8] [element-grid:auto|reference] [reduction-unroll:1..16] [reduction-lane-elements:1|2|4|8] [reduction-inputs:reload|cache] [reduction-cost:analytic|service-v1,...] [program-order-rows:N] [program-order-columns:N]\n";
+    if (argc < 13 || argc > 37) {
+        std::cerr << "Usage: benchmark_tile_tirx <cpu|metal> <gemm|gemm_relu|gemm_gelu|add|gelu_add|sigmoid_pair|gelu_pair|sum|softmax|rmsnorm|layernorm|residual_layernorm|cross_entropy> M N K BM BN BK samples sample-ms warmup-ms output.f32 [auto|worker|group] [pipeline-window:1|2] [scalar|subgroup-reduce|matrix|mpp|mpp-views] [vectorize|no-vectorize|auto-vectorize] [group-threads:auto|N] [copy-batch:1..16] [tvm|luisa|luisa-fast] [retain-subgroup-fences|elide-subgroup-fences] [cpu-stack-bytes:0..65536] [cpu-vector-lanes:16|32|64|128] [retain-input-snapshots|forward-input-views] [cpu-model:generic|native] [cpu-matrix:reference|cblas] [cpu-math:reference|accelerate] [shared-tiles:preserve|expensive-only]\n";
+        std::cerr << "Additional mapping options: [reduction-programs:auto|1..8] [element-grid:auto|reference] [reduction-unroll:1..16] [reduction-lane-elements:1|2|4|8] [reduction-inputs:reload|cache] [reduction-cost:analytic|service-v1,...] [program-order-rows:N] [program-order-columns:N] [retain-fragment-epilogues|fuse-fragment-epilogues]\n";
         return 1;
     }
     try {
@@ -705,7 +719,7 @@ int main(int argc, char *argv[]) {
                 forward_readonly_tile_loads = true;
             }
         }
-        if (metal_mpp && (backend != "metal" || operation != "gemm" || cfg.execution_scope != exec::Scope::GROUP)) {
+        if (metal_mpp && (backend != "metal" || !uses_matrix(operation) || cfg.execution_scope != exec::Scope::GROUP)) {
             throw std::invalid_argument{"MPP benchmarking requires Metal group GEMM"};
         }
         if (metal_subgroup_reductions &&
@@ -719,7 +733,15 @@ int main(int argc, char *argv[]) {
         auto auto_vectorize = vector_mode == "auto-vectorize";
         bridge::tirx::PlannerOptions planner;
         planner.metal_subgroup_reductions = metal_subgroup_reductions;
-        for (auto index = 34; index < argc; index++) {
+        if (argc >= 37) {
+            auto policy = std::string_view{argv[36]};
+            if (policy != "retain-fragment-epilogues" && policy != "fuse-fragment-epilogues") {
+                throw std::invalid_argument{"unknown matrix epilogue policy"};
+            }
+            planner.fuse_matrix_epilogues = policy == "fuse-fragment-epilogues";
+            if (planner.fuse_matrix_epilogues && !metal_mpp) { throw std::invalid_argument{"fragment epilogues require MPP"}; }
+        }
+        for (auto index = 34; index < std::min(argc, 36); index++) {
             auto size = positive_integer(argv[index]);
             if (size > std::numeric_limits<uint32_t>::max() ||
                 (size != 1 && (backend != "metal" || cfg.execution_scope != exec::Scope::GROUP))) {
@@ -906,7 +928,7 @@ int main(int argc, char *argv[]) {
             dump_source(executable.module.value(), backend == "metal" ? "metal" : "llvm", path);
             if (!std::filesystem::exists(path)) { throw std::runtime_error{"requested generated source is unavailable"}; }
         }
-        auto columns_a = operation == "gemm" ? cfg.k : cfg.n;
+        auto columns_a = uses_matrix(operation) ? cfg.k : cfg.n;
         auto rows_b = auxiliary_input_rows(operation, cfg);
         auto binary = uses_auxiliary_input(operation);
         auto labeled = uses_label_input(operation);
@@ -983,6 +1005,7 @@ int main(int argc, char *argv[]) {
                   << ",\"fuse_gpu_elementwise\":" << (planner.fuse_gpu_elementwise ? "true" : "false")
                   << ",\"shared_tile_materialization\":" << std::quoted(shared_tiles_name)
                   << ",\"forward_readonly_tile_loads\":" << (forward_readonly_tile_loads ? "true" : "false")
+                  << ",\"fuse_matrix_epilogues\":" << (planner.fuse_matrix_epilogues ? "true" : "false")
                   << ",\"elide_independent_subgroup_barriers\":" << (planner.elide_independent_subgroup_barriers ? "true" : "false")
                   << ",\"vectorize\":" << (vectorize ? "true" : "false")
                   << ",\"auto_vectorize\":" << (auto_vectorize ? "true" : "false")

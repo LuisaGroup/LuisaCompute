@@ -306,6 +306,56 @@ bounded-store work and edge fraction are not separately calibrated, and the
 independent native Metal emitter/XIR route do not automatically acquire this
 TIRx extension. See the [patch contract and build order](https://github.com/LuisaGroup/LuisaCompute/blob/codex/tile-programming-design/src/tile/bridge/tirx/patches/README.md#optional-bounded-output-extension).
 
+## Scalar epilogues use the same element owner
+
+The optional MPP element-v1 extension and
+`PlannerOptions::fuse_matrix_epilogues` generalize the direct-output proof
+from a bare accumulator copy to a closed scalar expression DAG. It recognizes
+typed IR and access identities, not kernel/activation names or dimensions.
+For example, the same rules admit a clamp, a polynomial, or tanh-based GELU:
+
+```text
+                           same logical (row, column)
+MMA recurrence ──► scalar producer ──► scalar consumer ──► global sink
+      │              compiler-owned shared tiles               │
+      └──────────────── proof + planner choice ────────────────┘
+                              ↓
+cooperative fragment ──► local element bindings ──► cooperative store
+                         capacity / validity       original output map
+```
+
+Each producer must be a uniquely defined, compiler-owned materialization with
+the same rectangular domain. Each read must address the exact same element
+of the accumulator or a dominating producer. Pure scalar expressions remain
+native TIRx expressions; shared producer values become `Bind` definitions.
+The backend's optimizer may further simplify them. A whole-group use audit
+proves the carry and removed temporaries have no other observations/escapes.
+The global store remains at its original position, after any old-output read.
+
+MPP owns the lane layout. The emitter iterates its public per-thread capacity,
+checks local-element validity, applies the scalar DAG and stores through the
+already proved output projection. It does not infer a matrix coordinate from
+a lane ordinal. This follows the cooperative-tensor element access described
+in Apple's [MPP programming guide](https://developer.apple.com/download/files/Metal-Performance-Primitives-Programming-Guide.pdf).
+
+The existing solver receives additional legal direct-output candidates and
+their exact released temporary bytes. Scalar producer/sink work remains in
+the independent-element cost proxy, even though shared storage disappears.
+This is a realization/resource-accounting extension, not a fitted cost-model
+improvement. The proxy does not model transcendental instruction cost or
+backend register allocation precisely. The option defaults off: measured JIT
+selection may explore it, but legality and lower storage do not establish a
+speedup. Early screen results include regressions, so it is not promoted to
+the default path.
+
+Manual memory, unmarked producers, transposed/neighbor reads, additional
+memory operands, free variables and extra consumers retain the old path.
+Pure does not imply same-owner access. This first contract is closed over
+the accumulator and literals; bias/residual tensors require a future proof
+of congruent cooperative layouts. CPU/SIMD and native-MPP do not automatically
+inherit this TIRx-specific emission, and old TVM builds retain the old output
+path through the optional capability gate.
+
 ## Physical program traversal remains a candidate
 
 Program-grid traversal is another execution-layout choice, independent of

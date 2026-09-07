@@ -3,6 +3,36 @@
 This record distinguishes executed correctness checks from performance claims.
 See [current status](index.md) for the latest bounded conclusion.
 
+## Closed matrix epilogues: positive and fail-closed coverage
+
+The September 7 extension exercises ordinary clamp, polynomial and tanh-GELU
+graphs across aligned, ragged, tiny, transposed/offset output, masked, negative
+origin, zero-K, nonzero carry, observed output and manual-memory cases. Two
+non-dyadic input sets check complete outputs, including unchanged sentinels.
+The proof-boundary tests retain fallback for unmarked/manual producers,
+transposed reads, additional memory inputs and extra consumers. Typed MPP
+element tests use a nonzero fragment ordinal, check read/write effects, and
+reject invalid result/index/value types and fragment ordinals.
+
+After a full build, 17/19 integration invocations pass, with **5,565 assertions
+in the Metal matrix suite** and 14,411 in the planner suite. Both CPU/Metal
+execution, basic/neural/algorithm PoCs, pipelines and native Runtime pass.
+The same two existing Metal memory/cooperative suites still fail three
+source-string assertions because the user-owned barrier flag is 2 rather
+than the expected 3. That edit is present in both measured stacks but is not
+part of the epilogue change. This is not an all-green worktree.
+
+The [performance replay](results.md#closed-matrix-epilogues-general-legality-mixed-profitability)
+passes all 288 complete native/Torch outputs. Ten Metal default-off controls
+have byte-identical old/new source; four CPU controls differ only in bijective
+TBAA object-address labels, preserving instructions, alias graph and offsets.
+All 56 control outputs pass. These are compatibility checks, not CPU or
+reduction speedups. The
+{download}`receipts and corruption-tested auditor <../../../../scripts/benchmark/tile_torch/results/m1-max-20260907-fragment-epilogue/notes.md>`
+retain original raw runs and test logs. The auditor rejects missing/duplicate
+rows, changed artifacts, partial output receipts, altered tolerances, wrong
+GPU divisors, worker retuning, unbalanced ordering and erased scalar cost.
+
 ## Bounded program traversal: structure and unchanged defaults
 
 The September 7 [generic traversal emitter](../../internals/tile/planner.md#program-traversal-is-a-mapping-choice-not-a-memory-scope)

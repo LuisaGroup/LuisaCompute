@@ -50,6 +50,55 @@ class ProgramTraversalTests(unittest.TestCase):
         MODULE.validate_program_order({}, [1, 1])
 
 
+class MatrixEpilogueTests(unittest.TestCase):
+    def test_epilogue_opt_in_preserves_old_binary_arguments(self):
+        self.assertEqual(MODULE.optional_native_arguments(argparse.Namespace(fuse_matrix_epilogues=False)), [])
+        arguments = MODULE.optional_native_arguments(argparse.Namespace(fuse_matrix_epilogues=True))
+        self.assertEqual(len(arguments), 20)
+        self.assertEqual(arguments[-3:], ["1", "1", "fuse-fragment-epilogues"])
+
+    def test_case_identity_shape_and_block_include_reduction_extent(self):
+        shapes = [(127, 193, 61), (4096, 4096, 4096)]
+        cases = MODULE.make_cases(list(MODULE.MATRIX_OPERATIONS), gemm_shapes=shapes)
+        self.assertEqual(len(cases), 6)
+        for case in cases:
+            self.assertEqual(case.name, f"{case.operation}_{case.m}x{case.n}x{case.k}")
+            self.assertEqual(MODULE.block_shape(case, (64, 32, 128)), (64, 32, 128))
+            self.assertEqual(MODULE.tolerance(case.operation), (1e-4, 1e-4))
+
+    def test_preallocated_eager_sequence_and_double_oracle(self):
+        try:
+            import torch
+        except ImportError as error:
+            raise unittest.SkipTest("matrix epilogue checks require PyTorch") from error
+        a = torch.linspace(-2, 3, 35).reshape(5, 7)
+        b = torch.linspace(3, -4, 77).reshape(7, 11)
+        for operation in MODULE.MATRIX_OPERATIONS:
+            with self.subTest(operation=operation):
+                out = torch.full((5, 11), float("nan"))
+                scratch = None if operation == "gemm" else torch.empty_like(out)
+                pointer = out.data_ptr()
+                invoke, sequence = MODULE.matrix_invoker(torch, a, b, out, scratch, operation)
+                self.assertEqual(len(sequence), 1 if operation == "gemm" else 4)
+                reference = MODULE.matrix_reference(torch, a, b, operation)
+                self.assertEqual(reference.dtype, torch.float64)
+                value = a.double() @ b.double()
+                if operation != "gemm":
+                    value = 0.125 * value + 0.25
+                    value = value.clamp_min(0) if operation == "gemm_relu" else torch.nn.functional.gelu(value, approximate="tanh")
+                torch.testing.assert_close(reference, value, atol=0, rtol=0)
+                for _ in range(2):
+                    out.fill_(float("nan"))
+                    self.assertIs(invoke(), out)
+                    self.assertEqual(out.data_ptr(), pointer)
+                    MODULE.validate(torch, out, reference, operation)
+                out[2, 3] += 0.1
+                with self.assertRaises(AssertionError):
+                    MODULE.validate(torch, out, reference, operation)
+        with self.assertRaises(ValueError):
+            MODULE.matrix_invoker(torch, a, b, out, None, "gemm_relu")
+
+
 class PairedActivationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

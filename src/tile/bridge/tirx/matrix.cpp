@@ -25,6 +25,55 @@ namespace {
 using Axes = std::array<tvm::tirx::PrimVar, 3u>;
 using Coordinates = tvm::ffi::Map<tvm::tirx::Var, tvm::Expr>;
 
+// Erase an access only when it has the exact same element owner. A pure call
+// attribute is necessary but does not license pointer escape, another memory
+// input, or dependence on logical row/column coordinates owned by MPP.
+class MatrixElementReads final : public tvm::tirx::StmtExprMutator {
+private:
+    const MatrixCarry &_carry;
+    const MatrixEpilogue &_epilogue;
+    tvm::tirx::PrimVar _row, _column;
+
+protected:
+    [[nodiscard]] tvm::Expr VisitExpr_(const tvm::tirx::VarNode *variable) final {
+        // Uniform outer coordinates/parameters need a separate availability
+        // proof. This first contract accepts closed scalar DAGs only.
+        valid = false;
+        return tvm::ffi::GetRef<tvm::tirx::Var>(variable);
+    }
+    [[nodiscard]] tvm::Expr VisitExpr_(const tvm::tirx::ProducerLoadNode *load) final {
+        valid = false;
+        return tvm::ffi::GetRef<tvm::tirx::ProducerLoad>(load);
+    }
+    [[nodiscard]] tvm::Expr VisitExpr_(const tvm::CallNode *call) final {
+        static auto effects = tvm::Op::GetAttrMap<tvm::tirx::TCallEffectKind>("TCallEffectKind");
+        auto op = call->op.as<tvm::Op>();
+        valid &= op && effects.count(op.value()) &&
+                 effects[op.value()] <= static_cast<int64_t>(tvm::tirx::CallEffectKind::kPure) &&
+                 !call->op.same_as(tvm::tirx::builtin::address_of());
+        return StmtExprMutator::VisitExpr_(call);
+    }
+    [[nodiscard]] tvm::Expr VisitExpr_(const tvm::tirx::BufferLoadNode *load) final {
+        if (load->predicate || load->indices.size() != 2u ||
+            !load->indices[0].same_as(_row) || !load->indices[1].same_as(_column)) {
+            valid = false;
+        }
+        if (load->buffer.same_as(_carry.initial)) { return _epilogue.input; }
+        for (auto &binding : _epilogue.bindings) {
+            if (load->buffer.same_as(binding.buffer)) { return binding.scalar; }
+        }
+        valid = false;
+        return tvm::ffi::GetRef<tvm::tirx::BufferLoad>(load);
+    }
+
+public:
+    bool valid{true};
+    MatrixElementReads(const MatrixCarry &carry, const MatrixEpilogue &epilogue,
+                       tvm::tirx::PrimVar row, tvm::tirx::PrimVar column)
+        : _carry{carry}, _epilogue{epilogue}, _row{std::move(row)}, _column{std::move(column)} {}
+    [[nodiscard]] tvm::PrimExpr value(const tvm::PrimExpr &expression) { return VisitPrimExpr(expression); }
+};
+
 struct AffineIndex {
     tvm::PrimExpr base{tvm::IntImm::Int64(0)};
     std::array<uint64_t, 3u> strides{};
@@ -645,7 +694,20 @@ struct MatchedMatrix {
             output_columns = remaining(output.columns, 1u, n);
         }
     }
-    auto final = transfer(destination, true, output_rows, output_columns);
+    auto final = tvm::tirx::Stmt{transfer(destination, true, output_rows, output_columns)};
+    if (direct && loop_emission->output->epilogue) {
+        auto &epilogue = *loop_emission->output->epilogue;
+        auto index = tvm::tirx::PrimVar{"mpp_element_index", tvm::PrimType::Int(32)};
+        auto capacity = tvm::Call{tvm::PrimType::Int(32), tvm::Op::Get("tirx.cooperative_tensor_capacity"), {cf, zero}};
+        auto valid = tvm::Call{tvm::PrimType::Bool(), tvm::Op::Get("tirx.cooperative_tensor_is_valid_element"), {cf, zero, index}};
+        auto value = tvm::Call{tvm::PrimType::Float(32), tvm::Op::Get("tirx.cooperative_tensor_element_load"), {cf, zero, index}};
+        tvm::ffi::Array<tvm::tirx::Stmt> body{tvm::tirx::Bind{epilogue.input, value}};
+        for (auto &binding : epilogue.bindings) { body.push_back(tvm::tirx::Bind{binding.scalar, binding.value}); }
+        body.push_back(tvm::tirx::Evaluate{tvm::Call{tvm::PrimType::Void(), tvm::Op::Get("tirx.cooperative_tensor_element_store"), {cf, zero, index, epilogue.value}}});
+        auto update = tvm::tirx::For{index, zero, capacity, tvm::tirx::ForKind::kSerial,
+                                     tvm::tirx::IfThenElse{valid, tvm::tirx::SeqStmt::Flatten(body)}};
+        final = tvm::tirx::SeqStmt::Flatten(tvm::ffi::Array<tvm::tirx::Stmt>{update, final});
+    }
     if (loop_emission != nullptr) {
         loop_emission->before = tvm::tirx::SeqStmt::Flatten(initial);
         loop_emission->after = std::move(final);
@@ -697,8 +759,30 @@ std::optional<MatrixCarry> metal_matrix_carry(
     return MatrixCarry{matrix->c->source, matrix->d.source, static_cast<uint64_t>(matrix->m), static_cast<uint64_t>(matrix->n)};
 }
 
+bool metal_matrix_epilogue_binding(const tvm::tirx::For &loop, const MatrixCarry &carry, MatrixEpilogue &epilogue) {
+    auto provenance = loop->annotations.Get(materialized_pure_tile_annotation);
+    auto version = provenance ? provenance.value().as<tvm::IntImmNode>() : nullptr;
+    auto independent = loop->annotations.Get(independent_elements_annotation);
+    auto rank = independent ? independent.value().as<tvm::IntImmNode>() : nullptr;
+    auto column = loop->body.as<tvm::tirx::ForNode>();
+    if (!version || version->value != 1 || !rank || rank->value != 2 || loop->annotations.size() != 2u ||
+        matrix_extent(loop.get()) != static_cast<int64_t>(carry.rows) || matrix_extent(column) != static_cast<int64_t>(carry.columns) ||
+        !column->annotations.empty()) { return false; }
+    auto store = column->body.as<tvm::tirx::BufferStoreNode>();
+    if (!store || store->predicate || store->indices.size() != 2u ||
+        !store->indices[0].same_as(loop->loop_var) || !store->indices[1].same_as(column->loop_var) ||
+        store->value.ty() != store->buffer->dtype || store->buffer->dtype.lanes() != 1 || store->buffer->dtype.IsScalableVector()) { return false; }
+    MatrixElementReads reads{carry, epilogue, loop->loop_var, column->loop_var};
+    auto value = reads.value(store->value);
+    if (!reads.valid) { return false; }
+    epilogue.bindings.emplace_back(MatrixEpilogue::Binding{store->buffer,
+                                                           tvm::tirx::PrimVar{store->buffer.name() + "_element", store->buffer->dtype}, value, loop.get()});
+    return true;
+}
+
 std::optional<MatrixLoopEmission::Output> metal_matrix_output(
-    const tvm::tirx::For &loop, const MatrixCarry &carry, luisa::span<const tvm::tirx::ForNode *const> ancestors, bool bounded) {
+    const tvm::tirx::For &loop, const MatrixCarry &carry, luisa::span<const tvm::tirx::ForNode *const> ancestors,
+    bool bounded, const MatrixEpilogue *epilogue) {
     auto independent = loop->annotations.Get(independent_elements_annotation);
     auto rank = independent ? independent.value().as<tvm::IntImmNode>() : nullptr;
     if (rank == nullptr || rank->value != 2 || loop->annotations.size() != 1u) { return {}; }
@@ -714,9 +798,18 @@ std::optional<MatrixLoopEmission::Output> metal_matrix_output(
     }
     auto store = body.as<tvm::tirx::BufferStoreNode>();
     if (store == nullptr || store->buffer.scope() != "global") { return {}; }
-    auto load = store->value.as<tvm::tirx::BufferLoadNode>();
-    if (load == nullptr || load->predicate || !load->buffer.same_as(carry.initial) || load->indices.size() != 2u ||
-        !load->indices[0].same_as(loop->loop_var) || !load->indices[1].same_as(column->loop_var)) { return {}; }
+    auto empty_epilogue = MatrixEpilogue{};
+    auto &graph = epilogue == nullptr ? empty_epilogue : *epilogue;
+    MatrixElementReads reads{carry, graph, loop->loop_var, column->loop_var};
+    auto value = reads.value(store->value);
+    if (!reads.valid || value.ty() != tvm::PrimType::Float(32) || store->buffer->dtype != tvm::PrimType::Float(32)) { return {}; }
+    std::optional<MatrixEpilogue> scalar_epilogue;
+    if (!value.same_as(graph.input) || !graph.bindings.empty()) {
+        auto capability = bounded && epilogue != nullptr ? tvm::ffi::Function::GetGlobal("target.metal.mpp_element_contract_version") : std::nullopt;
+        if (!capability || (*capability)().cast<int64_t>() != 1) { return {}; }
+        scalar_epilogue = graph;
+        scalar_epilogue->value = std::move(value);
+    }
     Axes axes{loop->loop_var, column->loop_var, tvm::tirx::PrimVar{"unused_k", tvm::PrimType::Int(64)}};
     auto view = matrix_projection(store->buffer, store->indices, axes, 0u, 1u, carry.rows, carry.columns, store->buffer);
     if (store->predicate) { valid = valid && store->predicate.value(); }
@@ -728,7 +821,7 @@ std::optional<MatrixLoopEmission::Output> metal_matrix_output(
     domain.emplace_back(loop.get());
     domain.emplace_back(column);
     if (view && prove_in_loop_domain(valid && bounds, domain)) {
-        return MatrixLoopEmission::Output{store->buffer, store->indices, loop->loop_var, column->loop_var, view->stride, view->transpose};
+        return MatrixLoopEmission::Output{store->buffer, store->indices, loop->loop_var, column->loop_var, view->stride, view->transpose, {}, {}, std::move(scalar_epilogue)};
     }
     auto capability = bounded ? tvm::ffi::Function::GetGlobal("target.metal.mpp_bounded_store_contract_version") : std::nullopt;
     if (!capability || (*capability)().cast<int64_t>() != 1 || store->indices.size() != 2u || store->buffer->shape.size() != 2u ||
@@ -756,7 +849,7 @@ std::optional<MatrixLoopEmission::Output> metal_matrix_output(
     view = matrix_projection(store->buffer, store->indices, axes, 0u, 1u, 1u, 1u, store->buffer);
     if (!view) { return {}; }
     return MatrixLoopEmission::Output{store->buffer, store->indices, loop->loop_var, column->loop_var,
-                                      static_cast<uint64_t>(store->buffer->shape[1].as<tvm::IntImmNode>()->value), transpose, lengths[0], lengths[1]};
+                                      static_cast<uint64_t>(store->buffer->shape[1].as<tvm::IntImmNode>()->value), transpose, lengths[0], lengths[1], std::move(scalar_epilogue)};
 }
 
 tvm::tirx::Stmt try_metal_matrix(

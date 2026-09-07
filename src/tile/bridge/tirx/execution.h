@@ -168,6 +168,23 @@ struct MatrixCarry {
     const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer,
     bool bounded_k = false, luisa::span<const tvm::tirx::ForNode *const> ancestors = {});
 
+// Same-owner scalar DAG. Buffer identities are proof objects; each binding
+// becomes one ordinary scalar definition in the fragment element loop.
+struct MatrixEpilogue {
+    tvm::tirx::PrimVar input{"matrix_element", tvm::PrimType::Float(32)};
+    struct Binding {
+        tvm::tirx::BufferVar buffer;
+        tvm::tirx::PrimVar scalar;
+        tvm::PrimExpr value;
+        const tvm::tirx::ForNode *producer;
+    };
+    luisa::vector<Binding> bindings;
+    tvm::PrimExpr value;
+};
+
+[[nodiscard]] bool metal_matrix_epilogue_binding(
+    const tvm::tirx::For &loop, const MatrixCarry &carry, MatrixEpilogue &epilogue);
+
 struct MatrixLoopEmission {
     tvm::tirx::Stmt before;
     tvm::tirx::Stmt after;
@@ -190,6 +207,7 @@ struct MatrixLoopEmission {
         // Optional logical row/column prefixes, independent of A/B padding.
         // Both are present only for the versioned bounded MPP store contract.
         tvm::PrimExpr rows, columns;
+        std::optional<MatrixEpilogue> epilogue;
     };
     std::optional<Output> output;
 };
@@ -199,7 +217,8 @@ struct MatrixLoopEmission {
 // issue an unguarded cooperative store.
 [[nodiscard]] std::optional<MatrixLoopEmission::Output> metal_matrix_output(
     const tvm::tirx::For &loop, const MatrixCarry &carry,
-    luisa::span<const tvm::tirx::ForNode *const> ancestors, bool bounded = false);
+    luisa::span<const tvm::tirx::ForNode *const> ancestors, bool bounded = false,
+    const MatrixEpilogue *epilogue = nullptr);
 
 // Select a native 8x8 FP32 matrix atom only for a proved reference MMA body.
 // Undefined means the ordinary independent-element realization must be used.

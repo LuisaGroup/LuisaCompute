@@ -18,7 +18,7 @@ import subprocess
 import sys
 from typing import Any
 
-from run import Case, percentile, run_case, validate_cpu_target_policy, validate_reduction_cost_profile, validate_program_order
+from run import Case, MATRIX_OPERATIONS, percentile, run_case, validate_cpu_target_policy, validate_reduction_cost_profile, validate_program_order
 
 
 def artifact_hashes(binaries: list[Path], extra: list[Path]) -> dict[str, str]:
@@ -51,6 +51,9 @@ def load_plan(path: Path, operations: set[str]) -> dict[tuple[str, str], dict[st
         if type(copy_batch) is not int or not 1 <= copy_batch <= 16:
             raise ValueError(f"{case.name} has an invalid copy-batch policy")
         program_order = native.get("program_order", [1, 1])
+        epilogues = native.get("fuse_matrix_epilogues", False)
+        if type(epilogues) is not bool or (epilogues and (row["backend"] != "metal" or native.get("metal_mpp") is not True)):
+            raise ValueError(f"{case.name} has an invalid fragment epilogue policy")
         validate_program_order(native, program_order)
         if program_order != [1, 1] and row["backend"] != "metal":
             raise ValueError("program traversal requires Metal group execution")
@@ -130,6 +133,7 @@ def load_plan(path: Path, operations: set[str]) -> dict[tuple[str, str], dict[st
             "copy_batch": copy_batch,
             "program_order_rows": program_order[0],
             "program_order_columns": program_order[1],
+            "fuse_matrix_epilogues": epilogues,
             "cpu_stack_bytes": cpu_stack,
             "cpu_vector_lanes": cpu_lanes,
             "cpu_input_views": cpu_views,
@@ -278,7 +282,7 @@ def main() -> int:
         parser.error("both native executables must already be built")
     try:
         operations = set(args.operations.split(","))
-        if not operations <= {"gemm", "add", "gelu_add", "sigmoid_pair", "gelu_pair", "sum", "softmax", "rmsnorm", "layernorm", "residual_layernorm", "cross_entropy"}:
+        if not operations <= {*MATRIX_OPERATIONS, "add", "gelu_add", "sigmoid_pair", "gelu_pair", "sum", "softmax", "rmsnorm", "layernorm", "residual_layernorm", "cross_entropy"}:
             raise ValueError("unknown operation in replay selection")
         plans = {"reference": load_plan(args.reference, operations), "candidate": load_plan(args.candidate, operations)}
         if plans["reference"].keys() != plans["candidate"].keys():

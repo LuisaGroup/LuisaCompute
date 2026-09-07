@@ -17,6 +17,7 @@ namespace {
            (!workload.has_direct_output || workload.accumulator_iterations != 0u) &&
            (workload.recurrence_elements == 0u || workload.accumulator_iterations != 0u) &&
            (workload.direct_output_elements == 0u || workload.has_direct_output) &&
+           (workload.epilogue_storage_bytes == 0u || workload.has_direct_output) &&
            (workload.accumulator_iterations == 0u || workload.executions % workload.accumulator_iterations == 0u);
 }
 
@@ -420,6 +421,13 @@ PlanningResult plan_group(const GroupWorkload &workload, const ExecutionLimits &
                         return result;
                     }
                     released = matrix.rows * matrix.columns * bytes_per_element;
+                    if (candidate.direct_accumulator_store) {
+                        if (matrix.epilogue_storage_bytes > std::numeric_limits<uint64_t>::max() - released) {
+                            result.error = "epilogue storage size overflow";
+                            return result;
+                        }
+                        released += matrix.epilogue_storage_bytes;
+                    }
                 }
                 alternatives.emplace_back(Alternative{candidate, estimate, released});
             }

@@ -957,6 +957,68 @@ void test_mpp_typed_contract(Runtime &runtime) {
     }
 }
 
+void test_mpp_element_contract(Runtime &runtime) {
+    if (runtime.target() != "metal" || !tvm::ffi::Function::GetGlobal("target.metal.mpp_element_contract_version")) { return; }
+    auto i32 = [](int32_t value) { return tvm::IntImm::Int32(value); };
+    auto i64 = [](int64_t value) { return tvm::IntImm::Int64(value); };
+    auto f32 = tvm::PrimType::Float(32);
+    auto scalar_call = [](tvm::PrimType type, const char *name, tvm::ffi::Array<tvm::Expr> args) {
+        return tvm::Call{type, tvm::Op::Get(name), std::move(args)};
+    };
+    auto effects = tvm::Op::GetAttrMap<tvm::tirx::TCallEffectKind>("TCallEffectKind");
+    expect(eq(effects[tvm::Op::Get("tirx.cooperative_tensor_element_load")], static_cast<int64_t>(tvm::tirx::CallEffectKind::kReadState)));
+    expect(eq(effects[tvm::Op::Get("tirx.cooperative_tensor_element_store")], static_cast<int64_t>(tvm::tirx::CallEffectKind::kOpaque)));
+    auto kernel = gemm(runtime, {16, 16, 8, 16, 16, 8}, 1u);
+    for (auto bad = 0u; bad < 7u; bad++) {
+        auto a = tvm::tirx::decl_buffer({i64(16), i64(8)}, f32, "a");
+        auto b = tvm::tirx::decl_buffer({i64(8), i64(16)}, f32, "b");
+        auto c = tvm::tirx::decl_buffer({i64(16), i64(16)}, f32, "c");
+        auto d = tvm::tirx::decl_buffer({i64(16), i64(16)}, f32, "d");
+        auto fragment = tvm::tirx::decl_buffer({i64(512)}, f32, "fragment", "metal.cooperative_tensor");
+        auto address = [&](const tvm::tirx::BufferVar &buffer) {
+            return tvm::Call{buffer.DataPointerType(), tvm::tirx::builtin::address_of(), {tvm::tirx::BufferLoad{buffer, {i64(0), i64(0)}}}};
+        };
+        auto transfer = [&](bool store) {
+            return tvm::tirx::Evaluate{scalar_call(tvm::PrimType::Void(), store ? "tirx.cooperative_tensor_store" : "tirx.cooperative_tensor_load",
+                                                   {fragment, i32(1), address(store ? d : c), i64(16), i64(16), i64(16), tvm::IntImm::Bool(false), i64(16), i64(16), i64(8), i32(2)})};
+        };
+        auto index = tvm::tirx::PrimVar{"element", tvm::PrimType::Int(32)};
+        auto capacity = scalar_call(bad == 1u ? f32 : tvm::PrimType::Int(32), "tirx.cooperative_tensor_capacity", {fragment, i32(1)});
+        tvm::Expr element = bad == 2u ? tvm::Expr{tvm::FloatImm{f32, 0.0}} : bad == 3u ? tvm::Expr{i32(-1)} :
+                                                                                         tvm::Expr{index};
+        auto value = scalar_call(bad == 4u ? tvm::PrimType::Float(16) : f32, "tirx.cooperative_tensor_element_load", {fragment, i32(bad == 5u ? 2 : 1), element});
+        auto valid = scalar_call(tvm::PrimType::Bool(), "tirx.cooperative_tensor_is_valid_element", {fragment, i32(1), index});
+        auto computed = bad == 1u ? tvm::PrimExpr{capacity} :
+                        bad == 6u ? tvm::PrimExpr{tvm::FloatImm{tvm::PrimType::Float(64), 0.5}} :
+                                    tvm::PrimExpr{value * value + value};
+        auto update = tvm::tirx::Evaluate{scalar_call(tvm::PrimType::Void(), "tirx.cooperative_tensor_element_store", {fragment, i32(1), index, computed})};
+        // A malformed float capacity cannot be used as a For extent. Store
+        // its value instead, so dead-code removal cannot hide the violation.
+        auto extent = bad == 1u ? tvm::PrimExpr{i32(8)} : tvm::PrimExpr{capacity};
+        tvm::ffi::Array<tvm::tirx::Stmt> parts{tvm::tirx::AllocBuffer{fragment}, transfer(false)};
+        parts.push_back(tvm::tirx::For{index, i32(0), extent, tvm::tirx::ForKind::kSerial, tvm::tirx::IfThenElse{valid, update}});
+        parts.push_back(transfer(true));
+        auto bind = [&](const char *name, int64_t extent, const char *tag, tvm::tirx::Stmt body) {
+            auto var = tvm::tirx::PrimVar{name, tvm::PrimType::Int(64)};
+            auto axis = tvm::tirx::IterVar{tvm::Range::FromMinExtent(i64(0), i64(extent)), var, tvm::tirx::IterVarType::kThreadIndex, tag};
+            return tvm::tirx::For{var, i64(0), i64(extent), tvm::tirx::ForKind::kThreadBinding, body, axis};
+        };
+        auto function = tvm::tirx::PrimFunc{{a, b, c, d}, bind("group", 1, "blockIdx.x", bind("worker", 32, "threadIdx.x", tvm::tirx::SeqStmt::Flatten(parts)))};
+        auto executable = compile_native(runtime, kernel, function);
+        expect(eq(executable.ok(), bad == 0u)) << bad << executable.error;
+        if (bad != 0u || !executable.ok()) { continue; }
+        auto av = runtime.upload<float>({16, 8}, vector<float>(128, 0.0f));
+        auto bv = runtime.upload<float>({8, 16}, vector<float>(128, 0.0f));
+        auto cv = values(256, 0.13f);
+        auto initial = runtime.upload<float>({16, 16}, cv), output = runtime.allocate<float>({16, 16});
+        (*executable.entry)(av, bv, initial, output);
+        auto actual = runtime.download<float>(output, 256);
+        auto correct = true;
+        for (auto i = 0u; i < 256u; i++) { correct &= std::isfinite(actual[i]) && std::abs(actual[i] - (cv[i] * cv[i] + cv[i])) < 1e-5f; }
+        expect(correct) << "local element access uses the selected fragment and composes scalar IR";
+    }
+}
+
 class MalformedMppBoundsTest final : public tvm::tirx::StmtExprMutator {
 private:
     uint32_t _kind;
@@ -2120,7 +2182,7 @@ public:
     using StmtMutator::operator();
 };
 
-void test_direct_accumulator_output(Runtime &runtime, bool mpp = false) {
+void test_direct_accumulator_output(Runtime &runtime, bool mpp = false, uint32_t epilogue = 0u) {
     if (mpp && (runtime.target() != "metal" || !tvm::ffi::Function::GetGlobal("target.metal.mpp_memory_contract_version"))) { return; }
     struct Case {
         Shape shape;
@@ -2161,7 +2223,18 @@ void test_direct_accumulator_output(Runtime &runtime, bool mpp = false) {
                               }
                               auto origin = coord(m0 + test.row_offset, n0 + test.column_offset);
                               if (test.observe_old_output) { H(origin, shape(m, n)).store(D[origin, shape(m, n)]); }
-                              D(origin, shape(m, n)).store(acc);
+                              if (epilogue == 0u) {
+                                  D(origin, shape(m, n)).store(acc);
+                              } else {
+                                  auto value = 0.125f * acc + 0.25f;
+                                  if (epilogue == 1u) {
+                                      D(origin, shape(m, n)).store(max(value, 0.0f));
+                                  } else if (epilogue == 2u) {
+                                      D(origin, shape(m, n)).store(value * value + value);
+                                  } else {
+                                      D(origin, shape(m, n)).store(0.5f * value * (1.0f + tanh(0.7978845608f * (value + 0.044715f * value * value * value))));
+                                  }
+                              }
                               if (test.observe_accumulator) { H(origin, shape(m, n)).store(acc); }
                           }
                       }).capture(tensor_shape(cfg.m, input_k), tensor_shape(input_k, cfg.n), tensor_shape(rows, columns), tensor_shape(rows, columns));
@@ -2177,6 +2250,7 @@ void test_direct_accumulator_output(Runtime &runtime, bool mpp = false) {
             native.value.CopyOnWrite()->body = adjust(native.value->body);
             bridge::tirx::PlannerOptions planner;
             planner.direct_accumulator_store = enabled;
+            planner.fuse_matrix_epilogues = epilogue != 0u;
             auto diagnostic = native.value;
             auto executable = compile_native(runtime, kernel, std::move(native.value), 32u, 256u, planner, false, mpp, mpp);
             auto context = luisa::format("{}x{}x{}, block={}x{}x{}, offset={},{} transpose={} history={} observed={} pin={} mask={} direct={}",
@@ -2187,13 +2261,24 @@ void test_direct_accumulator_output(Runtime &runtime, bool mpp = false) {
             if (runtime.target() == "metal") {
                 auto full = ceil_div(cfg.m, cfg.bm) * cfg.bm + test.row_offset <= rows && ceil_div(cfg.n, cfg.bn) * cfg.bn + test.column_offset <= columns;
                 auto bounded = mpp && tvm::ffi::Function::GetGlobal("target.metal.mpp_bounded_store_contract_version").has_value();
-                auto expected = enabled && cfg.k > 0 && (full || bounded) && test.row_offset >= 0 && test.column_offset >= 0 &&
+                auto elements = mpp && tvm::ffi::Function::GetGlobal("target.metal.mpp_element_contract_version").has_value();
+                auto expected = enabled && (epilogue == 0u || elements) && cfg.k > 0 && (full || bounded) && test.row_offset >= 0 && test.column_offset >= 0 &&
                                 !test.observe_accumulator && !test.pin_initial && !test.mask;
                 auto direct = false;
                 for (auto &plan : executable.plans) {
                     for (auto &matrix : plan.matrices) { direct |= matrix.direct_accumulator_store; }
                 }
                 expect(eq(direct, expected)) << context << diagnostic;
+                if (mpp && epilogue != 0u) {
+                    auto source = metal_source(executable.module.value());
+                    auto code = std::string_view{source.data(), source.size()};
+                    expect(eq(code.find("mpp_element_index") != std::string_view::npos, expected)) << context << code;
+                    if (direct) {
+                        // Moving a scalar DAG into CF cannot erase its math
+                        // from the planner's per-element work proxy.
+                        expect(executable.plans[0].cost.independent_elements >= static_cast<double>(cfg.bm * cfg.bn));
+                    }
+                }
                 if (direct && !mpp) {
                     auto source = metal_source(executable.module.value());
                     auto code = std::string_view{source.data(), source.size()};
@@ -2236,14 +2321,117 @@ void test_direct_accumulator_output(Runtime &runtime, bool mpp = false) {
                             for (auto k = int64_t{0}; k < cfg.k; k++) { expected += static_cast<double>(a[m * input_k + k]) * b[k * cfg.n + n]; }
                         }
                         auto index = row * columns + column;
-                        valid &= std::isfinite(actual[index]) && std::abs(static_cast<double>(actual[index]) - expected) <= 1e-4 + 2e-5 * std::abs(expected);
                         auto history_value = test.observe_accumulator ? expected : -17.25;
+                        if (written && epilogue != 0u) {
+                            auto value = 0.125 * expected + 0.25;
+                            expected = epilogue == 1u ? std::max(value, 0.0) :
+                                       epilogue == 2u ? value * value + value :
+                                                        0.5 * value * (1.0 + std::tanh(0.7978845608 * (value + 0.044715 * value * value * value)));
+                        }
+                        valid &= std::isfinite(actual[index]) && std::abs(static_cast<double>(actual[index]) - expected) <= 1e-4 + 2e-5 * std::abs(expected);
                         valid &= std::isfinite(observed[index]) && std::abs(static_cast<double>(observed[index]) - history_value) <= 1e-4 + 2e-5 * std::abs(history_value);
                     }
                 }
                 expect(valid) << "direct output, bounds, padding, initializer, and original sink order must be preserved";
             }
         }
+    }
+}
+
+void test_mpp_epilogue_proof_boundaries(Runtime &runtime) {
+    if (runtime.target() != "metal" || !tvm::ffi::Function::GetGlobal("target.metal.mpp_element_contract_version")) { return; }
+    for (auto mode = 0u; mode < 6u; mode++) {
+        auto kernel = tile_kernel("matrix_scalar_dag_boundaries", [=](TensorView<const float, 2> A, TensorView<const float, 2> B,
+                                                                      TensorView<float, 2> D, TensorView<float, 2> H) {
+                          auto m = axis("m", 16), n = axis("n", 16), k = axis("k", 8);
+                          for (auto &nest : parallel(shape(1), exec::Scope::GROUP)) {
+                              auto acc = zeros<float>(shape(m, n));
+                              for (auto &step : nest.pipeline(shape(2), {.stages = 1u})) {
+                                  step.stage("load");
+                                  auto a = A[coord(0, step.index() * 8), shape(m, k)];
+                                  auto b = B[coord(step.index() * 8, 0), shape(k, n)];
+                                  step.stage("compute");
+                                  acc = mma(a, b, acc);
+                              }
+                              auto value = 0.125f * acc + 0.25f;
+                              if (mode == 4u) {
+                                  D(coord(0, 0), shape(m, n)).store(value * value + H[coord(0, 0), shape(m, n)]);
+                              } else {
+                                  D(coord(0, 0), shape(m, n)).store(value * value + value);
+                              }
+                              if (mode == 5u) { H(coord(0, 0), shape(m, n)).store(value); }
+                          }
+                      }).capture(tensor_shape(16, 16), tensor_shape(16, 16), tensor_shape(16, 16), tensor_shape(16, 16));
+        auto native = bridge::tirx::lower(kernel.function());
+        expect(native.ok()) << native.error;
+        if (!native) { continue; }
+        class ChangeProducer final : public tvm::tirx::StmtExprMutator {
+        private:
+            uint32_t _mode;
+            bool _producer{false};
+            tvm::tirx::BufferVar _buffer;
+
+        protected:
+            tvm::tirx::Stmt VisitStmt_(const tvm::tirx::ForNode *loop) final {
+                auto previous = _producer;
+                _producer |= loop->annotations.count("luisa.tile.contract.materialized_pure_tile") != 0u;
+                auto result = StmtExprMutator::VisitStmt_(loop).as_or_throw<tvm::tirx::For>();
+                if (_mode == 2u) { result.CopyOnWrite()->annotations.erase("luisa.tile.contract.materialized_pure_tile"); }
+                _producer = previous;
+                return result;
+            }
+            tvm::Expr VisitExpr_(const tvm::tirx::BufferLoadNode *load) final {
+                if (_producer && _mode == 3u && load->indices.size() == 2u) {
+                    return tvm::tirx::BufferLoad{load->buffer, {load->indices[1], load->indices[0]}};
+                }
+                return StmtExprMutator::VisitExpr_(load);
+            }
+            tvm::tirx::Stmt VisitStmt_(const tvm::tirx::AllocBufferNode *allocation) final {
+                auto result = StmtExprMutator::VisitStmt_(allocation).as_or_throw<tvm::tirx::AllocBuffer>();
+                if (_mode == 1u && allocation->buffer.same_as(_buffer)) {
+                    result.CopyOnWrite()->annotations.Set("luisa.tile.manual_memory", tvm::IntImm::Int32(1));
+                }
+                return result;
+            }
+
+        public:
+            ChangeProducer(uint32_t mode, const tvm::tirx::Stmt &body) : _mode{mode} {
+                tvm::tirx::PostOrderVisit(body, [&](const tvm::ffi::ObjectRef &node) {
+                    if (auto loop = node.as<tvm::tirx::ForNode>(); loop && loop->annotations.count("luisa.tile.contract.materialized_pure_tile")) {
+                        _buffer = loop->body.as<tvm::tirx::ForNode>()->body.as<tvm::tirx::BufferStoreNode>()->buffer;
+                    }
+                });
+            }
+            using StmtExprMutator::operator();
+        };
+        native.value.CopyOnWrite()->body = ChangeProducer{mode, native.value->body}(native.value->body);
+        bridge::tirx::PlannerOptions planner;
+        planner.fuse_matrix_epilogues = true;
+        auto executable = compile_native(runtime, kernel, std::move(native.value), 32u, 256u, planner, false, true, true);
+        expect(executable.ok()) << executable.error;
+        if (!executable.ok()) { continue; }
+        for (auto &plan : executable.plans) {
+            for (auto &matrix : plan.matrices) { expect(eq(matrix.direct_accumulator_store, mode == 0u)) << mode; }
+        }
+        auto av = values(256, 0.13f), bv = values(256, 0.47f);
+        auto a = runtime.upload<float>({16, 16}, av), b = runtime.upload<float>({16, 16}, bv);
+        auto d = runtime.allocate<float>({16, 16}), h = runtime.upload<float>({16, 16}, vector<float>(256, -1.25f));
+        (*executable.entry)(a, b, d, h);
+        auto actual = runtime.download<float>(d, 256), history = runtime.download<float>(h, 256);
+        auto valid = true;
+        for (auto row = 0; row < 16; row++) {
+            for (auto column = 0; column < 16; column++) {
+                auto r = mode == 3u ? column : row, c = mode == 3u ? row : column;
+                auto expected = 0.0;
+                for (auto k = 0; k < 16; k++) { expected += static_cast<double>(av[r * 16 + k]) * bv[k * 16 + c]; }
+                auto value = 0.125 * expected + 0.25;
+                expected = value * value + (mode == 4u ? -1.25 : value);
+                auto i = row * 16 + column;
+                valid &= std::isfinite(actual[i]) && std::abs(actual[i] - expected) < 1e-4 + 2e-5 * std::abs(expected);
+                valid &= std::abs(history[i] - (mode == 5u ? value : -1.25)) < 1e-4;
+            }
+        }
+        expect(valid) << "manual memory, provenance, nonlocal access, resource operands, and extra consumers retain semantics" << mode;
     }
 }
 
@@ -2523,6 +2711,7 @@ int main(int argc, char *argv[]) {
     "tile_matrix_exact_threads_use_actual_target_limit"_test = [&] { test_explicit_threads_use_target_capacity(runtime); };
     "tile_matrix_mpp_memory_inputs_and_nonzero_accumulator"_test = [&] { test_mpp_memory_realization(runtime); };
     "tile_matrix_mpp_typed_contract_and_rejections"_test = [&] { test_mpp_typed_contract(runtime); };
+    "tile_matrix_mpp_element_contract_and_rejections"_test = [&] { test_mpp_element_contract(runtime); };
     "tile_matrix_mpp_readonly_view_proofs"_test = [&] { test_mpp_readonly_views(runtime); };
     "tile_matrix_mpp_output_only_fragment_budget"_test = [&] { test_mpp_output_only_fragment_budget(runtime); };
     "tile_matrix_mpp_realized_work"_test = [&] { test_mpp_realized_work(runtime); };
@@ -2550,6 +2739,10 @@ int main(int argc, char *argv[]) {
     "tile_matrix_observed_carry_cannot_be_promoted"_test = [&] { test_observed_accumulator_stays_visible(runtime); };
     "tile_matrix_direct_output_and_observation_guards"_test = [&] { test_direct_accumulator_output(runtime); };
     "tile_matrix_mpp_bounded_output_and_observation_guards"_test = [&] { test_direct_accumulator_output(runtime, true); };
+    "tile_matrix_mpp_closed_scalar_epilogues"_test = [&] {
+        for (auto epilogue : {1u, 2u, 3u}) { test_direct_accumulator_output(runtime, true, epilogue); }
+    };
+    "tile_matrix_mpp_scalar_epilogue_proof_boundaries"_test = [&] { test_mpp_epilogue_proof_boundaries(runtime); };
     "tile_matrix_carry_operand_alias_must_not_be_promoted"_test = [&] { test_accumulator_as_multiplicand(runtime); };
     "tile_matrix_interrupted_yield_must_not_update_carry"_test = [&] { test_interrupted_accumulator_update(runtime); };
     "tile_cpu_whole_gemm_library_realization"_test = [&] { test_cpu_whole_gemm_library_realization(runtime); };

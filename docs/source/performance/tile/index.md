@@ -13,216 +13,98 @@ checkpoints
 
 ## Current conclusion
 
-As of September 7, 2026, on the `codex/tile-programming-design` branch:
-**the architecture runs, and several measured cohorts beat eager Torch or
-approach/beat MPS, but the general performance goal is not complete.**
-The results below are primarily FP32 on an Apple M1 Max. They do not establish
-end-to-end production LLM, low-precision, all-shape or cross-device parity.
+As of September 7, 2026, on `codex/tile-programming-design`:
+**the architecture runs, but the general MPS/Torch performance goal is not
+complete.** Several bounded FP32 cohorts on Apple M1 Max beat eager Torch;
+large GEMM and direct XIR/SIMD still have substantial gaps. These results do
+not establish production LLM, low-precision, all-shape or cross-device parity.
 
-The source language, mutable TileIR, C++ TIRx bridge, bounded native Metal MPP
-lowering and XIR/SIMD CPU route are implemented. Execution mapping is planned
-rather than mechanically copied from logical hierarchy. Cost policies are
-backend-overridable, but their candidate families and calibration remain bounded.
-See [implementation coverage](implementation.md) for exact limits and
-[compiler architecture](../../internals/tile/index.md) for ownership and design.
+The C++ language, mutable TileIR, native C++ TIRx bridge, bounded Metal MPP
+lowering and XIR/SIMD Runtime route are implemented. Execution mapping is
+planned rather than mechanically copied from logical hierarchy. Backend-owned
+cost policies are extensible; their legal candidates and calibration remain
+bounded. See [coverage](implementation.md) and
+[compiler architecture](../../internals/tile/index.md).
 
 ## How to read the performance evidence
 
-Three different timings are retained; none may be substituted for another:
+Keep these objectives separate:
 
-- **Batched end-to-end throughput:** warm host time per invocation, amortized
-  over dispatches and synchronization. JIT and setup are excluded.
-- **Single-call end-to-end latency:** one dispatch through completion, including
-  the Runtime/framework overhead.
-- **GPU measurements:** instrumented Metal compute-pass timestamps and a
-  separate no-counter command-buffer control. The control includes GPU work
-  and gaps within the command buffer; it is not an isolated kernel timestamp.
+- **Batched E2E throughput:** warm host time per invocation, amortized over
+  dispatches and synchronization; JIT/setup excluded.
+- **Single-call E2E latency:** one dispatch through completion.
+- **GPU timing:** instrumented compute-pass intervals plus a separate
+  no-counter command-buffer control. The control includes GPU work and
+  intra-buffer gaps, not isolated kernel time.
 
-The counter probe substantially perturbs some Torch cases, so it is diagnostic
-rather than an uninstrumented speed ranking. Every external comparison must
-also retain output-allocation, fusion and fast-math differences.
+Counters perturb some Torch cases substantially. Every comparison retains
+fusion, output-allocation and math-policy differences, paired round ratios
+and negative results. Historical experiments are not one matched leaderboard.
 
 ## Results by route
 
-**Large Metal GEMM still falls short.** The earlier 14-round
-[scale test](results.md#larger-matrices-the-1024-cubed-win-does-not-generalize)
-covers 2048³/4096³/8192³, two large rectangles and a ragged shape. At 8192³,
-native MPP's paired GPU/Torch time ratio is 1.985; TIRx→MPP views reaches
-1.125 but loses all 14 GPU pairs. Two tail shapes reject the frozen large-view
-schedule, while the other paths validate them. No new per-shape tuning is
-claimed. There are 560 passing complete outputs and 28 retained rejections.
+**Metal matrix programs: broader legal lowering, incomplete profitability.**
+Bounded K/M/N views and [direct output](results.md#bounded-output-removes-shared-c-not-the-whole-library-gap)
+remove unnecessary staging using access/recurrence proofs. The
+[realized-work model](results.md#realization-derived-work-and-model-selection)
+improves three changed choices by 3.88–17.75% median GPU time, but all eight
+GPU medians still lose to Torch. [Scale coverage](results.md#larger-matrices-the-1024-cubed-win-does-not-generalize)
+extends through 8192³ and large rectangles; the historical 1024³ MPS
+near-parity result does not generalize to those shapes.
+[Traversal/participation experiments](results.md#generic-traversal-composes-with-k-but-is-not-a-universal-win)
+retain regressions and have not produced a new universal default.
 
-The subsequent [bounded-K view extension](results.md#bounded-k-mpp-views-legal-tails-remaining-library-gap)
-admits three fixed K-tail requests, including 4096×4096×11008, without nominal
-A/B shared staging. Its four-shape, seven-path replay passes 392 complete
-outputs. Paired GPU view/MPS ratios for 1024×1024×1537, 4096×4096×11008 and
-8192³ are 1.180/1.097/1.075; view/Torch ratios are 1.171/1.124/1.182.
-Small-shape host throughput wins, but large shapes still lack parity and
-retain substantial variation. The 8192³ view source is unchanged, so this
-new session is not evidence of a compiler speedup at that shape.
+The latest [closed scalar epilogue](results.md#closed-matrix-epilogues-general-legality-mixed-profitability)
+candidate uses ordinary expression DAGs, not activation-name rules. At fixed
+256-worker schedules, ragged ReLU/GELU GPU medians improve 15.54%/14.41%,
+but 4096³ GELU regresses 35.14%. All 288 complete native/Torch outputs pass.
+The candidate stays **off by default**; removing storage is not a
+profitability proof. Native-MPP and CPU/SIMD emission are unchanged.
 
-The newer [M/N-tail extension](results.md#bounded-m-n-inputs-remove-an-admission-barrier)
-admits large-K input views on ragged matrices. In a two-order diagnostic,
-selected GPU batch time falls to 15–22% of the old restricted schedule on
-three larger ragged shapes, up to 4097×4097×4096. It narrowly beats MPS on
-two of them but still loses to Torch on all four ragged shapes. Same-BK
-small-shape regressions remain; no cost-model/default promotion is claimed.
-The aligned control source is unchanged. Physical K/reuse choices remain open;
-the next checkpoint below adds a bounded direct-output realization.
+**Metal elementwise and row programs: measured structural wins, with limits.**
+[Multi-output pointwise fusion](results.md#multi-output-pointwise-fusion-removes-a-mapping-boundary)
+uses common ownership/effect analysis through 4096×4096. Eight GPU medians
+beat preallocated eager Torch (new/Torch 0.309–0.952), with mixed single-call
+latency and one small-GELU GPU reversal. [Wide-row reductions](reductions.md#wide-rows-and-large-working-sets)
+use SIMD-group collectives and compact worker-private stripes. Softmax,
+RMSNorm and LayerNorm beat eager Torch in all 18 GPU/E2E throughput cases
+in two observed orders, through width 16384 and 512 MiB payloads. Some
+large margins are only 1–4%; latency and returned-output allocation differ.
+[Cooperating-row packing](reductions.md#fixed-total-group-size-versus-automatic-execution)
+and held-out cost policies still regress on several cases; they remain opt-in.
 
-The [bounded-output follow-up](results.md#bounded-output-removes-shared-c-not-the-whole-library-gap)
-removes 16 KiB of shared C from four ragged programs through a general guard,
-layout and recurrence proof. With parameters fixed, six paired rounds show
-1.36–10.33% median GPU time reductions and 2.29–17.33% batched-E2E reductions.
-All 216 complete outputs pass. The four ragged GPU medians still lose to Torch;
-two beat MPS, with retained round reversals and unchanged-source controls.
-This extends the existing planner's legal family, not its cost calibration or
-the independent native-MPP/SIMD routes. Both measured compiler stacks include
-the same uncommitted barrier edit, documented with the artifact fingerprints.
-
-The [realization-state budget correction](results.md#mpp-state-budget-and-candidate-admission)
-then expands a fixed MPP search from 6 to 10 valid candidates per shape by
-removing nonexistent A/B fragment charges. Correctness and source controls
-pass, but unstable exploratory timing prevents a new performance claim.
-The subsequent [realized-work model](results.md#realization-derived-work-and-model-selection)
-prices proved physical K and candidate-specific scalar-loop elimination,
-with no coefficient fitting. Its eight-shape model-selection/frozen-replay
-study records 3.88–17.75% median GPU batch-time reductions on three changed
-choices (six wins each), with five identical-source controls. All eight GPU
-medians still lose to Torch. It does not establish general Torch/MPS parity
-or improve the independent native/SIMD routes by implication.
-
-The [K/walk diagnostics](results.md#k-partition-and-program-walks-diagnostics-not-new-defaults)
-find shape-dependent K sensitivity, reject simple row-stripe traversal, and
-retain an inconclusive rectangle screen with order reversals. These are
-exploratory benchmark results, not new production defaults or MPS/Torch wins.
-
-The [matched-participation screen](results.md#whole-group-mpp-participation-is-not-uniformly-better)
-also finds no universal advantage for whole-group MPP over independent
-subgroup operations. A new [generic program traversal](../../internals/tile/planner.md#program-traversal-is-a-mapping-choice-not-a-memory-scope)
-is now available as an explicit Metal-group JIT constraint. It preserves
-local ownership/resources and pipeline order, with non-matrix correctness
-coverage and unchanged default-code controls. It is not yet an automatically
-selected cache/reuse policy or a performance improvement for other routes.
-Its [K/traversal screen](results.md#generic-traversal-composes-with-k-but-is-not-a-universal-win)
-validates all 288 native/Torch/MPS outputs. Large regular grids favor a fixed
-4×8 rectangle in both orders, while small/ragged cases regress or reverse.
-Byte-identical controls expose substantial variation, and every native/Torch
-GPU pair remains slower; no new default or accepted speed claim follows.
-
-The earlier result remains historical, not a scale guarantee. In its 14-round
-FP32 1024³ replay, TIRx-to-MPP views take 270.675 µs, native MPP 287.137 µs,
-direct MPS 272.572 µs and eager Torch 284.654 µs in median host-wall batch time.
-The paired TIRx-view/MPS time ratio is 0.9938: a small measured advantage.
-Native MPP is not the winning route. These historical routes have different
-recorded fast-math settings and are not a matched pure-kernel comparison.
-The [route report](results.md) retains all shapes, controls and qualifications.
-
-**Elementwise and row reductions have real structural improvements.** The
-elementwise mapper now fuses logical-program and Tile-element coordinates,
-and preserves shared pointwise SSA as worker-local values. Metal reductions
-use SIMD-group collectives and compact worker-private stripes. The original
-24-case row-program cohort beats eager Torch in host-wall throughput, with
-Tile/Torch time ratios 0.032–0.902. Normalization/loss output allocation and
-eager-versus-fused behavior qualify those ratios; they are not direct MPS
-kernel speedups. See [route comparisons](results.md) and
-[reduction measurements](reductions.md).
-
-The newer [multi-output pointwise extension](results.md#multi-output-pointwise-fusion-removes-a-mapping-boundary)
-handles activation/derivative graphs through the same ownership and effect
-analysis, with no operator-name rules or cost-model refit. Six-round tests
-through 4096×4096 improve over the old map in every GPU/E2E batch pair;
-median GPU new/Torch ratios are 0.309–0.952. This is fused native versus
-preallocated eager Torch, with a small-GELU GPU outlier and mixed single-call
-latency. CPU and reduction controls do not gain new code generation here.
-
-**Mapping and resource planning still have held-out failures.** A frozen
-whole-launch cost profile improves the three 768×6144 norm/softmax cases,
-but 37×1537 softmax and LayerNorm regress. Fixed-width/cache ablation then
-separates mapping from input reuse. The latest worker-pack tail guard repair
-improves 37×1537 Softmax/RMSNorm/LayerNorm batched E2E throughput by
-1.134×/1.207×/1.210× against the previous emitter in four paired rounds.
-GPU pairs for the two norms are mixed, and identical-source controls expose
-background variability. No noisy labels were used to refit the model; the
-new cost profile and input caching remain opt-in. Explicit packing now also
-admits several cooperating programs per group, but the fixed 12-case replay
-regresses in every GPU pair for eight cases and improves for only two.
-Automatic packing is unchanged. These are separate experiments, not gains
-that can be multiplied together.
-
-The subsequent [fixed-total-group experiment](reductions.md#fixed-total-group-size-versus-automatic-execution)
-also retains the automatic control: S2/P4 consistently improves two many-short-row
-cases but regresses eight, despite its gains against some hand-picked mappings.
-All 456 output validations pass; no new mapping default follows from this result.
-
-The latest [wide-row coverage](reductions.md#wide-rows-and-large-working-sets)
-reaches width 16384 and a 512 MiB input/output payload. Softmax, RMSNorm and
-LayerNorm beat eager Torch in GPU and E2E throughput for all 18 cases in both
-observed orders, with 72 full-output checks passing. These are only two rounds;
-large RMSNorm margins narrow to about 1–4%, and single-call latency retains
-mixed results and a regression. Throughput does not establish latency parity.
-
-**CPU provider wins do not close the native XIR gap.** Proved TIRx CBLAS GEMMs
-beat eager Torch on seven of eight replayed shapes; Accelerate array operations
-also improve the admitted reduction/softmax families. Direct XIR/SIMD has a
-working execution-map solver and multi-operator correctness coverage, but lacks
-a general high-performance matrix microkernel and Tile distribution family.
-The latest [packet-index proof](results.md#simd-packet-index-proof-closes-a-codegen-disconnect)
-closes one codegen disconnect: four aligned GEMMs improve in every one of six
-old/new throughput and latency pairs, with paired throughput time ratios
-0.326–0.427. The ragged control retains identical LLVM and mixed results.
-All six shapes still lose to Torch; this is not CPU parity or a new
-multi-operator performance result.
-The [CPU route evidence](results.md) keeps provider and direct-XIR results separate.
+**CPU: provider wins are not direct-XIR parity.**
+[Proved CBLAS and Accelerate realizations](results.md#cpu-tirx-reference-gaps-and-proved-provider-realizations)
+improve admitted TIRx families; CBLAS beats eager Torch on seven of eight
+replayed shapes. Direct XIR/SIMD has a working mapping solver and
+[packet-index codegen repair](results.md#simd-packet-index-proof-closes-a-codegen-disconnect),
+but all six measured GEMMs still lose to Torch. General packed/vector
+microkernels and Tile distribution remain missing. Attention, CNN/filter,
+sort and Top-K PoCs establish correctness, not broad optimized performance.
 
 ## Validation and next milestone
 
-The latest reduction implementation checkpoint completed a full build, 89
-Python benchmark tests and 31 of 33 Tile CTests. CPU and Metal execution tests
-pass, including 36 new cooperating-packing configurations and six typed
-admission/fence cases. Two generated-source
-assertions still conflict with an unrelated local barrier-flag edit; this is
-not an all-green worktree. The fixed packing experiment validates 240 outputs
-across parameter pilots and the independent replay. Its complete records are
-linked from [reduction measurements](reductions.md).
+The latest matrix-extension check completes a full build: **17/19 integration
+invocations pass**, including 5,565 Metal matrix assertions. Two existing
+Metal source-string suites still reject an unrelated user-owned barrier-flag
+edit; the worktree is not all green. Default-off controls validate 56 complete
+native/Torch outputs across Metal/CPU, with byte-identical Metal and only
+bijective TBAA-label changes in CPU LLVM. See [validation](validation.md).
 
-The new scale-benchmark orchestration passes 93 Python tests; it reuses those
-same binaries and does not add a build/CTest claim. GEMM and reduction compiler
-inventories are checked separately because the MPP path loads patched TVM.
-
-The subsequent SIMD packet-proof checkpoint passes its four selected
-Schedule/JIT/Tile Runtime/LLM CTests and all 95 Python benchmark tests. Its
-final compiler replay validates 108 complete outputs, independently auditing
-29,066,094 elements and 38 unchanged artifacts. It does not change the
-unrelated worktree's broader CTest status. The new 8192³ MPS capture is saved
-locally; Xcode inspection timed out, leaving large-shape counter attribution
-open rather than inferred from the old 1024³ profile.
-
-The bounded-K checkpoint adds 1,857 passing Metal matrix assertions in 28
-tests, old-v2 compatibility, five selected CTests and 95 passing Python tests.
-Its independent audit checks 392 full-output receipts, 26 unchanged artifacts
-and eight deliberately corrupted evidence cases. This does not change the
-unrelated barrier-assertion boundary described above.
-
-The M/N-tail checkpoint adds 2,334 Metal matrix assertions, 1,008 complete
-low-level semantic outputs, and three retained emitter comparisons totaling
-576 FP64-validated benchmark outputs. Its selected schedules do not establish
-general library parity; the semantic and performance evidence stay separate.
-
-The next milestone is masked direct output, physical K/reuse choices and mapping/resource
-selection that scales beyond 1024³, with independently replayed acceptance and
-explicit GPU/E2E objectives. Broader dtypes, layouts, production LLM workloads, native MPP coverage
-and direct XIR performance remain open. A small cohort win is not the acceptance
-criterion for "faster than MPS/Torch."
+Next: preserve scalar-DAG reuse and estimate its live-state/instruction cost,
+then compare legal fusion/materialization candidates through staged/JIT
+selection on held-out graphs and shapes. Physical K/reuse, launch resource
+limits, large-matrix scaling and direct XIR performance remain open.
+A lower model score or a small cohort win is not completion.
 
 ## Detailed evidence
 
-- [Implementation coverage](implementation.md): supported behavior and acceptance work.
-- [Performance by compiler route](results.md): external and native-to-native comparisons.
-- [Metal reduction measurements](reductions.md): mapping, resource and codegen experiments.
-- [Correctness and failure investigations](validation.md): executed tests and implementation fixes.
-- [Implementation checkpoints](checkpoints.md): the historical sequence and original artifacts.
+- [Implementation coverage](implementation.md): contracts, generality and acceptance.
+- [Performance by compiler route](results.md): timings, controls and regressions.
+- [Metal reduction measurements](reductions.md): mapping/resource experiments.
+- [Correctness and failure investigations](validation.md): executed checks.
+- [Implementation checkpoints](checkpoints.md): historical cohorts and artifacts.
 
 The {download}`benchmark guide <../../../../scripts/benchmark/tile_torch/README.md>`
-defines reproducible runs and timing modes. Saved binary/source hashes and exact
-commands, not just a Git revision, identify each performance experiment.
+defines reproduction and timing modes. Exact commands and binary/source
+fingerprints identify each experiment, not just its Git revision.

@@ -32,6 +32,10 @@ names or favorable shapes. Three different claims require separate evidence:
   add/max/min reduction mapping serves several row programs. Matrix input
   forwarding serves the admitted affine zero-padded MMA family, not every
   operator containing a reduction.
+  The optional [closed matrix epilogue](../../internals/tile/matrix.md#scalar-epilogues-use-the-same-element-owner)
+  similarly matches an ordinary scalar DAG and same-element accesses. It
+  rejects manual memory, neighbor reads, extra consumers and unproved inputs;
+  it does not introduce activation-specific production primitives.
 - **Realization coverage:** a legal execution/resource combination has a
   target emitter. The M/N-tail extension expands this space without changing
   planner coefficients or the subgroup distribution. Existing staged/JIT
@@ -41,6 +45,14 @@ names or favorable shapes. Three different claims require separate evidence:
   shapes and composed operators, with unchanged incumbents, complete output
   checks, both GPU/E2E objectives and reported regressions. Current small-row
   held-out failures and large-GEMM gaps show that this claim is still open.
+
+The latest matrix epilogue replay makes this distinction concrete: the same
+rule releases storage for both ReLU and GELU, yet has sizeable regressions
+on large GEMMs. It is opt-in through `PlannerOptions::fuse_matrix_epilogues`,
+with scalar math retained in the cost proxy. Additional memory operands
+(bias/residual), free variables, arbitrary layouts/dtypes and other backend
+emitters remain outside this first contract. Staged/JIT can compare candidate
+realizations; a legality proof alone must not silently select one as faster.
 
 Execution partitioning, worker ownership, materialization/reuse and atom
 selection should remain independently represented choices with coupled
