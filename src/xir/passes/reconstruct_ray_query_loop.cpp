@@ -698,7 +698,7 @@ match_frontend_inline_ray_query_loop(
     return ReconstructMatch::accepted;
 }
 
-static void replace_phi_predecessor(
+static void replace_reconstructed_ray_query_phi_predecessor(
     BasicBlock *block, BasicBlock *old_predecessor,
     BasicBlock *new_predecessor) noexcept {
     for (auto *inst : block->instructions()) {
@@ -766,7 +766,7 @@ static void reconstruct_candidate(
     };
     retarget_exits(candidate.surface_region);
     retarget_exits(candidate.procedural_region);
-    replace_phi_predecessor(
+    replace_reconstructed_ray_query_phi_predecessor(
         candidate.merge,
         is_inline ?
             candidate.inline_break :

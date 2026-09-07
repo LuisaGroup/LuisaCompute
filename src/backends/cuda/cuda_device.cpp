@@ -20,6 +20,7 @@
 
 #include <luisa/xir/translators/ast2xir.h>
 #include <luisa/xir/translators/xir2text.h>
+#include <luisa/xir/debug_printer.h>
 #include <luisa/xir/instructions/print.h>
 #include <luisa/xir/passes/dce.h>
 #include <luisa/xir/passes/local_store_forward.h>
@@ -88,6 +89,34 @@ void verify_xir_or_error(const xir::Module *module, luisa::string_view stage,
                          const xir::XIRVerificationOptions &options = {}) noexcept {
     auto verification = xir::xir_verify_module(module, options);
     if (!verification.succeeded()) {
+        if (LUISA_SHOULD_DUMP_XIR) {
+            auto module_name = module->name().value_or("unnamed");
+            auto dump_dir = getenv("LUISA_DUMP_XIR_DIR");
+            auto dump_path = std::filesystem::path{
+                dump_dir == nullptr ? "." : dump_dir};
+            auto stem = luisa::format("{}.invalid", module_name);
+            {
+                std::ofstream f{dump_path / luisa::format("{}.errors.txt", stem)};
+                f << "stage: " << stage << '\n';
+                for (size_t i = 0u; i < verification.errors.size(); i++) {
+                    auto &&error = verification.errors[i];
+                    f << '[' << i << "] " << error.message << '\n';
+                    if (error.instruction != nullptr) {
+                        luisa::string instruction;
+                        xir::XIRDebugPrinter::global().reset();
+                        xir::XIRDebugPrinter::global().emit_instruction(
+                            instruction, error.instruction);
+                        f << instruction << '\n';
+                    }
+                }
+                f.flush();
+            }
+            {
+                std::ofstream f{dump_path / luisa::format("{}.xir", stem)};
+                f << xir::xir_to_text_translate(module, true);
+                f.flush();
+            }
+        }
         LUISA_ERROR_WITH_LOCATION(
             "Invalid XIR at CUDA {}: {} ({} error(s) total).",
             stage, verification.errors.front().message, verification.errors.size());
@@ -781,8 +810,11 @@ ShaderCreationInfo CUDADevice::_load_or_compile_shader(luisa::string name,
 
     // generate a default name if not specified
     auto uses_user_path = !name.empty();
-    if (!uses_user_path) { name = luisa::format("kernel_{:016x}.ptx",
-                                                expected_metadata.checksum); }
+    if (!uses_user_path) {
+        name = generate_ptx ?
+                   luisa::format("kernel_{:016x}.llvm-v3.ptx", expected_metadata.checksum) :
+                   luisa::format("kernel_{:016x}.ptx", expected_metadata.checksum);
+    }
     if (!name.ends_with(".ptx") &&
         !name.ends_with(".PTX")) { name.append(".ptx"); }
     auto metadata_name = luisa::format("{}.metadata", name);
@@ -909,8 +941,8 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
                 return luisa_compute_cuda_codegen_llvm(
                     *xir_module, config);
             };
-            // Keep emitting the canonical NVRTC source below. Its source and
-            // options define the existing CUDA shader cache identity.
+            // Keep emitting the canonical NVRTC source below to retain its
+            // stable source hash. LLVM artifacts use a distinct cache suffix.
         }
 #endif
         if (LUISA_USE_EXPERIMENTAL_XIR_CODEGEN || kernel.requires_autodiff()) {

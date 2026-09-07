@@ -415,6 +415,12 @@ private:
             .typed = is_typed_bindless_resource_call(ast_op),
             .uniform = is_uniform_bindless_resource_call(ast_op)};
         auto canonical_op = canonical_bindless_resource_call(ast_op);
+        auto canonical_op_value = luisa::to_underlying(canonical_op);
+        auto is_bindless_call =
+            canonical_op_value >= luisa::to_underlying(
+                                      CallOp::BINDLESS_TEXTURE2D_SAMPLE) &&
+            canonical_op_value <= luisa::to_underlying(
+                                      CallOp::BINDLESS_BUFFER_ADDRESS);
         auto alu_call = [&](ArithmeticOp target_op) noexcept {
             luisa::fixed_vector<Value *, 16u> args;
             args.reserve(expr->arguments().size());
@@ -452,6 +458,10 @@ private:
             auto other = expr->arguments().subspan(1);
             for (auto ast_arg : other) {
                 auto arg = _translate_expression(b, ast_arg, true);
+                if (is_bindless_call && args.size() == 1u &&
+                    (arg->type()->is_int64() || arg->type()->is_uint64())) {
+                    arg = b.static_cast_(Type::of<uint32_t>(), arg);
+                }
                 args.emplace_back(arg);
             }
             if constexpr (std::is_same_v<ResourceOp, ResourceWriteOp>) {
