@@ -115,15 +115,15 @@ enum class RowOp { RMS_NORM,
 // Causal prefill and decode share the same online softmax program. The query
 // positions are the final Q positions in the KV sequence; Hq/Hkv implements GQA.
 [[nodiscard]] inline Case attention(int64_t batches, int64_t heads, int64_t kv_heads,
-                                    int64_t queries, int64_t keys, int64_t channels, int64_t value_channels) {
+                                    int64_t queries, int64_t keys, int64_t channels, int64_t value_channels,
+                                    int64_t bq = 2, int64_t bk = 3) {
     using namespace compute::tile;
-    if (batches <= 0 || kv_heads <= 0 || heads % kv_heads || queries <= 0 || keys < queries || channels <= 0 || value_channels <= 0) {
+    if (batches <= 0 || heads <= 0 || kv_heads <= 0 || heads % kv_heads || queries <= 0 || keys < queries || channels <= 0 || value_channels <= 0 || bq <= 0 || bk <= 0) {
         throw std::invalid_argument{"invalid attention shape"};
     }
     auto scale = 1.0f / std::sqrt(static_cast<float>(channels));
     auto definition = tile_kernel("llm_attention", [=](TensorView<const float, 4> Q, TensorView<const float, 4> K,
                                                        TensorView<const float, 4> V, TensorView<float, 4> O) {
-        constexpr int64_t bq = 2, bk = 3;
         auto batch = axis("batch", batches), head = axis("head", heads), query_block = axis("query_block", ceil_div(queries, bq));
         auto b = axis("b", 1), h = axis("h", 1), m = axis("m", bq), n = axis("n", bk);
         auto d = axis("d", channels), dv = axis("dv", value_channels);

@@ -73,6 +73,13 @@ large margins are only 1–4%; latency and returned-output allocation differ.
 [Cooperating-row packing](reductions.md#fixed-total-group-size-versus-automatic-execution)
 and held-out cost policies still regress on several cases; they remain opt-in.
 
+[Partitioned-output fusion](results.md#partitioned-outputs-remove-the-rope-mapping-fallback)
+now handles proved disjoint regions of one buffer. Four RoPE GPU batch medians
+are 0.129–0.319× preallocated eager Torch through 4096×4096, with all 24 paired
+GPU comparisons winning. SwiGLU's unchanged single-output code measures
+0.486–0.593× Torch; tiny single-call E2E still loses. These are bounded FP32
+fusion results, not attention or direct-SIMD parity.
+
 **CPU: provider wins are not direct-XIR parity.**
 [Proved CBLAS and Accelerate realizations](results.md#cpu-tirx-reference-gaps-and-proved-provider-realizations)
 improve admitted TIRx families; CBLAS beats eager Torch on seven of eight
@@ -82,16 +89,26 @@ but all six measured GEMMs still lose to Torch. General packed/vector
 microkernels and Tile distribution remain missing. Attention, CNN/filter,
 sort and Top-K PoCs establish correctness, not broad optimized performance.
 
+The new [LLM negative-result screen](results.md#attention-and-direct-simd-still-need-richer-execution-mappings)
+measures six direct-SIMD operators at 1.22–16.35× Torch E2E time. Metal
+attention prefill/decode use 126.69×/1315.77× Torch SDPA GPU time in the two
+larger pilots; the composed recurrence still misses cooperative mapping.
+These are the priority gaps, not evidence of LLM performance parity.
+
 ## Validation and next milestone
 
-The latest matrix-extension check completes a full build: **17/19 integration
-invocations pass**, including 5,565 Metal matrix assertions. Two existing
-Metal source-string suites still reject an unrelated user-owned barrier-flag
-edit; the worktree is not all green. Default-off controls validate 56 complete
-native/Torch outputs across Metal/CPU, with byte-identical Metal and only
-bijective TBAA-label changes in CPU LLVM. See [validation](validation.md).
+The latest LLM/partitioned-output checkpoint completes a full build and
+**33/35 Tile CTests**, plus 110 Python benchmark tests. Metal execution passes
+818,965 assertions. Two existing Metal source-string suites still reject an
+unrelated user-owned barrier-flag edit; the worktree is not all green. The
+earlier matrix default-off controls validate 56 complete native/Torch outputs
+across Metal/CPU, with byte-identical Metal and only bijective TBAA-label changes
+in CPU LLVM. See [validation](validation.md).
 
-Next: preserve scalar-DAG reuse and estimate its live-state/instruction cost,
+Next: distribute general Tile elements on XIR/SIMD and admit the composed
+MMA/reduction recurrence used by attention; current small decode measurements
+still fall back to a few whole-program workers. Preserve scalar-DAG reuse and
+estimate its live-state/instruction cost,
 then compare legal fusion/materialization candidates through staged/JIT
 selection on held-out graphs and shapes. Physical K/reuse, launch resource
 limits, large-matrix scaling and direct XIR performance remain open.

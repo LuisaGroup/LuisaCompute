@@ -1,6 +1,7 @@
 // Real TileIR -> Metal backend -> MPP -> ordinary Runtime Stream benchmark.
 // Separate host-wall and optional GPU compute-pass timing phases.
 #include "tile_native_test_utils.h"
+#include "tile_llm_benchmark.h"
 #include "metal_benchmark.h"
 #include <luisa/tile/runtime.h>
 #include <luisa/runtime/context.h>
@@ -52,6 +53,7 @@ void samples(const char *name, span<const double> values) {
 }// namespace
 
 int main(int argc, char *argv[]) {
+    if (argc > 1 && std::string_view{argv[1]} == "llm") { return test::tile_llm::benchmark(argc, argv, "metal"); }
     if (argc != 14) {
         std::cerr << "Usage: benchmark_tile_native fp32 M N K samples sample-ms warmup-ms output.f32 tile-M tile-N op-subgroups group-subgroups cohort-M\n";
         return 1;

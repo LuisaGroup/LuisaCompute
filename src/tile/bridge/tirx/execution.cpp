@@ -529,7 +529,7 @@ struct ElementProgram {
 // Fuse a bounded, same-domain SSA graph and its output domains before mapping.
 // Each Bind still computes its producer once per logical element; this is
 // storage scalarization and loop fusion, not expression cloning/recomputation.
-// The later effect audit proves distinct output buffers and no global RAW/WAR
+// The later effect audit proves disjoint output regions and no global RAW/WAR
 // dependence before this interleaving of the original loop domains commits.
 [[nodiscard]] std::optional<ElementProgram> element_program(const tvm::tirx::ForNode *root) {
     luisa::vector<tvm::tirx::Stmt> parts;
@@ -597,6 +597,41 @@ private:
     const luisa::vector<const tvm::tirx::ForNode *> &_axes;
     luisa::vector<const tvm::tirx::ForNode *> _domain;
     luisa::unordered_set<const tvm::tirx::VarNode *> _reads, _writes, _escaped;
+    luisa::vector<const tvm::tirx::BufferStoreNode *> _stores;
+
+    // The root parallel already promises independence between programs. What
+    // fusion additionally needs is disjointness between two output loops for
+    // arbitrary, INDEPENDENT local coordinates within the same program.
+    [[nodiscard]] bool _disjoint(const tvm::tirx::BufferStoreNode *a,
+                                 const tvm::tirx::BufferStoreNode *b) const {
+        auto address = [&](const tvm::tirx::BufferStoreNode *store) -> std::optional<tvm::PrimExpr> {
+            tvm::PrimExpr result = tvm::IntImm::Int64(0);
+            for (auto i = 0u; i < store->indices.size(); i++) {
+                auto index = store->indices[i], extent = store->buffer->shape[i];
+                // In-bounds compact coordinates and the checked buffer volume
+                // keep linearization in int64. Predicate-sensitive ranges and
+                // noncompact layouts deliberately retain the original loops.
+                if (index.ty() != tvm::PrimType::Int(64) ||
+                    !prove_in_loop_domain(index >= tvm::IntImm::Int64(0) && index < extent, _domain)) { return {}; }
+                result = result * extent + index;
+            }
+            return result;
+        };
+        auto left = address(a), right = address(b);
+        if (!left || !right) { return false; }
+        tvm::ffi::Array<tvm::tirx::For> fresh;
+        tvm::ffi::Map<tvm::tirx::Var, tvm::Expr> rename;
+        auto domain = _domain;
+        for (auto axis : _axes) {
+            auto variable = tvm::tirx::PrimVar{axis->loop_var->name + "_other_element", axis->loop_var.ty()};
+            rename.Set(axis->loop_var, variable);
+            fresh.push_back(tvm::tirx::For{variable, axis->min, axis->extent, tvm::tirx::ForKind::kSerial,
+                                           tvm::tirx::Evaluate{tvm::IntImm::Int32(0)}});
+            domain.emplace_back(fresh.back().get());
+        }
+        auto other = tvm::tirx::Substitute(*right, rename);
+        return prove_in_loop_domain(*left < other, domain) || prove_in_loop_domain(other < *left, domain);
+    }
 
 protected:
     void VisitStmt(const tvm::tirx::Stmt &statement) final {
@@ -621,10 +656,7 @@ protected:
         if (load->predicate) { VisitExpr(load->predicate.value()); }
     }
     void VisitStmt_(const tvm::tirx::BufferStoreNode *store) final {
-        // Different output domains may be interleaved only when each buffer
-        // has one syntactic store and is never read or escaped. Even two
-        // injective maps into the same buffer can overlap after loop fusion.
-        valid &= _writes.emplace(store->buffer.get()).second;
+        _writes.emplace(store->buffer.get());
         valid &= store->buffer.scope() == "global";
         // Coordinate injectivity implies address injectivity only for this
         // compact buffer family. Arbitrary strides/layouts need their own
@@ -657,6 +689,14 @@ protected:
             }
             valid &= covered;
         }
+        if (valid) {
+            // No operator names or shape tables: admit any statically proved
+            // separated compact output intervals, in either source order.
+            for (auto previous : _stores) {
+                if (store->buffer.same_as(previous->buffer)) { valid &= _disjoint(previous, store); }
+            }
+        }
+        _stores.emplace_back(store);
         StmtExprVisitor::VisitStmt_(store);
         if (store->predicate) { VisitExpr(store->predicate.value()); }
     }

@@ -1,0 +1,54 @@
+Test project /tmp/luisa-tvm-mpp.VaKmzx/luisa-build
+    Start 56: test_tile_xir_llm
+1/3 Test #56: test_tile_xir_llm ................Subprocess terminated***Exception: 186.49 sec
+[2026-09-07 09:30:41.615] [console] [info] Created context for program 'test_tile_xir_llm'.
+[2026-09-07 09:30:41.616] [console] [info] Runtime directory: /private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin.
+[2026-09-07 09:30:41.627] [console] [info] Loaded dynamic module '/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-backend-simd.so' in 10.141083 ms.
+[2026-09-07 09:30:41.629] [console] [info] Test device backend: simd.
+[2026-09-07 09:30:41.630] [console] [info] Checking llm_rows with 119 output elements
+[2026-09-07 09:30:41.872] [console] [info] Checking llm_rows with 544 output elements
+[2026-09-07 09:30:42.055] [console] [info] Checking llm_rows with 1105 output elements
+[2026-09-07 09:30:42.450] [console] [info] Checking llm_rows with 119 output elements
+[2026-09-07 09:30:42.536] [console] [info] Checking llm_rows with 544 output elements
+[2026-09-07 09:30:42.743] [console] [info] Checking llm_rows with 1105 output elements
+[2026-09-07 09:30:43.202] [console] [info] Checking llm_rows with 119 output elements
+[2026-09-07 09:30:43.295] [console] [info] Checking llm_rows with 544 output elements
+[2026-09-07 09:30:43.752] [console] [info] Checking llm_rows with 1105 output elements
+[2026-09-07 09:30:45.216] [console] [info] Checking llm_rows with 119 output elements
+[2026-09-07 09:30:45.335] [console] [info] Checking llm_rows with 544 output elements
+[2026-09-07 09:30:45.990] [console] [info] Checking llm_rows with 1105 output elements
+[2026-09-07 09:30:48.157] [console] [info] Checking llm_rows with 119 output elements
+[2026-09-07 09:30:48.264] [console] [info] Checking llm_rows with 544 output elements
+[2026-09-07 09:30:48.495] [console] [info] Checking llm_rows with 1105 output elements
+[2026-09-07 09:30:48.779] [console] [info] Checking llm_rows with 102 output elements
+[2026-09-07 09:30:48.991] [console] [info] Checking llm_rows with 544 output elements
+[2026-09-07 09:30:49.232] [console] [info] Checking llm_rows with 1122 output elements
+[2026-09-07 09:30:50.038] [console] [info] Checking llm_attention with 24 output elements
+[2026-09-07 09:30:50.360] [console] [info] Checking llm_attention with 392 output elements
+[2026-09-07 09:30:52.041] [console] [info] Checking llm_attention with 56 output elements
+[2026-09-07 09:30:53.496] [console] [info] Checking llm_attention with 98 output elements
+[2026-09-07 09:30:53.639] [console] [info] Checking llm_attention with 98 output elements
+[2026-09-07 09:31:05.072] [console] [info] Checking llm_attention with 98 output elements
+
+    Start 66: test_tile_tirx_execution
+2/3 Test #66: test_tile_tirx_execution .........   Passed    6.74 sec
+    Start 80: test_tile_tirx_execution_metal
+3/3 Test #80: test_tile_tirx_execution_metal ...   Passed    8.09 sec
+
+67% tests passed, 1 tests failed out of 3
+
+Label Time Summary:
+integration             = 186.49 sec*proc (1 test)
+integration_simd        = 186.49 sec*proc (1 test)
+integration_tile_xir    = 186.49 sec*proc (1 test)
+unit                    =  14.83 sec*proc (2 tests)
+unit_tile               =  14.83 sec*proc (2 tests)
+unit_tile_poc           =   8.09 sec*proc (1 test)
+unit_tile_targets       =   8.09 sec*proc (1 test)
+unit_tile_tirx          =  14.83 sec*proc (2 tests)
+
+Total Test time (real) = 201.32 sec
+
+The following tests FAILED:
+	 56 - test_tile_xir_llm (Subprocess terminated)         integration integration_simd integration_tile_xir
+Errors while running CTest

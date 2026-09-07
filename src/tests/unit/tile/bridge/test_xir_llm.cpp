@@ -79,4 +79,13 @@ int main(int argc, char *argv[]) {
         run(device, test::tile_llm::attention(2, 4, 2, 7, 11, 8, 7));
         run(device, test::tile_llm::attention(2, 4, 2, 1, 17, 8, 7));
     };
+    "tile_xir_llm_attention_block_shapes"_test = [&] {
+        // Keep unit-test SSA expansion bounded. Larger physical tiles belong
+        // to the benchmark's explicit compile-time/timeout evidence.
+        for (auto block : {std::array<int64_t, 2>{1, 1}, {2, 4}, {3, 5}}) {
+            run(device, test::tile_llm::attention(1, 2, 1, 7, 11, 8, 7, block[0], block[1]));
+        }
+        expect(throws([] { static_cast<void>(test::tile_llm::attention(1, 0, 1, 1, 1, 1, 1)); }));
+        expect(throws([] { static_cast<void>(test::tile_llm::attention(1, 1, 1, 1, 1, 1, 1, 0, 3)); }));
+    };
 }

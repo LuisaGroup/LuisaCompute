@@ -160,7 +160,7 @@ distributions, low precision or end-to-end LLM correctness.
 
 ## Correctness: common LLM operators now use both bridges
 
-`test_tile_xir_llm` runs **21 captured kernel/shape combinations**, each through
+`test_tile_xir_llm` runs **24 captured kernel/shape combinations**, each through
 XIR/SIMD and native-target TIRx CPU, with `atol=rtol=5e-5` against independent
 FP64 formulas. Every output element is checked. XIR outputs begin as NaNs and
 use an offset BufferView with guards before/after the writable range.
@@ -174,11 +174,33 @@ use an offset BufferView with guards before/after the writable range.
 | Online attention | `(B,Hq,Hkv,Q,K,D,Dv)` = `(1,2,2,4,5,4,3)`, `(2,4,2,7,11,8,7)`, `(2,4,2,1,17,8,7)` | Full-score FP64 causal softmax and value contraction, independent of the online recurrence |
 
 Attention queries represent the final Q positions of the KV sequence. Local
-query/key tiles are 2×3, so these cases exercise tails, causal masks, online
+query/key tiles are 2×3 for the original cases; three additional captures use
+1×1, 2×4 and 3×5 on `(1,2,1,7,11,8,7)`. Invalid zero-head and zero-block
+requests are rejected. These cases exercise tails, causal masks, online
 max/sum/accumulator carries and grouped query heads. These tests do not measure
 KV-cache paging, variable-length batches, long contexts or production hidden
 dimensions. CNN, traditional filters, Top-K and sort remain available in the
 language/earlier TIRx gallery; they are **not newly validated on XIR** here.
+
+The September 7 partitioned-output checkpoint passes a full build, all three
+selected CTests (LLM XIR/TIRx-CPU, CPU execution, Metal execution), and then
+**33/35 tests in the full Tile CTest rerun**, plus 110 Python benchmark tests.
+The execution tests add 64 width/partition/policy
+configurations: touching disjoint intervals, reversed order, overlapping and
+identical writes, disabled fusion, explicit worker scope and absent noalias.
+All output elements, including untouched regions, are checked. Metal's whole
+execution suite passes 818,965 assertions. The two retained failures are the
+previously reported unrelated barrier-source assertions in
+`test_tile_tirx_cooperative_metal` and `test_tile_tirx_memory_metal`; the local
+barrier edit and those assertions are unchanged. This is not an all-green
+worktree.
+
+An initial expanded 8×16 attention-block unit case was stopped after 186.49 s;
+the final unit suite uses bounded SSA sizes. Two SIMD decode benchmark attempts
+separately hit their 90 s process limit. Both records remain in the
+{download}`LLM investigation
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260907-llm-coverage/notes.md>`;
+smaller passing tests do not certify large Tile compilation scalability.
 
 Additional XIR tests cover transposed/ragged GEMM, nonzero accumulators, two
 changed non-dyadic input sets, loop-carried swaps, zero-trip loops, view

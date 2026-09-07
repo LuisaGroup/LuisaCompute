@@ -80,6 +80,116 @@ general affine output layouts, fusion partitioning and cross-device
 profitability remain open; this result does not close the MPS/GEMM or
 direct-XIR/SIMD gaps.
 
+### Partitioned outputs remove the RoPE mapping fallback
+
+The September 7 common-LLM benchmark exposes a remaining admission boundary:
+two output loops writing **disjoint regions of the same buffer** were rejected
+by pointwise fusion. Split-half RoPE consequently ran one entire row per
+worker, with four half-row private arrays. The
+[general address-range proof](../../internals/tile/lowering.md#automatic-gpu-pointwise-graphs)
+now admits separated regions using independent local-coordinate tuples.
+It does not recognize RoPE, change its capture, fit costs, or add a DSL op.
+Overlapping writes and unknown separation retain the reference realization.
+
+Six rounds cover every ordering of a frozen pre-change compiler, the candidate
+and eager Torch; five samples use 20 ms windows and 100 ms warmup. All **144
+complete outputs** pass FP64 checks across four RoPE and four SwiGLU shapes.
+Native outputs additionally have two complete C++ oracle/guard checks. These
+are FP32, supplied split-half sine/cosine tables, no autograd, and device-
+resident inputs. Torch RoPE uses six preallocated eager out operations, not
+a compiled/fused model kernel. CPU/SIMD is not improved by this TIRx change.
+
+```{table} Split-half RoPE, M1 Max, no-counter GPU batch µs/op
+:class: benchmark-table
+
+| Rows×width | Old Tile | New Tile | Torch | New/old, paired | New/Torch, paired |
+|---|---:|---:|---:|---:|---:|
+| 1×128 | 18.336 | 2.277 | 13.348 | 0.1231× | 0.1578× |
+| 37×1538 | 1385.836 | 5.212 | 39.913 | 0.00375× | 0.1290× |
+| 1024×4096 | 2332.648 | 104.867 | 363.436 | 0.04467× | 0.2899× |
+| 4096×4096 | 9466.156 | 570.646 | 1782.299 | 0.06084× | 0.3191× |
+```
+
+Every RoPE GPU/E2E batch pair improves against both references. The enormous
+small/ragged old/new ratio repairs an underfilled, whole-row realization; it is
+not a claim that RoPE mathematics became hundreds of times cheaper. Large
+shapes also improve. Single-call E2E new/Torch median ratios are 0.851, 0.746,
+0.581 and 0.395, with one slower 37×1538 round. GPU controls include command-
+buffer work and gaps; they are **not isolated kernel timers**.
+
+SwiGLU is a single-output control: all four old/new Metal sources are byte-
+identical. Its measured GPU new/Torch ratios are 0.553, 0.536, 0.486 and 0.593
+for 1×127, 37×1537, 1024×4096 and 4096×4096, respectively. Torch uses
+preallocated `aten.silu.out` followed by `mul.out`. This is existing fusion
+performance, **not a gain from this patch**. Tiny SwiGLU loses four of six
+single-call E2E pairs, and 1024×4096 loses one. An earlier two-round screen
+also reversed the small 37×1537 GPU result; desktop microsecond-scale results
+remain sensitive to run conditions, not population confidence intervals.
+
+The {download}`LLM evidence and limitations
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260907-llm-coverage/notes.md>`
+retain all timing views, source identities, unsuccessful attention/SIMD
+measurements and the independent audit. This checkpoint does not establish
+general attention, MPSGraph, low-precision or direct-SIMD parity.
+
+### Attention and direct SIMD still need richer execution mappings
+
+The same shared captures also expose **negative** performance results. Two-
+order, three-sample Metal pilots use the default backend planner, with fixed
+attention blocks selected before timing. Full FP64 output validation passes,
+but no cooperative group plan is selected: the prefill launch has only 32
+workers, decode eight, each retaining whole-program private Tiles and scalar
+MMA/reduction loops. The sources contain neither cooperative matrix nor
+subgroup reduction calls. This establishes a missing realization family,
+not a small scheduling-coefficient error or a measured decomposition of every
+cycle. These pilots are not an exhaustive search for the best legal block.
+
+```{table} FP32 causal GQA, M1 Max, no-counter GPU batch timings
+:class: benchmark-table
+
+| B,Hq,Hkv,Q,K,D,Dv | Query×key block | Tile µs | Torch SDPA µs | Tile/Torch, paired |
+|---|---:|---:|---:|---:|
+| 1,4,2,64,128,64,64 | 8×16 | 6322.927 | 49.913 | 126.690× |
+| 1,8,2,1,2048,64,64 | 1×32 | 48361.646 | 36.770 | 1315.769× |
+```
+
+Torch uses functional SDPA with an explicit bottom-right-aligned causal mask,
+GQA enabled, and output allocation included. The Tile programs use an online
+softmax recurrence and noalias output. This is neither a KV-paging benchmark
+nor end-to-end model inference. A tiny 24-element attention output won an
+earlier screen; it plainly did not predict these larger results.
+
+Direct XIR/SIMD also remains slower. The following independent two-order
+screen uses eight requested CPU workers and packet width eight. Times are
+warm **E2E**, not GPU timings or isolated CPU kernel times. All 24 native/Torch
+outputs pass; every native/Torch batch pair loses.
+
+| Operator / rows×width | XIR/SIMD µs | Torch CPU µs | XIR/Torch, paired |
+|---|---:|---:|---:|
+| SwiGLU / 1024×256 | 411.271 | 172.352 | 2.385× |
+| RoPE / 1024×256 | 323.266 | 265.211 | 1.219× |
+| RMSNorm / 64×256 | 226.631 | 13.859 | 16.352× |
+| LayerNorm / 64×256 | 399.877 | 47.398 | 8.437× |
+| GELU+residual / 64×256 | 120.551 | 74.129 | 1.626× |
+| Masked softmax / 64×256 | 258.099 | 64.340 | 4.017× |
+
+SwiGLU/RoPE preallocate all Torch outputs; the other four use functional
+expressions with temporary/output allocation included. These are direct
+XIR results, **not TIRx→Accelerate results**. A separate decode case
+`(1,4,2,1,128,64,64)` failed to finish two native attempts within 90 s before
+source export; both failures remain in the matrix, alongside Torch timings.
+Static expansion of whole Tiles and mapping packets across programs remain
+visible structural limits; this experiment does not isolate their individual
+runtime cost from dispatch, vector math and scheduling overhead.
+
+Next work must add legal composed MMA/reduction recurrences on Metal and
+bounded, contiguous Tile-element distribution on XIR before fitting their
+costs. Singleton/batch axes, online loop carries and storage ownership must
+survive those transformations. A per-operator name table or smaller test
+dimensions would not establish that capability. Raw samples, generated
+sources, compiler hashes and timeout records are in the
+{download}`LLM evidence <../../../../scripts/benchmark/tile_torch/results/m1-max-20260907-llm-coverage/notes.md>`.
+
 ### Metal subgroup reductions close the measured normalization defect
 
 The [lowering reference](../../internals/tile/reductions.md)

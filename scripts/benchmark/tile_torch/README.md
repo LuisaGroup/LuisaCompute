@@ -81,6 +81,42 @@ Latest M1 Max evidence: [shape-held-out service policy, including small-case reg
 and [actual PyTorch dispatch / Xcode profiling](results/m1-max-20260903-profile.md).
 The reports include unsuccessful tuning choices and remaining library gaps.
 
+## Common LLM captures across SIMD and Metal
+
+`compare_llm.py` reuses the unit tests' Tile kernels, exports the exact native
+inputs for Torch, checks every output against an independent FP64 formula,
+and retains failures rather than omitting unsupported/slow shapes. It first
+builds the complete selected configuration. Use `benchmark_tile_xir` for CPU
+XIR/SIMD or the `llm` mode of `benchmark_tile_native` for **TIRx/Metal** through
+Luisa Runtime; the latter is not the restricted native-MPP matrix emitter.
+
+```bash
+uv run --no-project --python 3.13 --with numpy --with torch \
+  python scripts/benchmark/tile_torch/compare_llm.py \
+  --native BUILD/bin/benchmark_tile_native --build-dir BUILD --backend metal \
+  --case swiglu:1024,4096 --case rope:4096,4096 \
+  --metal-device-timing BUILD/bin/libluisa-benchmark-metal-timing.dylib \
+  --rounds 4 --samples 5 --sample-ms 30 --warmup-ms 100 \
+  --output NEW_EMPTY_DIRECTORY
+```
+
+`--case attention:B,Hq,Hkv,Q,K,D,Dv --attention-block BQ BK` measures the same
+online causal/GQA recurrence. Queries occupy the last Q KV positions; the
+Torch SDPA reference therefore uses an explicit bottom-right-aligned mask.
+SwiGLU and RoPE preallocate Torch intermediates/output. Norm, residual-GELU,
+masked softmax and SDPA use functional eager APIs with their allocations
+inside timing. They are not compiled/fused Torch baselines.
+
+`--baseline FROZEN/bin/benchmark_tile_native --rounds 6` balances all six
+orders of old/new/Torch. Freeze all adjacent Luisa libraries together; the
+driver prepends that directory to the baseline process's loader path. Pass
+the actual external compiler libraries with repeated `--compiler-artifact`.
+Host batch/single-call timings and separate instrumented/uninstrumented GPU
+phases retain their different meanings. Large tensor exports are temporary;
+JSON records their SHA256 and complete validation, and retains generated
+source and process logs. No timing selects a schedule. See
+[the first LLM coverage and partitioned-output replay](results/m1-max-20260907-llm-coverage/notes.md).
+
 ## Direct XIR/SIMD planner comparison
 
 `compare_xir.py` is the independent CPU pilot for the direct

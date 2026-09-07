@@ -261,16 +261,22 @@ equality nor the `parallel` contract alone establishes that ownership.
 The current admission proof is deliberately bounded:
 
 - Parameters have the checked `noalias` contract; each written global buffer
-  has exactly one syntactic store and is never read or escaped by this graph.
+  is never read or escaped by this graph.
 - Output buffers have supported compact address maps; producer and consumer
   domains have the same static rectangular rank/extents. Conditional output
   stores are allowed, conditional shared producers are not.
 - Shared definitions are compiler-owned pure Tiles. Unknown effects, manual
   resource/layout constraints, a different domain, pipeline boundaries and
   explicit execution bindings retain their original realization.
-- Two stores to the same buffer retain the reference path even if a future
-  disjointness analysis could prove them safe. Cross-domain RAW/WAR/WAW
-  dependencies cannot be erased by assigning the same shape to both domains.
+- Multiple stores to one compact buffer require pairwise separation of their
+  linear address ranges. Each proof uses two **independent** local-coordinate
+  tuples and the same logical program coordinate. Checking only equal local
+  coordinates would miss overlapping, shifted output loops. In-bounds static
+  coordinates bound linearization in int64; predicate-sensitive bounds and
+  unknown separation retain the original loops. Either source order is legal.
+  Cross-domain RAW/WAR/WAW dependencies cannot be erased by assigning the same
+  shape to both domains. This admits partitioned outputs such as split-half
+  rotations without recognizing RoPE or changing the DSL.
 
 The mapper emits worker-local scalar storage and a bijective flat launch;
 the existing bounded thread policy supplies its width. Plans record

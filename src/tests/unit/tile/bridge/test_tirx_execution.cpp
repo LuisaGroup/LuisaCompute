@@ -359,6 +359,53 @@ void test_element_grid_multiple_outputs(Runtime &runtime) {
     }
 }
 
+void test_element_grid_partitioned_output(Runtime &runtime) {
+    // Independent local coordinates, nonzero output offsets, reversed source
+    // order, touching intervals, and overlapping/identical negative controls.
+    for (auto width : {1, 7, 32, 65}) {
+        for (auto partition = 0u; partition < 4u; partition++) {
+            for (auto mode = 0u; mode < 4u; mode++) {
+                constexpr int64_t rows = 3;
+                auto first_offset = partition == 1u ? width : 0;
+                auto second_offset = partition == 0u ? width : partition == 2u ? width - 1 :
+                                                                                 0;
+                auto scope = mode == 2u ? exec::Scope::WORKER : exec::Scope::AUTOMATIC;
+                auto definition = tile_kernel("partitioned_output", [=](TensorView<const float, 2> X, TensorView<float, 2> Y) {
+                    auto r = axis("r", 1), c = axis("c", width);
+                    for (auto &nest : parallel(shape(rows), scope)) {
+                        auto x = X.tile(coord(nest.index(), 0), shape(r, c)).load();
+                        Y(coord(nest.index(), first_offset), shape(r, c)).store(x * 2.0f);
+                        Y(coord(nest.index(), second_offset), shape(r, c)).store(x + 3.0f);
+                    }
+                });
+                auto kernel = definition.capture(tensor_shape(rows, width), tensor_shape(rows, 2 * width));
+                PlannerOptions planner;
+                planner.fuse_gpu_elementwise = mode != 1u;
+                auto executable = runtime.build(kernel, mode != 3u, false, true, false, planner);
+                expect(executable.ok()) << executable.error;
+                if (!executable.ok()) { continue; }
+                auto fused = runtime.target() == "metal" && mode == 0u && partition < 2u;
+                expect(eq(executable.plans.size(), fused ? size_t{1u} : size_t{0u})) << "partition=" << partition << " mode=" << mode;
+                if (fused) {
+                    auto source = metal_source(executable.module.value());
+                    expect(source.find("thread float tile_storage_") == std::string::npos);
+                }
+                luisa::vector<float> values(rows * width), expected(rows * 2 * width, -19.0f);
+                for (auto i = size_t{0}; i < values.size(); i++) { values[i] = static_cast<float>(i) * .125f - 1.0f; }
+                for (auto row = 0; row < rows; row++) {
+                    for (auto c = 0; c < width; c++) { expected[row * 2 * width + first_offset + c] = values[row * width + c] * 2.0f; }
+                    for (auto c = 0; c < width; c++) { expected[row * 2 * width + second_offset + c] = values[row * width + c] + 3.0f; }
+                }
+                auto x = runtime.upload<float>({rows, width}, values);
+                auto y = runtime.upload<float>({rows, 2 * width}, luisa::vector<float>(expected.size(), -19.0f));
+                (*executable.entry)(x, y);
+                auto actual = runtime.download<float>(y, expected.size());
+                for (auto i = 0u; i < expected.size(); i++) { expect(eq(actual[i], expected[i])); }
+            }
+        }
+    }
+}
+
 enum class ElementChainCase { POINTWISE,
                               NEIGHBOR,
                               TRANSPOSE,
@@ -2195,6 +2242,7 @@ int main(int argc, char *argv[]) {
     "tile_execution_element_grid_snapshot"_test = [&] { test_element_grid_retains_snapshot(runtime); };
     "tile_execution_element_grid_shared_producers"_test = [&] { test_element_grid_shared_producers(runtime); };
     "tile_execution_element_grid_multiple_outputs"_test = [&] { test_element_grid_multiple_outputs(runtime); };
+    "tile_execution_element_grid_partitioned_output"_test = [&] { test_element_grid_partitioned_output(runtime); };
     "tile_execution_element_grid_output_dependencies"_test = [&] { test_element_grid_output_dependencies(runtime); };
     "tile_execution_element_grid_exact_reduction"_test = [&] { test_element_grid_respects_exact_reduction(runtime); };
     "tile_execution_element_grid_producer_contract"_test = [&] { test_element_grid_producer_contract(runtime); };
