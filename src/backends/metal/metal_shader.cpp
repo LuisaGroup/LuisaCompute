@@ -22,11 +22,15 @@ MetalShader::MetalShader(MetalDevice *device,
                          size_t source_size_bytes,
                          size_t source_line_count,
                          double codegen_ms,
-                         double compile_ms) noexcept
+                         double compile_ms,
+                         MetalShaderBinding binding,
+                         luisa::vector<uint32_t> buffer_arguments) noexcept
     : _handle{std::move(handle)},
       _argument_usages{std::move(argument_usages)},
       _argument_sampled{std::move(argument_sampled)},
       _bound_arguments{std::move(bound_arguments)},
+      _binding{binding},
+      _buffer_arguments{std::move(buffer_arguments)},
       _block_size{block_size.x, block_size.y, block_size.z},
       _source_checksum{source_checksum},
       _source_size_bytes{source_size_bytes},
@@ -99,6 +103,44 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
     if (profile_command_buffer) {
         std::scoped_lock lock{_name_mutex};
         if (_name) { encoder.command_buffer()->setLabel(_name); }
+    }
+
+    if (_binding == MetalShaderBinding::DIRECT_BUFFERS) {
+        LUISA_ASSERT(!command->is_indirect() && !command->is_multiple_dispatch(),
+                     "Direct-buffer Tile shaders require a single static dispatch.");
+        auto args = command->arguments();
+        LUISA_ASSERT(args.size() == _argument_usages.size() && _bound_arguments.empty() && !_printer,
+                     "Direct-buffer Tile shader ABI mismatch.");
+        auto size = command->dispatch_size();
+        if (any(size == 0u)) { return; }
+        auto compute_encoder = encoder.command_buffer()->computeCommandEncoder(MTL::DispatchTypeConcurrent);
+        {
+            std::scoped_lock lock{_name_mutex};
+            if (_name) { compute_encoder->setLabel(_name); }
+        }
+        compute_encoder->setComputePipelineState(_handle.entry.get());
+        for (auto slot = size_t{0u}; slot < _buffer_arguments.size(); slot++) {
+            auto index = _buffer_arguments[slot];
+            LUISA_ASSERT(index < args.size() && args[index].tag == Argument::Tag::BUFFER,
+                         "Direct-buffer Tile shader expects buffer arguments.");
+            auto &arg = args[index].buffer;
+            auto base = reinterpret_cast<const MetalBufferBase *>(arg.handle);
+            LUISA_ASSERT(!base->is_indirect(), "Dispatch buffers are not Tile tensor arguments.");
+            auto buffer = static_cast<const MetalBuffer *>(base)->handle();
+            LUISA_ASSERT(arg.offset <= buffer->length() && arg.size <= buffer->length() - arg.offset,
+                         "Direct-buffer Tile argument range exceeds its resource.");
+            compute_encoder->setBuffer(buffer, arg.offset, slot);
+            auto usage = 0u;
+            if (to_underlying(_argument_usages[index]) & to_underlying(Usage::READ)) { usage |= MTL::ResourceUsageRead; }
+            if (to_underlying(_argument_usages[index]) & to_underlying(Usage::WRITE)) { usage |= MTL::ResourceUsageWrite; }
+            if (usage != 0u) { compute_encoder->useResource(buffer, usage); }
+        }
+        auto block = make_uint3(_block_size[0], _block_size[1], _block_size[2]);
+        LUISA_ASSERT(all(size % block == 0u), "Device artifact requires complete threadgroups.");
+        auto grid = size / block;
+        compute_encoder->dispatchThreadgroups(MTL::Size{grid.x, grid.y, grid.z}, MTL::Size{block.x, block.y, block.z});
+        compute_encoder->endEncoding();
+        return;
     }
 
     static constexpr auto argument_buffer_size = 65536u;

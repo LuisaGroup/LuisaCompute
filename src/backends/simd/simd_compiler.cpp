@@ -270,7 +270,7 @@ SIMDCompiledKernel compile_simd_kernel(
     bool enable_lane_affine_buffer, bool capture_assembly,
     uint32_t dispatch_worker_count,
     bool enable_packet_batch_entry,
-    bool enable_block_batch_entry) {
+    bool enable_block_batch_entry, bool capture_ir) {
     SIMDCompiledKernel result{
         .warp_width = warp_width,
     };
@@ -920,10 +920,12 @@ SIMDCompiledKernel compile_simd_kernel(
             llvm_result.block_batch_entry->getName().str();
     result.jit = std::move(jit);
     result.target_triple = result.jit->target_triple();
-    if (capture_assembly) {
+    if (capture_assembly || capture_ir) {
         ::llvm::raw_string_ostream llvm_ir_stream{result.llvm_ir};
         module->print(llvm_ir_stream, nullptr);
         llvm_ir_stream.flush();
+    }
+    if (capture_assembly) {
         result.assembly = result.jit->emit_assembly_copy(*module);
         if (result.assembly.empty()) {
             result.diagnostics.emplace_back(result.jit->error());

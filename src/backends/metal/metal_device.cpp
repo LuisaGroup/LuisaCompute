@@ -775,7 +775,6 @@ void MetalDevice::set_name(luisa::compute::Resource::Tag resource_tag,
             case Resource::Tag::SPARSE_BUFFER_HEAP: break;
             case Resource::Tag::SPARSE_TEXTURE_HEAP: break;
             case Resource::Tag::MOTION_INSTANCE: break;
-            case Resource::Tag::TENSOR_GRAPH: break;
         }
     });
 }

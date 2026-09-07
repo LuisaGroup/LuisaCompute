@@ -1,0 +1,182 @@
+{
+  "status": "pass",
+  "negative_audits": 5,
+  "cohorts": {
+    "prefill": {
+      "valid_outputs": 18,
+      "output_elements": 294912,
+      "metrics": {
+        "throughput_us_p50": {
+          "median_us": {
+            "native": 100.0870912385,
+            "baseline": 7703.6251666650005,
+            "torch": 52.87669796676493
+          },
+          "paired_native_over_torch_median": 1.8852374900224693,
+          "min_ratio": 1.6979818561237998,
+          "max_ratio": 2.0369526717441953,
+          "slower_rounds": 6,
+          "baseline_comparison": {
+            "paired_native_over_baseline_median": 0.012938020269726395,
+            "min_ratio": 0.012309393769813803,
+            "max_ratio": 0.013514166423264591,
+            "slower_rounds": 0
+          }
+        },
+        "latency_us_p50": {
+          "median_us": {
+            "native": 416.66650000000004,
+            "baseline": 8597.0415,
+            "torch": 475.6665
+          },
+          "paired_native_over_torch_median": 0.8986059687925279,
+          "min_ratio": 0.8070578226337473,
+          "max_ratio": 1.17633853957428,
+          "slower_rounds": 1,
+          "baseline_comparison": {
+            "paired_native_over_baseline_median": 0.047747358018462846,
+            "min_ratio": 0.041024681074574826,
+            "max_ratio": 0.06432289728443315,
+            "slower_rounds": 0
+          }
+        },
+        "gpu_control_throughput_us_p50": {
+          "median_us": {
+            "native": 80.6116522653125,
+            "baseline": 7263.6041829,
+            "torch": 27.876302738150116
+          },
+          "paired_native_over_torch_median": 2.8938909530815353,
+          "min_ratio": 2.8318152103522305,
+          "max_ratio": 2.991859824528229,
+          "slower_rounds": 6,
+          "baseline_comparison": {
+            "paired_native_over_baseline_median": 0.011113405072942725,
+            "min_ratio": 0.010768174022320833,
+            "max_ratio": 0.011588043128060204,
+            "slower_rounds": 0
+          }
+        },
+        "gpu_control_latency_us_p50": {
+          "median_us": {
+            "native": 139.375042636,
+            "baseline": 7318.7291855,
+            "torch": 69.27084177732468
+          },
+          "paired_native_over_torch_median": 2.2013742842440522,
+          "min_ratio": 1.1767255841336552,
+          "max_ratio": 2.9543900398203418,
+          "slower_rounds": 6,
+          "baseline_comparison": {
+            "paired_native_over_baseline_median": 0.019035825514673622,
+            "min_ratio": 0.016262533358311328,
+            "max_ratio": 0.02171319400522199,
+            "slower_rounds": 0
+          }
+        }
+      },
+      "diagnostics": {
+        "native": {
+          "instrumented_compute_us": 97.98502343749999,
+          "counter_over_control": 1.3882706582838447
+        },
+        "baseline": {
+          "instrumented_compute_us": 7258.208333333334,
+          "counter_over_control": 1.000551610403285
+        },
+        "torch": {
+          "instrumented_compute_us": 66.98136718750001,
+          "counter_over_control": 3.931987430607712
+        }
+      }
+    },
+    "decode": {
+      "valid_outputs": 18,
+      "output_elements": 9216,
+      "metrics": {
+        "throughput_us_p50": {
+          "median_us": {
+            "native": 335.3817301285,
+            "baseline": 48259.6665,
+            "torch": 42.57926673044017
+          },
+          "paired_native_over_torch_median": 7.867415116046507,
+          "min_ratio": 7.180206559383184,
+          "max_ratio": 8.390021247851305,
+          "slower_rounds": 6,
+          "baseline_comparison": {
+            "paired_native_over_baseline_median": 0.006936254368742728,
+            "min_ratio": 0.0068831435206705505,
+            "max_ratio": 0.007039686568162671,
+            "slower_rounds": 0
+          }
+        },
+        "latency_us_p50": {
+          "median_us": {
+            "native": 574.167,
+            "baseline": 48230.8955,
+            "torch": 297.375
+          },
+          "paired_native_over_torch_median": 1.922381063339315,
+          "min_ratio": 1.5957680960548883,
+          "max_ratio": 2.0134071689023605,
+          "slower_rounds": 6,
+          "baseline_comparison": {
+            "paired_native_over_baseline_median": 0.011939340845194657,
+            "min_ratio": 0.0116179957614169,
+            "max_ratio": 0.012109049717861583,
+            "slower_rounds": 0
+          }
+        },
+        "gpu_control_throughput_us_p50": {
+          "median_us": {
+            "native": 327.8745795516803,
+            "baseline": 47977.7708533,
+            "torch": 32.34830819565104
+          },
+          "paired_native_over_torch_median": 10.13232556463181,
+          "min_ratio": 4.974106471937236,
+          "max_ratio": 10.56416838211677,
+          "slower_rounds": 6,
+          "baseline_comparison": {
+            "paired_native_over_baseline_median": 0.00683002538139138,
+            "min_ratio": 0.006819454512751559,
+            "max_ratio": 0.006846064057558543,
+            "slower_rounds": 0
+          }
+        },
+        "gpu_control_latency_us_p50": {
+          "median_us": {
+            "native": 331.56247809499996,
+            "baseline": 47982.85418655,
+            "torch": 45.18748028203845
+          },
+          "paired_native_over_torch_median": 7.346220648647406,
+          "min_ratio": 4.43205608389032,
+          "max_ratio": 8.844522228310012,
+          "slower_rounds": 6,
+          "baseline_comparison": {
+            "paired_native_over_baseline_median": 0.006919442852194218,
+            "min_ratio": 0.006810339198344472,
+            "max_ratio": 0.006934993775299011,
+            "slower_rounds": 0
+          }
+        }
+      },
+      "diagnostics": {
+        "native": {
+          "instrumented_compute_us": 331.51545689655177,
+          "counter_over_control": 1.1011544235893334
+        },
+        "baseline": {
+          "instrumented_compute_us": 48021.625,
+          "counter_over_control": 0.9992493258155701
+        },
+        "torch": {
+          "instrumented_compute_us": 41.118453125,
+          "counter_over_control": 1.7594819729655535
+        }
+      }
+    }
+  }
+}

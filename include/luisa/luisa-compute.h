@@ -53,6 +53,8 @@
 #include <luisa/core/string_scratch.h>
 #include <luisa/core/thread_safety.h>
 
+#include <luisa/tile.h>
+
 #ifdef LUISA_ENABLE_DSL
 #include <luisa/dsl/arg.h>
 #include <luisa/dsl/atomic.h>

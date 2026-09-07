@@ -1301,48 +1301,6 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL_SAMPLER: [[fallthrough]];
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_SAMPLER: [[fallthrough]];
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER: [[fallthrough]];
-        case CallOp::TENSOR_COPY: _scratch << "lc_tensor_copy"; break;
-        case CallOp::TENSOR_FILL: _scratch << "lc_tensor_fill"; break;
-        case CallOp::TENSOR_CAST: _scratch << "lc_tensor_cast"; break;
-        case CallOp::TENSOR_PERMUTE: _scratch << "lc_tensor_permute"; break;
-        case CallOp::TENSOR_CONCAT: _scratch << "lc_tensor_concat"; break;
-        case CallOp::TENSOR_PAD: _scratch << "lc_tensor_pad"; break;
-        case CallOp::TENSOR_NEG: _scratch << "lc_tensor_neg"; break;
-        case CallOp::TENSOR_ABS: _scratch << "lc_tensor_abs"; break;
-        case CallOp::TENSOR_EXP: _scratch << "lc_tensor_exp"; break;
-        case CallOp::TENSOR_LOG: _scratch << "lc_tensor_log"; break;
-        case CallOp::TENSOR_SQRT: _scratch << "lc_tensor_sqrt"; break;
-        case CallOp::TENSOR_RSQRT: _scratch << "lc_tensor_rsqrt"; break;
-        case CallOp::TENSOR_SIN: _scratch << "lc_tensor_sin"; break;
-        case CallOp::TENSOR_COS: _scratch << "lc_tensor_cos"; break;
-        case CallOp::TENSOR_TAN: _scratch << "lc_tensor_tan"; break;
-        case CallOp::TENSOR_TANH: _scratch << "lc_tensor_tanh"; break;
-        case CallOp::TENSOR_SIGMOID: _scratch << "lc_tensor_sigmoid"; break;
-        case CallOp::TENSOR_GELU: _scratch << "lc_tensor_gelu"; break;
-        case CallOp::TENSOR_RELU: _scratch << "lc_tensor_relu"; break;
-        case CallOp::TENSOR_LEAKY_RELU: _scratch << "lc_tensor_leaky_relu"; break;
-        case CallOp::TENSOR_ERF: _scratch << "lc_tensor_erf"; break;
-        case CallOp::TENSOR_CEIL: _scratch << "lc_tensor_ceil"; break;
-        case CallOp::TENSOR_FLOOR: _scratch << "lc_tensor_floor"; break;
-        case CallOp::TENSOR_ROUND: _scratch << "lc_tensor_round"; break;
-        case CallOp::TENSOR_ISNAN: _scratch << "lc_tensor_isnan"; break;
-        case CallOp::TENSOR_ISINF: _scratch << "lc_tensor_isinf"; break;
-        case CallOp::TENSOR_ADD: _scratch << "lc_tensor_add"; break;
-        case CallOp::TENSOR_SUB: _scratch << "lc_tensor_sub"; break;
-        case CallOp::TENSOR_MUL: _scratch << "lc_tensor_mul"; break;
-        case CallOp::TENSOR_DIV: _scratch << "lc_tensor_div"; break;
-        case CallOp::TENSOR_POW: _scratch << "lc_tensor_pow"; break;
-        case CallOp::TENSOR_MIN: _scratch << "lc_tensor_min"; break;
-        case CallOp::TENSOR_MAX: _scratch << "lc_tensor_max"; break;
-        case CallOp::TENSOR_CLAMP: _scratch << "lc_tensor_clamp"; break;
-        case CallOp::TENSOR_FMA: _scratch << "lc_tensor_fma"; break;
-        case CallOp::TENSOR_REDUCE_SUM: _scratch << "lc_tensor_reduce_sum"; break;
-        case CallOp::TENSOR_REDUCE_MAX: _scratch << "lc_tensor_reduce_max"; break;
-        case CallOp::TENSOR_REDUCE_MIN: _scratch << "lc_tensor_reduce_min"; break;
-        case CallOp::TENSOR_CUMSUM: _scratch << "lc_tensor_cumsum"; break;
-        case CallOp::TENSOR_MATMUL: _scratch << "lc_tensor_matmul"; break;
-        case CallOp::TENSOR_BATCH_MATMUL: _scratch << "lc_tensor_batch_matmul"; break;
-        case CallOp::TENSOR_CONTRACT: _scratch << "lc_tensor_contract"; break;
         case CallOp::ASYNC_COPY: {
             // Emit: lc_pipeline_memcpy_async(&dst, (void*)src, num * elem_bytes)
             // AST args: [scope, dst_lvalue, src_addr, elem_bytes, num, stride, event]

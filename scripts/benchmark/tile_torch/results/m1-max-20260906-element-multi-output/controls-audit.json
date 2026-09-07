@@ -1,0 +1,113 @@
+{
+  "passed": true,
+  "control_graph_runs": 32,
+  "native_and_torch_outputs": 64,
+  "artifacts_unchanged": true,
+  "artifact_count": 27,
+  "controls": [
+    {
+      "cohort": "pointwise",
+      "name": "add_37x1537",
+      "raw_identical": true
+    },
+    {
+      "cohort": "pointwise",
+      "name": "add_1024x4096",
+      "raw_identical": true
+    },
+    {
+      "cohort": "pointwise",
+      "name": "gelu_add_37x1537",
+      "raw_identical": true
+    },
+    {
+      "cohort": "pointwise",
+      "name": "gelu_add_1024x4096",
+      "raw_identical": true
+    },
+    {
+      "cohort": "reductions",
+      "name": "softmax_37x1537",
+      "raw_identical": true
+    },
+    {
+      "cohort": "reductions",
+      "name": "softmax_1024x4096",
+      "raw_identical": true
+    },
+    {
+      "cohort": "reductions",
+      "name": "rmsnorm_37x1537",
+      "raw_identical": true
+    },
+    {
+      "cohort": "reductions",
+      "name": "rmsnorm_1024x4096",
+      "raw_identical": true
+    },
+    {
+      "cohort": "reductions",
+      "name": "layernorm_37x1537",
+      "raw_identical": true
+    },
+    {
+      "cohort": "reductions",
+      "name": "layernorm_1024x4096",
+      "raw_identical": true
+    },
+    {
+      "cohort": "cpu",
+      "name": "sigmoid_pair_1x127",
+      "raw_identical": false,
+      "tbaa_alpha_equivalent": true,
+      "unique_object_labels": 5,
+      "canonical_sha256": "0557135a37c440aebed10b99aa989145a9337e232530c818f9b342e62484b06c"
+    },
+    {
+      "cohort": "cpu",
+      "name": "sigmoid_pair_37x1537",
+      "raw_identical": false,
+      "tbaa_alpha_equivalent": true,
+      "unique_object_labels": 5,
+      "canonical_sha256": "bcff6a8a2fac1ced15ee6b647171196d765b7a4560b38938efaec62f01d4fff8"
+    },
+    {
+      "cohort": "cpu",
+      "name": "gelu_pair_1x127",
+      "raw_identical": false,
+      "tbaa_alpha_equivalent": true,
+      "unique_object_labels": 5,
+      "canonical_sha256": "76a0d8fb647a163d035d91625476fc5d139dc6bb2fbfef8d083daec5a9ee6ffe"
+    },
+    {
+      "cohort": "cpu",
+      "name": "gelu_pair_37x1537",
+      "raw_identical": false,
+      "tbaa_alpha_equivalent": true,
+      "unique_object_labels": 5,
+      "canonical_sha256": "0895d9c8552367ee4946a5d67eaa93fa4b1c9fb5179229d25955d8fc05bc6eeb"
+    },
+    {
+      "cohort": "large-old",
+      "name": "sigmoid_pair_1024x4096",
+      "raw_identical": true
+    },
+    {
+      "cohort": "large-old",
+      "name": "sigmoid_pair_4096x4096",
+      "raw_identical": true
+    },
+    {
+      "cohort": "large-old",
+      "name": "gelu_pair_1024x4096",
+      "raw_identical": true
+    },
+    {
+      "cohort": "large-old",
+      "name": "gelu_pair_4096x4096",
+      "raw_identical": true
+    }
+  ],
+  "interpretation": "14 byte-identical Metal controls; 4 CPU controls equal after bijective TBAA object-label renaming only; no timing claims",
+  "original_receipt": "controls.json retains its raw-hash failure, caused by nondeterministic CPU metadata labels"
+}

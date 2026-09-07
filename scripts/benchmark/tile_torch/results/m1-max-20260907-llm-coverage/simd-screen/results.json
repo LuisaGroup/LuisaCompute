@@ -1,0 +1,945 @@
+{
+  "metadata": {
+    "timestamp": "2026-09-07T01:24:07.607895+00:00",
+    "backend": "cpu",
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "git_revision": "fc5633c8f43714d06191c0738e583392a2b4d657",
+    "torch_version": "2.14.0",
+    "torch_git_version": "08187d9e0fba026dc8217405802ab5381dc88d90",
+    "torch_config": "PyTorch built with:\n  - GCC 4.2\n  - C++ Version: 202002\n  - clang 21.0.0\n  - OpenMP 202011\n  - LAPACK is enabled (usually provided by MKL)\n  - NNPACK is enabled\n  - CPU capability usage: DEFAULT\n  - Build settings: BLAS_INFO=accelerate, BUILD_TYPE=Release, COMMIT_SHA=08187d9e0fba026dc8217405802ab5381dc88d90, CUDA_FLAGS= -DLIBCUDACXX_ENABLE_SIMPLIFIED_COMPLEX_OPERATIONS -Xfatbin -compress-all  -Wno-deprecated-gpu-targets --expt-extended-lambda -DCUB_WRAPPED_NAMESPACE=at_cuda_detail -DDISABLE_CUSPARSE_DEPRECATED -DCUDA_HAS_FP16=1 -D__CUDA_NO_HALF_OPERATORS__ -D__CUDA_NO_HALF_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__ -D__CUDA_NO_BFLOAT16_CONVERSIONS__ -DC10_NODEPRECATED, CXX_COMPILER=/usr/bin/c++, CXX_FLAGS= -fvisibility-inlines-hidden -DUSE_PTHREADPOOL -DNDEBUG -DUSE_KINETO -DUSE_PYTORCH_QNNPACK -DAT_BUILD_ARM_VEC256_WITH_SLEEF -DUSE_PYTORCH_METAL_EXPORT -DSYMBOLICATE_MOBILE_DEBUG_HANDLE -DUSE_COREML_DELEGATE -O2 -fPIC -DC10_NODEPRECATED -Wall -Wextra -Werror=return-type -Werror=non-virtual-dtor -Werror=braced-scalar-init -Werror=range-loop-construct -Werror=bool-operation -Wnarrowing -Wno-missing-field-initializers -Wno-unknown-pragmas -Wno-unused-parameter -Wno-strict-overflow -Wno-strict-aliasing -Wvla-extension -Wsuggest-override -Wnewline-eof -Winconsistent-missing-override -Winconsistent-missing-destructor-override -Wno-pass-failed -Wno-error=old-style-cast -Wconstant-conversion -Qunused-arguments -faligned-new -fno-math-errno -fno-trapping-math -Werror=format -fclang-abi-compat=17 -DUSE_MPS -Wno-missing-braces, LAPACK_INFO=accelerate, TORCH_VERSION=2.14.0, USE_CUDA=OFF, USE_CUDNN=OFF, USE_CUSPARSELT=OFF, USE_EIGEN_FOR_BLAS=ON, USE_GFLAGS=OFF, USE_GLOG=OFF, USE_GLOO=ON, USE_HIPSPARSELT=OFF, USE_MKL=OFF, USE_MKLDNN=OFF, USE_MPI=OFF, USE_NCCL=OFF, USE_NNPACK=ON, USE_OPENMP=ON, USE_ROCM=OFF, USE_ROCM_KERNEL_ASSERT=OFF, USE_XCCL=OFF, USE_XPU=OFF, \n",
+    "rounds": 2,
+    "samples": 3,
+    "sample_ms": 10,
+    "warmup_ms": 100,
+    "requested_threads": 8,
+    "removed_environment": {},
+    "artifacts_sha256": {
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir": "79ea54068a2f1b9833542ba0b8d55d378541af810e0f58cd07459255c613ab2d",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libSPIRV.16.3.0.dylib": "b7be78508871167f76051de75b6ba56b519b96492c60155e8b6453b7838f23a6",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libglslang-default-resource-limits.16.3.0.dylib": "a722bbd9db115f842367af935597674cd2a74ad73fabfac8df715a3b6cbbca9d",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libglslang.16.3.0.dylib": "f864c25ca330cb53a2d755a50a73579b61f8940829ecf35494f235d6f659ca33",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-ast.dylib": "c14765aeee8490c28ae0ae7a47d5a5d4f871f00e86f1ab02bbc76e23efe4e49c",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-backend-metal.so": "47854e8f41730b6e147313759180de743fb796d5435c2983bcf15499e9de6306",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-backend-simd.so": "c96c0e3c2645d33030dbd1ed877cb7d69811a42ee64fbce4bc3c50b9e94b27c9",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-benchmark-metal-timing.dylib": "01fc5fde7cf4fc531b6a96b0223f98965741652cf4068477f1691fee2aa60ef1",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-core.dylib": "dde51f1ec8a0816aa2caa5575a7354ecd4d70fad4717cdbdeddccef40cc6caa1",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-coro.dylib": "09310d529e2b780a83b23d3624b0f5b53828d914f49644985e19d1f1174dced0",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-dsl.dylib": "9281e93f08720f798b7cc282bbb72dc845a42efac08b7be287856d7c7b99025d",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-osl.dylib": "a9d317aad4a4138783e09944c6bf114351b2590b52d70f6a37cdd01b8451ba53",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-runtime.dylib": "c029a94ad23c52f32a802262be7d9a2da99b106a46c0021ba2214e2c15b263b1",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-tile-bridge-tirx.dylib": "3673e8b031090a680c8d8a471d30395c987692c5e3546bda593fb5767b02155b",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-tile-bridge-xir.dylib": "86a4f5d2e0029ffa4315763a1153ba64117ff5e09325e0df48bae1a77c738815",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-tile.dylib": "4b0b3cec0d41b3d36682b77b21743dbc95ee83f7926474a662ecf3a291664947",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-validation-layer.so": "1623432c278c2a9bbaeab4c0328cd572f4eadc03dff34a6288a9bcc5427aefa3",
+      "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-xir.dylib": "44851a00ea7e2d7d55cc986f07eb62f2699aefb4f14e299d2478683ad86bf0a6"
+    },
+    "source_sha256": {
+      "src/tests/common/tile_llm_test_utils.h": "9c3221cc0d4bf201cd5f0d85091a859d4fa8e967b77d6993ae9ca088bfd04b5d",
+      "src/tests/common/tile_llm_benchmark.h": "bd80ff54b2d9697821ea95aa10a690f8053c1c43b0f66f5f24aa7a897aa00e8e",
+      "scripts/benchmark/tile_torch/compare_llm.py": "d414220810552cf6cb46243e597e031cb9d003ed4f68f519f15d92ccd116ddd9",
+      "scripts/benchmark/tile_torch/run.py": "d3552ac3b6723caa5694bed3c287b4f9ef2ea617e944ec00787a46181bec2389"
+    },
+    "comparison": "FP32 same exported inputs; warmed E2E excludes compile/upload; GPU control uses uninstrumented command-buffer intervals, not isolated kernel time",
+    "selection": "fixed capture; backend default planner; no timing-based tuning",
+    "artifacts_unchanged": true
+  },
+  "results": [
+    {
+      "operation": "swiglu",
+      "dimensions": [
+        17,
+        257
+      ],
+      "round": 0,
+      "path": "native",
+      "order": [
+        "native",
+        "torch"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "llm",
+        "swiglu",
+        "17,257",
+        "1",
+        "1",
+        "3",
+        "10",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-g56puv80/swiglu-17x257-r0-native.f32"
+      ],
+      "source": "swiglu-17x257-r0-native.ll",
+      "source_sha256": "711577c0a768adc7ecdc177a884b6cfe1f5ac8bfe1bea8b476c1b9d520e77b71",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "swiglu",
+        "dimensions": [
+          17,
+          257
+        ],
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            17,
+            257
+          ],
+          [
+            17,
+            257
+          ],
+          [
+            17,
+            257
+          ]
+        ],
+        "output_shape": [
+          17,
+          257
+        ],
+        "fixture_ms": 0.147584,
+        "runtime_init_ms": 73.72475,
+        "compile_ms": 21604.709667,
+        "allocation_upload_ms": 0.016,
+        "cold_call_ms": 0.163917,
+        "warmup_ms": 100.178708,
+        "repetitions": 230,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=1, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 6 candidates, uncalibrated cost 77999.000 (arithmetic 3855.000, memory 74016.000, dispatch 128.000, imbalance 0.000), root order [0]",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 4369,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 1.77788147537e-07
+        },
+        "throughput_us": [
+          43.4125,
+          43.8215565217,
+          44.1192043478
+        ],
+        "latency_us": [
+          46.334,
+          43.708,
+          43.667
+        ],
+        "throughput_us_p50": 43.8215565217,
+        "throughput_us_p90": 44.059674782580004,
+        "latency_us_p50": 43.708,
+        "latency_us_p90": 45.808800000000005
+      },
+      "correctness": {
+        "elements": 4369,
+        "max_abs_error": 1.7778814753732775e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "3e351265219b709f2571ea047681cf6b7e0d8f46409cdbd0704a555de632aa78",
+        "77f8f2ddf21f40dcec4f9532f488314c26a8830a7c6841bc16f2e18cc6b69201",
+        "5ddd60e8ac5b670b88806d42d3d2793a77fc163652721b52083e7384bb2907ae"
+      ],
+      "output_sha256": "b0621ca3970a93604fd2524c1db56f4771796ccbfaffdea0588c73abe1e6590d"
+    },
+    {
+      "operation": "swiglu",
+      "dimensions": [
+        17,
+        257
+      ],
+      "round": 0,
+      "path": "torch",
+      "order": [
+        "native",
+        "torch"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.018875,
+        "warmup_ms": 100.00325,
+        "repetitions": 1387,
+        "throughput_us": [
+          7.131909156452776,
+          6.958302811824081,
+          6.971130497476569
+        ],
+        "latency_us": [
+          8.125,
+          7.792000000000001,
+          7.667
+        ],
+        "throughput_us_p50": 6.971130497476569,
+        "throughput_us_p90": 7.099753424657535,
+        "latency_us_p50": 7.792000000000001,
+        "latency_us_p90": 8.0584,
+        "expression": "preallocated_aten_silu_out_then_mul_out",
+        "precision": "fp32",
+        "fast_math_policy": "torch_default",
+        "pre_timing_correctness": {
+          "elements": 4369,
+          "max_abs_error": 1.7778814753732775e-07,
+          "atol": 5e-05,
+          "rtol": 5e-05
+        }
+      },
+      "correctness": {
+        "elements": 4369,
+        "max_abs_error": 1.7778814753732775e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "3e351265219b709f2571ea047681cf6b7e0d8f46409cdbd0704a555de632aa78",
+        "77f8f2ddf21f40dcec4f9532f488314c26a8830a7c6841bc16f2e18cc6b69201",
+        "5ddd60e8ac5b670b88806d42d3d2793a77fc163652721b52083e7384bb2907ae"
+      ],
+      "output_sha256": "408528c9db9afbf66d102ee65da5f14fbda9cccab5807c49778e07a07c17f6ec"
+    },
+    {
+      "operation": "swiglu",
+      "dimensions": [
+        17,
+        257
+      ],
+      "round": 1,
+      "path": "torch",
+      "order": [
+        "torch",
+        "native"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.010042,
+        "warmup_ms": 100.052833,
+        "repetitions": 1387,
+        "throughput_us": [
+          6.905221341023792,
+          6.862743330930065,
+          6.795091564527757
+        ],
+        "latency_us": [
+          7.125,
+          7.083,
+          7.0
+        ],
+        "throughput_us_p50": 6.862743330930065,
+        "throughput_us_p90": 6.8967257390050465,
+        "latency_us_p50": 7.083,
+        "latency_us_p90": 7.1166,
+        "expression": "preallocated_aten_silu_out_then_mul_out",
+        "precision": "fp32",
+        "fast_math_policy": "torch_default",
+        "pre_timing_correctness": {
+          "elements": 4369,
+          "max_abs_error": 1.7778814753732775e-07,
+          "atol": 5e-05,
+          "rtol": 5e-05
+        }
+      },
+      "correctness": {
+        "elements": 4369,
+        "max_abs_error": 1.7778814753732775e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "3e351265219b709f2571ea047681cf6b7e0d8f46409cdbd0704a555de632aa78",
+        "77f8f2ddf21f40dcec4f9532f488314c26a8830a7c6841bc16f2e18cc6b69201",
+        "5ddd60e8ac5b670b88806d42d3d2793a77fc163652721b52083e7384bb2907ae"
+      ],
+      "output_sha256": "408528c9db9afbf66d102ee65da5f14fbda9cccab5807c49778e07a07c17f6ec"
+    },
+    {
+      "operation": "swiglu",
+      "dimensions": [
+        17,
+        257
+      ],
+      "round": 1,
+      "path": "native",
+      "order": [
+        "torch",
+        "native"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "llm",
+        "swiglu",
+        "17,257",
+        "1",
+        "1",
+        "3",
+        "10",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-g56puv80/swiglu-17x257-r1-native.f32"
+      ],
+      "source": "swiglu-17x257-r1-native.ll",
+      "source_sha256": "711577c0a768adc7ecdc177a884b6cfe1f5ac8bfe1bea8b476c1b9d520e77b71",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "swiglu",
+        "dimensions": [
+          17,
+          257
+        ],
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            17,
+            257
+          ],
+          [
+            17,
+            257
+          ],
+          [
+            17,
+            257
+          ]
+        ],
+        "output_shape": [
+          17,
+          257
+        ],
+        "fixture_ms": 0.120875,
+        "runtime_init_ms": 10.697375,
+        "compile_ms": 22672.725917,
+        "allocation_upload_ms": 0.023125,
+        "cold_call_ms": 0.1705,
+        "warmup_ms": 100.229709,
+        "repetitions": 230,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=1, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 6 candidates, uncalibrated cost 77999.000 (arithmetic 3855.000, memory 74016.000, dispatch 128.000, imbalance 0.000), root order [0]",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 4369,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 1.77788147537e-07
+        },
+        "throughput_us": [
+          45.4581521739,
+          46.757973913,
+          44.3864130435
+        ],
+        "latency_us": [
+          49.583,
+          47.458,
+          47.458
+        ],
+        "throughput_us_p50": 45.4581521739,
+        "throughput_us_p90": 46.49800956518,
+        "latency_us_p50": 47.458,
+        "latency_us_p90": 49.158
+      },
+      "correctness": {
+        "elements": 4369,
+        "max_abs_error": 1.7778814753732775e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "3e351265219b709f2571ea047681cf6b7e0d8f46409cdbd0704a555de632aa78",
+        "77f8f2ddf21f40dcec4f9532f488314c26a8830a7c6841bc16f2e18cc6b69201",
+        "5ddd60e8ac5b670b88806d42d3d2793a77fc163652721b52083e7384bb2907ae"
+      ],
+      "output_sha256": "b0621ca3970a93604fd2524c1db56f4771796ccbfaffdea0588c73abe1e6590d"
+    },
+    {
+      "operation": "rope",
+      "dimensions": [
+        17,
+        258
+      ],
+      "round": 0,
+      "path": "native",
+      "order": [
+        "native",
+        "torch"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "llm",
+        "rope",
+        "17,258",
+        "1",
+        "1",
+        "3",
+        "10",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-9m6_m4zd/rope-17x258-r0-native.f32"
+      ],
+      "source": "rope-17x258-r0-native.ll",
+      "source_sha256": "30ada1885a1484d333153879ab4e1f20b249f3c32edb39362191140ca3547b2a",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "rope",
+        "dimensions": [
+          17,
+          258
+        ],
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            17,
+            258
+          ],
+          [
+            17,
+            129
+          ],
+          [
+            17,
+            129
+          ]
+        ],
+        "output_shape": [
+          17,
+          258
+        ],
+        "fixture_ms": 0.122209,
+        "runtime_init_ms": 11.429291,
+        "compile_ms": 8515.739917,
+        "allocation_upload_ms": 0.077667,
+        "cold_call_ms": 0.146958,
+        "warmup_ms": 100.151667,
+        "repetitions": 296,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=1, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 6 candidates, uncalibrated cost 76754.000 (arithmetic 2322.000, memory 74304.000, dispatch 128.000, imbalance 0.000), root order [0]",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 4386,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 2.01667660349e-07
+        },
+        "throughput_us": [
+          33.792652027,
+          34.0382871622,
+          33.9632601351
+        ],
+        "latency_us": [
+          36.541,
+          35.416,
+          36.125
+        ],
+        "throughput_us_p50": 33.9632601351,
+        "throughput_us_p90": 34.02328175678,
+        "latency_us_p50": 36.125,
+        "latency_us_p90": 36.4578
+      },
+      "correctness": {
+        "elements": 4386,
+        "max_abs_error": 2.0166766034890315e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "cd55da0447838f03ff8cf34368005bca832ae2e3a6ef4a9530f83b90b63c1a17",
+        "9150908a9bc87e65d9c2da8ae15c648ef5d92c357966c9000c9888df426b01d3",
+        "331238f3e8d6aa44385ca928a9b77c02163837560e5bd2a654f0fbc9a7a52c9e"
+      ],
+      "output_sha256": "13af74ac7e64c0f9a84f786b5c3d8529db97ca521b9a7f1b7d80e2553fe8b23a"
+    },
+    {
+      "operation": "rope",
+      "dimensions": [
+        17,
+        258
+      ],
+      "round": 0,
+      "path": "torch",
+      "order": [
+        "native",
+        "torch"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.009208,
+        "warmup_ms": 100.031708,
+        "repetitions": 1558,
+        "throughput_us": [
+          5.898160462130938,
+          5.947207958921695,
+          6.051615532734274
+        ],
+        "latency_us": [
+          5.917000000000001,
+          5.792000000000001,
+          5.958
+        ],
+        "throughput_us_p50": 5.947207958921695,
+        "throughput_us_p90": 6.030734017971758,
+        "latency_us_p50": 5.917000000000001,
+        "latency_us_p90": 5.949800000000001,
+        "expression": "preallocated_split_half_rope_six_out_ops",
+        "precision": "fp32",
+        "fast_math_policy": "torch_default",
+        "pre_timing_correctness": {
+          "elements": 4386,
+          "max_abs_error": 2.0166766034890315e-07,
+          "atol": 5e-05,
+          "rtol": 5e-05
+        }
+      },
+      "correctness": {
+        "elements": 4386,
+        "max_abs_error": 2.0166766034890315e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "cd55da0447838f03ff8cf34368005bca832ae2e3a6ef4a9530f83b90b63c1a17",
+        "9150908a9bc87e65d9c2da8ae15c648ef5d92c357966c9000c9888df426b01d3",
+        "331238f3e8d6aa44385ca928a9b77c02163837560e5bd2a654f0fbc9a7a52c9e"
+      ],
+      "output_sha256": "13af74ac7e64c0f9a84f786b5c3d8529db97ca521b9a7f1b7d80e2553fe8b23a"
+    },
+    {
+      "operation": "rope",
+      "dimensions": [
+        17,
+        258
+      ],
+      "round": 1,
+      "path": "torch",
+      "order": [
+        "torch",
+        "native"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.008834,
+        "warmup_ms": 100.084,
+        "repetitions": 1651,
+        "throughput_us": [
+          5.94657298606905,
+          5.797244094488189,
+          5.927468201090249
+        ],
+        "latency_us": [
+          6.208,
+          6.083,
+          6.042
+        ],
+        "throughput_us_p50": 5.927468201090249,
+        "throughput_us_p90": 5.94275202907329,
+        "latency_us_p50": 6.083,
+        "latency_us_p90": 6.183,
+        "expression": "preallocated_split_half_rope_six_out_ops",
+        "precision": "fp32",
+        "fast_math_policy": "torch_default",
+        "pre_timing_correctness": {
+          "elements": 4386,
+          "max_abs_error": 2.0166766034890315e-07,
+          "atol": 5e-05,
+          "rtol": 5e-05
+        }
+      },
+      "correctness": {
+        "elements": 4386,
+        "max_abs_error": 2.0166766034890315e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "cd55da0447838f03ff8cf34368005bca832ae2e3a6ef4a9530f83b90b63c1a17",
+        "9150908a9bc87e65d9c2da8ae15c648ef5d92c357966c9000c9888df426b01d3",
+        "331238f3e8d6aa44385ca928a9b77c02163837560e5bd2a654f0fbc9a7a52c9e"
+      ],
+      "output_sha256": "13af74ac7e64c0f9a84f786b5c3d8529db97ca521b9a7f1b7d80e2553fe8b23a"
+    },
+    {
+      "operation": "rope",
+      "dimensions": [
+        17,
+        258
+      ],
+      "round": 1,
+      "path": "native",
+      "order": [
+        "torch",
+        "native"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "llm",
+        "rope",
+        "17,258",
+        "1",
+        "1",
+        "3",
+        "10",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-9m6_m4zd/rope-17x258-r1-native.f32"
+      ],
+      "source": "rope-17x258-r1-native.ll",
+      "source_sha256": "30ada1885a1484d333153879ab4e1f20b249f3c32edb39362191140ca3547b2a",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "rope",
+        "dimensions": [
+          17,
+          258
+        ],
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            17,
+            258
+          ],
+          [
+            17,
+            129
+          ],
+          [
+            17,
+            129
+          ]
+        ],
+        "output_shape": [
+          17,
+          258
+        ],
+        "fixture_ms": 0.108208,
+        "runtime_init_ms": 12.656334,
+        "compile_ms": 8425.609958,
+        "allocation_upload_ms": 0.009625,
+        "cold_call_ms": 0.145084,
+        "warmup_ms": 100.170459,
+        "repetitions": 298,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=1, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 6 candidates, uncalibrated cost 76754.000 (arithmetic 2322.000, memory 74304.000, dispatch 128.000, imbalance 0.000), root order [0]",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 4386,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 2.01667660349e-07
+        },
+        "throughput_us": [
+          37.463647651,
+          37.2765671141,
+          37.2174228188
+        ],
+        "latency_us": [
+          36.167,
+          33.958,
+          34.916
+        ],
+        "throughput_us_p50": 37.2765671141,
+        "throughput_us_p90": 37.42623154362,
+        "latency_us_p50": 34.916,
+        "latency_us_p90": 35.9168
+      },
+      "correctness": {
+        "elements": 4386,
+        "max_abs_error": 2.0166766034890315e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "cd55da0447838f03ff8cf34368005bca832ae2e3a6ef4a9530f83b90b63c1a17",
+        "9150908a9bc87e65d9c2da8ae15c648ef5d92c357966c9000c9888df426b01d3",
+        "331238f3e8d6aa44385ca928a9b77c02163837560e5bd2a654f0fbc9a7a52c9e"
+      ],
+      "output_sha256": "13af74ac7e64c0f9a84f786b5c3d8529db97ca521b9a7f1b7d80e2553fe8b23a"
+    },
+    {
+      "operation": "attention",
+      "dimensions": [
+        1,
+        4,
+        2,
+        1,
+        128,
+        64,
+        64
+      ],
+      "round": 0,
+      "path": "native",
+      "order": [
+        "native",
+        "torch"
+      ],
+      "valid": false,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "llm",
+        "attention",
+        "1,4,2,1,128,64,64",
+        "2",
+        "3",
+        "3",
+        "10",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-l27b6lxy/attention-1x4x2x1x128x64x64-r0-native.f32"
+      ],
+      "error": "Command '['/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir', 'llm', 'attention', '1,4,2,1,128,64,64', '2', '3', '3', '10', '100', '/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-l27b6lxy/attention-1x4x2x1x128x64x64-r0-native.f32']' timed out after 90 seconds"
+    },
+    {
+      "operation": "attention",
+      "dimensions": [
+        1,
+        4,
+        2,
+        1,
+        128,
+        64,
+        64
+      ],
+      "round": 0,
+      "path": "torch",
+      "order": [
+        "native",
+        "torch"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.115083,
+        "warmup_ms": 100.419834,
+        "repetitions": 184,
+        "throughput_us": [
+          48.40126630434782,
+          49.687722826086954,
+          49.067934782608695
+        ],
+        "latency_us": [
+          49.959,
+          47.375,
+          55.542
+        ],
+        "throughput_us_p50": 49.067934782608695,
+        "throughput_us_p90": 49.5637652173913,
+        "latency_us_p50": 49.959,
+        "latency_us_p90": 54.4254,
+        "expression": "functional_sdpa_explicit_bottom_right_causal_mask_output_allocation_included",
+        "precision": "fp32",
+        "fast_math_policy": "torch_default",
+        "pre_timing_correctness": {
+          "elements": 256,
+          "max_abs_error": 3.4817062552917194e-08,
+          "atol": 5e-05,
+          "rtol": 5e-05
+        }
+      },
+      "correctness": {
+        "elements": 256,
+        "max_abs_error": 3.4817062552917194e-08,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "cc20ddf1bb564baa58567bd1d26a0112b28447fdbf1ab44caa640414fb3e1173",
+        "77b950c152e60c098fd8c790aad1913d817c579414b472894ecb53969a38db7a",
+        "3296b285f854dd432f1835767dafb2b264cc077a7bd767a59460ab05a8a7b229"
+      ],
+      "output_sha256": "81343f9c9e6880f17e34d16f0b491c64f6c1fd4d43fcfaeb909a187e9f34a086"
+    },
+    {
+      "operation": "attention",
+      "dimensions": [
+        1,
+        4,
+        2,
+        1,
+        128,
+        64,
+        64
+      ],
+      "round": 1,
+      "path": "torch",
+      "order": [
+        "torch",
+        "native"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.063417,
+        "warmup_ms": 100.381375,
+        "repetitions": 187,
+        "throughput_us": [
+          48.57308556149732,
+          46.154411764705884,
+          52.37076470588236
+        ],
+        "latency_us": [
+          52.416,
+          64.333,
+          46.375
+        ],
+        "throughput_us_p50": 48.57308556149732,
+        "throughput_us_p90": 51.61122887700535,
+        "latency_us_p50": 52.416,
+        "latency_us_p90": 61.9496,
+        "expression": "functional_sdpa_explicit_bottom_right_causal_mask_output_allocation_included",
+        "precision": "fp32",
+        "fast_math_policy": "torch_default",
+        "pre_timing_correctness": {
+          "elements": 256,
+          "max_abs_error": 3.4817062552917194e-08,
+          "atol": 5e-05,
+          "rtol": 5e-05
+        }
+      },
+      "correctness": {
+        "elements": 256,
+        "max_abs_error": 3.4817062552917194e-08,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "cc20ddf1bb564baa58567bd1d26a0112b28447fdbf1ab44caa640414fb3e1173",
+        "77b950c152e60c098fd8c790aad1913d817c579414b472894ecb53969a38db7a",
+        "3296b285f854dd432f1835767dafb2b264cc077a7bd767a59460ab05a8a7b229"
+      ],
+      "output_sha256": "81343f9c9e6880f17e34d16f0b491c64f6c1fd4d43fcfaeb909a187e9f34a086"
+    },
+    {
+      "operation": "attention",
+      "dimensions": [
+        1,
+        4,
+        2,
+        1,
+        128,
+        64,
+        64
+      ],
+      "round": 1,
+      "path": "native",
+      "order": [
+        "torch",
+        "native"
+      ],
+      "valid": false,
+      "command": [
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir",
+        "llm",
+        "attention",
+        "1,4,2,1,128,64,64",
+        "2",
+        "3",
+        "3",
+        "10",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-l27b6lxy/attention-1x4x2x1x128x64x64-r1-native.f32"
+      ],
+      "error": "Command '['/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_xir', 'llm', 'attention', '1,4,2,1,128,64,64', '2', '3', '3', '10', '100', '/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-l27b6lxy/attention-1x4x2x1x128x64x64-r1-native.f32']' timed out after 90 seconds"
+    }
+  ],
+  "summary": [
+    {
+      "operation": "attention",
+      "dimensions": [
+        1,
+        4,
+        2,
+        1,
+        128,
+        64,
+        64
+      ],
+      "complete": false
+    },
+    {
+      "operation": "rope",
+      "dimensions": [
+        17,
+        258
+      ],
+      "complete": true,
+      "throughput_us_p50": {
+        "median_us": {
+          "native": 35.6199136246,
+          "torch": 5.937338080005972
+        },
+        "paired_native_over_torch_median": 5.999787363675969,
+        "min_ratio": 5.710790739064382,
+        "max_ratio": 6.288783988287555,
+        "slower_rounds": 2
+      },
+      "latency_us_p50": {
+        "median_us": {
+          "native": 35.5205,
+          "torch": 6.0
+        },
+        "paired_native_over_torch_median": 5.922610398973292,
+        "min_ratio": 5.739930955120828,
+        "max_ratio": 6.105289842825756,
+        "slower_rounds": 2
+      }
+    },
+    {
+      "operation": "swiglu",
+      "dimensions": [
+        17,
+        257
+      ],
+      "complete": true,
+      "throughput_us_p50": {
+        "median_us": {
+          "native": 44.6398543478,
+          "torch": 6.916936914203317
+        },
+        "paired_native_over_torch_median": 6.455025831259022,
+        "min_ratio": 6.286147782997702,
+        "max_ratio": 6.62390387952034,
+        "slower_rounds": 2
+      },
+      "latency_us_p50": {
+        "median_us": {
+          "native": 45.583,
+          "torch": 7.4375
+        },
+        "paired_native_over_torch_median": 6.154805581864318,
+        "min_ratio": 5.609342915811087,
+        "max_ratio": 6.700268247917549,
+        "slower_rounds": 2
+      }
+    }
+  ]
+}

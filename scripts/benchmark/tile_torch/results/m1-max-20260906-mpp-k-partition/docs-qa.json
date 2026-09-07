@@ -1,0 +1,73 @@
+{
+  "build": "/Users/mike/CLionProjects/luisa/docs/_build/mpp-diagnostics-20260906",
+  "records": [
+    {
+      "url": "file:///Users/mike/CLionProjects/luisa/docs/_build/mpp-diagnostics-20260906/source/performance/tile/results.html#k-partition-and-program-walks-diagnostics-not-new-defaults",
+      "viewport": {
+        "width": 1440,
+        "height": 1050
+      },
+      "dimensions": {
+        "viewport": 1440,
+        "page": 1440
+      },
+      "overflow": false,
+      "overflowElements": [],
+      "tableMatchesAudit": true,
+      "screenshot": "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/tile-diagnostics-docs-Il03ig/results-1440.png",
+      "tableScreenshots": []
+    },
+    {
+      "url": "file:///Users/mike/CLionProjects/luisa/docs/_build/mpp-diagnostics-20260906/source/internals/tile/matrix.html#physical-program-traversal-remains-a-candidate",
+      "viewport": {
+        "width": 1440,
+        "height": 1050
+      },
+      "dimensions": {
+        "viewport": 1440,
+        "page": 1440
+      },
+      "overflow": false,
+      "overflowElements": [],
+      "tableMatchesAudit": null,
+      "screenshot": "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/tile-diagnostics-docs-Il03ig/proof-1440.png",
+      "tableScreenshots": []
+    },
+    {
+      "url": "file:///Users/mike/CLionProjects/luisa/docs/_build/mpp-diagnostics-20260906/source/performance/tile/results.html#k-partition-and-program-walks-diagnostics-not-new-defaults",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "dimensions": {
+        "viewport": 390,
+        "page": 390
+      },
+      "overflow": false,
+      "overflowElements": [],
+      "tableMatchesAudit": true,
+      "screenshot": "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/tile-diagnostics-docs-Il03ig/results-390.png",
+      "tableScreenshots": [
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/tile-diagnostics-docs-Il03ig/table-390-left.png",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/tile-diagnostics-docs-Il03ig/table-390-right.png"
+      ]
+    },
+    {
+      "url": "file:///Users/mike/CLionProjects/luisa/docs/_build/mpp-diagnostics-20260906/source/internals/tile/matrix.html#physical-program-traversal-remains-a-candidate",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "dimensions": {
+        "viewport": 390,
+        "page": 390
+      },
+      "overflow": false,
+      "overflowElements": [],
+      "tableMatchesAudit": null,
+      "screenshot": "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/tile-diagnostics-docs-Il03ig/proof-390.png",
+      "tableScreenshots": []
+    }
+  ],
+  "manual_image_inspection_required": true
+}

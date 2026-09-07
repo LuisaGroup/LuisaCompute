@@ -1,0 +1,110 @@
+multi-output 1 x 127 (1 x 16):
+// Function: element_multi_output_kernel
+#include <metal_stdlib>
+using namespace metal;
+
+union __TVMArgUnion {
+ int v_int[2];
+};
+
+kernel void element_multi_output_kernel(  device float* arg1_ptr [[ buffer(0) ]],
+  device float* arg2_ptr [[ buffer(1) ]],
+  device float* arg3_ptr [[ buffer(2) ]],
+  uint blockIdx [[threadgroup_position_in_grid]],
+  uint threadIdx [[thread_position_in_threadgroup]]
+) {
+  float tile_storage_3_element = exp(0.000000e+00f);
+  if (((int)threadIdx) < 127) {
+    arg1_ptr[((int)threadIdx)] = (exp(0.000000e+00f) + exp(0.000000e+00f));
+  }
+  float tile_storage_8_element = ((exp(0.000000e+00f) * exp(0.000000e+00f)) + 2.500000e-01f);
+  if (((int)threadIdx) < 127) {
+    arg2_ptr[((int)threadIdx)] = (((exp(0.000000e+00f) * exp(0.000000e+00f)) + 2.500000e-01f) + exp(0.000000e+00f));
+  }
+  if (((int)threadIdx) < 127) {
+    arg3_ptr[((int)threadIdx)] = ((((exp(0.000000e+00f) * exp(0.000000e+00f)) + 2.500000e-01f) * ((exp(0.000000e+00f) * exp(0.000000e+00f)) + 2.500000e-01f)) - exp(0.000000e+00f));
+  }
+}
+
+
+
+
+===============================================================================
+Suite global
+tests:   36 | 1 failed
+asserts: 47 | 0 passed | 1 failed
+
+
+Running "tile_execution_explicit_worker"... SKIPPED
+
+Running "tile_execution_empty_domain"... SKIPPED
+
+Running "tile_execution_fused_element_grid"... SKIPPED
+
+Running "tile_execution_element_grid_snapshot"... SKIPPED
+
+Running "tile_execution_element_grid_shared_producers"... SKIPPED
+
+Running test "tile_execution_element_grid_multiple_outputs"... FAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_execution.cpp:256 - test condition:  [false]
+
+
+Running "tile_execution_element_grid_output_dependencies"... SKIPPED
+
+Running "tile_execution_element_grid_exact_reduction"... SKIPPED
+
+Running "tile_execution_element_grid_producer_contract"... SKIPPED
+
+Running "tile_execution_reduction_packing_and_policy"... SKIPPED
+
+Running "tile_execution_cooperating_program_packing"... SKIPPED
+
+Running "tile_execution_cooperating_packing_proofs"... SKIPPED
+
+Running "tile_execution_reduction_lane_elements"... SKIPPED
+
+Running "tile_execution_reduction_tail_packs"... SKIPPED
+
+Running "tile_execution_reduction_input_cache"... SKIPPED
+
+Running "tile_execution_reduction_complete_width_search"... SKIPPED
+
+Running "tile_execution_cpu_parallel_launch_cost"... SKIPPED
+
+Running "tile_execution_shared_exp_materialization"... SKIPPED
+
+Running "tile_execution_shared_tanh_materialization"... SKIPPED
+
+Running "tile_execution_shared_arithmetic_materialization"... SKIPPED
+
+Running "tile_execution_metal_subgroup_reduction_contract"... SKIPPED
+
+Running "tile_execution_metal_subgroup_sum"... SKIPPED
+
+Running "tile_execution_metal_subgroup_striped_softmax"... SKIPPED
+
+Running "tile_execution_metal_subgroup_layernorm"... SKIPPED
+
+Running "tile_execution_metal_subgroup_generic_striped_tile"... SKIPPED
+
+Running "tile_execution_metal_subgroup_cross_entropy"... SKIPPED
+
+Running "tile_execution_metal_subgroup_extrema"... SKIPPED
+
+Running "tile_execution_cpu_accelerate_math"... SKIPPED
+
+Running "tile_execution_scope_preserved"... SKIPPED
+
+Running "tile_execution_unsupported_scopes"... SKIPPED
+
+Running "tile_execution_unknown_scope"... SKIPPED
+
+Running "tile_execution_nested_worker"... SKIPPED
+
+Running "tile_execution_worker_vector"... SKIPPED
+
+Running "tile_execution_vector_private_tiles_and_carries"... SKIPPED
+
+Running "tile_execution_vector_roots_and_nesting"... SKIPPED
+
+Running "tile_execution_auto_vector_guards"... SKIPPED

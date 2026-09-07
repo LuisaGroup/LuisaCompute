@@ -1,12 +1,12 @@
 local lc_enable_gui = has_config("lc_enable_gui")
 
-local function test_proj(name, source, gui_dep, callable, kind)
+local function test_proj(name, source, gui_dep, callable, kind, cxx_standard)
     if gui_dep and not lc_enable_gui then
         return
     end
     target(name)
     add_deps("lc-backends-dummy", {inherit = false, links = false})
-    _config_project({project_kind = kind or "binary"})
+    _config_project({project_kind = kind or "binary", cxx_standard = cxx_standard})
     add_files(source)
     add_includedirs("./", "./common")
     add_deps("lc-runtime", "lc-dsl", "lc-vstl", "stb-image")
@@ -217,15 +217,46 @@ test_proj("test_builtin_kernel", "unit/ast/test_builtin_kernel.cpp", false, func
     add_includedirs("$(projectdir)/src/runtime")
 end)
 test_proj("test_manual_ast", "unit/ast/test_manual_ast.cpp")
-test_proj("test_tensor_ast", "unit/ast/test_tensor_ast.cpp")
-test_proj("test_tile_function_builder", "unit/ast/test_tile_function_builder.cpp")
-test_proj("test_tile_kernel_dsl", "unit/ast/test_tile_kernel_dsl.cpp")
-test_proj("test_tile_to_kernel", "unit/ast/test_tile_to_kernel.cpp")
 test_proj("test_cooperative_vector", "unit/ast/test_cooperative_vector.cpp")
-test_proj("test_tensor", "unit/ast/test_tensor.cpp")
-test_proj("test_tensor_element_types", "unit/ast/test_tensor_element_types.cpp")
 test_proj("test_async_copy_ast", "unit/ast/test_async_copy_ast.cpp")
 test_proj("test_bindless_write_usage", "unit/ast/test_bindless_write_usage.cpp")
+
+-- unit/tile
+test_proj("test_tile_layout", "unit/tile/test_tile_layout.cpp", false, function()
+    add_deps("lc-tile")
+end)
+test_proj("test_tile_ir", "unit/tile/test_tile_ir.cpp", false, function()
+    add_deps("lc-tile")
+end)
+test_proj("test_tile_dsl", "unit/tile/test_tile_dsl.cpp", false, function()
+    add_deps("lc-tile")
+end)
+test_proj("test_tile_memory", "unit/tile/test_tile_memory.cpp", false, function()
+    add_deps("lc-tile")
+end)
+for _, standard in ipairs({20, 23}) do
+    test_proj("test_tile_values_cpp" .. standard, "unit/tile/test_tile_values.cpp", false, function()
+        add_deps("lc-tile")
+        add_includedirs("$(projectdir)/docs/source/tile")
+        -- Keep the C++23 compatibility target opt-in on older toolchains.
+        if standard == 23 then
+            set_default(false)
+        end
+    end, nil, "cxx" .. standard)
+end
+if has_config("lc_metal_backend") and is_plat("macosx") then
+    test_proj("test_tile_native_codegen", "unit/tile/test_tile_native_codegen.cpp", false, function()
+        add_deps("lc-tile")
+        add_files("../backends/metal/tile/metal_tile_codegen.cpp")
+        add_includedirs("../backends/metal/tile")
+    end)
+    test_proj("test_tile_native_runtime", "unit/tile/test_tile_native_runtime.cpp", false, function()
+        add_deps("lc-tile")
+    end)
+    test_proj("benchmark_tile_native", "benchmark/benchmark_tile_native.cpp", false, function()
+        add_deps("lc-tile")
+    end)
+end
 
 -- unit/dsl
 test_proj("test_binding_group", "unit/dsl/test_binding_group.cpp")
@@ -274,8 +305,6 @@ test_proj("test_printer_custom_callback", "unit/runtime/test_printer_custom_call
 test_proj("test_sampler", "unit/runtime/test_sampler.cpp")
 test_proj("test_shared_memory", "unit/runtime/test_shared_memory.cpp")
 test_proj("test_softmax", "unit/runtime/test_softmax.cpp")
--- test_tensor requires lc-tensor which is currently disabled
--- test_proj("test_tensor", "unit/runtime/test_tensor.cpp")
 test_proj("test_texture_compress", "unit/runtime/test_texture_compress.cpp")
 test_proj("test_pbrt_curve_parser", "unit/runtime/test_pbrt_curve_parser.cpp")
 test_proj("test_texture_io", "unit/runtime/test_texture_io.cpp")
