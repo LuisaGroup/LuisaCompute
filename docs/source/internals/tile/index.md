@@ -19,6 +19,8 @@ runtime
 :maxdepth: 1
 :caption: Planning and target realization
 
+calculus
+related-work
 planner
 cost-policy
 matrix

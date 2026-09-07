@@ -208,6 +208,28 @@ offsets, read/write snapshots, move-only shader lifetime, negative origins and
 signed-overflow rejection in the bounds proof. The dedicated SIMD PHI test
 uses widths 1/2/4/8/16 and every active-lane count, independent of TileIR.
 
+### Automatic cooperative program contracts
+
+The next full build and CTest run again gives **33/35 Tile passes** (35/37
+under `-R tile`, which also matches two passing sparse-resource tests). The
+same two user-owned barrier source-string failures remain; no numerical
+regression is reported in that run.
+
+The new `tile_matrix_automatic_cooperative_semantics` test separately passes
+17,189 assertions. It covers two singleton-axis placements, modularly permuted
+program coordinates, nonzero accumulators, aliased same-instance C/D, disabled
+cooperative admission, explicit worker constraints and missing MMA arithmetic permission.
+Three attention block shapes also exercise ragged causal/GQA recurrence state.
+These are runtime output tests, not a general alias proof.
+
+The [six-order replay](results.md#automatic-cooperation-removes-the-attention-worker-fallback)
+validates all 36 complete old/new/Torch outputs. Its independent auditor rejects
+five types of corrupted evidence. The separate calculus reference has nine
+finite tests including unsafe fusion and noncommutative reduction examples;
+it does not invoke the production compiler. The
+{download}`receipts and methods <../../../../scripts/benchmark/tile_torch/results/m1-max-20260907-cooperative-programs/notes.md>`
+retain the worktree barrier distinction and exact artifact hashes.
+
 ## Metal reduction validation checkpoints
 
 The later fixed-total-group benchmark adds 456 executed complete-output

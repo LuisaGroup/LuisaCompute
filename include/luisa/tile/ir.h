@@ -120,11 +120,11 @@ enum class OperationKind : uint8_t {
     MEMORY_ALLOC,
     MEMORY_LOAD,
     MEMORY_STORE,
-    PARALLEL,
-    SERIAL,
-    PIPELINE,
+    PARALLEL,// Unordered, independent instances; no loop-carried state.
+    SERIAL,  // Ordered iterations; yielded states update simultaneously.
+    PIPELINE,// Ordered effects/carries with permitted stage overlap, not independence.
     STAGE,
-    REDUCE,
+    REDUCE,// Algebraic fold; reordering requires the reducer's numerical permission.
     YIELD
 };
 

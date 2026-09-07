@@ -7,6 +7,46 @@ This reference describes the TIRx bridge's bounded SIMD-group and MPP mapping fa
 :depth: 2
 ```
 
+## Automatic composed programs
+
+`PlannerOptions::map_gpu_cooperative_programs` defaults to true. After the
+existing automatic row-reduction attempt, an unbound Metal parallel program
+containing reassociable MMA may try the existing cooperative group mapper.
+The admission audit accepts supported Tile effects, compiler temporaries and
+ordered carries; it does not recognize an attention name or prove the source
+parallel domain independent again. Each group's operations still require
+correct distribution, convergence, storage and barriers.
+
+Explicit execution/resource constraints, unsupported nested parallel scopes,
+opaque effects and incompatible exact reduction tuning retain their existing
+behavior. Optional candidate failure does not leak partially constructed
+plans or erase the valid worker fallback. `GroupPlan::automatic_cooperative`
+records this admission route. Disabling planning or this candidate leaves the
+reference path available for differential tests.
+
+The matrix matcher also projects constant extent-one axes from a supported
+perfect output loop nest before matching the two nontrivial matrix axes.
+Buffer rank, address maps and ancestor coordinates remain unchanged. This is
+an execution reindexing, not a reinterpretation of all rank-four buffers as
+compact matrices; unsupported nontrivial axes and atom dimensions fall back.
+
+Pipeline planning happens before final group selection. Its capacity estimate
+therefore reserves space for possible automatic matrix programs, as it does
+for explicit groups, before allocating extra versions. It sums allocations
+conservatively; it is **not** a liveness solver or a calibrated overlap model.
+Ordered stages remain legal when an additional version would exclude a group.
+
+This broadens candidate coverage, not every operation's optimized realization.
+In the measured composed attention program, an expression-initialized second
+MMA still misses the atom matcher, and reductions remain scalar within each
+assigned output element. A query extent of one cannot use the current 8×8
+matrix atom. General reduction redistribution, shared-state elimination and
+joint whole-region profitability remain work for the
+[execution calculus](calculus.md) and [planner](planner.md).
+See the [paired replay](../../performance/tile/results.md#automatic-cooperation-removes-the-attention-worker-fallback)
+for improvements and remaining losses, rather than assuming group admission
+establishes parity.
+
 ## Native MPP experiment: operation scope is not launch size
 
 The native `benchmark_tile_mpp` experiment tests a second atom family before

@@ -134,7 +134,8 @@ The common case has predicate `true`. Keeping a predicate on the domain is
 important for ragged tiles and active participant sets, but a view's
 out-of-bounds behavior remains a separate policy.
 
-## A small, complete structured-region calculus
+(a-small-complete-structured-region-calculus)=
+## A small structured-region calculus
 
 The surface has four core structured-region constructors. They deliberately
 share one C++ range-for capture shape, but only `parallel` extends the spatial
@@ -194,6 +195,47 @@ The same principle applies to independent element domains of Tile operations.
 What lowering must check is its own realization: coordinate coverage, layout
 and resource constraints, storage reuse, and target capabilities. It must not
 reinterpret an inner `serial`/reduction recurrence as another independent axis.
+
+### Ordering strength and sibling scopes
+
+The primitives do not form one enum-ordered strength chain. On the **same
+events under the same assumptions**, adding ordering edges restricts the
+available schedules: an independent parallel domain has no inter-child
+edges, a pipeline has a partial order, and a serial domain has a total order.
+But `parallel` also requires noninterference, whereas a serial recurrence need
+not. Reduction adds grouping and merge laws rather than just another order.
+See the [formal distinction](../internals/tile/calculus.md#strength-is-a-product-order-not-an-enum-order).
+
+A source kernel may contain a sequence of scopes. For example, using the
+existing range spelling:
+
+```cpp
+for (auto &p : parallel(shape(programs))) {
+    auto origin = coord(p.index() * width);
+    tmp(origin, shape(elements)).store(f(x[origin, shape(elements)]));
+}
+for (auto &p : parallel(shape(programs))) {
+    auto origin = coord(p.index() * width);
+    y(origin, shape(elements)).store(g(tmp[origin, shape(elements)]));
+}
+for (auto &step : serial(shape(iterations))) {
+    // An ordered phase may follow independent phases in the same function.
+}
+```
+
+This is illustrative code: `f`, `g`, dimensions and arguments stand for the
+application. Sequential composition initially orders the phases; it does not
+make the second phase another child of the first. Fusion is a compiler
+transformation, not a new source primitive. Pointwise producer/consumer pairs
+can fuse after checking their **cross-phase** dependences. A consumer of all
+producer results retains the required completion boundary.
+
+The full composition design permits one source invocation to lower to one or
+several physical launches. General automatic sibling fusion and multi-launch
+Tile Runtime plans are not implemented yet. A device-wide boundary must not
+be replaced by a threadgroup barrier. The [scope calculus](../internals/tile/calculus.md#multiple-scopes-and-fusion)
+and [Runtime extension](../internals/tile/calculus.md#single-source-kernel-versus-physical-execution-plan)
+define the future single-device and distributed interpretation.
 
 ```{figure} ../../_static/tile/nest-calculus.svg
 :alt: Parallel extends space, serial and pipeline extend time, and reduce introduces an algebraic fold domain.
@@ -264,8 +306,10 @@ updated by the body. A reducer contract lets scheduling factor the reduction
 coordinate into spatial participants, serial steps, and a merge tree. There is
 no public loop-result accessor. [Reduction semantics](values.md#reduction-is-a-structured-algebraic-region) defines the contract.
 
-This set is representationally complete for the structured static-control
-kernel domain targeted here. Spatial products and hierarchy factor into
+This set is intended to cover the structured static-control kernel fragment
+specified in the [calculus](../internals/tile/calculus.md#scope-of-the-claims);
+a general completeness proof is not yet established. Spatial products and
+hierarchy factor into
 `parallel`; a temporal total order is `serial`; a periodic partial order with
 finite producer/consumer phases and fixed-distance loop-carried edges is
 `pipeline`; and an order-relaxed fold with a stated algebra is `reduce`. Any

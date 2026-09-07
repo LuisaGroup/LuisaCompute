@@ -9,6 +9,14 @@ This page owns in-memory IR, capture dataflow, ownership and verification. The m
 
 ## TileIR as a thin but transformable IR
 
+Primitive semantics and their refinement rules live in the
+[execution calculus](calculus.md). `verify(module, target)` checks structure,
+types, use/ownership relations, state flow and explicit target constraints;
+it is not a general proof of the source program's `parallel` independence.
+Passes may rely on semantic contracts while validating newly introduced
+mapping, storage and synchronization. Optional invocation/debug validation is
+separate from the normal optimization admission path.
+
 ### In-memory structure
 
 TileIR borrows the useful structural properties of LLVM IR and Luisa XIR,

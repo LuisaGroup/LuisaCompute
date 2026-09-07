@@ -41,9 +41,15 @@ using BufferMap = luisa::unordered_map<const tvm::tirx::VarNode *, tvm::tirx::Bu
 // mutually exclusive scopes and worker-private storage. It may decline an
 // optimization, but never lets automatic versioning break a fitting group.
 class StorageFootprint final : public tvm::tirx::StmtVisitor {
+private:
+    bool _automatic_cooperative;
+    bool _automatic_program{false};
+
 public:
     uint64_t bytes{0u};
     bool has_group{false};
+    explicit StorageFootprint(bool automatic_cooperative) noexcept
+        : _automatic_cooperative{automatic_cooperative} {}
 
 protected:
     void VisitStmt_(const tvm::tirx::AllocBufferNode *allocation) final {
@@ -51,11 +57,22 @@ protected:
         bytes += std::min(size, std::numeric_limits<uint64_t>::max() - bytes);
     }
     void VisitStmt_(const tvm::tirx::ForNode *loop) final {
+        auto outer = _automatic_program;
         if (auto scope = loop->annotations.Get(execution_scope_annotation)) {
             auto name = scope.value().as<tvm::ffi::String>();
             has_group |= name && name.value() == "group";
+            _automatic_program = false;
+        } else if (loop->annotations.count(logical_parallel_annotation)) {
+            _automatic_program = _automatic_cooperative;
+        }
+        if (_automatic_program) {
+            if (auto permission = loop->annotations.Get(mma_annotation)) {
+                auto value = permission.value().as<tvm::IntImmNode>();
+                has_group |= value && value->value == 1;
+            }
         }
         StmtVisitor::VisitStmt_(loop);
+        _automatic_program = outer;
     }
 };
 
@@ -577,10 +594,16 @@ tvm::tirx::Stmt try_prefetch_matrix_pipeline(const tvm::tirx::For &loop, const t
     return tvm::tirx::SeqStmt::Flatten(allocations);
 }
 
-tvm::tirx::Stmt schedule_pipelines(tvm::tirx::Stmt body, bool noalias, uint64_t shared_memory_limit, bool defer_prefetch) {
+tvm::tirx::Stmt schedule_pipelines(tvm::tirx::Stmt body, bool noalias, uint64_t shared_memory_limit,
+                                   bool defer_prefetch, bool automatic_cooperative) {
     auto budget = std::numeric_limits<uint64_t>::max();
     if (shared_memory_limit != 0u) {
-        StorageFootprint footprint;
+        // Versioning precedes final execution selection. Reserve capacity for
+        // an automatic matrix program too: an optional extra pipeline slot
+        // must not preclude its otherwise fitting cooperative realization.
+        // Ordered stages remain valid; this is a capacity bound, not a claim
+        // about pipeline overlap or cross-instance memory independence.
+        StorageFootprint footprint{automatic_cooperative};
         footprint(body);
         if (footprint.has_group) { budget = shared_memory_limit - std::min(shared_memory_limit, footprint.bytes); }
     }

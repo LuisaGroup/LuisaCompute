@@ -245,8 +245,12 @@ private:
         auto closed = true;
         tvm::tirx::PreOrderVisit(_root->body, [&](const tvm::ffi::ObjectRef &node) {
             if (node.get() == initial_allocation || node.get() == initial || node.get() == recurrence || node.get() == result->store) { return false; }
-            for (auto allocation : temporaries) { if (node.get() == allocation) { return false; } }
-            for (auto &binding : epilogue.bindings) { if (node.get() == binding.producer) { return false; } }
+            for (auto allocation : temporaries) {
+                if (node.get() == allocation) { return false; }
+            }
+            for (auto &binding : epilogue.bindings) {
+                if (node.get() == binding.producer) { return false; }
+            }
             closed &= !node.same_as(carry.initial);
             if (auto load = node.as<tvm::tirx::BufferLoadNode>()) { closed &= !load->buffer.same_as(carry.initial); }
             if (auto store = node.as<tvm::tirx::BufferStoreNode>()) { closed &= !store->buffer.same_as(carry.initial); }
@@ -762,6 +766,61 @@ public:
     }
 };
 
+// This is a target-representation audit, NOT an alias/dependence proof of
+// parallel instances or independent element domains. Those are semantic
+// contracts. The new mapping must preserve each program's ordered phases,
+// handle its storage and avoid replicating an opaque side effect per worker.
+class AutomaticGroupAudit final : public tvm::tirx::StmtExprVisitor {
+protected:
+    void VisitStmt(const tvm::tirx::Stmt &statement) final {
+        if (!valid) { return; }
+        if (!statement.as<tvm::tirx::SeqStmtNode>() && !statement.as<tvm::tirx::ForNode>() &&
+            !statement.as<tvm::tirx::AllocBufferNode>() && !statement.as<tvm::tirx::BufferStoreNode>() &&
+            !statement.as<tvm::tirx::IfThenElseNode>() && !statement.as<tvm::tirx::EvaluateNode>() &&
+            !statement.as<tvm::tirx::BindNode>()) {
+            valid = false;
+            return;
+        }
+        StmtExprVisitor::VisitStmt(statement);
+    }
+    void VisitStmt_(const tvm::tirx::ForNode *loop) final {
+        // A nested explicit hierarchy needs its own coordinate factorization;
+        // do not reinterpret a requested worker or another logical parallel.
+        if (loop->annotations.count(execution_scope_annotation) || loop->annotations.count(logical_parallel_annotation)) {
+            valid = false;
+            return;
+        }
+        for (auto &&[name, value] : loop->annotations) {
+            valid &= name == independent_elements_annotation || name == mma_annotation ||
+                     name == materialized_pure_tile_annotation || name == reduction_contract_annotation ||
+                     name == deferred_pipeline_annotation;
+        }
+        if (auto permission = loop->annotations.Get(mma_annotation)) {
+            auto value = permission.value().as<tvm::IntImmNode>();
+            has_matrix |= value != nullptr && value->value == 1;
+        }
+        StmtExprVisitor::VisitStmt_(loop);
+    }
+    void VisitStmt_(const tvm::tirx::AllocBufferNode *allocation) final {
+        // Preserve expert resource constraints and explicit materialization.
+        valid &= allocation->annotations.empty();
+        StmtExprVisitor::VisitStmt_(allocation);
+    }
+    void VisitExpr_(const tvm::CallNode *call) final {
+        static auto effects = tvm::Op::GetAttrMap<tvm::tirx::TCallEffectKind>("TCallEffectKind");
+        auto op = call->op.as<tvm::Op>();
+        valid &= op && effects.count(op.value()) &&
+                 effects[op.value()] <= static_cast<int64_t>(tvm::tirx::CallEffectKind::kPure) &&
+                 !call->op.same_as(tvm::tirx::builtin::address_of());
+        StmtExprVisitor::VisitExpr_(call);
+    }
+    void VisitExpr_(const tvm::tirx::ProducerLoadNode *) final { valid = false; }
+
+public:
+    bool valid{true};
+    bool has_matrix{false};
+};
+
 }// namespace
 
 tvm::tirx::Stmt map_metal_cooperative_group(const tvm::tirx::For &loop, uint32_t max_threads, uint64_t shared_memory_limit,
@@ -831,6 +890,35 @@ tvm::tirx::Stmt map_metal_cooperative_group(const tvm::tirx::For &loop, uint32_t
     auto group_axis = tvm::tirx::IterVar{tvm::Range::FromMinExtent(zero, loop->extent), group,
                                          tvm::tirx::IterVarType::kThreadIndex, "blockIdx.x"};
     return tvm::tirx::For{group, zero, loop->extent, tvm::tirx::ForKind::kThreadBinding, std::move(body), std::move(group_axis)};
+}
+
+tvm::tirx::Stmt try_map_metal_cooperative_program(
+    const tvm::tirx::For &loop, uint32_t max_threads, uint64_t shared_memory_limit,
+    bool cooperative_matrix, bool metal_mpp, const PlannerOptions &options,
+    luisa::vector<GroupPlan> &plans, luisa::span<const tvm::tirx::BufferVar> readonly_inputs) {
+    if (!options.enabled || !options.map_gpu_cooperative_programs || !cooperative_matrix ||
+        loop->annotations.count(execution_scope_annotation) ||
+        options.reduction_programs_per_group != 0u || options.reduction_unroll_factor != 1u ||
+        options.reduction_lane_elements != 1u || options.cache_reduction_inputs) { return {}; }
+    AutomaticGroupAudit audit;
+    audit(loop->body);
+    // Keep the existing pointwise and row-reduction families. This candidate
+    // composes matrix work, ordinary Tile phases and ordered loop-carried state.
+    if (!audit.valid || !audit.has_matrix) { return {}; }
+    try {
+        luisa::vector<GroupPlan> candidate;
+        auto result = map_metal_cooperative_group(loop, max_threads, shared_memory_limit,
+                                                  cooperative_matrix, metal_mpp, options, candidate, readonly_inputs);
+        for (auto &plan : candidate) {
+            plan.automatic_cooperative = true;
+            plans.emplace_back(std::move(plan));
+        }
+        return result;
+    } catch (const std::exception &) {
+        // An optional resource/target candidate must not erase the valid
+        // reference program or leak a partially constructed plan.
+        return {};
+    }
 }
 
 }// namespace luisa::compute::tile::bridge::tirx::detail

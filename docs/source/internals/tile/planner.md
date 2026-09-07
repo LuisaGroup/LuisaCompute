@@ -66,6 +66,137 @@ needs no TVM types or JIT. Later, a TileIR analysis can produce the same facts
 before export. Native Metal/CUDA code generation still belongs to the backend;
 external IR integration remains a bridge. No MLIR dependency is introduced.
 
+### Formal finite optimization problem
+
+This is the proposed general formulation; the current relative-work solvers
+implement narrower projections of it. Fix a specialization `p`, target `T`,
+numerical/semantic assumptions `Gamma`, and bounded emitter vocabulary `K`.
+The [execution calculus](calculus.md) defines legal refinement witnesses.
+Let `C(P,p,T,K)` be candidate witnesses, not arbitrary integer schedules:
+
+```text
+x = (region partition/fusion, tau, B, D, A, R, Theta, protocol)
+minimize    F_theta(x) = predicted makespan of the emitted execution DAG
+subject to  Gamma |- P =>[x] Emit(x)
+            target containment/access/capacity constraints
+            exact contribution coverage and reaching-value preservation
+            available code/protocol emitter for every selected component
+```
+
+Fusion/fission changes the physical partition of the existing region tree;
+it does not change the primitive meanings. Matrix, reduction and pointwise
+families are subsets of `C`, not kernel-name cases in the objective. A
+candidate that the bridge cannot express is absent, even if the abstract
+hardware might support it. Generating a larger family is different from
+retuning the cost coefficients on a small family.
+
+For a finite constraint encoding, enumerate alternatives `j` for region/atom
+`o` and choose binary variables `x[o,j]` with `sum_j x[o,j]=1`. An alternative
+includes its participant factors, boundary distributions, storage and emitted
+work, not just thread count. Incompatible neighboring alternatives are
+forbidden; a supported conversion can be another explicit alternative with
+its own cost, lifetime and synchronization. A fusion candidate covers a set
+of source operations; exact-cover constraints prevent selecting overlapping
+realizations or leaving an operation uncovered.
+
+The selected alternative expands to events `u` with start `s[u]`, modeled
+duration `d[u]`, resource demand `r[u,q]`, and dependence edges. An asynchronous
+atom has separate issue/completion events; a consumer cannot start merely
+because the producer was issued. For a periodic region:
+
+```text
+s[v] + distance(u,v)*II >= s[u] + latency(u,v)
+sum_{u,k: s[u]+k*II <= t < s[u]+k*II+d[u]} r[u,q] <= capacity[q]
+sum_{v: birth[v] <= t < last_completion[v]} rounded_storage[v,q] <= storage_capacity[q]
+```
+
+The resource inequalities are per physical resource instance, not one global
+pool. Nonperiodic regions use one event copy. Shared-bandwidth resources use
+calibrated cumulative demand rather than pretending every operation exclusively
+owns the entire memory engine. Synchronization/protocol feasibility is part of
+the refinement check, not a latency coefficient.
+
+An edge-only DAG model is insufficient for an in-order issuing context:
+blocking on a completion can prevent that same context from issuing otherwise
+independent work. A realization must include those issue restrictions and any
+cross-participant transfers. Joint scheduling, warp assignment and liveness
+already have a close precedent in
+[Twill](related-work.md#twill-the-nearest-joint-cost-solver-comparison);
+this formulation must be evaluated against it, not presented as an original
+joint-scheduling result.
+
+For a version ring of size `V`, version `k` and `k+V` must not overlap in live
+time in the same slot; producer completion precedes reads and final consumer
+completion precedes reuse. For uniform steady-state lifetimes, this yields
+`V*II >= live_duration`, using half-open intervals. Irregular lifetimes require
+their actual interval constraints. Extra buffering is therefore coupled to
+mapping capacity: a second pipeline slot may exclude a cooperative group that
+fits with ordered stages. Pipeline depth is not an independent positive-speedup
+factor.
+
+Readiness and reuse are different relations. A copy's completion permits its
+consumers to start; only the necessary consumers' final completions permit
+overwriting the same storage. Copy elimination, partitioning and fusion must
+rewrite both relations. A textual last use is insufficient when it issues
+an asynchronous operation that still reads the buffer. The
+[Cypress](related-work.md#cypress-the-closest-execution-resource-separation)
+and [Tawa](related-work.md#tawa-compiler-internal-channels-with-operational-semantics)
+comparisons motivate this requirement. These are analysis/plan records, not
+public event handles.
+
+Useful conditional lower bounds are critical-path latency, total demand over
+each resource's service capacity, and recurrence bounds:
+
+```text
+II >= max_cycle(sum edge_latencies / sum iteration_distances)
+```
+
+A positive-latency zero-distance cycle is infeasible. These are lower bounds
+for the encoded work/service assumptions, not assertions that hardware
+achieves them. Missing cache traffic, compiled register counts and overlap
+behavior remain unknown. A continuous or integer surrogate's optimality
+certificate says nothing about an unrelated evaluator or real elapsed time.
+
+`F_theta` estimates the completion time of all required sinks, including
+explicit transfers and dispatch boundaries inside the plan. Pure GPU time
+and end-to-end dispatch are different objectives: the latter additionally
+models host work and submission/completion edges. Cold JIT is a separate
+objective or a stated amortization constraint, never silently mixed in.
+
+### Conditional bounds and search certificates
+
+The algebra supports a bounded **relative** completeness argument: if domain
+and hierarchy depth, map construction size, atom/protocol catalog, buffer
+counts, and schedule horizon/time quantum are finite, enumerating their typed
+compositions and checking the constraints visits every expressible plan in
+that set. This is a specification-level enumeration result, not a claim that
+the present generator does so, or that unrestricted rewrites terminate.
+
+For the current additive subproblem, Pareto pruning is sound only for plans
+with the **same boundary interface** and future-independent resource/cost
+summaries. Different output layouts, live values, ready times or communication
+requirements may reverse the parent's preference. Equal shape or fewer bytes
+does not establish dominance. Beam/annealing search can retain an incumbent;
+only an exact finite search/solver with a valid bound can report an optimality
+gap for the encoded model. Unknown legality, a timeout and proven infeasibility
+must remain distinct results.
+
+There is one useful conditional performance statement. If a cost model has
+a *uniformly established* multiplicative error `epsilon < 1` for every plan
+in `C`, and `x_hat` is its exact minimum, then:
+
+```text
+(1-epsilon)*time(x) <= F_theta(x) <= (1+epsilon)*time(x), for all x in C
+time(x_hat) <= (1+epsilon)/(1-epsilon) * min_{x in C} time(x)
+```
+
+The argument compares the model minimum to the measured optimum through the
+two error bounds. With additive model search gap `delta`, add
+`delta/(1-epsilon)` to the upper bound. A test-set mean error, one favorable
+trace or a per-candidate confidence interval is **not** that uniform premise.
+We have not established such an error bound for Metal or SIMD. Current
+performance claims must continue to use held-out measurements and regret.
+
 ### Program traversal is a mapping choice, not a memory scope
 
 The TIRx bridge now supports an **opt-in bounded rectangular traversal** for

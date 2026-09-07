@@ -31,6 +31,11 @@ public:
     [[nodiscard]] luisa::span<const VerificationDiagnostic> diagnostics() const noexcept { return _diagnostics; }
 };
 
+// Checks IR structure, types, lexical dominance, state flow and optional
+// target constraints. A successful result is not a general alias/race proof:
+// valid PARALLEL instances are independent by language contract. Debug/runtime
+// validation may diagnose violated invocation preconditions separately;
+// optimizers need not rediscover semantic independence before using it.
 [[nodiscard]] LUISA_TILE_API VerificationResult verify(const Module &module, const TargetModel *target = nullptr) noexcept;
 
 }// namespace luisa::compute::tile

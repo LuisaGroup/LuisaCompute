@@ -89,6 +89,12 @@ struct PlannerOptions {
     // Requires immutable input forwarding and disjoint output effects. This
     // is a physical mapping choice; explicit worker/group bindings stay exact.
     bool fuse_gpu_elementwise{true};
+    // Admit automatic, ordered Tile programs containing matrix work to the
+    // existing cooperative resource/distribution planner. Parallel and Tile
+    // element independence are language contracts, not facts to rediscover.
+    // Unsupported effects/placements or insufficient resources retain the
+    // worker realization; explicit execution bindings remain exact.
+    bool map_gpu_cooperative_programs{true};
     // Opt-in Metal realization for proved FP32 add/max/min reductions.
     // Independent short programs may share one threadgroup; wider programs
     // search every whole-SIMD-group width within the target limit and the
@@ -394,6 +400,7 @@ struct GroupPlan {
     // Explicit realization selected by the target bridge. cost_basis records
     // which separately versioned feature model ranked it.
     bool metal_mpp{false};
+    bool automatic_cooperative{false};
     PlanCost cost;
     bool optimized{false};
 };

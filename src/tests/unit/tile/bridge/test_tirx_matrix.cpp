@@ -4,6 +4,7 @@
 // CPU column SIMD with scalar tails and cancellation-sensitive K ordering.
 #include "ut/ut.hpp"
 #include "tile_tirx_test_utils.h"
+#include "tile_llm_test_utils.h"
 
 #include <luisa/core/mathematics.h>
 #include <luisa/core/logging.h>
@@ -2700,6 +2701,105 @@ void test_cpu_whole_gemm_library_realization(Runtime &runtime) {
     expect(valid);
 }
 
+void check_composed_program(Runtime &runtime, const Executable &executable,
+                            const luisa::test::tile_llm::Case &fixture, bool alias_initial = false) {
+    auto upload = [&](size_t i) {
+        auto &s = fixture.shapes[i];
+        return runtime.upload<float>({s[0], s[1], s[2], s[3]}, fixture.inputs[i]);
+    };
+    auto a = upload(0u), b = upload(1u), c = upload(2u);
+    auto &s = fixture.shapes[3u];
+    auto d = alias_initial ? c : runtime.allocate<float>({s[0], s[1], s[2], s[3]});
+    (*executable.entry)(a, b, c, d);
+    auto actual = runtime.download<float>(d, fixture.expected.size());
+    for (auto i = size_t{0u}; i < actual.size(); i++) {
+        expect(std::isfinite(actual[i]) &&
+               std::abs(static_cast<double>(actual[i]) - fixture.expected[i]) <=
+                   1e-4 + 5e-5 * std::abs(fixture.expected[i]))
+            << "composed element " << i;
+    }
+}
+
+void test_automatic_cooperative_programs(Runtime &runtime) {
+    if (runtime.target() != "metal") { return; }
+    using namespace luisa::compute::tile::bridge::tirx;
+    for (auto interleaved : {false, true}) {
+        for (auto mode = 0u; mode < 4u; mode++) {
+            auto definition = tile_kernel("automatic_matrix_projection", [=](TensorView<const float, 4> A,
+                                                                             TensorView<const float, 4> B,
+                                                                             TensorView<const float, 4> C,
+                                                                             TensorView<float, 4> D) {
+                auto u = axis("u", 1), v = axis("v", 1);
+                auto m = axis("m", 8), n = axis("n", 16), k = axis("k", 8);
+                auto scope = mode == 2u ? exec::Scope::WORKER : exec::Scope::AUTOMATIC;
+                for (auto &nest : parallel(shape(5), scope)) {
+                    // A semantic independent domain, not an affine-store
+                    // pattern the planner must recognize to admit a group.
+                    auto batch = (nest.index() * 3) % 5;
+                    auto origin = interleaved ? coord(0, batch, 0, 0) : coord(batch, 0, 0, 0);
+                    auto a = A.tile(origin, interleaved ? shape(m, u, k, v) : shape(u, v, m, k)).load();
+                    auto b = B.tile(origin, interleaved ? shape(k, u, n, v) : shape(u, v, k, n)).load();
+                    auto output = interleaved ? shape(m, u, n, v) : shape(u, v, m, n);
+                    auto c = C.tile(origin, output).load();
+                    D(origin, output).store(mma(a, b, c, {.allow_reassociation = mode != 3u}));
+                }
+            });
+            auto shape_a = interleaved ? tensor_shape(8, 5, 8, 1) : tensor_shape(5, 1, 8, 8);
+            auto shape_b = interleaved ? tensor_shape(8, 5, 16, 1) : tensor_shape(5, 1, 8, 16);
+            auto fixture = luisa::test::tile_llm::Case{definition.capture(shape_a, shape_b, shape_b, shape_b)};
+            fixture.shapes = interleaved ? std::array<vector<int64_t>, 4u>{{{8, 5, 8, 1}, {8, 5, 16, 1}, {8, 5, 16, 1}, {8, 5, 16, 1}}} :
+                                           std::array<vector<int64_t>, 4u>{{{5, 1, 8, 8}, {5, 1, 8, 16}, {5, 1, 8, 16}, {5, 1, 8, 16}}};
+            fixture.inputs = {values(5u * 8u * 8u, 0.13f), values(5u * 8u * 16u, 0.47f), values(5u * 8u * 16u, 0.93f)};
+            fixture.expected.resize(5u * 8u * 16u);
+            auto index = [&](size_t batch, size_t row, size_t column, size_t width) {
+                return interleaved ? (row * 5u + batch) * width + column : (batch * 8u + row) * width + column;
+            };
+            for (auto batch = 0u; batch < 5u; batch++) {
+                for (auto row = 0u; row < 8u; row++) {
+                    for (auto column = 0u; column < 16u; column++) {
+                        auto ci = index(batch, row, column, 16u);
+                        auto expected = static_cast<double>(fixture.inputs[2u][ci]);
+                        for (auto k = 0u; k < 8u; k++) {
+                            expected += static_cast<double>(fixture.inputs[0u][index(batch, row, k, 8u)]) *
+                                        fixture.inputs[1u][index(batch, k, column, 16u)];
+                        }
+                        fixture.expected[ci] = expected;
+                    }
+                }
+            }
+            PlannerOptions planner;
+            planner.map_gpu_cooperative_programs = mode != 1u;
+            // Deliberately no noalias: C and D may be the same per-program
+            // region. That does not invalidate distinct parallel instances.
+            auto executable = runtime.build(fixture.kernel, false, true, true, false, planner);
+            expect(executable.ok()) << executable.error;
+            if (!executable.ok()) { continue; }
+            expect(eq(executable.plans.size(), mode == 0u ? size_t{1u} : size_t{0u}));
+            if (!executable.plans.empty()) {
+                expect(executable.plans[0u].automatic_cooperative);
+                expect(eq(executable.plans[0u].matrices.size(), size_t{1u}));
+            }
+            auto source = metal_source(executable.module.value());
+            expect(eq(std::string_view{source.data(), source.size()}.find("simdgroup_multiply_accumulate") !=
+                          std::string_view::npos,
+                      mode == 0u));
+            for (auto alias : {false, true}) { check_composed_program(runtime, executable, fixture, alias); }
+        }
+    }
+    // Two matrix phases, row folds, GQA, tails and simultaneous online states.
+    // The wider decode producer must not lose the group candidate merely
+    // because an optional second pipeline buffer exceeds shared capacity.
+    for (auto block : {std::array<int64_t, 2u>{8, 16}, {1, 32}, {3, 5}}) {
+        auto fixture = luisa::test::tile_llm::attention(1, 4, 2, 9, 65, 64, 64, block[0], block[1]);
+        auto executable = runtime.build(fixture.kernel, true, true);
+        expect(executable.ok()) << executable.error;
+        if (!executable.ok()) { continue; }
+        expect(eq(executable.plans.size(), size_t{1u}));
+        if (!executable.plans.empty()) { expect(executable.plans[0u].automatic_cooperative); }
+        check_composed_program(runtime, executable, fixture);
+    }
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -2707,6 +2807,7 @@ int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc > 1 ? argc - 1 : argc,
                                                     const_cast<const char **>(argc > 1 ? argv + 1 : argv));
     "tile_matrix_shapes_transposes_and_pipeline_versions"_test = [&] { test_matrix_cases(runtime); };
+    "tile_matrix_automatic_cooperative_semantics"_test = [&] { test_automatic_cooperative_programs(runtime); };
     "tile_matrix_math_policy_and_participant_gates"_test = [&] { test_matrix_policy_and_participants(runtime); };
     "tile_matrix_exact_threads_use_actual_target_limit"_test = [&] { test_explicit_threads_use_target_capacity(runtime); };
     "tile_matrix_mpp_memory_inputs_and_nonzero_accumulator"_test = [&] { test_mpp_memory_realization(runtime); };

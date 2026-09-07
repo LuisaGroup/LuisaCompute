@@ -487,7 +487,47 @@ struct MatchedMatrix {
     if (!permission || !independent || loop->annotations.size() != 2u) { return {}; }
     auto reassociate = permission.value().as<tvm::IntImmNode>();
     auto rank = independent.value().as<tvm::IntImmNode>();
-    if (reassociate == nullptr || reassociate->value != 1 || rank == nullptr || rank->value != 2) { return {}; }
+    if (reassociate == nullptr || reassociate->value != 1 || rank == nullptr || rank->value < 2 || rank->value > 16) { return {}; }
+    if (rank->value != 2) {
+        // Unit factors do not change the physical matrix projection. Keep
+        // buffer rank/layout intact and substitute their unique coordinate;
+        // only the execution nest is projected, never a tensor-name pattern.
+        luisa::vector<const tvm::tirx::ForNode *> retained;
+        Coordinates units;
+        auto current = loop.get();
+        tvm::tirx::Stmt point;
+        auto remaining = rank->value;
+        for (auto i = int64_t{0}; i < rank->value; i++) {
+            if (!current || current->kind != tvm::tirx::ForKind::kSerial || current->thread_binding ||
+                current->loop_var.ty() != tvm::PrimType::Int(64) || (i != 0 && !current->annotations.empty())) { return {}; }
+            auto extent = current->extent.as<tvm::IntImmNode>();
+            auto minimum = current->min.as<tvm::IntImmNode>();
+            auto step = current->step ? current->step.value().as<tvm::IntImmNode>() : nullptr;
+            if (!extent || extent->value <= 0 || !minimum || minimum->value != 0 ||
+                (current->step && (!step || step->value != 1))) { return {}; }
+            if (remaining > 2 && extent->value == 1) {
+                units.Set(current->loop_var, current->min);
+                remaining--;
+            } else {
+                retained.emplace_back(current);
+            }
+            point = current->body;
+            current = point.as<tvm::tirx::ForNode>();
+        }
+        if (retained.size() != 2u) { return {}; }
+        point = tvm::tirx::Substitute(point, units);
+        for (auto i = retained.size(); i != 0u; i--) {
+            auto axis = retained[i - 1u];
+            tvm::ffi::Map<tvm::ffi::String, tvm::ffi::Any> annotations;
+            if (i == 1u) {
+                annotations.Set(independent_elements_annotation, tvm::IntImm::Int64(2));
+                annotations.Set(mma_annotation, permission.value());
+            }
+            point = tvm::tirx::For{axis->loop_var, axis->min, axis->extent, tvm::tirx::ForKind::kSerial,
+                                   std::move(point), std::nullopt, std::move(annotations)};
+        }
+        return match_metal_matrix(point.as_or_throw<tvm::tirx::For>(), map_buffer, bounded_k, ancestors);
+    }
     auto column_loop = loop->body.as<tvm::tirx::ForNode>();
     auto m = matrix_extent(loop.get());
     auto n = matrix_extent(column_loop);

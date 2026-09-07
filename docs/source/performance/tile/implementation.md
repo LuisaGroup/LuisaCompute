@@ -13,6 +13,8 @@
 | XIR/SIMD | Direct verified XIR; local Tile expansion; loop PHIs; ordinary CPU Runtime | No matrix-extension atom, packed GEMM microkernel or general Tile distribution |
 | CPU planner / realizations | Root-axis permutations × legal worker-block widths; bounded storage/SIMD/launch choices; proved CBLAS and Accelerate atoms | Provider selection is explicit; no fitted break-even model, whole-program optimum, general Tile partitioning or physical pipeline solver |
 | Autotuning | Recapture/JIT variants, Cartesian execution/resource/materialization candidates, exact Metal reduction-width sweeps and frozen-plan benchmarking | Broader search requires legal emitters and measured ranking; one capture is not mandatory |
+| Composed Metal programs | Automatic cooperative admission for supported MMA-containing programs, singleton-axis projection and pipeline capacity reservation | No general reduction redistribution, sibling-scope fusion or calibrated whole-region resource/time solver |
+| Execution calculus | Documented contracts and finite reference tests | Proposed refinement rules and relative-completeness scope, not machine-checked production correctness or a novelty result |
 
 The existing CuTe-derived mixed-radix/composition design is not a claim of a
 complete decision procedure over arbitrary programs. The language design
@@ -26,7 +28,8 @@ The goal is reusable optimization over IR structure, not a table of operator
 names or favorable shapes. Three different claims require separate evidence:
 
 - **Semantic applicability:** a transformation matches proved access,
-  dependence, ownership and numerical contracts. Pointwise grid fusion and
+  dependence, ownership and numerical contracts, using independence already
+  supplied by valid parallel primitives rather than re-proving it. Pointwise grid fusion and
   shared-SSA scalarization can serve different expression graphs, including
   several independently written output domains; canonical
   add/max/min reduction mapping serves several row programs. Matrix input

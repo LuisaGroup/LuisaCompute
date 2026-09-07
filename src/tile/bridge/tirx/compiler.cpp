@@ -286,6 +286,14 @@ protected:
                 _scope_error(loop, "subgroup", "explicit execution scope conflicts with the exact reduction mapping");
             }
         }
+        if (_target_name == "metal" && _logical_parallel_depth == 0u &&
+            _planner.enabled && _planner.map_gpu_cooperative_programs &&
+            !loop->annotations.count(execution_scope_annotation)) {
+            auto mapped = try_map_metal_cooperative_program(
+                tvm::ffi::GetRef<tvm::tirx::For>(loop), _gpu_group_thread_limit,
+                _shared_memory_limit, _cooperative_matrix, _metal_mpp, _planner, _plans, _readonly_inputs);
+            if (mapped.defined()) { return mapped; }
+        }
         // Resolve before mutating the body, including through unbound or
         // serial intermediate levels. Unsupported constraints are hard errors,
         // never optional hints that disappear during structural export.
@@ -522,7 +530,8 @@ public:
         auto views = forward_views ? forward_readonly_tile_loads(mapped, options.noalias, preserve_view_guards, options.planner.cache_reduction_inputs) : ReadonlyViews{mapped->body, {}};
         mapped.CopyOnWrite()->body = std::move(views.body);
         mapped.CopyOnWrite()->body = schedule_pipelines(mapped->body, options.noalias, shared_memory_limit,
-                                                        !options.metal_mpp && cooperative_matrix && options.planner.enabled && options.planner.max_pipeline_prefetch_scalars_per_lane != 0u);
+                                                        !options.metal_mpp && cooperative_matrix && options.planner.enabled && options.planner.max_pipeline_prefetch_scalars_per_lane != 0u,
+                                                        target->kind->name == "metal" && cooperative_matrix && options.planner.enabled && options.planner.map_gpu_cooperative_programs);
         mapped.CopyOnWrite()->body = ExecutionMapper{binding, threads, group_thread_limit, shared_memory_limit, options.vectorize, options.auto_vectorize, cooperative_matrix, options.metal_mpp, std::string{target->kind->name}, options.planner, plans, views.inputs}(mapped->body);
         functions.Set(global, std::move(mapped));
     }

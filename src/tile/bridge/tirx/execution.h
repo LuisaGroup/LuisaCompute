@@ -101,7 +101,8 @@ struct ReadonlyViews {
 // planner uses TVMx's native software-pipeline pass for safe two-phase
 // prefetching, and leaves other pipelines ordered.
 [[nodiscard]] tvm::tirx::Stmt schedule_pipelines(
-    tvm::tirx::Stmt body, bool noalias, uint64_t shared_memory_limit, bool defer_prefetch = false);
+    tvm::tirx::Stmt body, bool noalias, uint64_t shared_memory_limit, bool defer_prefetch = false,
+    bool automatic_cooperative = false);
 
 // Split proved read-only global-to-shared copies around a closed matrix
 // recurrence. Reuse shared storage and carry the next iteration in private
@@ -140,6 +141,14 @@ struct ReadonlyViews {
     const tvm::tirx::For &loop, uint32_t max_threads, uint64_t shared_memory_limit,
     bool cooperative_matrix, bool metal_mpp, const PlannerOptions &options, luisa::vector<GroupPlan> &plans,
     luisa::span<const tvm::tirx::BufferVar> readonly_inputs);
+
+// Optional realization of an automatic root. Uses the parallel/element
+// contracts directly and checks only new storage, effect and target needs.
+// A failed candidate leaves both the input and the plan list unchanged.
+[[nodiscard]] tvm::tirx::Stmt try_map_metal_cooperative_program(
+    const tvm::tirx::For &loop, uint32_t max_threads, uint64_t shared_memory_limit,
+    bool cooperative_matrix, bool metal_mpp, const PlannerOptions &options,
+    luisa::vector<GroupPlan> &plans, luisa::span<const tvm::tirx::BufferVar> readonly_inputs);
 
 // Map an eligible logical root program to one Metal SIMD-group. The matcher
 // revalidates canonical reducer bodies, identities, effect placement and

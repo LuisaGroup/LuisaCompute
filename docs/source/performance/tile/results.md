@@ -134,6 +134,10 @@ general attention, MPSGraph, low-precision or direct-SIMD parity.
 
 ### Attention and direct SIMD still need richer execution mappings
 
+This is the retained **pre-cooperative** negative screen. The subsequent
+[six-order replay](#automatic-cooperation-removes-the-attention-worker-fallback)
+removes the Metal worker fallback but still loses to Torch; SIMD is unchanged.
+
 The same shared captures also expose **negative** performance results. Two-
 order, three-sample Metal pilots use the default backend planner, with fixed
 attention blocks selected before timing. Full FP64 output validation passes,
@@ -189,6 +193,53 @@ survive those transformations. A per-operator name table or smaller test
 dimensions would not establish that capability. Raw samples, generated
 sources, compiler hashes and timeout records are in the
 {download}`LLM evidence <../../../../scripts/benchmark/tile_torch/results/m1-max-20260907-llm-coverage/notes.md>`.
+
+### Automatic cooperation removes the attention worker fallback
+
+The next TIRx-to-Metal change admits a composed parallel program into the
+existing cooperative mapper, projects singleton matrix axes and budgets
+pipeline versions against the possible group's storage. It trusts the
+primitive independence contract; representation, effect and resource checks
+remain. There is no kernel-name dispatch. This is **candidate-space and
+capacity repair**, not a newly calibrated joint solver.
+
+Six balanced native/old-binary/Torch orders, five samples and the same fixed
+attention blocks give the following FP32 M1 Max results. “GPU” is the
+no-counter command-buffer control, not isolated kernel time.
+
+```{table} Automatic cooperative attention, six balanced orders
+:class: benchmark-table
+
+| B,Hq,Hkv,Q,K,D,Dv | Block | Old GPU µs | New GPU µs | Torch GPU µs | Paired new/Torch | Paired new/old |
+|---|---|---:|---:|---:|---:|---:|
+| 1,4,2,64,128,64,64 | 8×16 | 7263.604 | 80.612 | 27.876 | 2.894× | 0.011113× |
+| 1,8,2,1,2048,64,64 | 1×32 | 47977.771 | 327.875 | 32.348 | 10.132× | 0.006830× |
+```
+
+All twelve GPU/E2E batch pairs improve over the old realization; all twelve
+still lose to Torch SDPA. New/Torch GPU ranges are 2.832–2.992 and
+4.974–10.564. E2E batch times are 100.087/335.382 µs versus Torch's
+52.877/42.579 µs, paired ratios 1.885/7.867. Single-call E2E gives paired
+ratios 0.899/1.922, with prefill losing one round; it is a separate objective.
+All 36 complete native/old/Torch outputs pass independent FP64 validation.
+Torch includes returned-output allocation and uses functional masked GQA
+SDPA, whereas native uses preallocated output and online softmax.
+
+Prefill selects 64 threads/group and tensorizes the first contraction; the
+expression-initialized second contraction remains scalar. Decode selects
+1024 threads/group but cannot use an 8×8 atom at query extent one. Both still
+have shared materializations, barriers and scalar reduction loops. This is
+source evidence, not a measured cycle breakdown or an optimal geometry claim.
+Native MPP and direct XIR/SIMD are unchanged.
+
+Counter-instrumented compute medians are 97.985/331.515 µs for new Tile and
+66.981/41.118 µs for Torch, retained only as diagnostics: Torch's
+counter/control ratios are 3.932/1.759. The observer is not neutral. Raw
+samples, generated sources, frozen-binary fingerprints, reproduction and the
+five negative audit checks are in the
+{download}`cooperative-program evidence <../../../../scripts/benchmark/tile_torch/results/m1-max-20260907-cooperative-programs/notes.md>`.
+Both binaries include the same unrelated, uncommitted barrier-flag edit;
+these are worktree-artifact measurements, not clean-checkout source identity.
 
 ### Metal subgroup reductions close the measured normalization defect
 

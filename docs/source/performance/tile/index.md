@@ -89,30 +89,40 @@ but all six measured GEMMs still lose to Torch. General packed/vector
 microkernels and Tile distribution remain missing. Attention, CNN/filter,
 sort and Top-K PoCs establish correctness, not broad optimized performance.
 
-The new [LLM negative-result screen](results.md#attention-and-direct-simd-still-need-richer-execution-mappings)
-measures six direct-SIMD operators at 1.22–16.35× Torch E2E time. Metal
-attention prefill/decode use 126.69×/1315.77× Torch SDPA GPU time in the two
-larger pilots; the composed recurrence still misses cooperative mapping.
-These are the priority gaps, not evidence of LLM performance parity.
+The [LLM negative-result screen](results.md#attention-and-direct-simd-still-need-richer-execution-mappings)
+measures six direct-SIMD operators at 1.22–16.35× Torch E2E time. The subsequent
+[automatic cooperative mapping](results.md#automatic-cooperation-removes-the-attention-worker-fallback)
+removes Metal attention's whole-program worker fallback: prefill/decode GPU
+medians are now 80.612/327.875 µs, but still 2.894×/10.132× Torch SDPA in a
+six-order replay. All 36 outputs pass. Scalar reductions, the second contraction
+and shared-state traffic remain important structural work; SIMD is unchanged.
+This broadens a generic mapping family, not a complete calibrated solver or
+LLM performance parity.
 
 ## Validation and next milestone
 
-The latest LLM/partitioned-output checkpoint completes a full build and
-**33/35 Tile CTests**, plus 110 Python benchmark tests. Metal execution passes
-818,965 assertions. Two existing Metal source-string suites still reject an
+The latest cooperative-program checkpoint completes a full build and
+**33/35 Tile CTests**. Its new targeted semantics test passes 17,189 assertions;
+the 110 Python benchmark tests also pass in this rerun. Two existing
+Metal source-string suites still reject an
 unrelated user-owned barrier-flag edit; the worktree is not all green. The
 earlier matrix default-off controls validate 56 complete native/Torch outputs
 across Metal/CPU, with byte-identical Metal and only bijective TBAA-label changes
 in CPU LLVM. See [validation](validation.md).
 
-Next: distribute general Tile elements on XIR/SIMD and admit the composed
-MMA/reduction recurrence used by attention; current small decode measurements
-still fall back to a few whole-program workers. Preserve scalar-DAG reuse and
-estimate its live-state/instruction cost,
+Next: distribute general Tile elements on XIR/SIMD and optimize reductions and
+accumulator expressions within Metal's newly admitted composed programs.
+Preserve scalar-DAG reuse and estimate its live-state/instruction cost,
 then compare legal fusion/materialization candidates through staged/JIT
 selection on held-out graphs and shapes. Physical K/reuse, launch resource
 limits, large-matrix scaling and direct XIR performance remain open.
 A lower model score or a small cohort win is not completion.
+
+The [execution calculus](../../internals/tile/calculus.md) now separates primitive
+assumptions, order, reduction laws and typed mapping obligations. Its sibling
+fusion, joint resource/time solving and distributed plans remain proposals.
+The [literature survey](../../internals/tile/related-work.md) identifies close
+precedents; neither completeness nor research novelty is established.
 
 ## Detailed evidence
 

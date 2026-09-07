@@ -148,8 +148,10 @@ through unbound/serial intermediate scopes. Device, subgroup, unknown scope
 names, CPU group bindings, and other unavailable bindings also fail closed.
 Disabling vectorization cannot silently override an explicit vector
 constraint. Automatic pointwise graphs can additionally use the fused grid
-described below; other programs retain the reference worker mapping unless
-another realization is selected. These choices are not a public
+described below. An automatic program containing reassociable MMA can try the
+[composed cooperative family](matrix.md#automatic-composed-programs), including
+ordinary Tile phases and temporal carries. Unsupported candidates retain the
+reference worker mapping. These choices are not a public
 `CPU_THREADS`/`GPU_GRID` compile option.
 
 Vector binding includes a separate resource transformation. A compiler-local

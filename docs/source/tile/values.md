@@ -255,6 +255,15 @@ merge(merge(a, b), c) = merge(a, merge(b, c))
 merge(identity, a) = a = merge(a, identity)
 ~~~
 
+The fiber is an ordered contribution sequence unless the contract also grants
+commutativity. Associativity permits different parentheses, not an arbitrary
+permutation: a noncommutative reducer needs contiguous partial sequences and
+an order-preserving merge. Striped worker assignment generally changes order
+and needs the stronger permission. The multiset notation above applies only
+when permutation is permitted. An independent output-group direction and a
+reduction direction are separate factors of one domain, as formalized in the
+[execution calculus](../internals/tile/calculus.md#strength-is-a-product-order-not-an-enum-order).
+
 Built-in add, maximum, minimum, logical reducers, and deterministic argmax are
 recognized update shapes with registered contracts. Welford and other custom
 states supply the same typed contract explicitly or through a registered

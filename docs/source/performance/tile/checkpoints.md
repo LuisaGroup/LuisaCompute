@@ -1,10 +1,19 @@
 # Tile implementation checkpoints
 
-Historical record through September 5, 2026. These checkpoints preserve
+Historical record through September 7, 2026. These checkpoints preserve
 their original cohorts, baselines and limitations; they are not a single
 current benchmark run. Start with [current status](index.md).
 
 ## Recorded checkpoints
+
+The [automatic cooperative-program checkpoint](results.md#automatic-cooperation-removes-the-attention-worker-fallback)
+adds generic MMA-containing program admission, unit-axis projection and
+pipeline capacity reservation. Six balanced orders give prefill/decode GPU
+control times of 80.612/327.875 µs, still 2.894×/10.132× Torch SDPA. All 36
+outputs pass; the full Tile suite remains 33/35 with the two known user-owned
+barrier-string failures. Native MPP and SIMD are unchanged. Its
+{download}`raw evidence <../../../../scripts/benchmark/tile_torch/results/m1-max-20260907-cooperative-programs/notes.md>`
+separates the mapping improvement from cost-model and parity claims.
 
 **Overall verdict: the architecture is executable and several bounded cohorts
 beat Torch or MPS, but the general performance objective is not complete.**
