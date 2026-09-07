@@ -163,9 +163,11 @@ public:
             options.UnsafeFPMath = true;
             options.ApproxFuncFPMath = true;
 #endif
+#if LLVM_VERSION_MAJOR <= 22
             options.NoInfsFPMath = true;
             options.NoNaNsFPMath = true;
             options.NoSignedZerosFPMath = true;
+#endif
             options.NoTrappingFPMath = true;
             options.AllowFPOpFusion = ::llvm::FPOpFusion::Fast;
             options.EnableIPRA = false;// true causes crash
