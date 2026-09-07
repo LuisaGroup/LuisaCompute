@@ -122,25 +122,55 @@ Reduction is an additional algebraic dimension, not a position between
 
 ```text
 g : R -> G
-result[o] = merge(incoming[o], fold(identity, lift(g^-1(o))))
+fiber(o) = [r0, ..., rn-1] in source contribution order
+fold_left(o)  = update_left(...update_left(seed[o], r0)..., rn-1)
+fold_right(o) = update_right(r0, ...update_right(rn-1, seed[o])...)
 ```
 
-Each fiber inherits the source contribution order unless the arithmetic
-contract permits permutation. The notation above is not a fold over an
-unordered set when the merge is noncommutative.
+The fiber uses active coordinates in lexicographic source-axis order, not
+memory or lane order. Left/right folds specify different update structures and
+operand orientations; right fold is not simply the unchanged left update run
+backwards. Empty fibers return the incoming seed. Masks omit contributions;
+physical replicas never create additional semantic occurrences.
+
+**The proposed source default is `unordered_tree`.** For a compatible reducer,
+it permits merge trees and contribution permutations, including order-dependent
+floating-point results. Ordered trees and strict folds are explicit restrictions.
+These choices define sets of admitted computations; they do not oblige the
+backend to use a tree. A serial realization can be in that set too. The existing
+Metal opt-in tree flag is an implementation gap, not the intended source default.
+
+For an exact left-reference tree rewrite, a sufficient contract is:
+
+```text
+update_left(s, r) = merge(s, lift(r))
+merge is associative; identity is a two-sided identity
+result[o] = merge(seed[o], ordered_merge(identity, map(lift, fiber(o))))
+```
+
+A right-reference rewrite instead has `update_right(r, s) = merge(lift(r), s)`
+and the seed on the right. These sufficient monoid laws are not prerequisites
+for a strict fold. Nor can an arbitrary `State x Elem -> State` update be
+treated as a `State x State -> State` merge. Default/tree policies without a
+compatible merge must be diagnosed, not silently assigned an invented algebra.
 
 For `y[m] = reduce_k f(m,k)`, `R = M x K` and `g(m,k)=m`: distinct `m`
 groups are independent; contributions along `k` combine. Several reduction
-axes or a non-coordinate grouping map use the same definition. A generic
-recurrence has ordering but no lawful merge and remains `serial`. A scan also
+axes or a non-coordinate grouping map use the same definition. A pure recurrence
+without a merge may use an explicit fold; general ordered effects use `serial`.
+A scan also
 exposes prefix results and cannot be replaced by a final-result reduction.
 
-Associativity permits changing parentheses while retaining contribution
-order. Arbitrary permutation additionally requires commutativity or an
+For exact equivalence, associativity permits changing parentheses while retaining
+contribution order. Arbitrary permutation additionally requires commutativity or an
 explicit permutation-invariant contract. A worker-striped fold can change
-order, so associativity alone is insufficient. Floating-point add is not an
-exact monoid: the selected numerical policy must separately admit the tree,
-FMA behavior and precision. `parallel` never supplies that permission.
+order, so associativity alone is insufficient for an exact rewrite. Floating-point
+add is not an exact monoid: the default tree policy authorizes its changed
+grouping/order without claiming such a proof. FMA behavior, precision and
+exceptional-value handling remain separate requirements. `parallel` never
+supplies reduction permission. See the
+[language contract](../../tile/values.md#reference-fold-and-permitted-regrouping)
+for the policy boundary and edge cases.
 
 ## Typed mapping witness
 
@@ -415,7 +445,9 @@ pipeline capacity reservation exercise reindex/bind/resource rules. Numerical
 tests cover permuted program coordinates, leading/interleaved unit axes,
 same-instance input/output aliases, explicit worker bindings, disabled
 planning, arithmetic permission, and multi-phase attention states. They do not
-implement general sibling fusion or reduction redistribution inside a group.
+establish general sibling fusion or a joint planner for every intra-group
+reduction/distribution alternative. Limited collective emitters are not that
+general composition result.
 
 To support a paper, the deliverables should be: a small reference interpreter;
 formal judgments and proofs for a stated fragment; a typed transformation

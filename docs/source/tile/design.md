@@ -40,6 +40,20 @@ The language has three first-class dimensions:
 
 They meet through checked composition; none is encoded inside another.
 
+**Execution-first does not mean execution-fixed.** The program supplies a
+structured semantic model: logical instances, values, effects, reference order
+and numerical permissions. The compiler chooses their realizable space/time
+resource mapping. It may split, fuse or time-multiplex logical work while
+preserving observed identities, effects and participant obligations. In
+particular, one nest does not prescribe one layout or storage class for all
+of its values.
+
+This is the working design hypothesis, not a proved research advantage. The
+[calculus](../internals/tile/calculus.md) owns refinement obligations and the
+[planner](../internals/tile/planner.md#compositional-search-contract) owns
+candidate composition. The [related-work review](../internals/tile/related-work.md)
+separates prior mechanisms from the improvements we still need to demonstrate.
+
 ```{figure} ../../_static/tile/execution-first-overview.svg
 :alt: Execution structure as the skeleton connecting dataflow, memory, layouts, pipelines, scheduling, and lowering.
 :width: 100%
@@ -134,7 +148,7 @@ them into one instruction:
 | Value distribution | Which participant and local slot hold an element? | `LayoutCorr<PhysicalSlot, LogicalCoord>` |
 | View | Which coordinates of an existing object are named? | `ViewMap` plus bounds predicate |
 | Memory | Which addressable object has stable identity? | `Memory` and owner prefix |
-| Reduction | Which semantic contributions merge under which laws? | reduction domain, grouping map, and reducer contract |
+| Reduction | Which contributions update each result, in what order and with what permitted regrouping? | ordered domain, grouping, update and optional merge contract |
 | Materialization | Which virtual SSA edges require storage? | compiler-owned materialization and version plan |
 | Resource instance | Which per-program physical allocation is selected? | `InstanceMap` |
 | Address | Which byte inside that allocation is selected? | `AddressMap` |
@@ -191,7 +205,7 @@ different reasons; there is no fifth catch-all execution entity:
 | `parallel` | Independence, logical participant product, and the spatial prefix used by ownership and distribution |
 | `serial` | The canonical counted iteration domain and mandatory recurrence order; it is the one structured loop primitive rather than a second generic loop hierarchy |
 | `pipeline` | Finite stage segmentation, dependence distances, and permission to overlap iterations; flattening to `serial` destroys the intended scheduling search space |
-| `reduce` | Identity, update/merge laws, grouping, accuracy policy, and permission to reassociate; a serial fold is only one legal lowering |
+| `reduce` | Contribution grouping, update/merge and numerical policy; unordered trees by default, explicit restrictions for ordered trees or strict folds |
 
 Distribution is a map, not a region. A memory resource is an addressable
 object, not a region. A pipeline stage is a segment of one pipeline, not an
@@ -226,6 +240,28 @@ different rates; keeping them layered prevents permanent IR bloat.
 ```
 
 ## Compiler references
+
+Documentation has one owner per question:
+
+```{table} Documentation ownership
+:class: design-table
+:name: tile-documentation-ownership
+
+| Question | Owning reference |
+|---|---|
+| What does a source program mean? | This overview and the execution, values, memory and pipeline references |
+| Which transformations and plans are legal? | Internals: calculus, TileIR and planner |
+| What is implemented and measured? | Performance: implementation coverage, validation and results |
+| What came from prior work and what remains a research hypothesis? | Internals related work; detailed Chinese research notes under `src/tile/` |
+```
+
+The proposed per-reduction policies, with `unordered_tree` as the language
+default, are specified in
+[values](values.md#reference-fold-and-permitted-regrouping). They are not yet
+C++ overloads or typed TileIR fields. The current `Nest::reduce(IndexSpace)`
+captures carried state; the Metal tree option still combines numerical
+permission with implementation selection. That implementation gap must not be
+hidden by a language-design example.
 
 [TileIR and capture](../internals/tile/ir.md), [TIRx export](../internals/tile/lowering.md),
 and [planning](../internals/tile/planner.md) are implementation references, not

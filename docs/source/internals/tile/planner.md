@@ -639,6 +639,52 @@ can be compared or composed; a cheaper score alone does not dominate a
 different layout that saves a parent's conversion. The current two-dimensional
 Pareto rule is valid only for the [narrower additive matrix problem](matrix.md#implemented-solver-enumeration-plus-pareto-dynamic-programming).
 
+The proposed compiler-internal interface makes that summary concrete:
+
+```{table} What crosses a candidate boundary
+:class: design-table
+:name: candidate-boundary-interface
+
+| Boundary information | What the parent must preserve or realize |
+|---|---|
+| Logical value/effect identities and active domains | Coverage, reaching values, alias/effect order and contribution multiplicity |
+| Entry/exit distributions and replicas | Matching consumer ownership, or an explicit supported conversion |
+| Numerical and participant contracts | Fold/tree permissions, convergence, binding and participation obligations |
+| Ready/release relations and resident versions | Safe publication, overlap, last-reader release and physical slot reuse |
+| Resource/engine profile and exposed scheduling choices | Peak per-instance storage, service contention and compatible issue/completion behavior |
+```
+
+A child candidate packages this interface with its checked realization and
+cost features. These are analysis/plan records, not new public Nest or Memory
+entities. If a parent may reschedule a child, the summary must retain the
+corresponding event/resource profile or a parametric schedule; a single scalar
+duration does not summarize every overlap choice. Proven-independent additive
+children can use a cheaper summary.
+
+Composition has an explicit proof obligation: if each child refines its source
+region, their interfaces agree (or a verified adapter connects them), and the
+parent satisfies cross-boundary effects, resource capacities and protocols,
+then the combined plan must refine the composed source. This is a **theorem to
+establish for the declared fragment**, not a proof already provided by the
+current Pareto solver. Cost optimality needs further assumptions and does not
+follow from semantic compositionality.
+
+In particular, do not prune different entry/exit layouts using only local
+latency and bytes. A parent may save a conversion, keep a value resident or
+overlap work differently. Compare dominance only for an equivalent interface
+and a future-independent summary; otherwise retain distinct candidates. Do not
+use `T(parent) = sum T(child)` for an overlapping resource-contending pipeline.
+
+Representation is itself a candidate choice. Original, materialized and
+fragment-resident forms should compete when each has a supported emitter;
+successfully lowering the first form is not evidence that it is cheapest.
+The current initializer-materialization fallback is a useful coverage mechanism,
+not this joint representation search. Similarly, a composed reduction needs
+fold length, load/distribution and collective features, not merely an output
+element count. XIR needs within-Tile packetization candidates before its cost
+policy can choose them. These gaps motivate expanding candidate families before
+replacing the search algorithm.
+
 Keep the candidate generator, verifier, evaluator, search strategy, and
 measurement driver separately replaceable. A future search result should
 report:
@@ -650,6 +696,12 @@ report:
 - Search-space bounds, rejected-constraint counts, seed where relevant,
   evaluations/compilations/measurements consumed, and a valid lower bound only
   when one is actually available.
+
+Rejections must distinguish semantic denial, target/resource infeasibility,
+missing emitter, unknown legality and a legal candidate losing on estimated
+cost. All should retain the responsible region/constraint and evidence.
+Otherwise a new cost coefficient can appear to fix a coverage failure that
+the evaluator never had a chance to consider.
 
 Use deterministic evaluation-count budgets in regression tests. A wall-clock
 budget is also useful interactively, but its explored set need not be

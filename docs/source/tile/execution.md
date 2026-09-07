@@ -203,7 +203,8 @@ events under the same assumptions**, adding ordering edges restricts the
 available schedules: an independent parallel domain has no inter-child
 edges, a pipeline has a partial order, and a serial domain has a total order.
 But `parallel` also requires noninterference, whereas a serial recurrence need
-not. Reduction adds grouping and merge laws rather than just another order.
+not. Reduction adds grouping, update/merge and regrouping permissions rather
+than just another order.
 See the [formal distinction](../internals/tile/calculus.md#strength-is-a-product-order-not-an-enum-order).
 
 A source kernel may contain a sequence of scopes. For example, using the
@@ -242,7 +243,8 @@ define the future single-device and distributed interpretation.
 :width: 100%
 
 The four regions separate independent space, ordered time, pipelined time, and
-associative aggregation without naming hardware.
+contribution aggregation without naming hardware. Reduction policies distinguish
+tree permission from an explicitly ordered fold.
 ```
 
 The second `parallel` argument is optional expert control, not part of the
@@ -294,17 +296,22 @@ connected to execution by topology and operation-specific accessibility.
 `k.stage(optional_name)` is not another nest or a runtime operation. It
 advances the frontend capture cursor to a new logical phase in that `k`
 pipeline. The first call begins stage zero; each later call closes the preceding
-segment and begins the next. The resulting pipeline owns an ordered list of
-stage subregions. The name is an optional compile-time label; identity is local
+segment and begins the next. The design represents these as ordered stage
+subregions; current capture records `STAGE` markers instead. The name is an
+optional compile-time label; identity is local
 to the owning pipeline. The iteration coordinate still comes from `k.index()`.
 
 `reduce` is a nest-like region, but not a new execution or memory level. Its
-range-for value is a non-copyable scope handle with `index()` and `coord()`, just
-like the other three regions; it never changes type into an accumulator or an
-input Tile. The compiler infers reduction states from outer `Tile` variables
-updated by the body. A reducer contract lets scheduling factor the reduction
-coordinate into spatial participants, serial steps, and a merge tree. There is
-no public loop-result accessor. [Reduction semantics](values.md#reduction-is-a-structured-algebraic-region) defines the contract.
+range-for value is a non-copyable Nest handle with `index()`, just like the other
+three regions; it never changes type into an accumulator or an input Tile.
+The compiler infers reduction states from outer `Tile` variables updated by the
+body. The proposed default is `unordered_tree`: a compatible reducer contract
+lets scheduling factor contributions into participants, serial steps and a
+merge tree, with regrouping and permutation allowed. Users explicitly select
+an ordered tree or strict left/right fold when needed. Strict folds need no
+parallel merge. There is no public loop-result accessor.
+[Reduction semantics](values.md#reference-fold-and-permitted-regrouping) separates
+this proposed per-region policy from today's narrower capture/lowering API.
 
 This set is intended to cover the structured static-control kernel fragment
 specified in the [calculus](../internals/tile/calculus.md#scope-of-the-claims);
@@ -312,7 +319,8 @@ a general completeness proof is not yet established. Spatial products and
 hierarchy factor into
 `parallel`; a temporal total order is `serial`; a periodic partial order with
 finite producer/consumer phases and fixed-distance loop-carried edges is
-`pipeline`; and an order-relaxed fold with a stated algebra is `reduce`. Any
+`pipeline`; and contribution aggregation with a stated fold/tree contract is
+`reduce`. Any
 finite acyclic phase graph can be topologically staged, while the IR retains the
 actual dependence DAG rather than mistaking textual order for an all-to-all
 barrier. Dynamic `$if`, `$switch`, and `$while` remain ordinary Luisa

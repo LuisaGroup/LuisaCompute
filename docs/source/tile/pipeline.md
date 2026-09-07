@@ -60,8 +60,10 @@ Dependence edge = (producer_stage, consumer_stage,
 executable marker operation. The first call begins stage zero and each
 subsequent call ends the current source segment and begins the next.
 `k.stage("load")` adds an optional compile-time name to the new segment. Capture
-turns the segments into ordered child regions of the single pipeline operation;
-internally each has identity `(PipelineId, ordinal)`. The name is a stable
+is intended to normalize the segments into ordered child regions of the single
+pipeline operation, each with identity `(PipelineId, ordinal)`. Current capture
+uses `OperationKind::STAGE` markers in the pipeline body; the normalized region
+form and general event protocol are design extensions. The name is a stable
 diagnostic and scheduling label, not global identity. Consequently unrelated
 pipelines cannot accidentally interleave their stage namespaces. A later fusion
 pass may combine pipelines only by constructing a new graph and proving
@@ -156,6 +158,37 @@ The compiler derives:
 
 Only a materialized edge's `VersionCoord` enters its `AddressMap`. Pure SSA
 edges do not acquire fictitious memory versions.
+
+### Issue, completion and release are different events
+
+The schedule equation above abbreviates a supported protocol, not a license
+to implement asynchronous readiness with a guessed fixed delay. An atom's
+issue need not complete its writes or stop its reads. Consumer readiness and
+storage reuse therefore have different prerequisites:
+
+```text
+                         consumer A completes(v) --+
+producer completes(v) --<                          +--> release(v)
+                         consumer B completes(v) --+        |
+                                                           v
+                                               overwrite the same slot
+```
+
+Both consumers wait for the relevant producer completion/publication. Reuse
+waits for every actual reader of that version to release it, including reads
+still in flight after their textual last use. Unrelated consumers do not join
+that release. Versions sharing a physical ring slot must have nonoverlapping
+live intervals; a missing protocol or progress guarantee makes the plan illegal,
+however attractive its predicted latency.
+
+Copy elimination may remove data movement but must preserve any still-needed
+publication or release edges. The compiler derives these from visible SSA and
+memory effects; opaque atoms supply effect/protocol contracts. These are
+internal obligations, not required user `owned_by`/event annotations. The
+[planner](../internals/tile/planner.md#formal-finite-optimization-problem)
+owns the resource-constrained formulation and its
+[Cypress/Tawa comparisons](../internals/tile/related-work.md) explain the prior
+mechanisms informing it.
 
 ```{figure} ../../_static/tile/pipeline-timeline.svg
 :alt: Three pipeline iterations overlap across load, compute, and store engines while their memory versions remain live.
