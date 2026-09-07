@@ -32,6 +32,15 @@ struct CoroAllocaScopeOptions {
 // a statically initialized sentinel or an index proved less than C. Pointer
 // escape, unknown counter mutation, and unsupported arithmetic fail closed.
 //
+// A third domain supports conditionally initialized payload arrays indexed by
+// the same counter as a discriminant array. It tracks possible unsafe tags,
+// allocation tickets, publication and rollback in a common Boolean valuation
+// domain. A payload read requires both a valid physical/published index and
+// a tag constraint excluding every possibly undefined record. Direct Boolean
+// liveness is insufficient to forget correlations carried by memory writes.
+// This proof snapshots the current instruction order per candidate because
+// earlier contractions can move stores to its companion arrays/scalars.
+//
 // A proved alloca is moved to the latest legal point in that block. It then
 // acts as an explicit lifetime start during frame liveness: storage from an
 // earlier continuation iteration is undefined, not an implicit input to a
@@ -55,6 +64,7 @@ struct CoroAllocaScopeInfo {
     size_t cross_block_contraction_count{0u};
     size_t intra_block_contraction_count{0u};
     size_t delayed_first_definition_count{0u};
+    size_t removed_undefined_lifetime_seed_count{0u};
     size_t cross_block_first_definition_delay_count{0u};
     size_t intra_block_first_definition_delay_count{0u};
     size_t rejected_phi_use_count{0u};
@@ -63,17 +73,22 @@ struct CoroAllocaScopeInfo {
     size_t definite_initialization_proof_count{0u};
     size_t guarded_initialization_proof_count{0u};
     size_t initialized_prefix_proof_count{0u};
+    size_t discriminated_prefix_proof_count{0u};
     size_t rejected_prior_lifetime_observation_count{0u};
     size_t definite_initialization_block_evaluation_count{0u};
     size_t guarded_initialization_state_evaluation_count{0u};
     size_t initialized_prefix_block_evaluation_count{0u};
+    size_t discriminated_prefix_candidate_count{0u};
+    size_t discriminated_prefix_rejected_missing_publication_count{0u};
+    size_t discriminated_prefix_block_evaluation_count{0u};
     size_t predicate_widening_count{0u};
     size_t instruction_order_query_count{0u};
     size_t placement_user_inspection_count{0u};
     size_t invalid_semantic_cfg_count{0u};
 
     [[nodiscard]] bool changed() const noexcept {
-        return contracted_alloca_count != 0u;
+        return contracted_alloca_count != 0u ||
+               removed_undefined_lifetime_seed_count != 0u;
     }
 };
 

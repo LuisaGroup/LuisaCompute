@@ -185,6 +185,31 @@ luisa::string CoroBooleanSetManager::describe(Set set) const noexcept {
     return visit(visit, set);
 }
 
+luisa::vector<Value *> CoroBooleanSetManager::support(Set set) const noexcept {
+    luisa::vector<Value *> result;
+    luisa::vector<uint8_t> seen_nodes(_nodes.size(), 0u);
+    luisa::vector<uint8_t> seen_variables(_variable_values.size(), 0u);
+    luisa::vector<Set> worklist{set};
+    while (!worklist.empty()) {
+        auto current = worklist.back();
+        worklist.pop_back();
+        if (current <= universe() || current >= _nodes.size() ||
+            seen_nodes[current] != 0u) {
+            continue;
+        }
+        seen_nodes[current] = 1u;
+        auto node = _nodes[current];
+        if (node.variable < _variable_values.size() &&
+            seen_variables[node.variable] == 0u) {
+            seen_variables[node.variable] = 1u;
+            result.emplace_back(_variable_values[node.variable]);
+        }
+        worklist.emplace_back(node.low);
+        worklist.emplace_back(node.high);
+    }
+    return result;
+}
+
 CoroGuardedScalarRelationDomain::CoroGuardedScalarRelationDomain(
     CoroBooleanSetManager &manager,
     luisa::span<const CoroMaskedScalarWitness>
@@ -541,7 +566,7 @@ void CoroGuardedScalarRelationDomain::retreat_counter() noexcept {
     _last_unsafe.clear();
     // C>0 before the decrement proves only new(C)>=0. If new(C) can be zero,
     // a previously nonzero witness scalar no longer implies positivity.
-    invalidate_counter_implications();
+    clear_counter_positive();
 }
 
 void CoroGuardedScalarRelationDomain::
@@ -757,7 +782,8 @@ void CoroGuardedScalarRelationDomain::forget_boolean(
     assign_boolean(predicate, nullptr, true, luisa::nullopt);
 }
 
-void CoroGuardedScalarRelationDomain::retain_booleans(
+luisa::vector<Value *>
+CoroGuardedScalarRelationDomain::retain_booleans(
     luisa::span<Value *const> live_predicates) noexcept {
     const auto is_live = [live_predicates](Value *predicate) noexcept {
         return std::find(live_predicates.begin(), live_predicates.end(),
@@ -768,7 +794,7 @@ void CoroGuardedScalarRelationDomain::retain_booleans(
     for (auto *predicate : _tracked_predicates) {
         if (!is_live(predicate)) { dead.emplace_back(predicate); }
     }
-    if (dead.empty()) { return; }
+    if (dead.empty()) { return dead; }
     luisa::unordered_map<Set, Set> projected;
     const auto project = [&](Set set) noexcept {
         if (auto iter = projected.find(set); iter != projected.end()) {
@@ -813,6 +839,7 @@ void CoroGuardedScalarRelationDomain::retain_booleans(
     _canonicalize(_equal_unsafe);
     _canonicalize(_last_unsafe);
     _canonicalize(_initialized_unsafe);
+    return dead;
 }
 
 void CoroGuardedScalarRelationDomain::assign_boolean(
@@ -863,6 +890,22 @@ void CoroGuardedScalarRelationDomain::assign_boolean(
     _canonicalize(_equal_unsafe);
     _canonicalize(_last_unsafe);
     _canonicalize(_initialized_unsafe);
+}
+
+luisa::optional<bool>
+CoroGuardedScalarRelationDomain::known_boolean(
+    Value *predicate) const noexcept {
+    if (predicate == nullptr) { return luisa::nullopt; }
+    // F is the set of Boolean valuations represented by this abstract state.
+    // A predicate has a Must value exactly when one of its two cofactors is
+    // empty. If both are non-empty, the only sound answer is Unknown.
+    auto when_false = _manager->intersect(
+        _feasible, _manager->literal(predicate, false));
+    if (CoroBooleanSetManager::is_empty(when_false)) { return true; }
+    auto when_true = _manager->intersect(
+        _feasible, _manager->literal(predicate, true));
+    if (CoroBooleanSetManager::is_empty(when_true)) { return false; }
+    return luisa::nullopt;
 }
 
 bool CoroGuardedScalarRelationDomain::_refine(Set selected) noexcept {

@@ -482,6 +482,7 @@ if has_config("lc_enable_xir") then
     coro_xir_test_proj("test_xir_coro_cfg_distill", "unit/xir/test_coro_cfg_distill.cpp")
     coro_xir_test_proj("test_xir_coro_cfg_dataflow", "unit/xir/test_coro_cfg_dataflow.cpp")
     coro_xir_test_proj("test_xir_pass_coro_alloca_scope", "unit/xir/test_xir_pass_coro_alloca_scope.cpp")
+    coro_xir_test_proj("test_xir_pass_coro_discriminated_prefix", "unit/xir/test_xir_pass_coro_discriminated_prefix.cpp")
     coro_xir_test_proj("test_xir_coro_materialize", "unit/xir/test_coro_materialize.cpp")
     coro_xir_test_proj("test_coro_dead_field", "unit/xir/test_coro_dead_field.cpp")
     coro_xir_test_proj("test_coro_frame_size", "unit/xir/test_coro_frame_size.cpp")

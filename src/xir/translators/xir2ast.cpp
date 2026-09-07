@@ -1581,16 +1581,27 @@ private:
             _predeclare_allocas(f.body_block());
             _emit_block(f.body_block());
         };
+        luisa::shared_ptr<const ASTFunctionBuilder> builder;
         switch (f.derived_function_tag()) {
-            case DerivedFunctionTag::KERNEL: return ASTFunctionBuilder::define_kernel(build);
-            case DerivedFunctionTag::CALLABLE: return ASTFunctionBuilder::define_callable(build);
+            case DerivedFunctionTag::KERNEL:
+                builder = ASTFunctionBuilder::define_kernel(build);
+                break;
+            case DerivedFunctionTag::CALLABLE:
+                builder = ASTFunctionBuilder::define_callable(build);
+                break;
             case DerivedFunctionTag::RASTER_STAGE:
                 LUISA_ERROR_WITH_LOCATION(
                     "XIR-to-AST raster-stage lowering does not yet preserve "
                     "vertex/fragment stage identity.");
             case DerivedFunctionTag::EXTERNAL: break;
         }
-        LUISA_ERROR_WITH_LOCATION("Cannot translate external XIR function to AST.");
+        LUISA_ASSERT(
+            builder != nullptr,
+            "Cannot translate external XIR function to AST.");
+        if (auto name = f.name(); name.has_value()) {
+            builder->set_name(*name);
+        }
+        return builder;
     }
 
     [[nodiscard]] luisa::shared_ptr<const ASTFunctionBuilder> _translate_callable(const FunctionDefinition &f) noexcept {

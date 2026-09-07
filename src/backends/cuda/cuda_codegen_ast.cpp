@@ -1555,6 +1555,7 @@ void CUDACodegenAST::visit(const SwitchDefaultStmt *stmt) {
 }
 
 void CUDACodegenAST::visit(const AssignStmt *stmt) {
+    if (is_local_undefined_lifetime_seed(stmt)) { return; }
     stmt->lhs()->accept(*this);
     _scratch << " = ";
     stmt->rhs()->accept(*this);
