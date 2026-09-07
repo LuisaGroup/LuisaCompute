@@ -283,6 +283,11 @@ void surface_filter_pipeline_dispatch(
         std::abort();
     }
     switch (arguments->N) {
+        // Embree may execute a packet API through its scalar intersector when
+        // the requested width is not native on the host. Direct-candidate
+        // handlers are disabled for that case because they consume the raw
+        // packet layout; state-backed handlers remain scalar-safe.
+        case 1u: surface_filter_pipeline<1u>(arguments); break;
         case 4u: surface_filter_pipeline<4u>(arguments); break;
         case 8u: surface_filter_pipeline<8u>(arguments); break;
         case 16u: surface_filter_pipeline<16u>(arguments); break;

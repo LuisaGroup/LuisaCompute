@@ -23,8 +23,9 @@
 
 #include <cstdio>
 #include <cstring>
-#include <fstream>
-#include <vector>
+#include <luisa/core/binary_file_stream.h>
+#include <luisa/core/stl/string.h>
+#include <luisa/core/stl/vector.h>
 
 namespace cnn {
 
@@ -32,30 +33,30 @@ namespace cnn {
 struct ExportedModel {
     int B = 0;
     int num_classes = 0;
-    std::vector<float> input;    // B*1*8*8
-    std::vector<float> w1, b1;   // conv1
-    std::vector<float> w2, b2;   // conv2
-    std::vector<float> wfc1, bfc1;
-    std::vector<float> wfc2, bfc2;
-    std::vector<float> ref_probs;// B*num_classes
+    luisa::vector<float> input;    // B*1*8*8
+    luisa::vector<float> w1, b1;   // conv1
+    luisa::vector<float> w2, b2;   // conv2
+    luisa::vector<float> wfc1, bfc1;
+    luisa::vector<float> wfc2, bfc2;
+    luisa::vector<float> ref_probs;// B*num_classes
 };
 
 // Reads the little-endian binary produced by cnn_train.py.
-static bool read_export(const std::string &path, ExportedModel &m) {
-    std::ifstream f(path, std::ios::binary);
+static bool read_export(const luisa::string &path, ExportedModel &m) {
+    luisa::BinaryFileStream f(path);
     if (!f) { return false; }
-    auto read_f32 = [&](std::vector<float> &v, size_t n) {
+    auto read_f32 = [&](luisa::vector<float> &v, size_t n) {
         v.resize(n);
         if (n == 0) { return; }
-        f.read(reinterpret_cast<char *>(v.data()), static_cast<std::streamsize>(n * sizeof(float)));
+        f.read(luisa::span<std::byte>{reinterpret_cast<std::byte *>(v.data()), n * sizeof(float)});
     };
     auto read_i32 = [&]() {
         int v = 0;
-        f.read(reinterpret_cast<char *>(&v), sizeof(v));
+        f.read(luisa::span<std::byte>{reinterpret_cast<std::byte *>(&v), sizeof(v)});
         return v;
     };
     char magic[9] = {};
-    f.read(magic, 8);
+    f.read(luisa::span<std::byte>{reinterpret_cast<std::byte *>(magic), 8});
     if (std::strncmp(magic, "LUISACNN", 8) != 0) { return false; }
     m.B = read_i32();
     m.num_classes = read_i32();
@@ -77,13 +78,13 @@ static bool read_export(const std::string &path, ExportedModel &m) {
 // fc, row-wise softmax), used to sanity-check the device result independently
 // of PyTorch.  Host arrays use [b][co][h][w] layout.
 // ---------------------------------------------------------------------------
-static std::vector<float> host_reference(const ExportedModel &m) {
+static luisa::vector<float> host_reference(const ExportedModel &m) {
     const int B = m.B;
-    std::vector<float> y1(B * 4 * 6 * 6);
-    std::vector<float> y2(B * 8 * 4 * 4);
-    std::vector<float> f1(B * 32);
-    std::vector<float> logits(B * 4);
-    std::vector<float> probs(B * 4);
+    luisa::vector<float> y1(B * 4 * 6 * 6);
+    luisa::vector<float> y2(B * 8 * 4 * 4);
+    luisa::vector<float> f1(B * 32);
+    luisa::vector<float> logits(B * 4);
+    luisa::vector<float> probs(B * 4);
 
     for (int b = 0; b < B; ++b) {
         for (int co = 0; co < 4; ++co) {
@@ -149,13 +150,13 @@ static std::vector<float> host_reference(const ExportedModel &m) {
 // colfc1, colfc2) are filled by the caller after each kernel runs.
 // ---------------------------------------------------------------------------
 struct HostMats {
-    std::vector<float> w1m;   // [4, 10]
-    std::vector<float> col1;  // [10, B*36]
-    std::vector<float> w2m;   // [8, 37]
-    std::vector<float> wfc1t; // [129, 32]
-    std::vector<float> wfc2t; // [33, 4]
-    std::vector<float> colfc1;// [B, 129]  (bias row pre-set)
-    std::vector<float> colfc2;// [B, 33]   (bias row pre-set)
+    luisa::vector<float> w1m;   // [4, 10]
+    luisa::vector<float> col1;  // [10, B*36]
+    luisa::vector<float> w2m;   // [8, 37]
+    luisa::vector<float> wfc1t; // [129, 32]
+    luisa::vector<float> wfc2t; // [33, 4]
+    luisa::vector<float> colfc1;// [B, 129]  (bias row pre-set)
+    luisa::vector<float> colfc2;// [B, 33]   (bias row pre-set)
 };
 
 static HostMats build_host_mats(const ExportedModel &m) {
@@ -252,7 +253,7 @@ int cnn::run_cnn_inference(int argc, char *argv[]) {
     }
 
     cnn::ExportedModel model;
-    if (!cnn::read_export(std::string{bin_path}, model)) {
+    if (!cnn::read_export(luisa::string{bin_path}, model)) {
         LUISA_ERROR("Failed to read '{}' (run examples/tensor/cnn_train.py first).", bin_path);
         return 1;
     }
@@ -335,11 +336,11 @@ int cnn::run_cnn_inference(int argc, char *argv[]) {
     Clock clock;
     // conv1
     stream << sh_conv1(bufW1, bufCol1, bufY1).dispatch(64u) << synchronize();
-    std::vector<float> y1(4u * static_cast<uint32_t>(B) * P1);// [C1][B*36]
+    luisa::vector<float> y1(4u * static_cast<uint32_t>(B) * P1);// [C1][B*36]
     stream << bufY1.copy_to(luisa::span{y1}) << synchronize();
 
     // conv2 im2col from the device y1 ([co][b*36+h*6+w] layout)
-    std::vector<float> col2(KK2 * static_cast<uint32_t>(B) * P2, 0.0f);
+    luisa::vector<float> col2(KK2 * static_cast<uint32_t>(B) * P2, 0.0f);
     for (int b = 0; b < B; ++b) {
         for (int oh = 0; oh < 4; ++oh) {
             for (int ow = 0; ow < 4; ++ow) {
@@ -358,11 +359,11 @@ int cnn::run_cnn_inference(int argc, char *argv[]) {
     }
     stream << bufCol2.copy_from(luisa::span{col2}) << synchronize();
     stream << sh_conv2(bufW2, bufCol2, bufY2).dispatch(64u) << synchronize();
-    std::vector<float> y2(C2 * static_cast<uint32_t>(B) * P2);// [C2][B*16]
+    luisa::vector<float> y2(C2 * static_cast<uint32_t>(B) * P2);// [C2][B*16]
     stream << bufY2.copy_to(luisa::span{y2}) << synchronize();
 
     // fc1 im2col from the device y2 ([co][b*16+h*4+w] layout)
-    std::vector<float> colfc1(static_cast<uint32_t>(B) * KFC1, 0.0f);
+    luisa::vector<float> colfc1(static_cast<uint32_t>(B) * KFC1, 0.0f);
     for (int b = 0; b < B; ++b) {
         for (int co = 0; co < 8; ++co) {
             for (int h = 0; h < 4; ++h) {
@@ -376,11 +377,11 @@ int cnn::run_cnn_inference(int argc, char *argv[]) {
     }
     stream << bufColFc1.copy_from(luisa::span{colfc1}) << synchronize();
     stream << sh_fc1(bufColFc1, bufWfc1T, bufF1).dispatch(64u) << synchronize();
-    std::vector<float> f1(static_cast<uint32_t>(B) * F1);// [B][32]
+    luisa::vector<float> f1(static_cast<uint32_t>(B) * F1);// [B][32]
     stream << bufF1.copy_to(luisa::span{f1}) << synchronize();
 
     // fc2 im2col from the device f1 ([b][h] layout)
-    std::vector<float> colfc2(static_cast<uint32_t>(B) * KFC2, 0.0f);
+    luisa::vector<float> colfc2(static_cast<uint32_t>(B) * KFC2, 0.0f);
     for (int b = 0; b < B; ++b) {
         for (int h = 0; h < 32; ++h) { colfc2[b * KFC2 + h] = f1[b * 32 + h]; }
         colfc2[b * KFC2 + 32] = 1.0f;
@@ -392,7 +393,7 @@ int cnn::run_cnn_inference(int argc, char *argv[]) {
     stream << sh_softmax(bufLogits, bufProbs).dispatch(32u) << synchronize();
     double gpu_ms = clock.toc();
 
-    std::vector<float> probs(static_cast<uint32_t>(B) * NC);
+    luisa::vector<float> probs(static_cast<uint32_t>(B) * NC);
     stream << bufProbs.copy_to(luisa::span{probs}) << synchronize();
 
     // ---- verify against PyTorch reference and host reference ----------------

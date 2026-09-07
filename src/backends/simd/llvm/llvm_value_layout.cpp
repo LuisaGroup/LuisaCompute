@@ -123,6 +123,8 @@ LLVMValueLayout::LLVMValueLayout(::llvm::LLVMContext &context,
         }
         case Tag::FLOAT8_E4M3:
         case Tag::FLOAT8_E5M2:
+        case Tag::INT4:
+        case Tag::FP4_E2M1:
         case Tag::TEXTURE:
         case Tag::COOPERATIVE_VECTOR:
         case Tag::COOPERATIVE_VECTOR_REF:

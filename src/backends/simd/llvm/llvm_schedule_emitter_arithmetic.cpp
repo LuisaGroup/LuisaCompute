@@ -1738,21 +1738,45 @@ namespace luisa::compute::simd::detail {
                               varying ? _active_mask :
                                         nullptr;
     auto op = static_cast<xir::CastOp>(*instruction.source_op);
+    if (op == xir::CastOp::BITWISE_CAST) {
+        auto *uniform_result_type = _data_type(result->type, false);
+        if (uniform_result_type == nullptr) { return nullptr; }
+        if (!varying) {
+            return _builder.CreateBitCast(value, uniform_result_type);
+        }
+
+        // Varying aggregates use a structure-of-arrays representation, while
+        // an XIR bitwise cast reinterprets one complete logical register. Pack
+        // and cast each logical lane independently so shape-changing casts
+        // such as float2 <-> uint64 preserve their bits and still return the
+        // expected SIMD lane-vector/SoA representation.
+        auto *varying_result_type = _data_type(result->type, true);
+        if (varying_result_type == nullptr) { return nullptr; }
+        if (_is_scalar_data(source->type) &&
+            _is_scalar_data(result->type)) {
+            return _builder.CreateBitCast(value, varying_result_type);
+        }
+        auto *cast = static_cast<::llvm::Value *>(
+            ::llvm::PoisonValue::get(varying_result_type));
+        for (auto lane_index = uint32_t{0u};
+             lane_index < _width; lane_index++) {
+            auto *lane = _builder.getInt32(lane_index);
+            auto *source_lane = _extract_lane(
+                value, source->type, lane);
+            auto *result_lane = _builder.CreateBitCast(
+                source_lane, uniform_result_type);
+            cast = _insert_lane(
+                cast, result_lane, result->type, lane);
+            if (cast == nullptr) { return nullptr; }
+        }
+        return cast;
+    }
     return _componentwise_unary(
         result->type, value, source->type, varying,
         [&](::llvm::Value *scalar, const Type *source_type) {
             auto *destination_type = result->type;
             while (!_is_scalar_data(destination_type)) {
                 destination_type = destination_type->element();
-            }
-            if (op == xir::CastOp::BITWISE_CAST) {
-                return _builder.CreateBitCast(
-                    scalar,
-                    scalar->getType()->isVectorTy() ?
-                        ::llvm::FixedVectorType::get(
-                            _data_type(destination_type, false),
-                            _width) :
-                        _data_type(destination_type, false));
             }
             auto destination_is_float =
                 destination_type->is_float16() ||

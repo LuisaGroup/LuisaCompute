@@ -510,6 +510,12 @@ enum class ThreadGroupOp {
 
     // block synchronization
     SYNCHRONIZE_BLOCK,// ()
+
+    // raster fragment depth output
+    // Keep these appended so existing serialized ThreadGroupOp values remain stable.
+    RASTER_SET_Z_DEPTH,              // (float): void
+    RASTER_SET_Z_DEPTH_GREATER_EQUAL,// (float): void
+    RASTER_SET_Z_DEPTH_LESS_EQUAL,   // (float): void
 };
 
 #include <luisa/xir/op_to_string.inl.h>

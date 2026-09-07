@@ -877,6 +877,38 @@ SIMDCompiledKernel compile_simd_kernel(
         llvm_result.block_barrier_loop_epoch_count;
     result.cooperative_block = llvm_result.cooperative_block;
     result.direct_control_flow = llvm_result.direct_control_flow;
+    if (detail::env_flag("LUISA_SIMD_REPORT_OPTIMIZATIONS")) {
+        auto function_count = size_t{0u};
+        auto block_count = size_t{0u};
+        auto instruction_count = size_t{0u};
+        auto alloca_count = size_t{0u};
+        for (auto &&function : *module) {
+            if (function.isDeclaration()) { continue; }
+            function_count++;
+            for (auto &&block : function) {
+                block_count++;
+                for (auto &&instruction : block) {
+                    instruction_count++;
+                    alloca_count += instruction.getOpcode() ==
+                                    ::llvm::Instruction::Alloca;
+                }
+            }
+        }
+        LUISA_INFO(
+            "SIMD pre-JIT module '{}': functions={}, blocks={}, "
+            "instructions={}, allocas={}, state_slots={}, "
+            "coalesced_state_slots={}, general_colored_state_slots={}",
+            entry_name, function_count, block_count,
+            instruction_count, alloca_count,
+            result.state_slot_count,
+            result.coalesced_state_slot_count,
+            result.general_colored_state_slot_count);
+        LUISA_INFO(
+            "SIMD pre-JIT state residency '{}': cold_state_slots={}, "
+            "stack_pinned_state_slots={}",
+            entry_name, result.cold_state_slot_count,
+            result.stack_pinned_state_slot_count);
+    }
     auto llvm_entry_name = llvm_result.entry->getName().str();
     auto llvm_packet_batch_entry_name =
         llvm_result.packet_batch_entry == nullptr ?

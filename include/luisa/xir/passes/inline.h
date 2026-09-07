@@ -11,8 +11,11 @@ class CallInst;
 
 // Ordinary inlining is a performance heuristic, not a legalization step.
 // Keep a finite single-use budget so one-use shader stages remain compiler
-// partitions instead of creating an arbitrarily large caller CFG. Explicit
-// inline-all and selected-call-site legalization deliberately ignore it.
+// partitions instead of creating an arbitrarily large caller CFG. Ordinary
+// inlining stabilizes callees before callers, so this budget applies to the
+// transitive body that would actually be cloned and is independent of callable
+// creation order. Explicit inline-all and selected-call-site legalization
+// deliberately ignore it.
 inline constexpr size_t default_inline_single_use_instruction_budget = 1024u;
 inline constexpr size_t default_inline_multi_use_instruction_budget = 50u;
 inline constexpr size_t default_inline_multi_use_call_site_budget = 3u;
@@ -23,6 +26,7 @@ struct InlineInfo {
     size_t skipped_recursive_callable_count{0u};
     size_t skipped_structured_call_count{0u};
     size_t skipped_constrained_call_count{0u};
+    size_t skipped_noinline_call_count{0u};
     size_t skipped_metadata_call_count{0u};
     // Mandatory lowering may consume source-only metadata on a call because
     // the call itself has no one-to-one replacement after inlining. Semantic
@@ -70,18 +74,22 @@ struct InlineOptions {
     // explicitly consume them after the complete selected-call-site plan has
     // passed preflight. All other metadata remains unmappable.
     bool consume_call_site_diagnostic_metadata{false};
+    // A noinline marker is an optimization boundary rather than an execution
+    // semantic. Mandatory backend ABI legalization may explicitly override it;
+    // ordinary and inline-all optimization preserve it by default.
+    bool override_noinline{false};
 };
 
 // Single-block callees can be inlined into structured callers without changing
 // their CFG. By default, multi-block inlining is unstructured-CFG-only. The
 // opt-in option permits only a retained caller-side autodiff scope after the
 // caller and callee's ordinary structured CFG has already been destructured.
-// Signature-constrained callees and calls whose metadata cannot be assigned to
-// one replacement owner are rejected without mutation. An explicit mandatory
-// lowering option may consume only source-diagnostic call metadata after
-// atomic preflight; semantic metadata is always rejected. Bodyless callable
-// declarations are valid references but are never inline candidates. Callee
-// instruction and basic-block metadata is cloned one-to-one;
+// Signature-constrained and noinline callees, and calls whose metadata cannot
+// be assigned to one replacement owner, are rejected without mutation. An
+// explicit mandatory lowering option may consume only source-diagnostic call
+// metadata after atomic preflight; semantic metadata is always rejected.
+// Bodyless callable declarations are valid references but are never inline
+// candidates. Callee instruction and basic-block metadata is cloned one-to-one;
 // function/argument names are debug declarations and are not materialized into
 // the inline region.
 [[nodiscard]] LUISA_XIR_API InlineInfo inline_pass_run_on_module(Module *module, PassReport *report = nullptr) noexcept;

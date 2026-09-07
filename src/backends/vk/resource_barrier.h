@@ -7,6 +7,7 @@
 namespace lc::vk {
 class BindlessArray;
 class Buffer;
+class Device;
 class ResourceBarrier {
 public:
     struct Range {
@@ -142,6 +143,9 @@ public:
     };
     using QueueType = detail::QueueType;
     QueueType queue_type{QueueType::GRAPHICS};
+    // Set by the owning Stream; used to dispatch between sync2 and legacy
+    // pipeline barriers.
+    Device const *device{nullptr};
     struct RestoreStates {
         VkPipelineStageFlagBits2 after_stage{0};
         VkAccessFlagBits2 after_access{0};

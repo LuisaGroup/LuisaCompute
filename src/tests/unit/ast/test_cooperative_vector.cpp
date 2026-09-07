@@ -45,7 +45,7 @@ public:
 };
 #endif
 
-// Create the requested test device (dx with experimental features, or vk).
+// Create the requested test device (dx with experimental features, vk, or metal4).
 // Returns std::nullopt if the backend is not supported on this platform.
 [[nodiscard]] std::optional<luisa::test::DeviceContext> create_test_device(
     const char *exe, luisa::string_view backend) {
@@ -66,12 +66,12 @@ public:
         return std::nullopt;
 #endif
     }
-    if (backend == "vk") {
+    if (backend == "vk" || backend == "metal4") {
         Context context{exe};
-        Device device = context.create_device("vk");
+        Device device = context.create_device(backend);
         return luisa::test::DeviceContext{std::move(context), std::move(device)};
     }
-    LUISA_INFO("This test only supports the dx or vk backend; got '{}'. Skipping device execution tests.", backend);
+    LUISA_INFO("This test only supports the dx, vk, or metal4 backend; got '{}'. Skipping device execution tests.", backend);
     return std::nullopt;
 }
 

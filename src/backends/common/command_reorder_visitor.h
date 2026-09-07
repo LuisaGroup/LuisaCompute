@@ -1106,6 +1106,9 @@ public:
             case to_underlying(CustomCommandUUID::CUSTOM_DISPATCH):
                 visit(static_cast<CustomDispatchCommand const *>(custom_cmd));
                 break;
+            case to_underlying(CustomCommandUUID::VK_CUDA_LAUNCH_KERNEL):
+                visit(static_cast<CustomDispatchCommand const *>(custom_cmd));
+                break;
             default:
                 LUISA_ERROR("Custom command not supported by reorder.");
         }

@@ -2,6 +2,7 @@
 #include "compute_shader.h"
 #include "upload_buffer.h"
 #include "device.h"
+#include "command_buffer_sync.h"
 #include "resource_barrier.h"
 #include "sampler_anisotropy.h"
 #include "stream.h"
@@ -236,7 +237,7 @@ void upload_buffer_metadata(
         metadata_buffer->vk_buffer(),
         static_cast<uint32_t>(regions.size()),
         regions.data()};
-    vkCmdCopyBuffer2(cmdbuffer->cmdbuffer(), &copy_info);
+    detail::cmd_copy_buffer(cmdbuffer->cmdbuffer(), cmdbuffer->device(), &copy_info);
 }
 
 template<typename Record, typename Modification>
@@ -273,7 +274,7 @@ void upload_slot_records(
         destination.vk_buffer(),
         static_cast<uint32_t>(regions.size()),
         regions.data()};
-    vkCmdCopyBuffer2(cmdbuffer->cmdbuffer(), &copy_info);
+    detail::cmd_copy_buffer(cmdbuffer->cmdbuffer(), cmdbuffer->device(), &copy_info);
 }
 }// namespace bdls_detail
 BindlessArray::BindlessArray(Device *device, BindlessSlotType type, size_t size)

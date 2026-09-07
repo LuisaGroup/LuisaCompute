@@ -18,9 +18,11 @@
 
 #include "common/reference_compare.h"
 #include "common/path_tracing_sample_plan.h"
+#include "rendering/path_tracing_test.h"
 
 #include <luisa/luisa-compute.h>
 #include <luisa/dsl/sugar.h>
+#include <luisa/gui/window.h>
 
 #include "cornell_box.h"
 #include <luisa/dsl/sugar.h>
@@ -45,23 +47,11 @@ LUISA_STRUCT(Onb, tangent, binormal, normal) {
     }
 };
 
-int main(int argc, char *argv[]) {
+luisa::ref::PathTracingTestResult luisa::ref::run_path_tracing_test(
+    Device &device, const PathTracingTestOptions &opts) {
 
-    log_level_verbose();
-
-    Context context{argv[0]};
-    if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend> [--offline] [--spp N] [--max-spp-per-dispatch N]. <backend>: cuda, dx, metal, vk, hip, fallback, simd", argv[0]);
-        exit(1);
-    }
-
-    auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
-    if (!opts.valid()) {
-        LUISA_WARNING("Invalid command line: {}", opts.error_message);
-        return 1;
-    }
-
-    Device device = context.create_device(argv[1]);
+    Clock total_clock;
+    Clock scene_setup_clock;
 
     // Load the Cornell Box scene from embedded OBJ string
     tinyobj::ObjReaderConfig obj_reader_config;
@@ -146,6 +136,15 @@ int main(int argc, char *argv[]) {
     };
     auto materials = device.create_buffer<float3>(8);
     stream << materials.copy_from(luisa::span{materials_array, std::size(materials_array)});
+    auto scene_setup_cpu_ms = scene_setup_clock.toc();
+    double acceleration_build_ms = 0.0;
+    if (opts.collect_stage_timings) {
+        Clock acceleration_build_clock;
+        stream << synchronize();
+        acceleration_build_ms = acceleration_build_clock.toc();
+    }
+
+    Clock kernel_definition_clock;
 
     // Convert linear RGB to sRGB with proper gamma correction
     Callable linear_to_srgb = [&](Var<float3> x) noexcept {
@@ -365,19 +364,24 @@ int main(int argc, char *argv[]) {
         set_name("hdr2ldr_kernel");
         UInt2 coord = dispatch_id().xy();
         Float4 hdr = hdr_image.read(coord);
-        Float3 ldr = linear_to_srgb(clamp(hdr.xyz() / hdr.w * scale, 0.f, 1.f));
+        Float3 ldr = linear_to_srgb(clamp(
+            hdr.xyz() / max(hdr.w, 1.0e-6f) * scale, 0.f, 1.f));
         ldr_image.write(coord, make_float4(ldr, 1.0f));
     };
+    auto kernel_definition_ms = kernel_definition_clock.toc();
 
     // Compile shaders
     ShaderOption o{.enable_debug_info = false};
+    Clock shader_compile_clock;
     auto raytracing_shader = device.compile(raytracing_kernel, ShaderOption{.name = "path_tracing"});
     auto clear_shader = device.compile(clear_kernel, o);
     auto hdr2ldr_shader = device.compile(hdr2ldr_kernel, o);
     auto accumulate_shader = device.compile(accumulate_kernel, o);
     auto make_sampler_shader = device.compile(make_sampler_kernel, o);
+    auto shader_compile_ms = shader_compile_clock.toc();
 
     // Create images and window
+    Clock initialization_clock;
     static constexpr uint2 resolution = make_uint2(1024u);
     Image<float> framebuffer = device.create_image<float>(PixelStorage::HALF4, resolution);
     Image<float> accum_image = device.create_image<float>(PixelStorage::FLOAT4, resolution);
@@ -388,16 +392,30 @@ int main(int argc, char *argv[]) {
     stream << clear_shader(accum_image).dispatch(resolution)
            << make_sampler_shader(seed_image).dispatch(resolution);
 
-    // Setup window and swapchain conditionally
+    // Setup the platform Window and common Luisa Swapchain presentation path.
+    // Desktop owns a GLFW window by default; iOS passes a Window that wraps the
+    // UIKit-owned CAMetalLayer.
     std::unique_ptr<Window> window;
+    Window *active_window = opts.window;
     std::optional<Swapchain> swap_chain;
     if (!opts.offline) {
-        window = std::make_unique<Window>("path tracing", resolution, false);
+#if defined(LUISA_PLATFORM_IOS)
+        if (active_window == nullptr) {
+            return {
+                .success = false,
+                .error = "Interactive iOS rendering requires a native Window."};
+        }
+#else
+        if (active_window == nullptr) {
+            window = std::make_unique<Window>("path tracing", resolution, false);
+            active_window = window.get();
+        }
+#endif
         swap_chain.emplace(device.create_swapchain(
             stream,
             SwapchainOption{
-                .display = window->native_display(),
-                .window = window->native_handle(),
+                .display = active_window->native_display(),
+                .window = active_window->native_handle(),
                 .size = make_uint2(resolution),
                 .wants_hdr = false,
                 .wants_vsync = false,
@@ -408,9 +426,12 @@ int main(int argc, char *argv[]) {
     Image<float> ldr_image = device.create_image<float>(
         (!opts.offline && swap_chain.has_value()) ? swap_chain->backend_storage() : PixelStorage::BYTE4,
         resolution);
+    if (opts.collect_stage_timings) { stream << synchronize(); }
+    auto initialization_ms = initialization_clock.toc();
     double last_time = 0.0;
     uint64_t frame_count = 0u;
-    Clock clock;
+    bool snapshot_captured = false;
+    Clock render_clock;
 
     // Main render loop
     while (sample_plan.has_next(frame_count)) {
@@ -422,28 +443,110 @@ int main(int argc, char *argv[]) {
         if (!opts.offline && swap_chain.has_value()) {
             stream << hdr2ldr_shader(accum_image, ldr_image, 2.f).dispatch(resolution)
                    << swap_chain->present(ldr_image);
-            if (window->should_close()) { break; }
-            window->poll_events();
+            if (active_window->should_close()) { break; }
+            active_window->poll_events();
         }
-        double dt = clock.toc() - last_time;
+        double dt = render_clock.toc() - last_time;
         LUISA_INFO("dt = {:.2f}ms ({:.2f} spp/s)", dt, dispatch_spp / dt * 1000);
-        last_time = clock.toc();
+        last_time = render_clock.toc();
         frame_count += dispatch_spp;
+        if (opts.progress_callback) {
+            opts.progress_callback(frame_count, last_time);
+        }
+        if (!snapshot_captured && opts.snapshot_spp != 0u &&
+            frame_count >= opts.snapshot_spp && opts.snapshot_callback) {
+            stream << hdr2ldr_shader(accum_image, ldr_image, 2.f).dispatch(resolution)
+                   << ldr_image.copy_to(luisa::span{host_image})
+                   << synchronize();
+            auto snapshot_elapsed = render_clock.toc();
+            opts.snapshot_callback(
+                resolution, frame_count, snapshot_elapsed, host_image);
+            snapshot_captured = true;
+        }
     }
+    double render_ms = 0.0;
+    if (opts.collect_stage_timings) {
+        stream << synchronize();
+        render_ms = render_clock.toc();
+    }
+    Clock readback_clock;
     stream << hdr2ldr_shader(accum_image, ldr_image, 2.f).dispatch(resolution)
            << ldr_image.copy_to(luisa::span{host_image})
            << synchronize();
-    LUISA_INFO("FPS: {}", frame_count / clock.toc() * 1000);
-    stbi_write_png("test_path_tracing.png", resolution.x, resolution.y, 4, host_image.data(), 0);
-    if (opts.offline) {
-        if (opts.compare_path) {
-            auto result = luisa::ref::compare_with_reference_file(
-                reinterpret_cast<const uint8_t *>(host_image.data()),
-                resolution.x, resolution.y, 4,
-                *opts.compare_path);
-            LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-            if (!result.passed) { return 1; }
-        }
+    auto readback_ms = readback_clock.toc();
+    auto elapsed = opts.collect_stage_timings ? render_ms : render_clock.toc();
+    auto total_ms = total_clock.toc();
+    LUISA_INFO("SPP throughput: {} spp/s", frame_count / elapsed * 1000);
+    if (opts.collect_stage_timings) {
+        LUISA_INFO(
+            "Path tracing timings (ms): scene_setup_cpu={:.3f}, "
+            "acceleration_build={:.3f}, kernel_definition={:.3f}, "
+            "shader_compile={:.3f}, "
+            "initialization={:.3f}, render={:.3f}, readback={:.3f}, total={:.3f}",
+            scene_setup_cpu_ms, acceleration_build_ms, kernel_definition_ms,
+            shader_compile_ms, initialization_ms, render_ms, readback_ms, total_ms);
+    }
+    return {
+        .success = true,
+        .resolution = resolution,
+        .completed_spp = frame_count,
+        .elapsed_ms = elapsed,
+        .scene_setup_cpu_ms = scene_setup_cpu_ms,
+        .acceleration_build_ms = acceleration_build_ms,
+        .kernel_definition_ms = kernel_definition_ms,
+        .shader_compile_ms = shader_compile_ms,
+        .initialization_ms = initialization_ms,
+        .render_ms = render_ms,
+        .readback_ms = readback_ms,
+        .total_ms = total_ms,
+        .pixels = std::move(host_image)};
+}
+
+#if !defined(LUISA_PATH_TRACING_LIBRARY_ONLY)
+int main(int argc, char *argv[]) {
+
+    log_level_verbose();
+
+    Context context{argv[0]};
+    if (argc <= 1) {
+        LUISA_INFO("Usage: {} <backend> [--offline] [--spp N] [--max-spp-per-dispatch N]. <backend>: cuda, dx, metal, vk, hip, fallback, simd", argv[0]);
+        return 1;
+    }
+
+    auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
+    if (!opts.valid()) {
+        LUISA_WARNING("Invalid command line: {}", opts.error_message);
+        return 1;
+    }
+
+    Device device = context.create_device(argv[1]);
+    auto result = luisa::ref::run_path_tracing_test(
+        device,
+        luisa::ref::PathTracingTestOptions{
+            .offline = opts.offline,
+            .spp = opts.spp,
+            .max_spp_per_dispatch = opts.max_spp_per_dispatch});
+    if (!result.success) {
+        LUISA_WARNING("Path tracing failed: {}", result.error);
+        return 1;
+    }
+    stbi_write_png(
+        "test_path_tracing.png",
+        static_cast<int>(result.resolution.x),
+        static_cast<int>(result.resolution.y), 4,
+        result.pixels.data(), 0);
+    if (opts.offline && opts.compare_path) {
+        auto comparison = luisa::ref::compare_with_reference_file(
+            reinterpret_cast<const uint8_t *>(result.pixels.data()),
+            static_cast<int>(result.resolution.x),
+            static_cast<int>(result.resolution.y), 4,
+            *opts.compare_path);
+        LUISA_INFO(
+            "Reference comparison: {} ({})",
+            comparison.passed ? "PASSED" : "FAILED",
+            comparison.message);
+        if (!comparison.passed) { return 1; }
     }
     return 0;
 }
+#endif

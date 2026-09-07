@@ -408,6 +408,24 @@ void reg_special_regs() {
         expect(wsz->type() == Type::of<uint>());
     };
 
+    "xir_special_register_front_facing"_test = [] {
+        Module module;
+        auto *front_facing = module.create_front_facing();
+        expect(front_facing != nullptr);
+        expect(front_facing->derived_special_register_tag() ==
+               DerivedSpecialRegisterTag::RASTER_FRONT_FACING);
+        expect(front_facing->type() == Type::of<bool>());
+    };
+
+    "xir_special_register_base_instance"_test = [] {
+        Module module;
+        auto *base_instance = module.create_base_instance();
+        expect(base_instance != nullptr);
+        expect(base_instance->derived_special_register_tag() ==
+               DerivedSpecialRegisterTag::RASTER_BASE_INSTANCE);
+        expect(base_instance->type() == Type::of<uint>());
+    };
+
     "xir_special_register_deduplication"_test = [] {
         Module module;
         auto *tid1 = module.create_thread_id();
@@ -567,6 +585,10 @@ void reg_tag_strings() {
         expect(to_string(DerivedSpecialRegisterTag::BLOCK_ID) == "block_id");
         expect(to_string(DerivedSpecialRegisterTag::DISPATCH_ID) == "dispatch_id");
         expect(to_string(DerivedSpecialRegisterTag::DISPATCH_SIZE) == "dispatch_size");
+        expect(to_string(DerivedSpecialRegisterTag::RASTER_FRONT_FACING) ==
+               "front_facing");
+        expect(to_string(DerivedSpecialRegisterTag::RASTER_BASE_INSTANCE) ==
+               "base_instance");
     };
 
     "xir_argument_tag_strings"_test = [] {

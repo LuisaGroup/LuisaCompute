@@ -111,22 +111,15 @@ template<typename IndexAt>
         switch (current->tag()) {
             case Type::Tag::ARRAY:
             case Type::Tag::VECTOR: {
-                uint64_t constant_index = 0u;
-                if (index->template isa<Constant>() &&
-                    (!try_decode_constant_nonnegative_integer(index, constant_index) ||
-                     constant_index >= current->dimension())) {
-                    return nullptr;
-                }
+                // Bounds are an execution-domain constraint for homogeneous
+                // aggregates, not part of the result type. Keeping constant
+                // indices subject to a stronger verifier rule than dynamic
+                // indices would make valid IR become malformed under constant
+                // propagation (for example inside a proven-dead branch).
                 current = current->element();
                 break;
             }
             case Type::Tag::MATRIX: {
-                uint64_t constant_index = 0u;
-                if (index->template isa<Constant>() &&
-                    (!try_decode_constant_nonnegative_integer(index, constant_index) ||
-                     constant_index >= current->dimension())) {
-                    return nullptr;
-                }
                 current = Type::vector(current->element(), current->dimension());
                 break;
             }
@@ -164,6 +157,15 @@ template<typename IndexAt>
     return type->size();
 }
 
+[[nodiscard]] bool storage_aggregate_bitcast_compatible(
+    const Type *source, const Type *target) noexcept {
+    auto is_storage_aggregate = [](const Type *type) noexcept {
+        return type->is_structure() || type->is_array();
+    };
+    return is_storage_aggregate(source) && is_storage_aggregate(target) &&
+           source->size() == target->size();
+}
+
 [[nodiscard]] bool cast_types_valid(const CastInst *cast) noexcept {
     if (cast->type() == nullptr || cast->type()->is_resource() ||
         cast->type()->is_custom() || !data_operand_valid(cast->value())) {
@@ -176,10 +178,11 @@ template<typename IndexAt>
             return source->is_scalar_or_vector() && target->is_scalar_or_vector() &&
                    source->dimension() == target->dimension();
         case CastOp::BITWISE_CAST:
-            return source->is_scalar_or_vector() && target->is_scalar_or_vector() &&
-                   !source->is_bool_or_bool_vector() &&
-                   !target->is_bool_or_bool_vector() &&
-                   logical_register_width(source) == logical_register_width(target);
+            return (source->is_scalar_or_vector() && target->is_scalar_or_vector() &&
+                    !source->is_bool_or_bool_vector() &&
+                    !target->is_bool_or_bool_vector() &&
+                    logical_register_width(source) == logical_register_width(target)) ||
+                   storage_aggregate_bitcast_compatible(source, target);
     }
     return false;
 }
@@ -491,6 +494,9 @@ template<typename IndexAt>
         case ThreadGroupOp::WARP_READ_LANE: return count == 2u;
         case ThreadGroupOp::RASTER_QUAD_DDX:
         case ThreadGroupOp::RASTER_QUAD_DDY:
+        case ThreadGroupOp::RASTER_SET_Z_DEPTH:
+        case ThreadGroupOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL:
+        case ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL:
         case ThreadGroupOp::WARP_ACTIVE_ALL_EQUAL:
         case ThreadGroupOp::WARP_ACTIVE_BIT_AND:
         case ThreadGroupOp::WARP_ACTIVE_BIT_OR:
@@ -563,7 +569,7 @@ template<typename Enum>
             return enum_value_between(
                 static_cast<const ThreadGroupInst *>(instruction)->op(),
                 ThreadGroupOp::SHADER_EXECUTION_REORDER,
-                ThreadGroupOp::SYNCHRONIZE_BLOCK);
+                ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL);
         case DerivedInstructionTag::RESOURCE_QUERY:
             return enum_value_between(
                 static_cast<const ResourceQueryInst *>(instruction)->op(),
@@ -637,8 +643,8 @@ template<typename Enum>
             auto *suspend =
                 static_cast<const CoroSuspendInst *>(instruction);
             return count ==
-                   CoroSuspendInst::operand_index_frame_export_offset +
-                       suspend->frame_export_count();
+                   suspend->operand_index_extension_binding_offset() +
+                       suspend->extension_binding_value_count();
         }
         case DerivedInstructionTag::UNREACHABLE:
         case DerivedInstructionTag::RASTER_DISCARD:
@@ -744,12 +750,16 @@ template<typename Enum>
     if (tag == DerivedInstructionTag::CORO_SUSPEND) {
         auto *suspend =
             static_cast<const CoroSuspendInst *>(instruction);
-        luisa::unordered_set<luisa::string_view> names;
-        if (suspend->frame_export_count() +
-                CoroSuspendInst::operand_index_frame_export_offset !=
+        if (suspend->operand_index_extension_binding_offset() +
+                suspend->extension_binding_value_count() !=
             operands.size()) {
             return false;
         }
+        auto *frame = suspend->frame();
+        if (frame != nullptr && !typed_value_operand_valid(frame)) {
+            return false;
+        }
+        luisa::unordered_set<luisa::string_view> names;
         for (size_t i = 0u;
              i < suspend->frame_export_count(); ++i) {
             auto &name = suspend->frame_export_name(i);
@@ -760,6 +770,60 @@ template<typename Enum>
                 return false;
             }
         }
+        luisa::vector<bool> bound(
+            suspend->extension_binding_value_count(), false);
+        for (auto &&extension : suspend->extensions()) {
+            if (extension == nullptr || extension->schema().empty() ||
+                extension->version() == 0u ||
+                static_cast<uint8_t>(extension->fallback()) >
+                    static_cast<uint8_t>(CoroSuspendFallback::reject)) {
+                return false;
+            }
+            luisa::unordered_set<luisa::string_view> binding_names;
+            for (auto &&binding : extension->bindings()) {
+                if (binding.name.empty() ||
+                    !binding_names.emplace(binding.name).second ||
+                    binding.index >= bound.size() ||
+                    bound[binding.index]) {
+                    return false;
+                }
+                bound[binding.index] = true;
+                auto *value = suspend->extension_binding_value(
+                    binding.index);
+                switch (binding.access) {
+                    case CoroSuspendBindingAccess::read:
+                        if (!data_operand_valid(value)) { return false; }
+                        break;
+                    case CoroSuspendBindingAccess::write:
+                    case CoroSuspendBindingAccess::read_write:
+                        if (!typed_value_operand_valid(value) ||
+                            !value->is_lvalue()) {
+                            return false;
+                        }
+                        break;
+                    default: return false;
+                }
+                if (static_cast<uint8_t>(binding.lifetime) >
+                    static_cast<uint8_t>(
+                        CoroSuspendBindingLifetime::resumed)) {
+                    return false;
+                }
+            }
+            luisa::unordered_set<luisa::string_view> attribute_names;
+            for (auto &&attribute : extension->attributes()) {
+                if (attribute.name.empty() ||
+                    !attribute_names.emplace(attribute.name).second) {
+                    return false;
+                }
+            }
+        }
+        if (std::find(bound.begin(), bound.end(), false) != bound.end()) {
+            return false;
+        }
+        // Extension bindings have access-qualified operands and therefore
+        // cannot be checked by the legacy generic coroutine rule, which
+        // assumes that every trailing operand is an rvalue.
+        return true;
     }
     auto bindless_access = [&]() noexcept {
         switch (tag) {
@@ -1009,12 +1073,6 @@ template<typename OperandSpan>
                     (!index->type()->is_int() && !index->type()->is_uint())) {
                     return false;
                 }
-                uint64_t constant_index = 0u;
-                if (index->template isa<Constant>() &&
-                    (!try_decode_constant_nonnegative_integer(index, constant_index) ||
-                     constant_index >= operands[0]->type()->dimension())) {
-                    return false;
-                }
             }
             return true;
         case ArithmeticOp::EXTRACT:
@@ -1085,6 +1143,14 @@ public:
                 !KernelFunction::is_valid_block_size(block_size)) {
                 _error(function, nullptr, nullptr,
                        "Kernel return type or block size is invalid.");
+            }
+        }
+        if (function->isa<RasterStageFunction>()) {
+            auto stage =
+                static_cast<const RasterStageFunction *>(function)->stage();
+            if (!RasterStageFunction::is_valid_stage(stage)) {
+                _error(function, nullptr, nullptr,
+                       "Raster stage identity is invalid.");
             }
         }
         for (auto *argument : function->arguments()) {

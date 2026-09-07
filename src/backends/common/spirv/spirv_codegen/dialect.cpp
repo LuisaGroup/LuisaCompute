@@ -113,7 +113,9 @@ template<typename Enum>
         case Type::Tag::FLOAT32:
         case Type::Tag::FLOAT64:
         case Type::Tag::FLOAT8_E4M3:
-        case Type::Tag::FLOAT8_E5M2: return true;
+        case Type::Tag::FLOAT8_E5M2:
+        case Type::Tag::INT4:
+        case Type::Tag::FP4_E2M1: return true;
         case Type::Tag::VECTOR:
             return type->element() != nullptr &&
                    type->element()->is_scalar();
@@ -1074,6 +1076,9 @@ private:
                 break;
             case xir::ThreadGroupOp::RASTER_QUAD_DDX:
             case xir::ThreadGroupOp::RASTER_QUAD_DDY:
+            case xir::ThreadGroupOp::RASTER_SET_Z_DEPTH:
+            case xir::ThreadGroupOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL:
+            case xir::ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL:
                 // Rejected by the support matrix above for compute entry points.
                 return;
             case xir::ThreadGroupOp::WARP_IS_FIRST_ACTIVE_LANE:
@@ -1521,15 +1526,18 @@ private:
             iter != _active_loop_prepare_owners.end()) {
             owner_count = iter->second.size();
         }
-        if (owner_count == 1u) { return; }
+        // Shape and physical-target legality are decided by ControlFlowPlan
+        // after every construct role is frozen. Besides a canonical
+        // Loop.prepare, structured SPIR-V admits a raw conditional that jumps
+        // directly to a parent construct boundary and has at most one ordinary
+        // successor. The planner proves that exact quotient-graph predicate;
+        // this local walk only rejects the intrinsically ambiguous shared
+        // prepare role.
+        if (owner_count <= 1u) { return; }
         _error(
             function, block, branch,
-            owner_count == 0u ?
-                "Native XIR-to-SPIR-V rejects raw ConditionalBranch "
-                "outside canonical Loop.prepare; restructure_cfg must "
-                "convert it to IfInst before codegen." :
-                "Native XIR-to-SPIR-V rejects a ConditionalBranch in a "
-                "prepare block shared by multiple LoopInst constructs.");
+            "Native XIR-to-SPIR-V rejects a ConditionalBranch in a "
+            "prepare block shared by multiple LoopInst constructs.");
     }
 
     void _validate_instruction(const xir::Function *function,
@@ -1831,8 +1839,8 @@ public:
         if (call_graph.succeeded()) {
             auto argument_analysis =
                 analyze_spirv_function_argument_usage(module);
-            auto readonly_resource_origins =
-                analyze_spirv_readonly_resource_origins(
+            auto unique_resource_origins =
+                analyze_spirv_unique_resource_origins(
                     module, argument_analysis);
             // Match the emitter's hidden dispatch-metadata parameter
             // propagation exactly. The call graph is callee-before-caller.
@@ -1954,10 +1962,16 @@ public:
                         auto argument_usage =
                             spirv_function_argument_usage_of(
                                 argument_analysis, function, argument);
+                        if (unique_resource_origins.contains(argument)) {
+                            // The callable ABI omits this formal. Every use,
+                            // including descriptor side channels, resolves to
+                            // the proven module-level kernel binding.
+                            continue;
+                        }
                         if ((type->is_buffer() ||
                              type->is_bindless_array()) &&
                             argument_usage != Usage::NONE &&
-                            !readonly_resource_origins
+                            !unique_resource_origins
                                  .contains(argument)) {
                             _error(function, nullptr, nullptr,
                                    luisa::format(
@@ -2021,7 +2035,7 @@ public:
                             argument_analysis, function, argument);
                         if (argument->is_resource() &&
                             (usage == Usage::NONE ||
-                             readonly_resource_origins
+                             unique_resource_origins
                                  .contains(argument))) {
                             continue;
                         }
@@ -2634,8 +2648,11 @@ spirv_xir_dialect_support(xir::ThreadGroupOp op) noexcept {
                 "hint and may be ignored without changing defined shader results");
         case xir::ThreadGroupOp::RASTER_QUAD_DDX:
         case xir::ThreadGroupOp::RASTER_QUAD_DDY:
+        case xir::ThreadGroupOp::RASTER_SET_Z_DEPTH:
+        case xir::ThreadGroupOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL:
+        case xir::ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL:
             return unsupported(
-                "quad derivatives require a raster invocation model, while this "
+                "raster operations require a raster invocation model, while this "
                 "native path emits GLCompute entry points");
         case xir::ThreadGroupOp::WARP_IS_FIRST_ACTIVE_LANE:
         case xir::ThreadGroupOp::WARP_FIRST_ACTIVE_LANE:
@@ -2702,6 +2719,8 @@ spirv_xir_dialect_support(xir::DerivedSpecialRegisterTag tag) noexcept {
         case xir::DerivedSpecialRegisterTag::DISPATCH_SIZE: return supported();
         case xir::DerivedSpecialRegisterTag::RASTER_OBJECT_ID:
         case xir::DerivedSpecialRegisterTag::RASTER_BARYCENTRICS:
+        case xir::DerivedSpecialRegisterTag::RASTER_FRONT_FACING:
+        case xir::DerivedSpecialRegisterTag::RASTER_BASE_INSTANCE:
             return unsupported(
                 "the native code generator emits compute entry points and has no "
                 "raster-stage builtin for this value");

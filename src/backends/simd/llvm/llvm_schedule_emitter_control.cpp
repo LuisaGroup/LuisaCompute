@@ -1,5 +1,8 @@
 #include "llvm_schedule_emitter.h"
 
+#include <algorithm>
+#include <unordered_set>
+
 #include <llvm/IR/Attributes.h>
 
 #include "../../common/env_flag.h"
@@ -1124,6 +1127,9 @@ void ScheduleEmitter::_partition_state_residency() {
     // register spills. Keep hot state promotable and pin cold state to its L1
     // stack slot when cold state dominates the function's state set.
     static constexpr auto max_cold_accesses = size_t{6u};
+    static constexpr auto high_pressure_state_slot_count = size_t{2048u};
+    static constexpr auto max_high_pressure_promotable_state_slots =
+        size_t{256u};
     auto count_accesses = [](const ::llvm::AllocaInst *slot) noexcept {
         auto count = size_t{0u};
         for (auto *user : slot->users()) {
@@ -1134,11 +1140,10 @@ void ScheduleEmitter::_partition_state_residency() {
     };
     std::vector<::llvm::AllocaInst *> physical_slots;
     physical_slots.reserve(_state_slots.size());
+    std::unordered_set<::llvm::AllocaInst *> seen_slots;
+    seen_slots.reserve(_state_slots.size());
     for (auto *slot : _state_slots) {
-        if (slot != nullptr &&
-            std::find(physical_slots.cbegin(),
-                      physical_slots.cend(), slot) ==
-                physical_slots.cend()) {
+        if (slot != nullptr && seen_slots.emplace(slot).second) {
             physical_slots.emplace_back(slot);
         }
     }
@@ -1148,21 +1153,12 @@ void ScheduleEmitter::_partition_state_residency() {
         cold_count += count_accesses(slot) <= max_cold_accesses;
     }
     _result.cold_state_slot_count = cold_count;
-    // Coalescing has already collapsed mutually exclusive PHI versions into
-    // a much smaller physical set. Pinning a majority of that set recreates
-    // the very copy/load traffic the liveness proof removed, so leave the
-    // compact state promotable. The uncoalesced oracle retains the established
-    // cold-majority partition.
-    if (_result.coalesced_state_slot_count != 0u ||
-        slot_count == 0u || cold_count * 2u < slot_count ||
+    if (slot_count == 0u ||
         luisa::compute::detail::env_flag(
             "LUISA_SIMD_DISABLE_COLD_STATE_PARTITION")) {
         return;
     }
-    for (auto *slot : physical_slots) {
-        if (count_accesses(slot) > max_cold_accesses) {
-            continue;
-        }
+    auto pin = [&](::llvm::AllocaInst *slot) noexcept {
         for (auto *user : slot->users()) {
             if (auto *load = ::llvm::dyn_cast<::llvm::LoadInst>(user)) {
                 load->setVolatile(true);
@@ -1172,6 +1168,37 @@ void ScheduleEmitter::_partition_state_residency() {
             }
         }
         _result.stack_pinned_state_slot_count++;
+    };
+
+    // Coalescing has already collapsed mutually exclusive PHI versions into
+    // a much smaller physical set. Pinning a majority of that set recreates
+    // the very copy/load traffic the liveness proof removed, so leave compact
+    // state promotable. Very large graphics kernels are different: asking
+    // LLVM SROA to promote thousands of slots through the global dispatcher
+    // creates a basic-block-by-slot SSA explosion before codegen. Bound that
+    // work by ranking slots by direct access count, keeping only the hottest
+    // fixed-size prefix promotable and preserving all other state in its L1
+    // stack slot.
+    auto high_pressure =
+        slot_count >= high_pressure_state_slot_count;
+    if (high_pressure) {
+        std::stable_sort(
+            physical_slots.begin(), physical_slots.end(),
+            [&](auto *lhs, auto *rhs) noexcept {
+                return count_accesses(lhs) > count_accesses(rhs);
+            });
+        for (auto index = max_high_pressure_promotable_state_slots;
+             index < physical_slots.size(); index++) {
+            pin(physical_slots[index]);
+        }
+        return;
+    }
+    if (_result.coalesced_state_slot_count != 0u ||
+        cold_count * 2u < slot_count) {
+        return;
+    }
+    for (auto *slot : physical_slots) {
+        if (count_accesses(slot) <= max_cold_accesses) { pin(slot); }
     }
 }
 

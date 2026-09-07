@@ -1,511 +1,309 @@
 ---
-name: xir_passes
-description: XIR transformation pass authoring under src/xir/passes/.
+name: xir-passes
+description: Implement, compose, test, and debug LuisaCompute XIR transformation and analysis passes. Use when modifying files under src/xir/passes or include/luisa/xir/passes, changing CFG or SSA invariants, authoring a PassPipeline, or diagnosing pass-order, reachability, PHI, dominance, aliasing, or memory-effect bugs.
 ---
 
-# XIR Passes: Authoring Guide
+# XIR Pass Development
 
-This skill captures hard-won knowledge from implementing the CFG normalization pipeline. Read before touching anything under `src/xir/passes/` or `include/luisa/xir/passes/`.
+## Read the exact contract first
 
-## Layout & Registration
+Open the pass's public header, implementation, nearest related pass, and tests
+before editing. Treat the header as authoritative: pass entry points are not
+uniform. Depending on the pass, an API may be module-only, accept `Function *`
+or `FunctionDefinition *`, omit `PassReport`, or return a specialized result.
 
-- Header: `include/luisa/xir/passes/<name>.h`
-- Impl: `src/xir/passes/<name>.cpp`
-- Register impl in `src/xir/CMakeLists.txt` (look for the `passes/` block, ~line 80-90; alphabetical).
-- Test: `src/tests/unit/xir/test_xir_pass_<name>.cpp`, registered in `src/tests/CMakeLists.txt` (look for `test_xir_pass_*` block).
+Use the common layout without assuming a fixed line number or alphabetical
+registration:
 
-## Standard Pass Interface
+- public header: `include/luisa/xir/passes/<pass>.h`
+- implementation: `src/xir/passes/<pass>.cpp`
+- library registration: `src/xir/CMakeLists.txt`
+- focused tests: `src/tests/unit/xir/`
+- test registration: `src/tests/CMakeLists.txt`
 
-Every pass exposes a `<Name>Info` POD with counters plus two entry points:
+Copy the closest correct pass pattern. Aggregate per-function counters rather
+than overwriting the result on each function.
 
-```cpp
-struct FooPassInfo {
-    size_t did_something_count = 0u;
-};
+## Use core APIs safely
 
-[[nodiscard]] LUISA_XIR_API FooPassInfo foo_pass_run_on_function(Function *function) noexcept;
-[[nodiscard]] LUISA_XIR_API FooPassInfo foo_pass_run_on_module(Module *module, PassReport *report = nullptr) noexcept;
-```
+Resolve a definition before traversing blocks:
 
-The function-level entry point should accept `Function *` (so it also works on external declarations) and use `function->definition()` to obtain a `FunctionDefinition *` before touching basic blocks. The module entry point iterates `module->function_list()` and dispatches by `function->definition()`:
-
-```cpp
-FooPassInfo foo_pass_run_on_module(Module *module, PassReport *report) noexcept {
-    FooPassInfo info;
-    for (auto *func : module->function_list()) {
-        if (auto def = func->definition()) {
-            info = foo_pass_run_on_function(func); // or operate directly on def
-        }
-    }
-    if (report != nullptr) {
-        report->set("did_something", info.did_something_count);
-    }
-    return info;
+~~~cpp
+if (auto *definition = function->definition()) {
+    definition->traverse_basic_blocks([](xir::BasicBlock *block) noexcept {
+        // inspect reachable blocks
+    });
 }
-```
+~~~
 
-Some passes (e.g., `sroa_pass_run_on_module`, `algebraic_simplify_pass_run_on_module`) also take an options struct before `PassReport *`. Always consult the header for the exact signature.
+Use these exact APIs:
 
-### PassPipeline and PassReport
+| Need | API |
+|---|---|
+| all module functions | `module->function_list()` |
+| all blocks owned by a function | `function->basic_blocks()` |
+| reachable blocks from the body | `definition->traverse_basic_blocks(...)` |
+| function entry | `definition->body_block()` |
+| return operand | `return_inst->return_value()` |
+| conditional targets | `true_block()`, `false_block()` |
+| retarget a conditional | `set_true_target(...)`, `set_false_target(...)` |
+| branch target | `target_block()`, `set_target_block(...)` |
+| detach a node | `remove_self()` |
 
-Most module-level passes can write statistics into a `PassReport`:
+Guard `BasicBlock::terminator()` and `traverse_successors()` with
+`is_terminated()`. `terminator()` asserts on an unterminated block; it does not
+return null as a malformed-IR probe.
 
-```cpp
-PassReport report;
-auto info = dce_pass_run_on_module(&m, &report);
-for (auto &e : report.entries()) {
-    // e.key, e.value
-}
-```
+Do not use LLVM casting helpers such as `cast_or_null`. Check `isa<T>()` and
+then use `static_cast<T *>`.
 
-For end-to-end pipelines, prefer the canned pipelines in `pass_pipeline.h`:
+## Distinguish structured and plain CFG
 
-```cpp
-auto pipeline = create_basic_optimization_pipeline({.enable_fast_math = false});
-auto stats = pipeline.run(&m);
-stats.log("my-pipeline");
-```
+Structured terminators own or reference regions and merge blocks. Plain CFG
+uses `BranchInst` and `ConditionalBranchInst` edges. `SwitchInst` also carries
+merge information and `contains_structured_control_flow` classifies it as
+structured. Inspect `DerivedInstructionTag` for the complete current
+instruction inventory rather than copying an exhaustive list into a pass.
 
-Custom pipelines can be built with `PassPipeline::add` (single run) and `PassPipeline::add_fixed_point` (fixed-point sub-pipeline).
+Apply the relevant lowering order:
 
-## Comments
+1. Run `lower_ray_query_loop_to_loop` to convert ray-query loops into ordinary
+   structured loop/if constructs, and check its rejection result.
+2. Run `lower_switch` if the consumer cannot retain switches, and check its
+   rejection result before continuing.
+3. Run `destructure_cfg` to lower `IfInst`, `LoopInst`, `SimpleLoopInst`,
+   `BreakInst`, and `ContinueInst`; it also handles early-return spilling and
+   patches unterminated owned blocks.
 
-- Document non-obvious correctness invariants and pass-ordering boundaries where the code alone cannot explain why the ordering matters.
-- Avoid comments that merely restate the next statement or preserve obsolete implementation history.
-- Keep `// namespace foo` trailers after namespace closing braces.
-- BDD (`// given / when / then`) is useful in tests when it clarifies the fixture and expected transform.
+Do not claim that `destructure_cfg` lowers `RayQueryLoopInst` directly or
+removes every specialized terminator. It deliberately preserves switches and
+other instruction families outside its public contract.
 
-## Core APIs
+Use `contains_structured_control_flow` from `src/xir/passes/helpers.h` before a
+plain-CFG-only mutation.
 
-### Module / Function
+## Keep inlining after destructuring when it is multi-block
 
-```cpp
-module->function_list()                          // iterable (NOT `functions()`)
-func->is_definition()                            // true for kernel/callable, false for external
-auto def = func->definition();                   // returns FunctionDefinition* (nullptr for external)
-if (auto def = func->definition()) { ... }       // preferred pattern; never cast_or_null
-def->body_block()                                // entry block (NEVER remove)
-def->create_basic_block()                        // orphan block
-def->basic_blocks()                              // ManagedIntrusiveList<BasicBlock>
-def->traverse_basic_blocks(visitor)              // walks only reachable blocks from body_block
-```
+Follow the inliner's actual contract:
 
-### BasicBlock
+- Inline a single-block callee into a structured caller without splitting CFG.
+- Reject a multi-block call while either caller or callee contains structured
+  control flow.
+- Destructure caller and callee, then run `inline_all` immediately. Do not
+  insert cleanup, SSA, or another CFG pass between those two steps. This
+  enables eligible multi-block call sites.
+- Treat a nonzero `rejected_malformed_call_count` as a hard error in backend
+  normalization; a zero inlined-call count by itself is not a failure.
+- In ordinary lowering, run `mem2reg` immediately after `inline_all` to remove
+  inliner-created argument and return spill slots before SSA optimization. In
+  pre-autodiff normalization, allow autodiff scopes in the caller, then use
+  cleanup and `reg2mem` before restructuring instead.
+- Remember that `destructure_cfg` deliberately preserves switches and other
+  specialized structured operations; reference-argument and other unsupported
+  uses may also leave allocas after `mem2reg`.
+- Preserve opaque custom references. `create_value_argument` rejects custom
+  types and `promote_ref_arg` intentionally excludes them; a backend-owned
+  handle may have a concrete ABI only after backend lowering.
+- Expect recursive callables and preserved structured cases to remain.
 
-```cpp
-block->instructions()                                  // ManagedIntrusiveList<Instruction>
-block->instructions().empty()                          // always false if terminator present
-block->instructions().front()                          // first inst
-block->is_terminated()                                 // true when the last instruction is a terminator
-block->terminator()                                    // last inst (may be nullptr if malformed/unterminated)
-block->traverse_instructions(visitor)
-block->traverse_predecessors(exclude_self, visit)      // visits via use list
-block->traverse_successors(exclude_self, visit)        // visits terminator's target operands
-block->remove_self()                                   // returns ManagedPtr<BasicBlock>; detaches from func block list
-```
+When changing this schedule, add a shape test that checks the call disappears,
+the inliner does not report a structured skip, eligible generated temporaries
+are promoted, every reachable block remains terminated, and successor PHI
+incoming blocks still match real predecessors after block splitting.
 
-### Constant detection
+After basic optimization, the Metal4 AIR consumer conditionally normalizes
+autodiff scopes with:
 
-```cpp
-if (auto v = inst->condition(); v->isa<Constant>()) {
-    auto c = static_cast<Constant*>(v);
-    bool b = c->as<bool>();    // checks size; safe for bool
-}
-```
+~~~text
+lower_ray_query_loop_to_loop (checked)
+-> lower_switch (checked)
+-> destructure_cfg (checked)
+-> inline_all (immediately adjacent; allow_autodiff_scope_in_caller)
+-> post-inline cleanup (one fixed-point iteration)
+-> simplify_cfg
+-> reg2mem
+-> restructure_cfg (checked)
+-> verify(no PHIs, unique merge blocks)
+-> autodiff
+-> reg2mem
+-> verify(no PHIs, unique merge blocks)
+~~~
 
-`condition()` is the getter on `ConditionalBranchInst` / `IfInst`. For other instruction kinds use the appropriate value getter (`value()`, `operand(i)`, etc.).
+It then lowers every module with:
 
-### Cast pattern
+~~~text
+lower_ray_query_loop_to_loop (checked)
+-> lower_switch (checked)
+-> destructure_cfg (checked)
+-> inline_all (immediately adjacent)
+-> mem2reg
+-> SSA optimization
+-> unused_callable_removal
+-> simplify_cfg
+-> verify(require_reachable_blocks = true)
+~~~
 
-XIR does **not** have `cast_or_null<>` or LLVM-style `cast<>`. Use:
+The AIR entry point repeats the reachable-block verification before XIR-to-LLVM
+translation. Treat `destructure_cfg -> inline_all` as the common adjacency and
+`inline_all -> mem2reg` as the ordinary-phase adjacency. Read
+`src/backends/metal4/metal_xir_pipeline.cpp` before changing either schedule;
+read `src/xir/passes/pass_pipeline.cpp` for the current contents of factory
+pipelines rather than copying their expansion here.
 
-```cpp
-if (v->isa<SomeType>()) {
-    auto s = static_cast<SomeType*>(v);
-    ...
-}
-```
+## Mutate lists deliberately
 
-For instruction-tag switch: `inst->derived_instruction_tag()` returns `DerivedInstructionTag::*`.
+Prefer collect-then-rewrite when a transform removes or replaces nodes during
+traversal. Mutate in place only when iterator advancement and node lifetime are
+explicitly controlled by an established local pattern.
 
-## Terminator Inventory & APIs
+For a replacement:
 
-| Terminator | Header | Key API |
-|---|---|---|
-| `BranchInst` (br) | `instructions/branch.h` | `target_block()`, `set_target_block(BasicBlock*)` |
-| `ConditionalBranchInst` (cond_br) | `instructions/branch.h` | **Getters**: `condition()`, `true_block()`, `false_block()`. **Setters**: `set_true_target` / `set_false_target` (asymmetric naming — getter says `block`, setter says `target`) |
-| `SwitchInst` | `instructions/switch.h` | `value()`, `default_block()`, `case_count()`, `case_value(i)`, `case_block(i)`, `set_case_block(i, bb)`, `set_default_block(bb)`, `add_case(v, bb)` |
-| `ReturnInst` | `instructions/return.h` | `value()` |
-| `UnreachableInst` | `instructions/unreachable.h` | none |
-| `RasterDiscardInst` | `instructions/raster_discard.h` | none |
-| `IfInst` (structured) | `instructions/if.h` | `condition()`, `true_block()`, `false_block()`, `merge_block()` |
-| `LoopInst` (structured) | `instructions/loop.h` | `prepare_block()`, `body_block()`, `update_block()`, `merge_block()`. **No `condition()` getter.** AST lowering normally creates `prepare: cond_br(cond, body, merge)`, but `restructure_cfg` may create an internally exiting natural loop with `prepare: br(body)`. Both retain distinct prepare/body/update/merge roles. Setters: `set_prepare_block`, `set_body_block`, `set_update_block`. Creators: `create_prepare_block(overwrite=false)`, `create_body_block(...)`, `create_update_block(...)`. |
-| `SimpleLoopInst` (structured) | `instructions/loop.h` | `body_block()`, `merge_block()` |
-| `BreakInst` (structured) | `instructions/break.h` | `target_block()` |
-| `ContinueInst` (structured) | `instructions/continue.h` | `target_block()` |
-| `RayQueryLoopInst` (structured) | `instructions/ray_query.h` | `dispatch_block()`, `merge_block()` |
-| `RayQueryDispatchInst` | `instructions/ray_query.h` | `query_object()`, `on_surface_candidate_block()`, `on_procedural_candidate_block()` (parent is `RayQueryLoopInst`) |
+1. Capture every operand, parent, and target needed after removal.
+2. Detach the old instruction.
+3. Set the builder insertion point.
+4. Create or append the replacement.
+5. Repair use-def edges, PHIs, and metadata.
 
-After Pipeline B `destructure_cfg`, only the **unstructured** terminators + `SwitchInst` + `ReturnInst` + `UnreachableInst` + `RasterDiscardInst` remain.
+Do not remove blocks with a naive reachable-set recipe on structured CFG.
+Merge blocks and owned regions require structurally aware traversal. On plain
+CFG, clean incoming PHI entries and detach contained instructions before
+deleting a block. Never remove `body_block()`.
 
-## XIRBuilder
+## Preserve SSA and dominance invariants
 
-```cpp
-XIRBuilder b;
-b.set_insertion_point(block);            // or block->instructions().front() etc.
-b.br(target)                             // BranchInst
-b.cond_br(cond, true_target, false_target)
-b.if_(cond)                              // returns IfInst*; populate sub-blocks via if->true_block() etc.
-b.loop()                                 // LoopInst*; fill prepare/body/update
-b.simple_loop()                          // SimpleLoopInst*; fill body
-b.ray_query_loop()                       // 0 args; query object only passed to ray_query_dispatch
-b.ray_query_dispatch(query_value)        // inside dispatch_block
-b.call(type, op, operands)               // typed call (read ops)
-b.call(op, operands)                     // void call (write ops, e.g., RQ PROCEED)
-b.return_(value)
-b.unreachable_()
-b.break_(target)                         // structured
-b.continue_(target)                      // structured
-```
+- Create all destination blocks before cloning branch targets.
+- Create PHIs before resolving cyclic incoming values; attach incoming pairs
+  after all blocks and values are mapped.
+- Recompute dominance and loop analyses after CFG mutation.
+- Ensure each PHI incoming block remains a real predecessor.
+- Run `mem2reg` only after CFG and alloca placement are valid.
+- Use `reg2mem` before a transform that cannot preserve live PHIs, when that
+  transform's documented precondition requires it.
 
-For RQ primitive ops (`include/luisa/xir/op.h` ~line 170-187):
+Remember that `traverse_basic_blocks` visits blocks reachable from
+`body_block()`, while `basic_blocks()` includes disconnected owned blocks.
+Choose intentionally.
 
-- `RayQueryObjectReadOp::IS_TERMINATED, IS_TRIANGLE_CANDIDATE, IS_PROCEDURAL_CANDIDATE, ...`
-- `RayQueryObjectWriteOp::PROCEED, COMMIT_TRIANGLE, COMMIT_PROCEDURAL, TERMINATE`
+## Model memory effects conservatively
 
-## Mutation Idiom: Two-Phase Collect-Rewrite
+Use `get_memory_info()` from `src/xir/passes/helpers.h`; do not maintain a
+second hard-coded purity whitelist in a new pass.
 
-You cannot reliably mutate the instruction list while iterating it. Pattern from `lower_break_continue.cpp`:
+Check all of the following independently:
 
-```cpp
-luisa::vector<IfInst*> to_lower;
-def->traverse_basic_blocks([&](BasicBlock *bb) {
-    if (auto t = bb->terminator(); t && t->isa<IfInst>()) {
-        to_lower.push_back(static_cast<IfInst*>(t));
-    }
+- memory scope and read/write effects;
+- volatility and synchronization;
+- aliasing with intervening accesses;
+- dominance and availability;
+- speculation safety for the exact opcode.
+
+Purity alone does not make an instruction safe to hoist or speculate. Integer
+division, remainder, and shifts are examples that require additional checks.
+Treat `CLOCK` as a non-deterministic read, not a pure instruction.
+
+Treat these `ResourceQueryOp` values as stateful ray-query constructors, not
+ordinary pure queries:
+
+- `RAY_TRACING_QUERY_ALL`
+- `RAY_TRACING_QUERY_ANY`
+- `RAY_TRACING_QUERY_ALL_MOTION_BLUR`
+- `RAY_TRACING_QUERY_ANY_MOTION_BLUR`
+
+Each creates fresh mutable traversal state. `get_memory_info()` classifies it
+as `GLOBAL/READ`, non-volatile: it remains removable when unused, but is not
+safe to value-number, common with Early CSE/GVN, speculate, or hoist with LICM.
+Keep the classification centralized in `helpers.cpp`, and make optimizers
+consult it instead of whitelisting all `ResourceQueryInst` values.
+
+## Build pipelines with accurate change reporting
+
+Use `PassPipeline::add` adapters that return whether the module changed:
+
+~~~cpp
+xir::PassPipeline pipeline;
+pipeline.add("inline-all", [](xir::Module *module,
+                              xir::PassReport &report) {
+    auto info = xir::inline_all_pass_run_on_module(module, &report);
+    return info.inlined_call_count != 0u;
 });
+auto stats = pipeline.run(module);
+~~~
 
-for (auto if_inst : to_lower) {
-    auto bb = if_inst->parent_block();
-    auto true_b = if_inst->true_block();
-    auto false_b = if_inst->false_block();
-    auto cond = if_inst->condition();
-    if_inst->remove_self();
-    XIRBuilder b; b.set_insertion_point(bb);
-    b.cond_br(cond, true_b, false_b);
-}
-```
+Use `add_fixed_point` only when every child is safe to repeat and every change
+predicate is correct. A false negative terminates the group early; a false
+positive wastes iterations or masks non-convergence.
 
-For passes that grow the worklist (e.g., RayQueryLoop → new LoopInst → re-process), wrap in a **fixed-point loop**:
+Do not infer implementation maturity from registration. Read the header and
+source. Some current loop transforms and outlining APIs are placeholders that
+validate or report input without rewriting it.
 
-```cpp
-bool changed = true;
-while (changed) {
-    changed = false;
-    luisa::vector<...> worklist;
-    def->traverse_basic_blocks(...);
-    if (!worklist.empty()) { changed = true; rewrite(); }
-}
-```
+## Respect backend preflight normal forms
 
-## Constant Folding / Branch Retargeting
+A pass can preserve valid XIR while making a backend reject it. For the Metal4
+AIR path, inspect `luisa_compute_metal_codegen_llvm_supported` alongside any
+change that affects types, special registers, calls, atomics, or resource-use
+shape. Its checks run before LLVM construction for JIT compute, reverse
+autodiff, raster JIT, and compile-only raster archive creation. All four paths
+fail closed on unsupported XIR; Metal4 has no MSL or legacy-IR shader fallback.
+Compute and raster AOT loading consume validated archives and bypass XIR
+preflight.
 
-To redirect every reference to block `from` in a terminator to point at `to`:
+This preflight and its pass schedule live in the independent `metal4` backend;
+the original `metal` backend remains the source-MSL compatibility path.
 
-```cpp
-auto retarget = [&](Instruction *term, BasicBlock *from, BasicBlock *to) {
-    switch (term->derived_instruction_tag()) {
-        case DerivedInstructionTag::BRANCH: {
-            auto br = static_cast<BranchInst*>(term);
-            if (br->target_block() == from) br->set_target_block(to);
-            break;
-        }
-        case DerivedInstructionTag::CONDITIONAL_BRANCH: {
-            auto cb = static_cast<ConditionalBranchInst*>(term);
-            if (cb->true_target() == from) cb->set_true_target(to);
-            if (cb->false_target() == from) cb->set_false_target(to);
-            break;
-        }
-        case DerivedInstructionTag::SWITCH: {
-            auto sw = static_cast<SwitchInst*>(term);
-            if (sw->default_block() == from) sw->set_default_block(to);
-            for (size_t i = 0; i < sw->case_count(); ++i) {
-                if (sw->case_block(i) == from) sw->set_case_block(i, to);
-            }
-            break;
-        }
-        default: break;
-    }
-};
-```
+Keep producer and preflight assumptions paired. In particular, texture uses
+must reach preflight as direct resource operations after normalization. A
+compute AIR module requires exactly one kernel and rejects raster special
+registers. A raster AIR module instead requires exactly one
+`RasterStageFunction` with the configured vertex or fragment role; object ID
+is valid in both roles, while barycentrics, derivatives, and discard require a
+fragment role. External declarations may remain only when `native_include`
+supplies ABI-compatible LLVM IR/bitcode definitions at link time. Ensure every
+operand and result type is checked; constants can otherwise carry an
+unsupported type past an instruction-only scan.
 
-## Reachability / Dead Block Removal
+Treat raster stage functions as ABI roots:
 
-`def->traverse_basic_blocks(...)` already walks only reachable blocks from `body_block()`. To remove unreachable blocks:
+- `dead_arg_elim` must not remove their arguments, even when a stage body does
+  not read a slot.
+- `unused_callable_removal` must seed reachability from both kernels and raster
+  stages.
+- Keep `destructure_cfg -> inline_all` immediately adjacent for each separately
+  translated vertex and fragment module, then run the same SSA cleanup and
+  reachable-block verification used by compute AIR.
+- Preserve `RasterStageFunction::stage()` through interchange text/bitcode and
+  debug text; use `raster_vertex` and `raster_fragment` interchange kinds.
 
-```cpp
-luisa::unordered_set<BasicBlock*> reachable;
-def->traverse_basic_blocks([&](BasicBlock *bb) { reachable.insert(bb); });
-luisa::vector<BasicBlock*> dead;
-for (auto bb : def->basic_blocks()) {
-    if (!reachable.contains(bb)) dead.push_back(bb);
-}
-for (auto bb : dead) bb->remove_self();
-```
+When a pass change affects this boundary, add both:
 
-**Always preserve `def->body_block()`** — never remove it even if it looks empty.
+1. a XIR shape test for the required normal form; and
+2. a Metal4 runtime test for JIT compute, or the dedicated raster test. The
+   AIR-only backend fails closed, and the dedicated raster test exercises AIR
+   end to end.
 
-## Test Patterns (Boost.UT / `doctest`?)
+## Test behavior and shape
 
-XIR unit tests live in `src/tests/unit/xir/`. Check existing `test_xir_pass_*.cpp` for framework; they use the project's chosen harness (was `boost::ut` last checked, see `/test` skill).
+Use Boost.UT for XIR unit tests. Wire every test block to `body_block()` when it
+must be reached by traversal. Test both the information counters and the IR
+invariants that matter:
 
-Key test fixtures:
+- expected instruction count or absence;
+- all reachable blocks terminated;
+- branch targets and PHI predecessors valid;
+- no stale uses after removal;
+- idempotence when promised;
+- rejection leaves the module unchanged;
+- pass reports match returned counters.
 
-```cpp
-Module m;
-auto *k = m.create_kernel();                            // KernelFunction*
-auto body = k->create_body_block();                     // entry BB
-// or:
-auto *c = m.create_callable(Type::of<float>());         // CallableFunction*
-auto def = static_cast<FunctionDefinition*>(k);         // both kernel/callable are FunctionDefinitions
+Build and run focused tests with CMake/Ninja:
 
-XIRBuilder b;
-b.set_insertion_point(body);
-// build IR ...
-b.return_void();
+~~~sh
+cmake --build cmake-build-metal4-air --target test_xir_passes -j 8
+ctest --test-dir cmake-build-metal4-air -R '^test_xir_passes$' --output-on-failure
+ctest --test-dir cmake-build-metal4-air -L unit_xir --output-on-failure
+~~~
 
-auto info = my_pass_run_on_function(def);
-```
-
-**Reachability gotcha**: `traverse_basic_blocks` only visits blocks reachable from `body_block`. If you build orphan blocks for a test, you must wire them up via `br`/`cond_br` from `body_block` or the pass will see nothing. Trick: `m.create_constant_one(Type::of<bool>())` + `cond_br(true_const, target, other)` to force reachability.
-
-## Pipeline B Status (CFG Normalization)
-
-Master plan: `src/xir/passes/CFG_NORMALIZATION_PLAN.md`.
-
-| Pass | Status | File |
-|---|---|---|
-| Pipeline A `lower_break_continue` | ✅ done (12 tests) | `lower_break_continue.{h,cpp}` |
-| Pipeline A `lower_ray_query_loop` | ✅ existing (lowers to `RayQueryPipelineInst` — **NOT** reusable for Pipeline B) | `lower_ray_query_loop.{h,cpp}` |
-| Pipeline A `lower_ray_query_loop_to_loop` | ✅ done (lowers to structured `LoopInst` + nested `IfInst` dispatch) | `lower_ray_query_loop_to_loop.{h,cpp}` |
-| Pipeline A `early_return_elimination` | ✅ done (implemented + unit tests) | `early_return_elimination.{h,cpp}` |
-| Pipeline B Pass 1 `destructure_cfg` | ✅ done (12 tests, 46 asserts) | `destructure_cfg.{h,cpp}` |
-| Pipeline B Pass 2 `simplify_cfg` | ✅ done (8 tests, 22 asserts) | `simplify_cfg.{h,cpp}` |
-| Pipeline B Pass 3 `restructure_cfg` | ✅ done (unit tests) | `restructure_cfg.{h,cpp}` |
-| Structured switch | ✅ `SwitchInst` is preserved; raw multi-way CFG uses `IndexedBranchInst` and `restructure_cfg` reconstructs the merge | `switch.{h,cpp}`, `indexed_branch.{h,cpp}` |
-| `convergence_region` | ✅ done (region analysis used by `restructure_cfg`) | `convergence_region.{h,cpp}` |
-| `early_cse` | ✅ done (local common subexpression elimination) | `early_cse.{h,cpp}` |
-| `pass_pipeline` | ✅ done (driver + canned pipelines) | `pass_pipeline.{h,cpp}` |
-| Round-trip Pipeline B test | ✅ verified (path_tracing_cutout PSNR>30) | via `test_path_tracing_cutout vk` |
-
-Note: `src/xir/passes/CFG_NORMALIZATION_PLAN.md` is the historical master plan; the table above reflects the current implementation state.
-
-### `destructure_cfg` lowerings (reference)
-
-- `IfInst` → `cond_br(cond, true, false)`; merge_block reachable via inner brs.
-- `LoopInst` → `br(prepare)`.
-- `SimpleLoopInst` → `br(body)`.
-- `BreakInst` / `ContinueInst` → `br(target)`.
-- `RayQueryLoopInst` → emit `LoopInst{prepare→body, body: PROCEED + cond_br cascade on IS_TERMINATED→merge / IS_TRIANGLE_CANDIDATE→on_surface / IS_PROCEDURAL_CANDIDATE→on_procedural / else→update, update→prepare}`; rewrite child `br dispatch_block` → `br update_block`; remove orphaned `RayQueryDispatchInst`. New `LoopInst` destructured on next fixed-point iteration.
-- `SwitchInst` **preserved as-is**; recursion handled naturally by `traverse_basic_blocks`.
-
-### `simplify_cfg` ops
-
-1. Constant `cond_br` fold → `br`.
-2. Empty-block jump-threading (block with only a `br C` terminator; redirect all preds; never remove `body_block`).
-3. Unreachable block removal (collect reachable from `body_block`, remove rest).
-4. Fixed-point until no change.
-5. Counters: `folded_constant_cond_br_count`, `threaded_empty_block_count`, `merged_straight_line_count`, `removed_unreachable_block_count`.
-
-## Pitfalls Catalogue
-
-- ❌ `cast_or_null<T>(v)` — doesn't exist. Use `isa<T>` + `static_cast`.
-- ❌ `set_true_block` / `set_false_block` on ConditionalBranchInst — wrong names. Asymmetric: getters are `true_block()` / `false_block()`, setters are `set_true_target` / `set_false_target`.
-- ❌ `module->functions()` — wrong. Use `module->function_list()`.
-- ❌ Assuming every `Function *` is a definition and casting with `static_cast<FunctionDefinition*>(func)` — unsafe. Use `func->definition()`; it returns `nullptr` for external functions.
-- ❌ Forgetting `PassReport *report` on module entry points — most passes now take `Module *module, PassReport *report = nullptr`. Omitting it compiles, but pass pipelines and tests may expect report entries.
-- ❌ `inst->cond()` — does not exist. The condition getter is `condition()` (on `ConditionalBranchInst` / `IfInst`).
-- ❌ `b.ray_query_loop(query)` — wrong; takes 0 args. Pass query to `ray_query_dispatch`.
-- ❌ Mutating instructions while iterating — always two-phase collect-rewrite.
-- ❌ Removing `body_block()` — never. Even if empty, it must stay.
-- ❌ Building orphan test blocks without wiring reachability — `traverse_basic_blocks` will skip them silently.
-- ❌ Forgetting fixed-point loop when transformation creates new candidates (RayQueryLoop → new LoopInst).
-- ❌ Touching `SwitchInst` case-block contents structurally — Pipeline B preserves switches; only fold/thread within cases.
-- ❌ Calling `LoopInst::condition()` — **does not exist**. Inspect the prepare terminator first. AST-canonical loops use `cond_br(cond, body, merge)`, while internally exiting loops recovered by `restructure_cfg` may use `br(body)`. Only cast to `ConditionalBranchInst` after checking the tag. There is no `set_condition`; rewrite the prepare-block terminator instead.
-- ❌ Restructuring CFG with live `PhiInst` nodes — splitting/inserting blocks (preheaders, latches, exit stubs) invalidates phi `incoming_blocks`. Run `reg2mem_pass_run_on_module` before `restructure_cfg_pass_run_on_module` so the input is phi-free; assert this as a precondition.
-- ❌ Computing post-dominators without a virtual exit — multi-sink CFGs (`ReturnInst`, `UnreachableInst`, `RasterDiscardInst` in different blocks) yield wrong/null ipostdoms for blocks whose successors reach different sinks. Add a synthetic virtual exit that all sinks point to before running the iterative ipostdom algorithm.
-- ❌ Running generic cleanup (including DCE) between `restructure_cfg` and SSA recovery in a structured backend pipeline — generic cleanup belongs in the raw/destructured CFG interval, before restructuring. DCE preserves a constant-false canonical `LoopInst::prepare_block()` conditional branch, but that safeguard does not authorize post-restructure cleanup: other structured role arms can still be folded or erased. For native SPIR-V, use the backend's targeted inactive-role payload cleanup, then run `mem2reg` immediately to recover SSA. A generic pipeline that truly needs later cleanup must first lower or otherwise protect every structured role and reverify the resulting boundary.
-- ❌ Replacing an enclosing region boundary with a nested `IfInst`/`SwitchInst` merge during recursive CFG traversal — lowered `break`/`continue` edges may bypass the local merge and escape the enclosing region. Carry the immutable outer boundary alongside the current local merge and stop at either.
-- ❌ Repairing reverse-autodiff SSA before its generated backward block is reachable — install `backward_marker_block -> backward_block`, replace the `AutodiffScopeInst` with `parent -> entry`, and only then call `reg2mem_pass_repair_cross_block_rvalue_uses_on_function`. The narrow repair snapshots branch-local primal rvalues used by mirrored backward control flow without lowering unrelated Phi nodes. It deliberately ignores Phi edge operands and lvalue definitions; downstream final `mem2reg` must consume the typed `CROSS_BLOCK` spills before codegen.
-- ❌ Treating every instruction that names itself as malformed — a loop-carried `PhiInst` may legally use itself as the incoming value on a backedge to preserve the previous iteration's value. SPIR-V represents this directly with a self-referencing `OpPhi`. `fix_self_referential` repairs malformed aggregate `INSERT` cycles and must leave legal Phi self-references alone.
-- ❌ Spending a fixed-point round on one independent candidate — a round budget is a cross-pass cycle guard, not a substitute for draining a phase's finite backlog. One-site rewrites must use a phase-local worklist, recompute invalidated analyses after every mutation, and detect repeated site identities as non-convergence. A fixed cap smaller than the number of legal candidates produces false failures; callers must inspect `RestructureCFGInfo::succeeded()` before using the result.
-- ❌ Using `OpCopyMemory` on `OpTypeRayQueryKHR` in SPIR-V emission — forbidden since Rev 15. Instead, remap `_value_map[store->variable()] = val` so subsequent loads resolve to the source variable directly.
-- ❌ Trusting `src/xir/passes/CFG_NORMALIZATION_PLAN.md` as a task tracker — it is the historical design doc and contains unchecked items that are already implemented (e.g., `early_return_elimination`, `restructure_cfg`). Use the table above and the actual headers/sources as the source of truth.
-
-## Memory Effects & Instruction Purity
-
-Optimization passes (GVN, DCE, SCCP) must respect memory effects. Instructions fall into three categories:
-
-### Pure (safe to value-number, CSE, reorder, DCE if unused)
-
-| Tag | Examples |
-|---|---|
-| `ARITHMETIC` | all ops — no memory side effects |
-| `CAST` | all cast ops |
-| `GEP` | pointer arithmetic only, no dereference |
-| `RESOURCE_QUERY` | `buffer_size`, `texture_size` — read-only metadata |
-| `CLOCK` | hardware timer read — treated as a memory read (non-deterministic, not safe to value-number or reorder across loop iterations) |
-
-### Memory-reading (safe to DCE if unused, NOT safe to reorder past writes or value-number without alias analysis)
-
-| Tag | Examples |
-|---|---|
-| `LOAD` | local alloca/GEP load |
-| `RESOURCE_READ` | `buffer_read`, `texture_read`, `byte_buffer_read` |
-| `RAY_QUERY_OBJECT_READ` | `IS_TERMINATED`, `COMMITTED_HIT`, etc. — reads mutable per-thread ray query state that changes after PROCEED/COMMIT/TERMINATE |
-
-### Memory-writing / side-effecting (NEVER DCE, NEVER reorder past other writes/reads to same location)
-
-| Tag | Examples |
-|---|---|
-| `STORE` | local alloca/GEP store |
-| `RESOURCE_WRITE` | `buffer_write`, `texture_write`, `byte_buffer_write` |
-| `CALL` (to definitions) | may have arbitrary side effects |
-| `ATOMIC` | read-modify-write |
-| `PRINT` | observable side effect |
-| `ASSERT` / `ASSUME` | control flow / UB |
-| `AUTODIFF_INTRINSIC` (non-GRADIENT) | tape manipulation |
-
-### Implications for pass authors
-
-1. **GVN**: only value-number pure instructions + `RESOURCE_QUERY`. `RESOURCE_READ` and `LOAD` require memory dependency analysis (not yet implemented) to prove no intervening write.
-
-2. **DCE**: remove instructions with `use_list().empty()` ONLY if they are pure or memory-reading. Never remove writes, atomics, calls to definitions, prints, or asserts.
-
-3. **SCCP**: only fold `ARITHMETIC` on constant operands. Branch elimination is safe (replaces `cond_br` with `br`) but must call `term->remove_self()` BEFORE `builder.set_insertion_point(block)` — otherwise the builder targets the tail sentinel and asserts.
-
-4. **Code motion**: pure instructions can be hoisted/sunk freely. Reads can be hoisted past other reads but not past writes to the same resource. Writes cannot be reordered with respect to other accesses to the same resource.
-
-5. **`is_safe_to_remove` (used by GVN/DCE cleanup)**: checks `use_list().empty()` + instruction tag whitelist. Current whitelist: `PHI`, `ALLOCA`, `LOAD`, `GEP`, `ARITHMETIC`, `CAST`, `CLOCK`, `RAY_QUERY_OBJECT_READ`, `RESOURCE_QUERY`, `RESOURCE_READ`, `AUTODIFF_INTRINSIC(GRADIENT)`.
-
-### Checking purity in code
-
-Use `get_memory_info()` from `helpers.h`:
-
-```cpp
-#include "helpers.h"  // from src/xir/passes/
-
-auto info = get_memory_info(inst);
-info.is_pure()                    // no memory effects, not volatile
-info.reads_memory()               // LOCAL or GLOBAL read
-info.writes_memory()              // LOCAL or GLOBAL write
-info.is_removable_if_unused()     // safe to DCE (no writes, not volatile)
-info.is_safe_to_value_number()    // safe for GVN/CSE (pure only)
-info.scope                        // NONE, LOCAL, GLOBAL
-info.effects                      // NONE, READ, WRITE, READ_WRITE
-info.is_volatile                  // barriers, prints, asserts — never remove/reorder
-```
-
-`MemoryScope::LOCAL` = alloca/load/store (function-private memory).
-`MemoryScope::SHARED` = workgroup-shared memory (thread_group barriers/ops).
-`MemoryScope::GLOBAL` = buffers, textures, atomics.
-
-Two instructions with different scopes cannot alias. Two LOCAL instructions alias only if they trace to the same alloca (use `trace_pointer_base_local_alloca_inst`). SHARED memory is visible to all threads in a workgroup — never reorder across barriers.
-
-
-## Build & Test Commands
-
-Create the build directory with the project's bootstrap script if it does not exist:
-
-```bash
-python bootstrap.py cmake -f cuda -c -o cmake-build-release
-```
-
-Then use the CMake build directory:
-
-```bash
-# Build XIR library only (fast iteration)
-cmake --build cmake-build-release --target luisa-compute-xir -j
-
-# Build one specific pass test
-cmake --build cmake-build-release --target test_xir_pass_destructure_cfg -j
-
-# Run the test binary directly
-cmake-build-release/bin/test_xir_pass_destructure_cfg
-
-# Or run all XIR pass tests via ctest
-ctest --test-dir cmake-build-release -R xir_pass --output-on-failure
-```
-
-Build dir convention: `cmake-build-release`. On CI you may see `build-cmake-verify`; the commands above work there too if you substitute the directory name.
-
-## LLVM Equivalents
-
-When debugging or implementing an XIR pass, the LLVM project has similar passes for reference. Below is the mapping from XIR pass file to the closest LLVM implementation(s).
-
-| XIR Pass | LLVM Equivalent(s) | Notes |
-|---|---|---|
-| `aggregate_field_bitmask` | — | XIR-specific aggregate field bit-range analysis. |
-| `algebraic_simplify` | `llvm/lib/Transforms/InstCombine/InstCombineAndOrXor.cpp` (and siblings) | Peephole algebraic simplifications; also see `AggressiveInstCombine`. |
-| `alias_analysis` | `llvm/lib/Analysis/BasicAliasAnalysis.cpp` | Basic and type-based alias analysis. |
-| `autodiff` | — | XIR-specific autodiff pass. Reverse mode closes the generated CFG with a narrow cross-block-rvalue reg2mem repair so the pass returns dominance-valid XIR. |
-| `call_graph` | `llvm/lib/Analysis/CallGraph.cpp` | Call-graph construction and SCC passes. |
-| `const_fold` | `llvm/lib/Analysis/ConstantFolding.cpp` | Constant folding of instructions and intrinsics. |
-| `convergence_region` | — | XIR-specific convergence-region / region-of-interest analysis used by `restructure_cfg`. |
-| `cvp` | `llvm/lib/Transforms/Scalar/CorrelatedValuePropagation.cpp` | Correlated value propagation (range/branch info). |
-| `dce` | `llvm/lib/Transforms/Scalar/DCE.cpp` | Standard dead-code elimination. Also see `ADCE.cpp`, `BDCE.cpp`, `GlobalDCE.cpp`. |
-| `dead_arg_elim` | `llvm/lib/Transforms/IPO/DeadArgumentElimination.cpp` | Remove unused arguments from internal functions. |
-| `dead_store_elimination` | `llvm/lib/Transforms/Scalar/DeadStoreElimination.cpp` | Memory-write DSE (FastDSE / ClassicDSE). |
-| `destructure_cfg` | `llvm/lib/Transforms/Scalar/StructurizeCFG.cpp` | XIR: structured → unstructured. LLVM `StructurizeCFG` does the inverse (unstructured → structured). Also see `FixIrreducible.cpp`. |
-| `div_rem_pairs` | `llvm/lib/Transforms/Scalar/DivRemPairs.cpp` | Combine div/rem into a single instruction. |
-| `dom_tree` | `llvm/lib/IR/Dominators.cpp` | Dominator tree construction. |
-| `early_cse` | `llvm/lib/Transforms/Scalar/EarlyCSE.cpp` | Local common subexpression elimination. |
-| `early_return_elimination` | `llvm/lib/Transforms/Utils/UnifyFunctionExitNodes.cpp` | XIR-specific early-return elimination for structured CFG. |
-| `fix_self_referential` | — | XIR-specific fix for self-referential `INSERT` operands after buggy optimizations. |
-| `gvn` | `llvm/lib/Transforms/Scalar/GVN.cpp` / `NewGVN.cpp` | Global value numbering and redundant-load elimination. |
-| `if_conversion` | `llvm/lib/CodeGen/IfConversion.cpp` | Machine-level if-conversion (predication). |
-| `indvar_simplify` | `llvm/lib/Transforms/Scalar/IndVarSimplify.cpp` | Canonicalize and simplify induction variables. |
-| `inline` | `llvm/lib/Transforms/IPO/Inliner.cpp` | Call-site inlining heuristics and implementation. Also see `InlineFunction.cpp`. |
-| `lex_scope_analysis` | — | XIR-specific lexical-scope analysis. |
-| `licm` | `llvm/lib/Transforms/Scalar/LICM.cpp` | Loop-invariant code motion. |
-| `local_load_elimination` | `llvm/lib/Transforms/Utils/Local.cpp` | Local redundant-load elimination (part of GVN/local CSE). |
-| `local_store_forward` | `llvm/lib/Transforms/Utils/Local.cpp` | Store-to-load forwarding (part of local memory opts). |
-| `loop_rotation` | `llvm/lib/Transforms/Scalar/LoopRotation.cpp` | Rotate loops to place test at bottom. |
-| `loop_fusion` | `llvm/lib/Transforms/Scalar/LoopFuse.cpp` | Fuse adjacent loops with compatible bounds. |
-| `loop_vectorization` | `llvm/lib/Transforms/Vectorize/LoopVectorize.cpp` | Vectorize innermost loops (widening). |
-| `slp_vectorization` | `llvm/lib/Transforms/Vectorize/SLPVectorizer.cpp` | Superword-level parallelism (horizontal SIMD). |
-| Generic loop unroll | `llvm/lib/Transforms/Utils/LoopUnroll.cpp` | No generic XIR pass: it was removed because its structured-CFG correctness contract was not established. Autodiff's private bounded semantic expansion and SPIRV-Tools unrolling are separate mechanisms. |
-| `lower_break_continue` | — | XIR-specific lowering of structured `BreakInst`/`ContinueInst`. |
-| `lower_ray_query_loop` | — | XIR-specific ray-query pipeline lowering. |
-| `lower_ray_query_loop_to_loop` | — | XIR-specific ray-query → structured `LoopInst` lowering. |
-| Generic lower switch | `llvm/lib/Transforms/Utils/LowerSwitch.cpp` | No generic XIR pass: `SwitchInst` is a first-class structured terminator. `destructure_cfg` alone maps it to raw `IndexedBranchInst`, and `restructure_cfg` rebuilds the switch merge. |
-| `mem2reg` | `llvm/lib/Transforms/Utils/Mem2Reg.cpp` | Promote memory to registers (alloca → SSA). Also see `PromoteMemToReg.h`. |
-| `outline` | `llvm/lib/Transforms/IPO/IROutliner.cpp` | Outlining similar instruction sequences. |
-| `pass_pipeline` | — | XIR pass pipeline driver. |
-| `phi_cleanup` | `llvm/lib/Transforms/Utils/BasicBlockUtils.cpp` | Trivial/dead PHI removal (`DeleteDeadPHIs`, `simplifyPHINode`). |
-| `pointer_usage` | — | Stub / XIR-specific pointer-usage tracking. |
-| `post_dom_tree` | `llvm/lib/Analysis/PostDominators.cpp` | Post-dominator tree construction. |
-| `promote_ref_arg` | `llvm/lib/Transforms/IPO/ArgumentPromotion.cpp` | XIR-specific promotion of reference arguments to value arguments. |
-| `reassociate` | `llvm/lib/Transforms/Scalar/Reassociate.cpp` | Reassociate expressions for CSE/constant folding. |
-| `reg2mem` | `llvm/lib/Transforms/Scalar/Reg2Mem.cpp` | Demote SSA to memory (inverse of mem2reg). |
-| `restructure_cfg` | `llvm/lib/Transforms/Scalar/StructurizeCFG.cpp` | XIR: unstructured → structured. LLVM `StructurizeCFG` is the closest analog. Also see `FixIrreducible.cpp`. |
-| `scalar_evolution` | `llvm/lib/Analysis/ScalarEvolution.cpp` | Analyze evolution of scalar expressions in loops. |
-| `scalarizer` | `llvm/lib/Transforms/Scalar/Scalarizer.cpp` | Break vector ops into scalar components. |
-| `sccp` | `llvm/lib/Transforms/Scalar/SCCP.cpp` | Sparse conditional constant propagation. |
-| `simplify_cfg` | `llvm/lib/Transforms/Utils/SimplifyCFG.cpp` | CFG simplification (fold branches, remove empty blocks, etc.). |
-| `simplify_libcalls` | `llvm/lib/Transforms/Utils/SimplifyLibCalls.cpp` | Fold library calls to simpler forms. |
-| `sroa` | `llvm/lib/Transforms/Scalar/SROA.cpp` | Scalar replacement of aggregates (alloca splitting). |
-| `trace_gep` | `llvm/lib/Transforms/InstCombine/InstCombineCompares.cpp` | GEP chaining / index folding. General GEP combining lives in InstCombine. |
-| `transpose_gep` | `llvm/lib/Transforms/Scalar/SeparateConstOffsetFromGEP.cpp` | Reorder / split GEP indices. |
-| `uniformity_analysis` | `llvm/lib/Analysis/UniformityAnalysis.cpp` | Divergence / uniformity analysis (GPU-focused). |
-| `unused_callable_removal` | `llvm/lib/Transforms/IPO/GlobalDCE.cpp` | Remove unreferenced internal functions. Also see `Internalize.cpp`. |
-
-### Reading LLVM sources for XIR pass debugging
-
-When an XIR pass produces incorrect IR:
-
-1. Look up the XIR pass in the table above.
-2. Open the matching LLVM file(s), if not found, ask user.
-3. Read the LLVM implementation for the algorithm (e.g., how `SROA` splits allocas, how `StructurizeCFG` builds regions).
-4. Compare with the XIR implementation in `src/xir/passes/<name>.cpp`. The XIR passes are often simplified versions of the LLVM algorithms.
-5. For passes with no LLVM equivalent (ray query, break/continue lowering, self-referential fix), the XIR pass is the authoritative reference.
+Use the Metal4 backend for an end-to-end AIR test. The dedicated
+`test_metal_xir_air` CTest requires no selection environment. Use
+`test_metal_xir_air_raster` for vertex/fragment stage identity, raster-only
+operations, and render readback; launch other binaries with backend `metal4`.

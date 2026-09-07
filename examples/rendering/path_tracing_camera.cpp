@@ -412,11 +412,39 @@ int main(int argc, char *argv[]) {
         .right = make_float3(1.f, 0.f, 0.f),
         .fov = 27.8f};
     FPVCameraController camera_controller{camera, 1.f, 20.f, .5f};
+    auto is_dirty = true;
+    auto primary_pointer_down = false;
+    auto last_pointer_position = make_float2();
 
     std::unique_ptr<Window> window;
     std::optional<Swapchain> swap_chain;
     if (!opts.offline) {
         window = std::make_unique<Window>("path tracing", resolution);
+        window->set_mouse_callback(
+            [&primary_pointer_down, &last_pointer_position](
+                MouseButton button, Action action, float2 position) noexcept {
+                if (button != MOUSE_BUTTON_LEFT) { return; }
+                primary_pointer_down = action != ACTION_RELEASED;
+                last_pointer_position = position;
+            });
+        window->set_cursor_position_callback(
+            [&camera_controller, &is_dirty, &primary_pointer_down,
+             &last_pointer_position](float2 position) noexcept {
+                if (!primary_pointer_down) {
+                    last_pointer_position = position;
+                    return;
+                }
+                auto delta = position - last_pointer_position;
+                last_pointer_position = position;
+                camera_controller.rotate_yaw(-delta.x * 0.005f);
+                camera_controller.rotate_pitch(-delta.y * 0.005f);
+                is_dirty = true;
+            });
+        window->set_scroll_callback(
+            [&camera_controller, &is_dirty](float2 offset) noexcept {
+                camera_controller.zoom(offset.y * 0.1f);
+                is_dirty = true;
+            });
         swap_chain.emplace(device.create_swapchain(
             stream,
             SwapchainOption{
@@ -435,7 +463,6 @@ int main(int argc, char *argv[]) {
     double last_time = 0.0;
     uint frame_count = 0u;
     Clock clock;
-    auto is_dirty = true;
     auto delta_time = 0.;
     CommandList cmd_list;
     cmd_list << make_sampler_shader(seed_image).dispatch(resolution);

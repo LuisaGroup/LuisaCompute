@@ -24,7 +24,14 @@ void Blas::_pre_build(
     if (_option.allow_update) {
         _acceleration_build_geometry_info->flags |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
     }
-    // Enable BLAS-level vertex motion blur when the mesh has motion keyframes
+    // Enable BLAS-level vertex motion blur when the mesh has motion keyframes.
+    // VK_NV_ray_tracing_motion_blur is NVIDIA-only and unavailable on most
+    // Android GPUs; fail cleanly instead of referencing NV structs/flags with
+    // the extension disabled.
+    if (_option.motion.is_enabled() && !device()->enable_motion_blur()) [[unlikely]] {
+        LUISA_ERROR("BLAS vertex motion blur requires VK_NV_ray_tracing_motion_blur, "
+                    "which is not enabled on this device.");
+    }
     if (_option.motion.is_enabled()) {
         _acceleration_build_geometry_info->flags |= VK_BUILD_ACCELERATION_STRUCTURE_MOTION_BIT_NV;
     }
@@ -142,6 +149,12 @@ void Blas::pre_build(
     auto vertex_count_per_keyframe = total_vertex_count / keyframe_count;
 
     if (_option.motion.is_enabled() && keyframe_count == 2u) {
+        // VkAccelerationStructureGeometryMotionTrianglesDataNV is NV-only;
+        // guard it against devices without VK_NV_ray_tracing_motion_blur.
+        if (!device()->enable_motion_blur()) [[unlikely]] {
+            LUISA_ERROR("BLAS vertex motion blur requires VK_NV_ray_tracing_motion_blur, "
+                        "which is not enabled on this device.");
+        }
         // BLAS vertex motion blur: provide two keyframes via
         // VkAccelerationStructureGeometryMotionTrianglesDataNV.
         // Keyframe 0 goes into triangles.vertexData (the base geometry).
@@ -227,7 +240,15 @@ void Blas::build(
 }
 Blas::~Blas() {
     for (auto &&i : _handles) {
-        i->accel->_all_instance[i->accel_index].handle = nullptr;
+        auto accel = i->accel;
+        accel->_all_instance[i->accel_index].handle = nullptr;
+        // A mesh-refresh entry queued by the last BLAS recreate (_sync_tlas)
+        // may still reference this handle; drop it so a later TLAS build never
+        // dereferences the destroyed handle.
+        if (auto ite = accel->_set_map.find(i->accel_index);
+            ite != accel->_set_map.end() && ite->second == i) {
+            accel->_set_map.erase(ite);
+        }
         MeshHandle::destroy_handle(i);
     }
     vkDestroyAccelerationStructureKHR(device()->logic_device(), _accel, Device::alloc_callbacks());

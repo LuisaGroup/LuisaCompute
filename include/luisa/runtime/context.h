@@ -14,6 +14,7 @@ class BinaryIO;
 namespace luisa::compute {
 
 class Device;
+class DeviceInterface;
 struct DeviceConfig;
 
 namespace detail {
@@ -26,6 +27,22 @@ private:
     luisa::shared_ptr<detail::ContextImpl> _impl;
 
 public:
+    using StaticBackendCreator = DeviceInterface *(
+        Context &&context, const DeviceConfig *config);
+    using StaticBackendDeleter = void(DeviceInterface *device);
+    using StaticBackendDeviceNames = void(
+        luisa::vector<luisa::string> &names);
+
+    /// Registers a backend linked into the process image. This is primarily
+    /// used by signed iOS applications, where runtime-loadable backend modules
+    /// are not available. Registration affects Context instances created
+    /// afterwards and preserves the normal create_device() API.
+    static void register_static_backend(
+        luisa::string_view backend_name,
+        StaticBackendCreator *creator,
+        StaticBackendDeleter *deleter,
+        StaticBackendDeviceNames *device_names) noexcept;
+
     explicit Context(luisa::shared_ptr<detail::ContextImpl> impl) noexcept;
     // program_path can be first arg from main entry
     explicit Context(luisa::string_view program_path) noexcept;
@@ -45,6 +62,8 @@ public:
     [[nodiscard]] const luisa::filesystem::path &data_directory() const noexcept;
     // create subdirectories under the runtime directory
     [[nodiscard]] const luisa::filesystem::path &create_runtime_subdir(luisa::string_view folder_name) const noexcept;
+    // create subdirectories under the data directory
+    [[nodiscard]] const luisa::filesystem::path &create_data_subdir(luisa::string_view folder_name) const noexcept;
     // Create a backend device
     [[nodiscard]] Device create_device(luisa::string_view backend_name,
                                        const DeviceConfig *settings,

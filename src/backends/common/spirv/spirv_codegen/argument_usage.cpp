@@ -609,11 +609,11 @@ analyze_spirv_function_argument_usage(
     return analysis;
 }
 
-SpirvReadonlyResourceOriginMap
-analyze_spirv_readonly_resource_origins_from_call_sites(
+SpirvUniqueResourceOriginMap
+analyze_spirv_unique_resource_origins_from_call_sites(
     const SpirvFunctionArgumentAnalysisMap &usage,
     luisa::span<const xir::CallInst *const> call_sites) noexcept {
-    SpirvReadonlyResourceOriginMap origins;
+    SpirvUniqueResourceOriginMap origins;
 
     struct OriginState {
         const xir::Argument *origin{nullptr};
@@ -632,10 +632,8 @@ analyze_spirv_readonly_resource_origins_from_call_sites(
                                                argument->type();
             if (argument == nullptr || !argument->is_resource() ||
                 type == nullptr ||
-                (!type->is_buffer() &&
-                 !type->is_bindless_array()) ||
                 spirv_function_argument_usage_of(
-                    usage, function, argument) != Usage::READ) {
+                    usage, function, argument) == Usage::NONE) {
                 continue;
             }
             states.emplace(argument, OriginState{});
@@ -748,8 +746,8 @@ analyze_spirv_readonly_resource_origins_from_call_sites(
     return origins;
 }
 
-SpirvReadonlyResourceOriginMap
-analyze_spirv_readonly_resource_origins(
+SpirvUniqueResourceOriginMap
+analyze_spirv_unique_resource_origins(
     const xir::Module *module,
     const SpirvFunctionArgumentAnalysisMap &usage) noexcept {
     SpirvFunctionCallSiteList call_sites;
@@ -775,7 +773,7 @@ analyze_spirv_readonly_resource_origins(
             }
         }
     }
-    return analyze_spirv_readonly_resource_origins_from_call_sites(
+    return analyze_spirv_unique_resource_origins_from_call_sites(
         usage, luisa::span{call_sites});
 }
 

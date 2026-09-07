@@ -882,14 +882,6 @@ void reg_xir_verifier() {
         auto *body = callable->create_body_block();
         XIRBuilder builder;
         builder.set_insertion_point(body);
-        auto negative_index_value = int32_t{-1};
-        auto out_of_range_index_value = uint32_t{2u};
-        auto *negative_index = module.create_constant(
-            int_type, &negative_index_value);
-        auto *out_of_range_index = module.create_constant(
-            uint_type, &out_of_range_index_value);
-        auto *zero_index = module.create_constant_zero(uint_type);
-
         luisa::vector<ArithmeticInst *> malformed;
         malformed.emplace_back(builder.call(
             int_type, ArithmeticOp::SATURATE, {int_value}));
@@ -916,19 +908,10 @@ void reg_xir_verifier() {
         malformed.emplace_back(builder.call(
             float2_type, ArithmeticOp::SHUFFLE, {float2_value, index}));
         malformed.emplace_back(builder.call(
-            float2_type, ArithmeticOp::SHUFFLE,
-            {float2_value, out_of_range_index, zero_index}));
-        malformed.emplace_back(builder.call(
             float_type, ArithmeticOp::EXTRACT, {array_value, index}));
-        malformed.emplace_back(builder.call(
-            int_type, ArithmeticOp::EXTRACT,
-            {array_value, negative_index}));
         malformed.emplace_back(builder.call(
             array_type, ArithmeticOp::INSERT,
             {array_value, float_value, index}));
-        malformed.emplace_back(builder.call(
-            array_type, ArithmeticOp::INSERT,
-            {array_value, int_value, out_of_range_index}));
         auto *wrong_arity = builder.call(
             float_type, ArithmeticOp::SATURATE, {float_value});
         wrong_arity->add_operand(float_value);
@@ -1535,6 +1518,43 @@ void reg_xir_verifier() {
                 result, body, call,
                 "Call argument type or value category is invalid."));
         }
+    };
+
+    "xir_verifier_accepts_homogeneous_indices_outside_static_bounds"_test = [] {
+        Module module;
+        auto *int_type = Type::of<int32_t>();
+        auto *uint_type = Type::of<uint32_t>();
+        auto *array_type = Type::array(int_type, 2u);
+        auto *vector_type = Type::vector(int_type, 2u);
+        uint32_t upper_bound_value = 2u;
+        int32_t negative_value = -1;
+        auto *upper_bound =
+            module.create_constant(uint_type, &upper_bound_value);
+        auto *negative = module.create_constant(int_type, &negative_value);
+        auto *callable = module.create_callable(nullptr);
+        auto *vector = callable->create_value_argument(vector_type);
+        auto *body = callable->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        auto *array = builder.alloca_local(array_type);
+        auto *past_end = builder.gep(int_type, array, {upper_bound});
+        auto *before_begin = builder.gep(int_type, array, {negative});
+        auto *extract = builder.call(
+            int_type, ArithmeticOp::EXTRACT, {vector, upper_bound});
+        auto *insert = builder.call(
+            vector_type, ArithmeticOp::INSERT,
+            {vector, module.create_constant_zero(int_type), negative});
+        auto *shuffle = builder.call(
+            vector_type, ArithmeticOp::SHUFFLE,
+            {vector, negative, upper_bound});
+        builder.return_void();
+
+        expect(past_end != nullptr);
+        expect(before_begin != nullptr);
+        expect(extract != nullptr);
+        expect(insert != nullptr);
+        expect(shuffle != nullptr);
+        expect(xir_verify_module(&module).succeeded());
     };
 
     "xir_verifier_rejects_invalid_gep_type_paths"_test = [] {

@@ -58,13 +58,16 @@ example_proj("example_win_hdr", "gui/win_hdr.cpp", true)
 
     -- compute
     example_proj("example_helloworld", "compute/helloworld.cpp", false)
-     example_proj("example_tensor_stub", "tensor/main.cpp", false, function()
-          add_files("tensor/kernel_*.cpp")
-          add_files("tensor/cnn_kernels.cpp", "tensor/cnn_inference.cpp")
-          add_files("tensor/poly_fit_kernels.cpp", "tensor/poly_fit.cpp")
-          add_files("tensor/linear_regression_kernels.cpp", "tensor/linear_regression.cpp")
-          add_files("tensor/mlp.cpp", "tensor/mnist.cpp", "tensor/rnn.cpp", "tensor/tensor_basics.cpp")
-      end)
+       example_proj("example_tensor_stub", "tensor/main.cpp", false, function()
+            add_files("tensor/kernel_*.cpp")
+            add_files("tensor/cnn_kernels.cpp", "tensor/cnn_inference.cpp")
+            add_files("tensor/poly_fit_kernels.cpp", "tensor/poly_fit.cpp")
+            add_files("tensor/linear_regression_kernels.cpp", "tensor/linear_regression.cpp")
+            add_files("tensor/mlp.cpp", "tensor/mnist.cpp", "tensor/rnn.cpp", "tensor/tensor_basics.cpp")
+            add_files("tensor/torch2_import.cpp")
+            if has_config("lc_yyjson_use_xrepo") then add_packages("yyjson")
+            else add_deps("lc-yyjson") end
+        end)
 example_proj("example_tile_bench", "compute/tile_bench.cpp", false)
     example_proj("example_cluster_launch_control", "compute/cluster_launch_control.cpp", false)
     example_proj("example_async_copy_prefetch", "compute/async_copy_prefetch.cpp", false)
@@ -77,6 +80,9 @@ example_proj("example_tile_bench", "compute/tile_bench.cpp", false)
             end)
         end
         coro_example_proj("example_coro_sdf_renderer", "rendering/coro_sdf_renderer.cpp", false)
+        coro_example_proj("example_coro_external_stage_debug", "coro/external_stage_debug.cpp", false)
+        coro_example_proj("example_coro_external_stage_neural_sdf", "coro/external_stage_neural_sdf.cpp", false)
+        coro_example_proj("example_coro_on_demand_texture", "coro/on_demand_texture.cpp", false)
         coro_example_proj("example_coro_path_tracing", "rendering/coro_path_tracing.cpp", false)
         coro_example_proj("example_coro_path_tracing_wavefront", "rendering/coro_path_tracing.cpp", false, function()
             add_defines("LUISA_CORO_PATH_TRACING_SAMPLE_DISPATCH_DEFAULT=1")
@@ -113,6 +119,9 @@ end
 if has_config("lc_dx_cuda_interop") then
     example_proj("example_cuda_dx_interop", "interop/cuda_dx_interop.cpp", false)
 end
-if has_config("lc_vk_cuda_interop") then
-    example_proj("example_cuda_vk_interop", "interop/cuda_vk_interop.cpp", false)
-end
+  if has_config("lc_vk_cuda_interop") and has_config("lc_cuda_backend") then
+      example_proj("example_cuda_vk_interop", "interop/cuda_vk_interop.cpp", false)
+  end
+  if has_config("lc_vk_cuda_interop") and has_config("lc_cuda_backend") then
+      example_proj("example_cuda_vk_kernel_launch", "interop/cuda_vk_kernel_launch.cpp", false)
+  end

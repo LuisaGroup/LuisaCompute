@@ -440,15 +440,16 @@ void mark_curve_surface_hits(
 using RayQueryBatchBuildState = detail::RayQueryBatchBuildState;
 using RayQueryRTCContext = detail::RayQueryRTCContext;
 
-struct RayQueryScanContext final : detail::RayQueryScanContext {};
-static_assert(std::is_standard_layout_v<detail::RayQueryScanContext>);
+// Use the callback ABI type directly. The previous empty derived wrapper
+// needed std::is_pointer_interconvertible_base_of_v to prove that Embree's
+// pointer to the leading RTC context could be recovered as either type, but
+// that C++20 library trait is not provided by Apple libc++. An alias makes the
+// identity stronger and keeps the existing standard-layout/offset proof in
+// simd_accel_ray_query.h valid on every standard library.
+using RayQueryScanContext = detail::RayQueryScanContext;
+static_assert(std::is_same_v<RayQueryScanContext,
+                             detail::RayQueryScanContext>);
 static_assert(std::is_standard_layout_v<RayQueryScanContext>);
-static_assert(std::is_pointer_interconvertible_base_of_v<
-              detail::RayQueryScanContext, RayQueryScanContext>);
-static_assert(sizeof(RayQueryScanContext) ==
-              sizeof(detail::RayQueryScanContext));
-static_assert(alignof(RayQueryScanContext) ==
-              alignof(detail::RayQueryScanContext));
 
 thread_local RayQueryScanContext *active_ray_query_scan_context{nullptr};
 
@@ -1564,7 +1565,11 @@ SIMDAccel::SIMDAccel(
       _enable_surface_filter_ray_packet{
           !luisa::compute::detail::env_flag(
               "LUISA_SIMD_DISABLE_IN_FILTER_RAY_PACKET_INPUT")},
+      _embree_native_ray_packet{
+          simd_embree_native_ray_packet_support(device)
+              .supports(warp_width)},
       _enable_direct_surface_filter_candidate{
+          _embree_native_ray_packet &&
           !luisa::compute::detail::env_flag(
               "LUISA_SIMD_DISABLE_DIRECT_SURFACE_FILTER_CANDIDATE")},
       _enable_output_only_empty_surface_filter{
@@ -1765,6 +1770,7 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
             use_triangle_only_provider &&
                     _enable_surface_filter_pipeline &&
                     _enable_surface_filter_ray_packet &&
+                    _embree_native_ray_packet &&
                     _enable_output_only_empty_surface_filter &&
                     _warp_width >= 2u ?
                 triangle_ray_query::
@@ -1774,6 +1780,7 @@ void SIMDAccel::build(const AccelBuildCommand &command) noexcept {
             use_triangle_only_provider &&
                     _enable_surface_filter_pipeline &&
                     _enable_surface_filter_ray_packet &&
+                    _embree_native_ray_packet &&
                     _enable_direct_surface_filter_candidate &&
                     _enable_direct_output_surface_filter &&
                     _warp_width >= 2u ?

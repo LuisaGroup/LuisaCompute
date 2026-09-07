@@ -10,6 +10,7 @@
 #include "sparse_residency_registry.h"
 #include <luisa/backends/ext/vk_config_ext.h>
 #include <atomic>
+#include <limits>
 namespace lc::hlsl {
 class ShaderCompiler;
 }// namespace lc::hlsl
@@ -196,6 +197,18 @@ public:
     LazyLoadShader prepare_indirect_kernel;
     bool external_instance : 1 {false};
     bool external_device : 1 {false};
+    // Capability-adaptive Vulkan API floor. The backend prefers core
+    // synchronization2/copy_commands2 (Vulkan 1.3) but falls back to the
+    // classic vkCmdPipelineBarrier/vkCmdCopyBuffer entry points on Vulkan 1.2
+    // devices (and on 1.3 devices when the minimum API version is forced to
+    // 1.2 for testing).
+    bool sync2_capable_bit : 1 {false};
+    bool copy2_capable_bit : 1 {false};
+    // Minimum API version to honor during capability negotiation. 0 means
+    // "auto" (use whatever the physical device exposes). A non-zero value
+    // (e.g. VK_API_VERSION_1_2) forces the legacy barrier/copy paths even on
+    // 1.3 devices, which is useful for CI validation of the 1.2 floor.
+    uint32_t _min_api_version{0u};
     uint32_t external_graphics_queue_family_index{VK_QUEUE_FAMILY_IGNORED};
     uint32_t external_compute_queue_family_index{VK_QUEUE_FAMILY_IGNORED};
     uint32_t external_copy_queue_family_index{VK_QUEUE_FAMILY_IGNORED};
@@ -204,6 +217,9 @@ public:
     bool surface_enabled : 1 {true};
     bool device_address_enabled : 1 {true};
     bool interop_enabled : 1 {true};
+    // VK_NV_cuda_kernel_launch (compiled only with LUISA_VULKAN_ENABLE_CUDA_INTEROP;
+    // owned logical devices only — imported devices cannot be queried).
+    bool cuda_kernel_launch_enabled : 1 {false};
     bool motion_blur_enabled : 1 {false};
     bool subgroup_size_control_enabled : 1 {false};
     bool subgroup_extended_types_enabled : 1 {false};
@@ -232,8 +248,12 @@ public:
         return _descriptor_indexing_properties;
     }
     [[nodiscard]] uint64_t max_timeline_semaphore_value_difference() const noexcept {
-        return _timeline_semaphore_properties
-            .maxTimelineSemaphoreValueDifference;
+        // Per the Vulkan spec, maxTimelineSemaphoreValueDifference == 0 means
+        // "no limit". Normalize once at the Device boundary so every caller
+        // sees an unbounded window.
+        auto raw = _timeline_semaphore_properties
+                       .maxTimelineSemaphoreValueDifference;
+        return raw == 0u ? std::numeric_limits<uint64_t>::max() : raw;
     }
     [[nodiscard]] const auto &acceleration_structure_properties() const noexcept {
         return _acceleration_structure_properties;
@@ -242,12 +262,25 @@ public:
     bool enable_motion_blur() const { return motion_blur_enabled; }
     bool enable_raytracing() const { return raytracing_enabled; }
     bool enable_device_address() const { return device_address_enabled; }
+    [[nodiscard]] bool enable_cuda_kernel_launch() const noexcept {
+        return cuda_kernel_launch_enabled;
+    }
     bool enable_async_copy() const { return async_copy_enabled; }
     [[nodiscard]] bool enable_sampler_anisotropy() const noexcept {
         return sampler_anisotropy_enabled;
     }
     [[nodiscard]] bool enable_shader_untyped_pointers() const noexcept {
         return shader_untyped_pointers_enabled;
+    }
+    // True when the backend may use vkCmdPipelineBarrier2 (core 1.3 or
+    // VK_KHR_synchronization2), false when it must use vkCmdPipelineBarrier.
+    [[nodiscard]] bool sync2_capable() const noexcept {
+        return sync2_capable_bit;
+    }
+    // True when the backend may use vkCmdCopyBuffer2/vkCmdCopyImage2 (core 1.3
+    // or VK_KHR_copy_commands2), false when it must use the classic copies.
+    [[nodiscard]] bool copy2_capable() const noexcept {
+        return copy2_capable_bit;
     }
     // Exact optional Vulkan features enabled on this logical device that may
     // be consumed by persisted SPIR-V artifacts. Imported logical devices are

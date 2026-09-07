@@ -55,6 +55,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         metadata/curve_basis.cpp
         metadata/signature_constraint.cpp
         metadata/reg2mem_spill.cpp
+        metadata/no_inline.cpp
 
         # translators
         translators/ast2xir.cpp
@@ -76,7 +77,9 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/coro_cfg_distill.cpp
         passes/coro_cfg_dataflow.cpp
         passes/coro_alloca_scope.cpp
+        passes/coro_guarded_scalar_relation.cpp
         passes/coro_initialized_prefix.cpp
+        passes/coro_scalar_relation_liveness.cpp
         passes/coro_frame_abi.cpp
         passes/coro_frame_access.cpp
         passes/coro_rematerialize.cpp
@@ -134,6 +137,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/simplify_cfg.cpp
         passes/simplify_libcalls.cpp
         passes/restructure_cfg.cpp
+        passes/restructure_cfg_construct_boundary.cpp
         passes/restructure_cfg_post_dom.cpp
         passes/restructure_cfg_loop_boundary.cpp
         passes/restructure_cfg_selection_merge.cpp
@@ -150,7 +154,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/fuse_consecutive_buffer_reads.cpp
 )
 
-add_library(luisa-compute-xir SHARED ${LUISA_COMPUTE_XIR_SOURCES})
+add_library(luisa-compute-xir ${LUISA_COMPUTE_XIR_SOURCES})
 target_link_libraries(luisa-compute-xir PUBLIC luisa-compute-ast)
 
 if (NOT LUISA_COMPUTE_USE_SYSTEM_YYJSON)

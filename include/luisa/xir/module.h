@@ -41,6 +41,8 @@ public:
 
     [[nodiscard]] KernelFunction *create_kernel() noexcept;
     [[nodiscard]] CallableFunction *create_callable(const Type *ret_type) noexcept;
+    [[nodiscard]] RasterStageFunction *create_raster_stage(
+        const Type *ret_type, RasterStage stage) noexcept;
     [[nodiscard]] ExternalFunction *create_external_function(const Type *ret_type) noexcept;
     [[nodiscard]] auto &function_list() noexcept { return _function_list; }
     [[nodiscard]] auto &function_list() const noexcept { return _function_list; }
@@ -70,6 +72,8 @@ public:
     [[nodiscard]] SPR_KernelID *create_kernel_id() noexcept;
     [[nodiscard]] SPR_ObjectID *create_object_id() noexcept;
     [[nodiscard]] SPR_Barycentrics *create_bary_centrics() noexcept;
+    [[nodiscard]] SPR_FrontFacing *create_front_facing() noexcept;
+    [[nodiscard]] SPR_BaseInstance *create_base_instance() noexcept;
     [[nodiscard]] SPR_BlockSize *create_block_size() noexcept;
     [[nodiscard]] SPR_WarpSize *create_warp_size() noexcept;
     [[nodiscard]] SPR_DispatchSize *create_dispatch_size() noexcept;

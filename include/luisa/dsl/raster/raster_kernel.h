@@ -2,9 +2,10 @@
 
 #include <luisa/ast/function.h>
 #include <luisa/dsl/raster/raster_func.h>
+#include <luisa/dsl/raster/raster_interpolation.h>
 #include <luisa/dsl/struct.h>
 #include <luisa/runtime/raster/app_data.h>
-LUISA_STRUCT(luisa::compute::AppData, position, normal, tangent, color, uv, vertex_id, instance_id){};
+LUISA_STRUCT(luisa::compute::AppData, position, normal, tangent, color, uv, vertex_id, instance_id) {};
 
 namespace luisa::compute {
 template<typename VertCallable, typename PixelCallable>

@@ -15,6 +15,27 @@ struct SpirvInactivePayloadCleanupInfo {
     size_t removed_phi_incoming_count{0u};
 };
 
+struct SpirvOneShotLoopCanonicalizationInfo {
+    size_t lowered_loop_count{0u};
+    size_t lowered_simple_loop_count{0u};
+    size_t rewritten_break_count{0u};
+    size_t rewritten_continue_count{0u};
+
+    [[nodiscard]] bool changed() const noexcept {
+        return lowered_loop_count != 0u ||
+               lowered_simple_loop_count != 0u;
+    }
+};
+
+// A structured loop whose executable region contains no edge back to its
+// header is semantically a one-shot region, not a physical SPIR-V loop. Lower
+// such regions to ordinary CFG, rewrite their local Break/Continue effects to
+// branches, and restore structured selections. Genuine loops and unreachable
+// orphan owners are left untouched.
+[[nodiscard]] SpirvOneShotLoopCanonicalizationInfo
+canonicalize_spirv_codegen_one_shot_loops(
+    xir::Module *module) noexcept;
+
 // Clears instructions only from blocks outside ordinary all-edge reachability.
 // This includes two deliberately distinct categories: true orphans outside the
 // emission closure, and dead payload in disconnected raw role blocks whose

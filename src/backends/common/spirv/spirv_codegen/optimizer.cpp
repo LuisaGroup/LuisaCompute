@@ -132,8 +132,11 @@ spirv_opt_sroa_limit_from_environment() noexcept {
 // src/ext/SPIRV-Tools/source/opt/optimizer.cpp L185-230) minus the four passes
 // architecturally covered at XIR level (WrapOpKill, MergeReturn,
 // InlineExhaustive, EliminateDeadFunctions), keeping the Luisa-side
-// conditional loop-unroll gate (policy #2) and appending DXC's fork tail
-// (SpirvEmitter.cpp L17209-17214). sroa_limit threads the
+// conditional loop-unroll gate (policy #2). The target-independent
+// SPIRV-Tools loop-unswitch pass is deliberately not a default native pass: k
+// independent loop-invariant selectors can clone a loop 2^k times, and the
+// pass has no target cost model. It remains available explicitly through
+// LUISA_SPIRV_OPT_PASS_FLAGS=--loop-unswitch. sroa_limit threads the
 // LUISA_SPIRV_OPT_SROA_LIMIT override into both ScalarReplacement passes.
 void register_compute_passes(spvtools::Optimizer &optimizer,
                              SpirvOptimizerReport &report,
@@ -227,10 +230,8 @@ void register_compute_passes(spvtools::Optimizer &optimizer,
                   spvtools::CreateBlockMergePass());
     register_pass(optimizer, report, "simplification",
                   spvtools::CreateSimplificationPass());
-    // DXC fork tail: these run after the performance pipeline in every -O
-    // pipeline and are the final three passes of the compute preset.
-    register_pass(optimizer, report, "loop-unswitch",
-                  spvtools::CreateLoopUnswitchPass());
+    // Keep the two size-bounded DXC fork-tail transforms. Loop unswitch is an
+    // explicit opt-in because its repeated whole-loop cloning is unbounded.
     register_pass(optimizer, report, "spread-volatile-semantics",
                   spvtools::CreateSpreadVolatileSemanticsPass());
     register_pass(optimizer, report, "compact-ids",
@@ -505,10 +506,8 @@ SpirvOptimizerReport optimize_spirv(
                       spvtools::CreatePrivateToLocalPass());
         register_pass(optimizer, report, "copy-propagate-arrays",
                       spvtools::CreateCopyPropagateArraysPass());
-        // DXC fork parity: the tail passes are appended after the stock
-        // performance pipeline exactly as SpirvEmitter.cpp does.
-        register_pass(optimizer, report, "loop-unswitch",
-                      spvtools::CreateLoopUnswitchPass());
+        // The bounded DXC fork-tail transforms remain enabled. See the
+        // compute-preset rationale above for the explicit loop-unswitch gate.
         register_pass(optimizer, report, "spread-volatile-semantics",
                       spvtools::CreateSpreadVolatileSemanticsPass());
         register_pass(optimizer, report, "compact-ids",

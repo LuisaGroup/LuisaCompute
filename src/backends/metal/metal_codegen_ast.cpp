@@ -272,8 +272,17 @@ void MetalCodegenAST::_emit_type_name(const Type *type, Usage usage, bool sample
         case Type::Tag::FLOAT16: _scratch << "half"; break;
         case Type::Tag::FLOAT32: _scratch << "float"; break;
         case Type::Tag::FLOAT64: _scratch << "double"; break;
-        case Type::Tag::INT8: _scratch << "char"; break;
-        case Type::Tag::UINT8: _scratch << "uchar"; break;
+case Type::Tag::INT8: _scratch << "char"; break;
+case Type::Tag::UINT8: _scratch << "uchar"; break;
+// FP8 / I4 / FP4 have no Metal scalar type.  They are represented as
+// byte storage (char / uchar) on the host-device boundary; the tile
+// lowering handles pack/unpack.  These placeholders keep the type
+// switch exhaustive so the Metal backend compiles cleanly even though
+// standalone sub-byte typed buffers are not yet exercised on Metal.
+case Type::Tag::FLOAT8_E4M3:
+case Type::Tag::FLOAT8_E5M2:
+case Type::Tag::FP4_E2M1: _scratch << "uchar"; break;
+case Type::Tag::INT4: _scratch << "char"; break;
         case Type::Tag::INT16: _scratch << "short"; break;
         case Type::Tag::UINT16: _scratch << "ushort"; break;
         case Type::Tag::INT32: _scratch << "int"; break;
@@ -387,7 +396,9 @@ void MetalCodegenAST::_emit_variable_name(Variable v, bool sampled) noexcept {
         case Variable::Tag::WARP_LANE_COUNT: _scratch << "ws"; break;
         case Variable::Tag::WARP_LANE_ID: _scratch << "lid"; break;
         case Variable::Tag::RASTER_BARYCENTRICS:
-        case Variable::Tag::RASTER_OBJECT_ID: LUISA_NOT_IMPLEMENTED();
+        case Variable::Tag::RASTER_OBJECT_ID:
+        case Variable::Tag::RASTER_FRONT_FACING:
+        case Variable::Tag::RASTER_BASE_INSTANCE: LUISA_NOT_IMPLEMENTED();
     }
 }
 
@@ -468,6 +479,263 @@ void MetalCodegenAST::_emit_call_argument(const Expression *argument, bool sampl
         }
     }
     argument->accept(*this);
+}
+
+void MetalCodegenAST::_analyze_local_variables() noexcept {
+    _local_variable_emissions.clear();
+    _scope_local_variables.clear();
+    _local_variable_initializers.clear();
+    _gradient_variables.clear();
+
+    auto root = _function.body();
+    struct ScopeInfo {
+        const ScopeStmt *parent{nullptr};
+        uint depth{0u};
+    };
+    luisa::unordered_map<const ScopeStmt *, ScopeInfo> scope_info;
+    luisa::unordered_set<const ScopeStmt *> switch_bodies;
+    luisa::vector<const ScopeStmt *> scope_stack;
+
+    const auto common_scope = [&scope_info](const ScopeStmt *lhs,
+                                           const ScopeStmt *rhs) noexcept {
+        auto lhs_depth = scope_info.at(lhs).depth;
+        auto rhs_depth = scope_info.at(rhs).depth;
+        while (lhs_depth > rhs_depth) {
+            lhs = scope_info.at(lhs).parent;
+            lhs_depth--;
+        }
+        while (rhs_depth > lhs_depth) {
+            rhs = scope_info.at(rhs).parent;
+            rhs_depth--;
+        }
+        while (lhs != rhs) {
+            lhs = scope_info.at(lhs).parent;
+            rhs = scope_info.at(rhs).parent;
+        }
+        return lhs;
+    };
+
+    traverse_expressions<true>(
+        root,
+        [&](const Expression *expression) noexcept {
+            if (expression->tag() == Expression::Tag::REF) {
+                auto variable = static_cast<const RefExpr *>(expression)->variable();
+                if (variable.tag() == Variable::Tag::LOCAL) {
+                    LUISA_ASSERT(!scope_stack.empty(),
+                                 "A Metal local variable reference has no lexical scope.");
+                    auto &&emission = _local_variable_emissions[variable.uid()];
+                    emission.scope = emission.scope == nullptr ?
+                                         scope_stack.back() :
+                                         common_scope(emission.scope, scope_stack.back());
+                }
+            } else if (expression->tag() == Expression::Tag::CALL) {
+                auto call = static_cast<const CallExpr *>(expression);
+                if (call->op() == CallOp::GRADIENT ||
+                    call->op() == CallOp::GRADIENT_MARKER ||
+                    call->op() == CallOp::REQUIRES_GRADIENT) {
+                    LUISA_ASSERT(!call->arguments().empty() &&
+                                     call->arguments().front()->tag() == Expression::Tag::REF,
+                                 "Invalid gradient function call.");
+                    _gradient_variables.emplace(
+                        static_cast<const RefExpr *>(
+                            call->arguments().front())->variable());
+                }
+            }
+        },
+        [&](const Statement *statement) noexcept {
+            if (statement->tag() == Statement::Tag::SWITCH) {
+                switch_bodies.emplace(
+                    static_cast<const SwitchStmt *>(statement)->body());
+            }
+            if (statement->tag() == Statement::Tag::SCOPE) {
+                auto scope = static_cast<const ScopeStmt *>(statement);
+                auto parent = scope_stack.empty() ? nullptr : scope_stack.back();
+                scope_info.try_emplace(
+                    scope, ScopeInfo{.parent = parent,
+                                     .depth = parent == nullptr ?
+                                                  0u :
+                                                  scope_info.at(parent).depth + 1u});
+                scope_stack.emplace_back(scope);
+            }
+        },
+        [&](const Statement *statement) noexcept {
+            if (statement->tag() == Statement::Tag::SCOPE) {
+                LUISA_ASSERT(!scope_stack.empty() &&
+                                 scope_stack.back() == statement,
+                             "Metal local-scope traversal is unbalanced.");
+                scope_stack.pop_back();
+            }
+        });
+
+    for (auto variable : _gradient_variables) {
+        if (auto iter = _local_variable_emissions.find(variable.uid());
+            iter != _local_variable_emissions.end()) {
+            iter->second.scope = root;
+        }
+    }
+
+    for (auto local : _function.local_variables()) {
+        auto iter = _local_variable_emissions.find(local.uid());
+        if (iter == _local_variable_emissions.end()) {
+            // FunctionBuilder may retain an unused local after an earlier
+            // optimization. No emitted expression can name it, so Metal does
+            // not need a declaration either.
+            continue;
+        }
+        auto scope = iter->second.scope;
+        // A declaration directly inside a switch body can be bypassed by a
+        // case label. Lift it until ordinary structured scope rules apply.
+        while (switch_bodies.contains(scope)) {
+            scope = scope_info.at(scope).parent;
+            LUISA_ASSERT(scope != nullptr,
+                         "A Metal switch body has no enclosing declaration scope.");
+        }
+        iter->second.scope = scope;
+    }
+
+    struct ScopeTraversal {
+        const ScopeStmt *scope;
+        const Statement *direct_child{nullptr};
+    };
+    luisa::vector<ScopeTraversal> traversal_scopes;
+    luisa::vector<const Statement *> statement_stack;
+    luisa::unordered_map<uint, const Statement *> first_direct_statement;
+    traverse_expressions<true>(
+        root,
+        [&](const Expression *expression) noexcept {
+            if (expression->tag() != Expression::Tag::REF) { return; }
+            auto variable = static_cast<const RefExpr *>(expression)->variable();
+            if (variable.tag() != Variable::Tag::LOCAL ||
+                first_direct_statement.contains(variable.uid())) {
+                return;
+            }
+            auto emission = _local_variable_emissions.find(variable.uid());
+            if (emission == _local_variable_emissions.end()) { return; }
+            for (auto iter = traversal_scopes.rbegin();
+                 iter != traversal_scopes.rend(); ++iter) {
+                if (iter->scope == emission->second.scope) {
+                    first_direct_statement.try_emplace(
+                        variable.uid(), iter->direct_child);
+                    return;
+                }
+            }
+            LUISA_ERROR_WITH_LOCATION(
+                "Failed to locate a Metal local variable declaration scope.");
+        },
+        [&](const Statement *statement) noexcept {
+            if (!statement_stack.empty() &&
+                statement_stack.back()->tag() == Statement::Tag::SCOPE) {
+                LUISA_ASSERT(!traversal_scopes.empty() &&
+                                 traversal_scopes.back().scope ==
+                                     statement_stack.back(),
+                             "Metal direct-child traversal is unbalanced.");
+                traversal_scopes.back().direct_child = statement;
+            }
+            statement_stack.emplace_back(statement);
+            if (statement->tag() == Statement::Tag::SCOPE) {
+                traversal_scopes.emplace_back(ScopeTraversal{
+                    .scope = static_cast<const ScopeStmt *>(statement)});
+            }
+        },
+        [&](const Statement *statement) noexcept {
+            if (statement->tag() == Statement::Tag::SCOPE) {
+                LUISA_ASSERT(!traversal_scopes.empty() &&
+                                 traversal_scopes.back().scope == statement,
+                             "Metal direct-child scope traversal is unbalanced.");
+                traversal_scopes.pop_back();
+            }
+            LUISA_ASSERT(!statement_stack.empty() &&
+                             statement_stack.back() == statement,
+                         "Metal direct-child statement traversal is unbalanced.");
+            statement_stack.pop_back();
+        });
+
+    const auto expression_references = [](const Expression *expression,
+                                          uint uid) noexcept {
+        auto found = false;
+        traverse_subexpressions(
+            expression,
+            [&](const Expression *candidate) noexcept {
+                if (candidate->tag() == Expression::Tag::REF &&
+                    static_cast<const RefExpr *>(candidate)->variable().uid() == uid) {
+                    found = true;
+                }
+            },
+            [](const Expression *) noexcept {});
+        return found;
+    };
+    for (auto local : _function.local_variables()) {
+        auto emission = _local_variable_emissions.find(local.uid());
+        auto first = first_direct_statement.find(local.uid());
+        if (emission == _local_variable_emissions.end() ||
+            first == first_direct_statement.end() ||
+            first->second == nullptr ||
+            first->second->tag() != Statement::Tag::ASSIGN ||
+            _gradient_variables.contains(local) ||
+            local.type() == _ray_query_any_type ||
+            local.type() == _ray_query_all_type) {
+            continue;
+        }
+        auto assign = static_cast<const AssignStmt *>(first->second);
+        if (assign->lhs()->tag() != Expression::Tag::REF ||
+            static_cast<const RefExpr *>(assign->lhs())->variable() != local ||
+            expression_references(assign->rhs(), local.uid())) {
+            continue;
+        }
+        emission->second.initializer = assign;
+        _local_variable_initializers.try_emplace(assign, local);
+    }
+
+    for (auto local : _function.local_variables()) {
+        auto emission = _local_variable_emissions.find(local.uid());
+        if (emission == _local_variable_emissions.end()) { continue; }
+        // A declaration may move into a repeatedly entered branch/loop only
+        // when its first direct statement initializes it before every read.
+        // Otherwise retain the historical function-lifetime zero value: a
+        // narrower `{}` declaration would reset state on every re-entry.
+        if (emission->second.initializer == nullptr) {
+            emission->second.scope = root;
+        }
+        _scope_local_variables[emission->second.scope].emplace_back(local);
+    }
+}
+
+void MetalCodegenAST::_emit_scope_local_variables(
+    const ScopeStmt *scope) noexcept {
+    auto iter = _scope_local_variables.find(scope);
+    if (iter == _scope_local_variables.end()) { return; }
+    for (auto local : iter->second) {
+        if (auto emission = _local_variable_emissions.find(local.uid());
+            emission != _local_variable_emissions.end() &&
+            emission->second.initializer != nullptr) {
+            continue;
+        }
+        _emit_indention();
+        _emit_type_name(local.type(), _function.variable_usage(local.uid()));
+        _scratch << " ";
+        _emit_variable_name(local);
+        _scratch << "{};\n";
+        if (local.type() == _ray_query_any_type ||
+            local.type() == _ray_query_all_type) {
+            _emit_indention();
+            _scratch << "LC_RAY_QUERY_SHADOW_VARIABLE(";
+            _emit_variable_name(local);
+            _scratch << ");\n";
+        }
+    }
+}
+
+void MetalCodegenAST::_emit_assignment_lhs(
+    const AssignStmt *stmt) noexcept {
+    if (auto iter = _local_variable_initializers.find(stmt);
+        iter != _local_variable_initializers.end()) {
+        auto local = iter->second;
+        _emit_type_name(local.type(), _function.variable_usage(local.uid()));
+        _scratch << " ";
+        _emit_variable_name(local);
+    } else {
+        stmt->lhs()->accept(*this);
+    }
 }
 
 void MetalCodegenAST::_emit_function() noexcept {
@@ -595,48 +863,20 @@ void MetalCodegenAST::_emit_function() noexcept {
         _scratch << ") {\n";
     }
 
-    // emit local variables
-    _scratch << "\n  /* local variables */\n";
-    for (auto local : _function.local_variables()) {
-        _scratch << "  ";
-        _emit_type_name(local.type(), _function.variable_usage(local.uid()));
-        _scratch << " ";
-        _emit_variable_name(local);
-        _scratch << "{};\n";
+    _analyze_local_variables();
 
-        // create a shadow variable for ray query
-        if (local.type() == _ray_query_any_type ||
-            local.type() == _ray_query_all_type) {
-            _scratch << "  LC_RAY_QUERY_SHADOW_VARIABLE(";
-            _emit_variable_name(local);
-            _scratch << ");\n";
-        }
-    }
+    // Emit only locals whose smallest safe scope is the function body here.
+    // Nested scopes declare their own locals when the body is emitted below.
+    _scratch << "\n  /* local variables */\n";
+    _indention = 1u;
+    _emit_scope_local_variables(_function.body());
 
     // emit gradient variables for autodiff
-    luisa::unordered_set<Variable> gradient_variables;
-    traverse_expressions<true>(
-        _function.body(),
-        [&](auto expr) noexcept {
-            if (expr->tag() == Expression::Tag::CALL) {
-                if (auto call = static_cast<const CallExpr *>(expr);
-                    call->op() == CallOp::GRADIENT ||
-                    call->op() == CallOp::GRADIENT_MARKER ||
-                    call->op() == CallOp::REQUIRES_GRADIENT) {
-                    LUISA_ASSERT(!call->arguments().empty() &&
-                                     call->arguments().front()->tag() == Expression::Tag::REF,
-                                 "Invalid gradient function call.");
-                    auto v = static_cast<const RefExpr *>(call->arguments().front())->variable();
-                    if (gradient_variables.emplace(v).second) {
-                        _scratch << "  LC_GRAD_SHADOW_VARIABLE(";
-                        _emit_variable_name(v);
-                        _scratch << ");\n";
-                    }
-                }
-            }
-        },
-        [](auto) noexcept {},
-        [](auto) noexcept {});
+    for (auto variable : _gradient_variables) {
+        _scratch << "  LC_GRAD_SHADOW_VARIABLE(";
+        _emit_variable_name(variable);
+        _scratch << ");\n";
+    }
 
     // emit function body
     _scratch << "\n  /* function body begin */\n";
@@ -1235,6 +1475,13 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
             _scratch << ">";
             break;
         }
+        case CallOp::UNDEFINED: {
+            // Zero is a legal concrete refinement for direct AST codegen.
+            _scratch << "lc_zero<";
+            _emit_type_name(expr->type());
+            _scratch << ">";
+            break;
+        }
         case CallOp::ONE: {
             _scratch << "lc_one<";
             _emit_type_name(expr->type());
@@ -1539,6 +1786,7 @@ void MetalCodegenAST::visit(const ScopeStmt *stmt) noexcept {
     _emit_indention();
     _scratch << "{\n";
     _indention++;
+    _emit_scope_local_variables(stmt);
     for (auto s : stmt->statements()) { s->accept(*this); }
     _indention--;
     _emit_indention();
@@ -1551,6 +1799,7 @@ void MetalCodegenAST::visit(const IfStmt *stmt) noexcept {
     stmt->condition()->accept(*this);
     _scratch << ") {\n";
     _indention++;
+    _emit_scope_local_variables(stmt->true_branch());
     for (auto s : stmt->true_branch()->statements()) {
         s->accept(*this);
     }
@@ -1560,6 +1809,7 @@ void MetalCodegenAST::visit(const IfStmt *stmt) noexcept {
     if (auto &&fb = stmt->false_branch()->statements(); !fb.empty()) {
         _scratch << " else {\n";
         _indention++;
+        _emit_scope_local_variables(stmt->false_branch());
         for (auto s : fb) { s->accept(*this); }
         _indention--;
         _emit_indention();
@@ -1572,6 +1822,7 @@ void MetalCodegenAST::visit(const LoopStmt *stmt) noexcept {
     _emit_indention();
     _scratch << "for (;;) {\n";
     _indention++;
+    _emit_scope_local_variables(stmt->body());
     for (auto s : stmt->body()->statements()) {
         s->accept(*this);
     }
@@ -1602,6 +1853,7 @@ void MetalCodegenAST::visit(const SwitchStmt *stmt) noexcept {
     stmt->expression()->accept(*this);
     _scratch << ") {\n";
     _indention++;
+    _emit_scope_local_variables(stmt->body());
     for (auto s : stmt->body()->statements()) {
         s->accept(*this);
     }
@@ -1616,6 +1868,7 @@ void MetalCodegenAST::visit(const SwitchCaseStmt *stmt) noexcept {
     stmt->expression()->accept(*this);
     _scratch << ": {\n";
     _indention++;
+    _emit_scope_local_variables(stmt->body());
     auto has_break = false;
     for (auto s : stmt->body()->statements()) {
         s->accept(*this);
@@ -1637,6 +1890,7 @@ void MetalCodegenAST::visit(const SwitchDefaultStmt *stmt) noexcept {
     _emit_indention();
     _scratch << "default: {\n";
     _indention++;
+    _emit_scope_local_variables(stmt->body());
     auto has_break = false;
     for (auto s : stmt->body()->statements()) {
         s->accept(*this);
@@ -1665,13 +1919,13 @@ void MetalCodegenAST::visit(const AssignStmt *stmt) noexcept {
         _scratch << ";\n";
         _emit_swizzle_reference_writebacks(previous_temporary_count);
         _emit_indention();
-        stmt->lhs()->accept(*this);
+        _emit_assignment_lhs(stmt);
         _scratch << " = " << result << ";\n";
         _reference_temporaries.resize(previous_temporary_count);
         return;
     }
     _emit_indention();
-    stmt->lhs()->accept(*this);
+    _emit_assignment_lhs(stmt);
     _scratch << " = ";
     stmt->rhs()->accept(*this);
     _scratch << ";\n";
@@ -1688,6 +1942,7 @@ void MetalCodegenAST::visit(const ForStmt *stmt) noexcept {
     stmt->step()->accept(*this);
     _scratch << ") {\n";
     _indention++;
+    _emit_scope_local_variables(stmt->body());
     for (auto s : stmt->body()->statements()) {
         s->accept(*this);
     }
@@ -1789,6 +2044,7 @@ void MetalCodegenAST::visit(const RayQueryStmt *stmt) noexcept {
     stmt->query()->accept(*this);
     _scratch << ")) {\n";
     _indention++;
+    _emit_scope_local_variables(stmt->on_triangle_candidate());
     _emit_indention();
     _scratch << "/* ray query triangle branch */\n";
     for (auto s : stmt->on_triangle_candidate()->statements()) {
@@ -1798,6 +2054,7 @@ void MetalCodegenAST::visit(const RayQueryStmt *stmt) noexcept {
     _emit_indention();
     _scratch << "} else {\n";
     _indention++;
+    _emit_scope_local_variables(stmt->on_procedural_candidate());
     _emit_indention();
     _scratch << "/* ray query procedural branch */\n";
     for (auto s : stmt->on_procedural_candidate()->statements()) {

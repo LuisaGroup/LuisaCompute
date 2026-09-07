@@ -6,6 +6,8 @@
 #include "../constant_printer.h"
 #include "../register_indexer.h"
 
+#include <luisa/dsl/raster/raster_interpolation.h>
+
 #ifndef LC_NO_HLSL_BUILTIN
 #include "../builtin/hlsl_builtin.hpp"
 #endif
@@ -416,14 +418,67 @@ CodegenResult CodegenUtility::RasterCodegen(
         // If member_attributes are not set (e.g. from DSL LUISA_STRUCT without
         // Clang annotations), default: member 0 = position, rest = TEXCOORDs.
         bool hasAttrs = (v2pMembers.size() == v2pAttrs.size());
+        auto emit_interpolation_modifier = [&](size_t index,
+                                               const Type *type) noexcept {
+            auto interpolation = RasterInterpolation::DEFAULT;
+            if (hasAttrs &&
+                v2pAttrs[index].key ==
+                    raster_interpolation_attribute_key) {
+                if (!parse_raster_interpolation(
+                        v2pAttrs[index], interpolation)) {
+                    LUISA_ERROR(
+                        "Invalid raster interpolation mode '{}'.",
+                        v2pAttrs[index].value);
+                }
+            }
+            auto element = type->is_vector() ? type->element() : type;
+            auto floating = element->is_float16() ||
+                            element->is_float32();
+            if (interpolation == RasterInterpolation::DEFAULT) {
+                interpolation = floating ?
+                                    RasterInterpolation::CENTER_PERSPECTIVE :
+                                    RasterInterpolation::FLAT;
+            }
+            if (interpolation != RasterInterpolation::FLAT &&
+                !floating) {
+                LUISA_ERROR(
+                    "Perspective, centroid, and sample interpolation "
+                    "require a floating-point varying.");
+            }
+            switch (interpolation) {
+                case RasterInterpolation::CENTER_PERSPECTIVE: break;
+                case RasterInterpolation::CENTER_NO_PERSPECTIVE:
+                    codegenData << "noperspective "sv;
+                    break;
+                case RasterInterpolation::CENTROID_PERSPECTIVE:
+                    codegenData << "centroid "sv;
+                    break;
+                case RasterInterpolation::CENTROID_NO_PERSPECTIVE:
+                    codegenData << "centroid noperspective "sv;
+                    break;
+                case RasterInterpolation::SAMPLE_PERSPECTIVE:
+                    codegenData << "sample "sv;
+                    break;
+                case RasterInterpolation::SAMPLE_NO_PERSPECTIVE:
+                    codegenData << "sample noperspective "sv;
+                    break;
+                case RasterInterpolation::FLAT:
+                    codegenData << "nointerpolation "sv;
+                    break;
+                case RasterInterpolation::DEFAULT:
+                    LUISA_ERROR(
+                        "Unresolved default raster interpolation.");
+            }
+        };
         size_t memberIdx = 0;
         bool pos = false;
         for (auto &&i : v2pMembers) {
-            bool is_sv_pos = hasAttrs
-                ? (v2pAttrs[memberIdx].key == "position"sv)
-                : (memberIdx == 0); // default: first member is SV_POSITION
+            bool is_sv_pos = hasAttrs ? (v2pAttrs[memberIdx].key == "position"sv) : (memberIdx == 0);// default: first member is SV_POSITION
             if (!is_sv_pos && opt->isSpirv) {
                 codegenData << luisa::format("[[vk::location({})]] ", memberIdx - 1);
+            }
+            if (!is_sv_pos) {
+                emit_interpolation_modifier(memberIdx, i);
             }
             GetTypeName(*i, codegenData, Usage::READ);
             codegenData << " v"sv << vstd::to_string(memberIdx);
@@ -485,7 +540,7 @@ uint obj_id:register(b0);
             "uv0"sv, "vertex_id"sv, "instance_id"sv, "is_front_face"sv};
         static constexpr vstd::string_view uintSVKeys[] = {
             "instance_id"sv, "vertex_id"sv, "is_front_face"sv};
-        size_t uintSVIdx = 0; // tracks which SV_* key to assign for uint members
+        size_t uintSVIdx = 0;// tracks which SV_* key to assign for uint members
         opt->internalStruct.try_emplace(appdataType, "_mesh");
         codegenData << "struct _mesh{\n"sv;
         for (auto i : vstd::range(appdataMems.size())) {
@@ -506,7 +561,7 @@ uint obj_id:register(b0);
                 if (member == Type::of<uint>()) {
                     auto testIter = attributes.find(attrKey);
                     if (testIter != attributes.end()) {
-                        auto sem = testIter->second.first; // e.g. "NORMAL", "SV_InstanceID"
+                        auto sem = testIter->second.first;// e.g. "NORMAL", "SV_InstanceID"
                         if (sem.size() < 3 || !(sem[0] == 'S' && sem[1] == 'V' && sem[2] == '_')) {
                             // uint mapped to non-SV semantic — redirect to SV_* key
                             if (uintSVIdx < std::size(uintSVKeys)) {

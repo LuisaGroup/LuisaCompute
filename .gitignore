@@ -372,3 +372,6 @@ AGENTS.*
 /agent*.py
 build-check/
 build-verify/
+
+# torch2 canonical export archives (regenerable via examples/tensor/rnn_train.py)
+rnn_exported.pt2

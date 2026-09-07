@@ -71,6 +71,26 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
         case Type::Tag::UINT64:
             str << "uint64_t"sv;
             return;
+        // FP8 has no standalone HLSL scalar type (only cooperative-vector
+        // component tags); represent it as uint8_t byte storage.  The
+        // tile_to_kernel lowering and the cooperative-vector metadata carry
+        // the encoding; arithmetic always widens to float/half first.
+        case Type::Tag::FLOAT8_E4M3:
+        case Type::Tag::FLOAT8_E5M2:
+            opt->use_8bit = true;
+            str << "uint8_t"sv;
+            return;
+        // 4-bit sub-byte quantized types: 1 byte of storage per element
+        // (lower nibble holds the value).  INT4 maps to int8_t, FP4 to
+        // uint8_t; pack/unpack is handled in the tile lowering.
+        case Type::Tag::INT4:
+            opt->use_8bit = true;
+            str << "int8_t"sv;
+            return;
+        case Type::Tag::FP4_E2M1:
+            opt->use_8bit = true;
+            str << "uint8_t"sv;
+            return;
         case Type::Tag::COOPERATIVE_VECTOR:
             str << "vk::nv::CooperativeVector<";
             GetTypeName(*type.element(), str, usage);

@@ -342,13 +342,26 @@ LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_texture3d_size(const TextureV
     *out = {handle->_width, handle->_height, handle->_depth};
 }
 
+#define LUISA_FALLBACK_BINDLESS_TEXTURE2D(bindless_handle, slot_index) \
+    auto texture = bindless_handle->slots[slot_index].tex2d;
+
+#define LUISA_FALLBACK_BINDLESS_TEXTURE3D(bindless_handle, slot_index) \
+    auto texture = bindless_handle->slots[slot_index].tex3d;
+
 #define LUISA_FALLBACK_BINDLESS_DECODE_TEXTURE2D(bindless_handle, slot_index) \
-    auto texture = bindless_handle->slots[slot_index].tex2d; \
+    LUISA_FALLBACK_BINDLESS_TEXTURE2D(bindless_handle, slot_index) \
     auto sampler = (bindless_handle->slots[slot_index]._compressed_buffer_size_sampler_2d_sampler_3d >> 4u) & 0x0fu;
 
 #define LUISA_FALLBACK_BINDLESS_DECODE_TEXTURE3D(bindless_handle, slot_index) \
-    auto texture = bindless_handle->slots[slot_index].tex3d; \
+    LUISA_FALLBACK_BINDLESS_TEXTURE3D(bindless_handle, slot_index) \
     auto sampler = bindless_handle->slots[slot_index]._compressed_buffer_size_sampler_2d_sampler_3d & 0x0fu;
+
+[[nodiscard]] LUISA_FALLBACK_INTERNAL uint luisa_fallback_explicit_sampler(uint filter, uint address) noexcept {
+    // Sampler::code() is a two-bit address lane below a two-bit filter lane.
+    // Keep the operands dynamic: divergent shader lanes may legally select
+    // different call-site samplers for the same bindless texture slot.
+    return (filter << 2u) | address;
+}
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_bindless_texture2d_sample(const BindlessArrayView *handle, uint slot_index, const float2 *uv, float4 *out) noexcept {
     LUISA_FALLBACK_BINDLESS_DECODE_TEXTURE2D(handle, slot_index)
@@ -370,6 +383,30 @@ LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_bindless_texture2d_sample_gra
     *out = luisa_fallback_bindless_texture2d_sample_grad_level(texture, sampler, uv->x, uv->y, ddx->x, ddx->y, ddy->x, ddy->y, level);
 }
 
+LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_bindless_texture2d_sample_sampler(const BindlessArrayView *handle, uint slot_index, const float2 *uv, uint filter, uint address, float4 *out) noexcept {
+    LUISA_FALLBACK_BINDLESS_TEXTURE2D(handle, slot_index)
+    auto sampler = luisa_fallback_explicit_sampler(filter, address);
+    *out = luisa_fallback_bindless_texture2d_sample(texture, sampler, uv->x, uv->y);
+}
+
+LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_bindless_texture2d_sample_level_sampler(const BindlessArrayView *handle, uint slot_index, const float2 *uv, float level, uint filter, uint address, float4 *out) noexcept {
+    LUISA_FALLBACK_BINDLESS_TEXTURE2D(handle, slot_index)
+    auto sampler = luisa_fallback_explicit_sampler(filter, address);
+    *out = luisa_fallback_bindless_texture2d_sample_level(texture, sampler, uv->x, uv->y, level);
+}
+
+LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_bindless_texture2d_sample_grad_sampler(const BindlessArrayView *handle, uint slot_index, const float2 *uv, const float2 *ddx, const float2 *ddy, uint filter, uint address, float4 *out) noexcept {
+    LUISA_FALLBACK_BINDLESS_TEXTURE2D(handle, slot_index)
+    auto sampler = luisa_fallback_explicit_sampler(filter, address);
+    *out = luisa_fallback_bindless_texture2d_sample_grad(texture, sampler, uv->x, uv->y, ddx->x, ddx->y, ddy->x, ddy->y);
+}
+
+LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_bindless_texture2d_sample_grad_level_sampler(const BindlessArrayView *handle, uint slot_index, const float2 *uv, const float2 *ddx, const float2 *ddy, float level, uint filter, uint address, float4 *out) noexcept {
+    LUISA_FALLBACK_BINDLESS_TEXTURE2D(handle, slot_index)
+    auto sampler = luisa_fallback_explicit_sampler(filter, address);
+    *out = luisa_fallback_bindless_texture2d_sample_grad_level(texture, sampler, uv->x, uv->y, ddx->x, ddx->y, ddy->x, ddy->y, level);
+}
+
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_bindless_texture3d_sample(const BindlessArrayView *handle, uint slot_index, const float3 *uvw, float4 *out) noexcept {
     LUISA_FALLBACK_BINDLESS_DECODE_TEXTURE3D(handle, slot_index)
     *out = luisa_fallback_bindless_texture3d_sample(texture, sampler, uvw->x, uvw->y, uvw->z);
@@ -387,6 +424,30 @@ LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_bindless_texture3d_sample_gra
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_bindless_texture3d_sample_grad_level(const BindlessArrayView *handle, uint slot_index, const float3 *uvw, const float3 *ddx, const float3 *ddy, float level, float4 *out) noexcept {
     LUISA_FALLBACK_BINDLESS_DECODE_TEXTURE3D(handle, slot_index)
+    *out = luisa_fallback_bindless_texture3d_sample_grad_level(texture, sampler, uvw->x, uvw->y, uvw->z, ddx->x, ddx->y, ddx->z, ddy->x, ddy->y, ddy->z, level);
+}
+
+LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_bindless_texture3d_sample_sampler(const BindlessArrayView *handle, uint slot_index, const float3 *uvw, uint filter, uint address, float4 *out) noexcept {
+    LUISA_FALLBACK_BINDLESS_TEXTURE3D(handle, slot_index)
+    auto sampler = luisa_fallback_explicit_sampler(filter, address);
+    *out = luisa_fallback_bindless_texture3d_sample(texture, sampler, uvw->x, uvw->y, uvw->z);
+}
+
+LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_bindless_texture3d_sample_level_sampler(const BindlessArrayView *handle, uint slot_index, const float3 *uvw, float level, uint filter, uint address, float4 *out) noexcept {
+    LUISA_FALLBACK_BINDLESS_TEXTURE3D(handle, slot_index)
+    auto sampler = luisa_fallback_explicit_sampler(filter, address);
+    *out = luisa_fallback_bindless_texture3d_sample_level(texture, sampler, uvw->x, uvw->y, uvw->z, level);
+}
+
+LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_bindless_texture3d_sample_grad_sampler(const BindlessArrayView *handle, uint slot_index, const float3 *uvw, const float3 *ddx, const float3 *ddy, uint filter, uint address, float4 *out) noexcept {
+    LUISA_FALLBACK_BINDLESS_TEXTURE3D(handle, slot_index)
+    auto sampler = luisa_fallback_explicit_sampler(filter, address);
+    *out = luisa_fallback_bindless_texture3d_sample_grad(texture, sampler, uvw->x, uvw->y, uvw->z, ddx->x, ddx->y, ddx->z, ddy->x, ddy->y, ddy->z);
+}
+
+LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_bindless_texture3d_sample_grad_level_sampler(const BindlessArrayView *handle, uint slot_index, const float3 *uvw, const float3 *ddx, const float3 *ddy, float level, uint filter, uint address, float4 *out) noexcept {
+    LUISA_FALLBACK_BINDLESS_TEXTURE3D(handle, slot_index)
+    auto sampler = luisa_fallback_explicit_sampler(filter, address);
     *out = luisa_fallback_bindless_texture3d_sample_grad_level(texture, sampler, uvw->x, uvw->y, uvw->z, ddx->x, ddx->y, ddx->z, ddy->x, ddy->y, ddy->z, level);
 }
 

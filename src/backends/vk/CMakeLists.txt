@@ -3,6 +3,22 @@ if (LUISA_COMPUTE_ENABLE_VULKAN)
     file(GLOB LUISA_COMPUTE_VK_SOURCES CONFIGURE_DEPENDS *.cpp *.h)
     luisa_compute_add_backend(vk SOURCES ${LUISA_COMPUTE_VK_SOURCES} ../common/default_binary_io.cpp)
     target_link_libraries(luisa-compute-backend-vk PRIVATE luisa-compute-ext-volk luisa-compute-hlsl-codegen)
+
+    # CUDA interop (external memory + VK_NV_cuda_kernel_launch) links the CUDA
+    # driver API only; the module image is produced by the cuda backend, so
+    # no runtime CUDA compiler library is required here.
+    if (LUISA_COMPUTE_ENABLE_VK_CUDA_INTEROP)
+        find_package(CUDAToolkit 11.7 QUIET)
+        if (CUDAToolkit_FOUND)
+            target_link_libraries(luisa-compute-backend-vk PRIVATE CUDA::cuda_driver)
+            target_compile_definitions(luisa-compute-backend-vk PRIVATE
+                    LUISA_VULKAN_ENABLE_CUDA_INTEROP VK_ENABLE_BETA_EXTENSIONS)
+            set_property(GLOBAL PROPERTY
+                    LUISA_COMPUTE_VK_CUDA_INTEROP_ENABLED ON)
+        else ()
+            message(STATUS "CUDAToolkit not found; Vulkan CUDA interop disabled.")
+        endif ()
+    endif ()
     if (NOT LUISA_COMPUTE_VULKAN_ENABLE_DXC_COMPATIBILITY)
         target_compile_definitions(
                 luisa-compute-backend-vk PRIVATE LC_NO_HLSL_BUILTIN=1)
@@ -126,6 +142,10 @@ if (LUISA_COMPUTE_ENABLE_VULKAN)
     endif ()
     if (WIN32)
         target_compile_definitions(luisa-compute-backend-vk PRIVATE VK_USE_PLATFORM_WIN32_KHR)
+    elseif (ANDROID)
+        # Android uses VK_KHR_android_surface; there is no X11 on Android.
+        target_compile_definitions(luisa-compute-backend-vk PRIVATE VK_USE_PLATFORM_ANDROID_KHR)
+        target_link_libraries(luisa-compute-backend-vk PRIVATE android log)
     elseif (UNIX AND NOT APPLE)
         find_package(X11 REQUIRED)
         target_compile_definitions(luisa-compute-backend-vk PRIVATE VK_USE_PLATFORM_XCB_KHR VK_USE_PLATFORM_XLIB_KHR)
@@ -136,7 +156,7 @@ if (LUISA_COMPUTE_ENABLE_VULKAN)
     # Install the optional DXC compatibility runtime. Native XIR/LLVM SPIR-V
     # builds do not load or deploy it when compatibility is disabled.
     if (LUISA_COMPUTE_VULKAN_ENABLE_DXC_COMPATIBILITY AND
-            UNIX AND NOT APPLE AND
+            UNIX AND NOT APPLE AND NOT ANDROID AND
             (CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64"))
         option(LUISA_COMPUTE_VK_SDK_DIR "The directory of Vulkan(DXC) SDK" "")
         if (LUISA_COMPUTE_VK_SDK_DIR)

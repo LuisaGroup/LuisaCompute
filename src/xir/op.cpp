@@ -717,6 +717,9 @@ luisa::string_view to_string(ThreadGroupOp op) noexcept {
         case ThreadGroupOp::WARP_READ_LANE: return "warp_read_lane"sv;
         case ThreadGroupOp::WARP_READ_FIRST_ACTIVE_LANE: return "warp_read_first_active_lane"sv;
         case ThreadGroupOp::SYNCHRONIZE_BLOCK: return "synchronize_block"sv;
+        case ThreadGroupOp::RASTER_SET_Z_DEPTH: return "raster_set_z_depth"sv;
+        case ThreadGroupOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL: return "raster_set_z_depth_greater_equal"sv;
+        case ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL: return "raster_set_z_depth_less_equal"sv;
     }
     LUISA_ERROR_WITH_LOCATION("Unknown thread_group operation (code = {}).", static_cast<uint32_t>(op));
 }
@@ -747,6 +750,9 @@ ThreadGroupOp thread_group_op_from_string(luisa::string_view name) noexcept {
         {"warp_read_lane"sv, ThreadGroupOp::WARP_READ_LANE},
         {"warp_read_first_active_lane"sv, ThreadGroupOp::WARP_READ_FIRST_ACTIVE_LANE},
         {"synchronize_block"sv, ThreadGroupOp::SYNCHRONIZE_BLOCK},
+        {"raster_set_z_depth"sv, ThreadGroupOp::RASTER_SET_Z_DEPTH},
+        {"raster_set_z_depth_greater_equal"sv, ThreadGroupOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL},
+        {"raster_set_z_depth_less_equal"sv, ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL},
     };
     auto iter = m.find(name);
     LUISA_ASSERT(iter != m.end(), "Unknown thread_group operation: {}.", name);

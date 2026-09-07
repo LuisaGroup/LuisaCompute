@@ -15,6 +15,7 @@ set(LUISA_COMPUTE_VALIDATION_SOURCES
         procedural_primitives.h
         range.h
         raster_ext_impl.cpp raster_ext_impl.h
+        raster_shader.h
         resource.cpp resource.h
         rw_resource.cpp rw_resource.h
         shader.h

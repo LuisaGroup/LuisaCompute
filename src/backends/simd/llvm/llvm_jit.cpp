@@ -24,6 +24,10 @@
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Transforms/Utils/Cloning.h>
 
+#include <luisa/core/logging.h>
+
+#include "../../common/env_flag.h"
+
 namespace luisa::compute::simd {
 
 namespace {
@@ -104,6 +108,14 @@ LLVMJIT::~LLVMJIT() noexcept = default;
 LLVMJIT::LLVMJIT(LLVMJIT &&) noexcept = default;
 LLVMJIT &LLVMJIT::operator=(LLVMJIT &&) noexcept = default;
 
+bool LLVMJIT::selects_size_bounded_pipeline(
+    size_t block_count, size_t instruction_count) noexcept {
+    static constexpr auto max_o2_blocks = size_t{8192u};
+    static constexpr auto max_o2_instructions = size_t{262144u};
+    return block_count >= max_o2_blocks ||
+           instruction_count >= max_o2_instructions;
+}
+
 bool LLVMJIT::add_module(
     std::unique_ptr<::llvm::Module> module,
     std::unique_ptr<::llvm::LLVMContext> context) noexcept {
@@ -149,8 +161,29 @@ bool LLVMJIT::_prepare_module(::llvm::Module &module) noexcept {
     pass_builder.crossRegisterProxies(
         loop_analyses, function_analyses,
         cgscc_analyses, module_analyses);
+    auto block_count = size_t{0u};
+    auto instruction_count = size_t{0u};
+    for (auto &&function : module) {
+        if (function.isDeclaration()) { continue; }
+        for (auto &&block : function) {
+            block_count++;
+            instruction_count += block.size();
+        }
+    }
+    auto size_bounded = selects_size_bounded_pipeline(
+        block_count, instruction_count);
+    auto optimization_level = size_bounded ?
+                                  ::llvm::OptimizationLevel::O1 :
+                                  ::llvm::OptimizationLevel::O2;
+    if (luisa::compute::detail::env_flag(
+            "LUISA_SIMD_REPORT_OPTIMIZATIONS")) {
+        LUISA_INFO(
+            "SIMD LLVM pipeline: {}, blocks={}, instructions={}",
+            size_bounded ? "O1 size-bounded" : "O2",
+            block_count, instruction_count);
+    }
     auto pipeline = pass_builder.buildPerModuleDefaultPipeline(
-        ::llvm::OptimizationLevel::O2);
+        optimization_level);
     pipeline.run(module, module_analyses);
     return true;
 }

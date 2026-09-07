@@ -375,7 +375,7 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
     };
     if (option.compile_only) {
         LUISA_ASSUME(!option.name.empty());
-        ComputeShader::save_compute(
+        bool ok = ComputeShader::save_compute(
             native_device.file_io,
             native_device.profiler,
             kernel,
@@ -387,6 +387,11 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
             option.enable_debug_info);
         info.invalidate();
         info.block_size = kernel.block_size();
+        info.compile_ok = ok;
+        if (!ok) {
+            LUISA_WARNING("AOT compile failed for shader '{}'; bytecode file not written.",
+                           option.name);
+        }
 
     } else {
         vstd::string_view file_name;
@@ -554,6 +559,7 @@ void LCDevice::present_display_in_stream(uint64 stream_handle, uint64 swapchain_
             reinterpret_cast<TextureBase *>(image_handle), 0, native_device.max_allocator_count);
 }
 ResourceCreationInfo DxRasterExt::create_raster_shader(
+    [[maybe_unused]] const MeshFormat &mesh_format,
     Function vert,
     Function pixel,
     const ShaderOption &option) noexcept {

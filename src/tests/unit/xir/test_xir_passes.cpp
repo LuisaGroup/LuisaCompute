@@ -243,17 +243,17 @@ void reg_pass_entry_totality() {
         check_zero_report(2u, [](PassReport *report) noexcept {
             (void)indvar_simplify_pass_run_on_module(nullptr, report);
         });
-        check_zero_report(32u, [](PassReport *report) noexcept {
+        check_zero_report(33u, [](PassReport *report) noexcept {
             (void)inline_pass_run_on_module(nullptr, report);
         });
-        check_zero_report(32u, [](PassReport *report) noexcept {
+        check_zero_report(33u, [](PassReport *report) noexcept {
             (void)inline_all_pass_run_on_module(nullptr, report);
         });
-        check_zero_report(32u, [](PassReport *report) noexcept {
+        check_zero_report(33u, [](PassReport *report) noexcept {
             (void)inline_all_pass_run_on_module(
                 nullptr, InlineOptions{}, report);
         });
-        check_zero_report(32u, [](PassReport *report) noexcept {
+        check_zero_report(33u, [](PassReport *report) noexcept {
             (void)inline_call_sites_pass_run_on_module(
                 nullptr, luisa::span<CallInst *const>{},
                 InlineOptions{}, report);
@@ -317,8 +317,9 @@ void reg_pass_entry_totality() {
             (void)audit_reg2mem_spills_on_module(nullptr, report);
         });
         // A null module publishes the complete zero-valued operation schema,
-        // including sparse postdom and remaining-divergent indexing work.
-        check_zero_report(97u, [](PassReport *report) noexcept {
+        // including sparse postdom, remaining-divergent indexing, and exact
+        // construct-region enumeration work.
+        check_zero_report(102u, [](PassReport *report) noexcept {
             (void)restructure_cfg_pass_run_on_module(nullptr, report);
         });
         check_zero_report(1u, [](PassReport *report) noexcept {
@@ -5054,6 +5055,31 @@ void reg_local_store_forward() {
         expect(info.removed_load_count == 0u);
     };
 
+    "local_store_forward_preserves_homogeneous_index_well_formedness"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *array_type = Type::array(Type::of<int32_t>(), 4u);
+        auto *array = b.alloca_local(array_type);
+        auto *index_slot = b.alloca_local(Type::of<uint32_t>());
+        uint32_t out_of_range_value = 4u;
+        auto *out_of_range =
+            m.create_constant(Type::of<uint32_t>(), &out_of_range_value);
+        b.store(index_slot, out_of_range);
+        auto *dynamic_index = b.load(Type::of<uint32_t>(), index_slot);
+        auto *element = b.gep(Type::of<int32_t>(), array, {dynamic_index});
+        b.load(Type::of<int32_t>(), element);
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = local_store_forward_pass_run_on_function(k);
+        expect(info.removed_load_count == 1u);
+        expect(element->index(0u) == out_of_range);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
     "local_store_forward_nested_partial_store_blocks_uniform_forward"_test = [] {
         Module m;
         BasicBlock *body;
@@ -7348,6 +7374,122 @@ void reg_inline() {
         expect(xir_verify_module(&m).succeeded());
     };
 
+    "inline_cost_boundary_is_callable_creation_order_invariant"_test = [] {
+        struct Outcome {
+            size_t inlined_call_count;
+            size_t removed_callable_count;
+            size_t skipped_costly_callable_count;
+            size_t kernel_call_count;
+            size_t parent_call_count;
+            size_t parent_instruction_count;
+            [[nodiscard]] bool operator==(
+                const Outcome &) const noexcept = default;
+        };
+        constexpr auto leaf_count = 24u;
+        constexpr auto leaf_arithmetic_count = 48u;
+        static_assert(leaf_arithmetic_count + 1u <=
+                      default_inline_multi_use_instruction_budget);
+        static_assert(leaf_count * leaf_arithmetic_count + 1u >
+                      default_inline_single_use_instruction_budget);
+
+        auto run = [](bool create_parent_first) noexcept {
+            Module m;
+            XIRBuilder b;
+            auto *one = m.create_constant_one(Type::of<uint>());
+            CallableFunction *parent = nullptr;
+            Value *parent_argument = nullptr;
+            auto create_parent = [&]() noexcept {
+                parent = m.create_callable(Type::of<uint>());
+                parent_argument =
+                    parent->create_value_argument(Type::of<uint>());
+            };
+            if (create_parent_first) { create_parent(); }
+
+            luisa::vector<CallableFunction *> leaves;
+            leaves.reserve(leaf_count);
+            for (auto leaf_index = 0u; leaf_index < leaf_count;
+                 ++leaf_index) {
+                auto *leaf = m.create_callable(Type::of<uint>());
+                auto *argument =
+                    leaf->create_value_argument(Type::of<uint>());
+                b.set_insertion_point(leaf->create_body_block());
+                Value *value = argument;
+                for (auto instruction_index = 0u;
+                     instruction_index < leaf_arithmetic_count;
+                     ++instruction_index) {
+                    value = b.call(Type::of<uint>(),
+                                   ArithmeticOp::BINARY_ADD,
+                                   {value, one});
+                }
+                b.return_(value);
+                leaves.emplace_back(leaf);
+            }
+            if (!create_parent_first) { create_parent(); }
+
+            b.set_insertion_point(parent->create_body_block());
+            Value *parent_value = parent_argument;
+            for (auto *leaf : leaves) {
+                parent_value = b.call(Type::of<uint>(), leaf,
+                                      {parent_value});
+            }
+            b.return_(parent_value);
+
+            BasicBlock *kernel_body;
+            auto *kernel = make_kernel_with_body(m, kernel_body);
+            auto *kernel_argument =
+                kernel->create_value_argument(Type::of<uint>());
+            b.set_insertion_point(kernel_body);
+            auto *storage = b.alloca_local(Type::of<uint>());
+            auto *call = b.call(Type::of<uint>(), parent,
+                                {kernel_argument});
+            b.store(storage, call);
+            b.return_void();
+            expect(xir_verify_module(&m).succeeded());
+
+            // The caller -> callee graph is a DAG. Processing its DFS
+            // postorder first expands every small leaf into `parent`; only
+            // then is the finite single-use budget evaluated. Thus the
+            // transitive parent stays a compiler partition even when AST2XIR
+            // created it before its descendants. The construction order must
+            // not change that semantic boundary.
+            auto info = inline_pass_run_on_module(&m);
+            expect(info.inlined_call_count == leaf_count);
+            expect(info.removed_callable_count == leaf_count);
+            expect(info.skipped_costly_callable_count == 1u);
+            expect(parent->parent_module() == &m);
+            expect(call->is_linked());
+            expect(count_reachable_insts(
+                       kernel, DerivedInstructionTag::CALL) == 1u);
+            expect(count_reachable_insts(
+                       parent, DerivedInstructionTag::CALL) == 0u);
+            expect(xir_verify_module(&m).succeeded());
+
+            size_t parent_instruction_count = 0u;
+            for (auto *block : parent->basic_blocks()) {
+                for (auto *instruction : block->instructions()) {
+                    static_cast<void>(instruction);
+                    ++parent_instruction_count;
+                }
+            }
+            return Outcome{
+                .inlined_call_count = info.inlined_call_count,
+                .removed_callable_count = info.removed_callable_count,
+                .skipped_costly_callable_count =
+                    info.skipped_costly_callable_count,
+                .kernel_call_count = count_reachable_insts(
+                    kernel, DerivedInstructionTag::CALL),
+                .parent_call_count = count_reachable_insts(
+                    parent, DerivedInstructionTag::CALL),
+                .parent_instruction_count = parent_instruction_count};
+        };
+
+        auto parent_first = run(true);
+        auto children_first = run(false);
+        expect(parent_first == children_first);
+        expect(parent_first.parent_instruction_count ==
+               leaf_count * leaf_arithmetic_count + 1u);
+    };
+
     "inline_pass_caches_caller_barriers_across_mutations"_test = [] {
         Module m;
         XIRBuilder b;
@@ -7702,15 +7844,15 @@ void reg_inline() {
     "inline_null_entry_points_are_total_and_report_zero"_test = [] {
         PassReport report;
         expect(!inline_pass_run_on_module(nullptr, &report).changed());
-        expect(report.entries().size() == 32u);
+        expect(report.entries().size() == 33u);
         report.clear();
         expect(!inline_all_pass_run_on_module(nullptr, &report).changed());
-        expect(report.entries().size() == 32u);
+        expect(report.entries().size() == 33u);
         report.clear();
         expect(!inline_call_sites_pass_run_on_module(
                     nullptr, luisa::span<CallInst *const>{}, {}, &report)
                     .changed());
-        expect(report.entries().size() == 32u);
+        expect(report.entries().size() == 33u);
     };
 
     "inline_bodyless_callable_declaration_is_never_inlined"_test = [] {

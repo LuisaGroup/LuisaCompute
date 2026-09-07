@@ -276,7 +276,7 @@ public:
     }
 
     template<typename Kernel>
-    void compile_to(Kernel &&kernel,
+    [[nodiscard]] bool compile_to(Kernel &&kernel,
                     luisa::string_view name,
                     bool enable_fast_math = true,
                     bool enable_debug_info = false) noexcept {
@@ -286,7 +286,8 @@ public:
             .enable_debug_info = enable_debug_info,
             .compile_only = true,
             .name = luisa::string{name}};
-        static_cast<void>(this->compile(std::forward<Kernel>(kernel), option));
+        auto shader = this->compile(std::forward<Kernel>(kernel), option);
+        return shader.compile_ok();
     }
 
     template<size_t N, typename Func>
@@ -302,7 +303,7 @@ public:
     }
 
     template<size_t N, typename Kernel>
-    void compile_to(Kernel &&kernel,
+    [[nodiscard]] bool compile_to(Kernel &&kernel,
                     luisa::string_view name,
                     bool enable_fast_math = true,
                     bool enable_debug_info = false) noexcept {
@@ -312,7 +313,8 @@ public:
             .enable_debug_info = enable_debug_info,
             .compile_only = true,
             .name = luisa::string{name}};
-        static_cast<void>(this->compile<N>(std::forward<Kernel>(kernel), option));
+        auto shader = this->compile<N>(std::forward<Kernel>(kernel), option);
+        return shader.compile_ok();
     }
 
     // Tile shader (see <luisa/runtime/tile_shader.h>). The tile kernel must be a

@@ -61,7 +61,17 @@ BlockBarrierCanonicalizationResult canonicalize_block_barriers(
                 "block barrier appears in an unterminated XIR block";
             return result;
         }
-        if (barrier_index + 1u == instructions.size() - 1u) {
+        // Schedule lowering models a barrier as a suspension terminator with
+        // one unconditional resume edge. A barrier immediately before return
+        // (or any other non-branch terminator) is not canonical yet: move the
+        // terminator into a fresh resume block just like an ordinary suffix.
+        // This shape is emitted by cooperative kernels with a final
+        // sync_block(), including the persistent coroutine scheduler.
+        const auto already_has_unconditional_resume =
+            barrier_index + 1u == instructions.size() - 1u &&
+            block->terminator()->derived_instruction_tag() ==
+                xir::DerivedInstructionTag::BRANCH;
+        if (already_has_unconditional_resume) {
             continue;
         }
 

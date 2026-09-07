@@ -1,3 +1,5 @@
+#include <limits>
+
 #include <luisa/core/logging.h>
 #include <luisa/ast/function_builder.h>
 
@@ -108,6 +110,36 @@ void FunctionBuilder::return_(const Expression *expr) noexcept {
     }
 }
 
+class FunctionBuilder::SuspendExtensionRecorder final
+    : public CoroSuspendExtensionRecorder {
+private:
+    FunctionBuilder *_builder;
+    luisa::vector<const Expression *> *_values;
+
+public:
+    SuspendExtensionRecorder(
+        FunctionBuilder *builder,
+        luisa::vector<const Expression *> *values) noexcept
+        : _builder{builder}, _values{values} {}
+
+    [[nodiscard]] uint32_t bind(
+        CoroSuspendBinding,
+        const Expression *value) noexcept override {
+        value = _builder->_internalize(value);
+        LUISA_ASSERT(value != nullptr && value->type() != nullptr,
+                     "Coroutine suspend extension binding must be a typed "
+                     "AST value.");
+        LUISA_ASSERT(
+            _values->size() <
+                static_cast<size_t>(
+                    std::numeric_limits<uint32_t>::max()),
+            "Coroutine suspend extension binding count exceeds uint32 ABI.");
+        auto index = static_cast<uint32_t>(_values->size());
+        _values->emplace_back(value);
+        return index;
+    }
+};
+
 void FunctionBuilder::suspend_() noexcept {
     suspend_(_next_suspend_token(), luisa::string{}, {});
 }
@@ -134,6 +166,49 @@ void FunctionBuilder::suspend_(
 void FunctionBuilder::suspend_(
     uint32_t token, luisa::string name,
     luisa::vector<CoroFrameExport> frame_exports) noexcept {
+    suspend_(token, std::move(name), std::move(frame_exports), {});
+}
+
+void FunctionBuilder::suspend_(
+    luisa::string name,
+    luisa::vector<CoroFrameExport> frame_exports,
+    luisa::vector<CoroSuspendExtensionPtr> extensions) noexcept {
+    suspend_(_next_suspend_token(), std::move(name),
+             std::move(frame_exports), std::move(extensions));
+}
+
+void FunctionBuilder::suspend_(
+    uint32_t token, luisa::string name,
+    luisa::vector<CoroFrameExport> frame_exports,
+    luisa::vector<CoroSuspendExtensionPtr> extensions) noexcept {
+    luisa::vector<const Expression *> extension_binding_values;
+    luisa::vector<CoroSuspendExtensionPtr> normalized_extensions;
+    normalized_extensions.reserve(extensions.size());
+    SuspendExtensionRecorder recorder{this,
+                                       &extension_binding_values};
+    for (auto &&extension : extensions) {
+        LUISA_ASSERT(extension != nullptr,
+                     "Coroutine suspend extension must be non-null.");
+        auto source_schema = luisa::string{extension->schema()};
+        auto normalized =
+            std::move(*extension).freeze(recorder);
+        LUISA_ASSERT(normalized != nullptr,
+                     "Coroutine suspend extension '{}' returned a null "
+                     "normalized representation.",
+                     source_schema);
+        normalized_extensions.emplace_back(std::move(normalized));
+    }
+    suspend_(token, std::move(name), std::move(frame_exports),
+             std::move(normalized_extensions),
+             std::move(extension_binding_values));
+}
+
+void FunctionBuilder::suspend_(
+    uint32_t token, luisa::string name,
+    luisa::vector<CoroFrameExport> frame_exports,
+    luisa::vector<CoroSuspendExtensionPtr> extensions,
+    luisa::vector<const Expression *>
+        extension_binding_values) noexcept {
     LUISA_ASSERT(_tag == Tag::COROUTINE,
                  "Coroutine suspension is only valid in a coroutine.");
     LUISA_ASSERT(token != 0u, "Coroutine suspend token 0 is reserved for coroutine entry.");
@@ -154,8 +229,17 @@ void FunctionBuilder::suspend_(
             "Duplicate coroutine frame export '{}' at suspend '{}'.",
             frame_export.name, name);
     }
+    for (auto *&value : extension_binding_values) {
+        value = _internalize(value);
+        LUISA_ASSERT(value != nullptr && value->type() != nullptr,
+                     "Coroutine suspend extension binding at suspend '{}' "
+                     "must be a typed AST value.",
+                     name);
+    }
     _create_and_append_statement<SuspendStmt>(
-        token, std::move(name), std::move(frame_exports));
+        token, std::move(name), std::move(frame_exports),
+        std::move(extensions),
+        std::move(extension_binding_values));
 }
 
 RayQueryStmt *FunctionBuilder::ray_query_(const RefExpr *query) noexcept {
@@ -196,6 +280,10 @@ void FunctionBuilder::mark_loop_as_while(
 void FunctionBuilder::_void_expr(const Expression *expr) noexcept {
     expr = _internalize(expr);
     if (expr != nullptr) { _create_and_append_statement<ExprStmt>(expr); }
+}
+
+void FunctionBuilder::expression_statement(const Expression *expr) noexcept {
+    _void_expr(expr);
 }
 
 SwitchStmt *FunctionBuilder::switch_(const Expression *expr) noexcept {
@@ -389,7 +477,9 @@ const RefExpr *FunctionBuilder::dispatch_id() noexcept { return _builtin(Type::o
 const RefExpr *FunctionBuilder::dispatch_size() noexcept { return _builtin(Type::of<uint3>(), Variable::Tag::DISPATCH_SIZE); }
 const RefExpr *FunctionBuilder::kernel_id() noexcept { return _builtin(Type::of<uint>(), Variable::Tag::KERNEL_ID); }
 const RefExpr *FunctionBuilder::raster_object_id() noexcept { return _builtin(Type::of<uint>(), Variable::Tag::RASTER_OBJECT_ID); }
-const RefExpr *FunctionBuilder::raster_barycentrics() noexcept { return _builtin(Type::of<uint>(), Variable::Tag::RASTER_BARYCENTRICS); }
+const RefExpr *FunctionBuilder::raster_is_front_face() noexcept { return _builtin(Type::of<bool>(), Variable::Tag::RASTER_FRONT_FACING); }
+const RefExpr *FunctionBuilder::raster_base_instance() noexcept { return _builtin(Type::of<uint>(), Variable::Tag::RASTER_BASE_INSTANCE); }
+const RefExpr *FunctionBuilder::raster_barycentrics() noexcept { return _builtin(Type::of<float3>(), Variable::Tag::RASTER_BARYCENTRICS); }
 const RefExpr *FunctionBuilder::warp_lane_count() noexcept { return _builtin(Type::of<uint>(), Variable::Tag::WARP_LANE_COUNT); }
 const RefExpr *FunctionBuilder::warp_lane_id() noexcept { return _builtin(Type::of<uint>(), Variable::Tag::WARP_LANE_ID); }
 
@@ -744,7 +834,8 @@ void FunctionBuilder::_compute_hash() noexcept {
     begin_group(Field::semantic_flags, 1u);
     hashes.emplace_back(static_cast<uint64_t>(_requires_atomic_float) |
                         static_cast<uint64_t>(_requires_printing) << 1u |
-                        static_cast<uint64_t>(_use_cooperative_operations) << 2u);
+                        static_cast<uint64_t>(_use_cooperative_operations) << 2u |
+                        static_cast<uint64_t>(_requires_noinline) << 3u);
 
     _hash = hash64(hashes.data(), hashes.size() * sizeof(uint64_t), function_builder_seed);
     _hash_computed = true;
@@ -1065,6 +1156,16 @@ void FunctionBuilder::set_name(luisa::string_view name) const noexcept {
     }
 }
 
+void FunctionBuilder::mark_noinline() noexcept {
+    LUISA_ASSERT(!_hash_computed,
+                 "Cannot change the noinline policy after computing the function hash.");
+    _requires_noinline = true;
+}
+
+bool FunctionBuilder::requires_noinline() const noexcept {
+    return _requires_noinline;
+}
+
 bool FunctionBuilder::requires_raytracing() const noexcept {
     return _propagated_builtin_callables.uses_raytracing();
 }
@@ -1309,7 +1410,9 @@ const Expression *FunctionBuilder::_internalize(const Expression *expr) noexcept
                     case Variable::Tag::WARP_LANE_COUNT: [[fallthrough]];
                     case Variable::Tag::WARP_LANE_ID: [[fallthrough]];
                     case Variable::Tag::RASTER_OBJECT_ID: [[fallthrough]];
-                    case Variable::Tag::RASTER_BARYCENTRICS: return _builtin(v.type(), v.tag());
+                    case Variable::Tag::RASTER_BARYCENTRICS: [[fallthrough]];
+                    case Variable::Tag::RASTER_FRONT_FACING: [[fallthrough]];
+                    case Variable::Tag::RASTER_BASE_INSTANCE: return _builtin(v.type(), v.tag());
                     default: break;
                 }
                 LUISA_ERROR_WITH_LOCATION(

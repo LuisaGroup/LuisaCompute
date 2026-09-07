@@ -57,7 +57,7 @@ static void dispatch_with_scheduler(Device &device, const Coroutine<void(Args...
     switch (kind) {
         case TestSchedulerKind::state_machine: {
             StateMachineCoroScheduler<Args...> scheduler{device, coro};
-            scheduler(args...).dispatch(dispatch_size)(stream);
+            stream << scheduler(args...).dispatch(dispatch_size);
             stream << synchronize();
             break;
         }
@@ -67,7 +67,7 @@ static void dispatch_with_scheduler(Device &device, const Coroutine<void(Args...
                 .thread_count = capacity,
             };
             WavefrontCoroScheduler<Args...> scheduler{device, coro, cfg};
-            scheduler(args...).dispatch(dispatch_size)(stream);
+            stream << scheduler(args...).dispatch(dispatch_size);
             stream << synchronize();
             break;
         }
@@ -78,7 +78,7 @@ static void dispatch_with_scheduler(Device &device, const Coroutine<void(Args...
                 .block_size = 128u,
             };
             PersistentThreadsCoroScheduler<Args...> scheduler{device, coro, cfg};
-            scheduler(args...).dispatch(dispatch_size)(stream);
+            stream << scheduler(args...).dispatch(dispatch_size);
             stream << synchronize();
             break;
         }

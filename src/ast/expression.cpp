@@ -42,6 +42,13 @@ uint64_t RefExpr::_compute_hash() const noexcept {
 void CallExpr::_mark() const noexcept {
     if (is_builtin()) {
         switch (_op) {
+            case CallOp::PACK:
+                LUISA_ASSERT(_arguments.size() == 3u,
+                             "PACK expects (value, buffer<uint>, offset).");
+                _arguments[0]->mark(Usage::READ);
+                _arguments[1]->mark(Usage::WRITE);
+                _arguments[2]->mark(Usage::READ);
+                break;
             case CallOp::BUFFER_VOLATILE_WRITE:
             case CallOp::BUFFER_WRITE:
             case CallOp::BINDLESS_BUFFER_WRITE:
@@ -128,7 +135,7 @@ void CallExpr::_mark() const noexcept {
         for (size_t i = 0; i < args.size(); i++) {
             auto arg = args[i];
             _arguments[i]->mark(
-                arg.is_reference() || arg.is_resource() ?
+                arg.is_reference() || arg.is_resource() || arg.type()->is_custom() ?
                     custom().variable_usage(arg.uid()) :
                     Usage::READ);
         }

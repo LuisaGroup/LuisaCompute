@@ -27,6 +27,36 @@ struct RasterCodegenVarying {
 };
 LUISA_STRUCT(RasterCodegenVarying, position, color) {};
 
+struct RasterInterpolationCodegenVarying {
+    float4 position;
+    float center_perspective;
+    float center_no_perspective;
+    float centroid_perspective;
+    float centroid_no_perspective;
+    float sample_perspective;
+    float sample_no_perspective;
+    uint flat;
+
+    LUISA_RASTER_VARYING_INTERPOLATION(
+        CENTER_PERSPECTIVE,
+        CENTER_NO_PERSPECTIVE,
+        CENTROID_PERSPECTIVE,
+        CENTROID_NO_PERSPECTIVE,
+        SAMPLE_PERSPECTIVE,
+        SAMPLE_NO_PERSPECTIVE,
+        FLAT)
+};
+LUISA_STRUCT(
+    RasterInterpolationCodegenVarying,
+    position,
+    center_perspective,
+    center_no_perspective,
+    centroid_perspective,
+    centroid_no_perspective,
+    sample_perspective,
+    sample_no_perspective,
+    flat) {};
+
 namespace {
 
 [[nodiscard]] bool contains(
@@ -548,6 +578,55 @@ int main(int argc, char *argv[]) {
         expect(contains(hlsl, "uint v6:SV_InstanceID;"));
         expect(contains(hlsl, "vv.v0"));
         expect(!contains(hlsl, "vv.v0.v"));
+    };
+
+    "hlsl_raster_varying_interpolation_modifiers_are_preserved"_test = [] {
+        RasterStageKernel vertex = [](
+                                       Var<AppData> input) noexcept {
+            Var<RasterInterpolationCodegenVarying> output;
+            output.position = make_float4(input.position, 1.0f);
+            auto value = cast<float>(input.vertex_id);
+            output.center_perspective = value;
+            output.center_no_perspective = value;
+            output.centroid_perspective = value;
+            output.centroid_no_perspective = value;
+            output.sample_perspective = value;
+            output.sample_no_perspective = value;
+            output.flat = input.vertex_id;
+            return output;
+        };
+        RasterStageKernel pixel = [](
+                                      Var<RasterInterpolationCodegenVarying> input) noexcept {
+            auto sum = input.center_perspective +
+                       input.center_no_perspective +
+                       input.centroid_perspective +
+                       input.centroid_no_perspective +
+                       input.sample_perspective +
+                       input.sample_no_perspective +
+                       cast<float>(input.flat);
+            return make_float4(sum);
+        };
+
+        auto codegen = lc::hlsl::CodegenUtility{}.RasterCodegen(
+            vertex.function(), pixel.function(), {}, 0u,
+            false, false, false);
+        auto hlsl = codegen.result.view();
+        expect(!hlsl.empty());
+        expect(contains(hlsl, "float v1:TEXCOORD0;"));
+        expect(contains(
+            hlsl, "noperspective float v2:TEXCOORD1;"));
+        expect(contains(
+            hlsl, "centroid float v3:TEXCOORD2;"));
+        expect(contains(
+            hlsl,
+            "centroid noperspective float v4:TEXCOORD3;"));
+        expect(contains(
+            hlsl, "sample float v5:TEXCOORD4;"));
+        expect(contains(
+            hlsl,
+            "sample noperspective float v6:TEXCOORD5;"));
+        expect(contains(
+            hlsl, "nointerpolation uint v7:TEXCOORD6;"));
     };
 
     "hlsl_byte_buffer_validation_macro_arities_are_consistent"_test = [] {

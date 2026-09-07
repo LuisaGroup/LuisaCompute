@@ -7,6 +7,8 @@
 
 #include <array>
 #include <cstdint>
+#include <memory>
+#include <optional>
 
 #include <stb/stb_image_write.h>
 
@@ -14,6 +16,18 @@
 #include <luisa/dsl/sugar.h>
 
 #include "common/reference_compare.h"
+
+#ifndef ENABLE_DISPLAY
+#ifdef LUISA_ENABLE_GUI
+#define ENABLE_DISPLAY 1
+#else
+#define ENABLE_DISPLAY 0
+#endif
+#endif
+
+#if ENABLE_DISPLAY
+#include <luisa/gui/window.h>
+#endif
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -42,11 +56,17 @@ int main(int argc, char *argv[]) {
         LUISA_WARNING("Invalid command line: {}", opts.error_message);
         return 1;
     }
-    auto spp = opts.spp == 0u ? 1024u : opts.spp;
-
     Context context{argv[0]};
     Device device = context.create_device(argv[1]);
-    Stream stream = device.create_stream(opts.offline ? StreamTag::COMPUTE : StreamTag::GRAPHICS);
+#if ENABLE_DISPLAY
+    auto interactive = !opts.offline;
+#else
+    auto interactive = false;
+    if (!opts.offline) {
+        LUISA_WARNING("GUI support is disabled; rendering the finite offline workload instead.");
+    }
+#endif
+    Stream stream = device.create_stream(interactive ? StreamTag::GRAPHICS : StreamTag::COMPUTE);
 
     static constexpr uint width = 1280u;
     static constexpr uint height = 720u;
@@ -183,23 +203,54 @@ int main(int argc, char *argv[]) {
     });
     auto render_shader = device.compile(render_kernel);
 
-    auto ldr_image = device.create_image<float>(PixelStorage::BYTE4, width, height);
-    luisa::vector<std::array<uint8_t, 4u>> pixels{width * height};
-    CommandList render_commands;
-    render_commands.reserve(spp, 0u);
-    constexpr float3 camera_position = make_float3(0.0f, 0.0f, 18.0f);
-    for (uint frame = 0u; frame < spp; frame++) {
-        render_commands << render_shader(camera_position, frame).dispatch(width, height);
+    std::optional<Swapchain> swap_chain;
+#if ENABLE_DISPLAY
+    std::unique_ptr<Window> window;
+    if (interactive) {
+        window = std::make_unique<Window>("Procedural Primitive Ray Query", width, height);
+        swap_chain.emplace(device.create_swapchain(
+            stream,
+            SwapchainOption{
+                .display = window->native_display(),
+                .window = window->native_handle(),
+                .size = make_uint2(width, height),
+                .wants_hdr = false,
+                .wants_vsync = false,
+                .back_buffer_count = 3,
+            }));
     }
-
+#endif
+    auto ldr_image = device.create_image<float>(
+        swap_chain.has_value() ? swap_chain->backend_storage() : PixelStorage::BYTE4,
+        width, height);
+    luisa::vector<std::array<uint8_t, 4u>> pixels{width * height};
+    constexpr float3 camera_position = make_float3(0.0f, 0.0f, 18.0f);
+    auto infinite_render = interactive && opts.spp == 0u;
+    auto total_spp = infinite_render ? 0u : (opts.spp == 0u ? 1024u : opts.spp);
+    auto spp = 0u;
     Clock clock;
-    stream << clear_shader(accum_image).dispatch(width, height)
-           << [&clock] { clock.tic(); }
-           << render_commands.commit()
-           << [&clock] { LUISA_INFO("Rendering finished in {} ms.", clock.toc()); }
-           << blit_shader(accum_image, ldr_image).dispatch(width, height)
-           << ldr_image.copy_to(luisa::span{pixels})
-           << synchronize();
+    stream << clear_shader(accum_image).dispatch(width, height);
+    clock.tic();
+    while (infinite_render || spp < total_spp) {
+        CommandList commands;
+        // One sample per presentation keeps interactive progress visible and
+        // bounds the amount of queued ray-tracing work on mobile GPUs.
+        commands << render_shader(camera_position, spp).dispatch(width, height)
+                 << blit_shader(accum_image, ldr_image).dispatch(width, height);
+        stream << commands.commit();
+        ++spp;
+        if (swap_chain.has_value()) {
+            stream << swap_chain->present(ldr_image);
+#if ENABLE_DISPLAY
+            window->poll_events();
+            if (window->should_close()) { break; }
+#endif
+        }
+    }
+    stream << ldr_image.copy_to(luisa::span{pixels}) << synchronize();
+    auto elapsed_ms = clock.toc();
+    LUISA_INFO("Rendered {} spp in {} ms ({:.2f} spp/s).",
+               spp, elapsed_ms, static_cast<double>(spp) / elapsed_ms * 1000.0);
 
     if (stbi_write_png("test_procedural.png", width, height, 4, pixels.data(), 0) == 0) {
         LUISA_WARNING("Failed to write test_procedural.png.");

@@ -31,7 +31,7 @@
 #include <luisa/runtime/stream.h>
 
 #include <cmath>
-#include <vector>
+#include <luisa/core/stl/vector.h>
 
 namespace polyfit {
 
@@ -40,8 +40,8 @@ namespace {
 constexpr float PI = 3.14159265358979323846f;
 
 // Vandermonde features with the bias folded in: [x, x^2, x^3, 1] (row-major).
-std::vector<float> make_features(int n) {
-    std::vector<float> X(static_cast<size_t>(n) * F);
+luisa::vector<float> make_features(int n) {
+    luisa::vector<float> X(static_cast<size_t>(n) * F);
     for (int i = 0; i < n; ++i) {
         float x = -PI + 2.0f * PI * static_cast<float>(i) / static_cast<float>(n - 1);
         X[i * F + 0] = x;
@@ -52,8 +52,8 @@ std::vector<float> make_features(int n) {
     return X;
 }
 
-std::vector<float> make_targets(int n) {
-    std::vector<float> y(static_cast<size_t>(n));
+luisa::vector<float> make_targets(int n) {
+    luisa::vector<float> y(static_cast<size_t>(n));
     for (int i = 0; i < n; ++i) {
         float x = -PI + 2.0f * PI * static_cast<float>(i) / static_cast<float>(n - 1);
         y[i] = std::sin(x);
@@ -67,16 +67,16 @@ std::vector<float> make_targets(int n) {
 // trajectory independently of PyTorch.
 // ---------------------------------------------------------------------------
 struct HostRef {
-    std::vector<float> W;      // F, column vector
-    std::vector<float> losses; // loss at each logged step
-    std::vector<int> log_steps;
+    luisa::vector<float> W;      // F, column vector
+    luisa::vector<float> losses; // loss at each logged step
+    luisa::vector<int> log_steps;
 };
 
-HostRef host_reference(const std::vector<float> &X, const std::vector<float> &XT,
-                       const std::vector<float> &y, int steps, int log_every) {
+HostRef host_reference(const luisa::vector<float> &X, const luisa::vector<float> &XT,
+                       const luisa::vector<float> &y, int steps, int log_every) {
     HostRef ref;
     ref.W.assign(F, 0.0f);// zero init (device starts from the same)
-    std::vector<float> Y(N_TRAIN), err(N_TRAIN), G(F);
+    luisa::vector<float> Y(N_TRAIN), err(N_TRAIN), G(F);
     for (int t = 1; t <= steps; ++t) {
         for (int i = 0; i < N_TRAIN; ++i) {// forward: Y = X @ W
             float s = 0.0f;
@@ -142,7 +142,7 @@ int polyfit::run_poly_fit(int argc, char *argv[]) {
     auto Xt = polyfit::make_features(N_TEST);
     auto y = polyfit::make_targets(N_TRAIN);
     auto yt = polyfit::make_targets(N_TEST);
-    std::vector<float> XT(static_cast<size_t>(F) * N_TRAIN);
+    luisa::vector<float> XT(static_cast<size_t>(F) * N_TRAIN);
     for (int i = 0; i < N_TRAIN; ++i) {
         for (int k = 0; k < F; ++k) { XT[k * N_TRAIN + i] = X[i * F + k]; }
     }
@@ -163,7 +163,7 @@ int polyfit::run_poly_fit(int argc, char *argv[]) {
     auto bufXT = make_buf(luisa::span{XT});
     auto bufYref = make_buf(luisa::span{y});
     auto bufXt = make_buf(luisa::span{Xt});
-    std::vector<float> W0(F, 0.0f);
+    luisa::vector<float> W0(F, 0.0f);
     auto bufWa = make_buf(luisa::span{W0});
     auto bufWb = device.create_buffer<float>(F);
     auto bufY = device.create_buffer<float>(N_TRAIN);
@@ -210,9 +210,9 @@ int polyfit::run_poly_fit(int argc, char *argv[]) {
     // Each step: forward -> error -> gradient -> SGD update, with the weights
     // ping-ponging between bufWa and bufWb (zero-copy in-place update).
     Clock clock;
-    std::vector<float> dev_err(N_TRAIN);
-    std::vector<float> dev_losses;
-    std::vector<int> dev_log_steps;
+    luisa::vector<float> dev_err(N_TRAIN);
+    luisa::vector<float> dev_losses;
+    luisa::vector<int> dev_log_steps;
     auto train_step = [&](auto &buf_in, auto &buf_out) {
         stream << sh_fwd(bufX, buf_in, bufY).dispatch(64u)
                << sh_err(bufY, bufYref, bufErr).dispatch(64u)
@@ -235,7 +235,7 @@ int polyfit::run_poly_fit(int argc, char *argv[]) {
     double gpu_ms = clock.toc();
 
     // Read back the trained weights (bufWa after an odd number of steps).
-    std::vector<float> dev_W(F);
+    luisa::vector<float> dev_W(F);
     if (w_in_a) {
         stream << bufWa.copy_to(luisa::span{dev_W}) << synchronize();
     } else {
@@ -243,7 +243,7 @@ int polyfit::run_poly_fit(int argc, char *argv[]) {
     }
 
     // ---- inference on a held-out grid (device forward kernel) -----------------
-    std::vector<float> dev_pred(N_TEST);
+    luisa::vector<float> dev_pred(N_TEST);
     if (w_in_a) {
         stream << sh_fwd_test(bufXt, bufWa, bufYt).dispatch(64u);
     } else {

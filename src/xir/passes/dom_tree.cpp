@@ -85,7 +85,7 @@ inline void DomTree::compute_ancestry_intervals() noexcept {
         "Dominator tree contains nodes unreachable from its root.");
 }
 
-inline void DomTree::compute_dominance_frontiers() noexcept {
+void DomTree::compute_dominance_frontiers() noexcept {
     // Frontier construction is a pure derivative of the current tree. Clear
     // the node-local vectors so explicit late materialization is idempotent
     // without adding ABI-visible state to DomTree.

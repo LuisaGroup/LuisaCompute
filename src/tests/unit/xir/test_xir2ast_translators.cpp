@@ -116,6 +116,43 @@ template<typename F>
 
 void reg_xir2ast_direct() {
 
+    "xir_to_ast_roundtrip_preserves_undefined_aggregate"_test = [] {
+        using Bank = std::array<float4, 3u>;
+        Module module;
+        auto *callable = module.create_callable(Type::of<Bank>());
+        XIRBuilder builder;
+        builder.set_insertion_point(callable->create_body_block());
+        builder.return_(module.create_undefined(Type::of<Bank>()));
+        expect(xir_verify_module(&module).succeeded());
+
+        auto ast = xir_to_ast_translate(*callable, {});
+        expect(ast != nullptr);
+        auto rebuilt = ast_to_xir_translate(ast->function(), {});
+        expect(rebuilt != nullptr);
+        expect(xir_verify_module(rebuilt.get()).succeeded());
+
+        auto undefined_operand_count = 0u;
+        for (auto *function : rebuilt->function_list()) {
+            auto *definition = function->definition();
+            if (definition == nullptr) { continue; }
+            definition->traverse_instructions(
+                [&](const Instruction *instruction) noexcept {
+                    for (auto i = 0u;
+                         i < instruction->operand_count(); ++i) {
+                        auto *operand = instruction->operand(i);
+                        if (operand != nullptr &&
+                            operand->derived_value_tag() ==
+                            DerivedValueTag::UNDEFINED) {
+                            expect(operand->type() == Type::of<Bank>());
+                            undefined_operand_count++;
+                        }
+                    }
+                });
+        }
+        expect(undefined_operand_count == 1u)
+            << "XIR-to-AST must not refine undefined to zero";
+    };
+
     "xir_to_ast_roundtrips_canonical_low_level_ray_query_state"_test = [] {
         Module module;
         auto *callable = module.create_callable(nullptr);
@@ -617,6 +654,52 @@ void reg_xir2ast_direct() {
         expect(assume_count == 1u);
         expect(sync_count == 1u);
         expect(call_count == 1u);
+    };
+
+    "xir_to_ast_roundtrips_fragment_depth_operations"_test = [] {
+        Module module;
+        auto *callable = module.create_callable(nullptr);
+        auto *depth = callable->create_value_argument(Type::of<float>());
+        auto *body = callable->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        builder.call(nullptr, ThreadGroupOp::RASTER_SET_Z_DEPTH, {depth});
+        builder.call(
+            nullptr, ThreadGroupOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL,
+            {depth});
+        builder.call(
+            nullptr, ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL,
+            {depth});
+        builder.return_void();
+
+        auto ast = xir_to_ast_translate(*callable, {});
+        expect(ast != nullptr);
+        auto roundtrip = ast_to_xir_translate(ast->function(), {});
+        expect(roundtrip != nullptr);
+        expect(xir_verify_module(roundtrip.get()).succeeded());
+
+        std::array<size_t, 3u> counts{};
+        for (auto *function : roundtrip->function_list()) {
+            if (auto *definition = function->definition()) {
+                definition->traverse_instructions(
+                    [&](Instruction *instruction) noexcept {
+                        if (!instruction->isa<ThreadGroupInst>()) { return; }
+                        switch (static_cast<ThreadGroupInst *>(instruction)->op()) {
+                            case ThreadGroupOp::RASTER_SET_Z_DEPTH:
+                                counts[0u]++;
+                                break;
+                            case ThreadGroupOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL:
+                                counts[1u]++;
+                                break;
+                            case ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL:
+                                counts[2u]++;
+                                break;
+                            default: break;
+                        }
+                    });
+            }
+        }
+        for (auto count : counts) { expect(count == 1u); }
     };
 
     "xir_to_ast_direct_continue_executes_loop_update"_test = [] {

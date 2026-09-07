@@ -1,5 +1,4 @@
-// Regression for HIP ray-tracing scratch reuse across a long sequence of
-// mixed-size high-quality BLAS builds.
+// Regressions for HIP ray-tracing initialization and scratch reuse.
 
 #include "ut/ut.hpp"
 #include "test_device.h"
@@ -46,6 +45,66 @@ constexpr std::array<uint32_t, 348u> primitive_counts{
     24, 96, 6, 4, 6, 6, 6, 22, 48, 10, 16, 2};
 
 }// namespace
+
+void test_hip_shader_module_retirement_before_first_rt_build(
+    Device &device) {
+    if (device.backend_name() != "hip") { return; }
+
+    expect(device.query("hiprt_build_completed") == "false")
+        << "a fresh HIP device must not report an executed HIPRT build";
+    expect(device.query("hip_retired_shader_module_count") == "0")
+        << "a fresh HIP device must not have retired shader modules";
+
+    auto stream = device.create_stream();
+    auto output = device.create_buffer<uint>(1u);
+    std::array<uint, 1u> host_output{};
+    {
+        Kernel1D kernel = [](BufferUInt result) noexcept {
+            result.write(dispatch_x(), 0x12345678u);
+        };
+        auto shader = device.compile(
+            kernel, ShaderOption{.enable_cache = false});
+        stream << shader(output).dispatch(1u)
+               << output.copy_to(luisa::span{host_output})
+               << synchronize();
+    }
+    expect(host_output[0u] == 0x12345678u)
+        << "pre-HIPRT shader dispatch did not complete";
+    expect(device.query("hiprt_build_completed") == "false")
+        << "a compute dispatch must not advance the HIPRT build lifetime";
+    expect(device.query("hip_retired_shader_module_count") == "1")
+        << "a shader destroyed before the first HIPRT build must be retained";
+
+    const std::array vertices{
+        make_float3(-0.5f, -0.5f, 0.0f),
+        make_float3(0.5f, -0.5f, 0.0f),
+        make_float3(0.0f, 0.5f, 0.0f)};
+    const std::array triangles{Triangle{0u, 1u, 2u}};
+    auto vertex_buffer = device.create_buffer<float3>(vertices.size());
+    auto triangle_buffer = device.create_buffer<Triangle>(triangles.size());
+    auto mesh = device.create_mesh(
+        vertex_buffer, triangle_buffer,
+        AccelOption{.hint = AccelUsageHint::FAST_BUILD});
+    stream << vertex_buffer.copy_from(luisa::span{vertices})
+           << triangle_buffer.copy_from(luisa::span{triangles})
+           << mesh.build()
+           << synchronize();
+
+    expect(device.query("hiprt_build_completed") == "true")
+        << "a synchronized HIPRT build must publish its lifetime boundary";
+    expect(device.query("hip_retired_shader_module_count") == "0")
+        << "the first completed HIPRT build must release retired modules";
+
+    {
+        Kernel1D kernel = [](BufferUInt result) noexcept {
+            result.write(dispatch_x(), 0x87654321u);
+        };
+        auto shader = device.compile(
+            kernel, ShaderOption{.enable_cache = false});
+    }
+    expect(device.query("hip_retired_shader_module_count") == "0")
+        << "shader modules retired after HIPRT initialization must unload immediately";
+}
 
 void test_hip_rt_scratch_reuse(Device &device) {
     if (device.backend_name() != "hip") {
@@ -152,5 +211,6 @@ int main(int argc, char *argv[]) {
     if (!dc) { return 0; }
     boost::ut::detail::cfg::parse_arg_with_fallback(
         argc, const_cast<const char **>(argv));
+    test_hip_shader_module_retirement_before_first_rt_build(dc->device);
     test_hip_rt_scratch_reuse(dc->device);
 }

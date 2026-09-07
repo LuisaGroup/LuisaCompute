@@ -122,6 +122,8 @@ private:
     FunctionDefinition *_definition;
     const DomTree &_dominance;
     luisa::unordered_set<BasicBlock *> _function_blocks;
+    luisa::unordered_set<BasicBlock *>
+        _structured_forwarding_barriers;
     luisa::vector<LoopContinueRewrite> _rewrites;
     LoopContinueBatchStats _stats;
 
@@ -157,6 +159,26 @@ public:
         if (_definition == nullptr) { return; }
         for (auto *block : _definition->basic_blocks()) {
             _function_blocks.emplace(block);
+            if (!block->is_terminated()) { continue; }
+            auto *terminator = block->terminator();
+            if (auto *merge = terminator->control_flow_merge();
+                merge != nullptr && merge->merge_block() != nullptr) {
+                _structured_forwarding_barriers.emplace(
+                    merge->merge_block());
+            }
+            if (terminator->isa<LoopInst>()) {
+                auto *loop = static_cast<LoopInst *>(terminator);
+                _structured_forwarding_barriers.emplace(
+                    loop->prepare_block());
+                _structured_forwarding_barriers.emplace(
+                    loop->body_block());
+                _structured_forwarding_barriers.emplace(
+                    loop->update_block());
+            } else if (terminator->isa<SimpleLoopInst>()) {
+                _structured_forwarding_barriers.emplace(
+                    static_cast<SimpleLoopInst *>(terminator)
+                        ->body_block());
+            }
         }
     }
 
@@ -172,6 +194,8 @@ public:
         auto allow_loop_entry_in_region =
             loop_entry == body && body == continue_target;
         luisa::unordered_set<BasicBlock *> loop_region;
+        luisa::vector<std::pair<BasicBlock *, BasicBlock *>>
+            nested_switch_scopes;
         luisa::vector<BasicBlock *> work;
         auto enqueue = [&](BasicBlock *block) noexcept {
             if (!_is_live(block) || block == merge) { return; }
@@ -203,8 +227,7 @@ public:
             }
             auto *terminator = block->terminator();
             if (terminator->isa<LoopInst>() ||
-                terminator->isa<SimpleLoopInst>() ||
-                terminator->isa<SwitchInst>()) {
+                terminator->isa<SimpleLoopInst>()) {
                 if (auto *nested_merge =
                         restructure_cfg_loop_boundary_structured_statement_merge(terminator);
                     nested_merge != nullptr &&
@@ -212,6 +235,29 @@ public:
                     enqueue(nested_merge);
                 }
                 continue;
+            }
+            // A nested loop is opaque because it installs both a nearer
+            // break and a nearer continue scope. A Switch is different: it
+            // installs only a nearer break scope, so Continue(U) to this
+            // enclosing loop remains the canonical spelling in every case
+            // region. Contracting a Switch directly to its merge therefore
+            // loses exactly the raw case-to-U edges this analysis must
+            // normalize.
+            //
+            // Walk all Switch successors here. A raw edge to this loop's
+            // merge may temporarily become Break(M); the subsequent lexical
+            // context pass proves whether a nearer Switch is active and, in
+            // that case, converts only that non-local Break back to an
+            // ordinary Branch. Thus the two independent scope dimensions are
+            // handled without guessing from reachability.
+            if (terminator->isa<SwitchInst>()) {
+                auto *switch_merge =
+                    restructure_cfg_loop_boundary_structured_statement_merge(
+                        terminator);
+                if (switch_merge != nullptr && switch_merge != merge) {
+                    nested_switch_scopes.emplace_back(
+                        block, switch_merge);
+                }
             }
             restructure_cfg_loop_boundary_traverse_structured_successors(
                 block, [&](BasicBlock *successor) noexcept {
@@ -228,34 +274,157 @@ public:
                 });
         }
 
-        auto *merge_successor =
-            restructure_cfg_loop_boundary_trivial_branch_target(merge);
-        for (auto *block : loop_region) {
-            if (block != continue_target) {
-                _append(site_index, block, continue_target,
-                        continue_target,
-                        LoopContinueRewriteKind::CONTINUE);
+        // Break denotes the nearest lexical Loop-or-Switch scope, whereas
+        // Continue denotes the nearest Loop scope. Compute, in one sparse
+        // dominator-tree event walk, the blocks for which a nested Switch is
+        // active. Outer-loop break edges at those blocks must remain ordinary
+        // Branch edges; converting them to Break would name the nearer Switch
+        // and the context canonicalizer would immediately undo the rewrite.
+        //
+        // A Switch activates at its header and is suspended for the complete
+        // dominator subtree rooted at its merge. This is exactly the predicate
+        //
+        //   switch.header dom B && !(switch.merge dom B),
+        //
+        // evaluated for all B in O(V + S) rather than O(V*S).
+        luisa::unordered_set<BasicBlock *>
+            nested_switch_break_forbidden;
+        if (!nested_switch_scopes.empty() &&
+            _dominance.root() != nullptr) {
+            luisa::unordered_map<BasicBlock *, size_t>
+                switch_starts;
+            luisa::unordered_map<BasicBlock *, size_t>
+                switch_ends;
+            for (auto [header, switch_merge] :
+                 nested_switch_scopes) {
+                ++switch_starts[header];
+                ++switch_ends[switch_merge];
             }
-            if (block != merge) {
-                _append(site_index, block, merge, merge,
-                        LoopContinueRewriteKind::BREAK);
-                if (merge_successor != nullptr) {
-                    _append(site_index, block,
-                            merge_successor, merge,
-                            LoopContinueRewriteKind::BREAK);
+            struct DomFrame {
+                const DomTreeNode *node{nullptr};
+                size_t next_child{0u};
+                size_t activated{0u};
+                size_t suspended{0u};
+            };
+            luisa::vector<DomFrame> dom_work;
+            dom_work.emplace_back(
+                DomFrame{.node = _dominance.root()});
+            auto active_switch_count = size_t{0u};
+            while (!dom_work.empty()) {
+                auto &frame = dom_work.back();
+                if (frame.next_child == 0u) {
+                    auto *block = frame.node->block();
+                    if (auto iter = switch_ends.find(block);
+                        iter != switch_ends.end()) {
+                        frame.suspended =
+                            iter->second < active_switch_count ?
+                                iter->second :
+                                active_switch_count;
+                        active_switch_count -= frame.suspended;
+                    }
+                    if (auto iter = switch_starts.find(block);
+                        iter != switch_starts.end()) {
+                        frame.activated = iter->second;
+                        active_switch_count += frame.activated;
+                    }
+                    if (active_switch_count != 0u &&
+                        loop_region.contains(block)) {
+                        nested_switch_break_forbidden.emplace(
+                            block);
+                    }
                 }
+                auto children = frame.node->children();
+                if (frame.next_child < children.size()) {
+                    dom_work.emplace_back(DomFrame{
+                        .node = children[frame.next_child++]});
+                    continue;
+                }
+                active_switch_count -= frame.activated;
+                active_switch_count += frame.suspended;
+                dom_work.pop_back();
             }
-            if (continue_target == loop_entry) { continue; }
-            if (block != continue_target ||
-                !block->is_terminated() ||
-                !block->terminator()->isa<BranchInst>() ||
-                static_cast<BranchInst *>(
-                    block->terminator())
-                        ->target_block() != loop_entry) {
-                _append(site_index, block, loop_entry,
-                        continue_target,
-                        LoopContinueRewriteKind::CONTINUE);
-            }
+        }
+
+        // Boundary equivalence is the least reverse closure of a boundary
+        // under payload-free Branch edges, with every declared structured
+        // role as a quotient barrier. Planning from that closure, rather than
+        // testing only literal target identity, handles the canonical latch
+        // proxy left by natural-loop recovery:
+        //
+        //   arm -> L; L -> loop.entry
+        //
+        // Every path through L has exactly the same executable effect as a
+        // Continue, so both incoming edges can be normalized without cloning
+        // or a target-state dispatch. A merge/update/body role may itself be
+        // normalized, but the reverse closure never crosses it: doing so would
+        // make the role unreachable and replace lexical structure with an
+        // OpUnreachable block. The immutable region and finite visited set
+        // give O(V + E) work and a termination proof.
+        auto plan_boundary_predecessors =
+            [&](BasicBlock *boundary,
+                BasicBlock *replacement_target,
+                LoopContinueRewriteKind kind,
+                BasicBlock *excluded_forwarder) noexcept {
+                if (!_is_live(boundary)) { return; }
+                luisa::unordered_set<BasicBlock *> aliases;
+                luisa::vector<BasicBlock *> alias_work;
+                aliases.emplace(boundary);
+                alias_work.emplace_back(boundary);
+                while (!alias_work.empty()) {
+                    auto *alias = alias_work.back();
+                    alias_work.pop_back();
+                    alias->traverse_predecessors(
+                        false, [&](BasicBlock *predecessor) noexcept {
+                            if (!loop_region.contains(predecessor) ||
+                                predecessor == excluded_forwarder) {
+                                return;
+                            }
+                            if (kind ==
+                                    LoopContinueRewriteKind::BREAK &&
+                                nested_switch_break_forbidden.contains(
+                                    predecessor)) {
+                                return;
+                            }
+                            _append(site_index, predecessor, alias,
+                                    replacement_target, kind);
+                            if (restructure_cfg_loop_boundary_has_only_terminator(
+                                    predecessor) &&
+                                predecessor->terminator()->isa<BranchInst>() &&
+                                static_cast<BranchInst *>(
+                                    predecessor->terminator())
+                                        ->target_block() == alias &&
+                                !_structured_forwarding_barriers.contains(
+                                    predecessor) &&
+                                aliases.emplace(predecessor).second) {
+                                alias_work.emplace_back(predecessor);
+                            }
+                        });
+                }
+            };
+        plan_boundary_predecessors(
+            continue_target, continue_target,
+            LoopContinueRewriteKind::CONTINUE, nullptr);
+        if (loop_entry != continue_target) {
+            // The update-to-prepare edge is the LoopInst backedge. Rewriting
+            // it as Continue(update) would create a self-cycle, so it is the
+            // unique excluded predecessor in the prepare-boundary closure.
+            plan_boundary_predecessors(
+                loop_entry, continue_target,
+                LoopContinueRewriteKind::CONTINUE,
+                continue_target);
+        }
+        plan_boundary_predecessors(
+            merge, merge, LoopContinueRewriteKind::BREAK,
+            nullptr);
+        if (auto *merge_successor =
+                restructure_cfg_loop_boundary_trivial_branch_target(merge);
+            merge_successor != nullptr) {
+            // Destructured CFGs may have contracted the declared merge and
+            // branch directly to its forwarding successor. Preserve the
+            // existing quotient rule while excluding the merge itself.
+            plan_boundary_predecessors(
+                merge_successor, merge,
+                LoopContinueRewriteKind::BREAK, merge);
         }
     }
 

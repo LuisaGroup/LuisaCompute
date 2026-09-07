@@ -1,4 +1,5 @@
 #include "hip_callable_abi.h"
+#include "hip_inlining_policy.h"
 #include "hip_private_memory.h"
 #include "ut/ut.hpp"
 
@@ -12,7 +13,9 @@
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Verifier.h>
+#include <llvm/Passes/PassBuilder.h>
 #include <llvm/Support/SourceMgr.h>
+#include <llvm/Transforms/Scalar/EarlyCSE.h>
 
 using namespace luisa::compute::hip;
 using namespace boost::ut;
@@ -31,7 +34,63 @@ namespace {
     return module;
 }
 
+void run_hip_ipo_pipeline(llvm::Module &module) {
+    llvm::PipelineTuningOptions options;
+    configure_hip_cgscc_canonicalization_inlining(options);
+    llvm::LoopAnalysisManager loop_analyses;
+    llvm::FunctionAnalysisManager function_analyses;
+    llvm::CGSCCAnalysisManager cgscc_analyses;
+    llvm::ModuleAnalysisManager module_analyses;
+    llvm::PassInstrumentationCallbacks instrumentation;
+    llvm::PassBuilder builder{
+        nullptr, options, std::nullopt, &instrumentation};
+    builder.registerModuleAnalyses(module_analyses);
+    builder.registerCGSCCAnalyses(cgscc_analyses);
+    builder.registerFunctionAnalyses(function_analyses);
+    builder.registerLoopAnalyses(loop_analyses);
+    builder.crossRegisterProxies(
+        loop_analyses, function_analyses,
+        cgscc_analyses, module_analyses);
+
+    llvm::ModulePassManager pipeline;
+    add_hip_module_priority_inliner(
+        pipeline, llvm::OptimizationLevel::O3);
+    pipeline.addPass(builder.buildPerModuleDefaultPipeline(
+        llvm::OptimizationLevel::O3));
+    pipeline.run(module, module_analyses);
+}
+
 static auto suite = [] {
+    "HIP final attributes preserve explicit generated noinline"_test = [] {
+        llvm::LLVMContext context;
+        auto module = parse_module(context, R"(
+            define private fastcc float @retained(float %x) {
+            entry:
+              ret float %x
+            }
+        )");
+        expect(module != nullptr);
+        if (!module) { return; }
+        auto *retained = module->getFunction("retained");
+        expect(retained != nullptr);
+        if (retained == nullptr) { return; }
+        mark_hip_generated_callable(*retained, true);
+        expect(retained->hasFnAttribute(llvm::Attribute::NoInline));
+        expect(retained->hasFnAttribute(
+            llvm_generated_callable_attribute));
+        expect(retained->hasFnAttribute(
+            llvm_explicit_noinline_attribute));
+        finalize_hip_function_attributes(
+            *retained, "gfx1201", "+wavefrontsize32", "");
+        expect(retained->hasFnAttribute(llvm::Attribute::NoInline));
+        expect(!retained->hasFnAttribute(llvm::Attribute::AlwaysInline));
+        expect(!retained->hasFnAttribute(llvm::Attribute::InlineHint));
+        expect(!retained->hasFnAttribute(
+            llvm_generated_callable_attribute));
+        expect(!retained->hasFnAttribute(
+            llvm_explicit_noinline_attribute));
+    };
+
     "HIP final attributes remove only generated callable inline policy"_test = [] {
         llvm::LLVMContext context;
         auto module = parse_module(context, R"(
@@ -43,7 +102,7 @@ static auto suite = [] {
             entry:
               ret float %x
             }
-            attributes #0 = { convergent noinline nounwind memory(none) "amdgpu-no-implicitarg-ptr" "denormal-fp-math"="dynamic,dynamic" "luisa-generated-callable" "target-cpu"="old" "target-features"="+old" "amdgpu-num-vgpr"="32" }
+            attributes #0 = { convergent inlinehint noinline nounwind memory(none) "amdgpu-no-implicitarg-ptr" "denormal-fp-math"="dynamic,dynamic" "luisa-generated-callable" "target-cpu"="old" "target-features"="+old" "amdgpu-num-vgpr"="32" }
             attributes #1 = { alwaysinline nounwind }
         )");
         expect(module != nullptr);
@@ -60,6 +119,7 @@ static auto suite = [] {
 
         expect(!retained->hasFnAttribute(llvm::Attribute::NoInline));
         expect(!retained->hasFnAttribute(llvm::Attribute::AlwaysInline));
+        expect(!retained->hasFnAttribute(llvm::Attribute::InlineHint));
         expect(!retained->hasFnAttribute(
             llvm_generated_callable_attribute));
         expect(inline_hint->hasFnAttribute(
@@ -78,6 +138,94 @@ static auto suite = [] {
         expect(retained->getFnAttribute("amdgpu-num-vgpr")
                    .getValueAsString() == "128");
         expect(!inline_hint->hasFnAttribute("amdgpu-num-vgpr"));
+        expect(!llvm::verifyModule(*module));
+    };
+
+    "HIP inlining assigns positive growth only to the module queue"_test = [] {
+        llvm::PipelineTuningOptions options;
+        configure_hip_cgscc_canonicalization_inlining(options);
+        expect(options.InlinerThreshold == 0);
+
+        auto params = hip_module_priority_inline_params(
+            llvm::OptimizationLevel::O3);
+        expect(params.DefaultThreshold ==
+               llvm::InlineConstants::OptAggressiveThreshold);
+        expect(params.EnableDeferral.has_value());
+        expect(!params.EnableDeferral.value_or(true));
+
+        llvm::LLVMContext context;
+        auto module = parse_module(context, R"(
+            define private i32 @leaf(i32 %x) {
+            entry:
+              %a = add i32 %x, 1
+              ret i32 %a
+            }
+            define i32 @root(i32 %x) {
+            entry:
+              %a = call i32 @leaf(i32 %x)
+              ret i32 %a
+            }
+        )");
+        expect(module != nullptr);
+        if (!module) { return; }
+
+        run_hip_ipo_pipeline(*module);
+
+        // The global owner consumes this profitable edge and deletes the
+        // private body; no annotation is needed to force the result.
+        expect(module->getFunction("leaf") == nullptr);
+        expect(!llvm::verifyModule(*module));
+    };
+
+    "HIP IPO retains an explicit generated noinline boundary"_test = [] {
+        llvm::LLVMContext context;
+        auto module = parse_module(context, R"(
+            define private fastcc float @retained(float %x) {
+            entry:
+              %a = fadd float %x, 1.000000e+00
+              ret float %a
+            }
+            define float @root(float %x) {
+            entry:
+              %a = call fastcc float @retained(float %x)
+              ret float %a
+            }
+        )");
+        expect(module != nullptr);
+        if (!module) { return; }
+        auto *retained = module->getFunction("retained");
+        expect(retained != nullptr);
+        if (retained == nullptr) { return; }
+        mark_hip_generated_callable(*retained, true);
+        prepare_hip_generated_callable_for_ipo(*retained);
+        run_hip_ipo_pipeline(*module);
+
+        retained = module->getFunction("retained");
+        expect(retained != nullptr)
+            << "the complete HIP IPO pipeline must not absorb the callee";
+        if (retained == nullptr) { return; }
+        expect(retained->hasFnAttribute(llvm::Attribute::NoInline));
+        expect(retained->hasFnAttribute(
+            llvm_explicit_noinline_attribute));
+        auto *root = module->getFunction("root");
+        expect(root != nullptr);
+        if (root == nullptr) { return; }
+        auto retained_call_count = 0u;
+        for (auto &block : *root) {
+            for (auto &instruction : block) {
+                if (auto *call = llvm::dyn_cast<llvm::CallInst>(
+                        &instruction)) {
+                    retained_call_count +=
+                        call->getCalledFunction() == retained;
+                }
+            }
+        }
+        expect(retained_call_count == 1u);
+        finalize_hip_function_attributes(
+            *retained, "gfx1201", "+wavefrontsize32", "");
+        expect(retained->hasFnAttribute(llvm::Attribute::NoInline));
+        expect(!retained->hasFnAttribute(
+            llvm_explicit_noinline_attribute));
         expect(!llvm::verifyModule(*module));
     };
 
@@ -326,6 +474,11 @@ static auto suite = [] {
             attributes #0 = { "luisa-generated-callable" }
         )");
         expect(module != nullptr);
+        auto inline_stats =
+            inline_unique_oversized_generated_callables(*module);
+        expect(inline_stats.inlined_function_count == 0u);
+        expect(inline_stats.removed_argument_locations == 0u);
+        expect(inline_stats.removed_return_locations == 0u);
         auto stats = demote_generated_callable_large_arguments(*module);
         expect(stats.rewritten_function_count == 0u);
         expect(stats.rewritten_call_count == 0u);
@@ -335,6 +488,93 @@ static auto suite = [] {
         expect(fits != nullptr);
         expect(fits->arg_size() == 1u);
         expect(fits->getArg(0u)->getType()->isArrayTy());
+    };
+
+    "HIP callable ABI late-inlines one-use oversized arguments"_test = [] {
+        constexpr auto argument_count = 33u;
+        auto ir = std::string{
+            "target datalayout = \"e-p:64:64-p5:32:32-i64:64-n32:64-A5\"\n"
+            "define private fastcc i32 @wide("};
+        for (auto i = 0u; i < argument_count; i++) {
+            if (i != 0u) { ir += ", "; }
+            ir += "i32 noundef %a" + std::to_string(i);
+        }
+        ir += ") #0 {\nentry:\n"
+              "  %result = add i32 %a0, %a32\n"
+              "  ret i32 %result\n}\n"
+              "define i32 @caller(i32 %seed) {\nentry:\n"
+              "  %result = call fastcc i32 @wide(";
+        for (auto i = 0u; i < argument_count; i++) {
+            if (i != 0u) { ir += ", "; }
+            ir += "i32 noundef %seed";
+        }
+        ir += ")\n"
+              "  ret i32 %result\n}\n"
+              "attributes #0 = { memory(none) "
+              "\"luisa-generated-callable\" }\n";
+
+        llvm::LLVMContext context;
+        auto module = parse_module(context, ir);
+        expect(module != nullptr);
+        if (!module) { return; }
+        auto stats =
+            inline_unique_oversized_generated_callables(*module);
+        expect(stats.inlined_function_count == 1u);
+        expect(stats.removed_argument_locations == argument_count);
+        expect(stats.removed_return_locations == 1u);
+        expect(module->getFunction("wide") == nullptr);
+        expect(!llvm::verifyModule(*module));
+
+        auto *caller = module->getFunction("caller");
+        expect(caller != nullptr);
+        auto call_count = 0u;
+        auto alloca_count = 0u;
+        for (auto &block : *caller) {
+            for (auto &instruction : block) {
+                call_count += llvm::isa<llvm::CallInst>(instruction);
+                alloca_count += llvm::isa<llvm::AllocaInst>(instruction);
+            }
+        }
+        expect(call_count == 0u);
+        expect(alloca_count == 0u);
+
+        auto argument_stats =
+            demote_generated_callable_large_arguments(*module);
+        expect(argument_stats.rewritten_function_count == 0u);
+        expect(argument_stats.shared_argument_slot_count == 0u);
+    };
+
+    "HIP callable ABI never late-inlines explicit noinline"_test = [] {
+        llvm::LLVMContext context;
+        auto module = parse_module(context, R"(
+            target datalayout = "e-p:64:64-p5:32:32-i64:64-n32:64-A5"
+            define private fastcc i32 @wide([33 x i32] %value) #0 {
+            entry:
+              %head = extractvalue [33 x i32] %value, 0
+              ret i32 %head
+            }
+            define i32 @caller([33 x i32] %actual) {
+            entry:
+              %result = call fastcc i32 @wide([33 x i32] %actual)
+              ret i32 %result
+            }
+            attributes #0 = { noinline "luisa-generated-callable"
+                              "luisa-explicit-noinline" }
+        )");
+        expect(module != nullptr);
+        if (!module) { return; }
+        auto stats =
+            inline_unique_oversized_generated_callables(*module);
+        expect(stats.inlined_function_count == 0u);
+        expect(stats.removed_argument_locations == 0u);
+        expect(stats.removed_return_locations == 0u);
+        auto *wide = module->getFunction("wide");
+        expect(wide != nullptr);
+        if (wide != nullptr) {
+            expect(wide->hasFnAttribute(llvm::Attribute::NoInline));
+            expect(!wide->use_empty());
+        }
+        expect(!llvm::verifyModule(*module));
     };
 
     "HIP callable ABI packs the maximal scalar suffix above 32 locations"_test = [] {
@@ -419,6 +659,125 @@ static auto suite = [] {
         expect(alloca_count == 1u);
         expect(store_count == 4u);
         expect(call_count == 2u);
+    };
+
+    "HIP packed pointer arguments preserve indirect memory effects"_test = [] {
+        llvm::LLVMContext context;
+        auto module = parse_module(context, R"(
+            target datalayout = "e-p:64:64-p5:32:32-i64:64-n32:64-A5"
+            define private void @wide([32 x i32] %padding, ptr addrspace(5) %out) #0 {
+            entry:
+              store i32 42, ptr addrspace(5) %out
+              ret void
+            }
+            define i32 @caller([32 x i32] %padding) {
+            entry:
+              %slot = alloca i32, addrspace(5)
+              store i32 7, ptr addrspace(5) %slot
+              call void @wide([32 x i32] %padding, ptr addrspace(5) %slot) #1
+              %result = load i32, ptr addrspace(5) %slot
+              ret i32 %result
+            }
+            attributes #0 = { noinline nounwind memory(argmem: write) "luisa-generated-callable" }
+            attributes #1 = { memory(argmem: write) }
+        )");
+        expect(module != nullptr);
+        if (!module) { return; }
+        const auto stats = demote_generated_callable_large_arguments(*module);
+        expect(stats.rewritten_function_count == 1u);
+        expect(stats.packed_argument_count == 2u);
+        expect(!llvm::verifyModule(*module));
+
+        // The record itself is ArgMem, but %out is now loaded from it.
+        // Writing through that indirect pointer is an Other-memory effect.
+        using Location = llvm::MemoryEffects::Location;
+        auto *wide = module->getFunction("wide");
+        expect(wide->getMemoryEffects().getModRef(Location::Other) ==
+               llvm::ModRefInfo::Mod);
+        for (auto &instruction : module->getFunction("caller")->getEntryBlock()) {
+            if (auto *call = llvm::dyn_cast<llvm::CallInst>(&instruction)) {
+                expect(call->getMemoryEffects().getModRef(Location::Other) ==
+                       llvm::ModRefInfo::Mod);
+            }
+        }
+
+        llvm::LoopAnalysisManager loop_analyses;
+        llvm::FunctionAnalysisManager function_analyses;
+        llvm::CGSCCAnalysisManager cgscc_analyses;
+        llvm::ModuleAnalysisManager module_analyses;
+        llvm::PassBuilder builder;
+        builder.registerModuleAnalyses(module_analyses);
+        builder.registerCGSCCAnalyses(cgscc_analyses);
+        builder.registerFunctionAnalyses(function_analyses);
+        builder.registerLoopAnalyses(loop_analyses);
+        builder.crossRegisterProxies(
+            loop_analyses, function_analyses, cgscc_analyses, module_analyses);
+        llvm::EarlyCSEPass{true}.run(
+            *module->getFunction("caller"), function_analyses);
+        expect(!llvm::verifyModule(*module));
+        // Caller-local optimization must not forward the pre-call 7 through
+        // a call which writes 42 to the slot through a packed pointer.
+        for (auto &block : *module->getFunction("caller")) {
+            if (auto *ret = llvm::dyn_cast<llvm::ReturnInst>(block.getTerminator())) {
+                auto *value = llvm::dyn_cast<llvm::ConstantInt>(ret->getReturnValue());
+                expect(llvm::isa<llvm::LoadInst>(ret->getReturnValue()) ||
+                       (value != nullptr && value->getZExtValue() == 42u))
+                    << "packed pointer write disappeared across the call";
+            }
+        }
+    };
+
+    "HIP packed memory summaries preserve location and access precision"_test = [] {
+        for (auto suffix_type : {"i32", "ptr addrspace(5)",
+                                 "{ i32, [2 x ptr] }", "<2 x ptr>"}) {
+            for (auto access : {llvm::ModRefInfo::NoModRef, llvm::ModRefInfo::Ref,
+                                llvm::ModRefInfo::Mod, llvm::ModRefInfo::ModRef}) {
+                llvm::LLVMContext context;
+                const auto type = std::string{suffix_type};
+                auto module = parse_module(context,
+                                           "target datalayout = \"e-p:64:64-p5:32:32-i64:64-n32:64-A5\"\n"
+                                           "define private void @wide([32 x i32] %padding, " +
+                                               type +
+                                               " %suffix) #0 { ret void }\n"
+                                               "define void @caller([32 x i32] %padding, " +
+                                               type +
+                                               " %suffix) { call void @wide([32 x i32] %padding, " + type +
+                                               " %suffix) ret void }\n"
+                                               "attributes #0 = { nounwind \"luisa-generated-callable\" }\n");
+                expect(module != nullptr);
+                if (!module) { continue; }
+                const auto function_effects =
+                    llvm::MemoryEffects::argMemOnly(access) |
+                    llvm::MemoryEffects::otherMemOnly(llvm::ModRefInfo::Ref) |
+                    llvm::MemoryEffects::inaccessibleMemOnly(llvm::ModRefInfo::Mod);
+                // A call-site summary may be more precise than the function
+                // summary; each must be remapped independently.
+                const auto call_effects = llvm::MemoryEffects::argMemOnly(access);
+                module->getFunction("wide")->setMemoryEffects(function_effects);
+                auto *caller = module->getFunction("caller");
+                llvm::cast<llvm::CallInst>(&caller->getEntryBlock().front())
+                    ->setMemoryEffects(call_effects);
+                const auto stats = demote_generated_callable_large_arguments(*module);
+                expect(stats.rewritten_function_count == 1u);
+                expect(!llvm::verifyModule(*module));
+                const auto has_pointer = type != "i32";
+                const auto expected_effects = [=](llvm::MemoryEffects original) {
+                    auto expected = original |
+                                    llvm::MemoryEffects::argMemOnly(llvm::ModRefInfo::Ref);
+                    if (has_pointer) {
+                        expected |= llvm::MemoryEffects::otherMemOnly(access);
+                    }
+                    return expected;
+                };
+                expect(module->getFunction("wide")->getMemoryEffects() ==
+                       expected_effects(function_effects));
+                for (auto &instruction : caller->getEntryBlock()) {
+                    if (auto *call = llvm::dyn_cast<llvm::CallInst>(&instruction)) {
+                        expect(call->getMemoryEffects() == expected_effects(call_effects));
+                    }
+                }
+            }
+        }
     };
 
     "HIP callable ABI charges an explicit return pointer to the input budget"_test = [] {

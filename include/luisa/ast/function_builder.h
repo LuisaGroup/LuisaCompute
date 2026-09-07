@@ -126,12 +126,14 @@ private:
     bool _requires_atomic_float{false};
     bool _requires_printing{false};
     bool _use_cooperative_operations{false};
+    bool _requires_noinline{false};
     uint32_t _next_coro_suspend_token{1u};
     // Codegen Comment
     mutable luisa::string _name;
     mutable luisa::vector<luisa::string> _variables_names;
 
 protected:
+    class SuspendExtensionRecorder;
     [[nodiscard]] static luisa::vector<FunctionBuilder *> &_function_stack() noexcept;
     [[nodiscard]] uint32_t _next_variable_uid() noexcept;
     [[nodiscard]] uint32_t _next_suspend_token() noexcept;
@@ -267,6 +269,8 @@ public:
     [[nodiscard]] bool requires_autodiff() const noexcept;
     /// Return if uses printing.
     [[nodiscard]] bool requires_printing() const noexcept;
+    /// Return whether this function requires a retained call boundary.
+    [[nodiscard]] bool requires_noinline() const noexcept;
 
     // build primitives
     /// Define a kernel function with given definition
@@ -300,6 +304,8 @@ public:
 
     /// Set name
     void set_name(luisa::string_view name) const noexcept;
+    /// Require backends to retain calls to this function.
+    void mark_noinline() noexcept;
     void set_variable_name(uint32_t id, luisa::string_view name) const noexcept;
     luisa::string_view get_variable_name(uint32_t uid) const noexcept;
 
@@ -320,6 +326,10 @@ public:
     [[nodiscard]] const RefExpr *kernel_id() noexcept;
     /// Return object id (for rasterization only).
     [[nodiscard]] const RefExpr *raster_object_id() noexcept;
+    /// Return whether the current fragment belongs to a front-facing primitive.
+    [[nodiscard]] const RefExpr *raster_is_front_face() noexcept;
+    /// Return the first instance selected by the current raster draw.
+    [[nodiscard]] const RefExpr *raster_base_instance() noexcept;
     [[nodiscard]] const RefExpr *raster_barycentrics() noexcept;
     /// Return warp lane count
     [[nodiscard]] const RefExpr *warp_lane_count() noexcept;
@@ -436,10 +446,29 @@ public:
     /// Add named/tokenized suspend statement with frame exports
     void suspend_(uint32_t token, luisa::string name,
                   luisa::vector<CoroFrameExport> frame_exports) noexcept;
+    /// Add a suspend statement with source extension objects. The objects are
+    /// frozen to data-backed AST-owned representations before recording.
+    void suspend_(
+        luisa::string name,
+        luisa::vector<CoroFrameExport> frame_exports,
+        luisa::vector<CoroSuspendExtensionPtr> extensions) noexcept;
+    void suspend_(
+        uint32_t token, luisa::string name,
+        luisa::vector<CoroFrameExport> frame_exports,
+        luisa::vector<CoroSuspendExtensionPtr> extensions) noexcept;
+    /// Internal normalized form used by AST duplication/deserialization paths.
+    void suspend_(
+        uint32_t token, luisa::string name,
+        luisa::vector<CoroFrameExport> frame_exports,
+        luisa::vector<CoroSuspendExtensionPtr> extensions,
+        luisa::vector<const Expression *> extension_binding_values) noexcept;
     /// Add comment statement
     void comment_(luisa::string comment) noexcept;
     /// Add assign statement
     void assign(const Expression *lhs, const Expression *rhs) noexcept;
+    /// Add an expression statement. This is primarily used by structured AST
+    /// reconstruction where the expression has already been materialized.
+    void expression_statement(const Expression *expr) noexcept;
 
     /// Add if statement
     [[nodiscard]] IfStmt *if_(const Expression *cond) noexcept;

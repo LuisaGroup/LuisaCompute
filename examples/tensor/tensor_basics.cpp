@@ -27,7 +27,7 @@
 
 #include <cmath>
 #include <cstdlib>
-#include <vector>
+#include <luisa/core/stl/vector.h>
 
 namespace {
 
@@ -67,7 +67,7 @@ int basics::run_basics(int argc, char *argv[]) {
     // Exercise 1: tensors — creation and shapes (host-side)
     // =========================================================================
     LUISA_INFO("[basics] [exercise 1] tensors");
-    const std::vector<float> t1{1.0f, 2.0f, 3.0f};
+    const luisa::vector<float> t1{1.0f, 2.0f, 3.0f};
     LUISA_INFO("[basics]   t1.size() = {} (shape (3,), float32)", t1.size());
     if (t1.size() != 3u) { ok = false; }
 
@@ -78,11 +78,11 @@ int basics::run_basics(int argc, char *argv[]) {
     auto k_addmul = tile::jit(basics::basic_addmul<3>).compile();
     auto sh_addmul = k_addmul.to_kernel<1>();
     auto sc_addmul = device.compile(sh_addmul);
-    auto bufA = make_buf(std::vector<float>{2.0f, 4.0f, 6.0f});
-    auto bufB = make_buf(std::vector<float>{1.0f, 3.0f, 5.0f});
+    auto bufA = make_buf(luisa::vector<float>{2.0f, 4.0f, 6.0f});
+    auto bufB = make_buf(luisa::vector<float>{1.0f, 3.0f, 5.0f});
     auto bufC = device.create_buffer<float>(3);
     auto bufD = device.create_buffer<float>(3);
-    std::vector<float> hC(3), hD(3);
+    luisa::vector<float> hC(3), hD(3);
     stream << sc_addmul(bufA, bufB, bufD, bufC).dispatch(32u)
            << bufC.copy_to(luisa::span{hC}) << bufD.copy_to(luisa::span{hD}) << synchronize();
     LUISA_INFO("[basics]   a + b = [{:.1f}, {:.1f}, {:.1f}]", hC[0], hC[1], hC[2]);
@@ -100,10 +100,10 @@ int basics::run_basics(int argc, char *argv[]) {
     auto k_sq = tile::jit(basics::basic_square_grad<1>).compile();
     auto sh_sq = k_sq.to_kernel<1>();
     auto sc_sq = device.compile(sh_sq);
-    auto bufX = make_buf(std::vector<float>{3.0f});
+    auto bufX = make_buf(luisa::vector<float>{3.0f});
     auto bufY = device.create_buffer<float>(1);
     auto bufDY = device.create_buffer<float>(1);
-    std::vector<float> hY(1), hDY(1);
+    luisa::vector<float> hY(1), hDY(1);
     stream << sc_sq(bufX, bufDY, bufY).dispatch(32u)
            << bufY.copy_to(luisa::span{hY}) << bufDY.copy_to(luisa::span{hDY}) << synchronize();
     LUISA_INFO("[basics]   y = x^2 + 2x + 1 at x = 3 -> y = {:.3f}, dy/dx = {:.3f}", hY[0], hDY[0]);
@@ -130,19 +130,19 @@ int basics::run_basics(int argc, char *argv[]) {
     auto sc_upd = device.compile(sh_upd);
 
     // data: x = [1,2,3,4], targets = 2x (augmented with a bias column)
-    std::vector<float> Xb{1.0f, 1.0f, 2.0f, 1.0f, 3.0f, 1.0f, 4.0f, 1.0f};
-    std::vector<float> targets{2.0f, 4.0f, 6.0f, 8.0f};
-    std::vector<float> XT{1.0f, 2.0f, 3.0f, 4.0f, 1.0f, 1.0f, 1.0f, 1.0f};
+    luisa::vector<float> Xb{1.0f, 1.0f, 2.0f, 1.0f, 3.0f, 1.0f, 4.0f, 1.0f};
+    luisa::vector<float> targets{2.0f, 4.0f, 6.0f, 8.0f};
+    luisa::vector<float> XT{1.0f, 2.0f, 3.0f, 4.0f, 1.0f, 1.0f, 1.0f, 1.0f};
     auto bufXb = make_buf(luisa::span{Xb});
     auto bufXT = make_buf(luisa::span{XT});
     auto bufTgt = make_buf(luisa::span{targets});
-    std::vector<float> W0{0.0f, 0.0f};
+    luisa::vector<float> W0{0.0f, 0.0f};
     auto bufW = make_buf(luisa::span{W0});
     auto bufW2 = device.create_buffer<float>(2);
     auto bufYtrain = device.create_buffer<float>(N);
     auto bufErr = device.create_buffer<float>(N);
     auto bufG = device.create_buffer<float>(2);
-    std::vector<float> hErr(N);
+    luisa::vector<float> hErr(N);
 
     auto train_step = [&](auto &buf_in, auto &buf_out) {
         stream << sc_fwd(bufXb, buf_in, bufYtrain).dispatch(32u)
@@ -161,7 +161,7 @@ int basics::run_basics(int argc, char *argv[]) {
             LUISA_INFO("[basics]   step {:5d}  loss = {:.6f}", step, loss / N);
         }
     }
-    std::vector<float> hW(2);
+    luisa::vector<float> hW(2);
     if (w_in_a) {
         stream << bufW.copy_to(luisa::span{hW}) << synchronize();
     } else {
@@ -169,7 +169,7 @@ int basics::run_basics(int argc, char *argv[]) {
     }
 
     // inference on new points the network never saw: x = [0.5, 1.5, 2.5, 3.5]
-    std::vector<float> Xb_new{0.5f, 1.0f, 1.5f, 1.0f, 2.5f, 1.0f, 3.5f, 1.0f};
+    luisa::vector<float> Xb_new{0.5f, 1.0f, 1.5f, 1.0f, 2.5f, 1.0f, 3.5f, 1.0f};
     auto bufXb_new = make_buf(luisa::span{Xb_new});
     auto bufY_new = device.create_buffer<float>(N);
     if (w_in_a) {
@@ -177,7 +177,7 @@ int basics::run_basics(int argc, char *argv[]) {
     } else {
         stream << sc_fwd(bufXb_new, bufW2, bufY_new).dispatch(32u);
     }
-    std::vector<float> hPred(N);
+    luisa::vector<float> hPred(N);
     stream << bufY_new.copy_to(luisa::span{hPred}) << synchronize();
 
     float max_err = 0.0f;

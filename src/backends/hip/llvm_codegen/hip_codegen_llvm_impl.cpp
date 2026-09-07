@@ -34,6 +34,7 @@
 #include <luisa/ast/type_registry.h>
 #include "hip_codegen_llvm_impl.h"
 #include "hip_private_memory.h"
+#include "hip_inlining_policy.h"
 #include "hip_llvm_pipeline.h"
 #include "hiprt_device_wrapper.hip"
 #include "hip_codegen_llvm_device_bitcode.h"
@@ -1009,7 +1010,15 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
         for (auto &f : *_llvm_module) {
             for (auto &bb : f) {
                 for (auto &inst : bb) {
-                    if (llvm::isa<llvm::FPMathOperator>(inst)) {
+                    // `frem` is a range-reduction primitive, not an
+                    // approximable arithmetic operation. Marking it `fast`
+                    // permits quotient-based lowering, which is not
+                    // equivalent to IEEE remainder once the quotient has too
+                    // few mantissa bits to recover the residue. The DSL fmod
+                    // contract therefore requires precise `frem` even when
+                    // surrounding continuous arithmetic uses fast math.
+                    if (llvm::isa<llvm::FPMathOperator>(inst) &&
+                        inst.getOpcode() != llvm::Instruction::FRem) {
                         inst.setFast(true);
                     }
                 }
@@ -1083,11 +1092,7 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
             // on linked low-level wrapper definitions remain source-owned;
             // those are explicit implementation contracts, not a name-based
             // policy inferred here after the fact.
-            if (func.hasFnAttribute(
-                    llvm_generated_callable_attribute)) {
-                func.removeFnAttr(llvm::Attribute::AlwaysInline);
-                func.removeFnAttr(llvm::Attribute::NoInline);
-            }
+            prepare_hip_generated_callable_for_ipo(func);
         }
     }
 
@@ -1142,6 +1147,11 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
     PTO.SLPVectorization = true;
     PTO.LoopUnrolling = true;
     PTO.MergeFunctions = true;
+    // All profitable code-growing inline decisions are made globally below.
+    // Leave the later CGSCC inliner only the non-positive-cost fixed point and
+    // last-local-call elimination. This prevents its bottom-up visitation
+    // order from cloning one consumer of a still-shared generated callable.
+    configure_hip_cgscc_canonicalization_inlining(PTO);
     llvm::PassInstrumentationCallbacks instrumentation;
     llvm::PassBuilder PB{
         _target_machine, PTO, std::nullopt,
@@ -1165,7 +1175,17 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
         case HIPCodegenLLVMConfig::OptLevel::LEVEL_DEFAULT: opt_level = llvm::OptimizationLevel::O2; break;
         case HIPCodegenLLVMConfig::OptLevel::LEVEL_AGGRESSIVE: opt_level = llvm::OptimizationLevel::O3; break;
     }
-    auto MPM = PB.buildPerModuleDefaultPipeline(opt_level);
+    auto MPM = llvm::ModulePassManager{};
+    if (opt_level != llvm::OptimizationLevel::O0) {
+        // A generated callable can have multiple consumers in one shader. The
+        // default CGSCC inliner visits those call sites in bottom-up SCC order.
+        // Deleting an unrelated branch can therefore move one call across its
+        // profitability threshold and duplicate a still-live callee into only
+        // one consumer. Make LLVM's module-wide priority queue the unique owner
+        // of positive-growth decisions before any caller-specializing pass.
+        add_hip_module_priority_inliner(MPM, opt_level);
+    }
+    MPM.addPass(PB.buildPerModuleDefaultPipeline(opt_level));
     // gfx12 ray queries lower to resumable traversal loops whose state is
     // carried through nested callback loops. LLVM's pre-SLP cleanup normally
     // opts out of preserving canonical loops; on AMDGPU this can collapse the
@@ -1438,6 +1458,21 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
             "callable(s), removing {} bytes from their direct call ABIs.",
             callable_abi_stats.rewritten_function_count,
             callable_abi_stats.removed_aggregate_bytes);
+    }
+
+    // A retained callable with one direct user and an ABI wider than the
+    // hardware callable window would otherwise materialize a private suffix
+    // record for a boundary that cannot share its body. Inline only this
+    // zero-duplication case after IPO has optimized the body independently.
+    auto unique_oversized_inline_stats =
+        inline_unique_oversized_generated_callables(*_llvm_module);
+    if (unique_oversized_inline_stats.inlined_function_count != 0u) {
+        LUISA_VERBOSE(
+            "Late-inlined {} unique oversized generated HIP callable(s), "
+            "removing {} argument and {} return VGPR location(s).",
+            unique_oversized_inline_stats.inlined_function_count,
+            unique_oversized_inline_stats.removed_argument_locations,
+            unique_oversized_inline_stats.removed_return_locations);
     }
 
     // GlobalISel demotes a return wider than RetCC_AMDGPU_Func's 32 VGPRs to

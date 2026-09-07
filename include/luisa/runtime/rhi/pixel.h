@@ -55,7 +55,20 @@ enum struct PixelStorage : uint32_t {
     BC7,
     BC7_SRGB,
     BYTE4_SRGB,
-    //TODO: ASTC
+    // ASTC block formats (all blocks are 16 bytes; block dimensions differ).
+    // ASTC is mandatory on Android GPUs, which generally do not support BC.
+    ASTC_4x4,
+    ASTC_5x5,
+    ASTC_6x6,
+    ASTC_8x8,
+    ASTC_10x10,
+    ASTC_12x12,
+    ASTC_4x4_SRGB,
+    ASTC_5x5_SRGB,
+    ASTC_6x6_SRGB,
+    ASTC_8x8_SRGB,
+    ASTC_10x10_SRGB,
+    ASTC_12x12_SRGB,
 };
 
 enum struct PixelStorageSizeStatus : uint8_t {
@@ -130,20 +143,33 @@ enum struct PixelFormat : uint32_t {
     BC7SRGB,
     RGBA8SRGB,
 
-    //TODO: ASTC
+    // ASTC block formats, mandatory on Android GPUs. Both UNORM and SRGB
+    // variants are exposed so ASTC textures can be requested through the DSL.
+    ASTC_4x4,
+    ASTC_5x5,
+    ASTC_6x6,
+    ASTC_8x8,
+    ASTC_10x10,
+    ASTC_12x12,
+    ASTC_4x4_SRGB,
+    ASTC_5x5_SRGB,
+    ASTC_6x6_SRGB,
+    ASTC_8x8_SRGB,
+    ASTC_10x10_SRGB,
+    ASTC_12x12_SRGB,
 };
 
-constexpr auto pixel_storage_count = to_underlying(PixelStorage::BYTE4_SRGB) + 1u;
-constexpr auto pixel_format_count = to_underlying(PixelFormat::RGBA8SRGB) + 1u;
+constexpr auto pixel_storage_count = to_underlying(PixelStorage::ASTC_12x12_SRGB) + 1u;
+constexpr auto pixel_format_count = to_underlying(PixelFormat::ASTC_12x12_SRGB) + 1u;
 
 [[nodiscard]] constexpr auto is_block_compressed(PixelStorage s) noexcept {
     return luisa::to_underlying(s) >= luisa::to_underlying(PixelStorage::BC1) &&
-           luisa::to_underlying(s) <= luisa::to_underlying(PixelStorage::BC7_SRGB);
+           luisa::to_underlying(s) <= luisa::to_underlying(PixelStorage::ASTC_12x12_SRGB);
 }
 
 [[nodiscard]] constexpr auto is_block_compressed(PixelFormat f) noexcept {
     return luisa::to_underlying(f) >= luisa::to_underlying(PixelFormat::BC1UNorm) &&
-           luisa::to_underlying(f) <= luisa::to_underlying(PixelFormat::BC7SRGB);
+           luisa::to_underlying(f) <= luisa::to_underlying(PixelFormat::ASTC_12x12_SRGB);
 }
 
 [[nodiscard]] constexpr auto pixel_format_to_storage(PixelFormat format) noexcept {
@@ -211,6 +237,24 @@ constexpr auto pixel_format_count = to_underlying(PixelFormat::RGBA8SRGB) + 1u;
             return PixelStorage::BC2;
         case PixelFormat::BC1UNorm:
             return PixelStorage::BC1;
+        case PixelFormat::ASTC_4x4:
+        case PixelFormat::ASTC_4x4_SRGB:
+            return PixelStorage::ASTC_4x4;
+        case PixelFormat::ASTC_5x5:
+        case PixelFormat::ASTC_5x5_SRGB:
+            return PixelStorage::ASTC_5x5;
+        case PixelFormat::ASTC_6x6:
+        case PixelFormat::ASTC_6x6_SRGB:
+            return PixelStorage::ASTC_6x6;
+        case PixelFormat::ASTC_8x8:
+        case PixelFormat::ASTC_8x8_SRGB:
+            return PixelStorage::ASTC_8x8;
+        case PixelFormat::ASTC_10x10:
+        case PixelFormat::ASTC_10x10_SRGB:
+            return PixelStorage::ASTC_10x10;
+        case PixelFormat::ASTC_12x12:
+        case PixelFormat::ASTC_12x12_SRGB:
+            return PixelStorage::ASTC_12x12;
         case PixelFormat::R10G10B10A2UNorm:
         case PixelFormat::R10G10B10A2UInt:
             return PixelStorage::R10G10B10A2;
@@ -223,11 +267,23 @@ constexpr auto pixel_format_count = to_underlying(PixelFormat::RGBA8SRGB) + 1u;
 }
 
 [[nodiscard]] constexpr bool is_srgb(PixelStorage storage) noexcept {
-    return storage == PixelStorage::BC7_SRGB || storage == PixelStorage::BYTE4_SRGB;
+    return storage == PixelStorage::BC7_SRGB || storage == PixelStorage::BYTE4_SRGB ||
+           storage == PixelStorage::ASTC_4x4_SRGB ||
+           storage == PixelStorage::ASTC_5x5_SRGB ||
+           storage == PixelStorage::ASTC_6x6_SRGB ||
+           storage == PixelStorage::ASTC_8x8_SRGB ||
+           storage == PixelStorage::ASTC_10x10_SRGB ||
+           storage == PixelStorage::ASTC_12x12_SRGB;
 }
 
 [[nodiscard]] constexpr bool is_srgb(PixelFormat format) noexcept {
-    return format == PixelFormat::BC7SRGB || format == PixelFormat::RGBA8SRGB;
+    return format == PixelFormat::BC7SRGB || format == PixelFormat::RGBA8SRGB ||
+           format == PixelFormat::ASTC_4x4_SRGB ||
+           format == PixelFormat::ASTC_5x5_SRGB ||
+           format == PixelFormat::ASTC_6x6_SRGB ||
+           format == PixelFormat::ASTC_8x8_SRGB ||
+           format == PixelFormat::ASTC_10x10_SRGB ||
+           format == PixelFormat::ASTC_12x12_SRGB;
 }
 
 [[nodiscard]] constexpr PixelStorage decay_srgb(PixelStorage storage) noexcept {
@@ -236,6 +292,18 @@ constexpr auto pixel_format_count = to_underlying(PixelFormat::RGBA8SRGB) + 1u;
             return PixelStorage::BC7;
         case PixelStorage::BYTE4_SRGB:
             return PixelStorage::BYTE4;
+        case PixelStorage::ASTC_4x4_SRGB:
+            return PixelStorage::ASTC_4x4;
+        case PixelStorage::ASTC_5x5_SRGB:
+            return PixelStorage::ASTC_5x5;
+        case PixelStorage::ASTC_6x6_SRGB:
+            return PixelStorage::ASTC_6x6;
+        case PixelStorage::ASTC_8x8_SRGB:
+            return PixelStorage::ASTC_8x8;
+        case PixelStorage::ASTC_10x10_SRGB:
+            return PixelStorage::ASTC_10x10;
+        case PixelStorage::ASTC_12x12_SRGB:
+            return PixelStorage::ASTC_12x12;
         default:
             return storage;
     }
@@ -247,6 +315,18 @@ constexpr auto pixel_format_count = to_underlying(PixelFormat::RGBA8SRGB) + 1u;
             return PixelFormat::BC7UNorm;
         case PixelFormat::RGBA8SRGB:
             return PixelFormat::RGBA8UNorm;
+        case PixelFormat::ASTC_4x4_SRGB:
+            return PixelFormat::ASTC_4x4;
+        case PixelFormat::ASTC_5x5_SRGB:
+            return PixelFormat::ASTC_5x5;
+        case PixelFormat::ASTC_6x6_SRGB:
+            return PixelFormat::ASTC_6x6;
+        case PixelFormat::ASTC_8x8_SRGB:
+            return PixelFormat::ASTC_8x8;
+        case PixelFormat::ASTC_10x10_SRGB:
+            return PixelFormat::ASTC_10x10;
+        case PixelFormat::ASTC_12x12_SRGB:
+            return PixelFormat::ASTC_12x12;
         default:
             return format;
     }
@@ -263,6 +343,18 @@ constexpr auto pixel_format_count = to_underlying(PixelFormat::RGBA8SRGB) + 1u;
             case PixelStorage::BC6:
             case PixelStorage::BC7:
             case PixelStorage::BC7_SRGB:
+            case PixelStorage::ASTC_4x4:
+            case PixelStorage::ASTC_5x5:
+            case PixelStorage::ASTC_6x6:
+            case PixelStorage::ASTC_8x8:
+            case PixelStorage::ASTC_10x10:
+            case PixelStorage::ASTC_12x12:
+            case PixelStorage::ASTC_4x4_SRGB:
+            case PixelStorage::ASTC_5x5_SRGB:
+            case PixelStorage::ASTC_6x6_SRGB:
+            case PixelStorage::ASTC_8x8_SRGB:
+            case PixelStorage::ASTC_10x10_SRGB:
+            case PixelStorage::ASTC_12x12_SRGB:
                 return 16u;
             default: break;
         }
@@ -307,6 +399,9 @@ checked_pixel_storage_size(PixelStorage storage, uint3 size) noexcept {
 
     size_t unit_size = 0u;
     auto block_compressed = false;
+    // ASTC block dimensions differ per format; BC is always 4x4.
+    auto block_width = 4u;
+    auto block_height = 4u;
     switch (storage) {
         case PixelStorage::BYTE1:
             unit_size = sizeof(std::byte);
@@ -366,6 +461,48 @@ checked_pixel_storage_size(PixelStorage storage, uint3 size) noexcept {
             unit_size = 16u;
             block_compressed = true;
             break;
+        case PixelStorage::ASTC_4x4:
+        case PixelStorage::ASTC_4x4_SRGB:
+            unit_size = 16u;
+            block_compressed = true;
+            block_width = 4u;
+            block_height = 4u;
+            break;
+        case PixelStorage::ASTC_5x5:
+        case PixelStorage::ASTC_5x5_SRGB:
+            unit_size = 16u;
+            block_compressed = true;
+            block_width = 5u;
+            block_height = 5u;
+            break;
+        case PixelStorage::ASTC_6x6:
+        case PixelStorage::ASTC_6x6_SRGB:
+            unit_size = 16u;
+            block_compressed = true;
+            block_width = 6u;
+            block_height = 6u;
+            break;
+        case PixelStorage::ASTC_8x8:
+        case PixelStorage::ASTC_8x8_SRGB:
+            unit_size = 16u;
+            block_compressed = true;
+            block_width = 8u;
+            block_height = 8u;
+            break;
+        case PixelStorage::ASTC_10x10:
+        case PixelStorage::ASTC_10x10_SRGB:
+            unit_size = 16u;
+            block_compressed = true;
+            block_width = 10u;
+            block_height = 10u;
+            break;
+        case PixelStorage::ASTC_12x12:
+        case PixelStorage::ASTC_12x12_SRGB:
+            unit_size = 16u;
+            block_compressed = true;
+            block_width = 12u;
+            block_height = 12u;
+            break;
         default:
             return {PixelStorageSizeStatus::INVALID_STORAGE, 0u};
     }
@@ -375,8 +512,10 @@ checked_pixel_storage_size(PixelStorage storage, uint3 size) noexcept {
     auto depth = static_cast<size_t>(size.z);
     if (block_compressed) {
         // Avoid `(extent + 3) / 4`: the addition itself wraps for UINT32_MAX.
-        width = width / 4u + static_cast<size_t>(width % 4u != 0u);
-        height = height / 4u + static_cast<size_t>(height % 4u != 0u);
+        width = width / block_width +
+                static_cast<size_t>(width % block_width != 0u);
+        height = height / block_height +
+                 static_cast<size_t>(height % block_height != 0u);
         depth = std::max<size_t>(depth, 1u);
     }
     size_t element_count = 0u;
@@ -436,6 +575,18 @@ checked_pixel_storage_size(PixelStorage storage, uint3 size) noexcept {
         case PixelStorage::BC3:
         case PixelStorage::BC7:
         case PixelStorage::BC7_SRGB:
+        case PixelStorage::ASTC_4x4:
+        case PixelStorage::ASTC_5x5:
+        case PixelStorage::ASTC_6x6:
+        case PixelStorage::ASTC_8x8:
+        case PixelStorage::ASTC_10x10:
+        case PixelStorage::ASTC_12x12:
+        case PixelStorage::ASTC_4x4_SRGB:
+        case PixelStorage::ASTC_5x5_SRGB:
+        case PixelStorage::ASTC_6x6_SRGB:
+        case PixelStorage::ASTC_8x8_SRGB:
+        case PixelStorage::ASTC_10x10_SRGB:
+        case PixelStorage::ASTC_12x12_SRGB:
             return 4u;
         default: break;
     }
@@ -469,6 +620,18 @@ template<typename T>
             case PixelStorage::BC6: return PixelFormat ::BC6HUF16;
             case PixelStorage::BC7: return PixelFormat ::BC7UNorm;
             case PixelStorage::BC7_SRGB: return PixelFormat ::BC7SRGB;
+            case PixelStorage::ASTC_4x4: return PixelFormat ::ASTC_4x4;
+            case PixelStorage::ASTC_5x5: return PixelFormat ::ASTC_5x5;
+            case PixelStorage::ASTC_6x6: return PixelFormat ::ASTC_6x6;
+            case PixelStorage::ASTC_8x8: return PixelFormat ::ASTC_8x8;
+            case PixelStorage::ASTC_10x10: return PixelFormat ::ASTC_10x10;
+            case PixelStorage::ASTC_12x12: return PixelFormat ::ASTC_12x12;
+            case PixelStorage::ASTC_4x4_SRGB: return PixelFormat ::ASTC_4x4_SRGB;
+            case PixelStorage::ASTC_5x5_SRGB: return PixelFormat ::ASTC_5x5_SRGB;
+            case PixelStorage::ASTC_6x6_SRGB: return PixelFormat ::ASTC_6x6_SRGB;
+            case PixelStorage::ASTC_8x8_SRGB: return PixelFormat ::ASTC_8x8_SRGB;
+            case PixelStorage::ASTC_10x10_SRGB: return PixelFormat ::ASTC_10x10_SRGB;
+            case PixelStorage::ASTC_12x12_SRGB: return PixelFormat ::ASTC_12x12_SRGB;
             default: detail::error_pixel_invalid_format("float");
         }
     } else if constexpr (std::is_same_v<T, int>) {

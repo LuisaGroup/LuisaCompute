@@ -13,16 +13,24 @@ namespace luisa::compute::hip {
 class HIPCommandEncoder;
 
 [[nodiscard]] inline hiprtBuildFlags make_hiprt_build_flags(
-    const AccelOption &option) noexcept {
-    hiprtBuildFlags flags = option.hint == AccelOption::UsageHint::FAST_BUILD ?
-                                hiprtBuildFlagBitPreferFastBuild :
-                                hiprtBuildFlagBitPreferHighQualityBuild;
+    const AccelOption &option,
+    hiprtBuildFlags preference) noexcept {
+    auto flags = preference;
     if (option.allow_update) {
         // HIPRT refits require a topology-preserving builder configuration.
         flags |= hiprtBuildFlagBitDisableSpatialSplits |
                  hiprtBuildFlagBitDisableOrientedBoundingBoxes;
     }
     return flags;
+}
+
+[[nodiscard]] inline hiprtBuildFlags make_hiprt_build_flags(
+    const AccelOption &option) noexcept {
+    return make_hiprt_build_flags(
+        option,
+        option.hint == AccelOption::UsageHint::FAST_BUILD
+            ? hiprtBuildFlagBitPreferFastBuild
+            : hiprtBuildFlagBitPreferHighQualityBuild);
 }
 
 /// Common binding interface for HIP geometries and nested motion scenes.

@@ -62,6 +62,9 @@ struct SwapchainCreationInfo : public ResourceCreationInfo {
 
 struct ShaderCreationInfo : public ResourceCreationInfo {
     uint3 block_size;
+    /// Whether AOT compilation (compile_to) succeeded. Always true for JIT.
+    /// False only when DXC/HLSL compilation failed in compile_only mode.
+    bool compile_ok{true};
 
     [[nodiscard]] static auto make_invalid() noexcept {
         ShaderCreationInfo info{};
@@ -180,6 +183,21 @@ struct ShaderOption {
     ///   The `LUISA_XIR_ENABLE_SCALARIZER` environment variable, when set,
     ///   overrides this field.
     bool enable_scalarizer{false};
+    /// \brief Whether XIR backends may outline stateful ray-query loops into
+    ///   native ray-query pipelines and intersection functions.
+    /// \details This is enabled by default. Disabling it preserves the
+    ///   stateful query-loop representation and is primarily useful for
+    ///   validation and performance comparisons. When enabled, a backend may
+    ///   still retain a stateful loop when its device/capture profitability
+    ///   policy prefers that representation. It currently affects the Metal4
+    ///   AIR backend; other backends may ignore it.
+    bool enable_ray_query_pipeline{true};
+    /// \brief Force eligible ray-query loops into native pipelines.
+    /// \details This bypasses backend profitability selection but never
+    ///   bypasses semantic/ABI rejection (for example procedural candidates
+    ///   unsupported by an intersection-function path). It is intended for
+    ///   validation and matched performance experiments.
+    bool force_ray_query_pipeline{false};
     /// \brief Whether the native driver may run its full optimization
     ///   pipeline while creating the shader.
     /// \details Disabling this option provides a bounded-compilation escape
@@ -206,6 +224,10 @@ struct ShaderOption {
 
 struct TileShaderOption : ShaderOption {
     bool use_cooperative : 1 {false};
+    // Tensor-op fast path (see TileToKernelConfig::use_tensor): forwarded to
+    // tile_to_kernel on the non-native-tile fallback.  Default false — only
+    // the CUDA backend implements the TENSOR_* ops.
+    bool use_tensor : 1 {false};
     // Dynamic batching: when enabled (min != 1 || max != 1), each thread
     // group computes `block_size().z` batch items at once — one per z-thread —
     // and the z axis of the dispatch carries the runtime batch count
@@ -325,16 +347,24 @@ struct hash<compute::ShaderOption> {
         constexpr auto enable_extended_accel_limits_shift = 4u;
         constexpr auto enable_driver_optimization_shift = 5u;
         constexpr auto enable_scalarizer_shift = 6u;
+        constexpr auto enable_ray_query_pipeline_shift = 7u;
+        constexpr auto force_ray_query_pipeline_shift = 8u;
         auto opt_hash = hash_value((static_cast<uint>(option.enable_cache) << enable_cache_shift) |
                                        (static_cast<uint>(option.enable_fast_math) << enable_fast_math_shift) |
                                        (static_cast<uint>(option.enable_debug_info) << enable_debug_info_shift) |
                                        (static_cast<uint>(option.compile_only) << compile_only_shift) |
                                        (static_cast<uint>(option.enable_extended_accel_limits) << enable_extended_accel_limits_shift) |
                                        (static_cast<uint>(option.enable_driver_optimization) << enable_driver_optimization_shift) |
-                                       (static_cast<uint>(option.enable_scalarizer) << enable_scalarizer_shift),
+                                       (static_cast<uint>(option.enable_scalarizer) << enable_scalarizer_shift) |
+                                       (static_cast<uint>(option.enable_ray_query_pipeline) << enable_ray_query_pipeline_shift) |
+                                       (static_cast<uint>(option.force_ray_query_pipeline) << force_ray_query_pipeline_shift),
                                    seed);
         auto name_hash = hash_value(option.name, seed);
-        return hash_combine({opt_hash, name_hash}, seed);
+        auto native_include_hash = hash_value(option.native_include, seed);
+        auto max_registers_hash = hash_value(option.max_registers, seed);
+        return hash_combine(
+            {opt_hash, name_hash, native_include_hash, max_registers_hash},
+            seed);
     }
 };
 

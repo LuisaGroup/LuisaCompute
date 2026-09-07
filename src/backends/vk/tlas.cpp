@@ -3,6 +3,7 @@
 #include "buffer.h"
 #include "compute_shader.h"
 #include "device.h"
+#include "command_buffer_sync.h"
 #include "log.h"
 #include "blas.h"
 #include "motion_instance.h"
@@ -62,27 +63,34 @@ void Tlas::pre_build(
     using namespace tlas_detail;
     _resize_instance(instance_count);
 
-    // Recompute motion state from current modifications and existing instances
+    // Recompute motion state from ground truth: the live instance table plus
+    // any incoming primitive modifications. A TLAS must stay motion-capable
+    // for as long as any referenced child requires it, no matter which
+    // instances the current modification list touches — recomputing from the
+    // modification list alone would silently flip a motion TLAS to the
+    // non-motion path on e.g. a transform-only update, dropping motion blur
+    // and mixing instance formats between builds.
     _has_motion = false;
-    for (auto &&i : modifications) {
-        if (i.flags & AccelBuildCommand::Modification::flag_primitive) {
-            auto prim = reinterpret_cast<PrimitiveBase *>(i.primitive);
-            if (prim && prim->is_motion_instance()) {
-                _has_motion = true;
-                break;
-            }
-            auto blas = tlas_detail::resolve_to_blas(i.primitive);
-            if (blas && blas->has_motion()) {
-                _has_motion = true;
-                break;
-            }
+    for (auto &inst : _all_instance) {
+        if (inst.handle == nullptr) continue;
+        if (inst.is_motion_instance || inst.handle->mesh->has_motion()) {
+            _has_motion = true;
+            break;
         }
     }
     if (!_has_motion) {
-        for (auto &i : _set_map) {
-            if (i.second->mesh && i.second->mesh->has_motion()) {
-                _has_motion = true;
-                break;
+        for (auto &&i : modifications) {
+            if (i.flags & AccelBuildCommand::Modification::flag_primitive) {
+                auto prim = reinterpret_cast<PrimitiveBase *>(i.primitive);
+                if (prim && prim->is_motion_instance()) {
+                    _has_motion = true;
+                    break;
+                }
+                auto blas = tlas_detail::resolve_to_blas(i.primitive);
+                if (blas && blas->has_motion()) {
+                    _has_motion = true;
+                    break;
+                }
             }
         }
     }
@@ -100,6 +108,11 @@ void Tlas::pre_build(
     if (_last_instance_count != instance_count) {
         update = false;
         _last_instance_count = instance_count;
+    }
+    if (_has_motion != _built_with_motion) {
+        // The TLAS create flags and instance format changed between builds; an
+        // in-place update would mix layouts, so force a full rebuild.
+        update = false;
     }
     // Resize the standard 64-byte instance buffer (for shader reads)
     if (_instance_buffer && _instance_buffer->byte_size() < std_inst_size) {
@@ -125,9 +138,7 @@ void Tlas::pre_build(
             new_inst_buffer->vk_buffer(),
             1,
             &buffer_copy};
-        vkCmdCopyBuffer2(
-            cmdbuffer.cmdbuffer(),
-            &copy_info2);
+        detail::cmd_copy_buffer(cmdbuffer.cmdbuffer(), device(), &copy_info2);
         cmdbuffer.states()->dispose_after_flush(std::move(_instance_buffer));
         _instance_buffer = std::move(new_inst_buffer);
     } else if (!_instance_buffer) {
@@ -155,27 +166,48 @@ void Tlas::pre_build(
             auto &&i = modifications[idx];
             auto ite = _set_map.find(i.index);
             bool updateMesh = (i.flags & AccelBuildCommand::Modification::flag_primitive);
-            if (ite != _set_map.end()) {
-                resolved_meshes[idx] = ite->second->mesh;
-                if (!updateMesh) {
-                    const_cast<uint &>(i.flags) = i.flags | AccelBuildCommand::Modification::flag_primitive;
-                    updateMesh = true;
-                }
-                _set_map.erase(ite);
-            } else if (updateMesh) {
+            // Whether the primitive comes from the modification itself (as
+            // opposed to a pending refresh entry force-enabling the rewrite).
+            bool explicit_primitive = updateMesh;
+            if (updateMesh) {
+                // An explicit primitive modification is authoritative: it wins
+                // over any pending BLAS-recreate refresh entry for the same
+                // slot (mirrors the dx backend's ProcessSetDesc merge order).
+                // Otherwise the replacement would be silently dropped and the
+                // TLAS would keep tracing the old mesh.
                 resolved_meshes[idx] = tlas_detail::resolve_to_blas(i.primitive);
+            } else if (ite != _set_map.end()) {
+                resolved_meshes[idx] = ite->second->mesh;
+                const_cast<uint &>(i.flags) = i.flags | AccelBuildCommand::Modification::flag_primitive;
+                updateMesh = true;
+            }
+            if (ite != _set_map.end()) {
+                _set_map.erase(ite);
             }
             if (updateMesh) {
-                _set_mesh(resolved_meshes[idx], i.index);
+                auto motion_instance = false;
+                if (explicit_primitive) {
+                    auto prim = reinterpret_cast<PrimitiveBase *>(i.primitive);
+                    motion_instance = prim && prim->is_motion_instance();
+                }
+                _set_mesh(resolved_meshes[idx], i.index, motion_instance, explicit_primitive);
                 update = false;
                 // Check if any child BLAS has motion enabled
                 if (resolved_meshes[idx] && resolved_meshes[idx]->has_motion()) {
+                    if (!device()->enable_motion_blur()) [[unlikely]] {
+                        LUISA_ERROR("TLAS motion requires VK_NV_ray_tracing_motion_blur, "
+                                    "which is not enabled on this device.");
+                    }
                     _has_motion = true;
                 }
                 // Check if the primitive is a MotionInstance
                 if (i.flags & AccelBuildCommand::Modification::flag_primitive) {
                     auto prim = reinterpret_cast<PrimitiveBase *>(i.primitive);
                     if (prim && prim->is_motion_instance()) {
+                        if (!device()->enable_motion_blur()) [[unlikely]] {
+                            LUISA_ERROR("TLAS motion requires VK_NV_ray_tracing_motion_blur, "
+                                        "which is not enabled on this device.");
+                        }
                         _has_motion = true;
                     }
                 }
@@ -185,25 +217,80 @@ void Tlas::pre_build(
         // 1. _motion_instance_buffer (160-byte stride, 16-byte aligned) for TLAS build
         // 2. _instance_buffer (64-byte stride) for shader reads via StructuredBuffer<_MeshInst>
         if (_has_motion) {
-            // Allocate upload buffer for motion instances (160-byte stride)
             auto motion_upload_size = static_cast<size_t>(instance_count) * kMotionInstanceStride;
-            // Allocate upload buffer for standard instances (64-byte stride)
             auto std_inst_size_bytes = static_cast<size_t>(instance_count) * sizeof(VkAccelerationStructureInstanceKHR);
-            auto total_upload_size = motion_upload_size + std_inst_size_bytes;
-            auto upload_buf = cmdbuffer.states()->upload_alloc.allocate(total_upload_size, 16);
-            auto upload_base = reinterpret_cast<uint8_t *>(
-                static_cast<UploadBuffer const *>(upload_buf.buffer)->mapped_ptr()) + upload_buf.offset;
-            auto motion_data = upload_base;
-            auto std_data = upload_base + motion_upload_size;
-            memset(motion_data, 0, motion_upload_size);
-            memset(std_data, 0, std_inst_size_bytes);
+            // Both instance buffers are consumed whole by the TLAS build, so
+            // keep persistent host-side shadow copies, update them
+            // incrementally and upload them whole: refilling from the current
+            // modification list alone would zero every untouched instance and
+            // drop pending _set_map refreshes (which carry the new device
+            // addresses of recreated BLAS).
+            _motion_instance_cache.resize(motion_upload_size);
+            _std_instance_cache.resize(std_inst_size_bytes);
 
-            // Fill each instance
+            static_assert(sizeof(VkAccelerationStructureInstanceKHR) == 64u);
+            static_assert(offsetof(VkAccelerationStructureInstanceKHR, accelerationStructureReference) == 56u);
+
+            // Convert MotionInstanceTransformSRT -> VkSRTDataNV (field remapping)
+            auto write_vk_srt = [](uint8_t *dst, const MotionInstanceTransformSRT &srt) {
+                auto *f = reinterpret_cast<float *>(dst);
+                f[0]  = srt.scale[0];       // sx
+                f[1]  = srt.shear[0];       // a
+                f[2]  = srt.shear[1];       // b
+                f[3]  = srt.pivot[0];       // pvx
+                f[4]  = srt.scale[1];       // sy
+                f[5]  = srt.shear[2];       // c
+                f[6]  = srt.pivot[1];       // pvy
+                f[7]  = srt.scale[2];       // sz
+                f[8]  = srt.pivot[2];       // pvz
+                f[9]  = srt.quaternion[0];  // qx
+                f[10] = srt.quaternion[1];  // qy
+                f[11] = srt.quaternion[2];  // qz
+                f[12] = srt.quaternion[3];  // qw
+                f[13] = srt.translation[0]; // tx
+                f[14] = srt.translation[1]; // ty
+                f[15] = srt.translation[2]; // tz
+            };
+
+            // Fold pending BLAS-recreate refreshes into the shadow copies,
+            // touching only the acceleration-structure reference fields.
+            for (auto &&entry : _set_map) {
+                auto index = entry.first;
+                auto handle = entry.second;
+                if (index >= instance_count || handle->mesh == nullptr) continue;
+                auto mesh = handle->mesh;
+                auto addr = mesh->get_accel_device_address();
+                resource_barrier->record(BufferView{mesh->_accel_buffer.get()},
+                                         ResourceBarrier::Usage::kAccelInstanceBuffer);
+                reinterpret_cast<VkAccelerationStructureInstanceKHR *>(
+                    _std_instance_cache.data() + index * sizeof(VkAccelerationStructureInstanceKHR))
+                    ->accelerationStructureReference = addr;
+                auto refresh_base = _motion_instance_cache.data() + index * kMotionInstanceStride;
+                switch (*reinterpret_cast<uint32_t const *>(refresh_base)) {
+                    case VK_ACCELERATION_STRUCTURE_MOTION_INSTANCE_TYPE_SRT_MOTION_NV:
+                        // VkAccelerationStructureSRTMotionInstanceNV
+                        *reinterpret_cast<uint64_t *>(refresh_base + 144u) = addr;
+                        break;
+                    case VK_ACCELERATION_STRUCTURE_MOTION_INSTANCE_TYPE_MATRIX_MOTION_NV:
+                        // VkAccelerationStructureMatrixMotionInstanceNV
+                        *reinterpret_cast<uint64_t *>(refresh_base + 112u) = addr;
+                        break;
+                    default:// static instance: VkAccelerationStructureInstanceKHR at offset 8
+                        *reinterpret_cast<uint64_t *>(refresh_base + 8u + 56u) = addr;
+                        break;
+                }
+            }
+
+            // Apply the modification list on top of the preserved shadow
+            // contents; only fields whose flag is set are overwritten (the
+            // same semantics as the non-motion update shader).
             for (size_t idx = 0; idx < modifications.size(); idx++) {
                 auto &&i = modifications[idx];
                 if (i.index >= instance_count) continue;
 
-                // Determine if this modification refers to a MotionInstance with SRT/Matrix keyframes
+                // Determine if this modification assigns a MotionInstance with
+                // SRT keyframes (matrix-mode motion instances are encoded as
+                // static instances, a pre-existing limitation of this path).
                 MotionInstance *mi = nullptr;
                 if (i.flags & AccelBuildCommand::Modification::flag_primitive) {
                     auto prim = reinterpret_cast<PrimitiveBase *>(i.primitive);
@@ -212,52 +299,38 @@ void Tlas::pre_build(
                     }
                 }
 
-                // --- Fill motion instance at 160-byte stride ---
-                auto inst_base = motion_data + static_cast<size_t>(i.index) * kMotionInstanceStride;
-
-                // --- Fill 64-byte standard instance ---
+                // --- 64-byte standard instance (shader reads) ---
                 auto std_inst = reinterpret_cast<VkAccelerationStructureInstanceKHR *>(
-                    std_data + static_cast<size_t>(i.index) * sizeof(VkAccelerationStructureInstanceKHR));
-
-                // Common instance fields
-                uint custom_index;
-                if (i.flags & AccelBuildCommand::Modification::flag_user_id) {
-                    custom_index = i.user_id;
-                } else {
-                    custom_index = static_cast<uint>(i.index);
-                }
-                uint mask;
-                if (i.flags & AccelBuildCommand::Modification::flag_visibility) {
-                    mask = i.vis_mask;
-                } else {
-                    mask = 0xFF;
-                }
-                VkGeometryInstanceFlagsKHR geom_flags = 0;
-                if (i.flags & AccelBuildCommand::Modification::flag_opaque_on) {
-                    geom_flags = VK_GEOMETRY_INSTANCE_FORCE_OPAQUE_BIT_KHR;
-                } else if (i.flags & AccelBuildCommand::Modification::flag_opaque_off) {
-                    geom_flags = VK_GEOMETRY_INSTANCE_FORCE_NO_OPAQUE_BIT_KHR;
-                }
-                uint64_t accel_ref = 0;
-                if ((i.flags & AccelBuildCommand::Modification::flag_primitive) && resolved_meshes[idx]) {
-                    accel_ref = resolved_meshes[idx]->get_accel_device_address();
-                    resource_barrier->record(BufferView{resolved_meshes[idx]->_accel_buffer.get()},
-                                             ResourceBarrier::Usage::kAccelInstanceBuffer);
-                }
-
-                // Fill standard instance buffer (for shader reads)
+                    _std_instance_cache.data() + static_cast<size_t>(i.index) * sizeof(VkAccelerationStructureInstanceKHR));
                 if (i.flags & AccelBuildCommand::Modification::flag_transform) {
                     memcpy(&std_inst->transform, i.affine, sizeof(float) * 12);
                 }
-                std_inst->instanceCustomIndex = custom_index;
-                std_inst->mask = mask;
-                std_inst->instanceShaderBindingTableRecordOffset = 0;
-                std_inst->flags = geom_flags;
-                std_inst->accelerationStructureReference = accel_ref;
+                if (i.flags & AccelBuildCommand::Modification::flag_user_id) {
+                    std_inst->instanceCustomIndex = i.user_id;
+                }
+                if (i.flags & AccelBuildCommand::Modification::flag_visibility) {
+                    std_inst->mask = i.vis_mask;
+                }
+                if (i.flags & AccelBuildCommand::Modification::flag_opaque_on) {
+                    std_inst->flags = (std_inst->flags & ~VK_GEOMETRY_INSTANCE_FORCE_NO_OPAQUE_BIT_KHR) |
+                                      VK_GEOMETRY_INSTANCE_FORCE_OPAQUE_BIT_KHR;
+                } else if (i.flags & AccelBuildCommand::Modification::flag_opaque_off) {
+                    std_inst->flags = (std_inst->flags & ~VK_GEOMETRY_INSTANCE_FORCE_OPAQUE_BIT_KHR) |
+                                      VK_GEOMETRY_INSTANCE_FORCE_NO_OPAQUE_BIT_KHR;
+                }
+                if ((i.flags & AccelBuildCommand::Modification::flag_primitive) && resolved_meshes[idx]) {
+                    auto mesh = resolved_meshes[idx];
+                    std_inst->accelerationStructureReference = mesh->get_accel_device_address();
+                    resource_barrier->record(BufferView{mesh->_accel_buffer.get()},
+                                             ResourceBarrier::Usage::kAccelInstanceBuffer);
+                }
 
-                // Fill motion instance buffer (for TLAS build)
-                if (mi && mi->mode() == AccelMotionMode::SRT && mi->keyframe_count() >= 2) {
-                    // SRT Motion Instance: type = VK_ACCELERATION_STRUCTURE_MOTION_INSTANCE_TYPE_SRT_MOTION_NV (2)
+                // --- 160-byte motion instance (TLAS build) ---
+                auto inst_base = _motion_instance_cache.data() + static_cast<size_t>(i.index) * kMotionInstanceStride;
+                if (mi != nullptr && mi->mode() == AccelMotionMode::SRT && mi->keyframe_count() >= 2u) {
+                    // An SRT motion instance (re-)assignment: rewrite the
+                    // whole entry from the current keyframes and the
+                    // just-updated standard instance fields.
                     *reinterpret_cast<uint32_t *>(inst_base + 0) = VK_ACCELERATION_STRUCTURE_MOTION_INSTANCE_TYPE_SRT_MOTION_NV;
                     *reinterpret_cast<uint32_t *>(inst_base + 4) = 0u; // flags = 0
 
@@ -267,66 +340,50 @@ void Tlas::pre_build(
                     //   instanceCustomIndex:24 | mask:8 at offset 136
                     //   instanceShaderBindingTableRecordOffset:24 | flags:8 at offset 140
                     //   accelerationStructureReference (uint64) at offset 144
-
-                    // Convert MotionInstanceTransformSRT -> VkSRTDataNV (field remapping)
                     auto &keyframes = mi->keyframes();
                     auto &srt0 = keyframes[0].as_srt();
                     auto &srt1 = keyframes[mi->keyframe_count() - 1].as_srt();
-
-                    auto write_vk_srt = [](uint8_t *dst, const MotionInstanceTransformSRT &srt) {
-                        auto *f = reinterpret_cast<float *>(dst);
-                        f[0]  = srt.scale[0];       // sx
-                        f[1]  = srt.shear[0];       // a
-                        f[2]  = srt.shear[1];       // b
-                        f[3]  = srt.pivot[0];       // pvx
-                        f[4]  = srt.scale[1];       // sy
-                        f[5]  = srt.shear[2];       // c
-                        f[6]  = srt.pivot[1];       // pvy
-                        f[7]  = srt.scale[2];       // sz
-                        f[8]  = srt.pivot[2];       // pvz
-                        f[9]  = srt.quaternion[0];  // qx
-                        f[10] = srt.quaternion[1];  // qy
-                        f[11] = srt.quaternion[2];  // qz
-                        f[12] = srt.quaternion[3];  // qw
-                        f[13] = srt.translation[0]; // tx
-                        f[14] = srt.translation[1]; // ty
-                        f[15] = srt.translation[2]; // tz
-                    };
-
-                    write_vk_srt(inst_base + 8, srt0);       // transformT0
-                    write_vk_srt(inst_base + 8 + 64, srt1);  // transformT1
+                    write_vk_srt(inst_base + 8, srt0);      // transformT0
+                    write_vk_srt(inst_base + 8 + 64, srt1); // transformT1
 
                     // Instance fields after the two SRT transforms
                     auto *srt_inst_fields = inst_base + 8 + 64 + 64; // offset 136
                     *reinterpret_cast<uint32_t *>(srt_inst_fields + 0) =
                         detail::VulkanAccelUpdateInput::pack_index_visibility(
-                            custom_index, mask);
+                            std_inst->instanceCustomIndex, std_inst->mask);
                     *reinterpret_cast<uint32_t *>(srt_inst_fields + 4) =
                         detail::VulkanAccelUpdateInput::pack_user_id_flags(
-                            0u, static_cast<uint32_t>(geom_flags));
-                    *reinterpret_cast<uint64_t *>(srt_inst_fields + 8) = accel_ref;
+                            0u, static_cast<uint32_t>(std_inst->flags));
+                    *reinterpret_cast<uint64_t *>(srt_inst_fields + 8) =
+                        std_inst->accelerationStructureReference;
 
-                    if (mi->keyframe_count() > 2) {
+                    if (mi->keyframe_count() > 2u) {
                         LUISA_WARNING("VK_NV_ray_tracing_motion_blur only supports 2 keyframes for SRT motion. "
                                       "Using first and last keyframes (ignoring {} intermediate keyframes).",
-                                      mi->keyframe_count() - 2);
+                                      mi->keyframe_count() - 2u);
                     }
-                } else {
-                    // Static instance: type = VK_ACCELERATION_STRUCTURE_MOTION_INSTANCE_TYPE_STATIC_NV (0)
+                } else if (mi != nullptr || !_all_instance[i.index].is_motion_instance) {
+                    // Static-encoded instance: (re-)write the entry type and
+                    // mirror the just-updated standard instance fields. A slot
+                    // whose motion instance was replaced by a plain primitive
+                    // flips back to the static encoding here (the slot's
+                    // is_motion_instance was already updated by _set_mesh).
                     *reinterpret_cast<uint32_t *>(inst_base + 0) = VK_ACCELERATION_STRUCTURE_MOTION_INSTANCE_TYPE_STATIC_NV;
                     *reinterpret_cast<uint32_t *>(inst_base + 4) = 0u; // flags = 0
-                    // data.staticInstance = VkAccelerationStructureInstanceKHR at offset 8
-                    auto motion_inst = reinterpret_cast<VkAccelerationStructureInstanceKHR *>(inst_base + 8);
-                    if (i.flags & AccelBuildCommand::Modification::flag_transform) {
-                        memcpy(&motion_inst->transform, i.affine, sizeof(float) * 12);
-                    }
-                    motion_inst->instanceCustomIndex = custom_index;
-                    motion_inst->mask = mask;
-                    motion_inst->instanceShaderBindingTableRecordOffset = 0;
-                    motion_inst->flags = geom_flags;
-                    motion_inst->accelerationStructureReference = accel_ref;
+                    memcpy(inst_base + 8, std_inst, sizeof(VkAccelerationStructureInstanceKHR));
                 }
+                // else: a motion-instance slot touched by a non-primitive
+                // modification keeps its cached motion entry (including the
+                // keyframes) unchanged.
             }
+
+            // Upload both shadow copies whole.
+            auto total_upload_size = motion_upload_size + std_inst_size_bytes;
+            auto upload_buf = cmdbuffer.states()->upload_alloc.allocate(total_upload_size, 16);
+            auto upload_base = reinterpret_cast<uint8_t *>(
+                static_cast<UploadBuffer const *>(upload_buf.buffer)->mapped_ptr()) + upload_buf.offset;
+            memcpy(upload_base, _motion_instance_cache.data(), motion_upload_size);
+            memcpy(upload_base + motion_upload_size, _std_instance_cache.data(), std_inst_size_bytes);
 
             // Copy motion instances to _motion_instance_buffer (for TLAS build)
             resource_barrier->record(
@@ -351,7 +408,7 @@ void Tlas::pre_build(
                     _motion_instance_buffer->vk_buffer(),
                     1,
                     &buffer_copy};
-                vkCmdCopyBuffer2(cmdbuffer.cmdbuffer(), &copy_info2);
+                detail::cmd_copy_buffer(cmdbuffer.cmdbuffer(), device(), &copy_info2);
             }
             // Copy standard buffer
             {
@@ -367,7 +424,7 @@ void Tlas::pre_build(
                     _instance_buffer->vk_buffer(),
                     1,
                     &buffer_copy};
-                vkCmdCopyBuffer2(cmdbuffer.cmdbuffer(), &copy_info2);
+                detail::cmd_copy_buffer(cmdbuffer.cmdbuffer(), device(), &copy_info2);
             }
             _set_map.clear();
         } else {
@@ -504,6 +561,19 @@ void Tlas::pre_build(
         vkCmdDispatch(cmdbuffer.cmdbuffer(), (modification_size + 255) / 256, 1, 1);
         } // end non-motion path
     }
+    // The TLAS build dereferences every referenced BLAS through the raw device
+    // addresses in the instance buffer (instance AABBs derive from child BLAS
+    // contents), so each child BLAS buffer must be synchronized with this build
+    // even when the instance list itself is untouched — an in-place BLAS update
+    // leaves both `modifications` and `_set_map` empty and would otherwise race
+    // with the BLAS build, letting the TLAS pick up stale geometry.
+    for (auto &inst : _all_instance) {
+        if (inst.handle != nullptr) {
+            resource_barrier->record(
+                BufferView{inst.handle->mesh->_accel_buffer.get()},
+                ResourceBarrier::Usage::kAccelInstanceBuffer);
+        }
+    }
     VkDeviceOrHostAddressConstKHR instance_data_device_address{};
     // When motion is enabled, TLAS build reads from the 160-byte stride motion instance buffer.
     // The 64-byte _instance_buffer is only for shader reads (StructuredBuffer<_MeshInst>).
@@ -528,6 +598,10 @@ void Tlas::pre_build(
     }
     // Add motion bit if any child BLAS has motion or any MotionInstance is present
     if (_has_motion) {
+        if (!device()->enable_motion_blur()) [[unlikely]] {
+            LUISA_ERROR("TLAS motion requires VK_NV_ray_tracing_motion_blur, "
+                        "which is not enabled on this device.");
+        }
         _acceleration_build_geometry_info->flags |= VK_BUILD_ACCELERATION_STRUCTURE_MOTION_BIT_NV;
     }
     _acceleration_build_geometry_info->mode = update ? VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR : VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
@@ -566,6 +640,10 @@ void Tlas::pre_build(
     motion_info.maxInstances = instance_count;
     motion_info.flags = 0;
     if (_has_motion) {
+        if (!device()->enable_motion_blur()) [[unlikely]] {
+            LUISA_ERROR("TLAS motion requires VK_NV_ray_tracing_motion_blur, "
+                        "which is not enabled on this device.");
+        }
         acceleration_structure_create_info.createFlags = VK_ACCELERATION_STRUCTURE_CREATE_MOTION_BIT_NV;
         acceleration_structure_create_info.pNext = &motion_info;
     }
@@ -577,6 +655,7 @@ void Tlas::pre_build(
             _accel = VK_NULL_HANDLE;
         }
         VK_CHECK_RESULT(vkCreateAccelerationStructureKHR(device()->logic_device(), &acceleration_structure_create_info, Device::alloc_callbacks(), &_accel));
+        _built_with_motion = _has_motion;
     }
     scratch_buffer_size = (scratch_buffer_size + 255) & (~(255u));
     scratch_buffer_size += 256u; // extra padding for GPU buffer address misalignment
@@ -642,13 +721,20 @@ Tlas::~Tlas() {
     }
     vkDestroyAccelerationStructureKHR(device()->logic_device(), _accel, Device::alloc_callbacks());
 }
-void Tlas::_set_mesh(Blas *mesh, uint64 index) {
-    auto &&inst = _all_instance[index].handle;
-    if (inst != nullptr) {
-        if (inst->mesh == mesh) return;
-        inst->mesh->_remove_accel_ref(inst);
+void Tlas::_set_mesh(Blas *mesh, uint64 index, bool is_motion_instance, bool explicit_primitive) {
+    auto &&inst = _all_instance[index];
+    if (inst.handle != nullptr) {
+        if (inst.handle->mesh == mesh) {
+            // Same child BLAS: only an explicit primitive assignment may change
+            // whether the slot counts as a motion instance — a pending refresh
+            // folded into the build must preserve the existing flag.
+            if (explicit_primitive) { inst.is_motion_instance = is_motion_instance; }
+            return;
+        }
+        inst.handle->mesh->_remove_accel_ref(inst.handle);
     }
-    inst = mesh->_add_accel_ref(this, index);
-    inst->accel_index = index;
+    inst.handle = mesh->_add_accel_ref(this, index);
+    inst.handle->accel_index = index;
+    inst.is_motion_instance = is_motion_instance;
 }
 }// namespace lc::vk

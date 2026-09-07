@@ -32,13 +32,43 @@ namespace {
            hiprt_instance_handle(lhs) == hiprt_instance_handle(rhs);
 }
 
+// ROCm 7.2's pitched-copy implementation can successfully return after
+// processing only the first 2^20 rows of a larger transfer. It can also reject
+// a large transfer when either endpoint is an interior allocation address.
+// Keep every individual transfer well below that implementation boundary.
+//
+// Formally, iteration k copies the half-open row interval [r_k, r_{k+1}),
+// where r_0 = 0 and r_{k+1} = min(r_k + C, height). These intervals are
+// pairwise disjoint and their union is [0, height); adding r_k times the pitch
+// to both endpoints preserves the original two-dimensional row relation.
+constexpr size_t hip_pitched_copy_chunk_rows = 1u << 18u;
+
+void hip_memcpy_2d_async_chunked(
+    void *dst, size_t dst_pitch, const void *src, size_t src_pitch,
+    size_t width, size_t height, hipMemcpyKind kind,
+    hipStream_t stream) noexcept {
+    LUISA_ASSERT(width <= dst_pitch && width <= src_pitch,
+                 "Pitched-copy width exceeds its row pitch.");
+    auto dst_bytes = static_cast<std::byte *>(dst);
+    auto src_bytes = static_cast<const std::byte *>(src);
+    for (auto row = size_t{0u}; row < height;) {
+        auto rows = std::min(hip_pitched_copy_chunk_rows, height - row);
+        LUISA_CHECK_HIP(hipMemcpy2DAsync(
+            dst_bytes + row * dst_pitch, dst_pitch,
+            src_bytes + row * src_pitch, src_pitch,
+            width, rows, kind, stream));
+        row += rows;
+    }
+}
+
 }// namespace
 
 HIPAccel::HIPAccel(hiprtContext ctx, const AccelOption &option) noexcept
     : _option{option}, _hiprt_ctx{ctx} {}
 
 HIPAccel::~HIPAccel() noexcept {
-    if (_scene || _instance_allocation || _scene_build_buffer) {
+    if (_scene || _instance_allocation || _scene_instances ||
+        _scene_frames || _scene_masks) {
         // Scene builds and traces are asynchronous, while HIPRT destruction and
         // hipFree below have no stream on which to order their deallocation.
         LUISA_CHECK_HIP(hipDeviceSynchronize());
@@ -50,8 +80,14 @@ HIPAccel::~HIPAccel() noexcept {
         LUISA_CHECK_HIP(hipFree(
             reinterpret_cast<void *>(_instance_allocation)));
     }
-    if (_scene_build_buffer) {
-        LUISA_CHECK_HIP(hipFree(reinterpret_cast<void *>(_scene_build_buffer)));
+    if (_scene_instances) {
+        LUISA_CHECK_HIP(hipFree(reinterpret_cast<void *>(_scene_instances)));
+    }
+    if (_scene_frames) {
+        LUISA_CHECK_HIP(hipFree(reinterpret_cast<void *>(_scene_frames)));
+    }
+    if (_scene_masks) {
+        LUISA_CHECK_HIP(hipFree(reinterpret_cast<void *>(_scene_masks)));
     }
 }
 
@@ -64,35 +100,48 @@ hiprtSceneBuildInput HIPAccel::_make_scene_build_input(HIPCommandEncoder &encode
     auto instance_bytes = _instance_count * sizeof(hiprtInstance);
 
     if (_scene_build_capacity < _instance_count) {
-        auto aligned_size = [](size_t size, size_t alignment) noexcept {
-            return (size + alignment - 1u) & ~(alignment - 1u);
-        };
         auto new_capacity = _instance_count;
         auto new_instance_bytes = new_capacity * sizeof(hiprtInstance);
         auto new_frame_bytes = new_capacity * sizeof(hiprtFrameMatrix);
         auto new_mask_bytes = new_capacity * sizeof(uint32_t);
-        auto frame_offset = aligned_size(new_instance_bytes, alignof(hiprtFrameMatrix));
-        auto mask_offset = aligned_size(frame_offset + new_frame_bytes, alignof(uint32_t));
-        auto allocation_size = mask_offset + new_mask_bytes;
 
-        hipDeviceptr_t new_buffer{};
+        // Keep every pitched-copy destination at the base of its own device
+        // allocation. ROCm 7.2 rejects otherwise-valid large
+        // hipMemcpy2DAsync operations when the destination is an interior
+        // pointer into one packed allocation. The transform and mask gathers
+        // are independent arrays in HIPRT's input algebra, so separate
+        // ownership is also the exact representation rather than a special
+        // large-instance path.
+        hipDeviceptr_t new_instances{};
+        hipDeviceptr_t new_frames{};
+        hipDeviceptr_t new_masks{};
         LUISA_CHECK_HIP(hipMallocAsync(
-            reinterpret_cast<void **>(&new_buffer), allocation_size, hip_stream));
+            reinterpret_cast<void **>(&new_instances), new_instance_bytes, hip_stream));
+        LUISA_CHECK_HIP(hipMallocAsync(
+            reinterpret_cast<void **>(&new_frames), new_frame_bytes, hip_stream));
+        LUISA_CHECK_HIP(hipMallocAsync(
+            reinterpret_cast<void **>(&new_masks), new_mask_bytes, hip_stream));
         // hiprtFrameMatrix includes a time field and tail padding outside the
         // affine matrix copied below. Initialize the allocation once so every
         // persistent frame remains a zero-time static transform.
         LUISA_CHECK_HIP(hipMemsetAsync(
-            reinterpret_cast<void *>(new_buffer), 0, allocation_size, hip_stream));
-        if (_scene_build_buffer) {
+            reinterpret_cast<void *>(new_frames), 0, new_frame_bytes, hip_stream));
+        if (_scene_instances) {
             LUISA_CHECK_HIP(hipFreeAsync(
-                reinterpret_cast<void *>(_scene_build_buffer), hip_stream));
+                reinterpret_cast<void *>(_scene_instances), hip_stream));
         }
-        auto new_buffer_bytes = reinterpret_cast<std::byte *>(new_buffer);
-        _scene_build_buffer = new_buffer;
+        if (_scene_frames) {
+            LUISA_CHECK_HIP(hipFreeAsync(
+                reinterpret_cast<void *>(_scene_frames), hip_stream));
+        }
+        if (_scene_masks) {
+            LUISA_CHECK_HIP(hipFreeAsync(
+                reinterpret_cast<void *>(_scene_masks), hip_stream));
+        }
         _scene_build_capacity = new_capacity;
-        _scene_instances = new_buffer;
-        _scene_frames = reinterpret_cast<hipDeviceptr_t>(new_buffer_bytes + frame_offset);
-        _scene_masks = reinterpret_cast<hipDeviceptr_t>(new_buffer_bytes + mask_offset);
+        _scene_instances = new_instances;
+        _scene_frames = new_frames;
+        _scene_masks = new_masks;
         _hiprt_instances_dirty = true;
     }
 
@@ -109,14 +158,14 @@ hiprtSceneBuildInput HIPAccel::_make_scene_build_input(HIPCommandEncoder &encode
     // transform and visibility fields from that authoritative device buffer so
     // both HIPRT refits and rebuilds observe all preceding shader writes.
     auto instance_data = reinterpret_cast<const std::byte *>(_instance_buffer);
-    LUISA_CHECK_HIP(hipMemcpy2DAsync(
+    hip_memcpy_2d_async_chunked(
         reinterpret_cast<void *>(_scene_frames), sizeof(hiprtFrameMatrix),
         instance_data + offsetof(CodegenInstance, affine), sizeof(CodegenInstance),
-        sizeof(CodegenInstance::affine), n, hipMemcpyDeviceToDevice, hip_stream));
-    LUISA_CHECK_HIP(hipMemcpy2DAsync(
+        sizeof(CodegenInstance::affine), n, hipMemcpyDeviceToDevice, hip_stream);
+    hip_memcpy_2d_async_chunked(
         reinterpret_cast<void *>(_scene_masks), sizeof(uint32_t),
         instance_data + offsetof(CodegenInstance, visibility_mask), sizeof(CodegenInstance),
-        sizeof(uint32_t), n, hipMemcpyDeviceToDevice, hip_stream));
+        sizeof(uint32_t), n, hipMemcpyDeviceToDevice, hip_stream);
 
     hiprtSceneBuildInput input{};
     input.instanceCount = n;
@@ -418,10 +467,10 @@ void HIPAccel::build(HIPCommandEncoder &encoder, AccelBuildCommand *command) noe
                                 reinterpret_cast<hipDeviceptr_t>(device_field),
                                 staging_field, size, hip_stream));
                         } else {
-                            LUISA_CHECK_HIP(hipMemcpy2DAsync(
+                            hip_memcpy_2d_async_chunked(
                                 device_field, sizeof(CodegenInstance),
                                 staging_field, sizeof(CodegenInstance),
-                                size, end - begin, hipMemcpyHostToDevice, hip_stream));
+                                size, end - begin, hipMemcpyHostToDevice, hip_stream);
                         }
                         begin = end;
                     }

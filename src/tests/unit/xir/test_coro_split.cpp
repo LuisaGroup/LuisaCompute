@@ -1,6 +1,7 @@
 // Test for coroutine splitting, state transitions, and malformed-input rejection.
 
 #include "ut/ut.hpp"
+#include <luisa/ast/coro_suspend.h>
 #include <luisa/ast/type_registry.h>
 #include <luisa/core/stl/format.h>
 #include <luisa/dsl/coro_frame.h>
@@ -902,6 +903,58 @@ void reg_coro_split() {
         expect(!cfg.edges.empty());
         expect(!cfg.edges.front().empty());
         cfg.edges.front().clear();
+
+        auto info =
+            coro_split_pass_run_on_module_with_cfg_and_frame_info(
+                &m, cfg, nullptr);
+
+        expect(!info.succeeded());
+        expect(info.invalid_cfg_error_count == 1u);
+        expect(info.subroutines.empty());
+        expect(count_callables(m) == 0u);
+        expect(body->terminator() == suspend);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "tampered_extension_stage_dataflow_is_rejected_atomically"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(m, body);
+        auto *resume = kernel->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *state = b.alloca_local(Type::of<float>());
+        b.store(state, m.create_constant_one(Type::of<float>()));
+        luisa::vector<CoroSuspendExtensionPtr> extensions;
+        extensions.emplace_back(make_coro_suspend_extension_data(
+            "com.example.mutate", 1u,
+            CoroSuspendFallback::reject,
+            {{.name = "state",
+              .access = CoroSuspendBindingAccess::read_write,
+              .lifetime = CoroSuspendBindingLifetime::resumed,
+              .index = 0u}},
+            {}));
+        luisa::vector<Value *> bindings{state};
+        auto *suspend = b.coro_suspend(
+            9u, "mutate-stage-dataflow", nullptr, {}, {},
+            std::move(extensions), luisa::span{bindings});
+        b.set_insertion_point(resume);
+        b.coro_resume(9u, nullptr);
+        static_cast<void>(b.load(Type::of<float>(), state));
+        b.return_void();
+        auto cfg = coro_cfg_distill_pass_run_on_function(kernel);
+        expect(cfg.succeeded());
+        expect(cfg.transition_edges.size() == 1u);
+        expect(cfg.transition_edges.front()
+                   .extension_stage_dataflow.size() == 1u);
+        if (cfg.transition_edges.empty() ||
+            cfg.transition_edges.front()
+                .extension_stage_dataflow.empty()) {
+            return;
+        }
+        cfg.transition_edges.front()
+            .extension_stage_dataflow.front()
+            .live_in_frame_value_indices.clear();
 
         auto info =
             coro_split_pass_run_on_module_with_cfg_and_frame_info(

@@ -234,6 +234,101 @@ make_divergent_collective(uint32_t width) {
 }
 
 [[nodiscard]] std::optional<schedule::Function>
+make_varying_shape_changing_bitcast(uint32_t width) {
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name("varying_shape_changing_bitcast");
+    auto *entry = kernel->create_body_block();
+    auto *even = kernel->create_basic_block();
+    auto *odd = kernel->create_basic_block();
+    auto *merge = kernel->create_basic_block();
+    entry->set_name("entry");
+    even->set_name("even");
+    odd->set_name("odd");
+    merge->set_name("merge");
+
+    auto *lane = module.create_warp_lane_id();
+    auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+    auto *one = module.create_constant_one(Type::of<uint32_t>());
+    float quarter_value = 0.25f;
+    float half_value = 100.5f;
+    auto *quarter = module.create_constant(
+        Type::of<float>(), &quarter_value);
+    auto *half = module.create_constant(
+        Type::of<float>(), &half_value);
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    auto *lane_f32 = builder.cast_(
+        Type::of<float>(), xir::CastOp::STATIC_CAST, lane);
+    auto *parity = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_BIT_AND,
+        {lane, one});
+    auto *condition = builder.call(
+        Type::of<bool>(), xir::ArithmeticOp::BINARY_EQUAL,
+        {parity, zero});
+    builder.cond_br(condition, even, odd);
+
+    builder.set_insertion_point(even);
+    auto *even_x = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
+        {lane_f32, quarter});
+    auto *even_y = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_ADD,
+        {lane_f32, half});
+    auto *even_value = builder.call(
+        Type::of<float2>(), xir::ArithmeticOp::AGGREGATE,
+        {even_x, even_y});
+    builder.br(merge);
+
+    builder.set_insertion_point(odd);
+    auto *odd_x = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_SUB,
+        {quarter, lane_f32});
+    auto *odd_y = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_SUB,
+        {half, lane_f32});
+    auto *odd_value = builder.call(
+        Type::of<float2>(), xir::ArithmeticOp::AGGREGATE,
+        {odd_x, odd_y});
+    builder.br(merge);
+
+    builder.set_insertion_point(merge);
+    auto *selected = builder.phi(
+        Type::of<float2>(),
+        {{even_value, even}, {odd_value, odd}});
+    selected->set_name("selected_float2");
+    auto *packed = builder.bit_cast_(
+        Type::of<uint64_t>(), selected);
+    auto *round_trip = builder.bit_cast_(
+        Type::of<float2>(), packed);
+    auto *result = builder.bit_cast_(
+        Type::of<uint64_t>(), round_trip);
+    result->set_name("packed_result");
+    builder.return_void();
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    if (!lowered.succeeded()) {
+        std::cerr << diagnostics_text(lowered);
+        return std::nullopt;
+    }
+    std::optional<schedule::ValueId> result_id;
+    for (auto &&value : lowered.function->values()) {
+        if (value.name == "packed_result") { result_id = value.id; }
+    }
+    if (!result_id) { return std::nullopt; }
+    for (auto &block : lowered.function->blocks()) {
+        if (block.name == "merge") {
+            block.terminator = schedule::ReturnTerminator{result_id};
+        }
+    }
+    if (!schedule::verify(*lowered.function).succeeded()) {
+        return std::nullopt;
+    }
+    return std::move(*lowered.function);
+}
+
+[[nodiscard]] std::optional<schedule::Function>
 make_cold_state_pressure(uint32_t width) {
     xir::Module module;
     auto *kernel = module.create_kernel();
@@ -2791,6 +2886,65 @@ template<size_t Width>
     return true;
 }
 
+template<size_t Width>
+[[nodiscard]] bool run_varying_shape_changing_bitcast_codegen_width() {
+    auto schedule_function =
+        make_varying_shape_changing_bitcast(Width);
+    CHECK(schedule_function.has_value());
+    auto context = std::make_unique<::llvm::LLVMContext>();
+    auto module = std::make_unique<::llvm::Module>(
+        "simd-varying-shape-changing-bitcast", *context);
+    auto name = std::string{"simd_varying_shape_changing_bitcast_w"} +
+                std::to_string(Width);
+    auto codegen = lower_schedule_to_llvm(
+        *module, *schedule_function, Width, name);
+    if (!codegen.succeeded()) {
+        std::cerr << codegen.error << '\n';
+        return false;
+    }
+    CHECK(!::llvm::verifyModule(*module, &::llvm::errs()));
+
+    LLVMJIT jit;
+    CHECK(jit.succeeded());
+    CHECK(jit.add_module(std::move(module), std::move(context)));
+    using Entry = void(
+        const void *, uint64_t *,
+        const SIMDPacketLaunchConfig *, uint32_t);
+    auto entry = reinterpret_cast<Entry *>(jit.lookup(name));
+    CHECK(entry != nullptr);
+    for (auto active_lanes :
+         {static_cast<uint32_t>(Width),
+          static_cast<uint32_t>(Width - 1u), uint32_t{0u}}) {
+        std::array<uint64_t, Width> output{};
+        output.fill(0xdeadbeefcafebabeull);
+        auto config = launch_1d(active_lanes, Width);
+        entry(nullptr, output.data(), &config, active_lanes);
+        for (auto lane = uint32_t{0u}; lane < Width; lane++) {
+            auto lane_f32 = static_cast<float>(lane);
+            auto expected_value = lane % 2u == 0u ?
+                                      make_float2(
+                                          lane_f32 + 0.25f,
+                                          lane_f32 + 100.5f) :
+                                      make_float2(
+                                          0.25f - lane_f32,
+                                          100.5f - lane_f32);
+            auto expected = lane < active_lanes ?
+                                std::bit_cast<uint64_t>(expected_value) :
+                                0xdeadbeefcafebabeull;
+            CHECK(output[lane] == expected);
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_varying_shape_changing_bitcast_codegen() {
+    return run_varying_shape_changing_bitcast_codegen_width<1u>() &&
+           run_varying_shape_changing_bitcast_codegen_width<2u>() &&
+           run_varying_shape_changing_bitcast_codegen_width<4u>() &&
+           run_varying_shape_changing_bitcast_codegen_width<8u>() &&
+           run_varying_shape_changing_bitcast_codegen_width<16u>();
+}
+
 [[nodiscard]] bool run_direct_divergent_child_codegen() {
     for (auto width : {2u, 4u, 8u, 16u}) {
         auto schedule_function = make_divergent_collective(width);
@@ -3594,6 +3748,13 @@ template<size_t Width>
 [[nodiscard]] bool run_large_cfg_codegen() {
     return run_control_fixture<4u>(
         make_large_cfg(4u, 96u), "schedule_large_cfg_w4", 0u);
+}
+
+[[nodiscard]] bool run_jit_optimization_policy() {
+    CHECK(!LLVMJIT::selects_size_bounded_pipeline(8191u, 262143u));
+    CHECK(LLVMJIT::selects_size_bounded_pipeline(8192u, 1u));
+    CHECK(LLVMJIT::selects_size_bounded_pipeline(1u, 262144u));
+    return true;
 }
 
 [[nodiscard]] bool run_state_residency_codegen() {
@@ -13005,6 +13166,10 @@ void bindless_uniform_gradient_probe(
             kernel.function()->function(), width, name,
             false, false, 1u, true, true);
     };
+    LLVMJIT target_capabilities;
+    CHECK(target_capabilities.succeeded());
+    auto expected_coalescing =
+        target_capabilities.supports_inlined_packet_batch(width) ? 1u : 0u;
     auto candidate = compile("simd_ast_linear_block_coalescing");
     if (!candidate.succeeded()) {
         for (auto &&diagnostic : candidate.diagnostics) {
@@ -13016,7 +13181,8 @@ void bindless_uniform_gradient_probe(
     CHECK(candidate.packet_batch_entry == nullptr);
     CHECK(candidate.block_batch_entry != nullptr);
     CHECK(candidate.linear_1d_packet_tail_narrowing_count == 1u);
-    CHECK(candidate.linear_1d_block_coalescing_count == 1u);
+    CHECK(candidate.linear_1d_block_coalescing_count ==
+          expected_coalescing);
 
     using BlockBatchEntry = void(
         const void *, void *, SIMDPacketLaunchConfig *, uint32_t);
@@ -13078,7 +13244,13 @@ void bindless_uniform_gradient_probe(
         CHECK(wide.succeeded());
         CHECK(wide.block_batch_entry != nullptr);
         CHECK(wide.linear_1d_packet_tail_narrowing_count == 1u);
-        CHECK(wide.linear_1d_block_coalescing_count == 1u);
+        auto expected_wide_coalescing =
+            target_capabilities.supports_inlined_packet_batch(
+                wide_width) ?
+                1u :
+                0u;
+        CHECK(wide.linear_1d_block_coalescing_count ==
+              expected_wide_coalescing);
         std::array<uint32_t, dispatch_size> wide_output{};
         wide_output.fill(sentinel);
         auto wide_config = initial_config;
@@ -15607,6 +15779,8 @@ int main() {
         {"Schedule IR vector warp4", &run_codegen<4u>},
         {"Schedule IR vector warp8", &run_codegen<8u>},
         {"Schedule IR vector warp16", &run_codegen<16u>},
+        {"varying shape-changing bitwise cast",
+         &run_varying_shape_changing_bitcast_codegen},
         {"direct divergent child", &run_direct_divergent_child_codegen},
         {"static power-of-two block size",
          &run_static_block_size_codegen},
@@ -15633,6 +15807,8 @@ int main() {
         {"Schedule IR nested convergence", &run_nested_codegen},
         {"Schedule IR nested convergence W2", &run_nested_w2_codegen},
         {"Schedule IR 96-block CFG", &run_large_cfg_codegen},
+        {"size-bounded JIT optimization policy",
+         &run_jit_optimization_policy},
         {"scheduler state residency", &run_state_residency_codegen},
         {"scheduler state PHI coalescing",
          &run_state_phi_coalescing_codegen},

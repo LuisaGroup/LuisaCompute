@@ -65,8 +65,8 @@ struct StructuredInventory {
 [[nodiscard]] bool call_requires_specialization(
     const xir::CallInst *call, const xir::Function *callee,
     const SpirvFunctionArgumentAnalysisMap &usage,
-    const SpirvReadonlyResourceOriginMap
-        &readonly_resource_origins) noexcept {
+    const SpirvUniqueResourceOriginMap
+        &unique_resource_origins) noexcept {
     if (call == nullptr || callee == nullptr ||
         call->argument_count() != callee->arguments().count_size()) {
         return true;
@@ -84,11 +84,12 @@ struct StructuredInventory {
             auto argument_usage = spirv_function_argument_usage_of(
                 usage, callee, formal);
             if (argument_usage == Usage::NONE) { continue; }
+            // A complete equal-origin proof specializes every descriptor and
+            // resource-specific side channel to the same kernel binding. The
+            // resource therefore does not cross the callable ABI at all.
+            if (unique_resource_origins.contains(formal)) { continue; }
             if (type->is_buffer() || type->is_bindless_array()) {
-                if (!readonly_resource_origins.contains(formal)) {
-                    return true;
-                }
-                continue;
+                return true;
             }
             if (type->is_accel() &&
                 (usage_contains(argument_usage, Usage::WRITE) ||
@@ -113,8 +114,8 @@ struct StructuredInventory {
 [[nodiscard]] luisa::vector<PointerCall> collect_pointer_calls(
     luisa::span<const xir::CallInst *const> call_sites,
     const SpirvFunctionArgumentAnalysisMap &usage,
-    const SpirvReadonlyResourceOriginMap
-        &readonly_resource_origins) noexcept {
+    const SpirvUniqueResourceOriginMap
+        &unique_resource_origins) noexcept {
     luisa::vector<PointerCall> calls;
     calls.reserve(call_sites.size());
     for (auto *const_call : call_sites) {
@@ -132,7 +133,7 @@ struct StructuredInventory {
         }
         if (call_requires_specialization(
                 call, callee, usage,
-                readonly_resource_origins)) {
+                unique_resource_origins)) {
             calls.emplace_back(PointerCall{call, callee});
         }
     }
@@ -285,6 +286,8 @@ void accumulate_inline_info(
         increment.skipped_structured_call_count;
     total.skipped_constrained_call_count +=
         increment.skipped_constrained_call_count;
+    total.skipped_noinline_call_count +=
+        increment.skipped_noinline_call_count;
     total.skipped_metadata_call_count +=
         increment.skipped_metadata_call_count;
     total.consumed_call_site_diagnostic_metadata_count +=
@@ -393,7 +396,7 @@ legalize_spirv_pointer_arguments(xir::Module *module) noexcept {
 
     struct AnalysisSnapshot {
         SpirvFunctionArgumentAnalysisMap usage;
-        SpirvReadonlyResourceOriginMap readonly_resource_origins;
+        SpirvUniqueResourceOriginMap unique_resource_origins;
         SpirvFunctionCallSiteList call_sites;
     };
     auto analyze_argument_flow = [&]() noexcept {
@@ -403,8 +406,8 @@ legalize_spirv_pointer_arguments(xir::Module *module) noexcept {
             module, &statistics,
             {.kernel_reachable_only = true},
             &snapshot.call_sites);
-        snapshot.readonly_resource_origins =
-            analyze_spirv_readonly_resource_origins_from_call_sites(
+        snapshot.unique_resource_origins =
+            analyze_spirv_unique_resource_origins_from_call_sites(
                 snapshot.usage,
                 luisa::span{snapshot.call_sites});
         ++result.argument_usage_analysis_count;
@@ -429,7 +432,7 @@ legalize_spirv_pointer_arguments(xir::Module *module) noexcept {
         auto pointer_calls = collect_pointer_calls(
             luisa::span{analysis.call_sites},
             analysis.usage,
-            analysis.readonly_resource_origins);
+            analysis.unique_resource_origins);
         if (pointer_calls.empty()) { break; }
         result.planned_pointer_call_count += pointer_calls.size();
 
@@ -529,7 +532,7 @@ legalize_spirv_pointer_arguments(xir::Module *module) noexcept {
                     collect_pointer_calls(
                         luisa::span{remaining.call_sites},
                         remaining.usage,
-                        remaining.readonly_resource_origins)
+                        remaining.unique_resource_origins)
                         .size();
                 result.diagnostic = luisa::format(
                     "SPIR-V pointer-argument fallback could not destructure a "
@@ -548,11 +551,13 @@ legalize_spirv_pointer_arguments(xir::Module *module) noexcept {
         }
         auto inline_info = xir::inline_call_sites_pass_run_on_module(
             module, luisa::span{call_sites},
-            {.consume_call_site_diagnostic_metadata = true});
+            {.consume_call_site_diagnostic_metadata = true,
+             .override_noinline = true});
         accumulate_inline_info(result.inline_info, inline_info);
         if (inline_info.inlined_call_count == 0u ||
             inline_info.skipped_structured_call_count != 0u ||
             inline_info.skipped_constrained_call_count != 0u ||
+            inline_info.skipped_noinline_call_count != 0u ||
             inline_info.skipped_metadata_call_count != 0u ||
             inline_info.skipped_declaration_call_count != 0u ||
             inline_info.rejected_malformed_call_count != 0u ||
@@ -562,19 +567,20 @@ legalize_spirv_pointer_arguments(xir::Module *module) noexcept {
                 collect_pointer_calls(
                     luisa::span{remaining.call_sites},
                     remaining.usage,
-                    remaining.readonly_resource_origins)
+                    remaining.unique_resource_origins)
                     .size();
             result.status =
                 SpirvPointerLegalizationStatus::INLINE_RETRY_FAILED;
             result.diagnostic = luisa::format(
                 "SPIR-V pointer-argument inline retry failed "
                 "(remaining={}, structured={}, malformed={}, recursive={}, "
-                "constrained={}, metadata={}, declaration={}).",
+                "constrained={}, noinline={}, metadata={}, declaration={}).",
                 result.remaining_pointer_call_count,
                 result.inline_info.skipped_structured_call_count,
                 result.inline_info.rejected_malformed_call_count,
                 result.inline_info.skipped_recursive_callable_count,
                 result.inline_info.skipped_constrained_call_count,
+                result.inline_info.skipped_noinline_call_count,
                 result.inline_info.skipped_metadata_call_count,
                 result.inline_info.skipped_declaration_call_count);
             return result;

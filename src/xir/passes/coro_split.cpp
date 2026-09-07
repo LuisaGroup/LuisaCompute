@@ -316,6 +316,50 @@ public:
     return valid;
 }
 
+[[nodiscard]] static bool same_suspend_extension(
+    const CoroSuspendExtension *lhs,
+    const CoroSuspendExtension *rhs) noexcept {
+    if (lhs == nullptr || rhs == nullptr) { return lhs == rhs; }
+    if (lhs->schema() != rhs->schema() ||
+        lhs->version() != rhs->version() ||
+        lhs->is_annotation() != rhs->is_annotation() ||
+        lhs->fallback() != rhs->fallback() ||
+        lhs->bindings().size() != rhs->bindings().size() ||
+        lhs->attributes().size() != rhs->attributes().size()) {
+        return false;
+    }
+    for (size_t i = 0u; i < lhs->bindings().size(); ++i) {
+        auto &a = lhs->bindings()[i];
+        auto &b = rhs->bindings()[i];
+        if (a.name != b.name || a.access != b.access ||
+            a.lifetime != b.lifetime || a.index != b.index) {
+            return false;
+        }
+    }
+    for (size_t i = 0u; i < lhs->attributes().size(); ++i) {
+        auto &a = lhs->attributes()[i];
+        auto &b = rhs->attributes()[i];
+        if (a.name != b.name || a.value != b.value) { return false; }
+    }
+    return true;
+}
+
+[[nodiscard]] static bool same_suspend_extension_owner(
+    const CoroSuspendExtensionOwner &lhs,
+    const CoroSuspendExtensionOwner &rhs) noexcept {
+    if (lhs.binding_values != rhs.binding_values ||
+        lhs.extensions.size() != rhs.extensions.size()) {
+        return false;
+    }
+    for (size_t i = 0u; i < lhs.extensions.size(); ++i) {
+        if (!same_suspend_extension(lhs.extensions[i].get(),
+                                    rhs.extensions[i].get())) {
+            return false;
+        }
+    }
+    return true;
+}
+
 [[nodiscard]] static bool distilled_cfg_matches_canonical(
     const CoroCfgDistillResult &result,
     const CoroCfgDistillResult &canonical) noexcept {
@@ -361,7 +405,10 @@ public:
             auto &rhs_point = rhs.suspend_points[j];
             if (lhs_point.block != rhs_point.block ||
                 lhs_point.token != rhs_point.token ||
-                lhs_point.name != rhs_point.name) {
+                lhs_point.name != rhs_point.name ||
+                !same_suspend_extension_owner(
+                    lhs_point.extension_owner,
+                    rhs_point.extension_owner)) {
                 return false;
             }
         }
@@ -374,6 +421,16 @@ public:
             lhs.token != rhs.token ||
             lhs.exit_block != rhs.exit_block ||
             lhs.is_suspend != rhs.is_suspend ||
+            !same_suspend_extension_owner(
+                lhs.extension_owner, rhs.extension_owner) ||
+            lhs.extension_binding_frame_value_indices !=
+                rhs.extension_binding_frame_value_indices ||
+            lhs.extension_binding_access_chains !=
+                rhs.extension_binding_access_chains ||
+            lhs.target_live_frame_value_indices !=
+                rhs.target_live_frame_value_indices ||
+            lhs.extension_stage_dataflow.size() !=
+                rhs.extension_stage_dataflow.size() ||
             lhs.killed_values != rhs.killed_values ||
             lhs.touched_values != rhs.touched_values ||
             lhs.live_values != rhs.live_values ||
@@ -391,6 +448,21 @@ public:
             lhs.live_variables != rhs.live_variables ||
             lhs.store_variables != rhs.store_variables) {
             return false;
+        }
+        for (size_t j = 0u;
+             j < lhs.extension_stage_dataflow.size(); ++j) {
+            auto &lhs_stage = lhs.extension_stage_dataflow[j];
+            auto &rhs_stage = rhs.extension_stage_dataflow[j];
+            if (lhs_stage.use_frame_value_indices !=
+                    rhs_stage.use_frame_value_indices ||
+                lhs_stage.def_frame_value_indices !=
+                    rhs_stage.def_frame_value_indices ||
+                lhs_stage.live_in_frame_value_indices !=
+                    rhs_stage.live_in_frame_value_indices ||
+                lhs_stage.live_out_frame_value_indices !=
+                    rhs_stage.live_out_frame_value_indices) {
+                return false;
+            }
         }
     }
     for (auto i = 0u; i < result.frame_values.size(); ++i) {
@@ -648,6 +720,30 @@ public:
         }
         return true;
     };
+    auto sorted_unique_frame_indices =
+        [&](luisa::span<const size_t> indices) noexcept {
+            return valid_frame_indices(indices) &&
+                   std::is_sorted(indices.begin(), indices.end()) &&
+                   std::adjacent_find(indices.begin(), indices.end()) ==
+                       indices.end();
+        };
+    auto set_union = [](luisa::span<const size_t> lhs,
+                        luisa::span<const size_t> rhs) noexcept {
+        luisa::vector<size_t> result;
+        result.reserve(lhs.size() + rhs.size());
+        std::set_union(lhs.begin(), lhs.end(), rhs.begin(), rhs.end(),
+                       std::back_inserter(result));
+        return result;
+    };
+    auto set_difference = [](luisa::span<const size_t> lhs,
+                             luisa::span<const size_t> rhs) noexcept {
+        luisa::vector<size_t> result;
+        result.reserve(lhs.size());
+        std::set_difference(lhs.begin(), lhs.end(),
+                            rhs.begin(), rhs.end(),
+                            std::back_inserter(result));
+        return result;
+    };
     for (auto &scope : result.scopes) {
         if (!valid_frame_indices(scope.external_frame_value_indices) ||
             !valid_frame_indices(scope.touched_frame_value_indices) ||
@@ -669,6 +765,104 @@ public:
             !valid_frame_indices(edge.store_frame_value_indices) ||
             !coexisting_frame_values_are_disjoint(
                 edge.live_frame_value_indices)) {
+            return false;
+        }
+        if (!sorted_unique_frame_indices(
+                edge.target_live_frame_value_indices) ||
+            !coexisting_frame_values_are_disjoint(
+                edge.target_live_frame_value_indices)) {
+            return false;
+        }
+        if (edge.extension_owner.binding_values.size() !=
+                edge.extension_binding_frame_value_indices.size() ||
+            edge.extension_owner.binding_values.size() !=
+                edge.extension_binding_access_chains.size()) {
+            return false;
+        }
+        for (auto &projection :
+             edge.extension_binding_frame_value_indices) {
+            if (!valid_frame_indices(projection) ||
+                !coexisting_frame_values_are_disjoint(projection)) {
+                return false;
+            }
+        }
+        if ((!edge.is_suspend &&
+             (!edge.extension_owner.extensions.empty() ||
+              !edge.extension_owner.binding_values.empty() ||
+              !edge.extension_stage_dataflow.empty())) ||
+            (edge.is_suspend &&
+             edge.extension_stage_dataflow.size() !=
+                 edge.extension_owner.extensions.size())) {
+            return false;
+        }
+        luisa::vector<uint8_t> seen_bindings(
+            edge.extension_owner.binding_values.size(), 0u);
+        for (size_t stage_index = 0u;
+             stage_index < edge.extension_stage_dataflow.size();
+             ++stage_index) {
+            auto &stage = edge.extension_stage_dataflow[stage_index];
+            auto valid_stage_set = [&](auto &indices) noexcept {
+                if (!sorted_unique_frame_indices(indices) ||
+                    !coexisting_frame_values_are_disjoint(indices)) {
+                    return false;
+                }
+                return true;
+            };
+            if (!valid_stage_set(stage.use_frame_value_indices) ||
+                !valid_stage_set(stage.def_frame_value_indices) ||
+                !valid_stage_set(stage.live_in_frame_value_indices) ||
+                !valid_stage_set(stage.live_out_frame_value_indices)) {
+                return false;
+            }
+            auto &&extension =
+                edge.extension_owner.extensions[stage_index];
+            if (extension == nullptr) { return false; }
+            luisa::vector<size_t> binding_use;
+            luisa::vector<size_t> binding_def;
+            for (auto &&binding : extension->bindings()) {
+                if (binding.index >= seen_bindings.size() ||
+                    seen_bindings[binding.index] != 0u) {
+                    return false;
+                }
+                seen_bindings[binding.index] = 1u;
+                if (binding.lifetime ==
+                    CoroSuspendBindingLifetime::boundary) {
+                    continue;
+                }
+                auto &projection =
+                    edge.extension_binding_frame_value_indices[binding.index];
+                if (binding.access !=
+                    CoroSuspendBindingAccess::write) {
+                    binding_use = set_union(binding_use, projection);
+                }
+                if (binding.access !=
+                    CoroSuspendBindingAccess::read) {
+                    binding_def = set_union(binding_def, projection);
+                }
+            }
+            if (binding_use != stage.use_frame_value_indices ||
+                binding_def != stage.def_frame_value_indices) {
+                return false;
+            }
+            auto expected_live_out =
+                stage_index + 1u <
+                        edge.extension_stage_dataflow.size() ?
+                    edge.extension_stage_dataflow[stage_index + 1u]
+                        .live_in_frame_value_indices :
+                    edge.target_live_frame_value_indices;
+            auto expected_live_in = set_union(
+                stage.use_frame_value_indices,
+                set_difference(expected_live_out,
+                               stage.def_frame_value_indices));
+            if (stage.live_out_frame_value_indices !=
+                    expected_live_out ||
+                stage.live_in_frame_value_indices !=
+                    expected_live_in) {
+                return false;
+            }
+        }
+        if (std::find(seen_bindings.begin(), seen_bindings.end(), 0u) !=
+            seen_bindings.end()) {
             return false;
         }
     }

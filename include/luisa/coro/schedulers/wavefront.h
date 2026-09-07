@@ -5,6 +5,7 @@
 #pragma once
 
 #include <cstdlib>
+#include <limits>
 #include <utility>
 
 #include <luisa/coro/coro_frame_storage.h>
@@ -12,6 +13,7 @@
 #include <luisa/coro/coro_scheduler.h>
 #include <luisa/coro/radix_sort.h>
 #include <luisa/coro/schedulers/wavefront_auxiliary.h>
+#include <luisa/coro/schedulers/wavefront_extension.h>
 #include <luisa/core/clock.h>
 #include <luisa/dsl/coro_func.h>
 #include <luisa/dsl/sugar.h>
@@ -22,11 +24,17 @@
 
 namespace luisa::compute::coro {
 
+struct WavefrontCoroContinuationBlockSize {
+    luisa::string continuation;
+    uint execution_block_size = 0u;
+};
+
 struct WavefrontCoroSchedulerConfig {
     uint thread_count = static_cast<uint>(2_M);
     bool global_memory_soa = true;
     bool gather_by_sorting = true;
     bool frame_buffer_compaction = true;
+    // Exclusive upper bound for every exported hint value.
     uint hint_range = 0xffffffffu;
     luisa::vector<luisa::string> hint_fields;
     bool report_stats = false;
@@ -65,6 +73,26 @@ struct WavefrontCoroSchedulerConfig {
     // one-continuation-at-a-time scheduling. Kept last for positional source
     // compatibility.
     bool incremental_continuation_counts = false;
+    // Optional stable-frame locality partition for hint sorting. A nonzero
+    // value sorts first by frame_index / hint_partition_size and then by the
+    // exported hint. The key operands remain runtime shader arguments; only
+    // the maximum composite range affects sort scratch/pass structure.
+    uint hint_partition_size = 0u;
+    // Optional per-continuation launch shapes. The default block size remains
+    // the exact structure of the entry kernel and every continuation not
+    // listed here. Overrides are keyed by semantic CoroGraph suspend name so
+    // they are independent of graph node numbering. This is a host/JIT
+    // specialization only; no selection enters generated device control flow.
+    luisa::vector<WavefrontCoroContinuationBlockSize>
+        continuation_block_sizes;
+    // Publish incremental queue-count transitions in the entry and resume
+    // kernels which produce them. This preserves the same finite-state count
+    // conservation law as the standalone publisher kernels while avoiding a
+    // second index/token pass. It is meaningful only together with
+    // incremental_continuation_counts and is opt-in because it intentionally
+    // changes user-kernel structure and resource pressure. Kept last for
+    // positional aggregate source compatibility.
+    bool fused_continuation_counts = false;
 };
 
 /// Host-observed work executed by one coroutine graph node during the most
@@ -88,6 +116,17 @@ struct WavefrontCoroAuxiliaryStats {
     uint peak_queued_count{0u};
 };
 
+struct WavefrontCoroExtensionStats {
+    size_t queue_index{0u};
+    size_t boundary_index{0u};
+    size_t extension_index{0u};
+    luisa::string schema;
+    luisa::string handler;
+    uint64_t dispatch_count{0u};
+    uint64_t executed_count{0u};
+    uint peak_queued_count{0u};
+};
+
 /// Diagnostics for the most recent dispatch. Collection is enabled by
 /// WavefrontCoroSchedulerConfig::report_stats or
 /// LUISA_CORO_WAVEFRONT_STATS. It is a host-only observation: enabling it
@@ -97,12 +136,14 @@ struct WavefrontCoroDispatchStats {
     uint64_t iteration_count{0u};
     uint64_t generated_count{0u};
     uint64_t resumed_count{0u};
+    uint64_t extension_count{0u};
     uint64_t gather_scan_count{0u};
     uint64_t compact_scan_count{0u};
     uint max_scan_count{0u};
     uint max_active_count{0u};
     double elapsed_ms{0.0};
     luisa::vector<WavefrontCoroContinuationStats> continuations;
+    luisa::vector<WavefrontCoroExtensionStats> extensions;
     luisa::vector<WavefrontCoroAuxiliaryStats> auxiliary_work;
 };
 
@@ -121,20 +162,38 @@ class WavefrontCoroScheduler : public CoroScheduler<Args...> {
 public:
     using Coro = Coroutine<void(Args...)>;
     using Config = WavefrontCoroSchedulerConfig;
+    using ExtensionPrepareContext = WavefrontCoroExtensionPrepareContext;
+    using ExtensionStage = WavefrontCoroExtensionStage;
+    using ExtensionHandler = WavefrontCoroSchedulerExtensionHandler;
 
 private:
     using AuxiliaryWork = WavefrontCoroAuxiliaryWork<Args...>;
     struct RegisteredAuxiliaryWork {
         luisa::shared_ptr<AuxiliaryWork> work;
         luisa::vector<uint> max_emitted_per_continuation;
+        uint stage_count{0u};
+        size_t stats_offset{0u};
+    };
+    struct RegisteredExtensionStage {
+        WavefrontCoroExtensionStage stage;
+        luisa::unique_ptr<ExtensionHandler> handler;
+        uint next_queue{0u};
+        luisa::vector<size_t> before_resume_chain;
+    };
+    struct ExtensionRoute {
+        uint token{0u};
+        uint boundary_index{0u};
+        luisa::vector<size_t> source_store_fields;
     };
 
     Config _config;
     ByteBuffer _frame_buffer;
     Shader1D<uint, Buffer<uint>, uint, uint, uint, uint, uint3, Args...>
         _gen_kernel;
-    luisa::vector<Shader1D<uint, Buffer<uint>, uint, uint, Args...>>
+    luisa::vector<Shader1D<uint, Buffer<uint>, uint, uint, uint, Args...>>
         _resume_kernels;
+    Shader1D<uint, Buffer<uint>, uint, uint, uint, uint>
+        _advance_extension_stage_shader;
     Shader1D<uint, uint, Buffer<uint>> _initialize_shader;
     Shader1D<Buffer<uint>, uint> _clear_count_shader;
     Shader1D<uint, Buffer<uint>, uint> _count_shader;
@@ -150,28 +209,45 @@ private:
     Buffer<uint> _resume_count;
     Buffer<uint> _resume_offset;
     Buffer<uint> _global_buffer;
+    Buffer<uint> _extension_route_buffer;
     Buffer<uint> _sort_key[2];
     Buffer<uint> _sort_index;
     radix_sort::temp_storage _sort_temp_storage;
     radix_sort::instance<ByteBuffer, uint> _sort_token;
-    radix_sort::instance<Buffer<uint>, ByteBuffer, uint> _sort_hint;
+    radix_sort::instance<Buffer<uint>, ByteBuffer, uint, uint, uint>
+        _sort_hint;
     luisa::vector<uint> _host_count;
     luisa::vector<uint> _host_offset;
     luisa::vector<bool> _have_hint;
     luisa::vector<bool> _refill_at;
     CoroFrameStorageLayout _frame_layout;
-    luisa::vector<luisa::vector<size_t>> _input_fields;
-    luisa::vector<luisa::vector<size_t>> _output_fields;
-    luisa::vector<luisa::vector<luisa::vector<size_t>>> _transition_output_fields;
+    CoroFrameIOPlan _frame_io_plan;
+    // Handlers and delayed finalization outlive the source Coroutine. Own
+    // their immutable descriptors, not a borrowed compiler input or another
+    // frame allocation. Declare these before handlers so they die last.
+    CoroFrameDesc _extension_frame_desc;
+    luisa::vector<CoroGraph::Boundary> _extension_boundaries;
+    luisa::vector<RegisteredExtensionStage> _extension_stages;
+    luisa::vector<luisa::vector<ExtensionRoute>> _extension_routes;
+    luisa::vector<uint> _extension_route_table;
+    // A physical queue can execute an annotation suffix and then a logical
+    // continuation. Ordinary independent Extension queues have no such owner.
+    luisa::vector<uint> _queue_continuation;
     luisa::vector<uint64_t> _shader_structure_hashes;
     luisa::vector<WavefrontCoroShaderInfo> _shader_infos;
+    luisa::vector<uint> _continuation_block_sizes;
     WavefrontCoroDispatchStats _last_dispatch_stats;
     luisa::vector<RegisteredAuxiliaryWork> _auxiliary_work;
+    Device *_device{nullptr};
     size_t _hint_field_index{static_cast<size_t>(-1)};
+    uint _hint_key_range{0u};
+    uint _continuation_count{0u};
+    uint _queue_count{0u};
     uint _used_frame_count{0u};
     uint _active_frame_capacity{0u};
     bool _has_hint_sort{false};
     bool _has_dispatched{false};
+    bool _extension_handlers_finalized{false};
 
 private:
     [[nodiscard]] static auto _linear_dispatch_index() noexcept {
@@ -231,13 +307,139 @@ private:
     void _create_shader(Device &device, const Coro &coro) {
         _shader_structure_hashes.clear();
         _shader_infos.clear();
-        size_t nc = coro.subroutine_count();
+        auto nc = coro.subroutine_count();
+        _continuation_count = static_cast<uint>(nc);
+        _continuation_block_sizes.assign(
+            nc, _config.execution_block_size);
+        luisa::vector<bool> overridden(nc, false);
+        for (auto &&override : _config.continuation_block_sizes) {
+            auto node = coro.graph().node_by_name(
+                override.continuation);
+            LUISA_ASSERT(
+                node != nullptr && node->index != 0u &&
+                    node->index < nc,
+                "Wavefront block-size override '{}' does not name a valid "
+                "non-entry coroutine suspension.",
+                override.continuation);
+            LUISA_ASSERT(
+                override.execution_block_size >= 32u &&
+                    override.execution_block_size <= 1024u &&
+                    override.execution_block_size % 32u == 0u,
+                "Wavefront continuation '{}' block size must be a multiple "
+                "of 32 in [32, 1024], but got {}.",
+                override.continuation,
+                override.execution_block_size);
+            LUISA_ASSERT(
+                !overridden[node->index],
+                "Wavefront continuation '{}' has more than one block-size "
+                "override.",
+                override.continuation);
+            overridden[node->index] = true;
+            _continuation_block_sizes[node->index] =
+                override.execution_block_size;
+        }
         _frame_layout = _config.global_memory_soa ?
                             CoroFrameStorageLayout::make_runtime_soa(coro.frame(), _config.thread_count) :
                             CoroFrameStorageLayout::make_aos(coro.frame(), _config.thread_count);
-        _input_fields.resize(nc);
-        _output_fields.resize(nc);
-        _transition_output_fields.resize(nc);
+        // This scheduler gathers and validates continuations through the
+        // target-token field in global frame storage, so the token belongs to
+        // its physical transfer plan.
+        _frame_io_plan = coro_frame_make_io_plan(
+            coro.graph(), coro.frame().frame_field_count(),
+            {.externalize_target_token = true});
+        _extension_stages.clear();
+        _extension_routes.clear();
+        _extension_routes.resize(nc);
+        _last_dispatch_stats.extensions.clear();
+        if (std::any_of(coro.graph().boundaries().begin(), coro.graph().boundaries().end(),
+                        [](auto &&boundary) noexcept { return !boundary.extensions.empty(); })) {
+            _extension_frame_desc = coro.frame();
+            _extension_boundaries.reserve(coro.graph().boundary_count());
+            for (auto &&source : coro.graph().boundaries()) {
+                auto &boundary = _extension_boundaries.emplace_back(CoroGraph::Boundary{
+                    .index = source.index, .from_index = source.from_index,
+                    .to_index = source.to_index, .token = source.token,
+                    .bindings = source.bindings, .source_store = source.source_store,
+                    .target_live = source.target_live, .stages = source.stages});
+                for (auto &&extension : source.extensions) {
+                    boundary.extensions.emplace_back(extension->clone());
+                }
+            }
+        }
+        for (auto &&boundary : _extension_boundaries) {
+            LUISA_ASSERT(
+                boundary.from_index < nc && boundary.to_index < nc &&
+                    boundary.stages.size() == boundary.extensions.size(),
+                "Coroutine Extension boundary {} is inconsistent with its "
+                "continuation graph.",
+                boundary.index);
+            if (boundary.stages.empty()) { continue; }
+            auto &routes = _extension_routes[boundary.from_index];
+            LUISA_ASSERT(
+                std::none_of(
+                    routes.begin(), routes.end(),
+                    [&](auto &&route) noexcept {
+                        return route.token == boundary.token;
+                    }),
+                "Continuation {} has several static Extension boundaries for "
+                "token {}; a source-side route discriminator is required.",
+                boundary.from_index, boundary.token);
+            auto source_store_fields = boundary.source_store.slots;
+            // Invocation identity is immutable scheduler ABI state and is not
+            // part of Extension logical dataflow. Preserve precisely the
+            // identity fields required by the eventual continuation while the
+            // frame is resident in Extension queues.
+            // Invocation identity is initialized exactly once by the entry
+            // kernel and remains resident thereafter. A later continuation
+            // need not load dormant identity fields into its local frame, so
+            // writing those local fields on an Extension route would replace
+            // the resident identity with zero. Entry routes must establish
+            // the target's identity payload; all later routes preserve it and
+            // let queue relocation copy the resident fields.
+            if (boundary.from_index == coro.graph().entry_index()) {
+                for (auto field :
+                     _frame_io_plan.relocation_fields[boundary.to_index]) {
+                    if (field <
+                        CoroFrameDesc::reserved_field_count - 1u) {
+                        coro_frame_append_unique(
+                            source_store_fields, field);
+                    }
+                }
+            }
+            coro_frame_append_unique(source_store_fields, 6u);
+            luisa::sort(source_store_fields.begin(),
+                        source_store_fields.end());
+            routes.emplace_back(ExtensionRoute{
+                .token = static_cast<uint>(boundary.token),
+                .boundary_index = static_cast<uint>(boundary.index),
+                .source_store_fields = std::move(source_store_fields)});
+            for (auto &&stage : boundary.stages) {
+                LUISA_ASSERT(
+                    stage.extension_index < boundary.extensions.size() &&
+                        boundary.extensions[stage.extension_index] != nullptr,
+                    "Coroutine Extension stage on boundary {} has invalid "
+                    "Extension index {}.",
+                    boundary.index, stage.extension_index);
+                auto queue_index = nc + _extension_stages.size();
+                auto *extension =
+                    boundary.extensions[stage.extension_index].get();
+                _extension_stages.emplace_back(RegisteredExtensionStage{
+                    .stage = WavefrontCoroExtensionStage{
+                        .queue_index = queue_index,
+                        .boundary = &boundary,
+                        .extension = extension,
+                        .dataflow = &stage}});
+                _last_dispatch_stats.extensions.emplace_back(
+                    WavefrontCoroExtensionStats{
+                        .queue_index = queue_index,
+                        .boundary_index = boundary.index,
+                        .extension_index = stage.extension_index,
+                        .schema = luisa::string{extension->schema()}});
+            }
+        }
+        _queue_count = static_cast<uint>(nc + _extension_stages.size());
+        _queue_continuation.assign(_queue_count, static_cast<uint>(nc));
+        for (auto i = 0u; i < nc; ++i) { _queue_continuation[i] = i; }
         _last_dispatch_stats.continuations.clear();
         _last_dispatch_stats.continuations.reserve(nc);
         for (auto i = 0u; i < nc; i++) {
@@ -249,18 +451,12 @@ private:
                     .name = node.index == 0u ?
                                 luisa::string{"<entry>"} :
                                 node.name});
-            _input_fields[i] = coro_frame_collect_input_fields(coro.graph(), i);
-            _output_fields[i] = coro_frame_collect_output_fields(coro.graph(), i);
-            _transition_output_fields[i].resize(nc);
-            for (auto j = 0u; j < nc; j++) {
-                _transition_output_fields[i][j] = coro_frame_collect_output_fields(coro.graph(), i, j);
-            }
         }
         _resume_kernels.resize(nc);
-        _host_count.resize(nc);
-        _host_offset.resize(nc);
-        _have_hint.resize(nc, false);
-        _refill_at.resize(nc, false);
+        _host_count.resize(_queue_count);
+        _host_offset.resize(_queue_count);
+        _have_hint.resize(_queue_count, false);
+        _refill_at.resize(_queue_count, false);
 
         for (auto &name : _config.refill_continuations) {
             auto node = coro.graph().node_by_name(name);
@@ -305,14 +501,37 @@ private:
         // scheduling optimization, so disable that hint when the device does
         // not satisfy the algorithmic precondition; coroutine semantics and
         // token gathering remain unchanged.
+        if (_valid_hint_field_count() != 0u) {
+            LUISA_ASSERT(
+                _config.hint_range != 0u,
+                "Wavefront hint range must be a positive exclusive bound.");
+            auto partition_count = 1u;
+            if (_config.hint_partition_size != 0u) {
+                partition_count =
+                    _config.thread_count /
+                        _config.hint_partition_size +
+                    static_cast<uint>(
+                        _config.thread_count %
+                            _config.hint_partition_size !=
+                        0u);
+            }
+            auto key_range =
+                static_cast<uint64_t>(std::max(_config.hint_range, 1u)) *
+                partition_count;
+            LUISA_ASSERT(
+                key_range <= std::numeric_limits<uint>::max(),
+                "Wavefront composite hint range {} x {} exceeds uint.",
+                _config.hint_range, partition_count);
+            _hint_key_range = static_cast<uint>(key_range);
+        }
         if (_valid_hint_field_count() != 0u &&
-            _config.hint_range > radix_sort::hist_block_size &&
+            _hint_key_range > radix_sort::hist_block_size &&
             device.compute_warp_size() != radix_sort::warp_size) {
             LUISA_WARNING(
                 "Wavefront coroutine hint sorting over range {} requires "
                 "{}-lane subgroups, but the device reports {}; hint sorting "
                 "is disabled.",
-                _config.hint_range, radix_sort::warp_size,
+                _hint_key_range, radix_sort::warp_size,
                 device.compute_warp_size());
             std::fill(_have_hint.begin(), _have_hint.end(), false);
             _config.hint_fields.clear();
@@ -331,23 +550,34 @@ private:
         // ByteBufferView semantics for user arguments.
         auto *frame_buffer = &_frame_buffer;
         _resume_index = device.create_buffer<uint>(_config.thread_count);
-        _resume_count = device.create_buffer<uint>(nc);
+        _resume_count = device.create_buffer<uint>(_queue_count);
+        auto *resume_count_buffer = &_resume_count;
+        auto fuse_continuation_counts =
+            _config.incremental_continuation_counts &&
+            _config.fused_continuation_counts;
         // Incremental queue counts are scheduler-owned state. For
         // every nonterminal continuation t, C[t] is the cardinality of the
         // frames whose target token is t. Queue zero is derived from the
         // relevant slot domain minus sum(C[1..]) and is deliberately not
         // maintained.
-        // Only scheduler-owned publication kernels bind this buffer, keeping
-        // every user continuation's AST and argument ABI independent of the
-        // queue-accounting policy.
-        _resume_offset = device.create_buffer<uint>(nc);
+        // The default policy binds this buffer only in scheduler-owned
+        // publication kernels. The explicitly fused policy instead binds it
+        // in producers so their transition atomics need no second pass.
+        _resume_offset = device.create_buffer<uint>(_queue_count);
         _global_buffer = device.create_buffer<uint>(1u);
+        if (!_extension_stages.empty()) {
+            _extension_route_buffer = device.create_buffer<uint>(
+                coro.graph().boundary_count());
+        }
+        auto *extension_route_buffer = &_extension_route_buffer;
         if (use_sort) {
             _sort_index = device.create_buffer<uint>(_config.thread_count);
             _sort_key[0] = device.create_buffer<uint>(_config.thread_count);
             _sort_key[1] = device.create_buffer<uint>(_config.thread_count);
-            auto max_digit = std::max<uint>(static_cast<uint>(nc),
-                                            std::min<uint>(_config.hint_range, radix_sort::hist_block_size));
+            auto max_digit = std::max<uint>(
+                _queue_count,
+                std::min<uint>(_hint_key_range,
+                               radix_sort::hist_block_size));
             _sort_temp_storage = radix_sort::temp_storage{device, _config.thread_count, max_digit};
         }
 
@@ -373,36 +603,47 @@ private:
             _sort_token = radix_sort::instance<ByteBuffer, uint>{
                 device, _config.thread_count, _sort_temp_storage,
                 &get_scheduler_token, &identity_index, &get_scheduler_token,
-                1u, static_cast<uint>(nc), 0u, 31u,
+                1u, _queue_count, 0u, 31u,
                 "wavefront_token_sort"};
         }
         if (_has_hint_sort) {
-            Callable<uint(uint, Buffer<uint>, ByteBuffer, uint)> keep_index = [](
-                                                                               UInt index, BufferUInt values,
-                                                                               ByteBufferVar, UInt) noexcept {
-                return values.read(index);
-            };
-            Callable<uint(uint, Buffer<uint>, ByteBuffer, uint)> get_coro_hint = [layout = _frame_layout, soa = _config.global_memory_soa,
-                                                                                  hint_field_index = static_cast<uint>(_hint_field_index)](
-                                                                                     UInt index, BufferUInt values,
-                                                                                     ByteBufferVar frame_buf,
-                                                                                     UInt frame_capacity) noexcept {
-                auto frame_index = values.read(index);
-                return coro_frame_read_field<uint>(
-                    frame_buf, frame_index, frame_capacity,
-                    layout, soa, hint_field_index);
-            };
-            if (_config.hint_range <= radix_sort::hist_block_size) {
-                auto hint_digit = std::max<uint>(_config.hint_range, 1u);
-                _sort_hint = radix_sort::instance<Buffer<uint>, ByteBuffer, uint>{
+            Callable<uint(uint, Buffer<uint>, ByteBuffer, uint, uint, uint)>
+                keep_index = [](
+                                 UInt index, BufferUInt values,
+                                 ByteBufferVar, UInt, UInt, UInt) noexcept {
+                    return values.read(index);
+                };
+            Callable<uint(uint, Buffer<uint>, ByteBuffer, uint, uint, uint)>
+                get_coro_hint =
+                    [layout = _frame_layout,
+                     soa = _config.global_memory_soa,
+                     hint_field_index = static_cast<uint>(_hint_field_index)](
+                        UInt index, BufferUInt values,
+                        ByteBufferVar frame_buf, UInt frame_capacity,
+                        UInt hint_range, UInt partition_size) noexcept {
+                        auto frame_index = values.read(index);
+                        auto hint = coro_frame_read_field<uint>(
+                            frame_buf, frame_index, frame_capacity,
+                            layout, soa, hint_field_index);
+                        auto partition = def(0u);
+                        $if (partition_size != 0u) {
+                            partition = frame_index / partition_size;
+                        };
+                        return hint + partition * hint_range;
+                    };
+            if (_hint_key_range <= radix_sort::hist_block_size) {
+                auto hint_digit = std::max<uint>(_hint_key_range, 1u);
+                _sort_hint = radix_sort::instance<
+                    Buffer<uint>, ByteBuffer, uint, uint, uint>{
                     device, _config.thread_count, _sort_temp_storage,
                     &get_coro_hint, &keep_index, &get_coro_hint,
                     1u, hint_digit, 0u, 31u,
                     "wavefront_hint_sort"};
             } else {
                 auto high_bit = 0u;
-                while ((_config.hint_range >> high_bit) != 1u) { high_bit++; }
-                _sort_hint = radix_sort::instance<Buffer<uint>, ByteBuffer, uint>{
+                while ((_hint_key_range >> high_bit) != 1u) { high_bit++; }
+                _sort_hint = radix_sort::instance<
+                    Buffer<uint>, ByteBuffer, uint, uint, uint>{
                     device, _config.thread_count, _sort_temp_storage,
                     &get_coro_hint, &keep_index, &get_coro_hint,
                     0u, radix_sort::hist_block_size, 0u, high_bit,
@@ -411,10 +652,14 @@ private:
         }
 
         if (auto entry_sub = coro[0u]) {
-            Kernel1D k_gen = [&coro, frame_buffer, layout = _frame_layout, output_fields = _transition_output_fields[0u],
+            Kernel1D k_gen = [&coro, frame_buffer, extension_route_buffer,
+                              resume_count_buffer,
+                              routes = _extension_routes[0u],
+                              layout = _frame_layout, output_fields = _frame_io_plan.transition_output_fields[0u],
                               soa = _config.global_memory_soa, compact = _config.frame_buffer_compaction,
-                              execution_block_size = _config.execution_block_size,
-                              token_to_index](
+                              execution_block_size = _continuation_block_sizes[0u],
+                              token_to_index, fuse_continuation_counts,
+                              queue_count = _queue_count](
                                  UInt frame_capacity,
                                  BufferUInt resume_index,
                                  UInt index_offset, UInt frame_offset, UInt global_start,
@@ -429,13 +674,45 @@ private:
                 auto frame = coro.instantiate(logical_id, dispatch_shape);
                 frame.target_token = 0u;
                 coro.entry()(frame, k_args...);
-                auto next = token_to_index(frame.target_token);
+                auto raw_next = def(frame.target_token);
+                auto next = def(token_to_index(raw_next));
+                auto routed = def(false);
+                if (!routes.empty()) {
+                    auto route_table =
+                        Expr<Buffer<uint>>{*extension_route_buffer};
+                    for (auto &&route : routes) {
+                        $if (raw_next == route.token) {
+                            auto stage_queue =
+                                route_table.read(route.boundary_index);
+                            $if (stage_queue != 0u) {
+                                next = stage_queue;
+                                frame.target_token = next;
+                                coro_frame_store(
+                                    frame_buf, frame_id, frame_capacity, frame,
+                                    layout, soa,
+                                    luisa::span{route.source_store_fields},
+                                    false, false);
+                                routed = true;
+                            };
+                        };
+                    }
+                }
                 frame.target_token = next;
                 for (size_t target = 0u; target < output_fields.size(); ++target) {
-                    $if (next == static_cast<uint>(target)) {
+                    if (output_fields[target].empty()) { continue; }
+                    $if ((!routed) &
+                         (next == static_cast<uint>(target))) {
                         coro_frame_store(
                             frame_buf, frame_id, frame_capacity, frame,
-                            layout, soa, luisa::span{output_fields[target]});
+                            layout, soa, luisa::span{output_fields[target]},
+                            false, false);
+                    };
+                }
+                if (fuse_continuation_counts) {
+                    auto resume_count =
+                        Expr<Buffer<uint>>{*resume_count_buffer};
+                    $if ((next != 0u) & (next < queue_count)) {
+                        resume_count.atomic(next).fetch_add(1u);
                     };
                 }
             };
@@ -450,13 +727,19 @@ private:
         for (size_t i = 1u; i < nc; ++i) {
             auto cont_sub = coro[i];
             if (!cont_sub) continue;
-            Kernel1D k_cont = [&coro, frame_buffer, layout = _frame_layout, input_fields = _input_fields[i], output_fields = _transition_output_fields[i],
+            Kernel1D k_cont = [&coro, frame_buffer, extension_route_buffer,
+                               resume_count_buffer,
+                               routes = _extension_routes[i],
+                               layout = _frame_layout, input_fields = _frame_io_plan.input_fields[i], output_fields = _frame_io_plan.transition_output_fields[i],
                                soa = _config.global_memory_soa, i,
-                               execution_block_size = _config.execution_block_size,
-                               read_scheduler_token, token_to_index](
+                               execution_block_size = _continuation_block_sizes[i],
+                               read_scheduler_token, token_to_index,
+                               fuse_continuation_counts,
+                               has_extensions = !_extension_stages.empty(),
+                               queue_count = _queue_count](
                                   UInt frame_capacity,
                                   BufferUInt resume_index,
-                                  UInt resume_offset, UInt count,
+                                  UInt resume_offset, UInt count, UInt source_queue,
                                   Var<Args>... k_args) noexcept {
                 set_block_size(execution_block_size);
                 auto frame_buf = Expr<ByteBuffer>{*frame_buffer};
@@ -464,19 +747,67 @@ private:
                 $if (x >= count) { $return(); };
                 auto idx = resume_index.read(resume_offset + x);
                 auto tok = read_scheduler_token(idx, frame_buf, frame_capacity);
-                $if (tok != static_cast<uint>(i)) { $return(); };
+                auto current_queue = has_extensions ? source_queue : def(static_cast<uint>(i));
+                if (fuse_continuation_counts) {
+                    auto resume_count_buffer_expr =
+                        Expr<Buffer<uint>>{*resume_count_buffer};
+                    $if (x == 0u) {
+                        resume_count_buffer_expr.atomic(
+                            current_queue).fetch_sub(count);
+                    };
+                    $if (tok != current_queue) {
+                        $if ((tok != 0u) & (tok < queue_count)) {
+                            resume_count_buffer_expr.atomic(tok).fetch_add(1u);
+                        };
+                        $return();
+                    };
+                } else {
+                    $if (tok != current_queue) { $return(); };
+                }
                 auto frame = coro_frame_load(
                     &coro.frame(), frame_buf, idx, frame_capacity,
-                    layout, soa, luisa::span{input_fields});
+                    layout, soa, luisa::span{input_fields}, false, false);
                 frame.target_token = CoroFrame::TERMINAL_TOKEN;
                 coro[i](frame, k_args...);
-                auto next = token_to_index(frame.target_token);
+                auto raw_next = def(frame.target_token);
+                auto next = def(token_to_index(raw_next));
+                auto routed = def(false);
+                if (!routes.empty()) {
+                    auto route_table =
+                        Expr<Buffer<uint>>{*extension_route_buffer};
+                    for (auto &&route : routes) {
+                        $if (raw_next == route.token) {
+                            auto stage_queue =
+                                route_table.read(route.boundary_index);
+                            $if (stage_queue != 0u) {
+                                next = stage_queue;
+                                frame.target_token = next;
+                                coro_frame_store(
+                                    frame_buf, idx, frame_capacity, frame,
+                                    layout, soa,
+                                    luisa::span{route.source_store_fields},
+                                    false, false);
+                                routed = true;
+                            };
+                        };
+                    }
+                }
                 frame.target_token = next;
                 for (size_t target = 0u; target < output_fields.size(); ++target) {
-                    $if (next == static_cast<uint>(target)) {
+                    if (output_fields[target].empty()) { continue; }
+                    $if ((!routed) &
+                         (next == static_cast<uint>(target))) {
                         coro_frame_store(
                             frame_buf, idx, frame_capacity, frame,
-                            layout, soa, luisa::span{output_fields[target]});
+                            layout, soa, luisa::span{output_fields[target]},
+                            false, false);
+                    };
+                }
+                if (fuse_continuation_counts) {
+                    auto resume_count_buffer_expr =
+                        Expr<Buffer<uint>>{*resume_count_buffer};
+                    $if ((next != 0u) & (next < queue_count)) {
+                        resume_count_buffer_expr.atomic(next).fetch_add(1u);
                     };
                 }
             };
@@ -488,6 +819,54 @@ private:
                     luisa::format("wavefront_resume_{}", i)),
                 luisa::format("wavefront_resume_{}/{}", i,
                               coro.graph().node(i).name));
+        }
+
+        if (!_extension_stages.empty()) {
+            Kernel1D advance_extension_stage =
+                [frame_buffer, layout = _frame_layout,
+                 soa = _config.global_memory_soa,
+                 read_scheduler_token, resume_count_buffer,
+                 fuse_continuation_counts,
+                 queue_count = _queue_count](
+                    UInt frame_capacity, BufferUInt indices,
+                    UInt index_offset, UInt count,
+                    UInt current_queue, UInt next_queue) noexcept {
+                    auto frame_buf = Expr<ByteBuffer>{*frame_buffer};
+                    auto x = dispatch_x();
+                    $if (x >= count) { $return(); };
+                    auto frame_index = indices.read(index_offset + x);
+                    auto token = read_scheduler_token(
+                        frame_index, frame_buf, frame_capacity);
+                    if (fuse_continuation_counts) {
+                        auto resume_count =
+                            Expr<Buffer<uint>>{*resume_count_buffer};
+                        $if (x == 0u) {
+                            resume_count.atomic(current_queue)
+                                .fetch_sub(count);
+                        };
+                    }
+                    $if (token == current_queue) {
+                        coro_frame_write_field(
+                            frame_buf, frame_index, frame_capacity,
+                            layout, soa, 6u, next_queue);
+                    };
+                    if (fuse_continuation_counts) {
+                        auto resume_count =
+                            Expr<Buffer<uint>>{*resume_count_buffer};
+                        auto final_token = select(
+                            token, next_queue, token == current_queue);
+                        $if ((final_token != 0u) &
+                             (final_token < queue_count)) {
+                            resume_count.atomic(final_token).fetch_add(1u);
+                        };
+                    }
+                };
+            _advance_extension_stage_shader = _compile_shader(
+                device, advance_extension_stage,
+                detail::coro_scheduler_shader_option(
+                    _config.shader_option,
+                    "wavefront_advance_extension_stage"),
+                "wavefront_advance_extension_stage");
         }
 
         Kernel1D initialize_kernel =
@@ -529,14 +908,14 @@ private:
 
         Kernel1D count_kernel =
             [frame_buffer, layout = _frame_layout, soa = _config.global_memory_soa,
-             read_scheduler_token, node_count = static_cast<uint>(nc)](
+             read_scheduler_token, queue_count = _queue_count](
                 UInt frame_capacity,
                 BufferUInt count, UInt n) noexcept {
             auto frame_buf = Expr<ByteBuffer>{*frame_buffer};
             auto x = dispatch_x();
             $if (x >= n) { $return(); };
             auto tok = read_scheduler_token(x, frame_buf, frame_capacity);
-            $if (tok < node_count) {
+            $if (tok < queue_count) {
                 count.atomic(tok).fetch_add(1u);
             };
         };
@@ -546,7 +925,8 @@ private:
                 _config.shader_option, "wavefront_count"),
             "wavefront_count");
 
-        if (_config.incremental_continuation_counts) {
+        if (_config.incremental_continuation_counts &&
+            !_config.fused_continuation_counts) {
             // Queue cardinality is a scheduler concern, not continuation
             // state. Keep its atomics out of user coroutines so adding an
             // incremental scheduler cannot change a trace/shade kernel's
@@ -566,7 +946,7 @@ private:
                  soa = _config.global_memory_soa,
                  compact = _config.frame_buffer_compaction,
                  read_scheduler_token,
-                 node_count = static_cast<uint>(nc)](
+                 queue_count = _queue_count](
                     UInt frame_capacity, BufferUInt index,
                     UInt index_offset, BufferUInt count,
                     UInt frame_offset, UInt n) noexcept {
@@ -578,7 +958,7 @@ private:
                                            index.read(index_offset + x);
                     auto tok = read_scheduler_token(
                         frame_index, frame_buf, frame_capacity);
-                    $if ((tok != 0u) & (tok < node_count)) {
+                    $if ((tok != 0u) & (tok < queue_count)) {
                         count.atomic(tok).fetch_add(1u);
                     };
                 };
@@ -603,7 +983,7 @@ private:
                 [frame_buffer, layout = _frame_layout,
                  soa = _config.global_memory_soa,
                  read_scheduler_token,
-                 node_count = static_cast<uint>(nc)](
+                 queue_count = _queue_count](
                     UInt frame_capacity, BufferUInt index,
                     UInt index_offset, BufferUInt count,
                     UInt source_token, UInt n) noexcept {
@@ -616,7 +996,7 @@ private:
                     auto frame_index = index.read(index_offset + x);
                     auto tok = read_scheduler_token(
                         frame_index, frame_buf, frame_capacity);
-                    $if ((tok != 0u) & (tok < node_count)) {
+                    $if ((tok != 0u) & (tok < queue_count)) {
                         count.atomic(tok).fetch_add(1u);
                     };
                 };
@@ -630,14 +1010,14 @@ private:
 
         Kernel1D gather_kernel =
             [frame_buffer, layout = _frame_layout, soa = _config.global_memory_soa,
-             read_scheduler_token, node_count = static_cast<uint>(nc)](
+             read_scheduler_token, queue_count = _queue_count](
                 UInt frame_capacity,
                 BufferUInt index, BufferUInt offset, UInt n) noexcept {
             auto frame_buf = Expr<ByteBuffer>{*frame_buffer};
             auto x = dispatch_x();
             $if (x >= n) { $return(); };
             auto tok = read_scheduler_token(x, frame_buf, frame_capacity);
-            $if (tok < node_count) {
+            $if (tok < queue_count) {
                 auto slot = offset.atomic(tok).fetch_add(1u);
                 index.write(slot, x);
             };
@@ -672,12 +1052,30 @@ private:
                 "wavefront_gather_selected");
         }
 
-        auto relocation_partition = coro_frame_partition_relocation_fields(
-            coro.graph(), coro.frame().frame_field_count());
+        auto queue_relocation_fields = _frame_io_plan.relocation_fields;
+        queue_relocation_fields.reserve(_queue_count);
+        for (auto &&registered : _extension_stages) {
+            auto fields = registered.stage.dataflow->live_in.slots;
+            auto target = registered.stage.boundary->to_index;
+            for (auto field : _frame_io_plan.relocation_fields[target]) {
+                if (field < CoroFrameDesc::reserved_field_count - 1u) {
+                    coro_frame_append_unique(fields, field);
+                }
+            }
+            coro_frame_append_unique(fields, 6u);
+            luisa::sort(fields.begin(), fields.end());
+            queue_relocation_fields.emplace_back(std::move(fields));
+        }
+        LUISA_ASSERT(
+            queue_relocation_fields.size() == _queue_count,
+            "Wavefront Extension queue relocation plan size mismatch.");
+        auto relocation_partition =
+            coro_frame_partition_relocation_fields(
+                std::move(queue_relocation_fields));
         Kernel1D compact_kernel =
             [frame_buffer, layout = _frame_layout, soa = _config.global_memory_soa,
              read_scheduler_token, desc = &coro.frame(),
-             node_count = static_cast<uint>(nc),
+             queue_count = _queue_count,
              common_relocation_fields =
                  std::move(relocation_partition.common_fields),
              residual_relocation_fields =
@@ -690,7 +1088,7 @@ private:
                 auto src = active_count + x;
                 $if (src >= scan_count) { $return(); };
                 auto tok = read_scheduler_token(src, frame_buf, frame_capacity);
-                $if ((tok != 0u) & (tok < node_count)) {
+                $if ((tok != 0u) & (tok < queue_count)) {
                     auto dst = def(0u);
                     auto found_dst = def(false);
                     $while (!found_dst) {
@@ -755,6 +1153,130 @@ private:
         }
     }
 
+    template<typename Prepare>
+    void _claim_extension_stages(
+        Stream &stream, Prepare &prepare) noexcept {
+        auto context = WavefrontCoroExtensionPrepareContext{
+            .device = *_device,
+            .stream = stream,
+            .frame_desc = _extension_frame_desc,
+            .frame_layout = _frame_layout,
+            .frame_capacity = _config.thread_count,
+            .global_memory_soa = _config.global_memory_soa,
+            .shader_option = _config.shader_option};
+        for (size_t i = 0u; i < _extension_stages.size(); ++i) {
+            auto &registered = _extension_stages[i];
+            if (registered.handler != nullptr) { continue; }
+            luisa::unique_ptr<ExtensionHandler> handler{
+                prepare(context, std::as_const(registered.stage))};
+            if (handler == nullptr) { continue; }
+            LUISA_ASSERT(!handler->name().empty(),
+                         "Wavefront Extension handler name must be "
+                         "non-empty for Extension '{}' at queue {}.",
+                         registered.stage.extension->schema(),
+                         registered.stage.queue_index);
+            _last_dispatch_stats.extensions[i].handler =
+                luisa::string{handler->name()};
+            registered.handler = std::move(handler);
+        }
+    }
+
+    void _finalize_extension_handlers() noexcept {
+        if (_extension_handlers_finalized) { return; }
+        if (_extension_stages.empty()) {
+            _extension_route_table.clear();
+            _extension_handlers_finalized = true;
+            return;
+        }
+        auto route_count = std::max<size_t>(
+            _extension_boundaries.size(), 1u);
+        _extension_route_table.assign(route_count, 0u);
+        for (auto &&boundary : _extension_boundaries) {
+            luisa::vector<size_t> active;
+            for (size_t i = 0u; i < _extension_stages.size(); ++i) {
+                auto &registered = _extension_stages[i];
+                if (registered.stage.boundary != &boundary) { continue; }
+                auto *extension = registered.stage.extension;
+                if (registered.handler != nullptr) {
+                    active.emplace_back(i);
+                    continue;
+                }
+                LUISA_ASSERT(extension != nullptr,
+                             "Coroutine Extension stage is null.");
+                LUISA_ASSERT(
+                    extension->is_annotation(),
+                    "Wavefront scheduler has no handler for semantic "
+                    "Extension '{}' v{} at boundary {}. Register a matching "
+                    "WavefrontCoroSchedulerExtensionHandler before dispatch.",
+                    extension->schema(), extension->version(),
+                    boundary.index);
+                LUISA_ASSERT(
+                    registered.stage.dataflow->def.slots.empty(),
+                    "Unhandled coroutine annotation '{}' at boundary {} "
+                    "writes frame state and cannot be skipped safely.",
+                    extension->schema(), boundary.index);
+                switch (extension->fallback()) {
+                    case CoroSuspendFallback::ignore: break;
+                    case CoroSuspendFallback::warn:
+                        LUISA_WARNING(
+                            "Wavefront scheduler is ignoring unhandled "
+                            "coroutine annotation '{}' v{} at boundary {}.",
+                            extension->schema(), extension->version(),
+                            boundary.index);
+                        break;
+                    case CoroSuspendFallback::reject:
+                        LUISA_ERROR_WITH_LOCATION(
+                            "Wavefront scheduler has no handler for required "
+                            "coroutine annotation '{}' v{} at boundary {}.",
+                            extension->schema(), extension->version(),
+                            boundary.index);
+                }
+            }
+            if (active.empty()) { continue; }
+            _extension_route_table[boundary.index] = static_cast<uint>(
+                _extension_stages[active.front()].stage.queue_index);
+            for (size_t i = 0u; i < active.size(); ++i) {
+                auto next = i + 1u < active.size() ?
+                                static_cast<uint>(
+                                    _extension_stages[active[i + 1u]]
+                                        .stage.queue_index) :
+                                static_cast<uint>(boundary.to_index);
+                _extension_stages[active[i]].next_queue = next;
+            }
+            auto suffix = active.size();
+            for (size_t i = 0u; i < active.size(); ++i) {
+                auto &registered = _extension_stages[active[i]];
+                if (registered.handler->execution() ==
+                    WavefrontCoroExtensionExecution::before_resume) {
+                    LUISA_ASSERT(boundary.to_index != 0u &&
+                                     registered.stage.extension->is_annotation() &&
+                                     registered.stage.dataflow->def.slots.empty() &&
+                                     std::all_of(registered.stage.extension->bindings().begin(),
+                                                 registered.stage.extension->bindings().end(),
+                                                 [](auto &&binding) noexcept {
+                                                     return binding.access == CoroSuspendBindingAccess::read;
+                                                 }),
+                                 "Before-resume handler '{}' must be a read-only annotation.",
+                                 registered.handler->name());
+                    suffix = std::min(suffix, i);
+                } else {
+                    LUISA_ASSERT(suffix == active.size(),
+                                 "Independent Extension '{}' follows a before-resume annotation "
+                                 "at boundary {}; before-resume handlers must form a suffix.",
+                                 registered.handler->name(), boundary.index);
+                }
+            }
+            if (suffix != active.size()) {
+                auto &first = _extension_stages[active[suffix]];
+                first.before_resume_chain.assign(active.data() + suffix, active.data() + active.size());
+                auto queue = first.stage.queue_index;
+                _queue_continuation[queue] = static_cast<uint>(boundary.to_index);
+                _refill_at[queue] = _refill_at[boundary.to_index];
+            }
+        }
+        _extension_handlers_finalized = true;
+    }
+
     void _sort_token_buckets(Stream &stream, uint count) noexcept {
         if (count == 0u) {
             std::fill(_host_count.begin(), _host_count.end(), 0u);
@@ -783,12 +1305,19 @@ private:
             _sort_key[1].view().subview(offset, count)};
         return _sort_hint.sort_switch(stream, keys, indices, count,
                                       _resume_index.view().subview(offset, count),
-                                      _frame_buffer, _config.thread_count);
+                                      _frame_buffer, _config.thread_count,
+                                      _config.hint_range,
+                                      _config.hint_partition_size);
     }
 
     void _dispatch(
         Stream &stream, uint3 dispatch_size,
         compute::detail::prototype_to_shader_invocation_t<Args>... args) noexcept override {
+        _finalize_extension_handlers();
+        if (!_extension_route_table.empty()) {
+            stream << _extension_route_buffer.copy_from(
+                luisa::span{_extension_route_table});
+        }
         uint N = dispatch_size.x * dispatch_size.y * dispatch_size.z;
         auto report_stats = _config.report_stats ||
                             std::getenv("LUISA_CORO_WAVEFRONT_STATS") != nullptr;
@@ -796,6 +1325,7 @@ private:
         _last_dispatch_stats.iteration_count = 0u;
         _last_dispatch_stats.generated_count = 0u;
         _last_dispatch_stats.resumed_count = 0u;
+        _last_dispatch_stats.extension_count = 0u;
         _last_dispatch_stats.gather_scan_count = 0u;
         _last_dispatch_stats.compact_scan_count = 0u;
         _last_dispatch_stats.max_scan_count = 0u;
@@ -805,6 +1335,11 @@ private:
             continuation.dispatch_count = 0u;
             continuation.executed_count = 0u;
             continuation.peak_queued_count = 0u;
+        }
+        for (auto &extension : _last_dispatch_stats.extensions) {
+            extension.dispatch_count = 0u;
+            extension.executed_count = 0u;
+            extension.peak_queued_count = 0u;
         }
         for (auto &work : _last_dispatch_stats.auxiliary_work) {
             work.dispatch_count = 0u;
@@ -825,7 +1360,8 @@ private:
         _used_frame_count = 0u;
 
         auto nc = _resume_kernels.size();
-        for (size_t i = 0u; i < nc; ++i) {
+        auto nq = static_cast<size_t>(_queue_count);
+        for (size_t i = 0u; i < nq; ++i) {
             _host_count[i] =
                 _config.incremental_continuation_counts ?
                     0u :
@@ -850,6 +1386,25 @@ private:
         auto resumed_count = uint64_t{0u};
         auto max_scan_count = 0u;
         auto max_active_count = 0u;
+        auto resume = [&](size_t continuation, uint source_queue,
+                          BufferView<uint> indices, uint count) noexcept {
+            stream << _resume_kernels[continuation](
+                          _config.thread_count, indices, 0u, count, source_queue, args...)
+                          .dispatch(count);
+            if (_config.incremental_continuation_counts &&
+                !_config.fused_continuation_counts) {
+                stream << _publish_resumed_count_shader(
+                              _config.thread_count, indices, 0u, _resume_count,
+                              source_queue, count)
+                              .dispatch(count);
+            }
+            resumed_count += count;
+            if (report_stats) {
+                auto &stat = _last_dispatch_stats.continuations[continuation];
+                stat.dispatch_count++;
+                stat.executed_count += count;
+            }
+        };
         Clock dispatch_clock;
         while (true) {
             iteration_count++;
@@ -889,16 +1444,16 @@ private:
                        << synchronize();
                 if (verify_queues && scan_count != 0u) {
                     stream << _clear_count_shader(
-                                  _resume_offset, static_cast<uint>(nc))
-                                  .dispatch(static_cast<uint>(nc));
+                                  _resume_offset, static_cast<uint>(nq))
+                                  .dispatch(static_cast<uint>(nq));
                     stream << _count_shader(
                                   _config.thread_count,
                                   _resume_offset, scan_count)
                                   .dispatch(scan_count);
-                    luisa::vector<uint> actual(nc);
+                    luisa::vector<uint> actual(nq);
                     stream << _resume_offset.copy_to(luisa::span{actual})
                            << synchronize();
-                    for (size_t i = 1u; i < nc; ++i) {
+                    for (size_t i = 1u; i < nq; ++i) {
                         LUISA_ASSERT(
                             actual[i] == _host_count[i],
                             "Incremental wavefront queue invariant violation "
@@ -931,7 +1486,9 @@ private:
                     }
                 }
             } else {
-                stream << _clear_count_shader(_resume_count, static_cast<uint>(nc)).dispatch(static_cast<uint>(nc));
+                stream << _clear_count_shader(
+                              _resume_count, static_cast<uint>(nq))
+                              .dispatch(static_cast<uint>(nq));
                 if (scan_count != 0u) {
                     stream << _count_shader(
                                   _config.thread_count,
@@ -943,39 +1500,66 @@ private:
             }
 
             auto active_count = 0u;
-            for (size_t i = 1u; i < nc; ++i) {
+            for (size_t i = 1u; i < nq; ++i) {
                 active_count += _host_count[i];
                 if (report_stats) {
-                    auto &continuation =
-                        _last_dispatch_stats.continuations[i];
-                    continuation.peak_queued_count = std::max(
-                        continuation.peak_queued_count,
-                        _host_count[i]);
+                    if (i < nc) {
+                        auto &continuation =
+                            _last_dispatch_stats.continuations[i];
+                        continuation.peak_queued_count = std::max(
+                            continuation.peak_queued_count,
+                            _host_count[i]);
+                    } else {
+                        auto &extension =
+                            _last_dispatch_stats.extensions[i - nc];
+                        extension.peak_queued_count = std::max(
+                            extension.peak_queued_count,
+                            _host_count[i]);
+                        if (_queue_continuation[i] < nc) {
+                            auto &continuation = _last_dispatch_stats.continuations[
+                                _queue_continuation[i]];
+                            continuation.peak_queued_count = std::max(
+                                continuation.peak_queued_count, _host_count[i]);
+                        }
+                    }
                 }
             }
             max_active_count = std::max(max_active_count, active_count);
             auto auxiliary_active_count = uint64_t{0u};
             auto selected_auxiliary = _auxiliary_work.size();
+            auto selected_auxiliary_stage = 0u;
             auto selected_auxiliary_count = 0u;
             for (size_t i = 0u; i < _auxiliary_work.size(); ++i) {
-                auto count = _auxiliary_work[i].work->host_count();
+                auto &&registered = _auxiliary_work[i];
+                auto count = registered.work->host_count();
                 LUISA_ASSERT(
-                    count <= _auxiliary_work[i].work->capacity(),
+                    count <= registered.work->capacity(),
                     "Wavefront auxiliary queue '{}' contains {} items, "
                     "exceeding its capacity {}.",
-                    _auxiliary_work[i].work->name(), count,
-                    _auxiliary_work[i].work->capacity());
+                    registered.work->name(), count,
+                    registered.work->capacity());
                 auxiliary_active_count += count;
-                if (report_stats) {
-                    auto &work =
-                        _last_dispatch_stats.auxiliary_work[i];
-                    work.peak_queued_count = std::max(
-                        work.peak_queued_count, count);
+                LUISA_ASSERT(registered.stage_count == registered.work->stage_count(),
+                             "Wavefront auxiliary stage count changed after registration.");
+                auto stage_total = uint64_t{0u};
+                for (auto stage = 0u; stage < registered.stage_count; ++stage) {
+                    auto stage_count = registered.work->stage_host_count(stage);
+                    stage_total += stage_count;
+                    if (report_stats) {
+                        auto &work = _last_dispatch_stats.auxiliary_work[
+                            registered.stats_offset + stage];
+                        work.peak_queued_count = std::max(
+                            work.peak_queued_count, stage_count);
+                    }
+                    if (stage_count > selected_auxiliary_count) {
+                        selected_auxiliary = i;
+                        selected_auxiliary_stage = stage;
+                        selected_auxiliary_count = stage_count;
+                    }
                 }
-                if (count > selected_auxiliary_count) {
-                    selected_auxiliary = i;
-                    selected_auxiliary_count = count;
-                }
+                LUISA_ASSERT(stage_total == count,
+                             "Wavefront auxiliary '{}' stage sum {} differs from live count {}.",
+                             registered.work->name(), stage_total, count);
             }
             LUISA_ASSERT(active_count <= scan_count,
                          "Wavefront coroutine queue invariant violation: active frames ({}) exceed scanned frame prefix ({}).",
@@ -1004,7 +1588,7 @@ private:
             }
 
             auto active_offset = 0u;
-            for (size_t i = 0u; i < nc; ++i) {
+            for (size_t i = 0u; i < nq; ++i) {
                 _host_offset[i] = active_offset;
                 active_offset += _host_count[i];
             }
@@ -1013,45 +1597,61 @@ private:
                 break;
             }
 
-            auto selected = nc;
+            auto selected = nq;
             auto selected_count = 0u;
-            for (size_t i = 1u; i < nc; ++i) {
-                // Strict comparison makes the lowest continuation index the
-                // deterministic winner for equal populations, matching
-                // Cycles' DeviceKernel scan order.
-                if (_host_count[i] > selected_count) {
+            auto selected_priority = nq;
+            for (size_t i = 1u; i < nq; ++i) {
+                // An annotation suffix is part of its target continuation,
+                // including its tie priority. Physical Extension queue IDs
+                // must not silently change the logical scheduling policy.
+                auto priority = _queue_continuation[i] < nc ? _queue_continuation[i] : i;
+                if (_host_count[i] > selected_count ||
+                    (_host_count[i] != 0u && _host_count[i] == selected_count &&
+                     priority < selected_priority)) {
                     selected = i;
                     selected_count = _host_count[i];
+                    selected_priority = priority;
                 }
             }
+            auto selected_continuation = selected < nq ? _queue_continuation[selected] : nc;
 
-            // Side work competes with main continuations by queue
-            // cardinality. A producer whose complete queue cannot be
-            // admitted without overflowing a side queue is blocked and that
-            // side queue is drained first. Registration proves that an empty
-            // side queue can always admit a full main continuation queue.
+            // Individual side stages compete with main continuations by
+            // cardinality, but admission accounts for ALL live stages sharing
+            // a capacity. Only if the greedy winner is a main producer do we
+            // substitute its capacity owner's requested drain stage.
             auto forced_auxiliary = _auxiliary_work.size();
+            auto forced_auxiliary_stage = 0u;
             auto forced_auxiliary_count = 0u;
-            if (selected < nc && selected_count != 0u) {
+            if (selected_continuation < nc && selected_count != 0u &&
+                selected_auxiliary_count <= selected_count) {
                 for (size_t i = 0u; i < _auxiliary_work.size(); ++i) {
                     auto &&registered = _auxiliary_work[i];
                     auto bound =
-                        registered.max_emitted_per_continuation[selected];
+                        registered.max_emitted_per_continuation[selected_continuation];
                     if (bound == 0u) { continue; }
                     auto queued = registered.work->host_count();
+                    auto capacity = registered.work->capacity();
+                    registered.work->prepare_for_admission(stream);
+                    auto available = registered.work->host_available_slots();
+                    LUISA_ASSERT(registered.work->host_count() == queued &&
+                                     registered.work->capacity() == capacity &&
+                                     available <= capacity - queued &&
+                                     (queued != 0u || available == capacity),
+                                 "Auxiliary '{}' admission preparation changed occupancy/capacity "
+                                 "or supplied invalid materializable storage.", registered.work->name());
                     auto required =
                         static_cast<uint64_t>(selected_count) * bound;
                     if (!wavefront_auxiliary_queue_can_admit(
-                            registered.work->capacity(), queued,
-                            selected_count, bound)) {
+                            capacity, queued, selected_count, bound) ||
+                        required > available) {
                         LUISA_ASSERT(
                             queued != 0u,
                             "Wavefront auxiliary queue '{}' cannot admit "
                             "continuation '{}' even while empty (required={}, "
-                            "capacity={}).",
+                            "capacity={}, available={}).",
                             registered.work->name(),
-                            _last_dispatch_stats.continuations[selected].name,
-                            required, registered.work->capacity());
+                            _last_dispatch_stats.continuations[selected_continuation].name,
+                            required, capacity, available);
                         if (queued > forced_auxiliary_count) {
                             forced_auxiliary = i;
                             forced_auxiliary_count = queued;
@@ -1059,12 +1659,24 @@ private:
                     }
                 }
             }
+            if (forced_auxiliary != _auxiliary_work.size()) {
+                auto &&registered = _auxiliary_work[forced_auxiliary];
+                forced_auxiliary_stage = registered.work->admission_stage();
+                LUISA_ASSERT(
+                    forced_auxiliary_stage < registered.stage_count &&
+                        registered.work->stage_host_count(forced_auxiliary_stage) != 0u,
+                    "Wavefront auxiliary '{}' supplied an empty admission stage.",
+                    registered.work->name());
+            }
             auto dispatch_auxiliary =
                 forced_auxiliary != _auxiliary_work.size() ?
                     forced_auxiliary :
                     (selected_auxiliary_count > selected_count ?
                          selected_auxiliary :
                          _auxiliary_work.size());
+            auto dispatch_auxiliary_stage =
+                forced_auxiliary != _auxiliary_work.size() ?
+                    forced_auxiliary_stage : selected_auxiliary_stage;
 
             // The legacy counter/gather path materializes every queue before
             // the refill decision because compaction may need queue zero's
@@ -1152,7 +1764,8 @@ private:
                                       _host_offset[0u], frame_offset,
                                       dispatch_counter, gen_count, dispatch_size, args...)
                               .dispatch(gen_count);
-                if (_config.incremental_continuation_counts) {
+                if (_config.incremental_continuation_counts &&
+                    !_config.fused_continuation_counts) {
                     stream << _publish_generated_count_shader(
                                   _config.thread_count, _resume_index,
                                   _host_offset[0u], _resume_count,
@@ -1174,22 +1787,34 @@ private:
                 if (dispatch_auxiliary != _auxiliary_work.size()) {
                     auto &&registered =
                         _auxiliary_work[dispatch_auxiliary];
-                    auto count = registered.work->host_count();
+                    auto count = registered.work->stage_host_count(dispatch_auxiliary_stage);
                     LUISA_ASSERT(count != 0u,
                                  "Selected an empty wavefront auxiliary "
                                  "queue '{}'.",
                                  registered.work->name());
-                    registered.work->dispatch(stream, args...);
+                    registered.work->dispatch_stage(dispatch_auxiliary_stage, stream, args...);
                     if (report_stats) {
                         auto &work = _last_dispatch_stats
-                                         .auxiliary_work[dispatch_auxiliary];
+                                         .auxiliary_work[registered.stats_offset + dispatch_auxiliary_stage];
                         work.dispatch_count++;
                         work.executed_count += count;
                     }
                     continue;
                 }
+                if (selected_continuation < nc && selected_count != 0u) {
+                    for (auto &&registered : _auxiliary_work) {
+                        auto bound = registered.max_emitted_per_continuation[selected_continuation];
+                        if (bound != 0u) {
+                            // Admission has proved this product fits capacity
+                            // (and therefore uint). Storage-only preparation
+                            // is ordered before the producer, not before refill.
+                            registered.work->prepare_for_producer(
+                                stream, static_cast<uint>(uint64_t{selected_count} * bound));
+                        }
+                    }
+                }
                 if (_config.incremental_continuation_counts &&
-                    selected < nc && selected_count != 0u &&
+                    selected < nq && selected_count != 0u &&
                     scan_count != 0u) {
                     stream << _clear_count_shader(_global_buffer, 1u)
                                   .dispatch(1u);
@@ -1214,49 +1839,86 @@ private:
                     gather_scan_count += scan_count;
                     _host_offset[selected] = 0u;
                 }
+                for (size_t i = nc; i < nq; ++i) {
+                    if (_config.largest_continuation_first &&
+                        i != selected) {
+                        continue;
+                    }
+                    auto count = _host_count[i];
+                    if (count == 0u) { continue; }
+                    auto stage_index = i - nc;
+                    auto &registered =
+                        _extension_stages[stage_index];
+                    LUISA_ASSERT(
+                        registered.handler != nullptr &&
+                            registered.next_queue < nq,
+                        "Selected unresolved coroutine Extension queue {}.",
+                        i);
+                    auto indices = _resume_index.view().subview(
+                        _host_offset[i], count);
+                    auto dispatch_handler = [&](size_t index) noexcept {
+                        auto &stage = _extension_stages[index];
+                        indices = stage.handler->dispatch_queue(WavefrontCoroExtensionDispatchContext{
+                            .stream = stream,
+                            .frame_buffer = _frame_buffer.view(),
+                            .frame_indices = indices,
+                            .frame_count = count,
+                            .frame_capacity = _config.thread_count,
+                            .logical_dispatch_size = dispatch_size,
+                            .stage = stage.stage});
+                        LUISA_ASSERT(indices.size() == count,
+                                     "Extension '{}' changed selected queue cardinality.",
+                                     stage.handler->name());
+                        if (report_stats) {
+                            auto &stat = _last_dispatch_stats.extensions[index];
+                            stat.dispatch_count++;
+                            stat.executed_count += count;
+                            stat.peak_queued_count = std::max(stat.peak_queued_count, count);
+                        }
+                        _last_dispatch_stats.extension_count += count;
+                    };
+                    if (!registered.before_resume_chain.empty()) {
+                        auto continuation = _queue_continuation[i];
+                        if (_has_hint_sort && _have_hint[continuation]) {
+                            auto sorted = _sort_hint_range(stream, _host_offset[i], count);
+                            if (sorted != 0u) {
+                                indices = _sort_index.view().subview(_host_offset[i], count);
+                            }
+                        }
+                        for (auto index : registered.before_resume_chain) { dispatch_handler(index); }
+                        resume(continuation, static_cast<uint>(i), indices, count);
+                        continue;
+                    }
+                    dispatch_handler(stage_index);
+                    stream << _advance_extension_stage_shader(
+                                  _config.thread_count, indices,
+                                  0u, count, static_cast<uint>(i),
+                                  registered.next_queue)
+                                  .dispatch(count);
+                    if (_config.incremental_continuation_counts &&
+                        !_config.fused_continuation_counts) {
+                        stream << _publish_resumed_count_shader(
+                                      _config.thread_count, indices, 0u,
+                                      _resume_count,
+                                      static_cast<uint>(i), count)
+                                      .dispatch(count);
+                    }
+                }
                 for (size_t i = 1u; i < nc; ++i) {
                     if (_config.largest_continuation_first && i != selected) {
                         continue;
                     }
                     auto count = _host_count[i];
                     if (count == 0u) { continue; }
-                    resumed_count += count;
-                    if (report_stats) {
-                        auto &continuation =
-                            _last_dispatch_stats.continuations[i];
-                        continuation.dispatch_count++;
-                        continuation.executed_count += count;
-                    }
                     if (_has_hint_sort && _have_hint[i]) {
                         auto sorted_index = _sort_hint_range(stream, _host_offset[i], count);
                         BufferView<uint> indices[2] = {
                             _resume_index.view().subview(_host_offset[i], count),
                             _sort_index.view().subview(_host_offset[i], count)};
-                        stream << _resume_kernels[i](_config.thread_count,
-                                                     indices[sorted_index],
-                                                     0u, count, args...)
-                                      .dispatch(count);
-                        if (_config.incremental_continuation_counts) {
-                            stream << _publish_resumed_count_shader(
-                                          _config.thread_count,
-                                          indices[sorted_index], 0u,
-                                          _resume_count,
-                                          static_cast<uint>(i), count)
-                                          .dispatch(count);
-                        }
+                        resume(i, static_cast<uint>(i), indices[sorted_index], count);
                     } else {
-                        stream << _resume_kernels[i](_config.thread_count,
-                                                     _resume_index,
-                                                     _host_offset[i], count, args...)
-                                      .dispatch(count);
-                        if (_config.incremental_continuation_counts) {
-                            stream << _publish_resumed_count_shader(
-                                          _config.thread_count,
-                                          _resume_index, _host_offset[i],
-                                          _resume_count,
-                                          static_cast<uint>(i), count)
-                                          .dispatch(count);
-                        }
+                        resume(i, static_cast<uint>(i),
+                               _resume_index.view().subview(_host_offset[i], count), count);
                     }
                 }
             }
@@ -1270,8 +1932,9 @@ private:
             _last_dispatch_stats.max_scan_count = max_scan_count;
             _last_dispatch_stats.max_active_count = max_active_count;
             _last_dispatch_stats.elapsed_ms = dispatch_clock.toc();
-            LUISA_INFO("Wavefront stats: iterations={} generated={} resumed={} gather_scan={} compact_scan={} max_scan={} max_active={} elapsed_ms={:.3f}",
+            LUISA_INFO("Wavefront stats: iterations={} generated={} resumed={} extensions={} gather_scan={} compact_scan={} max_scan={} max_active={} elapsed_ms={:.3f}",
                        iteration_count, generated_count, resumed_count,
+                       _last_dispatch_stats.extension_count,
                        gather_scan_count, compact_scan_count,
                        max_scan_count, max_active_count,
                        _last_dispatch_stats.elapsed_ms);
@@ -1284,6 +1947,18 @@ private:
                     continuation.name, continuation.dispatch_count,
                     continuation.executed_count,
                     continuation.peak_queued_count);
+            }
+            for (auto &&extension :
+                 _last_dispatch_stats.extensions) {
+                LUISA_INFO(
+                    "Wavefront Extension: queue={} boundary={} extension={} "
+                    "schema='{}' handler='{}' dispatches={} executed={} "
+                    "peak_queued={}.",
+                    extension.queue_index, extension.boundary_index,
+                    extension.extension_index, extension.schema,
+                    extension.handler, extension.dispatch_count,
+                    extension.executed_count,
+                    extension.peak_queued_count);
             }
             for (auto &&work :
                  _last_dispatch_stats.auxiliary_work) {
@@ -1298,10 +1973,30 @@ private:
 
 public:
     [[nodiscard]] const Config &config() const noexcept { return _config; }
+    [[nodiscard]] const CoroFrameIOPlan &frame_io_plan() const noexcept {
+        return _frame_io_plan;
+    }
     [[nodiscard]] uint active_frame_capacity() const noexcept { return _active_frame_capacity; }
     [[nodiscard]] const WavefrontCoroDispatchStats &
     last_dispatch_stats() const noexcept {
         return _last_dispatch_stats;
+    }
+    /// Append one responsibility-chain facade. The facade is called once for
+    /// each still-unclaimed static Extension stage and returns nullptr to
+    /// decline it or a unique stage-local handler to claim it. The facade is
+    /// not retained. Registration therefore performs preparation immediately,
+    /// outside render/simulation dispatch timing. Initialization commands may
+    /// be enqueued on stream; dispatching on another stream requires explicit
+    /// caller-managed synchronization.
+    template<typename Prepare>
+    void register_extension_handler(
+        Stream &stream, Prepare &&prepare) noexcept {
+        LUISA_ASSERT(!_has_dispatched &&
+                         !_extension_handlers_finalized,
+                     "Wavefront Extension handlers must be registered before "
+                     "the first dispatch.");
+        auto &&prepare_facade = prepare;
+        _claim_extension_stages(stream, prepare_facade);
     }
     void register_auxiliary_work(
         luisa::shared_ptr<AuxiliaryWork> work) noexcept {
@@ -1373,9 +2068,21 @@ public:
             !registered.work->producers().empty(),
             "Wavefront auxiliary queue '{}' has no producers.",
             registered.work->name());
-        _last_dispatch_stats.auxiliary_work.emplace_back(
-            WavefrontCoroAuxiliaryStats{
-                .name = luisa::string{registered.work->name()}});
+        registered.stage_count = registered.work->stage_count();
+        registered.stats_offset = _last_dispatch_stats.auxiliary_work.size();
+        LUISA_ASSERT(registered.stage_count != 0u,
+                     "Wavefront auxiliary work must expose at least one stage.");
+        for (auto stage = 0u; stage < registered.stage_count; ++stage) {
+            auto name = registered.work->stage_name(stage);
+            LUISA_ASSERT(!name.empty(), "Wavefront auxiliary stage name must not be empty.");
+            for (auto prior = 0u; prior < stage; ++prior) {
+                LUISA_ASSERT(name != registered.work->stage_name(prior),
+                             "Duplicate stage '{}' in wavefront auxiliary '{}'.",
+                             name, registered.work->name());
+            }
+            _last_dispatch_stats.auxiliary_work.emplace_back(
+                WavefrontCoroAuxiliaryStats{.name = luisa::string{name}});
+        }
         _auxiliary_work.emplace_back(std::move(registered));
     }
     /// Structural hashes of the scheduler-owned generate, continuation, and
@@ -1394,7 +2101,7 @@ public:
     }
 
     WavefrontCoroScheduler(Device &device, const Coro &coro, const Config &config) noexcept
-        : _config{config} {
+        : _config{config}, _device{&device} {
         LUISA_ASSERT(_config.thread_count != 0u,
                      "Wavefront coroutine frame capacity must be positive.");
         LUISA_ASSERT(_config.execution_block_size >= 32u &&
@@ -1408,6 +2115,11 @@ public:
                 _config.largest_continuation_first,
             "Incremental selected-queue scheduling requires greedy "
             "largest-continuation-first execution.");
+        LUISA_ASSERT(
+            !_config.fused_continuation_counts ||
+                _config.incremental_continuation_counts,
+            "Fused wavefront continuation counts require incremental "
+            "continuation accounting.");
         _create_shader(device, coro);
     }
     WavefrontCoroScheduler(Device &device, const Coro &coro) noexcept

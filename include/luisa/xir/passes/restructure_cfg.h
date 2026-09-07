@@ -34,6 +34,12 @@ struct RestructureCFGInfo {
     // hierarchy from the sparse dominator tree. This grows with actual active
     // nesting, not with the square of the number of constructs.
     size_t construct_exit_parent_query_count{0u};
+    // Exact construct-region work. Once a region has been discovered, exit
+    // enumeration walks these visited blocks directly; it must not rescan the
+    // complete function and probe region membership for every owned block.
+    size_t construct_exit_region_block_visit_count{0u};
+    size_t construct_exit_region_edge_visit_count{0u};
+    size_t construct_exit_region_membership_query_count{0u};
     // If restructuring analyzes one immutable dominance snapshot, stores the
     // lexical merge of every raw conditional, then inserts only transparent
     // edge subdivisions. Candidate queries therefore scale with raw If sites;

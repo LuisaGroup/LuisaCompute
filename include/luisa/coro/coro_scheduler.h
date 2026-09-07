@@ -55,8 +55,9 @@ class CoroSchedulerInvoke;
 /// Dispatch object returned by CoroSchedulerInvoke::dispatch().
 /// Move-only; holds the concrete dispatch logic.  The primary usage is
 ///   auto disp = scheduler(args...).dispatch(size);
-///   disp(stream);          // explicit stream submission
-/// For single-command schedulers, `stream << disp` also works.
+///   stream << disp;
+/// Direct invocation with `disp(stream)` remains available for scheduler
+/// implementations that need explicit submission.
 class CoroSchedulerDispatch : public concepts::Noncopyable {
 
 private:
@@ -144,7 +145,7 @@ public:
     /// Binds coroutine arguments. Returns an invoker on which
     /// `.dispatch(size)` is called, yielding a `CoroSchedulerDispatch`
     /// that can be submitted to a stream:
-    ///   scheduler(args...).dispatch(size)(stream);
+    ///   stream << scheduler(args...).dispatch(size);
     [[nodiscard]] auto operator()(
         compute::detail::prototype_to_shader_invocation_t<Args>... args) noexcept {
         return detail::CoroSchedulerInvoke<Args...>{this, args...};

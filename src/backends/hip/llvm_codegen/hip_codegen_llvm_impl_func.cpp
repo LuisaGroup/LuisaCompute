@@ -4,6 +4,7 @@
 
 #include <luisa/xir/passes/dom_tree.h>
 #include <luisa/ast/function.h>
+#include <luisa/xir/metadata/no_inline.h>
 #include <luisa/runtime/rhi/pixel.h>
 
 #include "hip_codegen_llvm_impl.h"
@@ -104,8 +105,11 @@ llvm::Function *HIPCodegenLLVMImpl::_declare_llvm_callable_function(const xir::C
                                             func->name().value_or("callable"), _llvm_module.get());
     llvm_func->addFnAttr("amdgpu-unsafe-fp-atomics", "true");
     // Keep provenance across native bitcode linking for post-IPO ABI
-    // legalization. This marker is deliberately not an inline/noinline policy.
-    llvm_func->addFnAttr(llvm_generated_callable_attribute);
+    // legalization and transport an explicit source call boundary separately
+    // from ordinary profitability-driven Callables.
+    mark_hip_generated_callable(
+        *llvm_func,
+        func->find_metadata<xir::NoInlineMD>() != nullptr);
     return llvm_func;
 }
 

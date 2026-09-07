@@ -21,8 +21,38 @@ LUISA_AST_API luisa::string make_array_description(luisa::string_view elem, size
 }
 
 LUISA_AST_API luisa::string make_struct_description(size_t alignment, std::initializer_list<luisa::string_view> members) noexcept {
+    return make_struct_description(alignment, members, {});
+}
+
+LUISA_AST_API luisa::string make_struct_description(
+    size_t alignment,
+    std::initializer_list<luisa::string_view> members,
+    luisa::span<const Attribute> attributes) noexcept {
+    LUISA_ASSERT(attributes.empty() || attributes.size() == members.size(),
+                 "Invalid structure member attribute count {} (expected {}).",
+                 attributes.size(), members.size());
     auto desc = luisa::format("struct<{}", alignment);
-    for (auto m : members) { desc.append(",").append(m); }
+    auto index = size_t{0u};
+    for (auto member : members) {
+        desc.push_back(',');
+        if (!attributes.empty()) {
+            auto &attribute = attributes[index];
+            LUISA_ASSERT(attribute.value.empty() || !attribute.key.empty(),
+                         "Structure member attribute value requires a key.");
+            if (!attribute.key.empty()) {
+                desc.push_back('[');
+                desc.append(attribute.key);
+                if (!attribute.value.empty()) {
+                    desc.push_back('(');
+                    desc.append(attribute.value);
+                    desc.push_back(')');
+                }
+                desc.push_back(']');
+            }
+        }
+        desc.append(member);
+        ++index;
+    }
     desc.append(">");
     return desc;
 }
@@ -147,6 +177,8 @@ const Type *TypeRegistry::custom_type(luisa::string_view name) noexcept {
                      name != "double" &&
                      name != "float8e4m3" &&
                      name != "float8e5m2" &&
+                     name != "int4" &&
+                     name != "fp4e2m1" &&
                      name != "bool" &&
                      !name.starts_with("vector<") &&
                      !name.starts_with("coopvec<") &&
@@ -337,6 +369,11 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
     TRY_PARSE_SCALAR_TYPE(double, FLOAT64, 8u)
     TRY_PARSE_SCALAR_TYPE(float8e4m3, FLOAT8_E4M3, 1u)
     TRY_PARSE_SCALAR_TYPE(float8e5m2, FLOAT8_E5M2, 1u)
+    // 4-bit sub-byte quantized types: stored as 1 byte per element (the lower
+    // nibble holds the value; the upper nibble is zero/unused), matching the
+    // host-side tensor_element_type_size_bytes packing (2 elements per byte).
+    TRY_PARSE_SCALAR_TYPE(int4, INT4, 1u)
+    TRY_PARSE_SCALAR_TYPE(fp4e2m1, FP4_E2M1, 1u)
 #undef TRY_PARSE_SCALAR_TYPE
     if (type_identifier == "vector"sv) {
         info->_tag = Type::Tag::VECTOR;

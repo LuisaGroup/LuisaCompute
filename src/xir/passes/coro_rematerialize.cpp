@@ -102,7 +102,8 @@ struct ReachingValue {
                 break;
             case DerivedMetadataTag::CURVE_BASIS:
             case DerivedMetadataTag::SIGNATURE_CONSTRAINT:
-            case DerivedMetadataTag::REG2MEM_SPILL: return false;
+            case DerivedMetadataTag::REG2MEM_SPILL:
+            case DerivedMetadataTag::NO_INLINE: return false;
         }
     }
     return true;

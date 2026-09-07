@@ -50,6 +50,16 @@ namespace {
     return std::numeric_limits<uint64_t>::max();
 }
 
+[[nodiscard]] bool reject_int_ray_query_capture(
+    const Value *value, bool) noexcept {
+    return value->type() != Type::of<int>();
+}
+
+[[nodiscard]] size_t natural_ray_query_capture_cost(
+    const Value *value, bool) noexcept {
+    return value->type()->size();
+}
+
 struct RayQueryFixture {
     KernelFunction *kernel;
     BasicBlock *body;
@@ -1154,6 +1164,76 @@ void register_tests() {
                !capture_free.body->terminator()->isa<RayQueryLoopInst>());
         expect(captured.body->terminator() == captured.loop);
         expect(captured.dispatch->terminator() == captured.dispatch_inst);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "capture_filter_selectively_retains_rejected_loops"_test = [] {
+        Module m;
+        auto capture_free = make_fixture(m);
+        XIRBuilder b;
+        b.set_insertion_point(capture_free.surface);
+        b.br(capture_free.dispatch);
+
+        auto captured = make_fixture(m);
+        auto *value =
+            captured.kernel->create_value_argument(Type::of<int>());
+        b.set_insertion_point(captured.body->instructions().front());
+        auto *state = b.alloca_local(Type::of<int>());
+        b.set_insertion_point(captured.surface);
+        b.store(state, value);
+        b.br(captured.dispatch);
+
+        size_t skipped_loop_count = 0u;
+        auto info = lower_ray_query_to_pipeline_pass_run_on_module(
+            &m, nullptr,
+            {.captured_argument_filter = reject_int_ray_query_capture,
+             .skipped_loop_count = &skipped_loop_count});
+
+        expect(info.succeeded());
+        expect(info.lowered_loop_count == 1u);
+        expect(skipped_loop_count == 1u);
+        expect(capture_free.body->terminator() == nullptr ||
+               !capture_free.body->terminator()->isa<RayQueryLoopInst>());
+        expect(captured.body->terminator() == captured.loop);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "capture_cost_selectively_retains_over_budget_payloads"_test = [] {
+        Module m;
+        auto small = make_fixture(m);
+        auto large = make_fixture(m);
+        XIRBuilder b;
+        auto add_mutable_capture = [&](RayQueryFixture fixture,
+                                       const Type *type) noexcept {
+            auto *value = fixture.kernel->create_value_argument(type);
+            b.set_insertion_point(fixture.body->instructions().front());
+            auto *state = b.alloca_local(type);
+            b.set_insertion_point(fixture.surface);
+            b.store(state, value);
+            b.br(fixture.dispatch);
+        };
+        add_mutable_capture(small, Type::of<int>());
+        add_mutable_capture(large, Type::of<float4>());
+
+        expect(xir_verify_module(&m).succeeded());
+        size_t skipped_loop_count = 0u;
+        PassReport report;
+        auto info = lower_ray_query_to_pipeline_pass_run_on_module(
+            &m, &report,
+            {.captured_argument_cost = natural_ray_query_capture_cost,
+             .max_captured_argument_cost = 8u,
+             .skipped_loop_count = &skipped_loop_count});
+
+        expect(info.succeeded());
+        expect(info.error_count == 0u);
+        expect(info.lowered_loop_count == 1u);
+        expect(skipped_loop_count == 1u);
+        expect(report_value(
+                   report,
+                   "selection_localization_analysis") == 0u);
+        expect(small.body->terminator() == nullptr ||
+               !small.body->terminator()->isa<RayQueryLoopInst>());
+        expect(large.body->terminator() == large.loop);
         expect(xir_verify_module(&m).succeeded());
     };
 

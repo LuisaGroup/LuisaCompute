@@ -153,6 +153,12 @@ public:
         uint32_t token, luisa::string name, Value *frame,
         luisa::span<const luisa::string> frame_export_names,
         luisa::span<Value *const> frame_export_values) noexcept;
+    CoroSuspendInst *coro_suspend(
+        uint32_t token, luisa::string name, Value *frame,
+        luisa::span<const luisa::string> frame_export_names,
+        luisa::span<Value *const> frame_export_values,
+        luisa::vector<CoroSuspendExtensionPtr> extensions,
+        luisa::span<Value *const> extension_binding_values) noexcept;
     CoroResumeInst *coro_resume(uint32_t token, Value *frame) noexcept;
     CoroTerminateInst *coro_terminate() noexcept;
 

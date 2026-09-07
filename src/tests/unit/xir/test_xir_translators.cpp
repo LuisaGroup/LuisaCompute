@@ -5,16 +5,23 @@
 // - parseable JSON schema, counts, payload, and null-module diagnostics
 
 #include "ut/ut.hpp"
+#include <array>
 #include <luisa/luisa-compute.h>
+#include <luisa/dsl/coro_func.h>
+#include <luisa/dsl/sugar.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/instructions/call.h>
+#include <luisa/xir/instructions/coro.h>
 #include <luisa/xir/instructions/resource.h>
 #include <luisa/xir/instructions/switch.h>
 #include <luisa/xir/metadata/reg2mem_spill.h>
+#include <luisa/xir/metadata/no_inline.h>
 #include <luisa/xir/metadata/signature_constraint.h>
+#include <luisa/xir/passes/inline.h>
 #include <luisa/xir/translators/ast2xir.h>
+#include <luisa/xir/translators/xir2ast.h>
 #include <luisa/xir/translators/xir2text.h>
 #include <luisa/xir/translators/xir2json.h>
 #include <luisa/xir/verifier.h>
@@ -82,6 +89,122 @@ find_kernel_definition(const Module *module) noexcept {
 }// namespace
 
 void reg_ast2xir() {
+
+    "noinline_outline_survives_ast_xir_and_blocks_inlining"_test = [] {
+        auto ordinary = compute::detail::FunctionBuilder::define_callable([] {
+            auto *builder = compute::detail::FunctionBuilder::current();
+            auto *argument = builder->argument(Type::of<float>());
+            builder->return_(argument);
+        });
+        auto retained = compute::detail::FunctionBuilder::define_callable([] {
+            auto *builder = compute::detail::FunctionBuilder::current();
+            builder->mark_noinline();
+            auto *argument = builder->argument(Type::of<float>());
+            builder->return_(argument);
+        });
+        expect(!ordinary->requires_noinline());
+        expect(retained->requires_noinline());
+        expect(ordinary->body()->hash() == retained->body()->hash());
+        expect(ordinary->hash() != retained->hash())
+            << "a required call boundary must participate in callable identity";
+        retained->set_name("retained_outline");
+
+        CallableLibrary source_library;
+        source_library.add_callable("retained", retained);
+        CallableLibrary loaded_library;
+        loaded_library.load(source_library.serialize());
+        expect(loaded_library.get_function_builder("retained")
+                   ->requires_noinline())
+            << "CallableLibrary must preserve the call-boundary policy";
+
+        Kernel1D kernel = [](BufferFloat buffer) {
+            auto index = dispatch_id().x;
+            $outline_noinline_with_name("retained_outline") {
+                buffer.write(index, buffer.read(index) + 1.0f);
+            };
+        };
+        expect(kernel.function()->custom_callables().size() == 1u);
+        if (kernel.function()->custom_callables().size() == 1u) {
+            expect((*kernel.function()->custom_callables().begin())
+                       ->requires_noinline())
+                << "$outline_noinline must mark the outlined callable";
+        }
+        auto module = ast_to_xir_translate(
+            kernel.function()->function(), {});
+        expect(module != nullptr);
+        if (module == nullptr) { return; }
+        expect(xir_verify_module(module.get()).succeeded());
+        auto *callable = find_only_callable(module.get());
+        auto *kernel_definition = find_kernel_definition(module.get());
+        expect(callable != nullptr);
+        expect(kernel_definition != nullptr);
+        if (callable == nullptr || kernel_definition == nullptr) { return; }
+        expect(callable->name().value_or("") == "retained_outline");
+        expect(callable->find_metadata<NoInlineMD>() != nullptr)
+            << "AST-to-XIR must transport the required call boundary";
+
+        auto restored = xir_to_ast_translate(*callable, {});
+        expect(restored != nullptr);
+        if (restored != nullptr) {
+            expect(restored->requires_noinline())
+                << "XIR-to-AST must restore the required call boundary";
+        }
+
+        auto info = inline_all_pass_run_on_module(
+            module.get(),
+            InlineOptions{
+                .consume_call_site_diagnostic_metadata = true});
+        expect(info.inlined_call_count == 0u);
+        expect(info.skipped_noinline_call_count == 1u);
+        expect(count_functions(
+                   module.get(), [](auto *function) noexcept {
+                       return function->template isa<CallableFunction>();
+                   }) == 1u)
+            << "even explicit inline-all must retain a noinline callable";
+
+        auto forced = inline_all_pass_run_on_module(
+            module.get(),
+            InlineOptions{
+                .consume_call_site_diagnostic_metadata = true,
+                .override_noinline = true});
+        expect(forced.inlined_call_count == 1u)
+            << "mandatory backend legalization must be able to override it";
+        expect(count_functions(
+                   module.get(), [](auto *function) noexcept {
+                       return function->template isa<CallableFunction>();
+                   }) == 0u);
+    };
+
+    "xir_ast_to_xir_preserves_undefined_aggregate"_test = [] {
+        using Bank = std::array<float4, 3u>;
+        expect(luisa::to_string(CallOp::UNDEFINED) == "UNDEFINED")
+            << "the appended operation must remain discoverable by CallOp users";
+        Kernel1D kernel = [](BufferVar<Bank> output) {
+            output.write(dispatch_id().x, undefined<Bank>());
+        };
+        auto module = ast_to_xir_translate(
+            kernel.function()->function(), {});
+        expect(module != nullptr);
+        expect(xir_verify_module(module.get()).succeeded());
+
+        auto undefined_operand_count = 0u;
+        auto *definition = find_kernel_definition(module.get());
+        expect(definition != nullptr);
+        definition->traverse_instructions(
+            [&](const Instruction *instruction) noexcept {
+                for (auto i = 0u; i < instruction->operand_count(); ++i) {
+                    auto *operand = instruction->operand(i);
+                    if (operand != nullptr &&
+                        operand->derived_value_tag() ==
+                        DerivedValueTag::UNDEFINED) {
+                        expect(operand->type() == Type::of<Bank>());
+                        undefined_operand_count++;
+                    }
+                }
+            });
+        expect(undefined_operand_count == 1u)
+            << "undefined must remain a value, not become a zero constant";
+    };
 
     "xir_ast_to_xir_simple_kernel"_test = [] {
         Kernel1D kernel = [](BufferFloat buf) {
@@ -536,6 +659,56 @@ void reg_ast2xir() {
         expect(bit_count == 4u);
         expect(abs_count == 1u);
         expect(xir_verify_module(module.get()).succeeded());
+    };
+
+    "xir_ast_to_xir_preserves_complete_suspend_extension"_test = [] {
+        Coroutine c = [](Var<uint> key) {
+            $suspend("shade_surface", coro_sort_by(key, 1024u));
+        };
+        auto module = ast_to_xir_translate(
+            c.function_builder()->function(), {});
+        expect(module != nullptr);
+        expect(xir_verify_module(module.get()).succeeded());
+        const CoroSuspendInst *suspend = nullptr;
+        for (auto *function : module->function_list()) {
+            if (auto *definition = function->definition()) {
+                definition->traverse_instructions(
+                    [&](const Instruction *instruction) noexcept {
+                        if (instruction->isa<CoroSuspendInst>()) {
+                            suspend = static_cast<const CoroSuspendInst *>(
+                                instruction);
+                        }
+                    });
+            }
+        }
+        expect(suspend != nullptr);
+        if (suspend != nullptr) {
+            expect(suspend->extensions().size() == 1u);
+            expect(suspend->extension_binding_value_count() == 1u);
+            if (suspend->extensions().size() == 1u) {
+                auto &&extension = suspend->extensions().front();
+                expect(extension->schema() ==
+                       "luisa.coro.schedule.sort");
+                expect(extension->version() == 1u);
+                expect(extension->is_annotation());
+                expect(extension->fallback() ==
+                       CoroSuspendFallback::ignore);
+                expect(extension->bindings().size() == 1u);
+                expect(extension->attributes().size() == 1u);
+                expect(extension->bindings().front().name == "key");
+                expect(extension->bindings().front().index == 0u);
+                expect(suspend->extension_binding_value(0u)->type() ==
+                       Type::of<uint>());
+                expect(luisa::get<uint64_t>(
+                           extension->attributes().front().value) ==
+                       1024u);
+            }
+        }
+        auto text = xir_to_text_translate(module.get(), true);
+        expect(text.find("luisa.coro.schedule.sort") !=
+               luisa::string::npos);
+        expect(text.find("attribute \"range\"") !=
+               luisa::string::npos);
     };
 }
 

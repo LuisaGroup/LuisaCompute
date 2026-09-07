@@ -330,6 +330,9 @@ private:
         ::llvm::Value *value, const Type *type);
     [[nodiscard]] ::llvm::Value *_extract_lane(
         ::llvm::Value *value, const Type *type, ::llvm::Value *lane);
+    [[nodiscard]] ::llvm::Value *_insert_lane(
+        ::llvm::Value *value, ::llvm::Value *lane_value,
+        const Type *type, ::llvm::Value *lane);
     [[nodiscard]] ::llvm::Value *_masked_merge(
         ::llvm::Value *new_value, ::llvm::Value *old_value,
         const Type *type, ::llvm::Value *mask);

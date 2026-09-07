@@ -39,7 +39,7 @@
 #include <luisa/runtime/stream.h>
 
 #include <cstdlib>
-#include <vector>
+#include <luisa/core/stl/vector.h>
 
 namespace {
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <luisa/core/stl/optional.h>
 #include <luisa/xir/module.h>
 
 namespace luisa::compute {
@@ -16,6 +17,7 @@ struct AST2XIRConfig {
     // directly as RayQueryLoopInst. Disabling this is a diagnostic oracle for
     // the legacy generic-loop plus reconstruction route.
     bool preserve_inline_ray_query_loops{true};
+    luisa::optional<RasterStage> raster_stage;
 };
 
 using ASTFunction = compute::Function;

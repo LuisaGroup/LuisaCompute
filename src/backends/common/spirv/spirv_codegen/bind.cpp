@@ -82,6 +82,8 @@ struct ConstantUBOElementLayout {
         case Type::Tag::UINT8:
         case Type::Tag::FLOAT8_E4M3:
         case Type::Tag::FLOAT8_E5M2:
+        case Type::Tag::INT4:
+        case Type::Tag::FP4_E2M1:
             return features.uniform_storage_buffer_8bit_access;
         case Type::Tag::INT16:
         case Type::Tag::UINT16:
@@ -224,6 +226,8 @@ void SpirvCodegenEntry::generate_binding(
             case Variable::Tag::WARP_LANE_ID:
             case Variable::Tag::RASTER_OBJECT_ID:
             case Variable::Tag::RASTER_BARYCENTRICS:
+            case Variable::Tag::RASTER_FRONT_FACING:
+            case Variable::Tag::RASTER_BASE_INSTANCE:
                 break;
             default:
                 cbuffer_non_empty = true;

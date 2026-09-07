@@ -38,6 +38,18 @@ Once the stack-trace points to a file/line or API call, write a **debug plan** i
 
 Silent failures (hang, wrong result, test timeout) provide no trace.
 
+Distinguish hang types by CPU usage first:
+- **High-CPU "hang"** (process burns a core indefinitely) is usually a spin on
+  corrupted state, e.g. a `spin_mutex` inside a freed object — a UAF that
+  looks like a hang. Treat it as a memory bug: audit recent lifetime changes
+  and destructors that unlink cross-object references.
+- **Zero-CPU hang** is a genuine wait (GPU fence, deadlocked mutex).
+
+For multi-test binaries, isolate by running each test alone (Boost.UT takes
+positional name patterns after the backend arg: `test.exe vk my_test`). When a
+fix candidate emerges, A/B it with `git stash` — a failure that persists with
+the fix stashed is pre-existing and out of scope; do not chase it.
+
 **Find the entry point:**
 - Read `CMakeLists.txt` or `xmake.lua` near the failing target to locate the executable source file and its `main()`.
 - Identify the test harness (e.g., `test_device.h`, `boost::ut`) and how the device is created.
@@ -178,7 +190,9 @@ The runtime directories are printed by `LUISA_INFO` at context creation; they de
 |---|---|---|
 | Crash with stack-trace | Read innermost + first Luisa frame | Hypothesize → plan → fix |
 | Silent wrong result | Add `LUISA_INFO` at host entry points | Use buffer read-back to inspect values |
-| Kernel dispatch hangs | Check `synchronize()` and stream callback | Add minimal `device_log` at start of kernel |
+| Kernel dispatch hangs | Check synchronize() and stream callback | Add minimal device_log at start of kernel |
+| Hang burning CPU | Suspect spin on freed memory (UAF masquerading as hang) | Isolate per-test; audit destructor unlink paths |
+| Unsure if failure is yours | Stash changes and re-run the same binary path | Persistent failure = pre-existing, out of scope |
 | Backend compilation error | Set `LUISA_DUMP_SOURCE=1` | Inspect generated `.spvasm` or `.hlsl` |
 | Suspected API/resource misuse | Set `LUISA_ENABLE_VALIDATION=1` | Re-run and read validation messages |
 | Test timeout | Read build file for target entry | Narrow phase with host logging |
@@ -201,6 +215,37 @@ python scripts/debugger.py <path_to_exe> [pdb_search_path] [-- <args>...]
 python scripts/debugger.py build/bin/test.exe -- --gtest_filter=MyTest
 ```
 
+## 9. Tracking Memory Growth with `scripts/mem_monitor.py`
+
+A cross-platform (Windows/Linux) Python wrapper that launches a process, samples its memory at a fixed interval, writes a timeline log, and **kills the process tree** when private memory exceeds a threshold — essential when a runaway test could exhaust machine RAM before you can observe it.
+
+- **Windows:** Private Bytes / Working Set via `GetProcessMemoryInfo`; kills the tree with `taskkill /F /T`.
+- **Linux:** private memory = `Private_Clean + Private_Dirty` from `/proc/<pid>/smaps_rollup` (fallback `RssAnon + VmSwap`), working set = `VmRSS`; kills the child's whole process group with `SIGKILL` (the child is started in its own session).
+
+**Usage:**
+```bash
+python scripts/mem_monitor.py [--kill-gb N] [--interval S] [--log FILE] -- <exe> [args...]
+```
+
+- `--kill-gb N` (default 20): hard kill threshold in GiB of private memory (Private Bytes on Windows, `smaps_rollup` private on Linux). Pick a value that leaves the machine usable (e.g. total free RAM minus headroom).
+- `--interval S` (default 0.25): sampling interval in seconds.
+- `--log FILE` (default `mem_monitor.log`): timeline output, one `time_s private_mb working_set_mb` row per sample.
+- Arguments after `--` are forwarded to the target executable.
+- On exit it prints a summary: exit code, whether it killed the process, peak private memory, and the first/last samples.
+
+**Example (run a device test, kill if it exceeds 6 GiB):**
+```bash
+python scripts/mem_monitor.py --kill-gb 6 --interval 0.25 --log mem.log -- bin/my_test.exe <backend>
+```
+
+**Workflow for a suspected leak / memory blow-up:**
+1. Run the full repro under the monitor with a safe `--kill-gb`. A straight-line, ever-growing timeline (constant MiB/s) usually means an **unbounded accumulation loop** (e.g. appending commands to a `CommandList` that never terminates), not a classic leak; stepwise growth synchronized with test phases suggests per-phase leaks.
+2. Isolate the phase: run individual tests (Boost.UT: positional test-name patterns after the backend arg, e.g. `test.exe <backend> my_test`) and compare peak memory and timeline shape.
+3. A phase that terminates with flat memory is innocent; a phase whose memory grows without plateau owns the bug. Then read that phase's code for loops whose trip count can make zero progress (e.g. `n = min(remaining, k)` with `k == 0`).
+4. After the fix, re-run under the monitor: peak private memory should be bounded (hundreds of MiB for small device tests) and the timeline flat.
+
+**Note:** GPU/device memory is mostly invisible to host-side private memory; this tool tracks host-side growth. Pair with backend allocator logging if device-side exhaustion is suspected.
+
 ## Summary
 
 - **Stack-traces** → innermost frame = cause; upward walk = call-site.
@@ -208,3 +253,4 @@ python scripts/debugger.py build/bin/test.exe -- --gtest_filter=MyTest
 - **No trace** → read `CMakeLists.txt`/`xmake.lua`, add `LUISA_INFO`/`LUISA_VERBOSE`, then `device_log`.
 - **DSL values** → prefer `Buffer` write + host read-back for bulk inspection; use `device_log` for targeted per-thread messages.
 - **Backend/codegen issues** → set `LUISA_DUMP_SOURCE=1` to inspect generated shaders and `LUISA_ENABLE_VALIDATION=1` to catch API/resource misuse.
+- **Memory blow-up / suspected leak** → run under `scripts/mem_monitor.py` with `--kill-gb` (Windows/Linux); constant-rate growth = unbounded accumulation loop, stepwise growth = per-phase leak.

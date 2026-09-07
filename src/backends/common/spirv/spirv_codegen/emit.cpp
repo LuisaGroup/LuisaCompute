@@ -95,7 +95,7 @@ SpirvCodegenEntry::~SpirvCodegenEntry() noexcept {
     _global_invocation_id_var = spv::NoResult;
     _dispatch_metadata = {};
     _functions_requiring_dispatch_metadata.clear();
-    _readonly_resource_origins.clear();
+    _unique_resource_origins.clear();
 }
 
 bool SpirvCodegenEntry::_is_indirect_dispatch_type(
@@ -290,6 +290,8 @@ void spirv_codegen_add_narrow_constant_capabilities(
     switch (type->tag()) {
         case Type::Tag::INT8:
         case Type::Tag::UINT8:
+        case Type::Tag::INT4:
+        case Type::Tag::FP4_E2M1:
             builder.addCapability(spv::Capability::Int8);
             break;
         case Type::Tag::INT16:
@@ -328,6 +330,8 @@ void spirv_codegen_add_narrow_constant_capabilities(
         case Type::Tag::BOOL: return builder.makeBoolConstant(*static_cast<const bool *>(data));
         case Type::Tag::INT8: return builder.makeInt8Constant(*static_cast<const int8_t *>(data));
         case Type::Tag::UINT8: return builder.makeUint8Constant(*static_cast<const uint8_t *>(data));
+        case Type::Tag::INT4: return builder.makeInt8Constant(*static_cast<const int8_t *>(data));
+        case Type::Tag::FP4_E2M1: return builder.makeUint8Constant(*static_cast<const uint8_t *>(data));
         case Type::Tag::INT16: return builder.makeInt16Constant(*static_cast<const int16_t *>(data));
         case Type::Tag::UINT16: return builder.makeUint16Constant(*static_cast<const uint16_t *>(data));
         case Type::Tag::INT32: return builder.makeIntConstant(*static_cast<const int32_t *>(data));
@@ -371,6 +375,8 @@ spv::Id SpirvCodegenEntry::_emit_literal(const Type *type, const void *data) noe
         case Type::Tag::FLOAT64:
         case Type::Tag::FLOAT8_E4M3:
         case Type::Tag::FLOAT8_E5M2:
+        case Type::Tag::INT4:
+        case Type::Tag::FP4_E2M1:
             return spirv_codegen_emit_scalar_constant(_builder, spv_type, type, data);
         case Type::Tag::VECTOR: {
             auto elem_type = type->element();
@@ -601,13 +607,7 @@ spv::Id SpirvCodegenEntry::_emit_value(const xir::Value *value) noexcept {
             break;
         case xir::DerivedValueTag::UNDEFINED: {
             auto spv_type = _convert_type(value->type(), Usage::READ);
-            if (_builder.isPointerType(spv_type)) {
-                id = _builder.createUndefined(spv_type);
-            } else {
-                spirv_codegen_add_narrow_constant_capabilities(
-                    _builder, value->type());
-                id = _builder.makeNullConstant(spv_type);
-            }
+            id = _builder.createUndefined(spv_type);
             break;
         }
         case xir::DerivedValueTag::SPECIAL_REGISTER: {
@@ -1360,16 +1360,16 @@ void SpirvCodegenEntry::_emit_callable(const xir::CallableFunction *callable, co
         bool used = analyzed_usage != Usage::NONE;
         auto module_specialized =
             arg->is_resource() &&
-            _readonly_resource_origins.contains(arg);
+            _unique_resource_origins.contains(arg);
         arg_used.push_back(used && !module_specialized);
         if ((!used || module_specialized) &&
             _is_kernel_resource_argument(arg)) {
             // Skip unused resource arguments to avoid type mismatches
             // between kernel globals (which may be arrays or have different
             // sampled/storage qualifiers) and callable parameters. A
-            // module-specialized read-only resource is skipped for the same
-            // ABI reason and resolved to its unique kernel binding at each
-            // use inside the callable.
+            // module-specialized resource is skipped for the same ABI reason
+            // and each read/write is resolved to its proven unique kernel
+            // binding inside the callable.
             continue;
         }
         auto usage = _function_argument_usage_of(callable, arg);
@@ -1516,8 +1516,8 @@ void SpirvCodegenEntry::emit(const xir::Module *module,
     auto analysis = _analyze_module_usage(module);
     _analyze_dispatch_metadata_requirements(analysis);
     _analyze_function_argument_usage(module);
-    _readonly_resource_origins =
-        analyze_spirv_readonly_resource_origins(
+    _unique_resource_origins =
+        analyze_spirv_unique_resource_origins(
             module, _function_argument_usage);
     LUISA_ASSERT(!analysis.used_functions_post_order.empty() &&
                      analysis.used_functions_post_order.back()->isa<xir::KernelFunction>(),

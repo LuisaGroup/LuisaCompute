@@ -221,19 +221,30 @@ void ScheduleEmitter::_coalesce_state_slots() {
 
     std::vector<uint32_t> parents(state_count);
     std::iota(parents.begin(), parents.end(), 0u);
+    std::vector<std::vector<uint32_t>> group_members(state_count);
+    for (auto index = uint32_t{0u}; index < state_count; index++) {
+        group_members[index].emplace_back(index);
+    }
     auto find_root = [&](auto &&self, uint32_t value) -> uint32_t {
         if (parents[value] != value) {
             parents[value] = self(self, parents[value]);
         }
         return parents[value];
     };
+    auto merge_groups = [&](uint32_t destination_root,
+                            uint32_t source_root) noexcept {
+        parents[source_root] = destination_root;
+        auto &destination = group_members[destination_root];
+        auto &source = group_members[source_root];
+        destination.insert(
+            destination.end(), source.begin(), source.end());
+        source.clear();
+    };
     auto groups_interfere = [&](uint32_t lhs_root,
                                 uint32_t rhs_root) noexcept {
-        for (auto lhs = uint32_t{0u}; lhs < state_count; lhs++) {
-            if (find_root(find_root, lhs) != lhs_root) { continue; }
-            for (auto rhs = uint32_t{0u}; rhs < state_count; rhs++) {
-                if (find_root(find_root, rhs) == rhs_root &&
-                    interference[lhs][rhs] != 0u) {
+        for (auto lhs : group_members[lhs_root]) {
+            for (auto rhs : group_members[rhs_root]) {
+                if (interference[lhs][rhs] != 0u) {
                     return true;
                 }
             }
@@ -270,13 +281,14 @@ void ScheduleEmitter::_coalesce_state_slots() {
                 if (destination_root != source_root &&
                     !groups_interfere(
                         destination_root, source_root)) {
-                    parents[source_root] = destination_root;
+                    merge_groups(destination_root, source_root);
                 }
             }
         }
     }
 
     static constexpr auto kGeneralStateColoringMinStateSlots = size_t{32u};
+    static constexpr auto kGeneralStateColoringLargeStateSlots = size_t{256u};
     static constexpr auto kGeneralStateColoringMinSavedSlots = size_t{2u};
     auto force_general_state_coloring =
         luisa::compute::detail::env_flag(
@@ -285,19 +297,17 @@ void ScheduleEmitter::_coalesce_state_slots() {
         (force_general_state_coloring ||
          (_width == 16u &&
           _result.state_slot_count >=
-              kGeneralStateColoringMinStateSlots)) &&
+              kGeneralStateColoringMinStateSlots) ||
+         _result.state_slot_count >=
+             kGeneralStateColoringLargeStateSlots) &&
         !luisa::compute::detail::env_flag(
             "LUISA_SIMD_DISABLE_GENERAL_STATE_COLORING");
     if (enable_general_state_coloring) {
-        auto parents_before_general_coloring = parents;
         auto general_colored_state_slot_count = size_t{0u};
         auto representative = [&](uint32_t root) noexcept {
-            for (auto index = uint32_t{0u}; index < state_count; index++) {
-                if (find_root(find_root, index) == root) {
-                    return index;
-                }
-            }
-            return static_cast<uint32_t>(state_count);
+            return group_members[root].empty() ?
+                       static_cast<uint32_t>(state_count) :
+                       group_members[root].front();
         };
         auto compatible = [&](uint32_t lhs_root,
                               uint32_t rhs_root) noexcept {
@@ -350,27 +360,46 @@ void ScheduleEmitter::_coalesce_state_slots() {
         for (auto i = size_t{0u}; i < roots.size(); i++) {
             roots[i] = ranked_roots[i].first;
         }
-        std::vector<uint32_t> colors;
+        struct Color {
+            uint32_t representative{};
+            std::vector<uint32_t> roots{};
+        };
+        std::vector<Color> colors;
         colors.reserve(roots.size());
         for (auto root : roots) {
             auto merged = false;
             for (auto &color : colors) {
-                color = find_root(find_root, color);
-                if (compatible(root, color) &&
-                    !groups_interfere(root, color)) {
-                    parents[root] = color;
+                auto interferes = std::any_of(
+                    color.roots.begin(), color.roots.end(),
+                    [&](auto member) noexcept {
+                        return groups_interfere(root, member);
+                    });
+                if (compatible(root, color.representative) &&
+                    !interferes) {
+                    color.roots.emplace_back(root);
                     general_colored_state_slot_count++;
                     merged = true;
                     break;
                 }
             }
-            if (!merged) { colors.emplace_back(root); }
+            if (!merged) {
+                colors.emplace_back(Color{
+                    .representative = root,
+                    .roots = {root}});
+            }
         }
         if (!force_general_state_coloring &&
             general_colored_state_slot_count <
                 kGeneralStateColoringMinSavedSlots) {
-            parents = std::move(parents_before_general_coloring);
+            general_colored_state_slot_count = 0u;
         } else {
+            for (auto &&color : colors) {
+                for (auto index = size_t{1u};
+                     index < color.roots.size(); index++) {
+                    parents[color.roots[index]] =
+                        color.representative;
+                }
+            }
             _result.general_colored_state_slot_count =
                 general_colored_state_slot_count;
         }

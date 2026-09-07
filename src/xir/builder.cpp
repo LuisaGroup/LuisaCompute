@@ -216,6 +216,18 @@ CoroSuspendInst *XIRBuilder::coro_suspend(
         frame_export_names, frame_export_values);
 }
 
+CoroSuspendInst *XIRBuilder::coro_suspend(
+    uint32_t token, luisa::string name, Value *frame,
+    luisa::span<const luisa::string> frame_export_names,
+    luisa::span<Value *const> frame_export_values,
+    luisa::vector<CoroSuspendExtensionPtr> extensions,
+    luisa::span<Value *const> extension_binding_values) noexcept {
+    return _create_and_append_instruction<CoroSuspendInst>(
+        _insertion_point->parent_block(), token, std::move(name), frame,
+        frame_export_names, frame_export_values,
+        std::move(extensions), extension_binding_values);
+}
+
 CoroResumeInst *XIRBuilder::coro_resume(uint32_t token, Value *frame) noexcept {
     return _create_and_append_instruction<CoroResumeInst>(_insertion_point->parent_block(), token, frame);
 }

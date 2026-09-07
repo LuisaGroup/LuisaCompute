@@ -50,6 +50,7 @@ void CodegenStackData::Clear() {
     enable_fast_math = false;
     use_8bit = false;
     pixelUseBarycentric = false;
+    pixelUseFrontFacing = false;
     internalStruct.clear();
     internalStruct.emplace(Type::of<CommittedHit>(), "_Hit0");
     internalStruct.emplace(Type::of<TriangleHit>(), "_Hit1");

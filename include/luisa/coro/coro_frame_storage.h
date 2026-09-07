@@ -145,12 +145,6 @@ inline void coro_frame_append_unique(luisa::vector<size_t> &fields, size_t field
     }
 }
 
-inline void coro_frame_append_reserved_fields(luisa::vector<size_t> &fields) noexcept {
-    for (auto i = 0u; i < CoroFrameDesc::reserved_field_count; i++) {
-        coro_frame_append_unique(fields, i);
-    }
-}
-
 [[nodiscard]] inline auto coro_frame_collect_input_fields(const CoroGraph &graph, size_t node_index) noexcept {
     return luisa::vector<size_t>{graph.node(node_index).input_fields};
 }
@@ -163,7 +157,6 @@ inline void coro_frame_append_reserved_fields(luisa::vector<size_t> &fields) noe
                                                           size_t node_index,
                                                           size_t target_index) noexcept {
     luisa::vector<size_t> fields;
-    coro_frame_append_reserved_fields(fields);
     if (auto *edge = graph.edge(node_index, target_index)) {
         for (auto field : edge->store_fields) {
             coro_frame_append_unique(fields, field);
@@ -198,6 +191,103 @@ inline void coro_frame_append_reserved_fields(luisa::vector<size_t> &fields) noe
     return relocation_fields;
 }
 
+/// Scheduler-visible coroutine frame transport contract.
+///
+/// For continuation t and graph edge s -> t:
+///
+///   load[t]       = fields actually read by continuation t
+///   store[s][t]   = fields defined on s -> t and live in t
+///   relocate[t]   = complete token-indexed resident payload R[t]
+///
+/// Impossible graph edges have an empty store set. A scheduler that keeps its
+/// routing token in frame storage may request field 6 in every realizable
+/// output (including the implicit normal-return outcome zero) and queued
+/// relocation payload;
+/// schedulers with a separate token/index queue must not duplicate it.
+struct CoroFrameIOPlanConfig {
+    bool externalize_target_token{false};
+};
+
+struct CoroFrameIOPlan {
+    luisa::vector<luisa::vector<size_t>> input_fields;
+    luisa::vector<luisa::vector<luisa::vector<size_t>>>
+        transition_output_fields;
+    luisa::vector<luisa::vector<size_t>> relocation_fields;
+
+    [[nodiscard]] auto input(size_t node) const noexcept {
+        return luisa::span<const size_t>{input_fields[node]};
+    }
+    [[nodiscard]] auto output(size_t source, size_t target) const noexcept {
+        return luisa::span<const size_t>{
+            transition_output_fields[source][target]};
+    }
+    [[nodiscard]] auto relocation(size_t node) const noexcept {
+        return luisa::span<const size_t>{relocation_fields[node]};
+    }
+};
+
+[[nodiscard]] inline auto coro_frame_make_io_plan(
+    const CoroGraph &graph, size_t frame_field_count,
+    CoroFrameIOPlanConfig config = {}) noexcept {
+    CoroFrameIOPlan plan;
+    auto node_count = graph.node_count();
+    plan.input_fields.resize(node_count);
+    plan.transition_output_fields.resize(node_count);
+    plan.relocation_fields = coro_frame_collect_relocation_fields(
+        graph, frame_field_count);
+    for (auto node = 0u; node < node_count; ++node) {
+        plan.input_fields[node] = coro_frame_collect_input_fields(
+            graph, node);
+        plan.transition_output_fields[node].resize(node_count);
+        for (auto field : plan.input_fields[node]) {
+            LUISA_ASSERT(field < frame_field_count,
+                         "Coroutine input field {} is outside frame field "
+                         "count {}.",
+                         field, frame_field_count);
+        }
+    }
+    for (auto &&edge : graph.edges()) {
+        LUISA_ASSERT(edge.from_index < node_count &&
+                         edge.to_index < node_count,
+                     "Coroutine edge {} -> {} is outside node count {}.",
+                     edge.from_index, edge.to_index, node_count);
+        auto &fields =
+            plan.transition_output_fields[edge.from_index][edge.to_index];
+        fields = edge.store_fields;
+        for (auto field : fields) {
+            LUISA_ASSERT(field < frame_field_count,
+                         "Coroutine transition field {} is outside frame "
+                         "field count {}.",
+                         field, frame_field_count);
+        }
+        if (config.externalize_target_token) {
+            coro_frame_append_unique(fields, 6u);
+        }
+        luisa::sort(fields.begin(), fields.end());
+        fields.erase(std::unique(fields.begin(), fields.end()), fields.end());
+    }
+    if (config.externalize_target_token) {
+        for (auto &&node : graph.nodes()) {
+            // Graph edges model suspend-to-resume transitions. Normal return
+            // is the scheduler's implicit outcome zero and is therefore not a
+            // CoroGraph edge (nor equivalent to Scope::is_terminal, which
+            // records an explicit CoroTerminate path). Every materialized
+            // callable has this ABI outcome; the dynamic `next == 0` guard
+            // ensures the token write executes only on that outcome.
+            coro_frame_append_unique(
+                plan.transition_output_fields[node.index][0u], 6u);
+            if (node.index != graph.entry_index()) {
+                coro_frame_append_unique(
+                    plan.relocation_fields[node.index], 6u);
+                luisa::sort(
+                    plan.relocation_fields[node.index].begin(),
+                    plan.relocation_fields[node.index].end());
+            }
+        }
+    }
+    return plan;
+}
+
 /// Factor token-indexed relocation payloads R[t] into
 ///
 ///   C = intersection(t != 0) R[t]
@@ -214,9 +304,7 @@ struct CoroFrameRelocationFieldPartition {
 };
 
 [[nodiscard]] inline auto coro_frame_partition_relocation_fields(
-    const CoroGraph &graph, size_t frame_field_count) noexcept {
-    auto exact_fields = coro_frame_collect_relocation_fields(
-        graph, frame_field_count);
+    luisa::vector<luisa::vector<size_t>> exact_fields) noexcept {
     CoroFrameRelocationFieldPartition partition;
     partition.residual_fields = exact_fields;
     if (exact_fields.size() > 1u) {
@@ -253,6 +341,18 @@ struct CoroFrameRelocationFieldPartition {
         partition.residual_fields.front().clear();
     }
     return partition;
+}
+
+[[nodiscard]] inline auto coro_frame_partition_relocation_fields(
+    const CoroGraph &graph, size_t frame_field_count) noexcept {
+    return coro_frame_partition_relocation_fields(
+        coro_frame_collect_relocation_fields(graph, frame_field_count));
+}
+
+[[nodiscard]] inline auto coro_frame_partition_relocation_fields(
+    const CoroFrameIOPlan &plan) noexcept {
+    return coro_frame_partition_relocation_fields(
+        plan.relocation_fields);
 }
 
 class CoroFrameSharedStorage {
@@ -332,10 +432,12 @@ public:
         requires is_integral_expr_v<I>
     [[nodiscard]] auto read(
         I &&index,
-        luisa::optional<luisa::span<const size_t>> active_fields = luisa::nullopt) const noexcept {
+        luisa::optional<luisa::span<const size_t>> active_fields = luisa::nullopt,
+        bool include_reserved_fields = true) const noexcept {
         auto frame = CoroFrame::create(_desc);
         read_into(
-            std::forward<I>(index), frame, active_fields);
+            std::forward<I>(index), frame, active_fields,
+            include_reserved_fields);
         return frame;
     }
 
@@ -425,10 +527,12 @@ inline void coro_frame_load_aos_into(
     const CoroFrameDesc *desc, const Expr<ByteBuffer> &buffer, Expr<uint> frame_index,
     const CoroFrameStorageLayout &layout,
     luisa::optional<luisa::span<const size_t>> active_fields = luisa::nullopt,
-    bool is_volatile = false) noexcept {
+    bool is_volatile = false,
+    bool include_reserved_fields = true) noexcept {
     auto frame = CoroFrame::create(desc);
     coro_frame_load_aos_into(
-        frame, buffer, frame_index, layout, active_fields, is_volatile);
+        frame, buffer, frame_index, layout, active_fields, is_volatile,
+        include_reserved_fields);
     return frame;
 }
 
@@ -478,10 +582,12 @@ inline void coro_frame_load_soa_into(
     const CoroFrameDesc *desc, const Expr<ByteBuffer> &buffer, Expr<uint> frame_index,
     const CoroFrameStorageLayout &layout,
     luisa::optional<luisa::span<const size_t>> active_fields = luisa::nullopt,
-    bool is_volatile = false) noexcept {
+    bool is_volatile = false,
+    bool include_reserved_fields = true) noexcept {
     auto frame = CoroFrame::create(desc);
     coro_frame_load_soa_into(
-        frame, buffer, frame_index, layout, active_fields, is_volatile);
+        frame, buffer, frame_index, layout, active_fields, is_volatile,
+        include_reserved_fields);
     return frame;
 }
 
@@ -608,11 +714,13 @@ inline void coro_frame_load_runtime_soa_into(
     Expr<uint> frame_index, Expr<uint> capacity,
     const CoroFrameStorageLayout &layout,
     luisa::optional<luisa::span<const size_t>> active_fields = luisa::nullopt,
-    bool is_volatile = false) noexcept {
+    bool is_volatile = false,
+    bool include_reserved_fields = true) noexcept {
     auto frame = CoroFrame::create(desc);
     coro_frame_load_runtime_soa_into(
         frame, buffer, frame_index, capacity,
-        layout, active_fields, is_volatile);
+        layout, active_fields, is_volatile,
+        include_reserved_fields);
     return frame;
 }
 
@@ -696,10 +804,15 @@ inline void coro_frame_load_into(
     const CoroFrameDesc *desc, const Expr<ByteBuffer> &buffer, Expr<uint> frame_index,
     const CoroFrameStorageLayout &layout, bool soa,
     luisa::optional<luisa::span<const size_t>> active_fields = luisa::nullopt,
-    bool is_volatile = false) noexcept {
+    bool is_volatile = false,
+    bool include_reserved_fields = true) noexcept {
     return soa ?
-               coro_frame_load_soa(desc, buffer, frame_index, layout, active_fields, is_volatile) :
-               coro_frame_load_aos(desc, buffer, frame_index, layout, active_fields, is_volatile);
+               coro_frame_load_soa(desc, buffer, frame_index, layout,
+                                   active_fields, is_volatile,
+                                   include_reserved_fields) :
+               coro_frame_load_aos(desc, buffer, frame_index, layout,
+                                   active_fields, is_volatile,
+                                   include_reserved_fields);
 }
 
 [[nodiscard]] inline auto coro_frame_load(
@@ -707,14 +820,17 @@ inline void coro_frame_load_into(
     Expr<uint> frame_index, Expr<uint> soa_capacity,
     const CoroFrameStorageLayout &layout, bool soa,
     luisa::optional<luisa::span<const size_t>> active_fields = luisa::nullopt,
-    bool is_volatile = false) noexcept {
+    bool is_volatile = false,
+    bool include_reserved_fields = true) noexcept {
     return soa ?
                coro_frame_load_runtime_soa(
                    desc, buffer, frame_index, soa_capacity,
-                   layout, active_fields, is_volatile) :
+                   layout, active_fields, is_volatile,
+                   include_reserved_fields) :
                coro_frame_load_aos(
                    desc, buffer, frame_index,
-                   layout, active_fields, is_volatile);
+                   layout, active_fields, is_volatile,
+                   include_reserved_fields);
 }
 
 template<typename T>

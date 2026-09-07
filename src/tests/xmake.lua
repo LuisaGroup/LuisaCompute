@@ -69,6 +69,10 @@ end)
 test_proj("test_command_reorder_bindless", "unit/ext/test_command_reorder_bindless.cpp", false, function()
     add_includedirs("../backends/common")
 end)
+test_proj("test_vk_cuda_launch_command", "unit/ext/test_vk_cuda_launch_command.cpp")
+if has_config("lc_vk_cuda_interop") and has_config("lc_cuda_backend") then
+    test_proj("test_vk_cuda_kernel_launch", "integration/runtime/test_vk_cuda_kernel_launch.cpp")
+end
 if has_config("lc_vk_backend") or has_config("lc_dx_backend") then
     test_proj("test_hlsl_validation_codegen", "unit/ext/test_hlsl_validation_codegen.cpp", false, function()
         add_includedirs("../backends/common/hlsl")
@@ -191,9 +195,13 @@ if has_config("lc_vk_backend") then
         add_includedirs("../backends/vk")
         add_files("../backends/vk/VulkanTools.cpp")
         add_deps("lc-volk")
-    end)
-    test_proj("test_vk_cuda_interop_texture_plan", "unit/ext/test_vk_cuda_interop_texture_plan.cpp", false, function()
-        add_includedirs("../backends/vk")
+  test_proj("test_vk_cuda_interop_texture_plan", "unit/ext/test_vk_cuda_interop_texture_plan.cpp", false, function()
+      add_includedirs("../backends/vk")
+  end)
+  test_proj("test_vk_android_plan", "unit/ext/test_vk_android_plan.cpp", false, function()
+      add_includedirs("../backends/vk")
+      add_deps("lc-volk")
+  end)
         add_deps("lc-volk")
     end)
     test_proj("test_vk_sparse_runtime", "unit/runtime/test_vk_sparse_runtime.cpp", false, function()
@@ -215,6 +223,7 @@ test_proj("test_tile_kernel_dsl", "unit/ast/test_tile_kernel_dsl.cpp")
 test_proj("test_tile_to_kernel", "unit/ast/test_tile_to_kernel.cpp")
 test_proj("test_cooperative_vector", "unit/ast/test_cooperative_vector.cpp")
 test_proj("test_tensor", "unit/ast/test_tensor.cpp")
+test_proj("test_tensor_element_types", "unit/ast/test_tensor_element_types.cpp")
 test_proj("test_async_copy_ast", "unit/ast/test_async_copy_ast.cpp")
 test_proj("test_bindless_write_usage", "unit/ast/test_bindless_write_usage.cpp")
 
@@ -243,6 +252,7 @@ test_proj("test_dsl_autodiff", "unit/dsl/test_autodiff.cpp")
 
 -- unit/runtime
 test_proj("test_accel_build_modes", "unit/runtime/test_accel_build_modes.cpp")
+test_proj("test_accel_blas_lifetime", "unit/runtime/test_accel_blas_lifetime.cpp")
 test_proj("test_accel_visibility", "unit/runtime/test_accel_visibility.cpp")
 test_proj("test_atomic", "unit/runtime/test_atomic.cpp")
 test_proj("test_atomic_queue", "unit/runtime/test_atomic_queue.cpp")
@@ -250,6 +260,7 @@ test_proj("test_byte_buffer", "unit/runtime/test_byte_buffer.cpp")
 test_proj("test_context", "unit/runtime/test_context.cpp")
 test_proj("test_copy", "unit/runtime/test_copy.cpp")
 test_proj("test_cpu_callable", "unit/runtime/test_cpu_callable.cpp")
+test_proj("test_hip_packed_pointer_effects", "unit/runtime/test_hip_packed_pointer_effects.cpp")
 test_proj("test_decoupled_look_back", "unit/runtime/test_decoupled_look_back.cpp")
 test_proj("test_complex_kernel", "unit/runtime/test_complex_kernel.cpp")
 test_proj("test_bindless_mip", "unit/runtime/test_bindless_mip.cpp")
@@ -311,10 +322,13 @@ test_proj("test_coro_radix_sort", "unit/coro/test_coro_radix_sort.cpp")
 
 -- unit/xir
 if has_config("lc_enable_xir") then
-    local function coro_xir_test_proj(name, source)
+    local function coro_xir_test_proj(name, source, needs_bigobj)
         test_proj(name, source, false, function()
             add_defines("LUISA_ENABLE_XIR")
             add_deps("lc-coro")
+            if needs_bigobj then
+                add_cxxflags("/bigobj", {tools = "cl"})
+            end
         end)
     end
     test_proj("test_ast_to_xir", "unit/xir/test_ast_to_xir.cpp", false, function()
@@ -385,6 +399,8 @@ if has_config("lc_enable_xir") then
     end)
     test_proj("test_xir_translators", "unit/xir/test_xir_translators.cpp", false, function()
         add_defines("LUISA_ENABLE_XIR")
+        -- the translator test exercises Coroutine/$suspend translation
+        add_deps("lc-coro")
     end)
     test_proj("test_xir_interchange", "unit/xir/test_xir_interchange.cpp", false, function()
         add_defines("LUISA_ENABLE_XIR")
@@ -429,8 +445,8 @@ if has_config("lc_enable_xir") then
     coro_xir_test_proj("test_coro_persistent_opt", "unit/coro/test_coro_persistent_opt.cpp")
     coro_xir_test_proj("test_coro_persistent_integration", "unit/coro/test_coro_persistent_integration.cpp")
     coro_xir_test_proj("test_coro_soa_layout", "unit/coro/test_coro_soa_layout.cpp")
-    coro_xir_test_proj("test_coro_wavefront", "unit/coro/test_coro_wavefront.cpp")
-    coro_xir_test_proj("test_coro_all_schedulers", "unit/coro/test_coro_all_schedulers.cpp")
+    coro_xir_test_proj("test_coro_wavefront", "unit/coro/test_coro_wavefront.cpp", true)
+    coro_xir_test_proj("test_coro_all_schedulers", "unit/coro/test_coro_all_schedulers.cpp", true)
     coro_xir_test_proj("test_coro_wavefront_integration", "unit/coro/test_coro_wavefront_integration.cpp")
     coro_xir_test_proj("test_coro_pipeline_1suspend", "unit/coro/test_coro_pipeline_1suspend.cpp")
     coro_xir_test_proj("test_coro_pipeline_3suspend", "unit/coro/test_coro_pipeline_3suspend.cpp")
@@ -500,6 +516,25 @@ end)
 -- integration/runtime: CUDA-only tests
 if has_config("lc_cuda_backend") then
     test_proj("test_cuda_graph", "integration/runtime/test_cuda_graph.cpp")
+end
+
+-- integration/runtime: external device config extension tests
+-- Exercises backend-specific DeviceConfigExt subclasses (CUDA/DX/Vulkan) and,
+-- for DX and Vulkan, the borrowed-command-list/command-buffer submission path.
+if has_config("lc_cuda_backend") or has_config("lc_dx_backend") or has_config("lc_vk_backend") then
+    test_proj("test_external_device", "integration/runtime/test_external_device.cpp", false, function()
+        if has_config("lc_cuda_backend") then
+            add_defines("LUISA_TEST_EXTERNAL_DEVICE_HAS_CUDA=1")
+        end
+        if has_config("lc_dx_backend") then
+            add_defines("LUISA_TEST_EXTERNAL_DEVICE_HAS_DX=1")
+            add_syslinks("dxgi", "d3d12")
+        end
+        if has_config("lc_vk_backend") then
+            add_defines("LUISA_TEST_EXTERNAL_DEVICE_HAS_VK=1")
+            add_deps("lc-volk")
+        end
+    end)
 end
 
 -- integration/runtime: DX-only tests

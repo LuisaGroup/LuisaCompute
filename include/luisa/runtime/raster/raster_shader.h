@@ -147,6 +147,7 @@ private:
 
     RasterShader(DeviceInterface *device,
                  RasterExt* raster_ext,
+                 const MeshFormat &mesh_format,
                  Function vert,
                  Function pixel,
                  const ShaderOption &option)noexcept
@@ -155,6 +156,7 @@ private:
               Tag::RASTER_SHADER,
               [&] {
                   auto info = raster_ext->create_raster_shader(
+                      mesh_format,
                       vert,
                       pixel,
                       option);

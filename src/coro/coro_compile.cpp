@@ -830,10 +830,8 @@ CoroutineCompileResult compile_coroutine_pipeline(
     LUISA_ASSERT(materialize_info.callable_count != 0u, "coro-materialize found no callables");
     profiler.checkpoint("continuation materialization");
 
-    result.graph = coro::CoroGraph::from_module(
-        *module, materialize_info, cfg, split_info);
     result.frame_desc.from_materialize_info(materialize_info);
-    profiler.checkpoint("graph and frame metadata");
+    profiler.checkpoint("frame metadata");
 
     // Split callables are now the complete code-generation domain. The source
     // coroutine is an analysis artifact whose ordinary CFG ends at each
@@ -1085,6 +1083,14 @@ CoroutineCompileResult compile_coroutine_pipeline(
             ordinary_callable_snapshots, "continuation normalization");
         profiler.checkpoint("pass-domain verification");
     }
+    // Construct scheduler transport metadata only after continuation
+    // normalization. CoroGraph's field-sensitive frame-reference analysis then
+    // observes the code that is actually translated, so dead builtin uses do
+    // not become permanent frame traffic merely because they existed before
+    // DCE/SROA/restructuring.
+    result.graph = coro::CoroGraph::from_module(
+        *module, materialize_info, cfg, split_info);
+    profiler.checkpoint("graph transport metadata");
     // Keep continuation code and its routing token as one atomic relation.
     // Silently skipping a failed XIR->AST translation and then independently
     // rebuilding tokens from cfg.scopes would shift every later token onto the

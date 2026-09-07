@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <memory>
@@ -76,7 +77,7 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend> [--offline] [--spp N] [--max-registers N] [--max-spp-per-dispatch N] [--trace-mode cutout-query|accept-query|opaque-query|direct]. <backend>: cuda, dx, metal, vk, hip, fallback, simd", argv[0]);
+        LUISA_INFO("Usage: {} <backend> [--offline] [--spp N] [--iterations N] [--max-registers N] [--max-spp-per-dispatch N] [--trace-mode cutout-query|accept-query|opaque-query|direct] [--ray-query-lowering pipeline|loop] [--capture-float4s N]. <backend>: cuda, dx, metal, metal4, vk, hip, fallback, simd", argv[0]);
         exit(1);
     }
 
@@ -89,7 +90,10 @@ int main(int argc, char *argv[]) {
     // traversal occupancy policy; this override remains available for explicit
     // resource-sensitivity experiments.
     auto max_registers = 0u;
+    auto capture_float4_count = 0u;
     auto trace_mode = TraceMode::cutout_query;
+    auto enable_ray_query_pipeline = true;
+    auto force_ray_query_pipeline = false;
     for (auto i = 2; i < argc; i++) {
         auto option = std::string_view{argv[i]};
         if (option == "--max-registers") {
@@ -115,9 +119,53 @@ int main(int argc, char *argv[]) {
                 return 1;
             }
             trace_mode = *parsed;
+        } else if (option == "--ray-query-lowering") {
+            if (i + 1 >= argc) {
+                LUISA_WARNING("Missing value for {}.", option);
+                return 1;
+            }
+            auto lowering = std::string_view{argv[++i]};
+            if (lowering == "pipeline") {
+                enable_ray_query_pipeline = true;
+                force_ray_query_pipeline = true;
+            } else if (lowering == "loop") {
+                enable_ray_query_pipeline = false;
+                force_ray_query_pipeline = false;
+            } else {
+                LUISA_WARNING(
+                    "Invalid --ray-query-lowering '{}'; expected "
+                    "'pipeline' or 'loop'.",
+                    lowering);
+                return 1;
+            }
+        } else if (option == "--capture-float4s") {
+            if (i + 1 >= argc) {
+                LUISA_WARNING("Missing value for {}.", option);
+                return 1;
+            }
+            auto value = std::string_view{argv[++i]};
+            auto parsed = luisa::ref::parse_uint32_option_value(value);
+            if (!parsed || *parsed > 64u) {
+                LUISA_WARNING(
+                    "Invalid value '{}' for {}; expected an integer in "
+                    "[0, 64].",
+                    value, option);
+                return 1;
+            }
+            capture_float4_count = *parsed;
         }
     }
-    LUISA_INFO("Trace microbenchmark mode: {}.", trace_mode_name(trace_mode));
+    LUISA_INFO("Trace microbenchmark mode: {}; ray-query lowering: {}; "
+               "mutable callback state: {} float4 ({} source byte(s); "
+               "IFT input/output payload is reported by the XIR pass).",
+               trace_mode_name(trace_mode),
+               !enable_ray_query_pipeline ?
+                   "stateful loop (forced)" :
+               force_ray_query_pipeline ?
+                   "pipeline/IFT (forced)" :
+                   "automatic",
+               capture_float4_count,
+               capture_float4_count * static_cast<uint>(sizeof(float4)));
 
     Device device = context.create_device(argv[1]);
 
@@ -262,10 +310,15 @@ int main(int argc, char *argv[]) {
         return pdf_a / max(pdf_a + pdf_b, 1e-4f);
     };
 
-    Callable filter_triangle_hit = [&](Var<TriangleHit> h) noexcept {
+    Callable filter_triangle_hit = [&](Var<TriangleHit> h,
+                                       Float capture_bias) noexcept {
         Bool valid = def(true);
-        $if (h.inst == tall_inst) { valid = fract(6.f * h.bary.y) < .6f; }
-        $elif (h.inst == short_inst) { valid = fract(10.f * h.bary.x) < .5f; };
+        $if (h.inst == tall_inst) {
+            valid = fract(6.f * h.bary.y + capture_bias) < .6f;
+        }
+        $elif (h.inst == short_inst) {
+            valid = fract(10.f * h.bary.x + capture_bias) < .5f;
+        };
         return valid;
     };
 
@@ -285,6 +338,40 @@ int main(int argc, char *argv[]) {
 
     Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution, UInt dispatch_spp) noexcept {
         set_block_size(16u, 16u, 1u);
+        auto make_capture_state = [&](Expr<Ray> query_ray) noexcept {
+            luisa::vector<Float4> state;
+            state.reserve(capture_float4_count);
+            auto ray_value = def(query_ray);
+            for (auto i = 0u; i < capture_float4_count; i++) {
+                auto lane = static_cast<float>(i + 1u);
+                state.emplace_back(def(make_float4(
+                    ray_value->origin() +
+                        ray_value->direction() * (lane * 0.0009765625f),
+                    ray_value->t_min() + lane * 0.00390625f)));
+            }
+            return state;
+        };
+        auto update_capture_state = [&](luisa::vector<Float4> &state,
+                                        Var<TriangleHit> hit) noexcept {
+            Float checksum = def(0.0f);
+            for (auto i = 0u; i < capture_float4_count; i++) {
+                auto lane = static_cast<float>(i + 1u);
+                auto candidate_value = make_float4(
+                    hit.bary,
+                    cast<float>(hit.prim & 255u),
+                    cast<float>(hit.inst & 255u));
+                state[i] = state[i] *
+                               make_float4(0.96875f, 0.953125f,
+                                           0.9375f, 0.921875f) +
+                           candidate_value * (lane * 0.000244140625f);
+                checksum += dot(
+                    state[i],
+                    make_float4(0.25f, 0.125f, 0.0625f,
+                                0.03125f) /
+                        lane);
+            }
+            return fract(abs(checksum) * 0.0009765625f) * 0.05f;
+        };
         auto trace_closest = [&](Expr<Ray> query_ray) noexcept {
             if (trace_mode == TraceMode::direct) {
                 auto surface_hit = accel.intersect(query_ray, {});
@@ -305,9 +392,13 @@ int main(int argc, char *argv[]) {
                     })
                     .trace();
             }
+            auto capture_state = make_capture_state(query_ray);
             return accel.traverse(query_ray, {})
                 .on_surface_candidate([&](auto &candidate) noexcept {
-                    $if (filter_triangle_hit(candidate.hit())) {
+                    auto candidate_hit = candidate.hit();
+                    auto capture_bias = update_capture_state(
+                        capture_state, candidate_hit);
+                    $if (filter_triangle_hit(candidate_hit, capture_bias)) {
                         candidate.commit();
                     };
                 })
@@ -328,9 +419,14 @@ int main(int argc, char *argv[]) {
                             .trace()
                             ->miss();
             }
+            auto capture_state = make_capture_state(query_ray);
             return !accel.traverse_any(query_ray, {})
                         .on_surface_candidate([&](auto &candidate) noexcept {
-                            $if (filter_triangle_hit(candidate.hit())) {
+                            auto candidate_hit = candidate.hit();
+                            auto capture_bias = update_capture_state(
+                                capture_state, candidate_hit);
+                            $if (filter_triangle_hit(
+                                     candidate_hit, capture_bias)) {
                                 candidate.commit();
                             };
                         })
@@ -466,18 +562,24 @@ int main(int argc, char *argv[]) {
     auto clear_shader = device.compile(clear_kernel);
     auto hdr2ldr_shader = device.compile(hdr2ldr_kernel);
     auto accumulate_shader = device.compile(accumulate_kernel);
+    ShaderOption raytracing_option{.max_registers = max_registers};
+    raytracing_option.enable_ray_query_pipeline =
+        enable_ray_query_pipeline;
+    raytracing_option.force_ray_query_pipeline =
+        force_ray_query_pipeline;
+    Clock raytracing_compile_clock;
     auto raytracing_shader = device.compile(
-        raytracing_kernel, ShaderOption{.max_registers = max_registers});
+        raytracing_kernel, raytracing_option);
+    auto raytracing_compile_time_ms = raytracing_compile_clock.toc();
+    LUISA_INFO("Ray-query shader compile time: {} ms.",
+               raytracing_compile_time_ms);
     auto make_sampler_shader = device.compile(make_sampler_kernel);
 
     static constexpr uint2 resolution = make_uint2(1024u);
     Image<float> framebuffer = device.create_image<float>(PixelStorage::HALF4, resolution);
     Image<float> accum_image = device.create_image<float>(PixelStorage::FLOAT4, resolution);
     luisa::vector<std::array<uint8_t, 4u>> host_image(resolution.x * resolution.y);
-    CommandList cmd_list;
     Image<uint> seed_image = device.create_image<uint>(PixelStorage::INT1, resolution);
-    cmd_list << clear_shader(accum_image).dispatch(resolution)
-             << make_sampler_shader(seed_image).dispatch(resolution);
 
     std::unique_ptr<Window> window;
     std::optional<Swapchain> swap_chain;
@@ -497,42 +599,77 @@ int main(int argc, char *argv[]) {
     Image<float> ldr_image = device.create_image<float>(
         (!opts.offline && swap_chain.has_value()) ? swap_chain->backend_storage() : PixelStorage::BYTE4,
         resolution);
-    double last_time = 0.0;
     uint64_t frame_count = 0u;
-    Clock clock;
+    auto iteration_count = opts.offline ? opts.iterations : 1u;
+    luisa::vector<double> rendering_times;
+    rendering_times.reserve(iteration_count);
+    for (auto iteration = 0u; iteration < iteration_count; iteration++) {
+        CommandList initialize;
+        initialize << clear_shader(accum_image).dispatch(resolution)
+                   << make_sampler_shader(seed_image).dispatch(resolution);
+        stream << initialize.commit()
+               << synchronize();
 
-    // Keep offline/reference runs reproducible while preserving fresh animation
-    // sequences for the interactive example.
-    std::mt19937 rand{opts.offline ? 42u : std::random_device{}()};
-    std::normal_distribution<float> dist{0.f, 1.f};
-    while (sample_plan.has_next(frame_count)) {
-        auto dispatch_spp = sample_plan.next_dispatch_spp(frame_count);
-        float4x4 t = translation(make_float3(0.f, dist(rand) * .03f + .1f, 0.f));
-        accel.set_transform_on_update(tall_inst, t);
-        cmd_list << accel.build(AccelBuildRequest::PREFER_UPDATE)
-                 << raytracing_shader(framebuffer, seed_image, accel, resolution, dispatch_spp)
-                        .dispatch(resolution)
-                 << accumulate_shader(accum_image, framebuffer)
-                        .dispatch(resolution);
-        if (!opts.offline && swap_chain.has_value()) {
-            cmd_list << hdr2ldr_shader(accum_image, ldr_image, 1.0f, swap_chain->backend_storage() != PixelStorage::BYTE4).dispatch(resolution);
-            stream << cmd_list.commit()
-                   << swap_chain->present(ldr_image);
-            if (window->should_close()) { break; }
-            window->poll_events();
-        } else {
-            stream << cmd_list.commit();
+        // Keep offline/reference runs reproducible while preserving a fresh
+        // animation sequence for the interactive example. Resetting the seed
+        // per offline iteration gives the performance comparison identical
+        // rays and acceleration-structure updates.
+        std::mt19937 rand{opts.offline ? 42u : std::random_device{}()};
+        std::normal_distribution<float> dist{0.f, 1.f};
+        frame_count = 0u;
+        double last_time = 0.0;
+        Clock clock;
+        while (sample_plan.has_next(frame_count)) {
+            auto dispatch_spp = sample_plan.next_dispatch_spp(frame_count);
+            float4x4 t = translation(make_float3(0.f, dist(rand) * .03f + .1f, 0.f));
+            accel.set_transform_on_update(tall_inst, t);
+            CommandList commands;
+            commands << accel.build(AccelBuildRequest::PREFER_UPDATE)
+                     << raytracing_shader(framebuffer, seed_image, accel, resolution, dispatch_spp)
+                            .dispatch(resolution)
+                     << accumulate_shader(accum_image, framebuffer)
+                            .dispatch(resolution);
+            if (!opts.offline && swap_chain.has_value()) {
+                commands << hdr2ldr_shader(accum_image, ldr_image, 1.0f, swap_chain->backend_storage() != PixelStorage::BYTE4).dispatch(resolution);
+                stream << commands.commit()
+                       << swap_chain->present(ldr_image);
+                if (window->should_close()) { break; }
+                window->poll_events();
+            } else {
+                stream << commands.commit();
+            }
+            auto now = clock.toc();
+            LUISA_INFO("time: {} ms", now - last_time);
+            last_time = now;
+            frame_count += dispatch_spp;
         }
-        double dt = clock.toc() - last_time;
-        last_time = clock.toc();
-        frame_count += dispatch_spp;
-        LUISA_INFO("time: {} ms", dt);
+        stream << synchronize();
+        auto rendering_time_ms = clock.toc();
+        rendering_times.emplace_back(rendering_time_ms);
+        LUISA_INFO(
+            "Ray-query rendering iteration {}/{}: {} ms for {} spp; "
+            "throughput: {} spp/s.",
+            iteration + 1u, iteration_count, rendering_time_ms, frame_count,
+            frame_count / rendering_time_ms * 1000.0);
     }
     stream << hdr2ldr_shader(accum_image, ldr_image, 1.0f, false).dispatch(resolution)
            << ldr_image.copy_to(luisa::span{host_image})
            << synchronize();
 
-    LUISA_INFO("FPS: {}", frame_count / clock.toc() * 1000);
+    auto sorted_rendering_times = rendering_times;
+    std::sort(sorted_rendering_times.begin(), sorted_rendering_times.end());
+    auto middle = sorted_rendering_times.size() / 2u;
+    auto median_rendering_time_ms = sorted_rendering_times[middle];
+    if (sorted_rendering_times.size() % 2u == 0u) {
+        median_rendering_time_ms =
+            (sorted_rendering_times[middle - 1u] + median_rendering_time_ms) *
+            0.5;
+    }
+    auto sample_throughput = frame_count / median_rendering_time_ms * 1000.0;
+    LUISA_INFO(
+        "Ray-query rendering median: {} ms for {} spp; throughput: {} spp/s.",
+        median_rendering_time_ms, frame_count, sample_throughput);
+    LUISA_INFO("FPS: {}", sample_throughput);
     stbi_write_png("test_path_tracing_cutout.png", resolution.x, resolution.y, 4, host_image.data(), 0);
     if (opts.offline) {
         if (opts.compare_path) {

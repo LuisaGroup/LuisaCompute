@@ -71,7 +71,8 @@ VkAllocator::VkAllocator(Device &device)
         .pHeapSizeLimit = nullptr,
         .pVulkanFunctions = nullptr,
         .instance = device.instance(),
-        .vulkanApiVersion = VK_API_VERSION_1_3,
+        // The backend supports Vulkan 1.2 devices; VMA must not require 1.3.
+        .vulkanApiVersion = VK_API_VERSION_1_2,
         .pTypeExternalMemoryHandleTypes = nullptr};
     VK_CHECK_RESULT(vmaCreateAllocator(&create_info, &_allocator));
 }

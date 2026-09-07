@@ -11,6 +11,7 @@
 // - divergent visibility masks, ray intervals, directions, and misses
 // - uniform static and motion traces that must remain scalar within a packet
 // - an inactive W16 tail with only three live lanes
+// - W16 ray queries on hosts where Embree invokes packet filters at N=1
 
 #include "ut/ut.hpp"
 

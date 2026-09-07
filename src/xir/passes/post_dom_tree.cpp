@@ -41,7 +41,7 @@ inline void PostDomTree::set_root(PostDomTreeNode *root) noexcept {
     _root = root;
 }
 
-inline void PostDomTree::compute_post_dominance_frontiers() noexcept {
+void PostDomTree::compute_post_dominance_frontiers() noexcept {
     luisa::fixed_vector<BasicBlock *, 16u> succs;
     luisa::unordered_map<PostDomTreeNode *, luisa::unordered_set<PostDomTreeNode *>> frontiers;
     for (auto &&[b, node] : _nodes) {

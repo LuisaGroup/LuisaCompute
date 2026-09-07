@@ -9,6 +9,7 @@
 #include <hip/hip_runtime.h>
 #include <hiprt/hiprt.h>
 #include <luisa/core/stl/string.h>
+#include <luisa/core/stl/vector.h>
 #include <luisa/runtime/rhi/device_interface.h>
 #include "../common/default_binary_io.h"
 
@@ -34,6 +35,9 @@ private:
     luisa::unique_ptr<HIPPinnedMemoryExt> _pinned_memory_ext{nullptr};
     mutable std::mutex _motion_mesh_builtin_mutex;
     mutable luisa::unique_ptr<HIPMotionMeshBuiltin> _motion_mesh_builtin{nullptr};
+    std::mutex _shader_module_retirement_mutex;
+    luisa::vector<hipModule_t> _retired_shader_modules;
+    bool _hiprt_build_completed{false};
 
     template<typename F>
     decltype(auto) with_device(F &&f) const noexcept;
@@ -50,6 +54,8 @@ public:
     [[nodiscard]] hiprtContext hiprt_context() const noexcept;
     [[nodiscard]] hiprtGlobalStackBuffer hiprt_global_stack_buffer() const noexcept;
     [[nodiscard]] HIPMotionMeshBuiltin &motion_mesh_builtin() const noexcept;
+    void retire_shader_module(hipModule_t module) noexcept;
+    void notify_hiprt_build_completed() noexcept;
     [[nodiscard]] hipUUID_t device_uuid() const noexcept;
     [[nodiscard]] hipUUID_t device_uuid_for_vulkan() const noexcept;
     [[nodiscard]] void *native_handle() const noexcept override;

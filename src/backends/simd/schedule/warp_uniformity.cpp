@@ -50,12 +50,14 @@ WarpUniformityAnalysis::State WarpUniformityAnalysis::_state(
                 case S::KERNEL_ID:
                 case S::BLOCK_SIZE:
                 case S::WARP_SIZE:
-                case S::DISPATCH_SIZE: return State::warp_uniform;
+                case S::DISPATCH_SIZE:
+                case S::RASTER_BASE_INSTANCE: return State::warp_uniform;
                 case S::THREAD_ID:
                 case S::WARP_LANE_ID:
                 case S::DISPATCH_ID:
                 case S::RASTER_OBJECT_ID:
-                case S::RASTER_BARYCENTRICS: return State::varying;
+                case S::RASTER_BARYCENTRICS:
+                case S::RASTER_FRONT_FACING: return State::varying;
             }
             return State::varying;
         }

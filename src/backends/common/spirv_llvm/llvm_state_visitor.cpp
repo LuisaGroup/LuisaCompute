@@ -1308,7 +1308,11 @@ void LLVMStateVisitor::_codegen_builtin_call(CallOp op, const CallExpr *expr) {
             break;
         }
 
-        // --- ZERO / ONE ---
+        // --- UNDEFINED / ZERO / ONE ---
+        case CallOp::UNDEFINED: {
+            _last_value = llvm::UndefValue::get(ToLLVMType(*ret_type));
+            break;
+        }
         case CallOp::ZERO: {
             _last_value = llvm::Constant::getNullValue(ToLLVMType(*ret_type));
             break;

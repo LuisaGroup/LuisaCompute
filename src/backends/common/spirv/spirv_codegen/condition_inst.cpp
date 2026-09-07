@@ -188,21 +188,31 @@ void SpirvCodegenEntry::_emit_branch_inst(const xir::BranchInst *inst) noexcept 
 void SpirvCodegenEntry::_emit_conditional_branch_inst(const xir::ConditionalBranchInst *inst) noexcept {
     LUISA_ASSERT(_control_flow_plan != nullptr, "SPIR-V ConditionalBranch emission requires a control-flow plan.");
     auto *loop = _control_flow_plan->loop_with_prepare(inst->parent_block());
-    LUISA_ASSERT(loop != nullptr &&
-                     loop->prepare_kind ==
-                         SpirvLoopPrepareKind::CONDITIONAL &&
-                     loop->prepare == inst->parent_block() &&
-                     inst->true_block() == loop->body && inst->false_block() == loop->merge,
-                 "SPIR-V codegen received a raw ConditionalBranch outside canonical Loop.prepare.");
     auto condition = _emit_value(inst->condition());
-    auto *body_target = _physical_block(loop->body_target);
-    auto *merge_target = _physical_block(loop->merge_target);
-    LUISA_ASSERT(body_target != nullptr && merge_target != nullptr,
-                 "SPIR-V Loop prepare has an unbound body or merge target.");
-    _emit_loop_merge(*loop);
-    _builder.createConditionalBranch(condition,
-                                     body_target,
-                                     merge_target);
+    auto &targets =
+        _control_flow_plan->conditional_branch_targets(inst);
+    auto *true_target = _physical_block(targets[0u]);
+    auto *false_target = _physical_block(targets[1u]);
+    LUISA_ASSERT(true_target != nullptr && false_target != nullptr,
+                 "SPIR-V ConditionalBranch has an unbound target.");
+    if (loop != nullptr) {
+        LUISA_ASSERT(
+            loop->prepare_kind ==
+                    SpirvLoopPrepareKind::CONDITIONAL &&
+                loop->prepare == inst->parent_block() &&
+                inst->true_block() == loop->body &&
+                inst->false_block() == loop->merge &&
+                targets[0u] == loop->body_target &&
+                targets[1u] == loop->merge_target,
+            "SPIR-V codegen received a noncanonical conditional "
+            "Loop.prepare.");
+        _emit_loop_merge(*loop);
+    }
+    // A non-prepare raw conditional is a planner-proved direct boundary guard.
+    // It deliberately carries no OpSelectionMerge: its convergence belongs to
+    // an already enclosing construct.
+    _builder.createConditionalBranch(
+        condition, true_target, false_target);
 }
 
 spv::Block *SpirvCodegenEntry::_resolve_branch_target(const xir::BasicBlock *bb) const noexcept {

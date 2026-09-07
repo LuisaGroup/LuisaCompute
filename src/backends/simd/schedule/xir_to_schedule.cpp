@@ -925,11 +925,34 @@ private:
                     block, instruction);
                 return std::nullopt;
             case Tag::UNDEFINED:
-                _diagnose(
-                    XIRToScheduleDiagnosticCode::unsupported_value,
-                    "undefined XIR values must be eliminated before SIMD scheduling",
-                    block, instruction);
-                return std::nullopt;
+                // XIR undef denotes an unconstrained value, not a trap or a
+                // missing CFG edge. Materialize one deterministic zero value
+                // per undef/type for Schedule IR. Zero is a valid refinement
+                // of the source semantics and keeps coroutine lifetime-seed
+                // PHIs representable without inventing a backend-only poison
+                // state.
+                if (value->type() == nullptr ||
+                    value->type()->size() == 0u) {
+                    _diagnose(
+                        XIRToScheduleDiagnosticCode::unsupported_value,
+                        "undefined XIR value has no code-generatable type",
+                        block, instruction);
+                    return std::nullopt;
+                } else {
+                    std::vector<std::byte> bytes(
+                        value->type()->size(), std::byte{0});
+                    auto id = _function->add_value(
+                        ValueClass::warp_uniform, value->type(),
+                        ValueOrigin::constant, std::nullopt,
+                        value_name(
+                            value,
+                            "undef_zero" + std::to_string(
+                                               _next_external_value_id++)),
+                        ConstantValueMetadata{
+                            .bytes = std::move(bytes)});
+                    _value_ids.emplace(value, id);
+                    return id;
+                }
             case Tag::FUNCTION:
             case Tag::BASIC_BLOCK:
                 _diagnose(

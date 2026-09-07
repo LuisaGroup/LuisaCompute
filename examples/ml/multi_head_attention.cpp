@@ -18,6 +18,12 @@
 //                         * Reduced KV cache: cache only c_t^KV (latent_dim) and
 //                           k_t^R (num_heads * rope_dim) per token.
 //
+//   use_paged = true -- vLLM-style PagedAttention on the MHA path:
+//                       the KV cache lives in fixed-size physical pages (one
+//                       sparse-buffer tile each), logical pages are mapped to
+//                       scattered physical pages through a block table, and
+//                       the kernel reads K/V per page via that indirection.
+//
 // Both paths are verified against a matching CPU reference with tolerance 1e-4f.
 //
 // The example is split into focused modules:
@@ -48,7 +54,7 @@ using namespace luisa::compute;
 int main(int argc, char *argv[]) {
 
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend> [use_mla=1] [cooperative_vector=0]", argv[0]);
+        LUISA_INFO("Usage: {} <backend> [use_mla=1] [cooperative_vector=0] [use_paged=0]", argv[0]);
         return 1;
     }
 
@@ -66,8 +72,20 @@ int main(int argc, char *argv[]) {
         cooperative_vector = (std::atoi(argv[3]) != 0);
     }
 
-    LUISA_INFO("Path: {}", use_mla ? "MLA" : "MHA");
-    LUISA_INFO("Cooperative vector: {}", cooperative_vector ? "enabled" : "disabled");
+    bool use_paged = false;
+    if (argc >= 5) {
+        use_paged = (std::atoi(argv[4]) != 0);
+    }
+
+    if (use_paged && use_mla) {
+        LUISA_WARNING("Paged attention builds on the MHA path; ignoring use_mla.");
+    }
+    if (use_paged && cooperative_vector) {
+        LUISA_WARNING("Paged attention has no cooperative-vector variant; ignoring cooperative_vector.");
+    }
+
+    LUISA_INFO("Path: {}", use_paged ? "Paged-MHA" : use_mla ? "MLA" : "MHA");
+    LUISA_INFO("Cooperative vector: {}", (cooperative_vector && !use_paged) ? "enabled" : "disabled");
 
     // -- Host data initialization ------------------------------------------
     auto host = mla::make_host_data();
@@ -82,7 +100,15 @@ int main(int argc, char *argv[]) {
     mla::upload_host_data(stream, buffers, host);
 
     // -- Compile and dispatch the selected attention path ------------------
-    mla::run_attention(device, stream, buffers, use_mla, cooperative_vector);
+    bool ran_paged = false;
+    if (use_paged) {
+        ran_paged = mla::run_paged_attention(device, stream, buffers);
+    }
+    if (!ran_paged) {// also the fallback when the backend lacks sparse buffers
+        mla::run_attention(device, stream, buffers,
+                           use_mla && !use_paged,
+                           cooperative_vector && !use_paged);
+    }
 
     // -- Download results --------------------------------------------------
     luisa::vector<float> O_gpu;
@@ -91,16 +117,20 @@ int main(int argc, char *argv[]) {
     // -- CPU Reference -----------------------------------------------------
     LUISA_INFO("Running CPU reference ...");
     Clock cpu_clock;
-    auto O_cpu = mla::run_cpu_reference(host, use_mla);
+    auto O_cpu = mla::run_cpu_reference(host, use_mla && !use_paged);
     double cpu_ms = cpu_clock.toc();
     LUISA_INFO("  CPU reference completed in {:.2f} ms", cpu_ms);
 
     // -- Performance / memory summary --------------------------------------
     LUISA_INFO("-- Summary ----------------------------------------------");
-    LUISA_INFO("  Mode: {}", use_mla ? "MLA" : "MHA");
+    LUISA_INFO("  Mode: {}", ran_paged ? "Paged-MHA" : (use_mla && !use_paged) ? "MLA" : "MHA");
     LUISA_INFO("  Matrix config: batch={}, heads={}, seq_len={}, head_dim={}",
                mla::batch, mla::num_heads, mla::seq_len, mla::head_dim);
-    if (use_mla) {
+    if (ran_paged) {
+        LUISA_INFO("  Paged KV cache: one sparse tile per physical page (vLLM block_size), "
+                   "shuffled block table -> near-zero waste, dynamic growth");
+    }
+    if (use_mla && !use_paged) {
         LUISA_INFO("  MLA config: hidden_dim={}, latent_dim={}, rope_dim={}, content_dim={}",
                    mla::hidden_dim, mla::latent_dim, mla::rope_dim, mla::content_dim);
         size_t mha_kv_bytes = (2ull * mla::num_heads * mla::head_dim) * sizeof(float);
@@ -116,13 +146,14 @@ int main(int argc, char *argv[]) {
     uint max_idx = 0u;
     bool all_finite = true;
     for (uint i = 0u; i < mla::qkv_size; ++i) {
-        if (!std::isfinite(O_gpu[i]) || !std::isfinite(O_cpu[i])) {
+        if (!std::isfinite(O_gpu[i]) || !std::isfinite(O_cpu[i])) [[unlikely]] {
             all_finite = false;
             max_idx = i;
             break;
         }
         float diff = std::abs(O_gpu[i] - O_cpu[i]);
-        if (diff > max_diff) {
+        // Record-high updates are rare (O(log n) on random data) -> unlikely.
+        if (diff > max_diff) [[unlikely]] {
             max_diff = diff;
             max_idx = i;
         }
