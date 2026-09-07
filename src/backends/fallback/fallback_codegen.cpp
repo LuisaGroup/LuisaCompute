@@ -195,6 +195,20 @@ private:
         LUISA_ERROR_WITH_LOCATION("Invalid type: {}.", t->description());
     }
 
+    // A mapped LLVM aggregate describes storage size, not the source ABI's
+    // alignment: floatNxN becomes nested float arrays (LLVM alignment 4),
+    // whereas the device library consumes matrix2 at alignment 8 and matrix3/4
+    // at alignment 16. Every temporary crossing that ABI must retain both
+    // contracts, even if no IR optimization removes the stack object.
+    [[nodiscard]] static llvm::AllocaInst *_create_abi_temporary(
+        IRBuilder &b, llvm::Type *llvm_type, const Type *source_type) noexcept {
+        auto storage = b.CreateAlloca(llvm_type);
+        auto alignment = std::max<size_t>(storage->getAlign().value(),
+                                          _get_type_alignment(source_type));
+        storage->setAlignment(llvm::Align{alignment});
+        return storage;
+    }
+
     static void _move_llvm_inst_to_block_begin(llvm::Instruction *inst, llvm::BasicBlock *block) noexcept {
         inst->moveBefore(*block, block->begin());
     }
@@ -1810,10 +1824,10 @@ private:
                      "Invalid matrix type for transpose operation.");
         auto dimension = inst->type()->dimension();
         auto llvm_matrix = _lookup_value(current, b, matrix);
-        auto llvm_matrix_alloca = b.CreateAlloca(llvm_matrix->getType());
+        auto llvm_matrix_alloca = _create_abi_temporary(b, llvm_matrix->getType(), matrix->type());
         b.CreateStore(llvm_matrix, llvm_matrix_alloca);
         auto llvm_result_type = _translate_type(inst->type(), true);
-        auto llvm_result_alloca = b.CreateAlloca(llvm_result_type);
+        auto llvm_result_alloca = _create_abi_temporary(b, llvm_result_type, inst->type());
         auto llvm_func_name = luisa::format("luisa.matrix{}d.transpose", dimension);
         auto llvm_func = _llvm_module->getFunction(llvm::StringRef{llvm_func_name});
         LUISA_ASSERT(llvm_func != nullptr, "Function not found.");
@@ -1897,12 +1911,12 @@ private:
                          "Invalid matrix-matrix multiplication result.");
             return luisa::format("luisa.matrix{}d.mul.matrix", lhs_type->dimension());
         }();
-        auto llvm_lhs_alloca = b.CreateAlloca(llvm_lhs->getType());
-        auto llvm_rhs_alloca = b.CreateAlloca(llvm_rhs->getType());
+        auto llvm_lhs_alloca = _create_abi_temporary(b, llvm_lhs->getType(), lhs->type());
+        auto llvm_rhs_alloca = _create_abi_temporary(b, llvm_rhs->getType(), rhs->type());
         b.CreateStore(llvm_lhs, llvm_lhs_alloca);
         b.CreateStore(llvm_rhs, llvm_rhs_alloca);
         auto llvm_result_type = _translate_type(inst->type(), true);
-        auto llvm_result_alloca = b.CreateAlloca(llvm_result_type);
+        auto llvm_result_alloca = _create_abi_temporary(b, llvm_result_type, inst->type());
         auto llvm_func = _llvm_module->getFunction(llvm::StringRef{llvm_func_name});
         LUISA_ASSERT(llvm_func != nullptr, "Function not found.");
         b.CreateCall(llvm_func, {llvm_lhs_alloca, llvm_rhs_alloca, llvm_result_alloca});
@@ -1935,12 +1949,12 @@ private:
         }();
         auto llvm_lhs = _lookup_value(current, b, lhs);
         auto llvm_rhs = _lookup_value(current, b, rhs);
-        auto llvm_lhs_alloca = b.CreateAlloca(llvm_lhs->getType());
-        auto llvm_rhs_alloca = b.CreateAlloca(llvm_rhs->getType());
+        auto llvm_lhs_alloca = _create_abi_temporary(b, llvm_lhs->getType(), lhs->type());
+        auto llvm_rhs_alloca = _create_abi_temporary(b, llvm_rhs->getType(), rhs->type());
         b.CreateStore(llvm_lhs, llvm_lhs_alloca);
         b.CreateStore(llvm_rhs, llvm_rhs_alloca);
         auto llvm_result_type = _translate_type(result_type, true);
-        auto llvm_result_alloca = b.CreateAlloca(llvm_result_type);
+        auto llvm_result_alloca = _create_abi_temporary(b, llvm_result_type, inst->type());
         auto llvm_func = _llvm_module->getFunction(llvm::StringRef{llvm_func_name});
         LUISA_ASSERT(llvm_func != nullptr, "Function not found.");
         b.CreateCall(llvm_func, {llvm_lhs_alloca, llvm_rhs_alloca, llvm_result_alloca});
@@ -1966,12 +1980,12 @@ private:
         LUISA_ASSERT(llvm_func != nullptr, "Function not found.");
         auto llvm_view = _lookup_value(current, b, view);
         auto llvm_coord = _lookup_value(current, b, coord);
-        auto llvm_view_alloca = b.CreateAlloca(llvm_view->getType());
-        auto llvm_coord_alloca = b.CreateAlloca(llvm_coord->getType());
+        auto llvm_view_alloca = _create_abi_temporary(b, llvm_view->getType(), view->type());
+        auto llvm_coord_alloca = _create_abi_temporary(b, llvm_coord->getType(), coord->type());
         b.CreateStore(llvm_view, llvm_view_alloca);
         b.CreateStore(llvm_coord, llvm_coord_alloca);
         auto llvm_value_type = _translate_type(inst->type(), true);
-        auto llvm_value_alloca = b.CreateAlloca(llvm_value_type);
+        auto llvm_value_alloca = _create_abi_temporary(b, llvm_value_type, inst->type());
         b.CreateCall(llvm_func, {llvm_view_alloca, llvm_coord_alloca, llvm_value_alloca});
         return b.CreateLoad(llvm_value_type, llvm_value_alloca);
     }
@@ -1997,9 +2011,9 @@ private:
         auto llvm_view = _lookup_value(current, b, view);
         auto llvm_coord = _lookup_value(current, b, coord);
         auto llvm_value = _lookup_value(current, b, value);
-        auto llvm_view_alloca = b.CreateAlloca(llvm_view->getType());
-        auto llvm_coord_alloca = b.CreateAlloca(llvm_coord->getType());
-        auto llvm_value_alloca = b.CreateAlloca(llvm_value->getType());
+        auto llvm_view_alloca = _create_abi_temporary(b, llvm_view->getType(), view->type());
+        auto llvm_coord_alloca = _create_abi_temporary(b, llvm_coord->getType(), coord->type());
+        auto llvm_value_alloca = _create_abi_temporary(b, llvm_value->getType(), value->type());
         b.CreateStore(llvm_view, llvm_view_alloca);
         b.CreateStore(llvm_coord, llvm_coord_alloca);
         b.CreateStore(llvm_value, llvm_value_alloca);
@@ -2013,10 +2027,10 @@ private:
         auto llvm_func = _llvm_module->getFunction(llvm::StringRef{llvm_func_name});
         LUISA_ASSERT(llvm_func != nullptr, "Function not found.");
         auto llvm_view = _lookup_value(current, b, view);
-        auto llvm_view_alloca = b.CreateAlloca(llvm_view->getType());
+        auto llvm_view_alloca = _create_abi_temporary(b, llvm_view->getType(), view->type());
         b.CreateStore(llvm_view, llvm_view_alloca);
         auto llvm_size_type = _translate_type(inst->type(), true);
-        auto llvm_size_alloca = b.CreateAlloca(llvm_size_type);
+        auto llvm_size_alloca = _create_abi_temporary(b, llvm_size_type, inst->type());
         b.CreateCall(llvm_func, {llvm_view_alloca, llvm_size_alloca});
         return b.CreateLoad(llvm_size_type, llvm_size_alloca);
     }
@@ -2028,10 +2042,10 @@ private:
         auto llvm_func_name = luisa::format("luisa.matrix{}d.inverse", m->type()->dimension());
         auto llvm_func = _llvm_module->getFunction(llvm::StringRef{llvm_func_name});
         LUISA_ASSERT(llvm_func != nullptr, "Function not found.");
-        auto llvm_m_alloca = b.CreateAlloca(llvm_m->getType());
+        auto llvm_m_alloca = _create_abi_temporary(b, llvm_m->getType(), m->type());
         b.CreateStore(llvm_m, llvm_m_alloca);
         auto llvm_result_type = _translate_type(inst->type(), true);
-        auto llvm_result_alloca = b.CreateAlloca(llvm_result_type);
+        auto llvm_result_alloca = _create_abi_temporary(b, llvm_result_type, inst->type());
         b.CreateCall(llvm_func, {llvm_m_alloca, llvm_result_alloca});
         return b.CreateLoad(llvm_result_type, llvm_result_alloca);
     }
@@ -2043,7 +2057,7 @@ private:
         auto llvm_func_name = luisa::format("luisa.matrix{}d.determinant", m->type()->dimension());
         auto llvm_func = _llvm_module->getFunction(llvm::StringRef{llvm_func_name});
         LUISA_ASSERT(llvm_func != nullptr, "Function not found.");
-        auto llvm_m_alloca = b.CreateAlloca(llvm_m->getType());
+        auto llvm_m_alloca = _create_abi_temporary(b, llvm_m->getType(), m->type());
         b.CreateStore(llvm_m, llvm_m_alloca);
         return b.CreateCall(llvm_func, {llvm_m_alloca});
     }
@@ -2052,7 +2066,7 @@ private:
                                                                   llvm::StringRef llvm_func_name,
                                                                   const xir::Instruction *inst) noexcept {
         auto llvm_bindless = _lookup_value(current, b, inst->operand(0u));
-        auto llvm_bindless_alloca = b.CreateAlloca(llvm_bindless->getType());
+        auto llvm_bindless_alloca = _create_abi_temporary(b, llvm_bindless->getType(), inst->operand(0u)->type());
         b.CreateStore(llvm_bindless, llvm_bindless_alloca);
         auto llvm_slot_index = _lookup_value(current, b, inst->operand(1u));
         llvm_slot_index = b.CreateZExtOrTrunc(llvm_slot_index, b.getInt32Ty());
@@ -2063,13 +2077,13 @@ private:
             if (arg->type()->is_scalar()) {
                 llvm_args.emplace_back(llvm_arg);
             } else {
-                auto llvm_arg_alloca = b.CreateAlloca(llvm_arg->getType());
+                auto llvm_arg_alloca = _create_abi_temporary(b, llvm_arg->getType(), arg->type());
                 b.CreateStore(llvm_arg, llvm_arg_alloca);
                 llvm_args.emplace_back(llvm_arg_alloca);
             }
         }
         auto llvm_result_type = _translate_type(inst->type(), true);
-        auto llvm_result_alloca = b.CreateAlloca(llvm_result_type);
+        auto llvm_result_alloca = _create_abi_temporary(b, llvm_result_type, inst->type());
         llvm_args.emplace_back(llvm_result_alloca);
         auto llvm_func = _llvm_module->getFunction(llvm_func_name);
         LUISA_ASSERT(llvm_func != nullptr, "Function not found.");
@@ -2083,7 +2097,7 @@ private:
         auto llvm_func = _llvm_module->getFunction(llvm_func_name);
         LUISA_ASSERT(llvm_func != nullptr, "Function not found.");
         auto llvm_accel = _lookup_value(current, b, inst->operand(0u));
-        auto llvm_accel_alloca = b.CreateAlloca(llvm_accel->getType());
+        auto llvm_accel_alloca = _create_abi_temporary(b, llvm_accel->getType(), inst->operand(0u)->type());
         b.CreateStore(llvm_accel, llvm_accel_alloca);
         llvm::SmallVector<llvm::Value *, 8u> llvm_args{llvm_accel_alloca};
         for (auto arg_use : inst->operand_uses().subspan(1)) {
@@ -2113,7 +2127,7 @@ private:
         }
         if (auto result_type = inst->type()) {
             auto llvm_result_type = _translate_type(result_type, true);
-            auto llvm_result_alloca = b.CreateAlloca(llvm_result_type);
+            auto llvm_result_alloca = _create_abi_temporary(b, llvm_result_type, result_type);
             llvm_args.emplace_back(llvm_result_alloca);
             b.CreateCall(llvm_func, llvm_args);
             return b.CreateLoad(llvm_result_type, llvm_result_alloca);
@@ -2143,7 +2157,7 @@ private:
         LUISA_ASSERT(llvm_func != nullptr, "Function not found.");
         auto llvm_object = _lookup_value(current, b, inst->operand(0));
         auto llvm_out_type = _translate_type(inst->type(), true);
-        auto llvm_out_alloca = b.CreateAlloca(llvm_out_type);
+        auto llvm_out_alloca = _create_abi_temporary(b, llvm_out_type, inst->type());
         b.CreateCall(llvm_func, {llvm_object, llvm_out_alloca});
         return b.CreateLoad(llvm_out_type, llvm_out_alloca);
     }

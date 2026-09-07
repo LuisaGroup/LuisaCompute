@@ -119,6 +119,17 @@ target_include_directories(test_simd_xir_to_schedule PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd/schedule)
 
 if (TARGET luisa-compute-simd-llvm)
+    add_executable(test_fallback_llvm_abi_alignment
+            unit/fallback/test_fallback_llvm_abi_alignment.cpp
+            ../backends/fallback/fallback_codegen.cpp)
+    target_compile_features(test_fallback_llvm_abi_alignment PRIVATE cxx_std_20)
+    target_link_libraries(test_fallback_llvm_abi_alignment PRIVATE luisa-compute-simd-llvm)
+    target_include_directories(test_fallback_llvm_abi_alignment PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/../backends/fallback ${LLVM_INCLUDE_DIRS})
+    add_test(NAME test_fallback_llvm_abi_alignment COMMAND test_fallback_llvm_abi_alignment)
+    set_tests_properties(test_fallback_llvm_abi_alignment PROPERTIES
+            LABELS "unit;unit_fallback;unit_llvm")
+
     add_executable(test_fallback_llvm_native_math
             unit/fallback/test_fallback_llvm_native_math.cpp
             ../backends/fallback/fallback_codegen.cpp)

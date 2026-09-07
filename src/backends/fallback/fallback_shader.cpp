@@ -128,7 +128,7 @@ namespace {
 
 // Increment whenever the persisted object or its external symbol contract
 // changes in a way that makes an older cache artifact unsafe to load.
-static constexpr auto fallback_shader_cache_abi = 7u;
+static constexpr auto fallback_shader_cache_abi = 8u;
 
 void verify_xir_or_error(const xir::Module *module,
                          luisa::string_view stage) noexcept {
