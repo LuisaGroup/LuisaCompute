@@ -145,17 +145,19 @@ namespace luisa::compute::simd::detail {
 
 void ScheduleEmitter::_find_interleaved_private_arrays() {
     _interleaved_local_values.assign(_source.values().size(), 0u);
+    _contiguous_private_accesses.clear();
     if (!_enable_interleaved_private_arrays || _width == 1u) { return; }
     struct Use {
         const schedule::Instruction *instruction;
         size_t operand;
+        const schedule::BasicBlock *block;
     };
     std::vector<std::vector<Use>> users(_source.values().size());
     std::vector<uint8_t> escapes(_source.values().size(), 0u);
     for (auto &block : _source.blocks()) {
         for (auto &instruction : block.instructions) {
             for (size_t i = 0u; i < instruction.operands.size(); i++) {
-                users[instruction.operands[i].value].emplace_back(Use{&instruction, i});
+                users[instruction.operands[i].value].emplace_back(Use{&instruction, i, &block});
             }
         }
         _for_each_assignment(block, [&](schedule::EdgeAssignment assignment) {
@@ -196,10 +198,44 @@ void ScheduleEmitter::_find_interleaved_private_arrays() {
             }
             if (!legal) { continue; }
             _interleaved_local_values[id] = 1u;
-            for (auto use : users[id]) { _interleaved_local_values[use.instruction->result->value] = 1u; }
+            for (auto use : users[id]) {
+                auto gep = use.instruction;
+                _interleaved_local_values[gep->result->value] = 1u;
+                if (!_enable_contiguous_private_access) { continue; }
+                auto index = _source.value(gep->operands[1u]);
+                for (auto access : users[gep->result->value]) {
+                    // A cohort-uniform index can differ after suspension or
+                    // reconvergence. Admit it only at uses in the GEP's own
+                    // Schedule block. Warp-uniform indices survive epochs.
+                    if (index->value_class == schedule::ValueClass::warp_uniform ||
+                        (index->value_class == schedule::ValueClass::cohort_uniform && access.block == use.block)) {
+                        _contiguous_private_accesses.emplace(access.instruction, *allocation.result);
+                    }
+                }
+            }
             _result.interleaved_private_arrays++;
         }
     }
+}
+
+[[nodiscard]] ::llvm::Value *ScheduleEmitter::_contiguous_private_address(::llvm::Value *handle, const Type *type, schedule::ValueId allocation) {
+    // For every active lane l, the admitted handle addresses
+    //   base + (q * W + l) * sizeof(T)
+    // with one q in this cohort. The allocation's immutable base dominates
+    // every use; do not reconstruct it from a masked vector of handles.
+    // Keep the GEP's saved offset (rather than re-evaluating its index), so
+    // accesses across Schedule blocks retain the original address snapshot.
+    auto base = _local_base(_builder, _local_allocations[allocation.value]);
+    auto offsets = _local_offsets(_builder, handle);
+    auto seed = _seed_lane ? _seed_lane : _safe_first_lane(_active_mask);
+    auto scalar_base = _builder.CreateExtractElement(base, _builder.getInt32(0u));
+    auto offset = _builder.CreateExtractElement(offsets, seed);
+    auto lane_bytes = _builder.CreateMul(_builder.CreateZExtOrTrunc(seed, _builder.getInt64Ty()), _builder.getInt64(type->size()));
+    offset = _builder.CreateSub(offset, lane_bytes);
+    // An empty cohort need not have a valid handle. Use the first allocated
+    // slot instead: every private slot physically contains all W lanes.
+    offset = _builder.CreateSelect(_builder.CreateOrReduce(_active_mask), offset, _builder.getInt64(0u));
+    return _builder.CreateGEP(_builder.getInt8Ty(), scalar_base, offset, "private.contiguous.address");
 }
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_local_load(
@@ -215,6 +251,17 @@ void ScheduleEmitter::_find_interleaved_private_arrays() {
         variable->type != result->type) {
         _fail("thread-local load has mismatched value types");
         return nullptr;
+    }
+    if (auto access = _contiguous_private_accesses.find(&instruction); access != _contiguous_private_accesses.end()) {
+        auto lanes = ::llvm::FixedVectorType::get(_data_type(result->type, false), _width);
+        _result.contiguous_private_read_count++;
+        // This closed allocation is private to this packet invocation. A
+        // common valid slot contains W readable lanes, including inactive
+        // lanes. Select away their values; no external-buffer overread or
+        // widened shared-memory effect is admitted by this realization.
+        auto loaded = _builder.CreateAlignedLoad(lanes, _contiguous_private_address(handle, result->type, access->second),
+                                                 ::llvm::Align{result->type->alignment()}, "private.contiguous.load");
+        return _builder.CreateSelect(_active_mask, loaded, ::llvm::Constant::getNullValue(lanes));
     }
     return _gather_data(
         _local_base(_builder, handle),
@@ -238,10 +285,17 @@ void ScheduleEmitter::_local_store(const schedule::Instruction &instruction) {
         _fail("thread-local store has mismatched value types");
         return;
     }
-    _scatter_data(
-        _local_base(_builder, handle),
-        _local_offsets(_builder, handle),
-        written_value->type, written);
+    if (auto access = _contiguous_private_accesses.find(&instruction); access != _contiguous_private_accesses.end()) {
+        _result.contiguous_private_write_count++;
+        auto address = _contiguous_private_address(handle, written_value->type, access->second);
+        auto alignment = ::llvm::Align{written_value->type->alignment()};
+        auto previous = _builder.CreateAlignedLoad(written->getType(), address, alignment, "private.contiguous.preserve");
+        // Preserve every inactive lane bit-for-bit. There are no concurrent
+        // observers or escaping aliases of this packet-private allocation.
+        _builder.CreateAlignedStore(_builder.CreateSelect(_active_mask, written, previous), address, alignment);
+    } else {
+        _scatter_data(_local_base(_builder, handle), _local_offsets(_builder, handle), written_value->type, written);
+    }
     // A proven ray-query sidecar becomes valid only when the pointer value is
     // actually installed in its thread-local owner. Construction may precede
     // this masked store, so publishing validity in _ray_query_create would let

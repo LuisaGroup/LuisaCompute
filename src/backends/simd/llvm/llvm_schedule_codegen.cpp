@@ -690,7 +690,8 @@ LLVMScheduleCodegenResult lower_schedule_to_llvm(
     bool enable_biased_narrow_buffer_gather,
     bool enable_gathered_native_texture_read,
     bool enable_native_half4_texture_packet,
-    size_t private_stack_budget_bytes, bool enable_interleaved_private_arrays) {
+    size_t private_stack_budget_bytes, bool enable_interleaved_private_arrays,
+    bool enable_contiguous_private_access) {
     auto enable_linear_1d_packet_tail_narrowing =
         enable_packet_batch_entry &&
         specialization_width != 0u &&
@@ -760,7 +761,7 @@ LLVMScheduleCodegenResult lower_schedule_to_llvm(
         enable_biased_narrow_buffer_gather,
         enable_gathered_native_texture_read,
         enable_native_half4_texture_packet,
-        private_stack_budget_bytes, enable_interleaved_private_arrays}
+        private_stack_budget_bytes, enable_interleaved_private_arrays, enable_contiguous_private_access}
                       .run();
     if (result.succeeded() && result.cooperative_block) {
         auto block_thread_count = uint64_t{1u};

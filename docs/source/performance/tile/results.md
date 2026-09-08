@@ -20,35 +20,53 @@ intervals. No slow or failed row is discarded to improve the headline.
 
 ### SIMD local distribution and private layout are separate decisions
 
-The latest September 8 {download}`Torch-guided packet-local report <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-xir-packet-local/notes.md>`
-adds a common-axis packet-local realization and independently interleaved
-private arrays. The default keeps complete programs per lane; joint mapping
-search is **opt-in** because its prior still misses tail-control and CPU
-worker-activation costs. No operator-name dispatch is used.
+The latest September 8 {download}`Torch-guided private-vector report <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-private-vector/notes.md>`
+adds a third, independent decision: realizing a common-slot private access
+as a contiguous vector. It builds on the earlier
+{download}`mapping/layout experiment <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-xir-packet-local/notes.md>`.
+The backend preserves the immutable allocation base and saved GEP offset;
+closed packet-private storage permits full-vector reads and bit-preserving
+partial writes. Escaping/shared storage and unsupported indices retain the
+gather/scatter fallback. No operator-name dispatch or frontend kernel change
+is used; this is a lowering improvement, **not a newly calibrated planner**.
 
-At fixed whole-program mapping, the 104-visit, two-order factorial experiment
-reduces large RMSNorm/LayerNorm E2E time to 0.47–0.62× the lane-major-array
-control; SwiGLU 1024×4096 reaches 0.58×, GELU/softmax about 0.76×. RMSNorm
-17×65 instead regresses 3.1%. Packet-local mapping further helps wide rows,
-but can make narrow cases **4.3–18.7× slower**, so it is not a universal default.
-These paired ratios include CPU task scheduling, not only vector computation.
+**Native-entry timing closes much of the gap, but still loses to Inductor.**
+Each row below is a fixed-mapping old/new/Torch experiment: interleaved private
+layout, one CPU thread, six variant orders, seven samples per visit, all
+complete outputs and guards checked. Times are µs; separate rows are not
+simultaneous measurements of Torch.
 
-**Pure native-entry replay still loses to TorchInductor.** Both XIR columns
-below use the same interleaved private layout, one CPU thread, six variant
-orders and seven samples per visit; all complete outputs and guards pass.
+| RMSNorm | Mapping | Gather/scatter | Private vector | Inductor |
+|---|---|---:|---:|---:|
+| 64×256 | Whole program | 28.623 | 11.511 | 9.157 |
+| 64×256 | Packet-local | 29.569 | 14.338 | 8.881 |
+| 1024×4096 | Whole program | 7380.091 | 3336.237 | 2241.350 |
+| 1024×4096 | Packet-local | 7438.575 | 3235.974 | 2147.953 |
 
-| RMSNorm | Whole program µs | Packet-local µs | Inductor µs |
-|---|---:|---:|---:|
-| 64×256 | 27.858 | 29.914 | 8.972 |
-| 1024×4096 | 7204.372 | 7536.289 | 2190.762 |
+The default mapping's paired new/old time ratios are 0.403/0.452; paired
+new/Inductor ratios remain **1.260/1.503**. The actual-object C++ replay
+excludes Runtime, Python, allocation and the thread pool, retaining native
+call and launch-record reset; it is not a cycle counter. An initial masked
+vector implementation regressed and was rejected after ARM64 inspection.
 
-The default is still approximately **3.11/3.29× Inductor's time**. This C++
-replay excludes Runtime, Python, allocation and the thread pool, but retains
-native-call and launch-record-reset overhead; it is not a cycle counter.
-The actual generated C++/LLVM/ARM64 entries and the complete factorial matrix
-are retained in the report's {download}`audit <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-xir-packet-local/audit.json>`.
-Private-memory emission, safe phase fusion and independent CPU task grain
-remain structural gaps. No new Metal, MPS or BLAS comparison is claimed.
+The separate **120-visit Runtime E2E** comparison covers 15 shapes/operators
+with eight requested CPU workers and two orders. At fixed whole-program
+mapping, paired time ratios are 0.43–0.67 for RMSNorm, 0.38–0.40 for LayerNorm,
+0.63 for softmax, about 0.70 for SwiGLU and 0.75 for GELU. RoPE's whole-program
+cases do not trigger this transform and still record 1.2–1.6% slower visits.
+Narrow packet-local cases remain costly; small local GELU has a 1.005 paired
+ratio with opposite signs across the two orders. All cases, source artifacts
+and negative controls are retained in the
+{download}`independent audit <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-private-vector/audit.json>`.
+
+The private-access realization is enabled with its admission checks; complete
+programs per lane remain the default and joint mapping search stays **opt-in**.
+Safe snapshot/phase fusion, mathematical-policy alignment and independent CPU
+task grain remain structural gaps. Actual Torch uses reciprocal-then-multiply
+where this unchanged Tile expression uses division; neither that rounding
+change nor snapshot reload is silently assumed safe. No new Metal, MPS or
+BLAS comparison is claimed. These are fixed-W8 FP32 M1 Max measurements,
+not all-operator or cross-target parity.
 
 ### Bounded XIR traversal improves compilation, not yet Torch parity
 

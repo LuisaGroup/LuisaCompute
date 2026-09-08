@@ -86,22 +86,26 @@ improve admitted TIRx families; CBLAS beats eager Torch on seven of eight
 replayed shapes. Direct XIR/SIMD has a working mapping solver and
 [packet-index codegen repair](results.md#simd-packet-index-proof-closes-a-codegen-disconnect),
 but all six measured GEMMs still lose to Torch. The latest
-[independent mapping/layout experiment](results.md#simd-local-distribution-and-private-layout-are-separate-decisions)
-adds opt-in common-axis distribution and improves large-row E2E with private
-array interleaving. Joint search remains opt-in: narrow-row regressions persist,
-and native RMSNorm still takes about 3.1–3.3× Inductor's time. General packed
+[private-vector realization](results.md#simd-local-distribution-and-private-layout-are-separate-decisions)
+keeps mapping/layout fixed and realizes common-slot private accesses as
+contiguous vectors. Native RMSNorm drops from 28.623 to 11.511 µs at 64×256
+and from 7380.091 to 3336.237 µs at 1024×4096; paired new/Inductor time ratios
+still remain 1.260/1.503. This is generic backend lowering, not a calibrated
+new solver. Joint mapping search remains opt-in: narrow-row regressions persist.
+General packed
 microkernels and arbitrary Tile redistribution remain missing. Attention, CNN/filter,
 sort and Top-K PoCs establish correctness, not broad optimized performance.
 
 The [Torch CPU inspection](results.md#torch-cpu-code-inspection-exposes-missing-local-vector-candidates)
 has led to [indexable snapshots](results.md#indexable-xir-snapshots-remove-quadratic-extraction-work)
 and [bounded traversal/private workspace](results.md#bounded-xir-traversal-improves-compilation-not-yet-torch-parity).
-For 64×256 RMSNorm, actual single-thread native-entry replay falls from
-98.570 to 28.836 µs, but TorchInductor is 8.995 µs. Compilation/code size
-improve and all 11 large-shape cases now complete; all still lose to eager
-Torch, and small softmax/SwiGLU regress versus the previous XIR. Local-vector
-distribution and independent CPU task grain remain missing candidates.
-Native-entry and Runtime E2E measurements are reported separately.
+Those earlier checkpoints improve compilation/code size and complete all 11
+large-shape cases, without establishing Torch parity. Local-vector distribution
+now exists as a bounded opt-in candidate; safe snapshot/phase fusion and
+independent CPU task grain remain open. The latest 120-visit fixed-mapping
+E2E screen also improves LayerNorm, softmax, SwiGLU and GELU, with non-winning
+RoPE and narrow-local cases retained. Native-entry and Runtime E2E measurements
+are reported separately rather than combined into a historical leaderboard.
 
 The [LLM negative-result screen](results.md#attention-and-direct-simd-still-need-richer-execution-mappings)
 measures six direct-SIMD operators at 1.22–16.35× Torch E2E time. The subsequent

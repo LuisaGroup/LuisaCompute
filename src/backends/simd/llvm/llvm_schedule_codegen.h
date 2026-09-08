@@ -844,6 +844,8 @@ struct LLVMScheduleCodegenResult {
     size_t argument_buffer_size{0u};
     size_t private_workspace_size{0u};
     uint32_t interleaved_private_arrays{0u};
+    size_t contiguous_private_read_count{0u};
+    size_t contiguous_private_write_count{0u};
     std::vector<SIMDLLVMPrintFormat> print_formats{};
     size_t schedule_block_count{0u};
     size_t convergence_point_count{0u};
@@ -985,7 +987,10 @@ struct LLVMScheduleCodegenResult {
     size_t private_stack_budget_bytes = 0u,
     // Scalar private arrays with nonescaping typed element accesses may use
     // [element][lane] storage. This does not coalesce SSA lifetimes or loads.
-    bool enable_interleaved_private_arrays = false);
+    bool enable_interleaved_private_arrays = false,
+    // Preserve exact active-lane addresses while exposing same-slot private
+    // accesses as masked vectors. Independent of the physical layout switch.
+    bool enable_contiguous_private_access = true);
 
 // Ray-query handler ABI:
 //   void handler(i32 lane_count, i64 active_mask_bits,

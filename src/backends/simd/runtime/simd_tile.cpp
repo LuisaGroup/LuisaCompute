@@ -85,7 +85,8 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
                                             !detail::env_flag("LUISA_SIMD_DISABLE_LANE_AFFINE_BUFFER"),
                                             std::getenv("LUISA_SIMD_DUMP_ASSEMBLY_DIR") != nullptr,
                                             _thread_pool->worker_count(), packet_batch, block_batch, true,
-                                            64u * 1024u, !detail::env_flag("LUISA_SIMD_DISABLE_INTERLEAVED_PRIVATE_ARRAYS"));
+                                            64u * 1024u, !detail::env_flag("LUISA_SIMD_DISABLE_INTERLEAVED_PRIVATE_ARRAYS"),
+                                            !detail::env_flag("LUISA_SIMD_DISABLE_CONTIGUOUS_PRIVATE_ACCESS"));
         if (!compiled.succeeded()) {
             for (auto &error : compiled.diagnostics) { metadata.error.append(error).append("\n"); }
             return ShaderCreationInfo::make_invalid();
@@ -110,6 +111,8 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
         metadata.realization.append(luisa::format("; max_unrolled_tile_elements={}", planner_options.max_unrolled_tile_elements));
         metadata.realization.append(luisa::format("; unordered_reduction_partitions={}", planner_options.reduction_partitions));
         metadata.realization.append(luisa::format("; interleaved_private_arrays={}", compiled.interleaved_private_arrays));
+        metadata.realization.append(luisa::format("; contiguous_private_reads={}; contiguous_private_writes={}",
+                                                compiled.contiguous_private_read_count, compiled.contiguous_private_write_count));
         metadata.realization.append(luisa::format("; private_workspace_bytes={}", compiled.private_workspace_size));
         metadata.realization.append(luisa::format("; fast_math={}; ordered_reduction={}", enable_fast_math, ordered_reduction));
         auto &arguments = kernel.body().block(0u)->arguments();

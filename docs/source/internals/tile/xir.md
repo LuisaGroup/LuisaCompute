@@ -333,6 +333,50 @@ The Tile adapter enables this representation and reports
 Execution mapping and private layout must be measured separately: a favorable
 layout does not make all packet-local executions profitable.
 
+### Common-slot private accesses preserve the scalar allocation base
+
+For an admitted interleaved allocation, a common slot has the address family
+`base + sizeof(T) * (q * W + lane)`. The backend now retains the allocation
+identity alongside each eligible access. The allocation base is immutable
+and dominates its uses; the offset comes from the **saved GEP handle**, not
+from re-evaluating an index after a loop or a scheduler transition.
+
+```text
+closed private allocation ─── immutable scalar base
+saved GEP + active cohort ─── common q * W * sizeof(T)
+                                          │
+                               one complete private slot
+                                  [lane 0 ... lane W-1]
+                                          │
+                     read vector / preserve inactive store bits
+```
+
+A warp-uniform index qualifies across Schedule blocks. A cohort-uniform
+index qualifies only when its GEP and access are in the same Schedule block;
+cohort equality is not a claim that values stay equal across reconvergence
+or suspension. Varying indices and non-admitted address trees retain the
+gather/scatter path. The existing seed of the current cohort is reused; an
+empty cohort selects allocated slot zero rather than an invalid inactive
+handle.
+
+Unlike external or shared memory, every complete slot of this closed
+packet-private allocation has storage for all W lanes. A vector load may
+therefore read that slot and select inactive lanes to zero. A partial store
+loads the previous slot, selects new values for active lanes, and writes the
+vector back, preserving every inactive bit. This is safe only because the
+allocation has no escaping aliases or concurrent observers. It does not
+authorize external-buffer overreads, wider shared-memory writes, snapshot
+reordering or lifetime coalescing.
+
+`contiguous_private_reads` and `contiguous_private_writes` count statically
+emitted eligible accesses, not executed memory operations or calibrated
+cost. Region versioning may emit more than one realization of an access.
+`LUISA_SIMD_DISABLE_CONTIGUOUS_PRIVATE_ACCESS=1` holds execution mapping and
+private layout fixed while restoring the gather/scatter control. Actual
+target code still decides profitability: a masked-vector intrinsic alone
+does not guarantee native vector instructions on a target without predicated
+loads and stores.
+
 ### Proven packet accesses, not estimated slopes
 
 The SIMD Schedule projection separately recognizes a bounded nonnegative

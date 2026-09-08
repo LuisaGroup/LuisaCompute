@@ -1,0 +1,876 @@
+Start testing: Sep 08 14:46 CST
+----------------------------------------------------------
+6/209 Testing: test_simd_thread_pool
+6/209 Test: test_simd_thread_pool
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_simd_thread_pool"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_simd_thread_pool" start time: Sep 08 14:46 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (661 asserts in 5 tests)
+<end of output>
+Test time =   0.03 sec
+----------------------------------------------------------
+Test Passed.
+"test_simd_thread_pool" end time: Sep 08 14:46 CST
+"test_simd_thread_pool" time elapsed: 00:00:00
+----------------------------------------------------------
+
+14/209 Testing: test_simd_llvm_schedule_codegen
+14/209 Test: test_simd_llvm_schedule_codegen
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_simd_llvm_schedule_codegen"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_simd_llvm_schedule_codegen" start time: Sep 08 14:46 CST
+Output:
+----------------------------------------------------------
+[pass] contiguous private 32-bit masks and slots
+[pass] contiguous private 64-bit masks and slots
+[pass] private workspace capacity and lane intervals
+[pass] Schedule IR vector warp1
+[pass] Schedule IR vector warp2
+[pass] Schedule IR vector warp4
+[pass] Schedule IR vector warp8
+[pass] Schedule IR vector warp16
+[pass] varying shape-changing bitwise cast
+[pass] direct divergent child
+[pass] static power-of-two block size
+[pass] Schedule IR loop warp1
+[pass] Schedule IR loop warp2
+[pass] Schedule IR loop warp4
+[pass] Schedule IR loop warp8
+[pass] innermost-loop local predicated regions
+[pass] innermost-loop local predicated terminal bridge
+[pass] innermost-loop two-sided local predication
+[pass] nested innermost-loop local predicated regions
+[pass] W16 structured tiny nested predication
+[pass] varying loop exit collective
+[pass] multiple-exit loop collective
+[pass] cohort-uniform loop collective
+[pass] Schedule IR nested convergence
+[pass] Schedule IR nested convergence W2
+[pass] Schedule IR 96-block CFG
+[pass] size-bounded JIT optimization policy
+[pass] scheduler state residency
+[pass] scheduler state PHI coalescing
+[pass] scheduler general state coloring
+[pass] scalar uniform values
+[pass] scalar uniform switch
+[pass] varying switch convergence
+[pass] runtime coherent varying control
+[pass] coherent all-on region versioning
+[pass] scalar switch loop exits
+[pass] switch loop exits
+[pass] multiple loop backedges
+[pass] dynamic non-dominating convergence
+[pass] return convergence cascade
+[pass] W16 scalar frame metadata
+[pass] XIR compiler facade
+[pass] lane/value transposed direct buffer
+[pass] interleaved scalar direct-buffer read
+[pass] sparse lane/value transposed direct buffer
+[pass] paired direct-buffer leaf gather
+[pass] biased narrow loop buffer gather
+[pass] XIR integer rotate and pow_int fixed-vector arithmetic
+[pass] XIR faceforward fixed-vector arithmetic
+[pass] lane-affine scalar buffer load/store
+[pass] bounded flat packet buffer load/store
+[pass] uniform buffer read broadcast
+[pass] XIR texture packet callback
+[pass] XIR native texture packet
+[pass] XIR BYTE4 texture packet
+[pass] XIR HALF4 texture packet
+[pass] XIR INT1 texture packet
+[pass] XIR direct texture sample callback
+[pass] XIR accel instance metadata
+[pass] XIR accel direct packet ABI
+[pass] XIR ray-query packet callback
+[pass] ray-query status packing
+[pass] AST ray-query filter predication
+[pass] AST capture-free direct ray-query pipeline
+[pass] AST surface-filter ray-query pipeline
+[pass] AST captured direct ray-query pipeline
+[pass] contiguous private 32-bit masks and slots
+[pass] contiguous private 64-bit masks and slots
+[pass] private workspace capacity and lane intervals
+[pass] Schedule IR vector warp1
+[pass] Schedule IR vector warp2
+[pass] Schedule IR vector warp4
+[pass] Schedule IR vector warp8
+[pass] Schedule IR vector warp16
+[pass] varying shape-changing bitwise cast
+[pass] direct divergent child
+[pass] static power-of-two block size
+[pass] Schedule IR loop warp1
+[pass] Schedule IR loop warp2
+[pass] Schedule IR loop warp4
+[pass] Schedule IR loop warp8
+[pass] innermost-loop local predicated regions
+[pass] innermost-loop local predicated terminal bridge
+[pass] innermost-loop two-sided local predication
+[pass] nested innermost-loop local predicated regions
+[pass] W16 structured tiny nested predication
+[pass] varying loop exit collective
+[pass] multiple-exit loop collective
+[pass] cohort-uniform loop collective
+[pass] Schedule IR nested convergence
+[pass] Schedule IR nested convergence W2
+[pass] Schedule IR 96-block CFG
+[pass] size-bounded JIT optimization policy
+[pass] scheduler state residency
+[pass] scheduler state PHI coalescing
+[pass] scheduler general state coloring
+[pass] scalar uniform values
+[pass] scalar uniform switch
+[pass] varying switch convergence
+[pass] runtime coherent varying control
+[pass] coherent all-on region versioning
+[pass] scalar switch loop exits
+[pass] switch loop exits
+[pass] multiple loop backedges
+[pass] dynamic non-dominating convergence
+[pass] return convergence cascade
+[pass] W16 scalar frame metadata
+[pass] XIR compiler facade
+[pass] lane/value transposed direct buffer
+[pass] interleaved scalar direct-buffer read
+[pass] sparse lane/value transposed direct buffer
+[pass] paired direct-buffer leaf gather
+[pass] biased narrow loop buffer gather
+[pass] XIR integer rotate and pow_int fixed-vector arithmetic
+[pass] XIR faceforward fixed-vector arithmetic
+[pass] lane-affine scalar buffer load/store
+[pass] bounded flat packet buffer load/store
+[pass] uniform buffer read broadcast
+[pass] XIR texture packet callback
+[pass] XIR native texture packet
+[pass] XIR BYTE4 texture packet
+[pass] XIR HALF4 texture packet
+[pass] XIR INT1 texture packet
+[pass] XIR direct texture sample callback
+[pass] XIR accel instance metadata
+[pass] XIR accel direct packet ABI
+[pass] XIR ray-query packet callback
+[pass] ray-query status packing
+[pass] AST ray-query filter predication
+[pass] AST capture-free direct ray-query pipeline
+[pass] AST surface-filter ray-query pipeline
+[pass] AST captured direct ray-query pipeline
+[pass] XIR ray-query status cache
+[pass] sequential ray-query scratch coloring
+[pass] overlapping ray-query scratch coloring
+[pass] disabled ray-query scratch coloring
+[pass] divergent ray-query scratch coloring
+[pass] XIR accel motion metadata
+[pass] XIR bindless texture packet callback
+[pass] XIR bindless uniform gradient LOD
+[pass] AST buffer dispatch
+[pass] AST packet-batch runtime entry
+[pass] AST cooperative block codegen
+[pass] AST block-batch runtime entry
+[pass] AST linear 1D block coalescing
+[pass] AST aggregate local promotion
+[pass] AST single-block vector promotion
+[pass] AST uniform-loop buffer broadcast
+[pass] AST coherent-loop direct control
+[pass] AST select operand order
+[pass] AST fast radix pow canonicalization
+[pass] AST predicated varying diamond
+[pass] AST predicated select ladder
+[pass] AST deep predicated select ladder
+[pass] AST widened predicated update
+[pass] predicated select forwarding metadata
+[pass] buffer-read latency hiding metadata
+[pass] AST buffer-read latency hiding
+[pass] predicated select forwarding provenance
+[pass] AST predicated memory diamond
+[pass] AST bounded predicated loop batch
+[pass] AST structured early-exit loop
+[pass] AST structured early-exit loop rejections
+[pass] AST invariant varying loop unswitch
+[pass] AST shader execution reorder hint
+[pass] AST boolean-vector all/any
+<end of output>
+Test time =  39.01 sec
+----------------------------------------------------------
+Test Passed.
+"test_simd_llvm_schedule_codegen" end time: Sep 08 14:47 CST
+"test_simd_llvm_schedule_codegen" time elapsed: 00:00:39
+----------------------------------------------------------
+
+50/209 Testing: test_tile_layout
+50/209 Test: test_tile_layout
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_layout"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_tile_layout" start time: Sep 08 14:47 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (327 asserts in 15 tests)
+<end of output>
+Test time =   0.18 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_layout" end time: Sep 08 14:47 CST
+"test_tile_layout" time elapsed: 00:00:00
+----------------------------------------------------------
+
+51/209 Testing: test_tile_ir
+51/209 Test: test_tile_ir
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_ir"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_tile_ir" start time: Sep 08 14:47 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (92 asserts in 7 tests)
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_ir" end time: Sep 08 14:47 CST
+"test_tile_ir" time elapsed: 00:00:00
+----------------------------------------------------------
+
+52/209 Testing: test_tile_dsl
+52/209 Test: test_tile_dsl
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_dsl"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_tile_dsl" start time: Sep 08 14:47 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (125 asserts in 7 tests)
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_dsl" end time: Sep 08 14:47 CST
+"test_tile_dsl" time elapsed: 00:00:00
+----------------------------------------------------------
+
+53/209 Testing: test_tile_memory
+53/209 Test: test_tile_memory
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_memory"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_tile_memory" start time: Sep 08 14:47 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (103 asserts in 7 tests)
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_memory" end time: Sep 08 14:47 CST
+"test_tile_memory" time elapsed: 00:00:00
+----------------------------------------------------------
+
+54/209 Testing: test_tile_xir
+54/209 Test: test_tile_xir
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_xir"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_tile_xir" start time: Sep 08 14:47 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (731 asserts in 9 tests)
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_xir" end time: Sep 08 14:47 CST
+"test_tile_xir" time elapsed: 00:00:00
+----------------------------------------------------------
+
+55/209 Testing: test_tile_xir_runtime
+55/209 Test: test_tile_xir_runtime
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_xir_runtime" "simd"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_tile_xir_runtime" start time: Sep 08 14:47 CST
+Output:
+----------------------------------------------------------
+[2026-09-08 14:47:23.512] [console] [info] Created context for program 'test_tile_xir_runtime'.
+[2026-09-08 14:47:23.512] [console] [info] Runtime directory: /private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin.
+[2026-09-08 14:47:24.059] [console] [info] Loaded dynamic module '/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-backend-simd.so' in 545.9946669999999 ms.
+[2026-09-08 14:47:24.059] [console] [info] Test device backend: simd.
+[32mSuite 'global': all tests passed[0m (1463 asserts in 10 tests)
+<end of output>
+Test time =  33.13 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_xir_runtime" end time: Sep 08 14:47 CST
+"test_tile_xir_runtime" time elapsed: 00:00:33
+----------------------------------------------------------
+
+56/209 Testing: test_tile_xir_llm
+56/209 Test: test_tile_xir_llm
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_xir_llm" "simd"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_tile_xir_llm" start time: Sep 08 14:47 CST
+Output:
+----------------------------------------------------------
+[2026-09-08 14:47:56.645] [console] [info] Created context for program 'test_tile_xir_llm'.
+[2026-09-08 14:47:56.646] [console] [info] Runtime directory: /private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin.
+[2026-09-08 14:47:56.649] [console] [info] Loaded dynamic module '/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-backend-simd.so' in 3.317125 ms.
+[2026-09-08 14:47:56.649] [console] [info] Test device backend: simd.
+[2026-09-08 14:47:56.657] [console] [info] Checking llm_rows with 1048576 output elements
+[2026-09-08 14:47:56.713] [console] [info] Checking llm_rows with 262144 output elements
+[2026-09-08 14:47:56.759] [console] [info] Checking llm_rows with 1048576 output elements
+[2026-09-08 14:47:56.796] [console] [info] Checking llm_rows with 119 output elements
+[2026-09-08 14:47:56.964] [console] [info] Checking llm_rows with 544 output elements
+[2026-09-08 14:47:57.141] [console] [info] Checking llm_rows with 1105 output elements
+[2026-09-08 14:47:57.247] [console] [info] Checking llm_rows with 119 output elements
+[2026-09-08 14:47:57.333] [console] [info] Checking llm_rows with 544 output elements
+[2026-09-08 14:47:57.542] [console] [info] Checking llm_rows with 1105 output elements
+[2026-09-08 14:47:57.645] [console] [info] Checking llm_rows with 119 output elements
+[2026-09-08 14:47:57.739] [console] [info] Checking llm_rows with 544 output elements
+[2026-09-08 14:47:58.225] [console] [info] Checking llm_rows with 1105 output elements
+[2026-09-08 14:47:58.327] [console] [info] Checking llm_rows with 119 output elements
+[2026-09-08 14:47:58.445] [console] [info] Checking llm_rows with 544 output elements
+[2026-09-08 14:47:59.127] [console] [info] Checking llm_rows with 1105 output elements
+[2026-09-08 14:47:59.203] [console] [info] Checking llm_rows with 119 output elements
+[2026-09-08 14:47:59.308] [console] [info] Checking llm_rows with 544 output elements
+[2026-09-08 14:47:59.685] [console] [info] Checking llm_rows with 1105 output elements
+[2026-09-08 14:47:59.783] [console] [info] Checking llm_rows with 102 output elements
+[2026-09-08 14:48:00.003] [console] [info] Checking llm_rows with 544 output elements
+[2026-09-08 14:48:00.254] [console] [info] Checking llm_rows with 1122 output elements
+[2026-09-08 14:48:00.996] [console] [info] Checking llm_attention with 24 output elements
+[2026-09-08 14:48:01.337] [console] [info] Checking llm_attention with 392 output elements
+[2026-09-08 14:48:02.989] [console] [info] Checking llm_attention with 56 output elements
+[2026-09-08 14:48:03.415] [console] [info] Checking llm_attention with 98 output elements
+[2026-09-08 14:48:03.556] [console] [info] Checking llm_attention with 98 output elements
+[2026-09-08 14:48:05.409] [console] [info] Checking llm_attention with 98 output elements
+[2026-09-08 14:48:21.651] [console] [info] Checking llm_attention with 24 output elements
+[2026-09-08 14:48:22.040] [console] [info] Checking llm_attention with 14 output elements
+[32mSuite 'global': all tests passed[0m (2382319 asserts in 6 tests)
+<end of output>
+Test time =  26.38 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_xir_llm" end time: Sep 08 14:48 CST
+"test_tile_xir_llm" time elapsed: 00:00:26
+----------------------------------------------------------
+
+57/209 Testing: test_tile_values_cpp20
+57/209 Test: test_tile_values_cpp20
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_values_cpp20"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_tile_values_cpp20" start time: Sep 08 14:48 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (91 asserts in 13 tests)
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_values_cpp20" end time: Sep 08 14:48 CST
+"test_tile_values_cpp20" time elapsed: 00:00:00
+----------------------------------------------------------
+
+58/209 Testing: test_tile_values_cpp23
+58/209 Test: test_tile_values_cpp23
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_values_cpp23"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_tile_values_cpp23" start time: Sep 08 14:48 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (91 asserts in 13 tests)
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_values_cpp23" end time: Sep 08 14:48 CST
+"test_tile_values_cpp23" time elapsed: 00:00:00
+----------------------------------------------------------
+
+59/209 Testing: test_tile_native_codegen
+59/209 Test: test_tile_native_codegen
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_native_codegen"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_tile_native_codegen" start time: Sep 08 14:48 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (62 asserts in 2 tests)
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_native_codegen" end time: Sep 08 14:48 CST
+"test_tile_native_codegen" time elapsed: 00:00:00
+----------------------------------------------------------
+
+60/209 Testing: test_tile_native_runtime
+60/209 Test: test_tile_native_runtime
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_native_runtime" "metal"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_tile_native_runtime" start time: Sep 08 14:48 CST
+Output:
+----------------------------------------------------------
+[2026-09-08 14:48:23.064] [console] [info] Created context for program 'test_tile_native_runtime'.
+[2026-09-08 14:48:23.065] [console] [info] Runtime directory: /private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin.
+[2026-09-08 14:48:23.070] [console] [info] Loaded dynamic module '/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-backend-metal.so' in 5.0115 ms.
+[2026-09-08 14:48:23.102] [console] [info] Created Metal device 'Apple M1 Max' at index 0.
+[2026-09-08 14:48:23.102] [console] [info] Test device backend: metal.
+[32mSuite 'global': all tests passed[0m (397 asserts in 10 tests)
+<end of output>
+Test time =   1.01 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_native_runtime" end time: Sep 08 14:48 CST
+"test_tile_native_runtime" time elapsed: 00:00:01
+----------------------------------------------------------
+
+61/209 Testing: test_tile_metal_timing
+61/209 Test: test_tile_metal_timing
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_metal_timing"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_tile_metal_timing" start time: Sep 08 14:48 CST
+Output:
+----------------------------------------------------------
+GPU compute 50.376 us, command buffers 81.4166 us
+[32mSuite 'global': all tests passed[0m (41 asserts in 5 tests)
+<end of output>
+Test time =   0.08 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_metal_timing" end time: Sep 08 14:48 CST
+"test_tile_metal_timing" time elapsed: 00:00:00
+----------------------------------------------------------
+
+62/209 Testing: test_tile_system_cpu
+62/209 Test: test_tile_system_cpu
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/benchmark_tile_system" "--self-test" "cpu"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_tile_system_cpu" start time: Sep 08 14:48 CST
+Output:
+----------------------------------------------------------
+Four shapes passed full FP64 validation, including repeated beta=0 calls.
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_system_cpu" end time: Sep 08 14:48 CST
+"test_tile_system_cpu" time elapsed: 00:00:00
+----------------------------------------------------------
+
+63/209 Testing: test_tile_system_metal
+63/209 Test: test_tile_system_metal
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/benchmark_tile_system" "--self-test" "metal"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_tile_system_metal" start time: Sep 08 14:48 CST
+Output:
+----------------------------------------------------------
+Four shapes passed full FP64 validation, including repeated beta=0 calls.
+<end of output>
+Test time =   0.12 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_system_metal" end time: Sep 08 14:48 CST
+"test_tile_system_metal" time elapsed: 00:00:00
+----------------------------------------------------------
+
+64/209 Testing: test_tile_tirx
+64/209 Test: test_tile_tirx
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_tirx"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_tile_tirx" start time: Sep 08 14:48 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (130709 asserts in 10 tests)
+<end of output>
+Test time =   0.44 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_tirx" end time: Sep 08 14:48 CST
+"test_tile_tirx" time elapsed: 00:00:00
+----------------------------------------------------------
+
+65/209 Testing: test_tile_tirx_values
+65/209 Test: test_tile_tirx_values
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_tirx_values"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_tile_tirx_values" start time: Sep 08 14:48 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (931 asserts in 11 tests)
+<end of output>
+Test time =   1.88 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_tirx_values" end time: Sep 08 14:48 CST
+"test_tile_tirx_values" time elapsed: 00:00:01
+----------------------------------------------------------
+
+66/209 Testing: test_tile_tirx_execution
+66/209 Test: test_tile_tirx_execution
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_tirx_execution"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_tile_tirx_execution" start time: Sep 08 14:48 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (92627 asserts in 40 tests)
+<end of output>
+Test time =   7.12 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_tirx_execution" end time: Sep 08 14:48 CST
+"test_tile_tirx_execution" time elapsed: 00:00:07
+----------------------------------------------------------
+
+67/209 Testing: test_tile_tirx_cooperative
+67/209 Test: test_tile_tirx_cooperative
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_tirx_cooperative"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_tile_tirx_cooperative" start time: Sep 08 14:48 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (602 asserts in 13 tests)
+<end of output>
+Test time =   8.08 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_tirx_cooperative" end time: Sep 08 14:48 CST
+"test_tile_tirx_cooperative" time elapsed: 00:00:08
+----------------------------------------------------------
+
+68/209 Testing: test_tile_tirx_memory
+68/209 Test: test_tile_tirx_memory
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_tirx_memory"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_tile_tirx_memory" start time: Sep 08 14:48 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (445 asserts in 14 tests)
+<end of output>
+Test time =   5.70 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_tirx_memory" end time: Sep 08 14:48 CST
+"test_tile_tirx_memory" time elapsed: 00:00:05
+----------------------------------------------------------
+
+69/209 Testing: test_tile_tirx_pipeline
+69/209 Test: test_tile_tirx_pipeline
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_tirx_pipeline"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_tile_tirx_pipeline" start time: Sep 08 14:48 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (345 asserts in 6 tests)
+<end of output>
+Test time =   4.15 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_tirx_pipeline" end time: Sep 08 14:48 CST
+"test_tile_tirx_pipeline" time elapsed: 00:00:04
+----------------------------------------------------------
+
+70/209 Testing: test_tile_tirx_matrix
+70/209 Test: test_tile_tirx_matrix
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_tirx_matrix"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_tile_tirx_matrix" start time: Sep 08 14:48 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (3159 asserts in 39 tests)
+<end of output>
+Test time =  45.93 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_tirx_matrix" end time: Sep 08 14:49 CST
+"test_tile_tirx_matrix" time elapsed: 00:00:45
+----------------------------------------------------------
+
+71/209 Testing: test_tile_tirx_planner
+71/209 Test: test_tile_tirx_planner
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_tirx_planner"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_tile_tirx_planner" start time: Sep 08 14:49 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (14429 asserts in 14 tests)
+<end of output>
+Test time =   0.05 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_tirx_planner" end time: Sep 08 14:49 CST
+"test_tile_tirx_planner" time elapsed: 00:00:00
+----------------------------------------------------------
+
+72/209 Testing: test_tile_tirx_poc
+72/209 Test: test_tile_tirx_poc
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_tirx_poc"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_tile_tirx_poc" start time: Sep 08 14:49 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (3293 asserts in 4 tests)
+<end of output>
+Test time =   1.35 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_tirx_poc" end time: Sep 08 14:49 CST
+"test_tile_tirx_poc" time elapsed: 00:00:01
+----------------------------------------------------------
+
+73/209 Testing: test_tile_tirx_poc_neural
+73/209 Test: test_tile_tirx_poc_neural
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_tirx_poc_neural"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_tile_tirx_poc_neural" start time: Sep 08 14:49 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (84 asserts in 4 tests)
+<end of output>
+Test time =   0.54 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_tirx_poc_neural" end time: Sep 08 14:49 CST
+"test_tile_tirx_poc_neural" time elapsed: 00:00:00
+----------------------------------------------------------
+
+74/209 Testing: test_tile_tirx_poc_algorithms
+74/209 Test: test_tile_tirx_poc_algorithms
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_tirx_poc_algorithms"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_tile_tirx_poc_algorithms" start time: Sep 08 14:49 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (391 asserts in 5 tests)
+<end of output>
+Test time =   0.51 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_tirx_poc_algorithms" end time: Sep 08 14:49 CST
+"test_tile_tirx_poc_algorithms" time elapsed: 00:00:00
+----------------------------------------------------------
+
+75/209 Testing: test_tile_tirx_targets
+75/209 Test: test_tile_tirx_targets
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_tirx_targets"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_tile_tirx_targets" start time: Sep 08 14:49 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (3251 asserts in 3 tests)
+<end of output>
+Test time =   0.28 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_tirx_targets" end time: Sep 08 14:49 CST
+"test_tile_tirx_targets" time elapsed: 00:00:00
+----------------------------------------------------------
+
+76/209 Testing: test_tile_tirx_poc_metal
+76/209 Test: test_tile_tirx_poc_metal
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_tirx_poc" "metal"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_tile_tirx_poc_metal" start time: Sep 08 14:49 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (3293 asserts in 4 tests)
+<end of output>
+Test time =   0.50 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_tirx_poc_metal" end time: Sep 08 14:49 CST
+"test_tile_tirx_poc_metal" time elapsed: 00:00:00
+----------------------------------------------------------
+
+77/209 Testing: test_tile_tirx_poc_neural_metal
+77/209 Test: test_tile_tirx_poc_neural_metal
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_tirx_poc_neural" "metal"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_tile_tirx_poc_neural_metal" start time: Sep 08 14:49 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (84 asserts in 4 tests)
+<end of output>
+Test time =   0.21 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_tirx_poc_neural_metal" end time: Sep 08 14:49 CST
+"test_tile_tirx_poc_neural_metal" time elapsed: 00:00:00
+----------------------------------------------------------
+
+78/209 Testing: test_tile_tirx_poc_algorithms_metal
+78/209 Test: test_tile_tirx_poc_algorithms_metal
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_tirx_poc_algorithms" "metal"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_tile_tirx_poc_algorithms_metal" start time: Sep 08 14:49 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (391 asserts in 5 tests)
+<end of output>
+Test time =   0.28 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_tirx_poc_algorithms_metal" end time: Sep 08 14:49 CST
+"test_tile_tirx_poc_algorithms_metal" time elapsed: 00:00:00
+----------------------------------------------------------
+
+79/209 Testing: test_tile_tirx_values_metal
+79/209 Test: test_tile_tirx_values_metal
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_tirx_values" "metal"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_tile_tirx_values_metal" start time: Sep 08 14:49 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (909 asserts in 11 tests)
+<end of output>
+Test time =   1.13 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_tirx_values_metal" end time: Sep 08 14:49 CST
+"test_tile_tirx_values_metal" time elapsed: 00:00:01
+----------------------------------------------------------
+
+80/209 Testing: test_tile_tirx_execution_metal
+80/209 Test: test_tile_tirx_execution_metal
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_tirx_execution" "metal"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_tile_tirx_execution_metal" start time: Sep 08 14:49 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (819022 asserts in 40 tests)
+<end of output>
+Test time =   8.45 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_tirx_execution_metal" end time: Sep 08 14:49 CST
+"test_tile_tirx_execution_metal" time elapsed: 00:00:08
+----------------------------------------------------------
+
+81/209 Testing: test_tile_tirx_cooperative_metal
+81/209 Test: test_tile_tirx_cooperative_metal
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_tirx_cooperative" "metal"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_tile_tirx_cooperative_metal" start time: Sep 08 14:49 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (1297 asserts in 13 tests)
+<end of output>
+Test time =   4.86 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_tirx_cooperative_metal" end time: Sep 08 14:49 CST
+"test_tile_tirx_cooperative_metal" time elapsed: 00:00:04
+----------------------------------------------------------
+
+82/209 Testing: test_tile_tirx_memory_metal
+82/209 Test: test_tile_tirx_memory_metal
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_tirx_memory" "metal"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_tile_tirx_memory_metal" start time: Sep 08 14:49 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (448 asserts in 14 tests)
+<end of output>
+Test time =   1.56 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_tirx_memory_metal" end time: Sep 08 14:49 CST
+"test_tile_tirx_memory_metal" time elapsed: 00:00:01
+----------------------------------------------------------
+
+83/209 Testing: test_tile_tirx_pipeline_metal
+83/209 Test: test_tile_tirx_pipeline_metal
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_tirx_pipeline" "metal"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_tile_tirx_pipeline_metal" start time: Sep 08 14:49 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (568 asserts in 6 tests)
+<end of output>
+Test time =   1.88 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_tirx_pipeline_metal" end time: Sep 08 14:49 CST
+"test_tile_tirx_pipeline_metal" time elapsed: 00:00:01
+----------------------------------------------------------
+
+84/209 Testing: test_tile_tirx_matrix_metal
+84/209 Test: test_tile_tirx_matrix_metal
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_tile_tirx_matrix" "metal"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_tile_tirx_matrix_metal" start time: Sep 08 14:49 CST
+Output:
+----------------------------------------------------------
+[32mSuite 'global': all tests passed[0m (22754 asserts in 39 tests)
+<end of output>
+Test time =  40.22 sec
+----------------------------------------------------------
+Test Passed.
+"test_tile_tirx_matrix_metal" end time: Sep 08 14:50 CST
+"test_tile_tirx_matrix_metal" time elapsed: 00:00:40
+----------------------------------------------------------
+
+153/209 Testing: test_simd_runtime_widths
+153/209 Test: test_simd_runtime_widths
+Command: "/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/test_simd_runtime_widths"
+Directory: /tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests
+"test_simd_runtime_widths" start time: Sep 08 14:50 CST
+Output:
+----------------------------------------------------------
+[2026-09-08 14:50:39.362] [console] [info] Created context for program 'test_simd_runtime_widths'.
+[2026-09-08 14:50:39.362] [console] [info] Runtime directory: /private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin.
+[2026-09-08 14:50:39.375] [console] [info] Loaded dynamic module '/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-backend-simd.so' in 11.862959 ms.
+[2026-09-08 14:50:39.375] [console] [error] Assertion 'result.ec == std::errc{} && result.ptr == text.data() + text.size() && requested_worker_count != 0u' failed: Invalid LUISA_SIMD_WORKER_COUNT value 'invalid'. [/tmp/luisa-reduction-checkpoint.gQUERp/source/src/backends/simd/runtime/simd_device.cpp:163]
+     0 [0x00010b0aa364]: libluisa-backend-simd.so :: luisa::compute::simd::SIMDDevice::SIMDDevice(luisa::compute::Context&&, luisa::compute::DeviceConfig const*) + 2044
+     1 [0x0001052ab1d4]: libluisa-runtime.dylib :: luisa::compute::Context::create_device(std::__1::basic_string_view<char, std::__1::char_traits<char>>, luisa::compute::DeviceConfig const*, bool) + 212
+     2 [0x000104c91154]: test_simd_runtime_widths :: main + 39608
+     3 [0x0001861804e4]: dyld :: start + 6992
+[2026-09-08 14:50:39.464] [console] [info] Created context for program 'test_simd_runtime_widths'.
+[2026-09-08 14:50:39.465] [console] [info] Runtime directory: /private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin.
+[2026-09-08 14:50:39.476] [console] [info] Loaded dynamic module '/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-backend-simd.so' in 10.837375 ms.
+[2026-09-08 14:50:39.476] [console] [error] Assertion 'thread_count <= 1024u && thread_count % 32u == 0u' failed: Invalid block size (4, 1, 1). Threads per block must be a multiple of 32 and must not exceed 1024. [/tmp/luisa-reduction-checkpoint.gQUERp/source/src/dsl/builtin.cpp:28]
+     0 [0x000104e92640]: libluisa-dsl.dylib :: luisa::compute::detail::luisa_compute_validate_block_size(unsigned int, unsigned int, unsigned int) + 228
+     1 [0x000104c9cd88]: test_simd_runtime_widths :: luisa::compute::Kernel1D<void ()>::Kernel1D<(anonymous namespace)::active_assertion_fails_closed(char const*)::$_0>((anonymous namespace)::active_assertion_fails_closed(char const*)::$_0&&) + 280
+     2 [0x000104c911f0]: test_simd_runtime_widths :: main + 39764
+     3 [0x0001861804e4]: dyld :: start + 6992
+[2026-09-08 14:50:39.564] [console] [info] Created context for program 'test_simd_runtime_widths'.
+[2026-09-08 14:50:39.565] [console] [info] Runtime directory: /private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin.
+[2026-09-08 14:50:39.576] [console] [info] Loaded dynamic module '/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-backend-simd.so' in 10.466083 ms.
+[2026-09-08 14:50:39.787] [console] [info] Created context for program 'test_simd_runtime_widths'.
+[2026-09-08 14:50:39.787] [console] [info] Runtime directory: /private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin.
+[2026-09-08 14:50:39.800] [console] [info] Loaded dynamic module '/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-backend-simd.so' in 11.706958 ms.
+[32mSuite 'global': all tests passed[0m (13256 asserts in 0 tests)
+<end of output>
+Test time =   2.17 sec
+----------------------------------------------------------
+Test Passed.
+"test_simd_runtime_widths" end time: Sep 08 14:50 CST
+"test_simd_runtime_widths" time elapsed: 00:00:02
+----------------------------------------------------------
+
+End testing: Sep 08 14:50 CST
+
+integration =  60.72 sec*proc
+
+integration_simd = 100.70 sec*proc
+
+integration_tile_native =   1.01 sec*proc
+
+integration_tile_system =   0.12 sec*proc
+
+integration_tile_timing =   0.08 sec*proc
+
+integration_tile_xir =  59.51 sec*proc
+
+runtime_simd =   2.17 sec*proc
+
+unit = 174.42 sec*proc
+
+unit_llvm =  39.01 sec*proc
+
+unit_simd =  39.04 sec*proc
+
+unit_tile = 135.38 sec*proc
+
+unit_tile_native =   0.01 sec*proc
+
+unit_tile_poc =  61.48 sec*proc
+
+unit_tile_system =   0.14 sec*proc
+
+unit_tile_targets =  59.36 sec*proc
+
+unit_tile_tirx = 135.10 sec*proc
+
+unit_tile_xir =   0.02 sec*proc
+

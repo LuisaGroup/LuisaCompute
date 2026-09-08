@@ -53,6 +53,7 @@ private:
     uint32_t _width;
     size_t _private_stack_budget_bytes{0u};
     bool _enable_interleaved_private_arrays{false};
+    bool _enable_contiguous_private_access{true};
     std::string _entry_name;
     bool _enable_fast_math;
     std::array<uint32_t, 3u> _static_block_size{};
@@ -118,6 +119,7 @@ private:
     std::vector<uint8_t> _shared_lvalue_values{};
     std::vector<::llvm::Value *> _local_allocations{};
     std::vector<uint8_t> _interleaved_local_values{};
+    std::unordered_map<const schedule::Instruction *, schedule::ValueId> _contiguous_private_accesses{};
     std::vector<uint32_t> _ray_query_scratch_slots{};
     std::vector<::llvm::AllocaInst *> _ray_query_scratch_storage{};
     std::vector<uint32_t> _ray_query_status_slots{};
@@ -439,6 +441,7 @@ private:
         ::llvm::Value *&offsets, const Type *&current_type,
         schedule::ValueId index_id, uint32_t scale = 1u);
     void _find_interleaved_private_arrays();
+    [[nodiscard]] ::llvm::Value *_contiguous_private_address(::llvm::Value *handle, const Type *type, schedule::ValueId allocation);
     [[nodiscard]] ::llvm::Value *_local_alloca(
         const schedule::Instruction &instruction);
     [[nodiscard]] ::llvm::Value *_local_gep(
@@ -778,7 +781,8 @@ public:
                     bool enable_gathered_native_texture_read = false,
                     bool enable_native_half4_texture_packet = false,
                     size_t private_stack_budget_bytes = 0u,
-                    bool enable_interleaved_private_arrays = false);
+                    bool enable_interleaved_private_arrays = false,
+                    bool enable_contiguous_private_access = true);
     [[nodiscard]] LLVMScheduleCodegenResult run();
 };
 

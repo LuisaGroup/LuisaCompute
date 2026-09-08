@@ -15851,6 +15851,100 @@ make_structured_early_exit_foreign_convergence_fixture() {
     return true;
 }
 
+template<typename T>
+[[nodiscard]] bool run_contiguous_private_accesses() {
+    for (auto width : {2u, 4u, 8u, 16u}) {
+        for (auto enabled : {false, true}) {
+            for (auto variant : {0u, 1u, 2u, 3u, 4u}) {
+                xir::Module module;
+                auto kernel = module.create_kernel();
+                kernel->set_block_size(luisa::make_uint3(32u, 1u, 1u));
+                auto type = Type::of<T>();
+                auto output = kernel->create_resource_argument(Type::buffer(type));
+                auto body = kernel->create_body_block();
+                auto odd = kernel->create_basic_block();
+                auto even = kernel->create_basic_block();
+                auto exit = kernel->create_basic_block();
+                xir::XIRBuilder builder;
+                auto constant = [&](auto value) { return module.create_constant(Type::of<decltype(value)>(), &value); };
+                builder.set_insertion_point(body);
+                auto lane = module.create_warp_lane_id();
+                xir::Value *index = constant(uint32_t{variant == 3u ? 16u : 2u});
+                if (variant == 1u) { index = lane; }
+                if (variant == 4u) { index = builder.call(Type::of<uint32_t>(), xir::ThreadGroupOp::WARP_READ_FIRST_ACTIVE_LANE, {lane}); }
+                auto storage = builder.alloca_local(Type::array(type, 17u));
+                auto pointer = builder.gep(type, storage, {index});
+                auto value = builder.static_cast_if_necessary(type, lane);
+                auto add = [&](T bias) { return builder.call(type, xir::ArithmeticOp::BINARY_ADD, {value, constant(bias)}); };
+                builder.store(pointer, add(T{10u}));
+                auto bit = builder.call(Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_BIT_AND, {lane, constant(uint32_t{1u})});
+                auto condition = builder.call(Type::of<bool>(), xir::ArithmeticOp::BINARY_NOT_EQUAL, {bit, constant(uint32_t{0u})});
+                builder.cond_br(condition, odd, even);
+                builder.set_insertion_point(odd);
+                // This arm excludes lane zero and is empty for a one-lane
+                // launch. The first-active slot is only cohort-uniform.
+                auto slot = variant == 2u ? builder.call(Type::of<uint32_t>(), xir::ThreadGroupOp::WARP_READ_FIRST_ACTIVE_LANE, {lane}) : index;
+                // Variant 3 touches the last complete packet slot. Variant
+                // 4 reuses a cohort-uniform GEP in another Schedule block:
+                // its accesses must keep the conservative gather fallback.
+                auto odd_pointer = variant == 4u ? pointer : builder.gep(type, storage, {slot});
+                builder.store(odd_pointer, add(T{100u}));
+                auto odd_value = builder.load(type, odd_pointer);
+                builder.call(xir::ResourceWriteOp::BUFFER_WRITE, {output, lane, odd_value});
+                builder.br(exit);
+                builder.set_insertion_point(even);
+                auto even_value = builder.load(type, pointer);
+                builder.call(xir::ResourceWriteOp::BUFFER_WRITE, {output, lane, even_value});
+                builder.br(exit);
+                builder.set_insertion_point(exit);
+                builder.return_void();
+                auto compiled = compile_simd_kernel(kernel, width, "contiguous_private", false, true, true, false, 1u, false, false, true, 1u, true, enabled);
+                if (!compiled.succeeded()) {
+                    for (auto &error : compiled.diagnostics) { std::cerr << error << '\n'; }
+                    return false;
+                }
+                CHECK(compiled.interleaved_private_arrays == 1u);
+                auto optimized_read = enabled && variant != 1u && variant != 4u;
+                CHECK((compiled.contiguous_private_read_count != 0u) == optimized_read);
+                CHECK((compiled.contiguous_private_write_count != 0u) == (enabled && variant != 1u));
+                CHECK((compiled.llvm_ir.find("private.contiguous.load") != std::string::npos) == optimized_read);
+                auto bytes = size_t{17u} * width * sizeof(T);
+                CHECK(compiled.private_workspace_size == bytes);
+                struct alignas(64) Chunk {
+                    std::byte bytes[64];
+                };
+                std::vector<Chunk> workspace((bytes + 63u) / 64u + 2u);
+                auto memory = reinterpret_cast<std::byte *>(workspace.data());
+                using Entry = void(const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+                auto entry = reinterpret_cast<Entry *>(compiled.entry);
+                CHECK(entry != nullptr);
+                for (auto active = 0u; active <= width; active++) {
+                    std::memset(memory, 0xa5, workspace.size() * sizeof(Chunk));
+                    std::vector<std::byte> expected(workspace.size() * sizeof(Chunk), std::byte{0xa5});
+                    std::vector<T> result(width + 2u, T{731u});
+                    alignas(16) SIMDHostBufferView argument{result.data() + 1u, width * sizeof(T)};
+                    auto config = launch_1d(active, 32u);
+                    config.private_workspace = memory + 64u;
+                    entry(&argument, nullptr, &config, active);
+                    for (auto l = 0u; l < width; l++) {
+                        CHECK(result[l + 1u] == (l < active ? T{l} + ((l & 1u) ? T{100u} : T{10u}) : T{731u}));
+                        if (l >= active) { continue; }
+                        auto write = [&](uint32_t q, T x) { std::memcpy(expected.data() + 64u + (q * width + l) * sizeof(T), &x, sizeof(T)); };
+                        auto q = variant == 1u ? l : variant == 3u ? 16u :
+                                                 variant == 4u     ? 0u :
+                                                                     2u;
+                        write(q, T{l} + T{10u});
+                        if (l & 1u) { write(variant == 2u ? 1u : q, T{l} + T{100u}); }
+                    }
+                    CHECK(result.front() == T{731u} && result.back() == T{731u});
+                    CHECK(std::memcmp(memory, expected.data(), expected.size()) == 0);
+                }
+            }
+        }
+    }
+    return true;
+}
+
 [[nodiscard]] bool run_private_workspace_policy() {
     constexpr auto width = uint32_t{8u};
     constexpr auto budget = size_t{64u * 1024u};
@@ -15922,6 +16016,8 @@ int main() {
         bool (*run)();
     };
     constexpr Test tests[]{
+        {"contiguous private 32-bit masks and slots", &run_contiguous_private_accesses<uint32_t>},
+        {"contiguous private 64-bit masks and slots", &run_contiguous_private_accesses<uint64_t>},
         {"private workspace capacity and lane intervals", &run_private_workspace_policy},
         {"Schedule IR vector warp1", &run_codegen<1u>},
         {"Schedule IR vector warp2", &run_codegen<2u>},
