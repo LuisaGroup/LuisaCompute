@@ -26,6 +26,10 @@ struct LowerOptions {
     // The caller must compile with this exact packet width; lower() validates
     // the admitted pointwise/closed-unordered-reduction program contract.
     uint32_t local_lanes{1u};
+    // Fuse a load with its first pointwise unordered reduction, retaining a
+    // snapshot for later consumers. Never moves reads across writes/stages.
+    // Opt-in: fewer private reads can still increase masked-memory/CFG cost.
+    bool enable_load_reduction_fusion{false};
 };
 
 struct NativeFunction {
@@ -37,6 +41,9 @@ struct NativeFunction {
     // Zero permits any packet width. Otherwise the consumer must preserve
     // this width: dispatch coordinates and collectives form one ABI contract.
     uint32_t required_packet_width{0u};
+    // Static realization counts, not dynamic memory transactions.
+    uint32_t fused_reduction_loads{0u};
+    uint32_t elided_load_snapshots{0u};
     luisa::string error;
     [[nodiscard]] bool ok() const noexcept { return module != nullptr && function != nullptr && error.empty(); }
     [[nodiscard]] explicit operator bool() const noexcept { return ok(); }

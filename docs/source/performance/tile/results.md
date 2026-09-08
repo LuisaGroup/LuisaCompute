@@ -20,53 +20,60 @@ intervals. No slow or failed row is discarded to improve the headline.
 
 ### SIMD local distribution and private layout are separate decisions
 
-The latest September 8 {download}`Torch-guided private-vector report <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-private-vector/notes.md>`
-adds a third, independent decision: realizing a common-slot private access
-as a contiguous vector. It builds on the earlier
-{download}`mapping/layout experiment <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-xir-packet-local/notes.md>`.
-The backend preserves the immutable allocation base and saved GEP offset;
-closed packet-private storage permits full-vector reads and bit-preserving
-partial writes. Escaping/shared storage and unsupported indices retain the
-gather/scatter fallback. No operator-name dispatch or frontend kernel change
-is used; this is a lowering improvement, **not a newly calibrated planner**.
+The latest September 8 {download}`load/reduction fusion report <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-load-reduction/notes.md>`
+adds a legal first-consumer realization and matching work accounting, but
+**leaves it opt-in and default-disabled after measured regressions**.
+It follows the {download}`private-vector improvement <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-private-vector/notes.md>`
+and {download}`mapping/layout experiment <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-xir-packet-local/notes.md>`.
+The previous contiguous private-access optimization remains enabled.
 
-**Native-entry timing closes much of the gap, but still loses to Inductor.**
-Each row below is a fixed-mapping old/new/Torch experiment: interleaved private
-layout, one CPU thread, six variant orders, seven samples per visit, all
-complete outputs and guards checked. Times are µs; separate rows are not
-simultaneous measurements of Torch.
+The rule moves a load into its first closed unordered reduction only across
+read-only operations and unit map wrappers, with pointwise dimension
+correspondence. It retains the snapshot for later users and rejects every
+intervening write or stage boundary, without parameter-name/noalias
+assumptions. This is a generic realization, not a new DSL or a calibrated
+automatic fusion solver.
 
-| RMSNorm | Mapping | Gather/scatter | Private vector | Inductor |
-|---|---|---:|---:|---:|
-| 64×256 | Whole program | 28.623 | 11.511 | 9.157 |
-| 64×256 | Packet-local | 29.569 | 14.338 | 8.881 |
-| 1024×4096 | Whole program | 7380.091 | 3336.237 | 2241.350 |
-| 1024×4096 | Packet-local | 7438.575 | 3235.974 | 2147.953 |
+**Fewer counted private reads did not improve native RMSNorm.** Each row is
+a fixed-mapping no-fusion/fusion/Inductor experiment with the same private
+layout and vector-access policy: one CPU thread, all six orders, seven
+samples per visit. Times are µs; separate rows remeasure Torch independently.
 
-The default mapping's paired new/old time ratios are 0.403/0.452; paired
-new/Inductor ratios remain **1.260/1.503**. The actual-object C++ replay
-excludes Runtime, Python, allocation and the thread pool, retaining native
-call and launch-record reset; it is not a cycle counter. An initial masked
-vector implementation regressed and was rejected after ARM64 inspection.
+| RMSNorm | Mapping | No fusion | Opt-in fusion | Inductor | Paired fusion/default |
+|---|---|---:|---:|---:|---:|
+| 64×256 | Whole program | 11.087 | 13.521 | 8.869 | 1.219 |
+| 64×256 | Packet-local | 14.323 | 17.164 | 8.847 | 1.198 |
+| 1024×4096 | Whole program | 3205.413 | 3749.899 | 2147.740 | 1.170 |
+| 1024×4096 | Packet-local | 3233.376 | 3967.917 | 2146.697 | 1.227 |
 
-The separate **120-visit Runtime E2E** comparison covers 15 shapes/operators
-with eight requested CPU workers and two orders. At fixed whole-program
-mapping, paired time ratios are 0.43–0.67 for RMSNorm, 0.38–0.40 for LayerNorm,
-0.63 for softmax, about 0.70 for SwiGLU and 0.75 for GELU. RoPE's whole-program
-cases do not trigger this transform and still record 1.2–1.6% slower visits.
-Narrow packet-local cases remain costly; small local GELU has a 1.005 paired
-ratio with opposite signs across the two orders. All cases, source artifacts
-and negative controls are retained in the
-{download}`independent audit <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-private-vector/audit.json>`.
+All 24 paired fusion/default comparisons are slower. Actual-object C++ replay
+excludes Runtime, Python, allocation and thread-pool dispatch, retaining the
+native call and launch-record reset; it is not a cycle counter. All 72 native
+visits pass complete output and guard checks. Default SIMD still loses to
+Inductor; no new MPS/BLAS/Metal result is implied.
 
-The private-access realization is enabled with its admission checks; complete
-programs per lane remain the default and joint mapping search stays **opt-in**.
-Safe snapshot/phase fusion, mathematical-policy alignment and independent CPU
-task grain remain structural gaps. Actual Torch uses reciprocal-then-multiply
-where this unchanged Tile expression uses division; neither that rounding
-change nor snapshot reload is silently assumed safe. No new Metal, MPS or
-BLAS comparison is claimed. These are fixed-W8 FP32 M1 Max measurements,
-not all-operator or cross-target parity.
+The separate **120-visit Runtime E2E** experiment covers 15 shapes/operators,
+eight requested CPU workers and two orders. Whole-program one-row RMSNorm
+and LayerNorm improve to paired ratios 0.828/0.936, but multirow norm cases
+generally regress; 1024×4096 RMSNorm is 1.198/1.211 for whole/local mapping.
+Softmax, SwiGLU, GELU and RoPE do not trigger this fusion rule; their recorded
+variation must not be presented as fusion speedups. Full times, ranges and
+negative controls are in the {download}`audit <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-load-reduction/audit.json>`.
+
+The counterexample identifies a missing interaction in the model: the
+64×256 whole-program work score falls 297112→231576, but LLVM changes from
+an inlined body to an outlined packet call. The actual native text has more
+conditional-branch sites; static sites do not establish branch stalls or
+spilling as the sole cause. Full-packet specialization/inlining, partial
+count, fusion and task grain need joint evaluation, not an unconditional
+memory-work discount.
+
+Whole-program mapping and private vectors remain default; joint mapping
+search and this fusion remain opt-in. The shipping policy change is recorded
+separately from the frozen experimental binary and verified against shipping
+captures. Numerical policy is unchanged: Torch uses reciprocal-then-multiply
+where this Tile expression uses division. General phase fusion, masked-memory
+cost calibration and independent CPU task grain remain open.
 
 ### Bounded XIR traversal improves compilation, not yet Torch parity
 

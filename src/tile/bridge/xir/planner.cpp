@@ -74,14 +74,23 @@ struct Work {
 }
 
 void read_work(const Value *value, double repetitions, bool dynamic,
-               ExecutionTarget target, const ExecutionCostModel &cost, uint32_t limit, uint32_t lanes, Work &work) {
+               ExecutionTarget target, const ExecutionCostModel &cost, uint32_t limit, uint32_t lanes, Work &work,
+               const PlannerOptions &options, const Operation *consumer) {
     if (!value->type().is_tile()) { return; }
+    if (options.enable_load_reduction_fusion) {
+        if (auto fusion = detail::load_reduction_fusion(value, limit, lanes, options.reduction_partitions);
+            fusion && consumer->parent_block() == fusion->reduction->region(0u)->block(0u)) {
+            // The external read is charged once at VIEW_LOAD; its first
+            // reduction uses that scalar directly, including repeated x*x.
+            return;
+        }
+    }
     if (materialized(value, limit, lanes)) {
         auto op = value->defining_operation();
         if (op && op->kind() == OperationKind::CONSTANT) { return; }
         if (detail::deferred_elementwise(value, limit, lanes)) {
             work.arithmetic += repetitions * cost.arithmetic;
-            for (size_t i = 0u; i < op->operand_count(); i++) { read_work(op->operand(i), repetitions, dynamic, target, cost, limit, lanes, work); }
+            for (size_t i = 0u; i < op->operand_count(); i++) { read_work(op->operand(i), repetitions, dynamic, target, cost, limit, lanes, work, options, consumer); }
             return;
         }
         work.memory += repetitions * cost.gathered_lane * target.packet_width;
@@ -97,8 +106,12 @@ void read_work(const Value *value, double repetitions, bool dynamic,
 
 void measure(const Block &block, const Value *axis, double repetitions,
              ExecutionTarget target, const ExecutionCostModel &cost,
-             luisa::vector<const Value *> indices, uint32_t limit, uint32_t lanes, Work &work) {
+             luisa::vector<const Value *> indices, uint32_t limit, uint32_t lanes, Work &work, const PlannerOptions &options) {
     auto snapshot = [&](const Value *value) {
+        if (options.enable_load_reduction_fusion) {
+            if (auto fusion = detail::load_reduction_fusion(value, limit, lanes, options.reduction_partitions);
+                fusion && !fusion->retain_snapshot) { return; }
+        }
         if (materialized(value, limit, lanes)) {
             auto op = value->defining_operation();
             // Large carries are parallel copies, charged at their loop below.
@@ -126,23 +139,23 @@ void measure(const Block &block, const Value *axis, double repetitions,
             for (size_t i = 0u; i < op->result_count(); i++) {
                 if (detail::bounded_tile(op->result(i), limit)) {
                     auto count = volume(*op->result(i)->type().index_space());
-                    read_work(op->operand(i), repetitions * count, true, target, cost, limit, lanes, work);
+                    read_work(op->operand(i), repetitions * count, true, target, cost, limit, lanes, work, options, op);
                     // Initialization plus staging the next value, loading it,
                     // and updating current only after all staged copies exist.
                     work.memory += (repetitions + 3.0 * iterations) * count * cost.gathered_lane * target.packet_width;
                     for (auto term : body->operations()) {
-                        if (term->kind() == OperationKind::YIELD) { read_work(term->operand(i), iterations * count, true, target, cost, limit, lanes, work); }
+                        if (term->kind() == OperationKind::YIELD) { read_work(term->operand(i), iterations * count, true, target, cost, limit, lanes, work, options, term); }
                     }
                 }
             }
-            measure(*body, axis, iterations, target, cost, std::move(child_indices), limit, lanes, work);
+            measure(*body, axis, iterations, target, cost, std::move(child_indices), limit, lanes, work, options);
             if (lanes > 1u && kind == OperationKind::REDUCE && volume(*op->domain()) >= lanes) {
                 // Local partials converge through a fixed tree and one root
                 // broadcast. This is a relative prior, not measured cycles.
                 work.arithmetic += repetitions * (2.0 * std::log2(lanes) + 2.0) * cost.arithmetic;
             }
         } else if (kind == OperationKind::TILE_MAP) {
-            measure(*op->region(0u)->block(0u), axis, repetitions * local_iterations(volume(*op->domain()), lanes), target, cost, indices, limit, lanes, work);
+            measure(*op->region(0u)->block(0u), axis, repetitions * local_iterations(volume(*op->domain()), lanes), target, cost, indices, limit, lanes, work, options);
         } else if (kind == OperationKind::VIEW_LOAD || kind == OperationKind::VIEW_STORE) {
             auto &space = *op->operand(0u)->type().index_space();
             luisa::optional<double> stride{0.0};
@@ -164,7 +177,7 @@ void measure(const Block &block, const Value *axis, double repetitions,
             if (kind == OperationKind::VIEW_STORE) {
                 auto count = op->domain() ? local_iterations(volume(*op->domain()), lanes) : 1.0;
                 read_work(op->operand(space.rank() + 1u), repetitions * count,
-                          op->domain() && detail::bounded_domain(*op->domain(), limit), target, cost, limit, lanes, work);
+                          op->domain() && detail::bounded_domain(*op->domain(), limit), target, cost, limit, lanes, work, options, op);
             }
         } else if (kind == OperationKind::MMA) {
             auto &output = *op->result(0u)->type().index_space();
@@ -174,12 +187,12 @@ void measure(const Block &block, const Value *axis, double repetitions,
             }
             work.arithmetic += repetitions * volume(output) * contraction * 2.0 * cost.arithmetic;
             auto dynamic = detail::bounded_domain(output, limit) || (limit && contraction > limit);
-            read_work(op->operand(0u), repetitions * volume(output) * contraction, dynamic, target, cost, limit, lanes, work);
-            read_work(op->operand(1u), repetitions * volume(output) * contraction, dynamic, target, cost, limit, lanes, work);
-            read_work(op->operand(2u), repetitions * volume(output), detail::bounded_domain(output, limit), target, cost, limit, lanes, work);
+            read_work(op->operand(0u), repetitions * volume(output) * contraction, dynamic, target, cost, limit, lanes, work, options, op);
+            read_work(op->operand(1u), repetitions * volume(output) * contraction, dynamic, target, cost, limit, lanes, work, options, op);
+            read_work(op->operand(2u), repetitions * volume(output), detail::bounded_domain(output, limit), target, cost, limit, lanes, work, options, op);
         } else if (kind == OperationKind::TILE_EXTRACT) {
             auto dynamic = !detail::expanded_extract(*op, limit);
-            read_work(op->operand(0u), repetitions, dynamic, target, cost, limit, lanes, work);
+            read_work(op->operand(0u), repetitions, dynamic, target, cost, limit, lanes, work, options, op);
             if (dynamic) {
                 work.arithmetic += repetitions * (4u + 3u * op->operand(0u)->type().index_space()->rank()) * cost.arithmetic;
             }
@@ -189,7 +202,7 @@ void measure(const Block &block, const Value *axis, double repetitions,
             if (!detail::deferred_elementwise(op->result(0u), limit, lanes)) {
                 work.arithmetic += repetitions * count * cost.arithmetic;
                 for (size_t i = 0u; i < op->operand_count(); i++) {
-                    read_work(op->operand(i), repetitions * count, materialized(op->result(0u), limit, lanes), target, cost, limit, lanes, work);
+                    read_work(op->operand(i), repetitions * count, materialized(op->result(0u), limit, lanes), target, cost, limit, lanes, work, options, op);
                 }
             }
         } else if (kind != OperationKind::CONSTANT && kind != OperationKind::YIELD && kind != OperationKind::STAGE) {
@@ -266,7 +279,7 @@ void measure(const Block &block, const Value *axis, double repetitions,
     do {
         for (auto lanes : local_widths) {
             Work work;
-            measure(*body, indices[order.back()], 1.0, target, options.cost, indices, options.max_unrolled_tile_elements, lanes, work);
+            measure(*body, indices[order.back()], 1.0, target, options.cost, indices, options.max_unrolled_tile_elements, lanes, work, options);
             // If a packet crosses the chosen innermost axis, its memory estimate
             // is conservatively penalized. No lane-coherence fact reaches codegen.
             auto extent = root->domain()->axis(order.back()).extent.constant_value();

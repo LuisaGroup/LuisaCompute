@@ -163,8 +163,9 @@ buffer, not this snapshot.
 
 For D input elements and R runtime extracts, the selected representation
 replaces D×R selection work with D definition-time stores plus R indexed
-reads. Stores must not be inserted inside the consuming reduction. Small
-loop carries use simultaneous PHIs; the bounded large-carry representation
+reads. The eager baseline stores at definition; the admitted first-consumer
+fusion below may instead initialize the snapshot during its first traversal.
+Small loop carries use simultaneous PHIs; the bounded large-carry representation
 below uses a staged parallel copy and preserves zero-trip initial state.
 Distinct SSA definitions have distinct storage, preserving multi-Tile swaps.
 An input parameter being `const` is not a noalias assertion: an overlapping
@@ -197,9 +198,11 @@ three new user-visible Tile or Memory types:
 | Large shared value | Array + loop | Definition |
 | Constant / single-use math | Splat / pure recipe | Consumer |
 
-Large loads, maps and multi-consumer expressions use the array form.
-External reads remain eager. A deferred recipe captures immutable physical
-operand definitions, not mutable entries in the lowerer's value lookup table.
+Large loads, maps and multi-consumer expressions normally use the array form.
+External reads remain eager unless the first-consumer fusion below proves
+that delaying them crosses no mutation or stage boundary. A deferred recipe
+captures immutable physical operand definitions, not mutable entries in the
+lowerer's value lookup table.
 
 `max_unrolled_tile_elements` defaults to 64; zero explicitly selects the old
 fully expanded diagnostic form without removing IR/storage budgets. Loop
@@ -240,6 +243,59 @@ their ordered fallback. This uses the unordered numerical contract, not a
 claim that floating-point addition is exactly associative. These partials
 remain inside one logical worker in the default complete-program mapping.
 The opt-in mapping below also merges them across packet lanes.
+
+### First-consumer fusion preserves the snapshot contract
+
+The **opt-in**, default-disabled `enable_load_reduction_fusion` selects a
+shared realization rule in the planner and lowerer. A materialized view load can join the first actual
+consumer reached through single-use pure Tile expressions when that consumer
+is a closed, scalar unordered reduction using bounded partials or packet
+distribution. Unit-size map wrappers, including library `reduce()`, execute
+once and are transparent. Other enclosing execution scopes are not.
+
+The admission rule requires a bijection of matching nonunit dimensions and
+extents and direct reduction coordinates in each extract. Unit axes may be
+inserted/projected; a complete multidimensional reduction may permute axes.
+It rejects reordered element indices, strict folds, unknown effects, every
+intervening write (even through a different buffer argument), and `stage`
+boundaries. This does not re-prove the independence promised by `parallel`:
+it verifies the narrower legality of moving one resource read in time.
+
+```text
+view load definition ── capture buffer, origin, fill and bounds facts
+             │ no intervening writes or stage boundary
+             ▼
+first reduction loop ── load element once ── contribution ── partial
+                              │
+                later users?  ├── yes: save snapshot element
+                              └── no: omit snapshot allocation
+```
+
+The loaded scalar is reused by repeated pointwise operands such as `x*x`.
+When later consumers exist, they still read the original snapshot, including
+after an aliasing store. Captured XIR SSA definitions are immutable; the
+host-side pending plan is consumed at the reduction rather than reused across
+repeated lowering of a loop body. Bounds guards/fill share the ordinary view
+access emitter. No reciprocal rewrite, invented reduction identity or tree
+change is introduced.
+
+The work prior charges the external read once, removes private reads in the
+fused first consumer, and removes snapshot writes only when no later consumer
+needs storage. It uses the **same admission helper** as lowering. This is
+realization-derived work accounting, not measured cycle calibration or a
+general phase-fusion solver. Multiple-use math recipes, nonunit wrapper maps,
+arbitrary gather consumers and cross-effect reloads remain unoptimized here.
+
+The SIMD diagnostic switch `LUISA_SIMD_ENABLE_LOAD_REDUCTION_FUSION=1`
+enables both planning and lowering of this rule for fixed-mapping A/B tests;
+`LUISA_SIMD_DISABLE_LOAD_REDUCTION_FUSION=1` takes precedence and disables it.
+Measured RMSNorm regressions show why fewer counted private reads alone do
+not justify enabling this rule by default. See the
+[performance evidence](../../performance/tile/results.md#simd-local-distribution-and-private-layout-are-separate-decisions).
+`fused_reduction_loads` and `elided_load_snapshots` are static construction
+counts in realization metadata, not dynamic memory-transaction counts.
+
+### Packet-private storage budgets
 
 The SIMD adapter separately budgets **physical packet storage**:
 `bytes = Σ align_and_place(W × sizeof(local_array))`. It keeps small private
@@ -291,7 +347,8 @@ carry, explicit execution binding and manual Memory keep the whole-program
 fallback. Forced unsupported distribution fails closed. These limits describe
 missing realizations, not dependencies supposedly absent from the language.
 
-Loads still snapshot at their definitions. Each lane owns `ceil(N/W)` private
+Loads normally snapshot at their definitions; the opt-in fusion above may
+move initialization to the first reduction. Each lane owns `ceil(N/W)` private
 slots, with only valid tail slots accessed. A closed unordered reduction starts
 each lane's partials from real contributions, merges them with a fixed
 `WARP_READ_LANE` butterfly, broadcasts lane zero's tree root, and combines the

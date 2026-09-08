@@ -14,6 +14,72 @@ using namespace luisa::compute;
 using namespace boost::ut;
 
 int main() {
+    "tile_xir_load_reduction_fusion_contract_and_cost"_test = [] {
+        using namespace tile;
+        for (auto lanes : {1u, 2u, 4u, 8u, 16u}) {
+            for (auto variant = 0u; variant < 6u; variant++) {
+                // 0: single consumer, 1: retain x, 2: intervening possibly
+                // aliasing write, 3: strict fold, 4: reordered coordinates,
+                // 5: source outside a nonunit execution scope.
+                auto definition = tile_kernel("fusion_contract", [=](TensorView<const float, 2> input,
+                                                                     TensorView<float, 2> other, TensorView<float, 2> output) {
+                    auto m = axis("m", 1), n = axis("n", 65);
+                    for (auto &nest : parallel(shape(17))) {
+                        auto x = input[coord(nest.index(), 0), shape(m, n)];
+                        auto y = other[coord(nest.index(), 0), shape(m, n)];
+                        if (variant == 2u) { other(coord(nest.index(), 0), shape(m, n)).store(full<float>(shape(m, n), 9.0f)); }
+                        if (variant == 4u || variant == 5u) {
+                            auto sum = Scalar<float>{2.5f};
+                            if (variant == 4u) {
+                                for (auto &step : nest.reduce(shape(n))) { sum += x.at(coord(0, 64 - step.index())) + y.at(coord(0, step.index())); }
+                            } else {
+                                for (auto &step : nest.serial(shape(2))) {
+                                    for (auto &element : step.reduce(shape(n))) { sum += x.at(coord(0, element.index())) + y.at(coord(0, element.index())); }
+                                }
+                            }
+                            output(coord(nest.index(), 0), shape(m, n)).store(full<float>(shape(m, n), sum));
+                        } else {
+                            auto policy = variant == 3u ? reduction::fold_left : reduction::unordered_tree;
+                            auto sum = reduce(x * y, n, add, policy);
+                            output(coord(nest.index(), 0), shape(m, n)).store(variant == 1u ? x + sum : full<float>(shape(m, n), sum.at(coord(0))));
+                        }
+                    }
+                });
+                auto kernel = definition.capture(tensor_shape(17, 65), tensor_shape(17, 65), tensor_shape(17, 65));
+                expect(kernel.valid());
+                if (lanes > 1u && variant >= 3u) { continue; }
+                auto off = bridge::xir::lower(kernel.function(), {.local_lanes = lanes});
+                auto on = bridge::xir::lower(kernel.function(), {.local_lanes = lanes, .enable_load_reduction_fusion = true});
+                expect(off.ok()) << off.error;
+                expect(on.ok()) << on.error;
+                if (!off || !on) { continue; }
+                auto admitted = variant < 2u || variant == 4u;
+                // Reversing x does not prevent independently fusing y.
+                expect(eq(on.fused_reduction_loads, variant < 2u ? 2u : variant == 4u ? 1u :
+                                                                                        0u))
+                    << "variant=" << variant << " lanes=" << lanes;
+                expect(eq(on.elided_load_snapshots, variant == 0u ? 2u : variant == 1u || variant == 4u ? 1u :
+                                                                                                          0u));
+                expect(eq(off.fused_reduction_loads, 0u));
+                expect(xir::xir_verify_module(on.module.get(), {.require_reachable_blocks = true}).succeeded());
+                auto count_allocations = [](const auto &lowered) {
+                    size_t count = 0u;
+                    lowered.function->traverse_instructions([&](xir::Instruction *inst) noexcept { count += inst->isa<xir::AllocaInst>(); });
+                    return count;
+                };
+                expect(eq(count_allocations(off) - count_allocations(on), static_cast<size_t>(on.elided_load_snapshots)));
+                auto a = bridge::xir::plan(kernel.function(), {8u, 8u}, {.block_size = 32u, .local_lanes = lanes, .enable_load_reduction_fusion = false});
+                auto b = bridge::xir::plan(kernel.function(), {8u, 8u}, {.block_size = 32u, .local_lanes = lanes, .enable_load_reduction_fusion = true});
+                if (lanes != 1u && lanes != 8u) { continue; }
+                expect(a.ok() && b.ok());
+                if (a && b) {
+                    expect(admitted ? b.selected.cost.memory_work < a.selected.cost.memory_work :
+                                      b.selected.cost.memory_work == a.selected.cost.memory_work);
+                    expect(eq(a.selected.cost.arithmetic_work, b.selected.cost.arithmetic_work));
+                }
+            }
+        }
+    };
     "tile_xir_packet_local_admission_and_abi"_test = [] {
         using namespace tile;
         for (auto lanes : {2u, 4u, 8u, 16u}) {
@@ -159,7 +225,7 @@ int main() {
             expect(instructions < 256u);
             if (previous_instructions) { expect(eq(instructions, previous_instructions)); }
             previous_instructions = instructions;
-            auto limited = bridge::xir::lower(kernel.function(), {.max_local_bytes = static_cast<uint32_t>(width * 4 - 1)});
+            auto limited = bridge::xir::lower(kernel.function(), {.max_local_bytes = static_cast<uint32_t>(width * 4 - 1), .enable_load_reduction_fusion = false});
             expect(!limited && limited.error.find("snapshot storage budget") != string::npos);
             expect(!bridge::xir::lower(kernel.function(), {.max_expanded_values = 256u, .max_unrolled_tile_elements = 0u}));
             auto plan = bridge::xir::plan(kernel.function(), {8u, 8u});

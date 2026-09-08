@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <luisa/tile/ir.h>
 
 namespace luisa::compute::tile::bridge::xir::detail {
@@ -61,6 +62,146 @@ struct ClosedReduction {
     auto kind = update->elementwise_op();
     if (kind != ElementwiseOp::ADD && kind != ElementwiseOp::MUL && kind != ElementwiseOp::MIN && kind != ElementwiseOp::MAX) { return {}; }
     return ClosedReduction{update, yield, update->operand(left ? 1u : 0u), left};
+}
+
+struct LoadReductionFusion {
+    const Operation *reduction;
+    bool retain_snapshot;
+};
+
+// A load may join its first pointwise reduction traversal, but must not cross
+// any write (including through another argument), stage, or unknown effect.
+// Unit maps are transparent execution wrappers, as used by library reduce().
+// This is a realization admission rule, not a noalias or parallelism proof.
+[[nodiscard]] inline luisa::optional<LoadReductionFusion> load_reduction_fusion(
+    const Value *value, uint32_t limit, uint32_t lanes, uint32_t partitions) noexcept {
+    auto load = value->defining_operation();
+    if (!load || load->kind() != OperationKind::VIEW_LOAD || !value->type().is_tile() ||
+        !(bounded_tile(value, limit) || (lanes > 1u && bounded_tile(value, lanes - 1u)))) { return {}; }
+    auto block = load->parent_block();
+    luisa::vector<const Value *> recipes{value};
+    luisa::vector<const Operation *> consumers;
+    for (size_t i = 0u; i < recipes.size(); i++) {
+        if (recipes.size() + consumers.size() > 256u) { return {}; }
+        for (auto use : recipes[i]->use_list()) {
+            auto op = use->user();
+            if (op->result_count() == 1u && deferred_elementwise(op->result(0u), limit, lanes)) {
+                if (std::find(recipes.begin(), recipes.end(), op->result(0u)) == recipes.end()) { recipes.emplace_back(op->result(0u)); }
+            } else if (std::find(consumers.begin(), consumers.end(), op) == consumers.end()) {
+                consumers.emplace_back(op);
+            }
+        }
+    }
+    if (consumers.empty()) { return {}; }
+    auto inside = [](const Operation *child, const Operation *parent) {
+        for (auto depth = 0u; child && depth < 64u; depth++) {
+            if (child == parent) { return true; }
+            auto block = child->parent_block();
+            child = block ? block->parent_region()->parent_operation() : nullptr;
+        }
+        return false;
+    };
+    auto unit = [](const IndexSpace &space) {
+        for (auto &axis : space.axes()) {
+            if (!axis.extent.is_constant() || axis.extent.constant_value() != 1u) { return false; }
+        }
+        return true;
+    };
+    auto read_only = [&](auto &&self, const Operation &op, uint32_t depth) -> bool {
+        if (depth > 32u) { return false; }
+        switch (op.kind()) {
+            case OperationKind::CONSTANT:
+            case OperationKind::ELEMENTWISE:
+            case OperationKind::VIEW_LOAD:
+            case OperationKind::TILE_EXTRACT:
+            case OperationKind::YIELD: return true;
+            case OperationKind::REDUCE: return closed_reduction(op).has_value();
+            case OperationKind::TILE_MAP:
+                for (auto child : op.region(0u)->block(0u)->operations()) {
+                    if (!self(self, *child, depth + 1u)) { return false; }
+                }
+                return true;
+            default: return false;
+        }
+    };
+    bool valid = true;
+    auto scan = [&](auto &&self, const Block &body, bool active, uint32_t depth) -> const Operation * {
+        if (depth > 32u) {
+            valid = false;
+            return nullptr;
+        }
+        for (auto op : body.operations()) {
+            if (!active) {
+                active = op == load;
+                continue;
+            }
+            auto used = std::any_of(consumers.begin(), consumers.end(), [&](auto user) { return inside(user, op); });
+            if (used) {
+                if (op->kind() == OperationKind::REDUCE) { return op; }
+                if (op->kind() == OperationKind::TILE_MAP && unit(*op->domain())) {
+                    return self(self, *op->region(0u)->block(0u), true, depth + 1u);
+                }
+                valid = false;
+                return nullptr;
+            }
+            if (!read_only(read_only, *op, 0u)) {
+                valid = false;
+                return nullptr;
+            }
+        }
+        return nullptr;
+    };
+    auto reduction = scan(scan, *block, false, 0u);
+    if (!valid || !reduction || !closed_reduction(*reduction) ||
+        !((lanes > 1u && bounded_domain(*reduction->domain(), lanes - 1u)) ||
+          (partitions > 1u && bounded_domain(*reduction->domain(), limit)))) { return {}; }
+    auto &domain = *reduction->domain();
+    // Bijection of nonunit dimensions: every load point is visited exactly
+    // once. Unit axes may be inserted/projected by a library wrapper.
+    for (auto recipe : recipes) {
+        auto &space = *recipe->type().index_space();
+        auto matches = [](const IndexSpace &a, const IndexSpace &b) {
+            for (auto &axis : a.axes()) {
+                if (!axis.extent.is_constant() || axis.extent.constant_value() == 0u) { return false; }
+                if (axis.extent.constant_value() == 1u) { continue; }
+                auto i = b.axis_index(axis.dimension);
+                if (!i || b.axis(*i).extent != axis.extent) { return false; }
+            }
+            return true;
+        };
+        if (!matches(space, domain) || !matches(domain, space)) { return {}; }
+    }
+    auto body = reduction->region(0u)->block(0u);
+    bool retain = false;
+    for (auto op : consumers) {
+        if (!inside(op, reduction)) {
+            retain = true;
+            continue;
+        }
+        if (op->kind() != OperationKind::TILE_EXTRACT || op->parent_block() != body) { return {}; }
+        auto &space = *op->operand(0u)->type().index_space();
+        for (size_t i = 0u; i < space.rank(); i++) {
+            auto index = op->operand(i + 1u);
+            auto owner = index->argument_block();
+            auto nest = owner ? owner->parent_region()->parent_operation() : nullptr;
+            auto &axis = space.axis(i);
+            if (axis.extent.constant_value() != 1u) {
+                auto j = domain.axis_index(axis.dimension);
+                if (!j || index != body->argument(*j)) { return {}; }
+            } else {
+                if (nest && nest->domain() && index->index() < nest->domain()->rank() &&
+                    nest->domain()->axis(index->index()).extent.is_constant() &&
+                    nest->domain()->axis(index->index()).extent.constant_value() == 1u) { continue; }
+                auto constant = index->defining_operation();
+                auto attr = constant && constant->kind() == OperationKind::CONSTANT ? constant->attribute("value") : nullptr;
+                if (!attr) { return {}; }
+                auto s = luisa::get_if<int64_t>(&attr->value());
+                auto u = luisa::get_if<uint64_t>(&attr->value());
+                if ((!s || *s != 0) && (!u || *u != 0u)) { return {}; }
+            }
+        }
+    }
+    return LoadReductionFusion{reduction, retain};
 }
 
 // A sufficient, exact admission contract for packet-local distribution. It is

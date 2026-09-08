@@ -34,6 +34,9 @@ struct PlannerOptions {
     // The relative prior does not yet price tail CFG and worker activation
     // accurately enough to make joint search the default.
     uint32_t local_lanes{1u};
+    // Fixed experimental realization, not an automatically selected winner.
+    // The work prior does not yet model its masked-memory/CFG interactions.
+    bool enable_load_reduction_fusion{false};
 };
 
 struct ExecutionCost {

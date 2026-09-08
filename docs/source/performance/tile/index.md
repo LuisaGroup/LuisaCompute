@@ -85,13 +85,17 @@ fusion results, not attention or direct-SIMD parity.
 improve admitted TIRx families; CBLAS beats eager Torch on seven of eight
 replayed shapes. Direct XIR/SIMD has a working mapping solver and
 [packet-index codegen repair](results.md#simd-packet-index-proof-closes-a-codegen-disconnect),
-but all six measured GEMMs still lose to Torch. The latest
+but all six measured GEMMs still lose to Torch. The
 [private-vector realization](results.md#simd-local-distribution-and-private-layout-are-separate-decisions)
 keeps mapping/layout fixed and realizes common-slot private accesses as
 contiguous vectors. Native RMSNorm drops from 28.623 to 11.511 µs at 64×256
 and from 7380.091 to 3336.237 µs at 1024×4096; paired new/Inductor time ratios
 still remain 1.260/1.503. This is generic backend lowering, not a calibrated
-new solver. Joint mapping search remains opt-in: narrow-row regressions persist.
+new solver. The subsequent first-consumer load/reduction fusion is legal but
+**default-disabled**: actual native RMSNorm regressions are 17–23% despite
+lower estimated memory work. This points to missing full-packet
+specialization/inlining and phase-cost interactions. Joint mapping search
+also remains opt-in: narrow-row regressions persist.
 General packed
 microkernels and arbitrary Tile redistribution remain missing. Attention, CNN/filter,
 sort and Top-K PoCs establish correctness, not broad optimized performance.

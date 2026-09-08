@@ -55,6 +55,7 @@ private:
         const Operation *expression{nullptr};
         luisa::vector<const Representation *> inputs;
         bool splat{false};
+        bool pending_load{false};
     };
     luisa::vector<luisa::unique_ptr<Representation>> _definitions;
     luisa::unordered_map<const Value *, const Representation *> _values;
@@ -62,6 +63,20 @@ private:
     struct IndexRange {
         int64_t lo, hi;
     };
+    struct ViewAccess {
+        const Operation *operation;
+        x::Value *buffer;
+        Elements origins;
+        luisa::vector<luisa::optional<IndexRange>> ranges;
+        x::Value *fill{nullptr};
+        x::Value *mask{nullptr};
+    };
+    struct FusedLoad {
+        ViewAccess access;
+        Representation *result;
+    };
+    luisa::unordered_map<const Operation *, luisa::vector<FusedLoad>> _pending_loads;
+    luisa::unordered_map<const Representation *, x::Value *> _fused_elements;
     luisa::unordered_map<const Value *, IndexRange> _coordinate_ranges;
     uint64_t _expanded_values{0u};
     uint64_t _local_bytes{0u};
@@ -349,6 +364,7 @@ private:
         return {};
     }
     [[nodiscard]] x::Value *_read(const Representation *data, x::Value *flat) {
+        if (auto found = _fused_elements.find(data); found != _fused_elements.end()) { return found->second; }
         if (data->splat) { return data->elements.front(); }
         if (data->expression) {
             auto &domain = *data->type->index_space();
@@ -365,6 +381,7 @@ private:
             _charge(2u);
             return _builder.load(_type(*data->type), _builder.gep(_type(*data->type), data->storage, {_storage_index(*data->type, flat)}));
         }
+        if (data->pending_load) { _fail("elided load snapshot has a consumer outside its fused traversal"); }
         auto type = _type(*data->type);
         x::Value *value = _output.module->create_constant_zero(type);
         for (size_t i = 0u; i < data->elements.size(); i++) {
@@ -461,63 +478,87 @@ private:
         _builder.br(merge);
         _at(merge);
     }
-    void _view_access(const Operation &op) {
+    [[nodiscard]] ViewAccess _capture_view_access(const Operation &op) {
         auto view = op.operand(0u);
         auto found = _arguments.find(view);
         if (found == _arguments.end()) { _fail("XIR view access requires a direct buffer argument"); }
         auto slot = found->second;
         auto load = op.kind() == OperationKind::VIEW_LOAD;
         _output.argument_usages[slot] = static_cast<Usage>(static_cast<uint32_t>(_output.argument_usages[slot]) | static_cast<uint32_t>(load ? Usage::READ : Usage::WRITE));
-        auto buffer = _get(view)->elements.front();
         auto &space = *view->type().index_space();
-        auto count = op.domain() ? _volume(*op.domain()) : 1u;
-        auto access = [&](x::Value *flat) -> x::Value * {
-            _charge();
-            auto indices = op.domain() ? _coordinates(*op.domain(), flat) : Elements(space.rank(), _index(0u));
-            x::Value *address = _index(0u);
-            x::Value *valid = _constant(true);
-            auto needs_guard = false;
-            for (size_t i = 0u; i < space.rank(); i++) {
-                auto coordinate = _scalar(op.operand(i + 1u));
-                if (op.domain()) { coordinate = _binary(A::BINARY_ADD, coordinate, indices[i]); }
-                address = _binary(A::BINARY_ADD, _binary(A::BINARY_MUL, address, _index(_extent(space, i))), coordinate);
-                if (op.domain() && op.bounds_mode() == BoundsMode::ZERO) {
-                    if (auto range = _range(op.operand(i + 1u))) {
-                        uint64_t offset = 0u;
-                        auto fixed = x::try_decode_constant_nonnegative_integer(indices[i], offset);
-                        auto lo = checked_add(range->lo, fixed ? static_cast<int64_t>(offset) : 0);
-                        auto hi = checked_add(range->hi, fixed ? static_cast<int64_t>(offset) : static_cast<int64_t>(_extent(*op.domain(), i)) - 1);
-                        if (lo && hi && *lo >= 0 && *hi < static_cast<int64_t>(_extent(space, i))) { continue; }
-                    }
-                    needs_guard = true;
-                    valid = _binary(A::BINARY_BIT_AND, valid, _compare(A::BINARY_GREATER_EQUAL, coordinate, _index(0u)));
-                    valid = _binary(A::BINARY_BIT_AND, valid, _compare(A::BINARY_LESS, coordinate, _index(_extent(space, i))));
-                }
-            }
-            address = _builder.static_cast_if_necessary(XType::of<uint64_t>(), address);
-            if (load) {
-                auto type = _type(op.result(0u)->type());
-                auto fallback = _output.module->create_constant_zero(type);
-                x::Value *fill = fallback;
-                auto guarded = needs_guard;
-                if (op.domain() && op.operand_count() == space.rank() + 2u) { fill = _scalar(op.operand(space.rank() + 1u)); }
-                if (!op.domain() && op.operand_count() == space.rank() + 3u) {
-                    guarded = true;
-                    valid = _scalar(op.operand(space.rank() + 1u));
-                    fill = _scalar(op.operand(space.rank() + 2u));
-                }
-                return guarded ? _guarded_load(valid, buffer, address, fill) : _builder.call(type, x::ResourceReadOp::BUFFER_READ, {buffer, address});
-            } else {
-                auto value = _read(_get(op.operand(space.rank() + 1u)), flat);
-                if (needs_guard) {
-                    _guarded_store(valid, buffer, address, value);
-                } else {
-                    _builder.call(x::ResourceWriteOp::BUFFER_WRITE, {buffer, address, value});
-                }
-            }
-            return nullptr;
-        };
+        ViewAccess access{&op, _get(view)->elements.front(), {}, {}};
+        for (size_t i = 0u; i < space.rank(); i++) {
+            access.origins.emplace_back(_scalar(op.operand(i + 1u)));
+            access.ranges.emplace_back(_range(op.operand(i + 1u)));
+        }
         if (load) {
+            access.fill = _output.module->create_constant_zero(_type(op.result(0u)->type()));
+            if (op.domain() && op.operand_count() == space.rank() + 2u) { access.fill = _scalar(op.operand(space.rank() + 1u)); }
+            if (!op.domain() && op.operand_count() == space.rank() + 3u) {
+                access.mask = _scalar(op.operand(space.rank() + 1u));
+                access.fill = _scalar(op.operand(space.rank() + 2u));
+            }
+        }
+        return access;
+    }
+    [[nodiscard]] x::Value *_view_element(const ViewAccess &access, x::Value *flat) {
+        auto &op = *access.operation;
+        auto &space = *op.operand(0u)->type().index_space();
+        _charge();
+        auto indices = op.domain() ? _coordinates(*op.domain(), flat) : Elements(space.rank(), _index(0u));
+        x::Value *address = _index(0u);
+        x::Value *valid = _constant(true);
+        auto needs_guard = false;
+        for (size_t i = 0u; i < space.rank(); i++) {
+            auto coordinate = access.origins[i];
+            if (op.domain()) { coordinate = _binary(A::BINARY_ADD, coordinate, indices[i]); }
+            address = _binary(A::BINARY_ADD, _binary(A::BINARY_MUL, address, _index(_extent(space, i))), coordinate);
+            if (op.domain() && op.bounds_mode() == BoundsMode::ZERO) {
+                if (auto range = access.ranges[i]) {
+                    uint64_t offset = 0u;
+                    auto fixed = x::try_decode_constant_nonnegative_integer(indices[i], offset);
+                    auto lo = checked_add(range->lo, fixed ? static_cast<int64_t>(offset) : 0);
+                    auto hi = checked_add(range->hi, fixed ? static_cast<int64_t>(offset) : static_cast<int64_t>(_extent(*op.domain(), i)) - 1);
+                    if (lo && hi && *lo >= 0 && *hi < static_cast<int64_t>(_extent(space, i))) { continue; }
+                }
+                needs_guard = true;
+                valid = _binary(A::BINARY_BIT_AND, valid, _compare(A::BINARY_GREATER_EQUAL, coordinate, _index(0u)));
+                valid = _binary(A::BINARY_BIT_AND, valid, _compare(A::BINARY_LESS, coordinate, _index(_extent(space, i))));
+            }
+        }
+        address = _builder.static_cast_if_necessary(XType::of<uint64_t>(), address);
+        if (op.kind() == OperationKind::VIEW_LOAD) {
+            auto type = _type(op.result(0u)->type());
+            if (access.mask) { valid = access.mask; }
+            return needs_guard || access.mask ? _guarded_load(valid, access.buffer, address, access.fill) :
+                                                _builder.call(type, x::ResourceReadOp::BUFFER_READ, {access.buffer, address});
+        } else {
+            auto value = _read(_get(op.operand(space.rank() + 1u)), flat);
+            if (needs_guard) {
+                _guarded_store(valid, access.buffer, address, value);
+            } else {
+                _builder.call(x::ResourceWriteOp::BUFFER_WRITE, {access.buffer, address, value});
+            }
+        }
+        return nullptr;
+    }
+    void _view_access(const Operation &op) {
+        auto captured = _capture_view_access(op);
+        auto count = op.domain() ? _volume(*op.domain()) : 1u;
+        auto access = [&](x::Value *flat) { return _view_element(captured, flat); };
+        if (op.kind() == OperationKind::VIEW_LOAD) {
+            if (_options.enable_load_reduction_fusion) {
+                if (auto fusion = detail::load_reduction_fusion(op.result(0u), _options.max_unrolled_tile_elements,
+                                                                _options.local_lanes, _options.reduction_partitions)) {
+                    auto result = _representation(op.result(0u));
+                    result->pending_load = true;
+                    if (fusion->retain_snapshot) { result->storage = _allocate(*result->type); }
+                    _pending_loads[fusion->reduction].emplace_back(FusedLoad{std::move(captured), result});
+                    _output.fused_reduction_loads++;
+                    _output.elided_load_snapshots += !fusion->retain_snapshot;
+                    return;
+                }
+            }
             if (op.result(0u)->type().is_tile()) {
                 _emit_tile(op.result(0u), access);
             } else {
@@ -584,15 +625,35 @@ private:
         auto partitions = std::min<uint64_t>(_options.reduction_partitions, count);
         auto type = _type(op.result(0u)->type());
         auto initial = _scalar(op.operand(0u));
+        // Consume, rather than retain, this host-side plan. The same source
+        // operation can be lowered again by an enclosing expanded loop/map.
+        luisa::vector<FusedLoad> loads;
+        if (auto found = _pending_loads.find(&op); found != _pending_loads.end()) {
+            loads = std::move(found->second);
+            _pending_loads.erase(found);
+        }
         auto evaluate = [&](x::Value *ordinal) {
             auto previous = _local_slot;
             if (distributed) { _local_slot = ordinal; }
             if (distributed) { ordinal = _binary(A::BINARY_ADD, _binary(A::BINARY_MUL, ordinal, _index(lanes)), _lane); }
             _bind_coordinates(*body, *op.domain(), ordinal);
+            for (auto &load : loads) {
+                auto &space = *load.result->type->index_space();
+                auto flat = _index(0u);
+                for (size_t i = 0u; i < space.rank(); i++) {
+                    auto axis = op.domain()->axis_index(space.axis(i).dimension);
+                    auto coordinate = _extent(space, i) == 1u ? _index(0u) : _scalar(body->argument(*axis));
+                    flat = _binary(A::BINARY_ADD, _binary(A::BINARY_MUL, flat, _index(_extent(space, i))), coordinate);
+                }
+                auto element = _view_element(load.access, flat);
+                if (load.result->storage) { _store_local(*load.result->type, load.result->storage, flat, element); }
+                _fused_elements.emplace(load.result, element);
+            }
             for (auto operation : body->operations()) {
                 if (operation != update && operation != yield) { _operation(*operation); }
             }
             auto result = _scalar(contribution);
+            for (auto &load : loads) { _fused_elements.erase(load.result); }
             _local_slot = previous;
             return result;
         };
