@@ -107,6 +107,21 @@ SwiGLU and RoPE preallocate Torch intermediates/output. Norm, residual-GELU,
 masked softmax and SDPA use functional eager APIs with their allocations
 inside timing. They are not compiled/fused Torch baselines.
 
+Use the `llm` entry of `benchmark_tile_tirx` for controlled Metal mapping
+experiments: `--subgroup-reductions`, `--group-threads N` and
+`--forward-input-views` are acknowledged separately in the recorded metadata.
+The current subgroup family also attempts input-view forwarding, so its
+on/off switch alone does **not** isolate collective emission. To isolate that
+choice, request input views and the same exact group width on both controls;
+also inspect the emitted source. An explicit view request enables only proved
+forwarding, not arbitrary removal of snapshots or an altered numerical policy.
+
+`--attention-qk reduce` is an explicit **benchmark-only** decomposition probe:
+it expresses QK as `reduce(query * key, d, add)` while retaining PV as `mma`.
+This tests whether different contraction access directions need different lane
+distributions. It is not a planner improvement or a new DSL primitive. The
+default remains `mma`; the native metadata must acknowledge an explicit probe.
+
 `--baseline FROZEN/bin/benchmark_tile_native --rounds 6` balances all six
 orders of old/new/Torch. Freeze all adjacent Luisa libraries together; the
 driver prepends that directory to the baseline process's loader path. Pass

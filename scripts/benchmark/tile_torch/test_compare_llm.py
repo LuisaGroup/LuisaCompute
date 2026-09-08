@@ -55,6 +55,12 @@ class LlmBenchmarkTests(unittest.TestCase):
         for key, value in (("reduction_tree", 1), ("requested_group_threads", 128.0)):
             with self.assertRaises(ValueError):
                 check_metadata(explicit | {key: value}, "cpu", "rope", (1, 4), (1, 1), 2, True, 128)
+        with self.assertRaises(ValueError):
+            check_metadata(row, "cpu", "rope", (1, 4), (1, 1), 2, forward_input_views=True)
+        check_metadata(row | dict(requested_input_views=True), "cpu", "rope", (1, 4), (1, 1), 2, forward_input_views=True)
+        for value in (1, False, "true"):
+            with self.assertRaises(ValueError):
+                check_metadata(row | dict(requested_input_views=value), "cpu", "rope", (1, 4), (1, 1), 2, forward_input_views=True)
         for key, value in (("fast_math", 0), ("operation", "swiglu"), ("repetitions", 0), ("throughput_us", [float("nan"), 2])):
             bad = copy.deepcopy(row)
             bad[key] = value
@@ -70,6 +76,24 @@ class LlmBenchmarkTests(unittest.TestCase):
         self.assertEqual(result["throughput_us_p50"]["slower_rounds"], 1)
         rows[0]["valid"] = False
         self.assertEqual(make_summary(rows, 2), [dict(operation="rope", dimensions=[1, 4], complete=False)])
+
+    def test_attention_decomposition_acknowledged(self):
+        dims = (1, 2, 1, 1, 3, 4, 5)
+        inputs, output = shapes_for("attention", dims)
+        row = dict(implementation="tile_tirx_metal", backend="metal", precision="fp32", fast_math=False,
+                   relaxed_precision=False, runtime="luisa", timing="synchronized_host_wall",
+                   batch_policy="one_runtime_command_list_per_batch", operation="attention", dimensions=list(dims),
+                   attention_block=[1, 3], input_shapes=[list(s) for s in inputs], output_shape=list(output),
+                   correctness=dict(checks=2, elements_per_check=10, guard_elements_per_check=34, atol=5e-5, rtol=5e-5),
+                   repetitions=10, throughput_us=[1., 2.], latency_us=[3., 4.])
+        check = lambda result, mode: check_metadata(result, "metal", "attention", dims, (1, 3), 2, attention_qk=mode)
+        check(row, "mma")  # Legacy default is still accepted.
+        check(row | dict(attention_qk="reduce"), "reduce")
+        for bad in (row, row | dict(attention_qk="mma"), row | dict(attention_qk=True)):
+            with self.assertRaises(ValueError):
+                check(bad, "reduce")
+        with self.assertRaises(ValueError):
+            check(row | dict(attention_qk="reduce"), "mma")
 
 
 if __name__ == "__main__":

@@ -99,6 +99,15 @@ and shared-state traffic remain important structural work; SIMD is unchanged.
 This broadens a generic mapping family, not a complete calibrated solver or
 LLM performance parity.
 
+The September 8 [composed-reduction follow-up](results.md#composed-reductions-need-phase-specific-contraction-distributions)
+isolates input storage and group width: changing only the two closed
+collectives gives small descriptive gains. A QK contribution-axis **benchmark
+probe**, not a production planner change, regresses at 64 threads but improves
+at 1024; three 1024-thread decode cases still take 3.80–9.64× Torch GPU time.
+The study retains its non-interleaved configuration order and one rejected
+Torch timing row. It motivates phase-specific partition candidates and joint
+resource/transition costs, not an unconditional subgroup default for `mma`.
+
 ## Validation and next milestone
 
 The latest [reduction-policy checkpoint](validation.md#per-operation-reduction-policy-checkpoint)

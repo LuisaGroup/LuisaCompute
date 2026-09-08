@@ -825,4 +825,27 @@ for (auto &step : nest.reduce(shape(k), reduction::fold_left)) {
 
 ### 13.2 本轮不声称什么
 
-这些实现消除了归约调优的语义障碍，并增加了 composed-group collective 的可达性，但本轮未重测性能。因此没有新的 MPS/Torch 加速比，既有 attention/decode、较大 GEMM 与部分 normalization 的差距仍然成立。通用 lift/merge checker、保序树 emitter、XIR 内部 Tile 分布、边界摘要组合与 held-out 成本校准仍待完成。特别是任意自定义无序 body 的诊断尚未达到 §12 的设计目标；当前实现仅对已识别的 body 树化，其他 body 保守保留串行更新。
+上述语义 checkpoint 没有重测性能；不能从编译/正确性通过推导出新的 MPS/Torch 加速比。后续性能实验见 §14。通用 lift/merge checker、保序树 emitter、XIR 内部 Tile 分布、边界摘要组合与 held-out 成本校准仍待完成。特别是任意自定义无序 body 的诊断尚未达到 §12 的设计目标；当前实现仅对已识别的 body 树化，其他 body 保守保留串行更新。
+
+## 14. 性能跟进：分布因子必须包含贡献轴，而不能只选输出轴
+
+9 月 8 日 [composed-reduction 实验](../../scripts/benchmark/tile_torch/results/m1-max-20260908-composed-reduction/notes.md)
+给 §12.4 的缺口提供了更具体的反例。控制相同输入 view 和线程数，只替换两个 closed
+sum/max phase，三个 decode 尺寸上的描述性收益约 2.5–8.5%，仍与 Torch 相差明显。
+
+仅在 benchmark fixture 中将 QK 从 `mma` 改为现有 `reduce(query * key, d, add)`，
+则 1024-thread 三个 case 的 GPU 时间从约 493/958/1329 µs 变为 364/520/730 µs，
+但 64-thread 版本反而更慢。配置未交错，不能把差值当作 paired A/B；还保留了一个
+Torch counter 校验失败，完整记录和复算见上方链接。生产 planner 没有因此被宣称优化完成。
+
+这个反转不是模型应该更 rigid 的证据，而是**空间分布和时间分批必须同时进入模型**：
+QK 的贡献 channel 连续，PV 的输出 value_dim 连续；每个输出独占 32 lanes 时，64 个
+线程需要 16 批处理 32 个 QK 输出，1024 个线程只需一批。输出轴/贡献轴的分割因子、
+局部向量宽度、共享状态和 phase 转换成本应一起求解，而不能仅比较总 FLOPs 或根据
+hierarchy 深度固定某种 memory。现有 mixed-group reference accounting 还漏掉了
+未匹配 matrix atom 的串行贡献工作，单改 cost coefficients 无法补出缺失的候选。
+
+与本文相关工作的比较仍应保持同一标准：允许丰富映射不等于已有完善求解；可表达的
+候选、合法性证据、已实现 emitter、成本可解释性和 held-out 泛化必须分别报告。下一步
+应实现 typed-contraction 的贡献维候选并覆盖 dot/GEMV、不同 layout 与非 attention
+组合程序，随后再做联合成本模型与交错验证；不是新增一个 attention 专用 primitive。

@@ -18,7 +18,8 @@
 namespace luisa::test::tile_llm {
 
 [[nodiscard]] inline int benchmark(int argc, char *argv[], string_view backend,
-                                   const compute::tile::CompileOptions &compile_options = {}, bool reduction_tree = false) {
+                                   const compute::tile::CompileOptions &compile_options = {}, bool reduction_tree = false,
+                                   bool forward_input_views = false, bool attention_qk_reduction = false) {
     using namespace compute;
     using Clock = std::chrono::steady_clock;
     try {
@@ -73,7 +74,7 @@ namespace luisa::test::tile_llm {
         log_level_error();
         auto start = Clock::now();
         auto fixture = [&] {
-            if (op == "attention") { return attention(dimensions[0], dimensions[1], dimensions[2], dimensions[3], dimensions[4], dimensions[5], dimensions[6], bq, bk); }
+            if (op == "attention") { return attention(dimensions[0], dimensions[1], dimensions[2], dimensions[3], dimensions[4], dimensions[5], dimensions[6], bq, bk, attention_qk_reduction); }
             auto kind = op == "swiglu" ? RowOp::SWIGLU : op == "rope"      ? RowOp::ROPE :
                                                      op == "rmsnorm"       ? RowOp::RMS_NORM :
                                                      op == "layernorm"     ? RowOp::LAYER_NORM :
@@ -188,6 +189,8 @@ namespace luisa::test::tile_llm {
         // legacy requested candidate flag distinct from numerical permission
         // and from the capability-resolved automatic Runtime choice.
         std::cout << ",\"reduction_tree\":" << (reduction_tree ? "true" : "false")
+                  << ",\"requested_input_views\":" << (forward_input_views ? "true" : "false")
+                  << ",\"attention_qk\":" << std::quoted(op != "attention" ? "not_applicable" : attention_qk_reduction ? "reduce" : "mma")
                   << ",\"source_reduction_policy\":\"unordered_tree\""
                   << ",\"reduction_candidate_setting\":" << std::quoted(backend != "metal" ? "not_applicable" :
                                                                                compile_options.tirx == nullptr ? "automatic" :

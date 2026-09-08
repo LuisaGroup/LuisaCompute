@@ -704,9 +704,20 @@ int main(int argc, char *argv[]) {
                 if (threads > 1024) { throw std::invalid_argument{"group threads exceed benchmark limit"}; }
                 options.planner.threads_per_group = static_cast<uint32_t>(threads);
             }
+            if (auto value = std::getenv("LUISA_TILE_BENCH_INPUT_VIEWS")) {
+                auto text = std::string_view{value};
+                if (text != "0" && text != "1") { throw std::invalid_argument{"input views must be 0 or 1"}; }
+                options.forward_readonly_tile_loads = text == "1";
+            }
+            auto attention_qk_reduction = false;
+            if (auto value = std::getenv("LUISA_TILE_BENCH_ATTENTION_QK")) {
+                auto text = std::string_view{value};
+                if (text != "mma" && text != "reduce") { throw std::invalid_argument{"attention QK must be mma or reduce"}; }
+                attention_qk_reduction = text == "reduce";
+            }
             return luisa::test::tile_llm::benchmark(argc, argv, "metal",
                                                     {.threads_per_group = options.planner.threads_per_group, .lowering = Lowering::TIRX, .tirx = &options},
-                                                    options.planner.metal_subgroup_reductions);
+                                                    options.planner.metal_subgroup_reductions, options.forward_readonly_tile_loads, attention_qk_reduction);
         } catch (const std::exception &error) {
             std::cerr << error.what() << '\n';
             return 2;

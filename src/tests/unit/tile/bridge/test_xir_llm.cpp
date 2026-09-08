@@ -88,4 +88,9 @@ int main(int argc, char *argv[]) {
         expect(throws([] { static_cast<void>(test::tile_llm::attention(1, 0, 1, 1, 1, 1, 1)); }));
         expect(throws([] { static_cast<void>(test::tile_llm::attention(1, 1, 1, 1, 1, 1, 1, 0, 3)); }));
     };
+    "tile_xir_llm_attention_qk_reduction_probe"_test = [&] {
+        // Independent FP64 oracle, including reduction and output tails.
+        run(device, test::tile_llm::attention(1, 2, 1, 4, 5, 7, 3, 2, 3, true));
+        run(device, test::tile_llm::attention(1, 2, 1, 1, 17, 33, 7, 1, 4, true));
+    };
 }

@@ -1,6 +1,6 @@
 # Tile performance by compiler route
 
-Saved comparisons through September 7, 2026. These are separate experiments,
+Saved comparisons through September 8, 2026. These are separate experiments,
 not a cross-route leaderboard with one matched timing and math policy.
 See [current status](index.md) for the conclusion and remaining goal.
 
@@ -17,6 +17,58 @@ Report tables use medians of within-round p50s. A paired ratio is the median
 of same-round numerator/denominator ratios, **not** a ratio of the displayed
 medians. Ranges and counts of slower rounds are descriptive, not confidence
 intervals. No slow or failed row is discarded to improve the headline.
+
+### Composed reductions need phase-specific contraction distributions
+
+The September 8 decode study separates a previously coupled control: enabling
+subgroup candidates also attempts immutable input-view forwarding and changes
+automatic group width. Its initial seven-configuration pilot is retained, but
+is **not an isolated collective speedup**. With views and exact group widths
+fixed, generated Metal differs only in the two closed sum/max phases. Across
+three decode shapes and 64/1024-thread controls, descriptive GPU batch changes
+are only about 2.5–8.5%; the remaining native/Torch ratios are 6.95–17.34×.
+
+A benchmark-only probe expresses QK using existing
+`reduce(query * key, d, add)` and keeps PV as `mma`. It changes the QK
+contribution-axis distribution without introducing a DSL primitive or
+production operator-name rule. The compiler and cost model are unchanged.
+
+```{table} Decode probe, FP32 M1 Max; no-counter command-buffer GPU µs/invocation
+:class: benchmark-table
+
+| B,Hq,Hkv,Q,K,D,Dv | QK mma / 1024 | QK reduce / 64 | QK reduce / 1024 | Reduce-1024 / Torch |
+|---|---:|---:|---:|---:|
+| 1,8,2,1,2048,64,64 | 492.850 | 718.674 | 363.985 | 9.245× |
+| 1,8,2,1,2053,80,96 | 958.355 | 1535.067* | 519.987 | 3.798× |
+| 1,16,4,1,4096,128,128 | 1328.624 | 1924.518 | 730.416 | 9.640× |
+```
+
+Both forms use explicit input views and enabled closed collectives. Four
+rounds balance native/Torch order **within each configuration**, not between
+configurations; cross-column differences are descriptive, not paired A/B.
+`*` All four native rounds pass, but one Torch counter sample fails its timing
+validation; no complete native/Torch ratio is published for that case.
+The final column is a median of same-round ratios for the complete 1024-thread
+cohort, not a ratio of cross-cohort medians. Timings include command-buffer
+gaps; separately retained compute-pass probes are instrumented, not pure
+hardware kernel events. Torch uses functional SDPA with output/internal
+allocation inside timing and an explicit precomputed bottom-right causal mask.
+
+At 64 threads, one full subgroup per QK output requires 16 batches for the
+32-output tile; at 1024 it needs one. The probe therefore regresses at 64 and
+improves at 1024. This supports searching output/contribution partition
+factors and phase transitions together; it does **not** justify mechanically
+turning every contraction into a full-subgroup reduction. Small-M contractions
+still miss the 8×8 matrix atom, and composed reference planning does not yet
+account for their serial contribution work. A general typed-contraction
+candidate, interleaved replay and held-out cost validation are next steps.
+
+The {download}`Chinese study and limitations <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-composed-reduction/notes.md>`
+and {download}`independent raw-sample audit <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-composed-reduction/audit.py>`
+retain **172 rows: 171 valid and one timing failure**, all 86 native full-output
+FP64/guard checks, generated sources, six timing views and six rejected
+adversarial audit mutations. No MPS/Torch parity claim follows from this probe;
+direct XIR/SIMD performance is unchanged.
 
 ### Multi-output pointwise fusion removes a mapping boundary
 
