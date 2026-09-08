@@ -321,6 +321,37 @@ serialized backend instruction list. The current `ExecutionPlan` and XIR
 Module are concrete, smaller stepping stones, not a claim that this full
 intermediate representation already exists.
 
+### Bounded local-vector candidates
+
+**Proposed, not yet emitted by this bridge.** The
+[Torch CPU code inspection](../../performance/tile/results.md#torch-cpu-code-inspection-exposes-missing-local-vector-candidates)
+confirms that static Tile expansion and dynamic extraction survive into
+machine code. A root permutation cannot repair this value representation.
+The next candidate family must retain bounded loops, directly indexable
+compiler-owned snapshots or effect-safe deferred expressions, and independent
+output/contribution partition factors.
+
+For logical packet width W and p lanes per independent output, p dividing W,
+a local candidate maps lane l to `(o0 + floor(l/p), r0 + l%p)` and advances
+`r0 = t*p` over time. It covers vectorizing across outputs (p=1), across
+contributions (p=W), and mixed packing. Physical vector width, output grain,
+unroll and scratch choices remain target policy decisions. A phase may use a
+different partition from its successor and must account for the transition.
+
+Closed unordered reductions may use partial accumulators and horizontal
+combination. Strict folds retain their required contribution order but can
+still vectorize independent outputs. Replacing a load snapshot with a view
+requires actual alias/effect conditions; `parallel` supplies independence
+between its instances, not permission to change the effect order inside one.
+Compiler storage is not a new user Memory obligation.
+
+Cost calibration follows implementation: distinguish gather/contiguous work,
+vector math, horizontal combine, masks, peak live state and spills, phase
+transitions and CPU grain. Use separate IR/code-size and JIT budgets to prevent
+static expansion from overwhelming compilation. Reuse the SIMD backend's
+existing fixed-vector math provider. Neither arbitrary lane widening nor a
+new solver algorithm can substitute for a realizable local-vector family.
+
 ## 8. Validation entry points
 
 - `test_tile_xir`: typed ABI, output verification, repeat lowering, bounds on

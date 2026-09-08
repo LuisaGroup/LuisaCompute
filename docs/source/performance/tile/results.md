@@ -18,6 +18,34 @@ of same-round numerator/denominator ratios, **not** a ratio of the displayed
 medians. Ranges and counts of slower rounds are descriptive, not confidence
 intervals. No slow or failed row is discarded to improve the headline.
 
+### Torch CPU code inspection exposes missing local-vector candidates
+
+The September 8 {download}`CPU SIMD inspection <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-torch-simd-inspection/notes.md>`
+examines the installed Torch 2.14.0 binary, sampled ATen/Accelerate call paths,
+and actual Inductor-generated C++/ARM64 code. At 1024×4096 and 64×256,
+Softmax/RMSNorm/SwiGLU compiled outputs pass complete eager comparisons.
+Torch's `DEFAULT` capability still emits 4-wide NEON; eager Softmax calls
+vector SLEEF, while eager RMSNorm is composite despite its internal name.
+Sampled GEMM calls Accelerate SGEMM; this does not identify its hidden ISA.
+
+At 64×256, direct XIR RMSNorm retains a **256-choice SELECT chain inside a
+256-iteration reduction** in the actual machine code. Its object has 214252
+bytes of text and the kernel frame reserves 33104 bytes. SwiGLU already uses
+the native v8 exp provider, but statically duplicates 256 call sites; its
+object text is 345696 bytes. These are code-shape diagnostics, not speedup
+ratios. Both XIR cases pass full FP64/guard checks. The larger RMSNorm
+assembly-copy diagnostic was terminated after more than six minutes in LLVM
+MachineSinking; it is retained as incomplete, not labeled kernel time.
+
+The missing family is [bounded local-vector distribution](../../internals/tile/xir.md#bounded-local-vector-candidates),
+with indexable compiler-owned values, contribution/output partition factors,
+and phase-specific materialization. Root-order/block-width weights cannot
+create that family. Existing vector math should be reused; no production
+planner change or new performance ranking follows from this inspection.
+The {download}`evidence checker <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-torch-simd-inspection/audit.py>`
+keeps provider identity, successful comparisons and the incomplete diagnostic
+separate from timing claims.
+
 ### Composed reductions need phase-specific contraction distributions
 
 The September 8 decode study separates a previously coupled control: enabling
