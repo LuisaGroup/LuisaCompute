@@ -46,7 +46,7 @@ namespace luisa::compute::simd::detail {
 
 [[nodiscard]] bool ScheduleEmitter::_advance_aggregate_offset(
     ::llvm::Value *&offsets, const Type *&current_type,
-    schedule::ValueId index_id) {
+    schedule::ValueId index_id, uint32_t scale) {
     auto *index_value = _source.value(index_id);
     if (index_value == nullptr || index_value->type == nullptr ||
         !index_value->type->is_scalar() ||
@@ -67,7 +67,7 @@ namespace luisa::compute::simd::detail {
             offsets = _builder.CreateAdd(
                 offsets,
                 _builder.CreateVectorSplat(
-                    _width, _builder.getInt64(child_offset)));
+                    _width, _builder.getInt64(child_offset * scale)));
         }
         current_type = _child_type(
             current_type, static_cast<uint32_t>(*index));
@@ -85,6 +85,7 @@ namespace luisa::compute::simd::detail {
     auto stride = current_type->is_vector() ?
                       current_type->element()->size() :
                       current_type->size() / current_type->dimension();
+    stride *= scale;
     if (stride != 1u) {
         extended = _builder.CreateMul(
             extended,
@@ -131,7 +132,7 @@ namespace luisa::compute::simd::detail {
     for (auto i = size_t{1u}; i < instruction.operands.size(); i++) {
         if (!_advance_aggregate_offset(
                 offsets, current_type,
-                instruction.operands[i])) {
+                instruction.operands[i], _interleaved_local_values[instruction.result->value] ? _width : 1u)) {
             return nullptr;
         }
     }
@@ -140,6 +141,65 @@ namespace luisa::compute::simd::detail {
         return nullptr;
     }
     return _local_handle(base, offsets);
+}
+
+void ScheduleEmitter::_find_interleaved_private_arrays() {
+    _interleaved_local_values.assign(_source.values().size(), 0u);
+    if (!_enable_interleaved_private_arrays || _width == 1u) { return; }
+    struct Use {
+        const schedule::Instruction *instruction;
+        size_t operand;
+    };
+    std::vector<std::vector<Use>> users(_source.values().size());
+    std::vector<uint8_t> escapes(_source.values().size(), 0u);
+    for (auto &block : _source.blocks()) {
+        for (auto &instruction : block.instructions) {
+            for (size_t i = 0u; i < instruction.operands.size(); i++) {
+                users[instruction.operands[i].value].emplace_back(Use{&instruction, i});
+            }
+        }
+        _for_each_assignment(block, [&](schedule::EdgeAssignment assignment) {
+            escapes[assignment.source.value] = escapes[assignment.destination.value] = 1u;
+        });
+        if (auto ret = std::get_if<schedule::ReturnTerminator>(&block.terminator); ret && ret->value) {
+            escapes[ret->value->value] = 1u;
+        }
+    }
+    for (auto &block : _source.blocks()) {
+        for (auto &allocation : block.instructions) {
+            if (allocation.opcode != schedule::Opcode::alloca || !allocation.result || _is_shared_lvalue(*allocation.result)) { continue; }
+            auto id = allocation.result->value;
+            auto type = _source.value(*allocation.result)->type;
+            if (!type || !type->is_array() || !type->element()->is_scalar() ||
+                (type->element()->size() != 4u && type->element()->size() != 8u) || escapes[id]) { continue; }
+            // A closed, typed address tree: allocation -> element GEP ->
+            // scalar load/store. Reject aggregate access, pointer arithmetic,
+            // PHIs, reference calls and all other address escapes. Thus every
+            // observable byte access participates in the same bijection:
+            //   (lane, element) -> (element * W + lane) * sizeof(T).
+            auto legal = true;
+            for (auto use : users[id]) {
+                auto gep = use.instruction;
+                if (use.operand != 0u || gep->opcode != schedule::Opcode::gep || !gep->result ||
+                    gep->operands.size() != 2u || _source.value(*gep->result)->type != type->element() || escapes[gep->result->value]) {
+                    legal = false;
+                    break;
+                }
+                for (auto access : users[gep->result->value]) {
+                    auto op = access.instruction->opcode;
+                    if (access.operand != 0u || (op != schedule::Opcode::load && op != schedule::Opcode::store)) {
+                        legal = false;
+                        break;
+                    }
+                }
+                if (!legal) { break; }
+            }
+            if (!legal) { continue; }
+            _interleaved_local_values[id] = 1u;
+            for (auto use : users[id]) { _interleaved_local_values[use.instruction->result->value] = 1u; }
+            _result.interleaved_private_arrays++;
+        }
+    }
 }
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_local_load(

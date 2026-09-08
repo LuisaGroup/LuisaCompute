@@ -45,9 +45,14 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
                                                          .root_axis_order = plan.root_axis_order,
                                                          .max_local_bytes = static_cast<uint32_t>(simd_max_private_workspace_bytes / _warp_width),
                                                          .max_unrolled_tile_elements = planner_options.max_unrolled_tile_elements,
-                                                         .reduction_partitions = planner_options.reduction_partitions});
+                                                         .reduction_partitions = planner_options.reduction_partitions,
+                                                         .local_lanes = plan.local_lanes});
         if (!lowered) {
             metadata.error = std::move(lowered.error);
+            return ShaderCreationInfo::make_invalid();
+        }
+        if (lowered.required_packet_width != 0u && lowered.required_packet_width != _warp_width) {
+            metadata.error = "Tile XIR packet-width contract differs from the SIMD target";
             return ShaderCreationInfo::make_invalid();
         }
         auto ordered_reduction = tile::OrderedReductionAnalysis::run(kernel);
@@ -80,7 +85,7 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
                                             !detail::env_flag("LUISA_SIMD_DISABLE_LANE_AFFINE_BUFFER"),
                                             std::getenv("LUISA_SIMD_DUMP_ASSEMBLY_DIR") != nullptr,
                                             _thread_pool->worker_count(), packet_batch, block_batch, true,
-                                            64u * 1024u);
+                                            64u * 1024u, !detail::env_flag("LUISA_SIMD_DISABLE_INTERLEAVED_PRIVATE_ARRAYS"));
         if (!compiled.succeeded()) {
             for (auto &error : compiled.diagnostics) { metadata.error.append(error).append("\n"); }
             return ShaderCreationInfo::make_invalid();
@@ -101,8 +106,10 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
             metadata.realization.append(luisa::format("{}", plan.root_axis_order[i]));
         }
         metadata.realization.append("]");
+        metadata.realization.append(luisa::format("; local_lanes={}", plan.local_lanes));
         metadata.realization.append(luisa::format("; max_unrolled_tile_elements={}", planner_options.max_unrolled_tile_elements));
         metadata.realization.append(luisa::format("; unordered_reduction_partitions={}", planner_options.reduction_partitions));
+        metadata.realization.append(luisa::format("; interleaved_private_arrays={}", compiled.interleaved_private_arrays));
         metadata.realization.append(luisa::format("; private_workspace_bytes={}", compiled.private_workspace_size));
         metadata.realization.append(luisa::format("; fast_math={}; ordered_reduction={}", enable_fast_math, ordered_reduction));
         auto &arguments = kernel.body().block(0u)->arguments();

@@ -1,8 +1,8 @@
 # TileIR → XIR: execution planning and SIMD realization
 
 Status: executable CPU realization with bounded packet-index proofs and
-compiler-owned snapshots, bounded Tile traversal and closed unordered partials,
-September 8, 2026. The finite root-mapping solver below is implemented. General Tile distribution, packed
+compiler-owned snapshots, bounded Tile traversal, closed unordered partials and
+an opt-in packet-local mapping, September 8, 2026. The finite solver below is implemented. General Tile distribution, packed
 matrix atoms, software pipelining and measured cost calibration are not.
 
 This document complements the [language/layout design](../../tile/design.md),
@@ -238,7 +238,8 @@ no invented zero/one identity. Tails are exact. Strict fold L/R, non-closed
 state recurrence, multiple carries, nested regions and effectful bodies retain
 their ordered fallback. This uses the unordered numerical contract, not a
 claim that floating-point addition is exactly associative. These partials
-remain inside one logical worker; no feature-to-hardware-lane mapping exists.
+remain inside one logical worker in the default complete-program mapping.
+The opt-in mapping below also merges them across packet lanes.
 
 The SIMD adapter separately budgets **physical packet storage**:
 `bytes = Σ align_and_place(W × sizeof(local_array))`. It keeps small private
@@ -256,9 +257,81 @@ growth. Standalone lowering defaults to a 256 KiB logical-worker budget; the
 Runtime adapter derives that budget from `16 MiB / W` and codegen checks the
 final aligned placement against the physical capacity again.
 Both counts and the chosen representation controls appear in realization
-metadata; only root order and block width currently participate in exact
-cost-based search. Small-loop regressions and remaining resource rejections
+metadata. Root order and block width participate in default exact search;
+local-axis distribution can be included explicitly. Small-loop regressions and remaining resource rejections
 must be assessed separately from successful large-kernel compilation.
+
+### Packet-local distribution preserves the split coordinate
+
+For an admitted common local axis of extent `N >= W`, the bridge can assign
+one root program to a complete packet:
+
+```text
+source: root program c, element e             0 <= e < N
+                   │
+        u = flatten_pi(c)
+        e = W*q + lane                      0 <= lane < W
+                   │
+                   ▼
+physical worker = W*u + lane
+private element = q                         tail: W*q + lane < N
+```
+
+This is a realization of the existing program, not a new DSL scope or an
+extra independence assertion about `parallel`. The lowerer retains `(q, lane)`
+as a split coordinate: projecting an owner-preserving Tile reads slot `q`
+directly. Reconstructing `q` with varying-i64 division after flattening loses
+valuable structure before Schedule/LLVM even sees the program.
+
+The current sufficient admission contract requires one shared **dimension
+identity** and extent across all nonunit Tile/map/reduce axes. Unit axes may
+be inserted or projected. Extracts preserve that axis coordinate; arbitrary
+permutations, cross-lane indexing, nested varying axes, strict folds, complex
+carry, explicit execution binding and manual Memory keep the whole-program
+fallback. Forced unsupported distribution fails closed. These limits describe
+missing realizations, not dependencies supposedly absent from the language.
+
+Loads still snapshot at their definitions. Each lane owns `ceil(N/W)` private
+slots, with only valid tail slots accessed. A closed unordered reduction starts
+each lane's partials from real contributions, merges them with a fixed
+`WARP_READ_LANE` butterfly, broadcasts lane zero's tree root, and combines the
+source initial value exactly once. Every lane reconverges before a shuffle;
+unit output stores execute only on the packet leader. No new zero/one identity
+or global fast-math permission is introduced.
+
+The output metadata carries `required_packet_width`: zero for whole-program
+lanes, exactly `W` for packet-local programs. The SIMD adapter checks this
+contract before compilation. Dispatch has `P*W` physical workers, so a logical
+program is never launched as a partial packet; the final Runtime block may
+still contain fewer complete packets.
+
+### Private array layout is independent of execution distribution
+
+The SIMD backend can independently interleave a nonescaping scalar array:
+
+```text
+                         whole-program or packet-local execution
+                                           │
+logical private access (lane, q)            │
+                  ├── lane-major:    lane * array_length + q
+                  └── interleaved:   q * W + lane
+                                           │
+                            stack or CPU-thread workspace
+```
+
+This backend transformation is not keyed on a Tile operator name. It admits
+only the closed address tree `alloca -> typed scalar-element GEP -> load/store`
+for 4/8-byte scalar elements. Aggregate access, reference escape, address PHIs
+and shared memory retain the original layout. The bijection preserves every
+lane's distinct storage, snapshots and capacity; it does not merge lifetimes
+or reorder effects. Interleaving alone does **not** guarantee that the emitter
+recognizes a contiguous masked access or that LLVM removes address overhead.
+
+The Tile adapter enables this representation and reports
+`interleaved_private_arrays`; standalone SIMD compilation keeps it opt-in.
+`LUISA_SIMD_DISABLE_INTERLEAVED_PRIVATE_ARRAYS=1` is a diagnostic A/B control.
+Execution mapping and private layout must be measured separately: a favorable
+layout does not make all packet-local executions profitable.
 
 ### Proven packet accesses, not estimated slopes
 
@@ -300,6 +373,9 @@ The first solver searches the Cartesian product of:
 
 - All permutations of root parallel axes, unless an exact order is supplied.
 - Block worker counts `{32, 64, 128, 256, 512, 1024}`, unless fixed explicitly.
+- With `local_lanes=0`, whole-program lanes and an admitted full-packet local
+  axis; `local_lanes=W` fixes the latter. The default remains `local_lanes=1`
+  until tail-control and CPU worker-activation costs are modeled adequately.
 
 The target packet width is an existing Device property, not a compiler guess.
 Block counts must satisfy XIR's block-size contract and be divisible by that
@@ -341,7 +417,7 @@ An innermost extent not divisible by W conservatively doubles memory work.
 These classifications are **not passed to codegen as proven facts**.
 
 Let `a,m` be estimated arithmetic/memory work per packet, `H` available CPU
-workers, `P` root programs, `Q=ceil(P/W)`, `L=ceil(P/B)`,
+workers, `P` physical workers (`root programs * local_lanes`), `Q=ceil(P/W)`, `L=ceil(P/B)`,
 `h=min(H,L)`, `waves=ceil(L/h)`, and `d` the dispatch weight:
 
 ```text
@@ -356,6 +432,10 @@ All four terms are retained in the plan and reported in shader realization
 metadata, along with the selected order and candidate count. This homogeneous
 wave model intentionally does not pretend to model the M1's heterogeneous
 cores, cache sharing, variable mask density, spills or actual thread timing.
+The experimental distribution estimator counts local iterations, external
+access slopes and a fixed shuffle prior. Its private-array estimate remains
+conservative and uncalibrated; it does not yet price the interleaved emitter's
+actual accesses. Joint search is therefore opt-in, not a promised speedup.
 
 ### Reproducible fixed-plan controls
 
@@ -379,14 +459,14 @@ measurement gates. There is no capture-once restriction.
 
 | Tile semantics | XIR realization |
 |---|---|
-| Tile value | Small SSA, bounded indexed array or single-use pure recipe; packed across independent workers later |
+| Tile value | Small SSA, bounded indexed array or single-use pure recipe; whole-program or admitted packet-local distribution |
 | Named dimensions | Identity-based projection/broadcast; names are diagnostics |
 | Load snapshot | Load at the source operation before subsequent effects |
 | Bounds/fill | Per-axis guards; actual load executes only in the valid branch |
 | Store | Explicit guarded buffer effect, including BufferView offsets |
 | Loop-carried assignment | Small header PHIs or large staged parallel copy; zero-trip initial state preserved |
 | Pipeline/stage | Ordered CPU loop and source-order phase cuts; no claimed physical overlap |
-| Reduction | Closed unordered single-carry partials; strict/non-closed fallback retains order |
+| Reduction | Closed unordered single-carry partials, optionally packet shuffles; strict/non-closed fallback retains order |
 | MMA | Ordered multiply/add traversal with initial accumulator and dimension contraction |
 | `ite(c,t,f)` | Correctly reordered to XIR's `SELECT(f,t,c)` |
 
@@ -424,8 +504,10 @@ The second program can violate the first program's semantics even if output
 coordinates are distinct. Const input views are not noalias promises.
 Reductions, dynamic extraction and shared loop-carried state introduce further
 dependencies. Thus a general distribution candidate must carry a dependence
-and alias proof, a collective realization, or a checked invocation contract
+and effect analysis, a collective realization, or a checked invocation contract
 with a safe fallback. Shape alone is insufficient.
+The packet-local candidate above preserves complete definition-time loads
+before stores; it does not perform this naive per-element load/store fusion.
 
 ## 7. Extension plan: richer plans, not more DSL entities
 

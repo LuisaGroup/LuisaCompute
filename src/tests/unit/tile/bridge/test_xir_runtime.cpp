@@ -439,11 +439,88 @@ void partitioned_reductions(Device &device, int64_t width, uint32_t partitions) 
     }
 }
 
+void packet_local_reductions(Device &device, int64_t count, int64_t width, uint32_t partitions) {
+    using namespace tile;
+    auto lanes = device.compute_warp_size();
+    auto definition = tile_kernel("packet_local_reductions", [=](TensorView<float, 2> data, TensorView<float, 2> output) {
+        auto m = axis("m", 1), n = axis("n", width);
+        for (auto &nest : parallel(shape(count))) {
+            auto x = data[coord(nest.index(), 0), shape(m, n)];
+            // The load is a snapshot even when the resource is overwritten
+            // before its distributed reduction/pointwise consumers execute.
+            data(coord(nest.index(), 0), shape(m, n)).store(full<float>(shape(m, n), 9.0f));
+            auto after = data[coord(nest.index(), 0), shape(m, n)];
+            auto sum = ite(nest.index() == 0, Scalar<float>{-0.0f}, Scalar<float>{2.5f});
+            auto product = Scalar<float>{2.0f};
+            auto low = Scalar<float>{8.0f}, high = Scalar<float>{-8.0f};
+            for (auto &step : nest.reduce(shape(n))) { sum += x.at(coord(0, step.index())); }
+            for (auto &step : nest.reduce(shape(n))) { product *= x.at(coord(0, step.index())); }
+            for (auto &step : nest.reduce(shape(n))) { low = min(low, x.at(coord(0, step.index()))); }
+            for (auto &step : nest.reduce(shape(n))) { high = max(high, x.at(coord(0, step.index()))); }
+            output(coord(nest.index(), 0), shape(1, 1)).store(full<float>(shape(1, 1), sum));
+            output(coord(nest.index(), 1), shape(1, 1)).store(full<float>(shape(1, 1), product));
+            output(coord(nest.index(), 2), shape(1, 1)).store(full<float>(shape(1, 1), low));
+            output(coord(nest.index(), 3), shape(1, 1)).store(full<float>(shape(1, 1), high));
+            data(coord(nest.index(), 0), shape(m, n)).store(x + after);
+        }
+    });
+    auto kernel = definition.capture(tensor_shape(count, width), tensor_shape(count, 4));
+    expect(kernel.valid());
+    auto options = bridge::xir::PlannerOptions{.block_size = 32u, .reduction_partitions = partitions, .local_lanes = lanes};
+    auto shader = compile(device, kernel, {.xir = &options});
+    expect(static_cast<bool>(shader)) << shader.metadata().error;
+    if (!shader) { return; }
+    expect(shader.metadata().realization.find(format("local_lanes={};", lanes)) != string::npos);
+    constexpr auto pad = size_t{17};
+    constexpr auto guard = -731.25f;
+    vector<float> data(count * width + 2 * pad, guard), actual(count * 4 + 2 * pad, guard);
+    vector<double> expected_data(count * width), expected_output(count * 4);
+    for (int64_t row = 0; row < count; row++) {
+        auto sum = row == 0 ? -0.0 : 2.5, product = 2.0, low = 8.0, high = -8.0;
+        for (int64_t i = 0; i < width; i++) {
+            auto x = row == 0 ? -0.0f : (i % 3 == 0 ? 1.0f : .5f);
+            data[pad + row * width + i] = x;
+            expected_data[row * width + i] = x + 9.0;
+            sum += x;
+            product *= x;
+            low = std::min(low, static_cast<double>(x));
+            high = std::max(high, static_cast<double>(x));
+        }
+        expected_output[row * 4] = sum;
+        expected_output[row * 4 + 1] = product;
+        expected_output[row * 4 + 2] = low;
+        expected_output[row * 4 + 3] = high;
+    }
+    auto a = device.create_buffer<float>(data.size()), b = device.create_buffer<float>(actual.size());
+    auto av = a.view(pad, expected_data.size()), bv = b.view(pad, expected_output.size());
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    stream << a.copy_from(span{data}) << b.copy_from(span{actual}) << shader(av, bv).dispatch()
+           << a.copy_to(span{data}) << b.copy_to(span{actual}) << synchronize();
+    expect(close(span{data}.subspan(pad, expected_data.size()), expected_data));
+    expect(close(span{actual}.subspan(pad, expected_output.size()), expected_output)) << "rows=" << count << " width=" << width << " partitions=" << partitions;
+    // No invented additive identity and no repeated initial accumulator.
+    expect(eq(std::bit_cast<uint32_t>(actual[pad]), std::bit_cast<uint32_t>(-0.0f)));
+    for (auto values : {span{data}, span{actual}}) {
+        expect(std::all_of(values.begin(), values.begin() + pad, [](float x) { return x == guard; }));
+        expect(std::all_of(values.end() - pad, values.end(), [](float x) { return x == guard; }));
+    }
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     auto [context, device] = test::create_device(argc, argv);
+    "tile_xir_runtime_packet_local_reductions_and_snapshot"_test = [&] {
+        auto width = static_cast<int64_t>(device.compute_warp_size());
+        for (auto partitions : {1u, 3u, 4u, 16u}) {
+            for (auto n : {width, width + 1, int64_t{65}, int64_t{127}, int64_t{256}}) {
+                packet_local_reductions(device, 17, n, partitions);
+            }
+        }
+        packet_local_reductions(device, 1, 4096, 4u);
+        packet_local_reductions(device, 67, 16384, 4u);
+    };
     "tile_xir_runtime_reduction_fold_policies"_test = [&] { reduction_fold_policies(device); };
     "tile_xir_runtime_bounded_transpose_preserves_alias_snapshot"_test = [&] {
         bounded_transpose_alias(device);

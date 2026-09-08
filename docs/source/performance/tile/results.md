@@ -18,6 +18,38 @@ of same-round numerator/denominator ratios, **not** a ratio of the displayed
 medians. Ranges and counts of slower rounds are descriptive, not confidence
 intervals. No slow or failed row is discarded to improve the headline.
 
+### SIMD local distribution and private layout are separate decisions
+
+The latest September 8 {download}`Torch-guided packet-local report <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-xir-packet-local/notes.md>`
+adds a common-axis packet-local realization and independently interleaved
+private arrays. The default keeps complete programs per lane; joint mapping
+search is **opt-in** because its prior still misses tail-control and CPU
+worker-activation costs. No operator-name dispatch is used.
+
+At fixed whole-program mapping, the 104-visit, two-order factorial experiment
+reduces large RMSNorm/LayerNorm E2E time to 0.47–0.62× the lane-major-array
+control; SwiGLU 1024×4096 reaches 0.58×, GELU/softmax about 0.76×. RMSNorm
+17×65 instead regresses 3.1%. Packet-local mapping further helps wide rows,
+but can make narrow cases **4.3–18.7× slower**, so it is not a universal default.
+These paired ratios include CPU task scheduling, not only vector computation.
+
+**Pure native-entry replay still loses to TorchInductor.** Both XIR columns
+below use the same interleaved private layout, one CPU thread, six variant
+orders and seven samples per visit; all complete outputs and guards pass.
+
+| RMSNorm | Whole program µs | Packet-local µs | Inductor µs |
+|---|---:|---:|---:|
+| 64×256 | 27.858 | 29.914 | 8.972 |
+| 1024×4096 | 7204.372 | 7536.289 | 2190.762 |
+
+The default is still approximately **3.11/3.29× Inductor's time**. This C++
+replay excludes Runtime, Python, allocation and the thread pool, but retains
+native-call and launch-record-reset overhead; it is not a cycle counter.
+The actual generated C++/LLVM/ARM64 entries and the complete factorial matrix
+are retained in the report's {download}`audit <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-xir-packet-local/audit.json>`.
+Private-memory emission, safe phase fusion and independent CPU task grain
+remain structural gaps. No new Metal, MPS or BLAS comparison is claimed.
+
 ### Bounded XIR traversal improves compilation, not yet Torch parity
 
 The next September 8 {download}`bounded-representation report <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-xir-bounded/notes.md>`

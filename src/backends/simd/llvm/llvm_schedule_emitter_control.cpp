@@ -881,6 +881,7 @@ void ScheduleEmitter::_allocate_state() {
     }
     _find_instruction_spills();
     _local_allocations.resize(_source.values().size(), nullptr);
+    _find_interleaved_private_arrays();
     _shared_memory_size = 0u;
     // A private Tile is replicated per packet lane. Bound this physical
     // allocation before choosing stack versus Runtime-owned workspace, not
@@ -986,7 +987,7 @@ void ScheduleEmitter::_allocate_state() {
                     storage = local;
                 }
                 auto *offsets = _lane_offsets(
-                    _lane_ids(), value_size);
+                    _lane_ids(), _interleaved_local_values[instruction.result->value] ? value->type->element()->size() : value_size);
                 _local_allocations[instruction.result->value] =
                     _local_handle(
                         _builder.CreateVectorSplat(_width, storage),

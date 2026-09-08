@@ -21,6 +21,11 @@ struct LowerOptions {
     // Bounded pure unordered reductions may partition contributions among
     // these independent accumulators. One preserves the sequential baseline.
     uint32_t reduction_partitions{4u};
+    // One keeps complete independent programs per physical lane. A power-of-
+    // two packet width distributes a common local axis across the whole packet.
+    // The caller must compile with this exact packet width; lower() validates
+    // the admitted pointwise/closed-unordered-reduction program contract.
+    uint32_t local_lanes{1u};
 };
 
 struct NativeFunction {
@@ -29,17 +34,21 @@ struct NativeFunction {
     uint32_t dispatch_size{0u};
     luisa::vector<Usage> argument_usages;
     luisa::vector<size_t> argument_sizes_bytes;
+    // Zero permits any packet width. Otherwise the consumer must preserve
+    // this width: dispatch coordinates and collectives form one ABI contract.
+    uint32_t required_packet_width{0u};
     luisa::string error;
     [[nodiscard]] bool ok() const noexcept { return module != nullptr && function != nullptr && error.empty(); }
     [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
 };
 
 // In-memory, verified SSA/CFG bridge, with no AST or TVM intermediate.
-// One root parallel domain maps to independent Runtime workers. Static Tile
+// One root parallel domain maps to independent logical programs. Static Tile
 // elements use SSA or bounded traversal of compiler-owned snapshots; pure
 // single-use elementwise values may be deferred to their consumer. The SIMD
-// backend packs workers, not the logical Tile's memory dimensions. Closed
-// unordered reductions may use independent partials. Other recurrences
+// backend can pack whole programs or distribute a common local axis across
+// a packet. Closed unordered reductions may use partials and packet shuffles.
+// Other recurrences
 // preserve lexicographic order; explicit right folds
 // visit the reversed logical sequence without changing update operands. This CPU
 // realization does not implement cooperative bindings or manual Memory.

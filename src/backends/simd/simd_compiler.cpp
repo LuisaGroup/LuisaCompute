@@ -271,7 +271,7 @@ SIMDCompiledKernel compile_simd_kernel(
     uint32_t dispatch_worker_count,
     bool enable_packet_batch_entry,
     bool enable_block_batch_entry, bool capture_ir,
-    size_t private_stack_budget_bytes) {
+    size_t private_stack_budget_bytes, bool enable_interleaved_private_arrays) {
     SIMDCompiledKernel result{
         .warp_width = warp_width,
     };
@@ -723,13 +723,14 @@ SIMDCompiledKernel compile_simd_kernel(
         use_biased_narrow_buffer_gather,
         use_gathered_native_texture_read,
         use_native_half4_texture_packet,
-        private_stack_budget_bytes);
+        private_stack_budget_bytes, enable_interleaved_private_arrays);
     if (!llvm_result.succeeded()) {
         result.diagnostics.emplace_back(llvm_result.error);
         return result;
     }
     result.argument_buffer_size = llvm_result.argument_buffer_size;
     result.private_workspace_size = llvm_result.private_workspace_size;
+    result.interleaved_private_arrays = llvm_result.interleaved_private_arrays;
     result.print_formats = std::move(pipeline_print_formats);
     result.print_formats.insert(
         result.print_formats.end(),

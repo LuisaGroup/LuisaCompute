@@ -85,8 +85,12 @@ fusion results, not attention or direct-SIMD parity.
 improve admitted TIRx families; CBLAS beats eager Torch on seven of eight
 replayed shapes. Direct XIR/SIMD has a working mapping solver and
 [packet-index codegen repair](results.md#simd-packet-index-proof-closes-a-codegen-disconnect),
-but all six measured GEMMs still lose to Torch. General packed/vector
-microkernels and Tile distribution remain missing. Attention, CNN/filter,
+but all six measured GEMMs still lose to Torch. The latest
+[independent mapping/layout experiment](results.md#simd-local-distribution-and-private-layout-are-separate-decisions)
+adds opt-in common-axis distribution and improves large-row E2E with private
+array interleaving. Joint search remains opt-in: narrow-row regressions persist,
+and native RMSNorm still takes about 3.1–3.3× Inductor's time. General packed
+microkernels and arbitrary Tile redistribution remain missing. Attention, CNN/filter,
 sort and Top-K PoCs establish correctness, not broad optimized performance.
 
 The [Torch CPU inspection](results.md#torch-cpu-code-inspection-exposes-missing-local-vector-candidates)

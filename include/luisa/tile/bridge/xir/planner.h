@@ -29,6 +29,11 @@ struct PlannerOptions {
     // lowering. Zero retains the expanded diagnostic baseline.
     uint32_t max_unrolled_tile_elements{64u};
     uint32_t reduction_partitions{4u};
+    // One preserves the default complete-program mapping. Zero opts into the
+    // experimental joint search; packet_width forces a legal local-axis map.
+    // The relative prior does not yet price tail CFG and worker activation
+    // accurately enough to make joint search the default.
+    uint32_t local_lanes{1u};
 };
 
 struct ExecutionCost {
@@ -46,6 +51,7 @@ struct ExecutionPlan {
     luisa::vector<uint32_t> root_axis_order;
     uint32_t dispatch_size{0u};
     ExecutionCost cost;
+    uint32_t local_lanes{1u};
 };
 
 struct PlanningResult {
@@ -56,11 +62,13 @@ struct PlanningResult {
     [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
 };
 
-// Exact minimum over all legal axis permutations and block widths in the
+// Exact minimum over legal axis permutations, block widths and whole-program
+// versus packet-local distribution in the
 // declared finite candidate space; exceeding the search budget is an error.
-// This first solver preserves each logical worker's entire Tile program.
-// Splitting a Tile across workers requires additional dependence/alias and
-// collective realizations, and is deliberately not inferred from its shape.
+// Local distribution requires a common axis with owner-preserving extracts
+// and closed unordered reductions. Other programs retain complete-program
+// lanes, not because parallel needs an extra conflict proof, but because their
+// redistribution/carry realizations are not implemented here yet.
 [[nodiscard]] LUISA_TILE_XIR_BRIDGE_API PlanningResult plan(
     const Function &function, ExecutionTarget target, const PlannerOptions &options = {}) noexcept;
 

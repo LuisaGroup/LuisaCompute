@@ -14,6 +14,79 @@ using namespace luisa::compute;
 using namespace boost::ut;
 
 int main() {
+    "tile_xir_packet_local_admission_and_abi"_test = [] {
+        using namespace tile;
+        for (auto lanes : {2u, 4u, 8u, 16u}) {
+            for (auto width : {lanes, lanes + 1u, 65u, 4096u}) {
+                auto definition = tile_kernel("local_axis", [=](TensorView<const float, 2> input, TensorView<float, 2> output) {
+                    auto m = axis("m", 1), n = axis("n", width);
+                    for (auto &nest : parallel(shape(17))) {
+                        auto x = input[coord(nest.index(), 0), shape(m, n)];
+                        output(coord(nest.index(), 0), shape(m, n)).store(x + reduce(x, n, add));
+                    }
+                });
+                auto kernel = definition.capture(tensor_shape(17, width), tensor_shape(17, width));
+                auto options = bridge::xir::LowerOptions{.max_local_bytes = ceil_div(width, lanes) * 4u, .local_lanes = lanes};
+                auto lowered = bridge::xir::lower(kernel.function(), options);
+                expect(lowered.ok()) << lowered.error;
+                if (!lowered) { continue; }
+                expect(eq(lowered.dispatch_size, 17u * lanes));
+                expect(eq(lowered.required_packet_width, lanes));
+                expect(xir::xir_verify_module(lowered.module.get(), {.require_reachable_blocks = true}).succeeded());
+                options.max_local_bytes--;
+                expect(!bridge::xir::lower(kernel.function(), options));
+                auto automatic = bridge::xir::plan(kernel.function(), {lanes, 8u}, {.local_lanes = 0u});
+                expect(automatic.ok() && automatic.candidates.size() == 12u);
+                auto stable = bridge::xir::plan(kernel.function(), {lanes, 8u});
+                expect(stable.ok() && stable.selected.local_lanes == 1u);
+                for (auto local : {1u, lanes}) {
+                    auto plan = bridge::xir::plan(kernel.function(), {lanes, 8u}, {.block_size = 32u, .max_candidates = 1u, .local_lanes = local});
+                    expect(plan.ok()) << plan.error;
+                    if (plan) {
+                        expect(eq(plan.selected.local_lanes, local));
+                        expect(eq(plan.selected.dispatch_size, 17u * local));
+                    }
+                }
+                expect(!bridge::xir::plan(kernel.function(), {lanes, 8u}, {.max_candidates = 11u, .local_lanes = 0u}));
+                expect(!bridge::xir::plan(kernel.function(), {lanes, 8u}, {.local_lanes = 3u}));
+            }
+        }
+    };
+    "tile_xir_packet_local_rejects_unrealized_redistribution_and_folds"_test = [] {
+        using namespace tile;
+        for (auto variant = 0; variant < 7; variant++) {
+            auto definition = tile_kernel("local_contract", [=](TensorView<const float, 2> input, TensorView<float, 2> output) {
+                auto height = variant == 6 ? 2 : 1;
+                auto m = axis("m", height), n = axis("n", 65), other = axis("other", 65);
+                auto binding = variant == 4 ? exec::Scope::WORKER : exec::Scope::AUTOMATIC;
+                for (auto &nest : parallel(shape(17), binding)) {
+                    auto x = input[coord(nest.index() * height, 0), shape(m, n)];
+                    if (variant == 0 || variant == 5) {
+                        auto y = map<float>(shape(m, n), [&](const Nest &element) {
+                            if (variant == 5) { return reduce(x, n, add).at(coord(0)); }
+                            return x.at(coord(0, 64 - element.index(n)));
+                        });
+                        output(coord(nest.index() * height, 0), shape(m, n)).store(y);
+                    } else {
+                        auto policy = variant == 1 ? reduction::fold_left : variant == 2 ? reduction::fold_right :
+                                                                                           reduction::unordered_tree;
+                        auto sum = Scalar<float>{0.0f};
+                        for (auto &step : nest.reduce(shape(variant == 3 ? other : n), policy)) { sum += x.at(coord(0, step.index())); }
+                        output(coord(nest.index() * height, 0), shape(m, n)).store(x + sum);
+                    }
+                }
+            });
+            auto rows = variant == 6 ? 34 : 17;
+            auto kernel = definition.capture(tensor_shape(rows, 65), tensor_shape(rows, 65));
+            expect(kernel.valid());
+            expect(bridge::xir::lower(kernel.function()).ok());
+            expect(!bridge::xir::lower(kernel.function(), {.local_lanes = 8u}));
+            expect(!bridge::xir::plan(kernel.function(), {8u, 8u}, {.local_lanes = 8u}));
+            auto fallback = bridge::xir::plan(kernel.function(), {8u, 8u});
+            expect(fallback.ok() && fallback.candidates.size() == 6u);
+            if (fallback) { expect(eq(fallback.selected.local_lanes, 1u)); }
+        }
+    };
     "tile_xir_dynamic_extract_has_linear_snapshot_storage"_test = [] {
         using namespace tile;
         double previous_work = 0.0;

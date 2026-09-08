@@ -843,6 +843,7 @@ struct LLVMScheduleCodegenResult {
     ::llvm::Function *block_batch_entry{nullptr};
     size_t argument_buffer_size{0u};
     size_t private_workspace_size{0u};
+    uint32_t interleaved_private_arrays{0u};
     std::vector<SIMDLLVMPrintFormat> print_formats{};
     size_t schedule_block_count{0u};
     size_t convergence_point_count{0u};
@@ -981,7 +982,10 @@ struct LLVMScheduleCodegenResult {
     // Zero retains the standalone stack ABI. Runtime clients may request
     // private-array promotion when their total packet bytes exceed this cap.
     // This does not estimate the complete machine frame or register spills.
-    size_t private_stack_budget_bytes = 0u);
+    size_t private_stack_budget_bytes = 0u,
+    // Scalar private arrays with nonescaping typed element accesses may use
+    // [element][lane] storage. This does not coalesce SSA lifetimes or loads.
+    bool enable_interleaved_private_arrays = false);
 
 // Ray-query handler ABI:
 //   void handler(i32 lane_count, i64 active_mask_bits,

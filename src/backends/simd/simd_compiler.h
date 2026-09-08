@@ -31,6 +31,7 @@ struct SIMDCompiledKernel {
     void *block_batch_entry{nullptr};
     size_t argument_buffer_size{0u};
     size_t private_workspace_size{0u};
+    uint32_t interleaved_private_arrays{0u};
     std::vector<SIMDLLVMPrintFormat> print_formats{};
     // Pre-schedule rewrite feedback for diagnostics/tests.
     size_t fast_math_identity_count{0u};
@@ -170,7 +171,8 @@ struct SIMDCompiledKernel {
     // Retain pre-JIT IR without performing a second assembly compilation.
     bool capture_ir = false,
     // Runtime supplies the corresponding private workspace when nonzero.
-    size_t private_stack_budget_bytes = 0u);
+    size_t private_stack_budget_bytes = 0u,
+    bool enable_interleaved_private_arrays = false);
 
 // Translates a DSL/AST kernel to XIR, legalizes its structured control flow,
 // inlines callables, promotes local SSA storage, and then invokes the packet

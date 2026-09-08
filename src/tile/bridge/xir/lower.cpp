@@ -2,6 +2,7 @@
 #include <stdexcept>
 
 #include <luisa/core/stl/format.h>
+#include <luisa/core/mathematics.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/tile/bridge/xir/lower.h>
 #include <luisa/tile/verifier.h>
@@ -66,6 +67,8 @@ private:
     uint64_t _local_bytes{0u};
     bool _inside_parallel{false};
     bool _saw_parallel{false};
+    x::Value *_lane{nullptr};
+    x::Value *_local_slot{nullptr};
 
     [[noreturn]] static void _fail(luisa::string_view message) {
         throw std::runtime_error{std::string{message}};
@@ -116,6 +119,20 @@ private:
     [[nodiscard]] bool _bounded(uint64_t count) const noexcept {
         return _options.max_unrolled_tile_elements != 0u && count > _options.max_unrolled_tile_elements;
     }
+    [[nodiscard]] bool _distributed(uint64_t count) const noexcept { return _options.local_lanes > 1u && count >= _options.local_lanes; }
+    [[nodiscard]] uint64_t _storage_count(const Type &type) const {
+        auto count = _volume(*type.index_space());
+        return _distributed(count) ? ceil_div(count, static_cast<uint64_t>(_options.local_lanes)) : count;
+    }
+    [[nodiscard]] x::Value *_storage_index(const Type &type, x::Value *flat) {
+        if (!_distributed(_volume(*type.index_space()))) { return flat; }
+        // Admission establishes that every nonunit projection preserves the
+        // current common-axis owner. Keep the split pair (slot, lane) instead
+        // of reconstructing slot = (slot * W + lane) / W in varying i64 IR.
+        // This is an exact realization fact, not an LLVM reassociation hint.
+        if (!_local_slot) { _fail("distributed Tile access has no active owner coordinate"); }
+        return _local_slot;
+    }
     template<typename T>
     [[nodiscard]] x::Value *_constant(T value) { return _output.module->create_constant(XType::of<T>(), &value); }
     [[nodiscard]] x::Value *_index(uint64_t value) { return _constant(static_cast<int64_t>(value)); }
@@ -149,7 +166,7 @@ private:
     }
     [[nodiscard]] x::Value *_allocate(const Type &type) {
         auto element = _type(type);
-        auto count = _volume(*type.index_space());
+        auto count = _storage_count(type);
         auto bytes = count * element->size();
         if (bytes > _options.max_local_bytes || _local_bytes > _options.max_local_bytes - bytes) {
             _fail("XIR realization exceeds its local snapshot storage budget");
@@ -161,8 +178,8 @@ private:
         return storage;
     }
     template<typename F>
-    void _for_each(uint64_t count, F &&emit) {
-        if (!_bounded(count)) {
+    void _serial_for(uint64_t count, F &&emit, bool force_loop = false) {
+        if (!_bounded(count) && !force_loop) {
             for (uint64_t i = 0u; i < count; i++) { emit(_index(i)); }
             return;
         }
@@ -179,6 +196,31 @@ private:
         index->add_incoming(_binary(A::BINARY_ADD, index, _index(1u)), _block);
         _builder.br(header);
         _at(exit);
+    }
+    template<typename F>
+    void _for_each(uint64_t count, F &&emit) {
+        if (!_distributed(count)) {
+            _serial_for(count, emit);
+            return;
+        }
+        auto lanes = _options.local_lanes;
+        auto full = count / lanes;
+        auto element = [&](x::Value *chunk) {
+            auto previous = _local_slot;
+            _local_slot = chunk;
+            emit(_binary(A::BINARY_ADD, _binary(A::BINARY_MUL, chunk, _index(lanes)), _lane));
+            _local_slot = previous;
+        };
+        _serial_for(full, element, _bounded(count));
+        if (count % lanes != 0u) {
+            auto tail = _output.function->create_basic_block();
+            auto exit = _output.function->create_basic_block();
+            _builder.cond_br(_compare(A::BINARY_LESS, _lane, _index(count % lanes)), tail, exit);
+            _at(tail);
+            element(_index(full));
+            _builder.br(exit);
+            _at(exit);
+        }
     }
     template<typename F>
     [[nodiscard]] x::Value *_fold(uint64_t count, x::Value *initial, F &&emit) {
@@ -213,7 +255,11 @@ private:
             for (auto axis = space.rank(); axis != 0u; axis--) {
                 auto extent = _extent(space, axis - 1u);
                 if (!extent) { _fail("cannot index an empty Tile"); }
-                result[axis - 1u] = _binary(A::BINARY_MOD, flat, _index(extent));
+                auto major = true;
+                for (size_t j = 0u; j + 1u < axis; j++) { major &= _extent(space, j) == 1u; }
+                result[axis - 1u] = extent == 1u ? _index(0u) :
+                                    major        ? flat :
+                                                   _binary(A::BINARY_MOD, flat, _index(extent));
                 flat = _binary(A::BINARY_DIV, flat, _index(extent));
             }
         }
@@ -221,12 +267,12 @@ private:
     }
     void _store_local(const Type &type, x::Value *storage, x::Value *flat, x::Value *element) {
         _charge(2u);
-        _builder.store(_builder.gep(_type(type), storage, {flat}), element);
+        _builder.store(_builder.gep(_type(type), storage, {_storage_index(type, flat)}), element);
     }
     template<typename F>
     void _emit_tile(const Value *value, F &&emit) {
         auto count = _volume(*value->type().index_space());
-        if (_bounded(count)) {
+        if (_bounded(count) || _distributed(count)) {
             auto storage = _allocate(value->type());
             _for_each(count, [&](x::Value *flat) { _store_local(value->type(), storage, flat, emit(flat)); });
             _representation(value)->storage = storage;
@@ -317,7 +363,7 @@ private:
         }
         if (data->storage) {
             _charge(2u);
-            return _builder.load(_type(*data->type), _builder.gep(_type(*data->type), data->storage, {flat}));
+            return _builder.load(_type(*data->type), _builder.gep(_type(*data->type), data->storage, {_storage_index(*data->type, flat)}));
         }
         auto type = _type(*data->type);
         x::Value *value = _output.module->create_constant_zero(type);
@@ -478,19 +524,32 @@ private:
                 _define(op.result(0u), Elements{access(_index(0u))});
             }
         } else {
-            _for_each(count, access);
+            if (_options.local_lanes > 1u && count == 1u) {
+                auto leader = _output.function->create_basic_block();
+                auto exit = _output.function->create_basic_block();
+                _builder.cond_br(_compare(A::BINARY_EQUAL, _lane, _index(0u)), leader, exit);
+                _at(leader);
+                access(_index(0u));
+                _builder.br(exit);
+                _at(exit);
+            } else {
+                _for_each(count, access);
+            }
         }
     }
     void _bind_coordinates(const Block &body, const IndexSpace &domain, x::Value *flat, luisa::span<const uint32_t> order = {}) {
         auto trailing = _volume(domain);
+        auto major = true;
         for (size_t position = 0u; position < domain.rank(); position++) {
             auto i = order.empty() ? position : order[position];
             auto extent = _extent(domain, i);
             auto coordinate = _index(0u);
             if (trailing != 0u && extent != 0u) {
                 trailing /= extent;
-                coordinate = _binary(A::BINARY_MOD, _binary(A::BINARY_DIV, flat, _index(trailing)), _index(extent));
+                coordinate = extent == 1u ? _index(0u) : _binary(A::BINARY_DIV, flat, _index(trailing));
+                if (extent != 1u && !major) { coordinate = _binary(A::BINARY_MOD, coordinate, _index(extent)); }
             }
+            major &= extent == 1u;
             _define(body.argument(i), Elements{coordinate});
             // The body executes only for valid coordinates; zero-trip loop
             // bodies are unreachable. Never infer ranges for carried values.
@@ -509,43 +568,33 @@ private:
         return {};
     }
     [[nodiscard]] bool _partial_reduction(const Operation &op) {
-        if (op.kind() != OperationKind::REDUCE || op.reduction_policy() != reduction::unordered_tree ||
-            op.result_count() != 1u || op.result(0u)->type().is_tile() || !_bounded(_volume(*op.domain())) ||
-            _options.reduction_partitions <= 1u) { return false; }
+        auto closed = detail::closed_reduction(op);
+        if (!closed) { return false; }
+        auto total = _volume(*op.domain());
+        auto distributed = _distributed(total);
+        if (!distributed && (!_bounded(total) || _options.reduction_partitions <= 1u)) { return false; }
         auto body = op.region(0u)->block(0u);
-        auto carry = body->argument(op.domain()->rank());
-        // A closed associative update, not arbitrary state recurrence. The
-        // only carry use must be the yielded combine. No effects or nested
-        // regions may be duplicated/reordered while producing contributions.
-        if (carry->use_count() != 1u) { return false; }
-        const Operation *yield = nullptr;
-        for (auto operation : body->operations()) {
-            auto kind = operation->kind();
-            if (kind == OperationKind::YIELD) {
-                yield = operation;
-            } else if (kind != OperationKind::CONSTANT && kind != OperationKind::ELEMENTWISE && kind != OperationKind::TILE_EXTRACT) {
-                return false;
-            }
-        }
-        if (!yield || yield->operand_count() != 1u) { return false; }
-        auto update = yield->operand(0u)->defining_operation();
-        if (!update || update->parent_block() != body || update->kind() != OperationKind::ELEMENTWISE ||
-            update->operand_count() != 2u || update->result(0u)->use_count() != 1u) { return false; }
-        auto left = update->operand(0u) == carry;
-        if (!left && update->operand(1u) != carry) { return false; }
+        auto update = closed->update;
+        auto yield = closed->yield;
+        auto left = closed->carry_left;
         auto kind = update->elementwise_op();
-        if (kind != ElementwiseOp::ADD && kind != ElementwiseOp::MUL && kind != ElementwiseOp::MIN && kind != ElementwiseOp::MAX) { return false; }
-        auto contribution = update->operand(left ? 1u : 0u);
-        auto count = _volume(*op.domain());
+        auto contribution = closed->contribution;
+        auto lanes = distributed ? _options.local_lanes : 1u;
+        auto count = total / lanes;
         auto partitions = std::min<uint64_t>(_options.reduction_partitions, count);
         auto type = _type(op.result(0u)->type());
         auto initial = _scalar(op.operand(0u));
         auto evaluate = [&](x::Value *ordinal) {
+            auto previous = _local_slot;
+            if (distributed) { _local_slot = ordinal; }
+            if (distributed) { ordinal = _binary(A::BINARY_ADD, _binary(A::BINARY_MUL, ordinal, _index(lanes)), _lane); }
             _bind_coordinates(*body, *op.domain(), ordinal);
             for (auto operation : body->operations()) {
                 if (operation != update && operation != yield) { _operation(*operation); }
             }
-            return _scalar(contribution);
+            auto result = _scalar(contribution);
+            _local_slot = previous;
+            return result;
         };
         auto combine = [&](x::Value *a, x::Value *b) {
             return _elementwise(kind, type, left ? Elements{a, b} : Elements{b, a});
@@ -577,7 +626,37 @@ private:
         _at(exit);
         Elements results{partials.begin(), partials.end()};
         for (uint64_t p = 0u; p < count % partitions; p++) { results[p] = combine(results[p], evaluate(_index(bulk + p))); }
-        for (auto partial : results) { initial = combine(initial, partial); }
+        if (distributed) {
+            // A final partial chunk updates only the owning active lanes. All
+            // lanes reconverge before shuffles; no empty-lane identity or
+            // duplicated initial accumulator is introduced.
+            if (total % lanes != 0u) {
+                auto before = _block;
+                auto tail = _output.function->create_basic_block();
+                auto exit = _output.function->create_basic_block();
+                _builder.cond_br(_compare(A::BINARY_LESS, _lane, _index(total % lanes)), tail, exit);
+                _at(tail);
+                auto value = combine(results[0u], evaluate(_index(count)));
+                auto after = _block;
+                _builder.br(exit);
+                _at(exit);
+                results[0u] = _builder.phi(type, {{results[0u], before}, {value, after}});
+            }
+            auto value = results[0u];
+            for (size_t p = 1u; p < results.size(); p++) { value = combine(value, results[p]); }
+            auto lane = _builder.static_cast_if_necessary(XType::of<uint32_t>(), _lane);
+            for (uint32_t distance = 1u; distance < lanes; distance *= 2u) {
+                auto peer = _binary(A::BINARY_BIT_XOR, lane, _constant(distance));
+                auto other = _builder.call(type, x::ThreadGroupOp::WARP_READ_LANE, {value, peer});
+                value = combine(value, other);
+            }
+            // Every lane consumes the exact same tree root, even when its own
+            // butterfly operand ordering would produce a different FP value.
+            auto root = _builder.call(type, x::ThreadGroupOp::WARP_READ_LANE, {value, _constant(uint32_t{0u})});
+            initial = combine(initial, root);
+        } else {
+            for (auto partial : results) { initial = combine(initial, partial); }
+        }
         _define(op.result(0u), Elements{initial});
         return true;
     }
@@ -589,11 +668,20 @@ private:
         }
         if (op.kind() == OperationKind::PARALLEL && !_inside_parallel) {
             if (_saw_parallel || op.result_count() != 0u) { _fail("XIR bridge requires one independent root parallel with no escaping results"); }
-            _output.dispatch_size = static_cast<uint32_t>(_volume(domain));
+            auto count = _volume(domain);
+            if (count > UINT32_MAX / _options.local_lanes) { _fail("packet-local XIR dispatch exceeds uint32 range"); }
+            _output.dispatch_size = static_cast<uint32_t>(count * _options.local_lanes);
             if (_output.dispatch_size == 0u) { _fail("empty root parallel has no executable launch"); }
             _saw_parallel = true;
             _inside_parallel = true;
             auto dispatch = _alu(XType::of<uint32_t>(), A::EXTRACT, {_output.module->create_dispatch_id(), _constant(uint32_t{0})});
+            if (_options.local_lanes > 1u) {
+                auto lane = _output.module->create_warp_lane_id();
+                _lane = _builder.static_cast_(XType::of<int64_t>(), lane);
+                // Subtract the physical lane first: the packet's program index
+                // is uniform, unlike the element coordinate distributed below.
+                dispatch = _binary(A::BINARY_DIV, _binary(A::BINARY_SUB, dispatch, lane), _constant(_options.local_lanes));
+            }
             auto &order = _options.root_axis_order;
             if (!order.empty()) {
                 if (order.size() != domain.rank()) { _fail("XIR execution order must be a complete permutation"); }
@@ -722,7 +810,7 @@ private:
             case OperationKind::CONSTANT: {
                 auto result = op.result(0u);
                 auto count = result->type().is_tile() ? _volume(*result->type().index_space()) : 1u;
-                if (_bounded(count)) {
+                if (_bounded(count) || _distributed(count)) {
                     _charge();
                     auto data = _representation(result);
                     data->splat = true;
@@ -736,7 +824,7 @@ private:
             case OperationKind::ELEMENTWISE: {
                 auto result = op.result(0u);
                 auto domain = result->type().is_tile() ? *result->type().index_space() : IndexSpace{};
-                if (detail::deferred_elementwise(result, _options.max_unrolled_tile_elements)) {
+                if (detail::deferred_elementwise(result, _options.max_unrolled_tile_elements, _options.local_lanes)) {
                     // Capture immutable physical operands now, not mutable
                     // TileIR-to-XIR bindings that another map/carry may replace.
                     // Only pure single-use arithmetic is deferred. Loads and
@@ -805,7 +893,20 @@ private:
                     break;
                 }
                 x::Value *flat = _index(0u);
-                for (size_t i = 0u; i < space.rank(); i++) { flat = _binary(A::BINARY_ADD, _binary(A::BINARY_MUL, flat, _index(_extent(space, i))), _scalar(op.operand(i + 1u))); }
+                auto in_bounds = count != 0u;
+                for (size_t i = 0u; i < space.rank(); i++) {
+                    auto range = _range(op.operand(i + 1u));
+                    in_bounds &= range && range->lo >= 0 && range->hi < static_cast<int64_t>(_extent(space, i));
+                    flat = _binary(A::BINARY_ADD, _binary(A::BINARY_MUL, flat, _index(_extent(space, i))), _scalar(op.operand(i + 1u)));
+                }
+                if (in_bounds) {
+                    // Declared region coordinates plus checked integer ranges
+                    // establish valid projection independently of parallel's
+                    // conflict contract. In particular, a proven lane-local
+                    // extract must not introduce a divergent control region.
+                    _define(op.result(0u), Elements{_read(data, flat)});
+                    break;
+                }
                 if (count != 0u) {
                     auto valid = _binary(A::BINARY_BIT_AND, _compare(A::BINARY_GREATER_EQUAL, flat, _index(0u)),
                                          _compare(A::BINARY_LESS, flat, _index(count)));
@@ -834,8 +935,14 @@ public:
     [[nodiscard]] NativeFunction run() {
         if (_input.parent_module() == nullptr || !verify(*_input.parent_module())) { _fail("TileIR verification failed before XIR lowering"); }
         if (_input.body().block_count() != 1u || !x::KernelFunction::is_valid_block_size(luisa::make_uint3(_options.block_size, 1u, 1u)) || _options.max_expanded_values == 0u ||
-            _options.reduction_partitions == 0u || _options.reduction_partitions > 16u) { _fail("invalid XIR realization options or entry region"); }
+            _options.reduction_partitions == 0u || _options.reduction_partitions > 16u ||
+            !_options.local_lanes || _options.local_lanes > 16u || (_options.local_lanes & (_options.local_lanes - 1u)) ||
+            _options.block_size % _options.local_lanes) { _fail("invalid XIR realization options or entry region"); }
+        if (_options.local_lanes > 1u && !detail::packet_local_program(_input, _options.local_lanes)) {
+            _fail("XIR packet-local realization requires a common pointwise axis and closed unordered reductions with owner-preserving extracts");
+        }
         _output.module = luisa::make_unique<x::Module>();
+        _output.required_packet_width = _options.local_lanes > 1u ? _options.local_lanes : 0u;
         _output.function = _output.module->create_kernel();
         _output.function->set_name(_input.name());
         _output.function->set_block_size(luisa::make_uint3(_options.block_size, 1u, 1u));
