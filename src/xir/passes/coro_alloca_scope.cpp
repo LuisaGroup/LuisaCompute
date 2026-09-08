@@ -32,7 +32,7 @@ namespace luisa::compute::xir {
 
 namespace detail {
 
-namespace {
+namespace coro_alloca_scope_detail {
 
 struct AllocaUseRegion {
     bool valid{true};
@@ -1431,6 +1431,7 @@ make_guarded_transfer_events(
 CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
     Function *function,
     const CoroAllocaScopeOptions &options) noexcept {
+    using namespace detail::coro_alloca_scope_detail;
     CoroAllocaScopeInfo info;
     auto *definition =
         function == nullptr ? nullptr : function->definition();
@@ -1445,9 +1446,9 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
     info.semantic_block_count = graph.block_count();
     info.semantic_edge_count = graph.edge_count();
     detail::CoroPredicateAnalysis predicates{graph};
-    detail::ReferenceArgumentEffectAnalysis reference_effects;
+    detail::coro_alloca_scope_detail::ReferenceArgumentEffectAnalysis reference_effects;
     auto instruction_locations =
-        detail::make_instruction_locations(definition, graph);
+        detail::coro_alloca_scope_detail::make_instruction_locations(definition, graph);
     const auto dump_scope_rejections = []() noexcept {
         if (auto value = std::getenv(
                 "LUISA_CORO_DUMP_ALLOCA_SCOPE")) {
@@ -1482,7 +1483,7 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
     auto placement_ms = 0.0;
     auto proof_ms = 0.0;
     auto mutation_ms = 0.0;
-    detail::LifetimeProofTimings proof_timings;
+    detail::coro_alloca_scope_detail::LifetimeProofTimings proof_timings;
 
     // Reuse the same type-shaped May/Must partition as coroutine liveness.
     // The definite-initialization proof and the eventual frame transfer must
@@ -1510,7 +1511,7 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
     for (auto *alloca : allocas) {
         ++info.scanned_local_alloca_count;
         auto phase_begin = profile_begin();
-        auto region = detail::collect_alloca_use_region(
+        auto region = detail::coro_alloca_scope_detail::collect_alloca_use_region(
             alloca, definition, graph);
         collect_region_ms += profile_elapsed_ms(phase_begin);
         if (!region.valid) {
@@ -1525,7 +1526,7 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
 
         phase_begin = profile_begin();
         auto first_definition =
-            detail::plan_first_definition_delay(
+            detail::coro_alloca_scope_detail::plan_first_definition_delay(
                 alloca, region, graph, instruction_locations,
                 options.verify_instruction_order,
                 info.instruction_order_query_count,
@@ -1534,7 +1535,7 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
         if (first_definition.definition != nullptr) {
             auto *source = alloca->parent_block();
             phase_begin = profile_begin();
-            detail::apply_first_definition_plan(
+            detail::coro_alloca_scope_detail::apply_first_definition_plan(
                 alloca, first_definition);
             mutation_ms += profile_elapsed_ms(phase_begin);
             ++info.contracted_alloca_count;
@@ -1558,7 +1559,7 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
             ++info.rejected_non_dominating_alloca_count;
             continue;
         }
-        auto insertion = detail::find_latest_insertion_point(
+        auto insertion = find_latest_insertion_point(
             target, alloca, region.users,
             instruction_locations,
             options.verify_instruction_order,
@@ -1582,7 +1583,7 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
                                     luisa::span<const size_t>{
                                         atom_iter->second};
             phase_begin = profile_begin();
-            auto proof = detail::prove_fresh_lifetime(
+            auto proof = prove_fresh_lifetime(
                 target, insertion.instruction, region, graph,
                 frame_domain, predicates, reference_effects,
                 instruction_locations,

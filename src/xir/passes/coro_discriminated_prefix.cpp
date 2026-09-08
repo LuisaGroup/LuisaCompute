@@ -35,7 +35,7 @@
 
 namespace luisa::compute::xir::detail {
 
-namespace {
+namespace coro_discriminated_prefix_detail {
 
 struct InstructionLocation {
     size_t block;
@@ -1312,7 +1312,7 @@ public:
 
 }// namespace
 
-namespace {
+namespace coro_discriminated_prefix_detail {
 
 struct TagSet {
     luisa::vector<uint64_t> words;
@@ -2111,7 +2111,7 @@ struct CounterTransitionSummary {
 
 }// namespace
 
-namespace {
+namespace coro_discriminated_prefix_detail {
 
 struct DiscriminatedState {
     bool published_prefix{false};
@@ -4242,7 +4242,42 @@ void retain_tag_constraints(
     return true;
 }
 
+
 }// namespace
+
+using coro_discriminated_prefix_detail::find_lifetime_insertion;
+using coro_discriminated_prefix_detail::find_post_resume_block_entry;
+using coro_discriminated_prefix_detail::ActiveSlice;
+using coro_discriminated_prefix_detail::ArrayUseRegion;
+using coro_discriminated_prefix_detail::CandidateContext;
+using coro_discriminated_prefix_detail::CandidateDiagnostics;
+using coro_discriminated_prefix_detail::CounterTransitionSummary;
+using coro_discriminated_prefix_detail::DiscriminatedState;
+using coro_discriminated_prefix_detail::InstructionLocationMap;
+using coro_discriminated_prefix_detail::MaskedScalarKnownZeroAnalysis;
+using coro_discriminated_prefix_detail::ScalarResolver;
+using coro_discriminated_prefix_detail::ScalarZeroClass;
+using coro_discriminated_prefix_detail::TagDomain;
+using coro_discriminated_prefix_detail::block_dominates_region;
+using coro_discriminated_prefix_detail::collect_array_use_region;
+using coro_discriminated_prefix_detail::collect_masked_scalar_witnesses;
+using coro_discriminated_prefix_detail::collect_relation_slots;
+using coro_discriminated_prefix_detail::decode_unsigned;
+using coro_discriminated_prefix_detail::full_element_gep;
+using coro_discriminated_prefix_detail::make_active_slice;
+using coro_discriminated_prefix_detail::make_instruction_locations;
+using coro_discriminated_prefix_detail::match_equality_test;
+using coro_discriminated_prefix_detail::merge_state;
+using coro_discriminated_prefix_detail::process_instruction;
+using coro_discriminated_prefix_detail::refine_edge;
+using coro_discriminated_prefix_detail::region_follows_insertion;
+using coro_discriminated_prefix_detail::reset_published_records;
+using coro_discriminated_prefix_detail::retain_tag_constraints;
+using coro_discriminated_prefix_detail::scalar_zero_class_at_instruction;
+using coro_discriminated_prefix_detail::summarize_counter_transitions;
+using coro_discriminated_prefix_detail::supported_array_region;
+using coro_discriminated_prefix_detail::unsigned_scalar_array_compatible;
+using coro_discriminated_prefix_detail::unsigned_type_max;
 
 class CoroDiscriminatedPrefixAnalysis::Impl {
 private:
@@ -4708,10 +4743,11 @@ public:
     }
 };
 
+
 CoroDiscriminatedPrefixAnalysis::CoroDiscriminatedPrefixAnalysis(
     FunctionDefinition *definition,
     const CoroSemanticGraph &graph) noexcept
-    : _impl{luisa::make_unique<Impl>(definition, graph)} {}
+    : _impl{luisa::make_unique<CoroDiscriminatedPrefixAnalysis::Impl>(definition, graph)} {}
 
 CoroDiscriminatedPrefixAnalysis::~CoroDiscriminatedPrefixAnalysis() noexcept =
     default;

@@ -34,7 +34,7 @@
 
 namespace luisa::compute::xir::detail {
 
-namespace {
+namespace coro_initialized_prefix_detail {
 
 struct PrefixInstructionLocation {
     size_t block_id;
@@ -3380,6 +3380,7 @@ prove_initialized_prefix_fresh_lifetime(
     Instruction *insertion_instruction,
     const CoroSemanticGraph &graph,
     const CoroFrameAtomDomain &domain) noexcept {
+    using namespace coro_initialized_prefix_detail;
     CoroInitializedPrefixProofResult result;
     if (array == nullptr || array->type() == nullptr ||
         array->type()->tag() != Type::Tag::ARRAY ||
@@ -3393,7 +3394,7 @@ prove_initialized_prefix_fresh_lifetime(
                            parent_function->definition();
     if (definition == nullptr) { return result; }
     auto locations = make_prefix_instruction_locations(definition, graph);
-    auto region = collect_array_use_region(array, definition, graph);
+    auto region = coro_initialized_prefix_detail::collect_array_use_region(array, definition, graph);
     ScalarCopyResolver resolver{locations, graph};
     auto boolean_guards = collect_boolean_guard_slots(
         graph, resolver, locations);
@@ -3508,7 +3509,7 @@ prove_initialized_prefix_fresh_lifetime(
             counted_store_count, counters.size(),
             candidate_description, raw_description);
     }
-    auto slice = make_active_slice(target, region, graph);
+    auto slice = coro_initialized_prefix_detail::make_active_slice(target, region, graph);
     if (!slice.valid) { return result; }
     for (auto &&counter : counters) {
         auto candidate = prove_candidate(
@@ -3557,7 +3558,7 @@ prove_initialized_prefix_fresh_lifetime(
              outer_insertion == insertion_instruction)) {
             continue;
         }
-        auto outer_slice = make_active_slice(
+        auto outer_slice = coro_initialized_prefix_detail::make_active_slice(
             outer_target, region, graph);
         if (!outer_slice.valid) { continue; }
         auto candidate = prove_candidate(
