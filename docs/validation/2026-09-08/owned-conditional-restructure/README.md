@@ -72,8 +72,14 @@ matches the separately labeled `unit_coro_runtime` device test.
 An exploratory all-unit run was 149/151. The remaining assertions are in
 `test_spirv_xir_dialect` (old special-register enum endpoint) and
 `test_spirv_target_feature_codegen` (a required optimized instruction
-spelling), not the restructuring tests. These are tracked separately and
-are not represented as a green all-unit suite here.
+spelling), not the restructuring tests. A separate test-only correction
+extends both enum scans through the appended raster depth/builtin tags. The
+constant fixture's actual SPIR-V retains all four signed 16-bit literals and
+selects between them, so it now checks those exact payloads plus the existing
+positive/negative storage-feature requirements instead of insisting on
+OpConstantComposite. No code-generation or numerical policy changes.
+The subsequent all-unit run passes 151/151 (`luisa-unit-all-v2.log`);
+`spirv-constant-red-dump.log` retains the original emitted selection chain.
 
 ## Original complete application
 
