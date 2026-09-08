@@ -55,10 +55,12 @@ ScheduleEmitter::ScheduleEmitter(
     bool enable_predicated_acyclic_control_flow,
     bool enable_biased_narrow_buffer_gather,
     bool enable_gathered_native_texture_read,
-    bool enable_native_half4_texture_packet)
+    bool enable_native_half4_texture_packet,
+    size_t private_stack_budget_bytes)
     : _module{module},
       _source{source},
       _width{width},
+      _private_stack_budget_bytes{private_stack_budget_bytes},
       _entry_name{entry_name},
       _enable_fast_math{enable_fast_math},
       _static_block_size{static_block_size},

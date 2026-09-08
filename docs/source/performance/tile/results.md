@@ -18,6 +18,55 @@ of same-round numerator/denominator ratios, **not** a ratio of the displayed
 medians. Ranges and counts of slower rounds are descriptive, not confidence
 intervals. No slow or failed row is discarded to improve the headline.
 
+### Bounded XIR traversal improves compilation, not yet Torch parity
+
+The next September 8 {download}`bounded-representation report <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-xir-bounded/notes.md>`
+implements runtime loops for large Tiles, single-use pure expression recipes,
+closed unordered partial accumulators and CPU-thread-owned private workspace.
+Load snapshots, simultaneous loop carries and strict folds remain intact.
+The planner counts the new representation's work, but still searches only
+root order/block width; this is not a calibrated local-distribution solver.
+
+**Native-entry timing now isolates Runtime/Python.** For the same 64×256
+RMSNorm inputs, a single-thread C++ replay of actual generated objects gives:
+
+| Native entry | Median µs |
+|---|---:|
+| Previous indexable XIR | 98.570 |
+| Bounded XIR | 28.836 |
+| One-thread TorchInductor | 8.995 |
+
+All six orders, seven samples per visit, full FP64 outputs and guards pass.
+This excludes Runtime, Python, allocation and thread-pool dispatch, but retains
+native-call/loop overhead and Luisa's small mutable launch-record reset. It is
+**single-thread native-entry wall time**, not hardware cycles or an eight-thread
+E2E comparison. The approximately 3.42× improvement still leaves XIR at
+**3.21× Inductor's time**. Actual object text shrinks 262772→11564 bytes;
+the 64×256 native frame shrinks 37376→17056 bytes.
+
+Separate AB/BA Runtime batches improve RMSNorm 17×127, 64×256, 1024×256 and
+64×513 by 1.50–2.43× over the previous XIR, and LayerNorm 64×256 by 1.59×.
+However, **masked softmax 17×65 regresses 3.878→8.390 µs and SwiGLU
+4.373→5.644 µs**. The fixed 64-element cutoff is a code-size policy, not an
+optimal performance choice. All 32 visits pass; two orders are descriptive,
+not confidence intervals. Ordinary RMSNorm 64×256 JIT falls 5806.4→80.7 ms,
+kept separate from execution time.
+
+The expanded large-shape matrix now completes all 44 native/Torch visits,
+including widths 1537/4096/16384 and seven operator families. **Every one of
+the 11 matched cases still loses to eager Torch**: XIR/Torch E2E ratios range
+1.49–23.32×; the worst is LayerNorm 17×16384. Three failing pre-workspace cases
+remain in the raw evidence, alongside the successful resource repair. No
+Metal, MPS or BLAS improvement is claimed by this CPU change.
+
+There are two distinct remaining mapping gaps: lane packing still spans rows
+instead of continuous features; and 17/64 row programs with 32 workers/block
+expose only 1/2 CPU block tasks despite requesting eight workers. Independent
+packet task grain, local-vector distribution and phase materialization need
+real candidates before their costs can be fitted. The full isolated build and
+38 selected Tile/SIMD CTests pass. See the {download}`audit <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-xir-bounded/audit.json>`
+for separate timing boundaries, full tables, checks and retained failures.
+
 ### Indexable XIR snapshots remove quadratic extraction work
 
 The September 8 {download}`snapshot implementation report <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-xir-indexable/notes.md>`

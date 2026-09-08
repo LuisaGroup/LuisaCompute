@@ -28,7 +28,7 @@ int main() {
             });
             auto kernel = definition.capture(tensor_shape(17, width), tensor_shape(17));
             expect(kernel.valid());
-            auto result = bridge::xir::lower(kernel.function());
+            auto result = bridge::xir::lower(kernel.function(), {.max_unrolled_tile_elements = 0u});
             expect(result.ok()) << result.error;
             if (!result) { continue; }
             size_t allocations = 0u, stores = 0u, loads = 0u, selects = 0u;
@@ -42,17 +42,55 @@ int main() {
             expect(eq(stores, static_cast<size_t>(width)));
             expect(eq(loads, size_t{1}));
             expect(eq(selects, size_t{0}));
-            auto limited = bridge::xir::lower(kernel.function(), {.max_local_bytes = static_cast<uint32_t>(width * 4 - 1)});
+            auto limited = bridge::xir::lower(kernel.function(), {.max_local_bytes = static_cast<uint32_t>(width * 4 - 1), .max_unrolled_tile_elements = 0u});
             expect(!limited && limited.module == nullptr);
             expect(limited.error.find("snapshot storage budget") != string::npos);
-            expect(bridge::xir::lower(kernel.function(), {.max_local_bytes = static_cast<uint32_t>(width * 4)}).ok());
-            auto plan = bridge::xir::plan(kernel.function(), {8u, 8u});
+            expect(bridge::xir::lower(kernel.function(), {.max_local_bytes = static_cast<uint32_t>(width * 4), .max_unrolled_tile_elements = 0u}).ok());
+            auto plan = bridge::xir::plan(kernel.function(), {8u, 8u}, {.max_unrolled_tile_elements = 0u});
             expect(plan.ok()) << plan.error;
             if (plan) {
                 auto work = plan.selected.cost.arithmetic_work + plan.selected.cost.memory_work;
                 if (previous_work > 0.0) { expect(work <= previous_work * 16.0); }
                 previous_work = work;
             }
+        }
+    };
+    "tile_xir_large_tiles_have_bounded_code_and_eager_load_snapshots"_test = [] {
+        using namespace tile;
+        size_t previous_instructions = 0u;
+        for (auto width : {65, 256, 1537, 4096, 16384}) {
+            auto definition = tile_kernel("bounded_sum", [=](TensorView<const float, 2> input, TensorView<float, 1> output) {
+                auto m = axis("m", 1), n = axis("n", width);
+                for (auto &nest : parallel(shape(17))) {
+                    auto x = input[coord(nest.index(), 0), shape(m, n)];
+                    auto sum = reduce(x * x, n, add);
+                    output(coord(nest.index()), shape(1)).store(full<float>(shape(1), sum.at(coord(0))));
+                }
+            });
+            auto kernel = definition.capture(tensor_shape(17, width), tensor_shape(17));
+            auto result = bridge::xir::lower(kernel.function(), {.max_expanded_values = 256u, .max_local_bytes = static_cast<uint32_t>(width * 4), .reduction_partitions = 1u});
+            expect(result.ok()) << result.error;
+            if (!result) { continue; }
+            size_t instructions = 0u, allocations = 0u, stores = 0u, loads = 0u, selects = 0u;
+            result.function->traverse_instructions([&](xir::Instruction *inst) noexcept {
+                instructions++;
+                allocations += inst->isa<xir::AllocaInst>();
+                stores += inst->isa<xir::StoreInst>();
+                loads += inst->isa<xir::LoadInst>();
+                if (inst->isa<xir::ArithmeticInst>()) { selects += static_cast<xir::ArithmeticInst *>(inst)->op() == xir::ArithmeticOp::SELECT; }
+            });
+            expect(eq(allocations, size_t{1}));
+            expect(eq(stores, size_t{1}));
+            expect(eq(loads, size_t{2}));
+            expect(eq(selects, size_t{0}));
+            expect(instructions < 256u);
+            if (previous_instructions) { expect(eq(instructions, previous_instructions)); }
+            previous_instructions = instructions;
+            auto limited = bridge::xir::lower(kernel.function(), {.max_local_bytes = static_cast<uint32_t>(width * 4 - 1)});
+            expect(!limited && limited.error.find("snapshot storage budget") != string::npos);
+            expect(!bridge::xir::lower(kernel.function(), {.max_expanded_values = 256u, .max_unrolled_tile_elements = 0u}));
+            auto plan = bridge::xir::plan(kernel.function(), {8u, 8u});
+            expect(plan.ok()) << plan.error;
         }
     };
     "tile_xir_expanded_map_extracts_need_no_snapshot"_test = [] {

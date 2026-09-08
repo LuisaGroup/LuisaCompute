@@ -1,7 +1,8 @@
 # TileIR → XIR: execution planning and SIMD realization
 
 Status: executable CPU realization with bounded packet-index proofs and
-compiler-owned indexable snapshots, September 8, 2026. The finite root-mapping solver below is implemented. General Tile distribution, packed
+compiler-owned snapshots, bounded Tile traversal and closed unordered partials,
+September 8, 2026. The finite root-mapping solver below is implemented. General Tile distribution, packed
 matrix atoms, software pipelining and measured cost calibration are not.
 
 This document complements the [language/layout design](../../tile/design.md),
@@ -134,7 +135,7 @@ unnecessary per-element branches from inflating the earlier SIMD Schedule.
 ### Indexable snapshots preserve Tile value semantics
 
 A Tile is still an immutable SSA value, not a deferred buffer view. The XIR
-lowerer now distinguishes two access forms without changing the DSL:
+lowerer distinguishes access forms without changing the DSL:
 
 - A constant coordinate, including an expanded Tile-map coordinate and
   supported checked integer expressions, directly selects the scalar SSA
@@ -162,17 +163,17 @@ buffer, not this snapshot.
 
 For D input elements and R runtime extracts, the selected representation
 replaces D×R selection work with D definition-time stores plus R indexed
-reads. Stores must not be inserted inside the consuming reduction. A loop's
-carried snapshots are populated in its body after all simultaneous PHIs;
-escaping results are materialized at the exit, including zero-trip loops.
+reads. Stores must not be inserted inside the consuming reduction. Small
+loop carries use simultaneous PHIs; the bounded large-carry representation
+below uses a staged parallel copy and preserves zero-trip initial state.
 Distinct SSA definitions have distinct storage, preserving multi-Tile swaps.
 An input parameter being `const` is not a noalias assertion: an overlapping
 writable argument may overwrite the buffer without changing the snapshot.
 
 This is a physical representation repair, **not contribution-axis vectorization**.
-The SIMD emitter currently allocates each worker's local array separately
-within a packet and uses its existing gather/scatter machinery. It may still
-spill and statically expand large expression bodies. `max_local_bytes` bounds
+The SIMD emitter allocates each worker's local array separately within a
+packet and uses its existing gather/scatter machinery. It may still spill.
+`max_local_bytes` bounds
 the sum of snapshot allocations per logical worker (default 256 KiB), not
 peak liveness or the complete target stack; the packet multiplies this storage
 by W. The existing SSA expansion budget also charges allocation/GEP/store
@@ -184,6 +185,80 @@ The guarded load retains this bridge's existing flat-index zero fallback;
 it is not a new language-wide promise about invalid multidimensional
 coordinates. Neither extraction representation changes fold L/R order,
 reducer operand order, floating-point policy or the root execution mapping.
+
+### Bounded traversal, partial reductions and private resources
+
+The representation layer now has three forms. This is compiler state, not
+three new user-visible Tile or Memory types:
+
+| Value | Physical form | Evaluated at |
+|---|---|---|
+| Small Tile | SSA / indexed snapshot | Definition |
+| Large shared value | Array + loop | Definition |
+| Constant / single-use math | Splat / pure recipe | Consumer |
+
+Large loads, maps and multi-consumer expressions use the array form.
+External reads remain eager. A deferred recipe captures immutable physical
+operand definitions, not mutable entries in the lowerer's value lookup table.
+
+`max_unrolled_tile_elements` defaults to 64; zero explicitly selects the old
+fully expanded diagnostic form without removing IR/storage budgets. Loop
+instructions no longer grow with a large Tile's element count. This does not
+bound total code size independently of the number of operations or nested
+small expansions. Multi-consumer expressions remain materialized; there is
+no calibrated recomputation/materialization search yet.
+
+```text
+source .load() ── bounded loop ──> immutable snapshot
+                                       │
+                             pure expression recipe
+                                       │
+                              bounded consumer loop
+
+large carried state:
+  init → current ── body ──> yielded values
+            ▲                   │
+            └── copy all ── next buffers
+                           ▲
+               stage every incoming value first
+```
+
+Large loop carries have current/next storage. All yielded values are staged
+before any current value is overwritten, including cross-carry swaps.
+Small scalar/Tile carries remain PHIs. MMA's contraction uses an ordered
+runtime fold for a large contraction domain; this is not a packed matrix atom.
+
+For a closed scalar `unordered_tree` reduction, the lowerer recognizes a
+single ADD/MUL/MIN/MAX update whose carry has no other users and whose
+contributions contain only constants, elementwise math and Tile extraction.
+It splits contributions over `reduction_partitions` independent accumulators
+(default 4, legal range 1–16). Each nonempty partition starts from an actual
+contribution; the source initial value enters the final merge **once**, with
+no invented zero/one identity. Tails are exact. Strict fold L/R, non-closed
+state recurrence, multiple carries, nested regions and effectful bodies retain
+their ordered fallback. This uses the unordered numerical contract, not a
+claim that floating-point addition is exactly associative. These partials
+remain inside one logical worker; no feature-to-hardware-lane mapping exists.
+
+The SIMD adapter separately budgets **physical packet storage**:
+`bytes = Σ align_and_place(W × sizeof(local_array))`. It keeps small private
+arrays on the stack; above 64 KiB it moves their distinct intervals into a
+64-byte-aligned, Runtime-owned CPU-thread workspace, capped at 16 MiB.
+The allocation grows on first use and is reused after each packet completes;
+separate CPU threads never share it. It does not escape through kernel
+parameters or change user Buffer layouts. Standalone SIMD compilation retains
+the old stack ABI unless this policy is explicitly enabled. Cooperative
+packets and nested handlers cannot use this reuse policy.
+
+This is a physical-allocation constraint, **not a measured complete stack
+bound**, peak-liveness solver or guarantee against arbitrary register-spill
+growth. Standalone lowering defaults to a 256 KiB logical-worker budget; the
+Runtime adapter derives that budget from `16 MiB / W` and codegen checks the
+final aligned placement against the physical capacity again.
+Both counts and the chosen representation controls appear in realization
+metadata; only root order and block width currently participate in exact
+cost-based search. Small-loop regressions and remaining resource rejections
+must be assessed separately from successful large-kernel compilation.
 
 ### Proven packet accesses, not estimated slopes
 
@@ -247,12 +322,16 @@ hardware instruction counts or measured cache behavior. Default weights:
 arithmetic 1, broadcast load 1, contiguous memory 2, gathered lane 2, block
 dispatch 128. All coefficients must be finite and nonnegative.
 
-For each candidate, the estimator counts static Tile work, local-loop
+For each candidate, the estimator counts Tile work, local-loop
 repetition, ordered MMA multiply/add work, definition-time snapshot stores
 and runtime indexed reads. The planner and lowerer share the structural
 classification of expanded versus runtime Tile-extract coordinates. The
 indexed-read prior includes flat-index/guard arithmetic and gathered local
 memory; it no longer charges an entire Tile selection for every iteration.
+The representation classifier also accounts for bounded-array reads/stores,
+deferred recipes at the consumer, and staged copies of large carries. Partial
+accumulator counts and the representation threshold are configurable fixed
+constraints, not newly searched or empirically calibrated dimensions.
 These are still relative-work estimates, not exact machine instruction counts.
 It estimates a buffer's flat address slope relative to the innermost root
 axis, using operand identity and supported constant/linear expressions.
@@ -300,14 +379,15 @@ measurement gates. There is no capture-once restriction.
 
 | Tile semantics | XIR realization |
 |---|---|
-| Tile value | One scalar SSA value per local element, packed across independent workers later |
+| Tile value | Small SSA, bounded indexed array or single-use pure recipe; packed across independent workers later |
 | Named dimensions | Identity-based projection/broadcast; names are diagnostics |
 | Load snapshot | Load at the source operation before subsequent effects |
 | Bounds/fill | Per-axis guards; actual load executes only in the valid branch |
 | Store | Explicit guarded buffer effect, including BufferView offsets |
-| Loop-carried assignment | Header PHIs; zero-trip initial state and simultaneous edge updates |
+| Loop-carried assignment | Small header PHIs or large staged parallel copy; zero-trip initial state preserved |
 | Pipeline/stage | Ordered CPU loop and source-order phase cuts; no claimed physical overlap |
-| MMA | Ordered multiply/add expansion with initial accumulator and dimension contraction |
+| Reduction | Closed unordered single-carry partials; strict/non-closed fallback retains order |
+| MMA | Ordered multiply/add traversal with initial accumulator and dimension contraction |
 | `ite(c,t,f)` | Correctly reordered to XIR's `SELECT(f,t,c)` |
 
 The checked expansion budget defaults to 262144 values. Supported scalar
@@ -319,8 +399,8 @@ matrix-extension lowering.
 
 Candidate TileIR still retains pure multi-consumer SSA definitions. The direct
 XIR bridge does not yet search recomputation versus a distributed physical
-materialization; its scalar expansion and the existing XIR/SIMD shared-SSA
-cleanup are one fixed realization. A future XIR resource candidate must use
+materialization; bounded traversal, single-use recipes and the existing
+XIR/SIMD shared-SSA cleanup are a structural policy. A future XIR resource candidate must use
 the same use/effect/ownership facts as TIRx, but may choose a different result
 for CPU SIMD. It must not infer a user `Memory` or mechanically copy Metal's
 worker-stripe policy.
@@ -382,13 +462,14 @@ intermediate representation already exists.
 
 ### Bounded local-vector candidates
 
-**Local-vector distributions remain proposed; indexable snapshots are now implemented.** The
+**Local-vector distributions remain proposed; snapshots, bounded traversal
+and closed unordered partials are implemented.** The
 [Torch CPU code inspection](../../performance/tile/results.md#torch-cpu-code-inspection-exposes-missing-local-vector-candidates)
 identified static expansion and dynamic selection chains in the previous
 bridge's machine code. The indexable snapshot repair above addresses the
-selection representation, not the whole distribution problem. The next
-candidate family must retain bounded vector loops or effect-safe deferred
-expressions, plus independent output/contribution partition factors.
+selection representation, and bounded traversal removes whole-row static
+expansion. Neither solves the whole distribution problem: the next candidate
+family needs independent output/contribution partition factors.
 
 For logical packet width W and p lanes per independent output, p dividing W,
 a local candidate maps lane l to `(o0 + floor(l/p), r0 + l%p)` and advances
@@ -416,15 +497,18 @@ new solver algorithm can substitute for a realizable local-vector family.
 - `test_tile_xir`: typed ABI, output verification, repeat lowering, bounds on
   expansion, unsupported bindings, permutation legality, exact minimum and
   fixed-plan/budget failure cases; linear snapshot construction, zero SELECTs
-  for proved static projections, and exact local-storage budget boundaries.
+  for proved static projections, exact local-storage boundaries and constant
+  XIR size from width 65 through 16384 for the bounded sumsquares fixture.
 - `test_tile_xir_runtime`: ragged/transposed GEMM, nonzero initial values,
   changed non-dyadic inputs, reductions/softmax, offset views, guards, shader
   moves, zero-trip loops and read/write snapshot recurrences, including
   dynamically indexed multi-element carry swaps and aliased const/writable
-  buffer arguments.
+  buffer arguments; large in-place transpose across Runtime workers and
+  partial-reduction seed/tail/signed-zero/non-closed-fallback checks.
 - `test_tile_xir_llm`: normalization, activations, RoPE, masked softmax and
   online prefill/decode/GQA; same capture through XIR and native-target TIRx,
-  each checked independently against an FP64 oracle.
+  each checked independently against an FP64 oracle. Separate large Runtime
+  workspace fixtures bypass the TIRx cross-check but retain full FP64/guards.
 - `test_simd_phi_parallel_copy`: pure PHI cycles, uniform/varying loops,
   packet widths 1/2/4/8/16 and every active-lane count, independent of TileIR.
 - `benchmark_tile_xir`: isolated warm host-wall timing, full output export,

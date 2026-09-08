@@ -41,7 +41,11 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
         }
         auto &plan = planned.selected;
         auto threads = plan.block_size;
-        auto lowered = tile::bridge::xir::lower(kernel, {.block_size = threads, .root_axis_order = plan.root_axis_order});
+        auto lowered = tile::bridge::xir::lower(kernel, {.block_size = threads,
+                                                         .root_axis_order = plan.root_axis_order,
+                                                         .max_local_bytes = static_cast<uint32_t>(simd_max_private_workspace_bytes / _warp_width),
+                                                         .max_unrolled_tile_elements = planner_options.max_unrolled_tile_elements,
+                                                         .reduction_partitions = planner_options.reduction_partitions});
         if (!lowered) {
             metadata.error = std::move(lowered.error);
             return ShaderCreationInfo::make_invalid();
@@ -75,7 +79,8 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
                                             !detail::env_flag("LUISA_SIMD_DISABLE_UNIFORM_BUFFER_BROADCAST"),
                                             !detail::env_flag("LUISA_SIMD_DISABLE_LANE_AFFINE_BUFFER"),
                                             std::getenv("LUISA_SIMD_DUMP_ASSEMBLY_DIR") != nullptr,
-                                            _thread_pool->worker_count(), packet_batch, block_batch, true);
+                                            _thread_pool->worker_count(), packet_batch, block_batch, true,
+                                            64u * 1024u);
         if (!compiled.succeeded()) {
             for (auto &error : compiled.diagnostics) { metadata.error.append(error).append("\n"); }
             return ShaderCreationInfo::make_invalid();
@@ -96,6 +101,9 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
             metadata.realization.append(luisa::format("{}", plan.root_axis_order[i]));
         }
         metadata.realization.append("]");
+        metadata.realization.append(luisa::format("; max_unrolled_tile_elements={}", planner_options.max_unrolled_tile_elements));
+        metadata.realization.append(luisa::format("; unordered_reduction_partitions={}", planner_options.reduction_partitions));
+        metadata.realization.append(luisa::format("; private_workspace_bytes={}", compiled.private_workspace_size));
         metadata.realization.append(luisa::format("; fast_math={}; ordered_reduction={}", enable_fast_math, ordered_reduction));
         auto &arguments = kernel.body().block(0u)->arguments();
         for (size_t i = 0u; i < arguments.size(); i++) {

@@ -270,7 +270,8 @@ SIMDCompiledKernel compile_simd_kernel(
     bool enable_lane_affine_buffer, bool capture_assembly,
     uint32_t dispatch_worker_count,
     bool enable_packet_batch_entry,
-    bool enable_block_batch_entry, bool capture_ir) {
+    bool enable_block_batch_entry, bool capture_ir,
+    size_t private_stack_budget_bytes) {
     SIMDCompiledKernel result{
         .warp_width = warp_width,
     };
@@ -721,12 +722,14 @@ SIMDCompiledKernel compile_simd_kernel(
         use_native_vector_compress,
         use_biased_narrow_buffer_gather,
         use_gathered_native_texture_read,
-        use_native_half4_texture_packet);
+        use_native_half4_texture_packet,
+        private_stack_budget_bytes);
     if (!llvm_result.succeeded()) {
         result.diagnostics.emplace_back(llvm_result.error);
         return result;
     }
     result.argument_buffer_size = llvm_result.argument_buffer_size;
+    result.private_workspace_size = llvm_result.private_workspace_size;
     result.print_formats = std::move(pipeline_print_formats);
     result.print_formats.insert(
         result.print_formats.end(),

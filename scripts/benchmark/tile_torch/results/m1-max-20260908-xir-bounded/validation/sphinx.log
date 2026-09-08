@@ -1,0 +1,264 @@
+Running Sphinx v9.1.0
+loading translations [en]... done
+making output directory... done
+myst v5.1.0: MdParserConfig(commonmark_only=False, gfm_only=False, enable_extensions=set(), disable_syntax=[], all_links_external=False, links_external_new_tab=False, url_schemes=('http', 'https', 'mailto', 'ftp'), ref_domains=None, fence_as_directive=set(), number_code_blocks=[], title_to_header=False, heading_anchors=6, heading_slug_func=<function make_id at 0x10196e0c0>, html_meta={}, footnote_sort=True, footnote_transition=True, words_per_minute=200, substitutions={}, linkify_fuzzy_links=True, dmath_allow_labels=True, dmath_allow_space=True, dmath_allow_digits=True, dmath_double_inline=False, update_mathjax=True, mathjax_classes='tex2jax_process|mathjax_process|math|output_area', enable_checkboxes=False, strikethrough_single_tilde=False, colon_fence_exact_match=False, suppress_warnings=[], highlight_code_blocks=True)
+building [mo]: targets for 0 po files that are out of date
+writing output... 
+building [html]: targets for 41 source files that are out of date
+updating environment: [new config] 41 added, 0 changed, 0 removed
+reading sources... [  2%] README
+reading sources... [  5%] custom_agility_sdk
+reading sources... [  7%] index
+reading sources... [ 10%] source/api_reference
+reading sources... [ 12%] source/architecture
+reading sources... [ 15%] source/coro_suspend_extensions
+reading sources... [ 17%] source/dsl
+reading sources... [ 20%] source/gallery
+reading sources... [ 22%] source/getting_started
+reading sources... [ 24%] source/internals/index
+reading sources... [ 27%] source/internals/tile/calculus
+reading sources... [ 29%] source/internals/tile/cost-policy
+reading sources... [ 32%] source/internals/tile/cpu
+reading sources... [ 34%] source/internals/tile/decisions
+reading sources... [ 37%] source/internals/tile/index
+reading sources... [ 39%] source/internals/tile/ir
+reading sources... [ 41%] source/internals/tile/lowering
+reading sources... [ 44%] source/internals/tile/matrix
+reading sources... [ 46%] source/internals/tile/planner
+reading sources... [ 49%] source/internals/tile/reductions
+reading sources... [ 51%] source/internals/tile/related-work
+reading sources... [ 54%] source/internals/tile/runtime
+reading sources... [ 56%] source/internals/tile/xir
+reading sources... [ 59%] source/performance/index
+reading sources... [ 61%] source/performance/tile/checkpoints
+reading sources... [ 63%] source/performance/tile/implementation
+reading sources... [ 66%] source/performance/tile/index
+reading sources... [ 68%] source/performance/tile/reductions
+reading sources... [ 71%] source/performance/tile/results
+reading sources... [ 73%] source/performance/tile/validation
+reading sources... [ 76%] source/resources
+reading sources... [ 78%] source/tile/design
+reading sources... [ 80%] source/tile/execution
+reading sources... [ 83%] source/tile/index
+reading sources... [ 85%] source/tile/kernels
+reading sources... [ 88%] source/tile/layouts
+reading sources... [ 90%] source/tile/memory
+reading sources... [ 93%] source/tile/pipeline
+reading sources... [ 95%] source/tile/staging
+reading sources... [ 98%] source/tile/values
+reading sources... [100%] source/tutorials
+
+looking for now-outdated files... none found
+pickling environment... done
+checking consistency... done
+preparing documents... done
+copying assets... 
+copying downloadable files... [  1%] ../../scripts/test_tile_execution_calculus.py
+copying downloadable files... [  2%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-service-policy-validation/notes.md
+copying downloadable files... [  3%] ../../scripts/benchmark/tile_torch/results/m1-max-20260904-cpu-stack-replay/notes.md
+copying downloadable files... [  4%] ../../scripts/benchmark/tile_torch/results/m1-max-20260904-cpu-stack-system/notes.md
+copying downloadable files... [  5%] ../../scripts/benchmark/tile_torch/results/m1-max-20260904-cpu-cartesian-replay/notes.md
+copying downloadable files... [  6%] ../../scripts/benchmark/tile_torch/results/m1-max-20260904-cpu-cartesian-system/notes.md
+copying downloadable files... [  7%] ../../scripts/benchmark/tile_torch/results/m1-max-20260904-cpu-views-replay/notes.md
+copying downloadable files... [  8%] ../../scripts/benchmark/tile_torch/results/m1-max-20260904-cpu-views-system/notes.md
+copying downloadable files... [  9%] ../../scripts/benchmark/tile_torch/results/m1-max-20260904-cpu-guard-plan/notes.md
+copying downloadable files... [ 10%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-guards-replay/notes.md
+copying downloadable files... [ 11%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-guards-system/notes.md
+copying downloadable files... [ 12%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-accelerate-ops-replay/notes.md
+copying downloadable files... [ 12%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-cblas-v2-replay/notes.md
+copying downloadable files... [ 13%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-residual-layernorm-materialization-search/notes.md
+copying downloadable files... [ 14%] source/tile/tile_programming_poc.cpp
+copying downloadable files... [ 15%] ../../scripts/benchmark/tile_torch/compare_mpp.py
+copying downloadable files... [ 16%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-mpp-cost-v2-search/notes.md
+copying downloadable files... [ 17%] ../../scripts/benchmark/tile_torch/results/m1-max-20260903-copy-plan.md
+copying downloadable files... [ 18%] ../../scripts/benchmark/tile_torch/results/m1-max-20260903-barrier-plan.md
+copying downloadable files... [ 19%] ../../scripts/benchmark/tile_torch/results/m1-max-20260904-subgroup-sync-replay/results.md
+copying downloadable files... [ 20%] ../../scripts/benchmark/tile_torch/results/m1-max-20260903-layout-tie.md
+copying downloadable files... [ 21%] ../../scripts/benchmark/tile_torch/results/m1-max-20260904-tirx-structure.md
+copying downloadable files... [ 22%] ../../scripts/benchmark/tile_torch/README.md
+copying downloadable files... [ 23%] ../../src/tile/bridge/tirx/patches/README.md
+copying downloadable files... [ 24%] ../../src/tile/bridge/tirx/reduction.cpp
+copying downloadable files... [ 25%] ../../src/tests/unit/tile/bridge/test_tirx_execution.cpp
+copying downloadable files... [ 26%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-lane-validation/notes.md
+copying downloadable files... [ 27%] ../../src/tile/RELATED_WORK.md
+copying downloadable files... [ 28%] ../../scripts/benchmark/tile_torch/results/m1-max-20260907-cooperative-programs/notes.md
+copying downloadable files... [ 29%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/report.html
+copying downloadable files... [ 30%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-width-validation/notes.md
+copying downloadable files... [ 31%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-input-cache-validation/notes.md
+copying downloadable files... [ 32%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-access-demand-validation/notes.md
+copying downloadable files... [ 33%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-tail-pack-replay/notes.md
+copying downloadable files... [ 34%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-xir-validation/notes.md
+copying downloadable files... [ 35%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-mpp-cost-v2-replay/notes.md
+copying downloadable files... [ 36%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-metal-subgroup-reductions/notes.md
+copying downloadable files... [ 37%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-metal-subgroup-rmsnorm-replay/notes.md
+copying downloadable files... [ 38%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-metal-subgroup-row-extensions/notes.md
+copying downloadable files... [ 38%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-metal-subgroup-row-extensions-replay/notes.md
+copying downloadable files... [ 39%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-residual-layernorm-materialization-search/notes.md
+copying downloadable files... [ 40%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-residual-layernorm-materialization-replay/notes.md
+copying downloadable files... [ 41%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-residual-layernorm-bounded-thread-search/notes.md
+copying downloadable files... [ 42%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-provider-validation/notes.md
+copying downloadable files... [ 43%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-shared-tile-validation/notes.md
+copying downloadable files... [ 44%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-element-grid-replay/notes.md
+copying downloadable files... [ 45%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-joint-map-replay/notes.md
+copying downloadable files... [ 46%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-execution-map-validation/notes.md
+copying downloadable files... [ 47%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-shared-element-replay/notes.md
+copying downloadable files... [ 48%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-device-timing-smoke-v2/notes.md
+copying downloadable files... [ 49%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-dual-timing-validation/notes.md
+copying downloadable files... [ 50%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-device-timing-counter-control/notes.md
+copying downloadable files... [ 51%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-large-matrices/notes.md
+copying downloadable files... [ 52%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-width-cache-ablation/notes.md
+copying downloadable files... [ 53%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-cooperating-packing/protocol.md
+copying downloadable files... [ 54%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-cooperating-packing/notes.md
+copying downloadable files... [ 55%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-cooperating-packing/replay/results.json
+copying downloadable files... [ 56%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-cooperating-packing/audit.py
+copying downloadable files... [ 57%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-cooperating-packing/audit.json
+copying downloadable files... [ 58%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-fixed-group/notes.md
+copying downloadable files... [ 59%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-fixed-group/protocol.md
+copying downloadable files... [ 60%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-fixed-group/audit.py
+copying downloadable files... [ 61%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-reduction-fixed-group/audit.json
+copying downloadable files... [ 62%] ../../scripts/benchmark/tile_torch/results/m1-max-20260908-xir-bounded/notes.md
+copying downloadable files... [ 62%] ../../scripts/benchmark/tile_torch/results/m1-max-20260908-xir-bounded/audit.json
+copying downloadable files... [ 63%] ../../scripts/benchmark/tile_torch/results/m1-max-20260908-xir-indexable/notes.md
+copying downloadable files... [ 64%] ../../scripts/benchmark/tile_torch/results/m1-max-20260908-xir-indexable/ab/report.json
+copying downloadable files... [ 65%] ../../scripts/benchmark/tile_torch/results/m1-max-20260908-xir-indexable/large/report.json
+copying downloadable files... [ 66%] ../../scripts/benchmark/tile_torch/results/m1-max-20260908-xir-indexable/audit.py
+copying downloadable files... [ 67%] ../../scripts/benchmark/tile_torch/results/m1-max-20260908-torch-simd-inspection/notes.md
+copying downloadable files... [ 68%] ../../scripts/benchmark/tile_torch/results/m1-max-20260908-torch-simd-inspection/audit.py
+copying downloadable files... [ 69%] ../../scripts/benchmark/tile_torch/results/m1-max-20260908-composed-reduction/notes.md
+copying downloadable files... [ 70%] ../../scripts/benchmark/tile_torch/results/m1-max-20260908-composed-reduction/audit.py
+copying downloadable files... [ 71%] ../../scripts/benchmark/tile_torch/results/m1-max-20260906-element-multi-output/replay/results.md
+copying downloadable files... [ 72%] ../../scripts/benchmark/tile_torch/results/m1-max-20260906-element-multi-output/notes.md
+copying downloadable files... [ 73%] ../../scripts/benchmark/tile_torch/results/m1-max-20260907-llm-coverage/notes.md
+copying downloadable files... [ 74%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-xir-simd/notes.md
+copying downloadable files... [ 75%] ../../scripts/benchmark/tile_torch/results/m1-max-20260906-xir-packet/notes.md
+copying downloadable files... [ 76%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-large-matrices/protocol.md
+copying downloadable files... [ 77%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-large-matrices/environment-preflight.md
+copying downloadable files... [ 78%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-large-matrices/audit.json
+copying downloadable files... [ 79%] ../../scripts/benchmark/tile_torch/results/m1-max-20260906-mpp-bounded-k/notes.md
+copying downloadable files... [ 80%] ../../scripts/benchmark/tile_torch/results/m1-max-20260906-mpp-bounded-k/audit.json
+copying downloadable files... [ 81%] ../../scripts/benchmark/tile_torch/results/m1-max-20260906-mpp-scope/notes.md
+copying downloadable files... [ 82%] ../../scripts/benchmark/tile_torch/results/m1-max-20260906-mpp-mn-bounds/notes.md
+copying downloadable files... [ 83%] ../../scripts/benchmark/tile_torch/results/m1-max-20260906-mpp-mn-bounds/audit.json
+copying downloadable files... [ 84%] ../../scripts/benchmark/tile_torch/results/m1-max-20260906-mpp-bounded-store/notes.md
+copying downloadable files... [ 85%] ../../scripts/benchmark/tile_torch/results/m1-max-20260906-mpp-bounded-store/audit.json
+copying downloadable files... [ 86%] ../../scripts/benchmark/tile_torch/results/m1-max-20260906-mpp-state-budget/notes.md
+copying downloadable files... [ 87%] ../../scripts/benchmark/tile_torch/results/m1-max-20260906-mpp-state-budget/final-correctness/results.json
+copying downloadable files... [ 88%] ../../scripts/benchmark/tile_torch/results/m1-max-20260906-realized-work/notes.md
+copying downloadable files... [ 88%] ../../scripts/benchmark/tile_torch/results/m1-max-20260906-mpp-k-partition/notes.md
+copying downloadable files... [ 89%] ../../scripts/benchmark/tile_torch/results/m1-max-20260906-mpp-grid-walk/notes.md
+copying downloadable files... [ 90%] ../../scripts/benchmark/tile_torch/results/m1-max-20260906-mpp-participation-geometry/notes.md
+copying downloadable files... [ 91%] ../../scripts/benchmark/tile_torch/results/m1-max-20260906-program-order/notes.md
+copying downloadable files... [ 92%] ../../scripts/benchmark/tile_torch/results/m1-max-20260907-fragment-epilogue/notes.md
+copying downloadable files... [ 93%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-cpu-cblas-v2-plan/notes.md
+copying downloadable files... [ 94%] ../../scripts/benchmark/tile_torch/results/m1-max-20260908-reduction-policy/notes.md
+copying downloadable files... [ 95%] ../../scripts/benchmark/tile_torch/results/m1-max-20260906-program-order/correctness-v3/results.json
+copying downloadable files... [ 96%] ../../scripts/benchmark/tile_torch/results/m1-max-20260906-program-order/syntax/results.json
+copying downloadable files... [ 97%] ../../scripts/benchmark/tile_torch/results/m1-max-20260906-program-order/python-final.json
+copying downloadable files... [ 98%] ../../scripts/benchmark/tile_torch/results/m1-max-20260906-program-order/defaults/audit.json
+copying downloadable files... [ 99%] ../../scripts/benchmark/tile_torch/results/m1-max-20260906-element-multi-output/correctness/receipt.json
+copying downloadable files... [100%] ../../scripts/benchmark/tile_torch/results/m1-max-20260905-large-matrices/audit.py
+
+copying static files... 
+Writing evaluated template result to /private/tmp/luisa-xir-bounded.kADecq/docs-publish/_static/basic.css
+Writing evaluated template result to /private/tmp/luisa-xir-bounded.kADecq/docs-publish/_static/language_data.js
+Writing evaluated template result to /private/tmp/luisa-xir-bounded.kADecq/docs-publish/_static/documentation_options.js
+Writing evaluated template result to /private/tmp/luisa-xir-bounded.kADecq/docs-publish/_static/js/versions.js
+copying static files: done
+copying extra files... 
+copying extra files: done
+copying assets: done
+writing output... [  2%] README
+writing output... [  5%] custom_agility_sdk
+writing output... [  7%] index
+writing output... [ 10%] source/api_reference
+writing output... [ 12%] source/architecture
+writing output... [ 15%] source/coro_suspend_extensions
+writing output... [ 17%] source/dsl
+writing output... [ 20%] source/gallery
+writing output... [ 22%] source/getting_started
+writing output... [ 24%] source/internals/index
+writing output... [ 27%] source/internals/tile/calculus
+writing output... [ 29%] source/internals/tile/cost-policy
+writing output... [ 32%] source/internals/tile/cpu
+writing output... [ 34%] source/internals/tile/decisions
+writing output... [ 37%] source/internals/tile/index
+writing output... [ 39%] source/internals/tile/ir
+writing output... [ 41%] source/internals/tile/lowering
+writing output... [ 44%] source/internals/tile/matrix
+writing output... [ 46%] source/internals/tile/planner
+writing output... [ 49%] source/internals/tile/reductions
+writing output... [ 51%] source/internals/tile/related-work
+writing output... [ 54%] source/internals/tile/runtime
+writing output... [ 56%] source/internals/tile/xir
+writing output... [ 59%] source/performance/index
+writing output... [ 61%] source/performance/tile/checkpoints
+writing output... [ 63%] source/performance/tile/implementation
+writing output... [ 66%] source/performance/tile/index
+writing output... [ 68%] source/performance/tile/reductions
+writing output... [ 71%] source/performance/tile/results
+writing output... [ 73%] source/performance/tile/validation
+writing output... [ 76%] source/resources
+writing output... [ 78%] source/tile/design
+writing output... [ 80%] source/tile/execution
+writing output... [ 83%] source/tile/index
+writing output... [ 85%] source/tile/kernels
+writing output... [ 88%] source/tile/layouts
+writing output... [ 90%] source/tile/memory
+writing output... [ 93%] source/tile/pipeline
+writing output... [ 95%] source/tile/staging
+writing output... [ 98%] source/tile/values
+writing output... [100%] source/tutorials
+
+generating indices... genindex done
+highlighting module code... 
+writing additional pages... search done
+copying images... [  2%] gallery/test_path_tracing.png
+copying images... [  5%] gallery/test_path_tracing_hdr.png
+copying images... [  7%] gallery/test_path_tracing_camera.png
+copying images... [  9%] gallery/test_path_tracing_cutout.png
+copying images... [ 11%] gallery/test_path_tracing_nested_callable.png
+copying images... [ 14%] gallery/test_path_tracing_ray_masks.png
+copying images... [ 16%] gallery/test_path_tracing_spectrum.png
+copying images... [ 18%] gallery/test_photon_mapping.png
+copying images... [ 20%] gallery/sdf_renderer.png
+copying images... [ 23%] gallery/test_voxel_raytracer.png
+copying images... [ 25%] gallery/test_blackhole.png
+copying images... [ 27%] gallery/test_shader_toy.png
+copying images... [ 30%] gallery/test_shader_toy_spacex.png
+copying images... [ 32%] gallery/test_procedural.png
+copying images... [ 34%] gallery/test_mpm88.png
+copying images... [ 36%] gallery/test_game_of_life.png
+copying images... [ 39%] gallery/test_wave_equation.png
+copying images... [ 41%] gallery/test_fire_simulation.png
+copying images... [ 43%] gallery/test_nbody_simulation.png
+copying images... [ 45%] gallery/test_image_processing.png
+copying images... [ 48%] gallery/test_rtx.png
+copying images... [ 50%] gallery/test_procedural_callable.png
+copying images... [ 52%] gallery/test_native_code.png
+copying images... [ 55%] gallery/test_texture3d.png
+copying images... [ 57%] _static/tile/execution-resources-calculus.svg
+copying images... [ 59%] _static/tile/tirx-realization-pipeline.svg
+copying images... [ 61%] _static/tile/shared-tile-planning.svg
+copying images... [ 64%] _static/tile/mpp-cost-model.svg
+copying images... [ 66%] _static/tile/execution-planner.svg
+copying images... [ 68%] _static/tile/tirx-subgroup-reduction.svg
+copying images... [ 70%] _static/tile/execution-to-memory.svg
+copying images... [ 73%] _static/tile/reduction-model.svg
+copying images... [ 75%] _static/tile/guarded-view-ownership.svg
+copying images... [ 77%] _static/tile/xir-planning-pipeline.svg
+copying images... [ 80%] _static/tile/xir-mapping-roadmap.svg
+copying images... [ 82%] _static/tile/execution-first-overview.svg
+copying images... [ 84%] _static/tile/primitive-layers.svg
+copying images... [ 86%] _static/tile/nest-calculus.svg
+copying images... [ 89%] _static/tile/binding-relations.svg
+copying images... [ 91%] _static/tile/anchor-frontier.svg
+copying images... [ 93%] _static/tile/execution-transform.svg
+copying images... [ 95%] _static/tile/layout-correspondence.svg
+copying images... [ 98%] _static/tile/pipeline-stage-flow.svg
+copying images... [100%] _static/tile/pipeline-timeline.svg
+
+dumping search index in English (code: en)... done
+dumping object inventory... done
+build succeeded.
+
+The HTML pages are in ../../../../private/tmp/luisa-xir-bounded.kADecq/docs-publish.

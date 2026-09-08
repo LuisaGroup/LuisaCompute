@@ -66,11 +66,40 @@ struct Work {
     double memory{0.0};
 };
 
+void read_work(const Value *value, double repetitions, bool dynamic,
+               ExecutionTarget target, const ExecutionCostModel &cost, uint32_t limit, Work &work) {
+    if (!value->type().is_tile()) { return; }
+    if (detail::bounded_tile(value, limit)) {
+        auto op = value->defining_operation();
+        if (op && op->kind() == OperationKind::CONSTANT) { return; }
+        if (detail::deferred_elementwise(value, limit)) {
+            work.arithmetic += repetitions * cost.arithmetic;
+            for (size_t i = 0u; i < op->operand_count(); i++) { read_work(op->operand(i), repetitions, dynamic, target, cost, limit, work); }
+            return;
+        }
+        work.memory += repetitions * cost.gathered_lane * target.packet_width;
+    } else if (dynamic) {
+        auto count = volume(*value->type().index_space());
+        if (count > 1u && detail::needs_indexable_snapshot(value, limit)) {
+            work.memory += repetitions * cost.gathered_lane * target.packet_width;
+        } else {
+            work.arithmetic += repetitions * count * 2.0 * cost.arithmetic;
+        }
+    }
+}
+
 void measure(const Block &block, const Value *axis, double repetitions,
              ExecutionTarget target, const ExecutionCostModel &cost,
-             luisa::vector<const Value *> indices, Work &work) {
+             luisa::vector<const Value *> indices, uint32_t limit, Work &work) {
     auto snapshot = [&](const Value *value) {
-        if (detail::needs_indexable_snapshot(value)) {
+        if (detail::bounded_tile(value, limit)) {
+            auto op = value->defining_operation();
+            // Large carries are parallel copies, charged at their loop below.
+            if (!op || op->kind() == OperationKind::CONSTANT || op->kind() == OperationKind::SERIAL ||
+                op->kind() == OperationKind::PIPELINE || op->kind() == OperationKind::REDUCE ||
+                detail::deferred_elementwise(value, limit)) { return; }
+            work.memory += repetitions * volume(*value->type().index_space()) * cost.gathered_lane * target.packet_width;
+        } else if (detail::needs_indexable_snapshot(value, limit)) {
             auto count = volume(*value->type().index_space());
             if (count > 1u) { work.memory += repetitions * count * cost.gathered_lane * target.packet_width; }
         }
@@ -86,9 +115,22 @@ void measure(const Block &block, const Value *axis, double repetitions,
             auto body = op->region(0u)->block(0u);
             auto child_indices = indices;
             for (size_t i = 0u; i < op->domain()->rank(); i++) { child_indices.emplace_back(body->argument(i)); }
-            measure(*body, axis, repetitions * volume(*op->domain()), target, cost, std::move(child_indices), work);
+            auto iterations = repetitions * volume(*op->domain());
+            for (size_t i = 0u; i < op->result_count(); i++) {
+                if (detail::bounded_tile(op->result(i), limit)) {
+                    auto count = volume(*op->result(i)->type().index_space());
+                    read_work(op->operand(i), repetitions * count, true, target, cost, limit, work);
+                    // Initialization plus staging the next value, loading it,
+                    // and updating current only after all staged copies exist.
+                    work.memory += (repetitions + 3.0 * iterations) * count * cost.gathered_lane * target.packet_width;
+                    for (auto term : body->operations()) {
+                        if (term->kind() == OperationKind::YIELD) { read_work(term->operand(i), iterations * count, true, target, cost, limit, work); }
+                    }
+                }
+            }
+            measure(*body, axis, iterations, target, cost, std::move(child_indices), limit, work);
         } else if (kind == OperationKind::TILE_MAP) {
-            measure(*op->region(0u)->block(0u), axis, repetitions * volume(*op->domain()), target, cost, indices, work);
+            measure(*op->region(0u)->block(0u), axis, repetitions * volume(*op->domain()), target, cost, indices, limit, work);
         } else if (kind == OperationKind::VIEW_LOAD || kind == OperationKind::VIEW_STORE) {
             auto &space = *op->operand(0u)->type().index_space();
             luisa::optional<double> stride{0.0};
@@ -106,6 +148,11 @@ void measure(const Block &block, const Value *axis, double repetitions,
                 if (std::abs(*stride) == 1.0) { weight = cost.contiguous_memory; }
             }
             work.memory += repetitions * (op->domain() ? volume(*op->domain()) : 1u) * weight;
+            if (kind == OperationKind::VIEW_STORE) {
+                auto count = op->domain() ? volume(*op->domain()) : 1u;
+                read_work(op->operand(space.rank() + 1u), repetitions * count,
+                          op->domain() && detail::bounded_domain(*op->domain(), limit), target, cost, limit, work);
+            }
         } else if (kind == OperationKind::MMA) {
             auto &output = *op->result(0u)->type().index_space();
             double contraction = 1.0;
@@ -113,22 +160,25 @@ void measure(const Block &block, const Value *axis, double repetitions,
                 if (!output.contains(dimension.dimension)) { contraction *= dimension.extent.constant_value(); }
             }
             work.arithmetic += repetitions * volume(output) * contraction * 2.0 * cost.arithmetic;
+            auto dynamic = detail::bounded_domain(output, limit) || (limit && contraction > limit);
+            read_work(op->operand(0u), repetitions * volume(output) * contraction, dynamic, target, cost, limit, work);
+            read_work(op->operand(1u), repetitions * volume(output) * contraction, dynamic, target, cost, limit, work);
+            read_work(op->operand(2u), repetitions * volume(output), detail::bounded_domain(output, limit), target, cost, limit, work);
         } else if (kind == OperationKind::TILE_EXTRACT) {
-            auto count = volume(*op->operand(0u)->type().index_space());
-            if (!detail::expanded_extract(*op)) {
-                if (count > 1u) {
-                    // One indexed local read, not a full Tile selection per
-                    // reduction iteration. Definition-time stores are above.
-                    work.memory += repetitions * cost.gathered_lane * target.packet_width;
-                    work.arithmetic += repetitions * (4u + 3u * op->operand(0u)->type().index_space()->rank()) * cost.arithmetic;
-                } else {
-                    work.arithmetic += repetitions * count * cost.arithmetic;
-                }
+            auto dynamic = !detail::expanded_extract(*op, limit);
+            read_work(op->operand(0u), repetitions, dynamic, target, cost, limit, work);
+            if (dynamic) {
+                work.arithmetic += repetitions * (4u + 3u * op->operand(0u)->type().index_space()->rank()) * cost.arithmetic;
             }
         } else if (kind == OperationKind::ELEMENTWISE) {
             auto &type = op->result(0u)->type();
             auto count = type.is_tile() ? volume(*type.index_space()) : 1u;
-            work.arithmetic += repetitions * count * cost.arithmetic;
+            if (!detail::deferred_elementwise(op->result(0u), limit)) {
+                work.arithmetic += repetitions * count * cost.arithmetic;
+                for (size_t i = 0u; i < op->operand_count(); i++) {
+                    read_work(op->operand(i), repetitions * count, detail::bounded_tile(op->result(0u), limit), target, cost, limit, work);
+                }
+            }
         } else if (kind != OperationKind::CONSTANT && kind != OperationKind::YIELD && kind != OperationKind::STAGE) {
             fail("unsupported operation in XIR execution planning");
         }
@@ -137,7 +187,8 @@ void measure(const Block &block, const Value *axis, double repetitions,
 }
 
 [[nodiscard]] PlanningResult solve(const Function &function, ExecutionTarget target, const PlannerOptions &options) {
-    if (!target.packet_width || target.packet_width > 16u || (target.packet_width & (target.packet_width - 1u)) || !target.worker_count || !options.max_candidates) {
+    if (!target.packet_width || target.packet_width > 16u || (target.packet_width & (target.packet_width - 1u)) || !target.worker_count || !options.max_candidates ||
+        !options.reduction_partitions || options.reduction_partitions > 16u) {
         fail("invalid XIR target or search budget");
     }
     for (auto coefficient : {options.cost.arithmetic, options.cost.broadcast_load, options.cost.contiguous_memory, options.cost.gathered_lane, options.cost.block_dispatch}) {
@@ -190,7 +241,7 @@ void measure(const Block &block, const Value *axis, double repetitions,
     PlanningResult result;
     do {
         Work work;
-        measure(*body, indices[order.back()], 1.0, target, options.cost, indices, work);
+        measure(*body, indices[order.back()], 1.0, target, options.cost, indices, options.max_unrolled_tile_elements, work);
         // If a packet crosses the chosen innermost axis, its memory estimate
         // is conservatively penalized. No lane-coherence fact reaches codegen.
         auto extent = root->domain()->axis(order.back()).extent.constant_value();

@@ -87,6 +87,21 @@ cooperative_thread_context() noexcept {
 
 void simd_cooperative_frame_free(void *) noexcept {}
 
+[[nodiscard]] void *private_thread_workspace(size_t size) noexcept {
+    if (size == 0u) { return nullptr; }
+    LUISA_ASSERT(size <= simd_max_private_workspace_bytes, "SIMD private workspace exceeds the runtime limit.");
+    struct alignas(64) Chunk {
+        std::byte bytes[64];
+    };
+    // Independent CPU threads never share these bytes. A packet completes
+    // before its successor reuses the allocation; cooperative/handler paths
+    // cannot opt into this storage policy. Growth happens once on first use.
+    static thread_local std::vector<Chunk> workspace;
+    auto chunks = (size + sizeof(Chunk) - 1u) / sizeof(Chunk);
+    if (workspace.size() < chunks) { workspace.resize(chunks); }
+    return workspace.data();
+}
+
 struct AssemblyStats {
     size_t instructions{0u};
     size_t vector_instructions{0u};
@@ -695,6 +710,7 @@ void SIMDShader::_dispatch_once(
             config.grid_size[1u] = grid_size.y;
             config.grid_size[2u] = grid_size.z;
             config.kernel_id = kernel_id;
+            config.private_workspace = private_thread_workspace(_compiled.private_workspace_size);
             config.enable_predicated_acyclic_surface_filter =
                 _enable_predicated_acyclic_surface_filter;
             if (_enable_compact_surface_filter_state) {

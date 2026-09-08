@@ -6,6 +6,7 @@
 #include <luisa/tile/bridge/xir/lower.h>
 #include <luisa/tile/verifier.h>
 #include <luisa/xir/builder.h>
+#include <luisa/xir/constant.h>
 #include <luisa/xir/verifier.h>
 #include "representation.h"
 
@@ -46,8 +47,16 @@ private:
     NativeFunction _output;
     x::XIRBuilder _builder;
     x::BasicBlock *_block{nullptr};
-    luisa::unordered_map<const Value *, Elements> _values;
-    luisa::unordered_map<const Value *, x::Value *> _snapshots;
+    struct Representation {
+        const Type *type{nullptr};
+        Elements elements;
+        x::Value *storage{nullptr};
+        const Operation *expression{nullptr};
+        luisa::vector<const Representation *> inputs;
+        bool splat{false};
+    };
+    luisa::vector<luisa::unique_ptr<Representation>> _definitions;
+    luisa::unordered_map<const Value *, const Representation *> _values;
     luisa::unordered_map<const Value *, uint32_t> _arguments;
     struct IndexRange {
         int64_t lo, hi;
@@ -104,6 +113,9 @@ private:
         }
         return result;
     }
+    [[nodiscard]] bool _bounded(uint64_t count) const noexcept {
+        return _options.max_unrolled_tile_elements != 0u && count > _options.max_unrolled_tile_elements;
+    }
     template<typename T>
     [[nodiscard]] x::Value *_constant(T value) { return _output.module->create_constant(XType::of<T>(), &value); }
     [[nodiscard]] x::Value *_index(uint64_t value) { return _constant(static_cast<int64_t>(value)); }
@@ -117,36 +129,126 @@ private:
         _block = block;
         _builder.set_insertion_point(block);
     }
-    [[nodiscard]] const Elements &_get(const Value *value) const {
+    [[nodiscard]] const Representation *_get(const Value *value) const {
         auto found = _values.find(value);
         if (found == _values.end()) { _fail("TileIR value has no dominating XIR definition"); }
         return found->second;
     }
     [[nodiscard]] x::Value *_scalar(const Value *value) const {
-        auto &elements = _get(value);
+        auto &elements = _get(value)->elements;
         if (value->type().is_tile() || elements.size() != 1u) { _fail("expected scalar TileIR operand"); }
         return elements.front();
     }
-    void _define(const Value *value, Elements elements) {
-        if (elements.size() > 1u && detail::needs_indexable_snapshot(value)) {
-            auto type = _type(value->type());
-            auto bytes = elements.size() * type->size();
-            if (bytes > _options.max_local_bytes || _local_bytes > _options.max_local_bytes - bytes) {
-                _fail("XIR realization exceeds its local snapshot storage budget");
+    [[nodiscard]] Representation *_representation(const Value *value) {
+        auto data = luisa::make_unique<Representation>();
+        data->type = &value->type();
+        auto result = data.get();
+        _definitions.emplace_back(std::move(data));
+        _values.insert_or_assign(value, result);
+        return result;
+    }
+    [[nodiscard]] x::Value *_allocate(const Type &type) {
+        auto element = _type(type);
+        auto count = _volume(*type.index_space());
+        auto bytes = count * element->size();
+        if (bytes > _options.max_local_bytes || _local_bytes > _options.max_local_bytes - bytes) {
+            _fail("XIR realization exceeds its local snapshot storage budget");
+        }
+        _local_bytes += bytes;
+        _charge();
+        auto storage = _builder.alloca_local(XType::array(element, count));
+        storage->set_name("tile_snapshot");
+        return storage;
+    }
+    template<typename F>
+    void _for_each(uint64_t count, F &&emit) {
+        if (!_bounded(count)) {
+            for (uint64_t i = 0u; i < count; i++) { emit(_index(i)); }
+            return;
+        }
+        auto preheader = _block;
+        auto header = _output.function->create_basic_block();
+        auto body = _output.function->create_basic_block();
+        auto exit = _output.function->create_basic_block();
+        _builder.br(header);
+        _at(header);
+        auto index = _builder.phi(XType::of<int64_t>(), {{_index(0u), preheader}});
+        _builder.cond_br(_compare(A::BINARY_LESS, index, _index(count)), body, exit);
+        _at(body);
+        emit(index);
+        index->add_incoming(_binary(A::BINARY_ADD, index, _index(1u)), _block);
+        _builder.br(header);
+        _at(exit);
+    }
+    template<typename F>
+    [[nodiscard]] x::Value *_fold(uint64_t count, x::Value *initial, F &&emit) {
+        if (!_bounded(count)) {
+            for (uint64_t i = 0u; i < count; i++) { initial = emit(_index(i), initial); }
+            return initial;
+        }
+        auto preheader = _block;
+        auto header = _output.function->create_basic_block();
+        auto body = _output.function->create_basic_block();
+        auto exit = _output.function->create_basic_block();
+        _builder.br(header);
+        _at(header);
+        auto index = _builder.phi(XType::of<int64_t>(), {{_index(0u), preheader}});
+        auto sum = _builder.phi(initial->type(), {{initial, preheader}});
+        _builder.cond_br(_compare(A::BINARY_LESS, index, _index(count)), body, exit);
+        _at(body);
+        auto next = emit(index, sum);
+        sum->add_incoming(next, _block);
+        index->add_incoming(_binary(A::BINARY_ADD, index, _index(1u)), _block);
+        _builder.br(header);
+        _at(exit);
+        return sum;
+    }
+    [[nodiscard]] Elements _coordinates(const IndexSpace &space, x::Value *flat) {
+        Elements result(space.rank());
+        uint64_t constant = 0u;
+        if (x::try_decode_constant_nonnegative_integer(flat, constant)) {
+            auto coordinates = _coordinates(space, constant);
+            for (size_t i = 0u; i < coordinates.size(); i++) { result[i] = _index(coordinates[i]); }
+        } else {
+            for (auto axis = space.rank(); axis != 0u; axis--) {
+                auto extent = _extent(space, axis - 1u);
+                if (!extent) { _fail("cannot index an empty Tile"); }
+                result[axis - 1u] = _binary(A::BINARY_MOD, flat, _index(extent));
+                flat = _binary(A::BINARY_DIV, flat, _index(extent));
             }
-            _local_bytes += bytes;
-            _charge(1u + 2u * elements.size());
-            auto storage = _builder.alloca_local(XType::array(type, elements.size()));
-            storage->set_name("tile_snapshot");
+        }
+        return result;
+    }
+    void _store_local(const Type &type, x::Value *storage, x::Value *flat, x::Value *element) {
+        _charge(2u);
+        _builder.store(_builder.gep(_type(type), storage, {flat}), element);
+    }
+    template<typename F>
+    void _emit_tile(const Value *value, F &&emit) {
+        auto count = _volume(*value->type().index_space());
+        if (_bounded(count)) {
+            auto storage = _allocate(value->type());
+            _for_each(count, [&](x::Value *flat) { _store_local(value->type(), storage, flat, emit(flat)); });
+            _representation(value)->storage = storage;
+        } else {
+            Elements elements;
+            _for_each(count, [&](x::Value *flat) { elements.emplace_back(emit(flat)); });
+            _define(value, std::move(elements));
+        }
+    }
+    void _define(const Value *value, Elements elements) {
+        auto data = _representation(value);
+        if (elements.size() > 1u && detail::needs_indexable_snapshot(value, _options.max_unrolled_tile_elements)) {
+            auto storage = _allocate(value->type());
             for (size_t i = 0u; i < elements.size(); i++) {
-                _builder.store(_builder.gep(type, storage, {_index(i)}), elements[i]);
+                _store_local(value->type(), storage, _index(i), elements[i]);
             }
             // Stores occur at this SSA definition, not at the first extract:
             // external writes cannot change a previously loaded Tile, and a
             // reduction does not re-materialize its entire input per iteration.
-            _snapshots.insert_or_assign(value, storage);
+            data->storage = storage;
         }
-        _values.insert_or_assign(value, std::move(elements));
+        data->elements = std::move(elements);
     }
     // An integer proof, independent of the planner's floating-point slope
     // heuristic. Unknown values, narrow arithmetic and any possible signed
@@ -200,19 +302,56 @@ private:
         }
         return {};
     }
-    [[nodiscard]] x::Value *_project(const Value *value, const IndexSpace &domain, const Coordinates &coordinates) const {
-        if (!value->type().is_tile()) { return _scalar(value); }
-        auto &space = *value->type().index_space();
-        uint64_t flat = 0u;
+    [[nodiscard]] x::Value *_read(const Representation *data, x::Value *flat) {
+        if (data->splat) { return data->elements.front(); }
+        if (data->expression) {
+            auto &domain = *data->type->index_space();
+            auto coordinates = _coordinates(domain, flat);
+            Elements inputs;
+            for (auto input : data->inputs) { inputs.emplace_back(_project(input, domain, coordinates)); }
+            return _elementwise(data->expression->elementwise_op(), _type(*data->type), inputs);
+        }
+        uint64_t constant = 0u;
+        if (!data->elements.empty() && x::try_decode_constant_nonnegative_integer(flat, constant)) {
+            return data->elements.at(constant);
+        }
+        if (data->storage) {
+            _charge(2u);
+            return _builder.load(_type(*data->type), _builder.gep(_type(*data->type), data->storage, {flat}));
+        }
+        auto type = _type(*data->type);
+        x::Value *value = _output.module->create_constant_zero(type);
+        for (size_t i = 0u; i < data->elements.size(); i++) {
+            value = _alu(type, A::SELECT, {value, data->elements[i], _compare(A::BINARY_EQUAL, flat, _index(i))});
+        }
+        return value;
+    }
+    [[nodiscard]] x::Value *_project(const Representation *data, const IndexSpace &domain, const Elements &coordinates) {
+        if (!data->type->is_tile()) { return data->elements.front(); }
+        auto &space = *data->type->index_space();
+        x::Value *flat = _index(0u);
+        luisa::optional<uint64_t> constant_flat{0u};
         for (size_t i = 0u; i < space.rank(); i++) {
             auto axis = domain.axis_index(space.axis(i).dimension);
             if (!axis) { _fail("Tile operand dimension is absent from its XIR expression domain"); }
             auto extent = _extent(space, i);
-            auto coordinate = extent == 1u ? 0u : coordinates[*axis];
-            if (coordinate >= extent) { _fail("Tile projection is out of bounds"); }
-            flat = flat * extent + coordinate;
+            auto coordinate = extent == 1u ? _index(0u) : coordinates[*axis];
+            uint64_t constant = 0u;
+            if (constant_flat && x::try_decode_constant_nonnegative_integer(coordinate, constant)) {
+                if (constant >= extent) { _fail("Tile projection is out of bounds"); }
+                *constant_flat = *constant_flat * extent + constant;
+                flat = _index(*constant_flat);
+            } else {
+                constant_flat.reset();
+                flat = _binary(A::BINARY_ADD, _binary(A::BINARY_MUL, flat, _index(extent)), coordinate);
+            }
         }
-        return _get(value).at(flat);
+        return _read(data, flat);
+    }
+    void _copy(const Representation *source, x::Value *destination) {
+        _for_each(_volume(*source->type->index_space()), [&](x::Value *flat) {
+            _store_local(*source->type, destination, flat, _read(source, flat));
+        });
     }
     [[nodiscard]] x::Value *_elementwise(ElementwiseOp op, const XType *type, const Elements &v) {
         switch (op) {
@@ -283,24 +422,25 @@ private:
         auto slot = found->second;
         auto load = op.kind() == OperationKind::VIEW_LOAD;
         _output.argument_usages[slot] = static_cast<Usage>(static_cast<uint32_t>(_output.argument_usages[slot]) | static_cast<uint32_t>(load ? Usage::READ : Usage::WRITE));
-        auto buffer = _get(view).front();
+        auto buffer = _get(view)->elements.front();
         auto &space = *view->type().index_space();
         auto count = op.domain() ? _volume(*op.domain()) : 1u;
-        _charge(count);
-        Elements result;
-        for (uint64_t item = 0u; item < count; item++) {
-            auto indices = op.domain() ? _coordinates(*op.domain(), item) : Coordinates(space.rank(), 0u);
+        auto access = [&](x::Value *flat) -> x::Value * {
+            _charge();
+            auto indices = op.domain() ? _coordinates(*op.domain(), flat) : Elements(space.rank(), _index(0u));
             x::Value *address = _index(0u);
             x::Value *valid = _constant(true);
             auto needs_guard = false;
             for (size_t i = 0u; i < space.rank(); i++) {
                 auto coordinate = _scalar(op.operand(i + 1u));
-                if (op.domain()) { coordinate = _binary(A::BINARY_ADD, coordinate, _index(indices[i])); }
+                if (op.domain()) { coordinate = _binary(A::BINARY_ADD, coordinate, indices[i]); }
                 address = _binary(A::BINARY_ADD, _binary(A::BINARY_MUL, address, _index(_extent(space, i))), coordinate);
                 if (op.domain() && op.bounds_mode() == BoundsMode::ZERO) {
                     if (auto range = _range(op.operand(i + 1u))) {
-                        auto offset = static_cast<int64_t>(indices[i]);
-                        auto lo = checked_add(range->lo, offset), hi = checked_add(range->hi, offset);
+                        uint64_t offset = 0u;
+                        auto fixed = x::try_decode_constant_nonnegative_integer(indices[i], offset);
+                        auto lo = checked_add(range->lo, fixed ? static_cast<int64_t>(offset) : 0);
+                        auto hi = checked_add(range->hi, fixed ? static_cast<int64_t>(offset) : static_cast<int64_t>(_extent(*op.domain(), i)) - 1);
                         if (lo && hi && *lo >= 0 && *hi < static_cast<int64_t>(_extent(space, i))) { continue; }
                     }
                     needs_guard = true;
@@ -320,17 +460,26 @@ private:
                     valid = _scalar(op.operand(space.rank() + 1u));
                     fill = _scalar(op.operand(space.rank() + 2u));
                 }
-                result.emplace_back(guarded ? _guarded_load(valid, buffer, address, fill) : _builder.call(type, x::ResourceReadOp::BUFFER_READ, {buffer, address}));
+                return guarded ? _guarded_load(valid, buffer, address, fill) : _builder.call(type, x::ResourceReadOp::BUFFER_READ, {buffer, address});
             } else {
-                auto value = _get(op.operand(space.rank() + 1u)).at(item);
+                auto value = _read(_get(op.operand(space.rank() + 1u)), flat);
                 if (needs_guard) {
                     _guarded_store(valid, buffer, address, value);
                 } else {
                     _builder.call(x::ResourceWriteOp::BUFFER_WRITE, {buffer, address, value});
                 }
             }
+            return nullptr;
+        };
+        if (load) {
+            if (op.result(0u)->type().is_tile()) {
+                _emit_tile(op.result(0u), access);
+            } else {
+                _define(op.result(0u), Elements{access(_index(0u))});
+            }
+        } else {
+            _for_each(count, access);
         }
-        if (load) { _define(op.result(0u), std::move(result)); }
     }
     void _bind_coordinates(const Block &body, const IndexSpace &domain, x::Value *flat, luisa::span<const uint32_t> order = {}) {
         auto trailing = _volume(domain);
@@ -342,22 +491,95 @@ private:
                 trailing /= extent;
                 coordinate = _binary(A::BINARY_MOD, _binary(A::BINARY_DIV, flat, _index(trailing)), _index(extent));
             }
-            _values.insert_or_assign(body.argument(i), Elements{coordinate});
+            _define(body.argument(i), Elements{coordinate});
             // The body executes only for valid coordinates; zero-trip loop
             // bodies are unreachable. Never infer ranges for carried values.
             if (extent != 0u) { _coordinate_ranges.insert_or_assign(body.argument(i), IndexRange{0, static_cast<int64_t>(extent - 1u)}); }
         }
     }
-    [[nodiscard]] luisa::vector<Elements> _region(const Block &body) {
+    [[nodiscard]] luisa::vector<const Representation *> _region(const Block &body) {
         for (auto op : body.operations()) {
             if (op->kind() == OperationKind::YIELD) {
-                luisa::vector<Elements> yielded;
+                luisa::vector<const Representation *> yielded;
                 for (size_t i = 0u; i < op->operand_count(); i++) { yielded.emplace_back(_get(op->operand(i))); }
                 return yielded;
             }
             _operation(*op);
         }
         return {};
+    }
+    [[nodiscard]] bool _partial_reduction(const Operation &op) {
+        if (op.kind() != OperationKind::REDUCE || op.reduction_policy() != reduction::unordered_tree ||
+            op.result_count() != 1u || op.result(0u)->type().is_tile() || !_bounded(_volume(*op.domain())) ||
+            _options.reduction_partitions <= 1u) { return false; }
+        auto body = op.region(0u)->block(0u);
+        auto carry = body->argument(op.domain()->rank());
+        // A closed associative update, not arbitrary state recurrence. The
+        // only carry use must be the yielded combine. No effects or nested
+        // regions may be duplicated/reordered while producing contributions.
+        if (carry->use_count() != 1u) { return false; }
+        const Operation *yield = nullptr;
+        for (auto operation : body->operations()) {
+            auto kind = operation->kind();
+            if (kind == OperationKind::YIELD) {
+                yield = operation;
+            } else if (kind != OperationKind::CONSTANT && kind != OperationKind::ELEMENTWISE && kind != OperationKind::TILE_EXTRACT) {
+                return false;
+            }
+        }
+        if (!yield || yield->operand_count() != 1u) { return false; }
+        auto update = yield->operand(0u)->defining_operation();
+        if (!update || update->parent_block() != body || update->kind() != OperationKind::ELEMENTWISE ||
+            update->operand_count() != 2u || update->result(0u)->use_count() != 1u) { return false; }
+        auto left = update->operand(0u) == carry;
+        if (!left && update->operand(1u) != carry) { return false; }
+        auto kind = update->elementwise_op();
+        if (kind != ElementwiseOp::ADD && kind != ElementwiseOp::MUL && kind != ElementwiseOp::MIN && kind != ElementwiseOp::MAX) { return false; }
+        auto contribution = update->operand(left ? 1u : 0u);
+        auto count = _volume(*op.domain());
+        auto partitions = std::min<uint64_t>(_options.reduction_partitions, count);
+        auto type = _type(op.result(0u)->type());
+        auto initial = _scalar(op.operand(0u));
+        auto evaluate = [&](x::Value *ordinal) {
+            _bind_coordinates(*body, *op.domain(), ordinal);
+            for (auto operation : body->operations()) {
+                if (operation != update && operation != yield) { _operation(*operation); }
+            }
+            return _scalar(contribution);
+        };
+        auto combine = [&](x::Value *a, x::Value *b) {
+            return _elementwise(kind, type, left ? Elements{a, b} : Elements{b, a});
+        };
+        Elements seeds;
+        for (uint64_t p = 0u; p < partitions; p++) { seeds.emplace_back(evaluate(_index(p))); }
+        // Seed each nonempty partition from its first actual contribution.
+        // Do not invent zero/one identities (notably for signed zero/NaN),
+        // and include the user's initial accumulator exactly once at the end.
+        auto preheader = _block;
+        auto header = _output.function->create_basic_block();
+        auto loop_body = _output.function->create_basic_block();
+        auto exit = _output.function->create_basic_block();
+        _builder.br(header);
+        _at(header);
+        auto induction = _builder.phi(XType::of<int64_t>(), {{_index(partitions), preheader}});
+        luisa::vector<x::PhiInst *> partials;
+        for (auto seed : seeds) { partials.emplace_back(_builder.phi(type, {{seed, preheader}})); }
+        auto bulk = count - count % partitions;
+        _builder.cond_br(_compare(A::BINARY_LESS, induction, _index(bulk)), loop_body, exit);
+        _at(loop_body);
+        Elements next;
+        for (uint64_t p = 0u; p < partitions; p++) {
+            next.emplace_back(combine(partials[p], evaluate(_binary(A::BINARY_ADD, induction, _index(p)))));
+        }
+        for (size_t p = 0u; p < partials.size(); p++) { partials[p]->add_incoming(next[p], _block); }
+        induction->add_incoming(_binary(A::BINARY_ADD, induction, _index(partitions)), _block);
+        _builder.br(header);
+        _at(exit);
+        Elements results{partials.begin(), partials.end()};
+        for (uint64_t p = 0u; p < count % partitions; p++) { results[p] = combine(results[p], evaluate(_index(bulk + p))); }
+        for (auto partial : results) { initial = combine(initial, partial); }
+        _define(op.result(0u), Elements{initial});
+        return true;
     }
     void _loop(const Operation &op) {
         auto &domain = *op.domain();
@@ -387,6 +609,21 @@ private:
             return;
         }
         if (!_inside_parallel) { _fail("serial work outside the root parallel requires a multi-launch program"); }
+        if (_partial_reduction(op)) { return; }
+        struct Carry {
+            luisa::vector<x::PhiInst *> phis;
+            x::Value *current{nullptr};
+            x::Value *next{nullptr};
+        };
+        luisa::vector<Carry> carries(op.result_count());
+        for (size_t i = 0u; i < carries.size(); i++) {
+            auto &type = op.result(i)->type();
+            if (type.is_tile() && _bounded(_volume(*type.index_space()))) {
+                carries[i].current = _allocate(type);
+                carries[i].next = _allocate(type);
+                _copy(_get(op.operand(i)), carries[i].current);
+            }
+        }
         auto preheader = _block;
         auto header = _output.function->create_basic_block();
         auto loop_body = _output.function->create_basic_block();
@@ -394,21 +631,25 @@ private:
         _builder.br(header);
         _at(header);
         auto induction = _builder.phi(XType::of<int64_t>(), {{_index(0u), preheader}});
-        luisa::vector<luisa::vector<x::PhiInst *>> carries;
         for (size_t i = 0u; i < op.result_count(); i++) {
-            luisa::vector<x::PhiInst *> phis;
-            for (auto value : _get(op.operand(i))) {
+            if (carries[i].current) { continue; }
+            for (auto value : _get(op.operand(i))->elements) {
                 auto phi = _builder.phi(value->type(), {{value, preheader}});
-                phis.emplace_back(phi);
+                carries[i].phis.emplace_back(phi);
             }
-            carries.emplace_back(std::move(phis));
         }
         _builder.cond_br(_compare(A::BINARY_LESS, induction, _index(_volume(domain))), loop_body, exit);
         _at(loop_body);
         // All PHIs must precede non-PHI instructions. Materialize carried
         // snapshots only on an executed iteration, after simultaneous updates.
         for (size_t i = 0u; i < carries.size(); i++) {
-            _define(body->argument(domain.rank() + i), Elements{carries[i].begin(), carries[i].end()});
+            auto argument = body->argument(domain.rank() + i);
+            if (carries[i].current) {
+                _representation(argument)->storage = carries[i].current;
+            } else {
+                auto &phis = carries[i].phis;
+                _define(argument, Elements{phis.begin(), phis.end()});
+            }
         }
         x::Value *ordinal = induction;
         if (op.kind() == OperationKind::REDUCE && op.reduction_policy() == reduction::fold_right) {
@@ -421,17 +662,35 @@ private:
         _bind_coordinates(*body, domain, ordinal);
         auto yielded = _region(*body);
         if (yielded.size() != carries.size()) { _fail("XIR loop yield does not match its carried state"); }
-        // Every incoming uses the old iteration's SSA definitions. No ordered
-        // stores, including for swaps and interdependent carried Tiles.
+        // Stage every large incoming before overwriting any current carry.
+        // This is a parallel copy, including swaps and interdependent Tiles.
         for (size_t i = 0u; i < carries.size(); i++) {
-            if (yielded[i].size() != carries[i].size()) { _fail("XIR loop carry shape mismatch"); }
-            for (size_t j = 0u; j < carries[i].size(); j++) { carries[i][j]->add_incoming(yielded[i][j], _block); }
+            if (carries[i].next) { _copy(yielded[i], carries[i].next); }
+        }
+        for (size_t i = 0u; i < carries.size(); i++) {
+            if (carries[i].current) {
+                Representation staged;
+                staged.type = &op.result(i)->type();
+                staged.storage = carries[i].next;
+                _copy(&staged, carries[i].current);
+            }
+        }
+        for (size_t i = 0u; i < carries.size(); i++) {
+            if (carries[i].current) { continue; }
+            auto &phis = carries[i].phis;
+            if (yielded[i]->elements.size() != phis.size()) { _fail("XIR loop carry shape mismatch"); }
+            for (size_t j = 0u; j < phis.size(); j++) { phis[j]->add_incoming(yielded[i]->elements[j], _block); }
         }
         induction->add_incoming(_binary(A::BINARY_ADD, induction, _index(1u)), _block);
         _builder.br(header);
         _at(exit);
         for (size_t i = 0u; i < carries.size(); i++) {
-            _define(op.result(i), Elements{carries[i].begin(), carries[i].end()});
+            if (carries[i].current) {
+                _representation(op.result(i))->storage = carries[i].current;
+            } else {
+                auto &phis = carries[i].phis;
+                _define(op.result(i), Elements{phis.begin(), phis.end()});
+            }
         }
     }
     void _mma(const Operation &op) {
@@ -445,42 +704,60 @@ private:
                 static_cast<void>(domain.add(axis.dimension, axis.extent));
             }
         }
-        Elements elements;
         auto type = _type(result->type());
-        for (uint64_t i = 0u; i < _volume(space); i++) {
-            auto coordinates = _coordinates(space, i);
-            auto sum = _get(op.operand(2u)).at(i);
-            for (uint64_t k = 0u; k < _volume(contraction); k++) {
+        _emit_tile(result, [&](x::Value *flat) {
+            auto coordinates = _coordinates(space, flat);
+            auto initial = _read(_get(op.operand(2u)), flat);
+            return _fold(_volume(contraction), initial, [&](x::Value *k, x::Value *sum) {
                 auto full = coordinates;
                 for (auto coordinate : _coordinates(contraction, k)) { full.emplace_back(coordinate); }
-                auto a = _builder.static_cast_if_necessary(type, _project(op.operand(0u), domain, full));
-                auto b = _builder.static_cast_if_necessary(type, _project(op.operand(1u), domain, full));
-                sum = _binary(A::BINARY_ADD, sum, _binary(A::BINARY_MUL, a, b));
-            }
-            elements.emplace_back(sum);
-        }
-        _define(result, std::move(elements));
+                auto a = _builder.static_cast_if_necessary(type, _project(_get(op.operand(0u)), domain, full));
+                auto b = _builder.static_cast_if_necessary(type, _project(_get(op.operand(1u)), domain, full));
+                return _binary(A::BINARY_ADD, sum, _binary(A::BINARY_MUL, a, b));
+            });
+        });
     }
     void _operation(const Operation &op) {
         switch (op.kind()) {
             case OperationKind::CONSTANT: {
                 auto result = op.result(0u);
                 auto count = result->type().is_tile() ? _volume(*result->type().index_space()) : 1u;
-                _charge(count);
-                _define(result, Elements(count, _literal(op)));
+                if (_bounded(count)) {
+                    _charge();
+                    auto data = _representation(result);
+                    data->splat = true;
+                    data->elements.emplace_back(_literal(op));
+                } else {
+                    _charge(count);
+                    _define(result, Elements(count, _literal(op)));
+                }
                 break;
             }
             case OperationKind::ELEMENTWISE: {
                 auto result = op.result(0u);
                 auto domain = result->type().is_tile() ? *result->type().index_space() : IndexSpace{};
-                Elements elements;
-                for (uint64_t i = 0u; i < _volume(domain); i++) {
-                    auto coordinates = _coordinates(domain, i);
-                    Elements inputs;
-                    for (size_t j = 0u; j < op.operand_count(); j++) { inputs.emplace_back(_project(op.operand(j), domain, coordinates)); }
-                    elements.emplace_back(_elementwise(op.elementwise_op(), _type(result->type()), inputs));
+                if (detail::deferred_elementwise(result, _options.max_unrolled_tile_elements)) {
+                    // Capture immutable physical operands now, not mutable
+                    // TileIR-to-XIR bindings that another map/carry may replace.
+                    // Only pure single-use arithmetic is deferred. Loads and
+                    // multi-consumer values stay materialized at their definition.
+                    _charge();
+                    auto data = _representation(result);
+                    data->expression = &op;
+                    for (size_t j = 0u; j < op.operand_count(); j++) { data->inputs.emplace_back(_get(op.operand(j))); }
+                    break;
                 }
-                _define(result, std::move(elements));
+                auto evaluate = [&](x::Value *flat) {
+                    auto coordinates = _coordinates(domain, flat);
+                    Elements inputs;
+                    for (size_t j = 0u; j < op.operand_count(); j++) { inputs.emplace_back(_project(_get(op.operand(j)), domain, coordinates)); }
+                    return _elementwise(op.elementwise_op(), _type(result->type()), inputs);
+                };
+                if (result->type().is_tile()) {
+                    _emit_tile(result, evaluate);
+                } else {
+                    _define(result, Elements{evaluate(_index(0u))});
+                }
                 break;
             }
             case OperationKind::VIEW_LOAD:
@@ -492,26 +769,26 @@ private:
             case OperationKind::STAGE: break;// Ordered CPU realization retains source phase order.
             case OperationKind::MMA: _mma(op); break;
             case OperationKind::TILE_MAP: {
-                Elements values;
                 auto body = op.region(0u)->block(0u);
-                for (uint64_t i = 0u; i < _volume(*op.domain()); i++) {
-                    auto coordinates = _coordinates(*op.domain(), i);
+                _emit_tile(op.result(0u), [&](x::Value *flat) {
+                    auto coordinates = _coordinates(*op.domain(), flat);
                     for (size_t j = 0u; j < coordinates.size(); j++) {
-                        _values.insert_or_assign(body->argument(j), Elements{_index(coordinates[j])});
-                        auto c = static_cast<int64_t>(coordinates[j]);
-                        _coordinate_ranges.insert_or_assign(body->argument(j), IndexRange{c, c});
+                        _define(body->argument(j), Elements{coordinates[j]});
+                        uint64_t c = 0u;
+                        auto fixed = x::try_decode_constant_nonnegative_integer(coordinates[j], c);
+                        _coordinate_ranges.insert_or_assign(body->argument(j), fixed ? IndexRange{static_cast<int64_t>(c), static_cast<int64_t>(c)} : IndexRange{0, static_cast<int64_t>(_extent(*op.domain(), j)) - 1});
                     }
                     auto yielded = _region(*body);
-                    if (yielded.size() != 1u || yielded[0].size() != 1u) { _fail("Tile map must yield exactly one scalar"); }
-                    values.emplace_back(yielded[0][0]);
-                }
-                _define(op.result(0u), std::move(values));
+                    if (yielded.size() != 1u || yielded[0]->elements.size() != 1u) { _fail("Tile map must yield exactly one scalar"); }
+                    return yielded[0]->elements[0];
+                });
                 break;
             }
             case OperationKind::TILE_EXTRACT: {
                 auto tile = op.operand(0u);
                 auto &space = *tile->type().index_space();
-                auto &elements = _get(tile);
+                auto data = _get(tile);
+                auto count = _volume(space);
                 auto type = _type(op.result(0u)->type());
                 x::Value *value = _output.module->create_constant_zero(type);
                 // Constant map coordinates project SSA directly. Use checked
@@ -523,15 +800,15 @@ private:
                     constant_flat = range && range->lo == range->hi && product ? checked_add(*product, range->lo) : luisa::nullopt;
                 }
                 if (constant_flat) {
-                    if (*constant_flat >= 0 && static_cast<uint64_t>(*constant_flat) < elements.size()) { value = elements[*constant_flat]; }
+                    if (*constant_flat >= 0 && static_cast<uint64_t>(*constant_flat) < count) { value = _read(data, _index(*constant_flat)); }
                     _define(op.result(0u), Elements{value});
                     break;
                 }
                 x::Value *flat = _index(0u);
                 for (size_t i = 0u; i < space.rank(); i++) { flat = _binary(A::BINARY_ADD, _binary(A::BINARY_MUL, flat, _index(_extent(space, i))), _scalar(op.operand(i + 1u))); }
-                if (auto found = _snapshots.find(tile); found != _snapshots.end()) {
+                if (count != 0u) {
                     auto valid = _binary(A::BINARY_BIT_AND, _compare(A::BINARY_GREATER_EQUAL, flat, _index(0u)),
-                                         _compare(A::BINARY_LESS, flat, _index(elements.size())));
+                                         _compare(A::BINARY_LESS, flat, _index(count)));
                     // Preserve the existing flat-index zero fallback, including
                     // negative indices. Never issue an out-of-bounds local load.
                     auto header = _block;
@@ -539,15 +816,11 @@ private:
                     auto merge = _output.function->create_basic_block();
                     _builder.cond_br(valid, read, merge);
                     _at(read);
-                    _charge(2u);
-                    auto loaded = _builder.load(type, _builder.gep(type, found->second, {flat}));
+                    auto loaded = _read(data, flat);
+                    auto read_exit = _block;
                     _builder.br(merge);
                     _at(merge);
-                    value = _builder.phi(type, {{value, header}, {loaded, read}});
-                } else {
-                    // Singleton/empty Tiles and statically expanded coordinates
-                    // whose checked proof failed retain the bounded SSA fallback.
-                    for (size_t i = 0u; i < elements.size(); i++) { value = _alu(type, A::SELECT, {value, elements[i], _compare(A::BINARY_EQUAL, flat, _index(i))}); }
+                    value = _builder.phi(type, {{value, header}, {loaded, read_exit}});
                 }
                 _define(op.result(0u), Elements{value});
                 break;
@@ -560,7 +833,8 @@ public:
     Lowerer(const Function &input, LowerOptions options) : _input{input}, _options{options} {}
     [[nodiscard]] NativeFunction run() {
         if (_input.parent_module() == nullptr || !verify(*_input.parent_module())) { _fail("TileIR verification failed before XIR lowering"); }
-        if (_input.body().block_count() != 1u || !x::KernelFunction::is_valid_block_size(luisa::make_uint3(_options.block_size, 1u, 1u)) || _options.max_expanded_values == 0u) { _fail("invalid XIR realization options or entry region"); }
+        if (_input.body().block_count() != 1u || !x::KernelFunction::is_valid_block_size(luisa::make_uint3(_options.block_size, 1u, 1u)) || _options.max_expanded_values == 0u ||
+            _options.reduction_partitions == 0u || _options.reduction_partitions > 16u) { _fail("invalid XIR realization options or entry region"); }
         _output.module = luisa::make_unique<x::Module>();
         _output.function = _output.module->create_kernel();
         _output.function->set_name(_input.name());
@@ -576,7 +850,7 @@ public:
             auto buffer = _output.function->create_resource_argument(XType::buffer(type));
             buffer->set_name(value->name());
             _arguments.emplace(value, static_cast<uint32_t>(_output.argument_usages.size()));
-            _values.emplace(value, Elements{buffer});
+            _define(value, Elements{buffer});
             _output.argument_usages.emplace_back(Usage::NONE);
             _output.argument_sizes_bytes.emplace_back(count * type->size());
         }

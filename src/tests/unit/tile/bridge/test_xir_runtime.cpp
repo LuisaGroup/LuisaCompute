@@ -5,6 +5,7 @@
 #include <bit>
 #include <luisa/runtime/stream.h>
 #include <luisa/tile/runtime.h>
+#include <luisa/tile/bridge/xir/planner.h>
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -23,7 +24,7 @@ void reduction_fold_policies(Device &device) {
     namespace cases = test::tile_reduction;
     constexpr auto rows = int64_t{3};
     for (auto dimensions : {std::pair{0, 3}, std::pair{2, 0}, std::pair{1, 1},
-                            std::pair{1, 3}, std::pair{2, 3}, std::pair{3, 5}}) {
+                            std::pair{1, 3}, std::pair{2, 3}, std::pair{3, 5}, std::pair{5, 13}}) {
         auto [outer, inner] = dimensions;
         auto width = outer * inner;
         auto stride = std::max(width, 1);
@@ -160,7 +161,20 @@ void rows(Device &device, int64_t width, bool softmax) {
     auto ab = device.create_buffer<float>(a.size()), bb = device.create_buffer<float>(b.size());
     auto stream = device.create_stream(StreamTag::COMPUTE);
     stream << ab.copy_from(a.data()) << shader(ab, bb).dispatch() << bb.copy_to(b.data()) << synchronize();
-    expect(close(b, expected));
+    if (!close(b, expected)) {
+        for (size_t i = 0u; i < b.size(); i++) {
+            if (!std::isfinite(b[i]) || std::abs(b[i] - expected[i]) > 2e-5 + 2e-5 * std::abs(expected[i])) {
+                auto row = i / width;
+                auto sequential = 0.0f;
+                for (auto col = int64_t{0}; col < width; col++) { sequential += a[row * width + col]; }
+                auto y = a[i] * 1.25f - .75f;
+                LUISA_WARNING("Row mismatch width={} softmax={} index={} actual={} fp64={} fp32_sequential={}",
+                              width, softmax, i, b[i], expected[i], std::abs(y) + sequential);
+                break;
+            }
+        }
+    }
+    expect(close(b, expected)) << "width=" << width << " softmax=" << softmax;
 }
 
 void recurrence(Device &device, int64_t iterations, bool pipelined) {
@@ -326,21 +340,131 @@ void indexed_bounds(Device &device, int64_t width) {
     expect(close(actual, expected)) << "width=" << width;
 }
 
+void bounded_transpose_alias(Device &device, int64_t rows = 7, int64_t columns = 11) {
+    using namespace tile;
+    constexpr auto count = int64_t{67};
+    auto definition = tile_kernel("bounded_transpose_alias", [=](TensorView<const float, 3> input, TensorView<float, 3> output) {
+        auto b = axis("b", 1), m = axis("m", rows), n = axis("n", columns);
+        for (auto &nest : parallel(shape(count))) {
+            auto snapshot = input[coord(nest.index(), 0, 0), shape(b, m, n)];
+            auto transposed = map<float>(shape(b, n, m), [&](const Nest &element) {
+                return snapshot.at(coord(0, element.index(m), element.index(n))) * 1.25f + cast<float>(nest.index());
+            });
+            output(coord(nest.index(), 0, 0), shape(b, n, m)).store(transposed);
+        }
+    });
+    auto kernel = definition.capture(tensor_shape(count, rows, columns), tensor_shape(count, columns, rows));
+    auto shader = compile(device, kernel, {.threads_per_group = 32u});
+    expect(static_cast<bool>(shader)) << shader.metadata().error;
+    if (!shader) { return; }
+    if (rows * columns * 8 > 65536) {
+        expect(shader.metadata().realization.find("private_workspace_bytes=0;") == string::npos);
+    }
+    constexpr auto pad = size_t{17};
+    constexpr auto guard = -731.25f;
+    vector<float> data(count * rows * columns + 2 * pad, guard);
+    vector<double> expected(count * rows * columns);
+    for (auto b = int64_t{0}; b < count; b++) {
+        for (auto m = int64_t{0}; m < rows; m++) {
+            for (auto n = int64_t{0}; n < columns; n++) {
+                auto value = static_cast<float>(b * rows * columns + m * columns + n) * .125f;
+                data[pad + b * rows * columns + m * columns + n] = value;
+                expected[b * rows * columns + n * rows + m] = value * 1.25 + b;
+            }
+        }
+    }
+    auto buffer = device.create_buffer<float>(data.size());
+    auto view = buffer.view(pad, expected.size());
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    stream << buffer.copy_from(span{data}) << shader(view, view).dispatch() << buffer.copy_to(span{data}) << synchronize();
+    expect(close(span{data}.subspan(pad, expected.size()), expected));
+    expect(std::all_of(data.begin(), data.begin() + pad, [](float x) { return x == guard; }));
+    expect(std::all_of(data.end() - pad, data.end(), [](float x) { return x == guard; }));
+}
+
+void partitioned_reductions(Device &device, int64_t width, uint32_t partitions) {
+    using namespace tile;
+    constexpr auto rows = int64_t{4};
+    auto stride = std::max(width, int64_t{1});
+    auto definition = tile_kernel("partitioned_reductions", [=](TensorView<const float, 2> input, TensorView<float, 2> output) {
+        for (auto &nest : parallel(shape(rows))) {
+            auto x = input[coord(nest.index(), 0), shape(1, width)];
+            auto sum = ite(nest.index() == 0, Scalar<float>{-0.0f}, Scalar<float>{2.5f});
+            auto product = Scalar<float>{2.0f};
+            auto dependent = Scalar<float>{1.0f};
+            for (auto &step : nest.reduce(shape(width))) { sum += x.at(coord(0, step.index())); }
+            for (auto &step : nest.reduce(shape(width))) { product *= x.at(coord(0, step.index())); }
+            // This is not a closed associative combine and must keep its
+            // original recurrence despite unordered contribution permission.
+            for (auto &step : nest.reduce(shape(width))) { dependent = dependent * .5f + x.at(coord(0, step.index())); }
+            output(coord(nest.index(), 0), shape(1, 1)).store(full<float>(shape(1, 1), sum));
+            output(coord(nest.index(), 1), shape(1, 1)).store(full<float>(shape(1, 1), product));
+            output(coord(nest.index(), 2), shape(1, 1)).store(full<float>(shape(1, 1), dependent));
+        }
+    });
+    auto kernel = definition.capture(tensor_shape(rows, stride), tensor_shape(rows, 3));
+    auto options = bridge::xir::PlannerOptions{.reduction_partitions = partitions};
+    auto shader = compile(device, kernel, {.xir = &options});
+    expect(static_cast<bool>(shader)) << shader.metadata().error;
+    if (!shader) { return; }
+    vector<float> input(rows * stride), actual(rows * 3), expected(rows * 3);
+    for (int64_t row = 0; row < rows; row++) {
+        for (int64_t i = 0; i < width; i++) { input[row * stride + i] = row == 0 ? -0.0f : row == 1 ? .25f :
+                                                                                                      (i % 3 == 0 ? 1.0f : .5f); }
+        auto values = span<const float>{input}.subspan(row * stride, width);
+        auto fold = [&](float seed, auto combine) {
+            auto count = width > 64 && partitions > 1 ? partitions : 1u;
+            if (count == 1u || width == 0) {
+                for (auto value : values) { seed = combine(seed, value); }
+            } else {
+                for (auto p = 0u; p < count; p++) {
+                    auto partial = values[p];
+                    for (auto i = static_cast<size_t>(p + count); i < values.size(); i += count) { partial = combine(partial, values[i]); }
+                    seed = combine(seed, partial);
+                }
+            }
+            return seed;
+        };
+        expected[row * 3] = fold(row == 0 ? -0.0f : 2.5f, [](float a, float b) { return a + b; });
+        expected[row * 3 + 1] = fold(2.0f, [](float a, float b) { return a * b; });
+        auto dependent = 1.0f;
+        for (auto value : values) { dependent = dependent * .5f + value; }
+        expected[row * 3 + 2] = dependent;
+    }
+    auto a = device.create_buffer<float>(input.size()), b = device.create_buffer<float>(actual.size());
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    stream << a.copy_from(span{input}) << shader(a, b).dispatch() << b.copy_to(span{actual}) << synchronize();
+    for (size_t i = 0u; i < actual.size(); i++) {
+        expect(eq(std::bit_cast<uint32_t>(actual[i]), std::bit_cast<uint32_t>(expected[i]))) << "width=" << width << " partitions=" << partitions << " index=" << i;
+    }
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     auto [context, device] = test::create_device(argc, argv);
     "tile_xir_runtime_reduction_fold_policies"_test = [&] { reduction_fold_policies(device); };
+    "tile_xir_runtime_bounded_transpose_preserves_alias_snapshot"_test = [&] {
+        bounded_transpose_alias(device);
+        bounded_transpose_alias(device, 129, 65);
+    };
+    "tile_xir_runtime_partitioned_closed_reductions"_test = [&] {
+        for (auto partitions : {1u, 3u, 4u, 16u}) {
+            for (auto width : {0, 1, 65, 66, 67, 128}) { partitioned_reductions(device, width, partitions); }
+        }
+    };
     "tile_xir_runtime_gemm"_test = [&] {
         gemm(device, {16, 24, 16, 1, 1, 8}, true);
         gemm(device, {17, 19, 13, 2, 3, 4, false, false, .25f}, true);
         for (auto ta : {false, true}) {
             for (auto tb : {false, true}) { gemm(device, {7, 11, 9, 2, 3, 4, ta, tb, .5f, 1u}, false); }
         }
+        gemm(device, {7, 11, 129, 3, 5, 65, true, true, .25f}, false);
+        gemm(device, {11, 13, 17, 9, 9, 5, false, false, .25f}, false);
     };
     "tile_xir_runtime_elementwise_reductions_softmax"_test = [&] {
-        for (auto width : {1, 7, 17}) {
+        for (auto width : {1, 7, 17, 65, 129, 4096}) {
             rows(device, width, false);
             rows(device, width, true);
         }
@@ -363,12 +487,12 @@ int main(int argc, char *argv[]) {
         clipped_origin(device, true);
     };
     "tile_xir_runtime_indexable_snapshots_and_simultaneous_carries"_test = [&] {
-        for (auto width : {1, 7}) {
+        for (auto width : {1, 7, 65, 127}) {
             for (auto iterations : {0, 1, 5}) {
                 indexed_snapshots(device, width, iterations, false);
                 indexed_snapshots(device, width, iterations, true);
             }
         }
-        for (auto width : {0, 1, 7}) { indexed_bounds(device, width); }
+        for (auto width : {0, 1, 7, 65, 129}) { indexed_bounds(device, width); }
     };
 }

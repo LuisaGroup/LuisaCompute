@@ -25,6 +25,10 @@ struct PlannerOptions {
     luisa::vector<uint32_t> root_axis_order;
     uint32_t max_candidates{1024u};
     ExecutionCostModel cost;
+    // Representation/code-size constraint, shared by cost extraction and
+    // lowering. Zero retains the expanded diagnostic baseline.
+    uint32_t max_unrolled_tile_elements{64u};
+    uint32_t reduction_partitions{4u};
 };
 
 struct ExecutionCost {

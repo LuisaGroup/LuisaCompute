@@ -51,6 +51,7 @@ private:
     ::llvm::Module &_module;
     const schedule::Function &_source;
     uint32_t _width;
+    size_t _private_stack_budget_bytes{0u};
     std::string _entry_name;
     bool _enable_fast_math;
     std::array<uint32_t, 3u> _static_block_size{};
@@ -772,7 +773,8 @@ public:
                     bool enable_predicated_acyclic_control_flow = true,
                     bool enable_biased_narrow_buffer_gather = false,
                     bool enable_gathered_native_texture_read = false,
-                    bool enable_native_half4_texture_packet = false);
+                    bool enable_native_half4_texture_packet = false,
+                    size_t private_stack_budget_bytes = 0u);
     [[nodiscard]] LLVMScheduleCodegenResult run();
 };
 

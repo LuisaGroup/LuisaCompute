@@ -90,12 +90,14 @@ microkernels and Tile distribution remain missing. Attention, CNN/filter,
 sort and Top-K PoCs establish correctness, not broad optimized performance.
 
 The [Torch CPU inspection](results.md#torch-cpu-code-inspection-exposes-missing-local-vector-candidates)
-has now led to [indexable XIR snapshots](results.md#indexable-xir-snapshots-remove-quadratic-extraction-work).
-Seven bounded reduction cases improve 1.17–5.32× versus the old XIR path in
-two balanced orders; SwiGLU is essentially unchanged. This is Runtime wall
-time, not pure-kernel timing or a Torch win. JIT, code size and stack usage
-regress, and larger probes remain incomplete. Bounded vector loops and local
-Tile distribution are still missing; existing SIMD vector math can be reused.
+has led to [indexable snapshots](results.md#indexable-xir-snapshots-remove-quadratic-extraction-work)
+and [bounded traversal/private workspace](results.md#bounded-xir-traversal-improves-compilation-not-yet-torch-parity).
+For 64×256 RMSNorm, actual single-thread native-entry replay falls from
+98.570 to 28.836 µs, but TorchInductor is 8.995 µs. Compilation/code size
+improve and all 11 large-shape cases now complete; all still lose to eager
+Torch, and small softmax/SwiGLU regress versus the previous XIR. Local-vector
+distribution and independent CPU task grain remain missing candidates.
+Native-entry and Runtime E2E measurements are reported separately.
 
 The [LLM negative-result screen](results.md#attention-and-direct-simd-still-need-richer-execution-mappings)
 measures six direct-SIMD operators at 1.22–16.35× Torch E2E time. The subsequent

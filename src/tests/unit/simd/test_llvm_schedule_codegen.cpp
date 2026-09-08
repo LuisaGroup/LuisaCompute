@@ -15851,6 +15851,51 @@ make_structured_early_exit_foreign_convergence_fixture() {
     return true;
 }
 
+[[nodiscard]] bool run_private_workspace_policy() {
+    constexpr auto width = uint32_t{8u};
+    constexpr auto budget = size_t{64u * 1024u};
+    for (auto count : {size_t{2048u}, size_t{2049u}, simd_max_private_workspace_bytes / sizeof(float) / width + 1u}) {
+        xir::Module module;
+        auto *kernel = module.create_kernel();
+        kernel->set_name("private_workspace_policy");
+        kernel->set_block_size(luisa::make_uint3(32u, 1u, 1u));
+        xir::XIRBuilder builder;
+        builder.set_insertion_point(kernel->create_body_block());
+        auto *storage = builder.alloca_local(Type::array(Type::of<float>(), count));
+        auto *pointer = builder.gep(Type::of<float>(), storage, {module.create_warp_lane_id()});
+        builder.store(pointer, module.create_constant_one(Type::of<float>()));
+        builder.return_void();
+        auto compiled = compile_simd_kernel(kernel, width, "private_workspace_policy", false, true, true, false, 1u, false, false, true, budget);
+        if (count * sizeof(float) * width > simd_max_private_workspace_bytes) {
+            CHECK(!compiled.succeeded());
+            CHECK(!compiled.diagnostics.empty());
+            continue;
+        }
+        CHECK(compiled.succeeded());
+        auto bytes = count * sizeof(float) * width;
+        CHECK(compiled.private_workspace_size == (bytes > budget ? bytes : 0u));
+        CHECK((compiled.llvm_ir.find("private.workspace") != std::string::npos) == (bytes > budget));
+        if (bytes > budget) {
+            struct alignas(64) Chunk {
+                std::byte bytes[64];
+            };
+            std::vector<Chunk> workspace((bytes + 63u) / 64u);
+            auto config = launch_1d(width, 32u);
+            config.private_workspace = workspace.data();
+            using Entry = void(const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+            auto entry = reinterpret_cast<Entry *>(compiled.entry);
+            CHECK(entry != nullptr);
+            entry(nullptr, nullptr, &config, width);
+            for (uint32_t lane = 0u; lane < width; lane++) {
+                float actual = 0.0f;
+                std::memcpy(&actual, reinterpret_cast<const std::byte *>(workspace.data()) + (lane * count + lane) * sizeof(float), sizeof(float));
+                CHECK(actual == 1.0f);
+            }
+        }
+    }
+    return true;
+}
+
 }// namespace
 
 int main() {
@@ -15859,6 +15904,7 @@ int main() {
         bool (*run)();
     };
     constexpr Test tests[]{
+        {"private workspace capacity and lane intervals", &run_private_workspace_policy},
         {"Schedule IR vector warp1", &run_codegen<1u>},
         {"Schedule IR vector warp2", &run_codegen<2u>},
         {"Schedule IR vector warp4", &run_codegen<4u>},
