@@ -99,6 +99,24 @@ add_test(NAME test_simd_thread_pool
 set_tests_properties(test_simd_thread_pool PROPERTIES
         LABELS "unit;unit_simd")
 
+# Exercise the portable worker-pool protocol without loading LLVM/Embree or
+# compiling a shader. Compile the same production queue implementation here.
+luisa_compute_add_test(test_fallback_command_queue
+        unit/fallback/test_fallback_command_queue.cpp
+        LABELS "unit;unit_fallback")
+target_sources(test_fallback_command_queue PRIVATE
+        ../backends/fallback/fallback_command_queue.cpp)
+target_include_directories(test_fallback_command_queue PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../backends/fallback)
+target_link_libraries(test_fallback_command_queue PRIVATE ${CMAKE_DL_LIBS})
+set_tests_properties(test_fallback_command_queue PROPERTIES TIMEOUT 60)
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_test(NAME test_fallback_command_queue_completion
+            COMMAND test_fallback_command_queue completion)
+    set_tests_properties(test_fallback_command_queue_completion PROPERTIES
+            LABELS "unit;unit_fallback" TIMEOUT 60)
+endif ()
+
 luisa_compute_add_test(test_simd_warp_uniformity
         unit/simd/test_warp_uniformity.cpp
         LABELS "unit;unit_simd;unit_xir")
