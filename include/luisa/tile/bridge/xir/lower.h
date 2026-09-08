@@ -29,7 +29,8 @@ struct NativeFunction {
 // One root parallel domain maps to independent Runtime workers. Static Tile
 // elements remain distinct SSA values inside each worker; the SIMD backend
 // packs workers, not the logical Tile's memory dimensions. Serial/reduction
-// and pipeline recurrences preserve lexicographic order. This first CPU
+// and pipeline recurrences preserve lexicographic order; explicit right folds
+// visit the reversed logical sequence without changing update operands. This CPU
 // realization does not implement cooperative bindings or manual Memory.
 [[nodiscard]] LUISA_TILE_XIR_BRIDGE_API NativeFunction lower(
     const Function &function, const LowerOptions &options = {}) noexcept;

@@ -89,11 +89,65 @@ auto definition = tile_kernel(
 its guarded Tensor access from the input view; neither the source hierarchy nor
 the primitive names a subgroup, thread or memory level.
 
-The compile option `metal_subgroup_reductions` is explicit. For FP32 addition,
-enabling it is also the numerical permission to replace the reference left
-fold with a tree order. A user who requires the exact serial recurrence keeps
-the option disabled or spells an ordered `serial` computation. The current
-surface does not yet expose richer accuracy/deterministic-tree policies.
+The compile option `metal_subgroup_reductions` enables a candidate family, not
+numerical permission. Each reduction carries its resolved `ReductionPolicy`:
+`unordered_tree` by default, with explicit `ordered_tree`, `fold_left` or
+`fold_right` restrictions. The current striped emitter requires unordered-tree
+permission and a compatible body; an ordered tree or fold stays ordered.
+The Metal Runtime enables the candidate family automatically when it can
+establish device capability and noalias and no explicit TIRx configuration was
+provided. Standalone bridge clients still declare those contracts. Richer
+accuracy/exception/deterministic-tree policies remain unimplemented.
+
+Order restrictions also constrain the final machine compiler. Luisa Runtime
+disables global fast math for a kernel containing an ordered reduction; its
+TIRx source artifact carries `requires_precise_math`. TVM's own Metal runtime
+requires the separately versioned
+{download}`precise-math extension <../../../../src/tile/bridge/tirx/patches/README.md>`:
+stock TVM hardcodes fast math on. Missing support is an explicit compile error,
+not a tolerance change or CPU fallback. Another unordered reduction in the
+same kernel may still use a collective.
+
+### Reductions inside composed groups
+
+The same per-operation permission check also applies to a closed reduction Tile
+inside an already bound cooperative group, including pipeline iterations
+with other element and matrix phases. It does not require the complete
+program to match the whole-row realization.
+
+For a group of `T` threads, this bounded realization assigns each reduced
+output to one 32-lane subgroup:
+
+```text
+subgroup = thread / 32; lane = thread % 32
+output   = batch * (T / 32) + subgroup
+element  = chunk * 32 + lane
+```
+
+Each lane folds its stripe; all lanes in the active subgroup enter
+`simd_sum`, `simd_max` or `simd_min`. Missing elements contribute the identity,
+and only the subgroup leader publishes the result. The output-tail guard is
+subgroup-uniform. The enclosing group mapper supplies the publication fence
+before a later phase consumes shared results.
+
+The matcher reuses the canonical FP32 add/max/min, scalar carry and identity
+checks. Output dimensions may form a rectangular nest; the reduced axis need
+not be the last memory dimension. Tests exercise both axis positions, extent
+one, ragged widths, pipeline state and more outputs than resident subgroups.
+The ordinary ordered realization remains when the candidate option is off
+or the group is not a whole number of subgroups.
+
+The group workload analysis reuses the emitter's exact policy/body matcher.
+For its reference binding it counts one complete subgroup per independent
+collective output, capped by the target thread limit. It no longer mistakes
+a scalar reduction result for only one lane of available work. Explicit
+thread overrides remain authoritative and can select a serial fallback.
+
+This first composed candidate uses **one subgroup per output**. It is not the
+whole-row planner's multi-subgroup/cached-stripe algorithm, and the group cost
+model does not yet price its phase-specific reduction service demand.
+Emitting an intrinsic alone is therefore not evidence of a speedup; see the
+separate performance results for the retained negative screens.
 
 ```{figure} ../../../_static/tile/execution-to-memory.svg
 :alt: Logical execution coordinates and memory coordinates are related by explicit maps rather than by treating a memory tile as a hardware execution level.
@@ -170,8 +224,9 @@ using more intrinsics is not itself an optimization objective. Generated MSL
 does not by itself prove a particular final machine-instruction sequence.
 
 The scope is the admitted **Metal FP32 add/max/min** family. The explicit
-`metal_subgroup_reductions` option also permits floating-point reassociation;
-disabled or unproved automatic cases retain the reference path, and an
+`metal_subgroup_reductions` option only enables candidates; the local policy
+must permit their reassociation and permutation. Disabled or unproved
+automatic cases retain the reference path, and an
 unrealizable explicit subgroup binding is rejected. This is not a claim that
 the CPU, CUDA or arbitrary reducer path has the same collective optimization.
 
@@ -699,8 +754,8 @@ There is no capture-once super-kernel.
 The regression suite checks both generated structure and actual hardware
 results:
 
-- option/target/noalias contracts and absence of silent subgroup intrinsics by
-  default;
+- option/target/noalias contracts, the raw bridge's conservative candidate
+  default, and Luisa Runtime's capability-resolved automatic selection;
 - row sums at widths 127, 257, 1024 and 4096, including expected
   one/one/four/eight-group plans;
 - softmax at `3×4096`, requiring two reductions, an independently enumerated
@@ -737,8 +792,7 @@ results:
 - benchmark/replay metadata, policy preservation, cooperating-subgroup facts
   and staged/JIT winner revalidation, including materialization policy.
 
-Executed counts, historical checkpoints and the two known local
-source-assertion failures belong to the
+Executed counts, historical checkpoints and remaining worktree failures belong to the
 [validation record](../../performance/tile/validation.md#metal-reduction-validation-checkpoints).
 The [cooperating-packing measurements](../../performance/tile/reductions.md#cooperating-program-packing)
 link the latest full CTest log, independent audit and retained negative results.

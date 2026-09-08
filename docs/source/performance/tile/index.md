@@ -13,7 +13,7 @@ checkpoints
 
 ## Current conclusion
 
-As of September 7, 2026, on `codex/tile-programming-design`:
+As of September 8, 2026, on `codex/tile-programming-design`:
 **the architecture runs, but the general MPS/Torch performance goal is not
 complete.** Several bounded FP32 cohorts on Apple M1 Max beat eager Torch;
 large GEMM and direct XIR/SIMD still have substantial gaps. These results do
@@ -101,12 +101,13 @@ LLM performance parity.
 
 ## Validation and next milestone
 
-The latest cooperative-program checkpoint completes a full build and
-**33/35 Tile CTests**. Its new targeted semantics test passes 17,189 assertions;
-the 110 Python benchmark tests also pass in this rerun. Two existing
-Metal source-string suites still reject an
-unrelated user-owned barrier-flag edit; the worktree is not all green. The
-earlier matrix default-off controls validate 56 complete native/Torch outputs
+The latest [reduction-policy checkpoint](validation.md#per-operation-reduction-policy-checkpoint)
+completes an independent full build, **35/35 Tile CTests** and 110 Python
+benchmark tests. It preserves strict folds through final machine compilation
+and admits closed subgroup reductions in composed programs. The original
+worktree's separate run remains **34/35** because of an unfinished matrix
+experiment excluded from this checkpoint. These are correctness results,
+not new performance measurements. The earlier matrix default-off controls validate 56 complete native/Torch outputs
 across Metal/CPU, with byte-identical Metal and only bijective TBAA-label changes
 in CPU LLVM. See [validation](validation.md).
 

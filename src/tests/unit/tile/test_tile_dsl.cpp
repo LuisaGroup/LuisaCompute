@@ -3,6 +3,7 @@
 #include "ut/ut.hpp"
 
 #include <luisa/tile.h>
+#include <luisa/tile/analysis.h>
 
 #include <concepts>
 #include <type_traits>
@@ -154,6 +155,7 @@ void test_reduction_capture_and_implicit_carry() {
     expect(outer_body->operation(0u)->kind() == OperationKind::CONSTANT);
     auto reduction = outer_body->operation(1u);
     expect(reduction->kind() == OperationKind::REDUCE);
+    expect(reduction->reduction_policy() == reduction::unordered_tree);
     expect(eq(reduction->operand_count(), 1u));
     expect(eq(reduction->result_count(), 1u));
     expect(reduction->operand(0u) == outer_body->operation(0u)->result(0u));
@@ -175,6 +177,38 @@ void test_reduction_capture_and_implicit_carry() {
     expect(store->kind() == OperationKind::VIEW_STORE);
     expect(store->operand(store->operand_count() - 1u) == reduction->result(0u));
     expect(outer_body->operation(3u)->kind() == OperationKind::YIELD);
+}
+
+void test_reduction_policies() {
+    for (auto policy : {reduction::unordered_tree, reduction::ordered_tree,
+                        reduction::fold_left, reduction::fold_right}) {
+        auto kernel = tile_kernel("reduction_policy", [=] {
+                          auto i = axis("i", 2u), j = axis("j", 3u);
+                          auto state = Scalar<float>{3.0f};
+                          for (auto &step : reduce(shape(i, j), policy)) {
+                              state += cast<float>(step.index(i));
+                          }
+                      }).capture();
+        expect(kernel.valid());
+        auto root = kernel.function().body().block(0u);
+        auto operation = root->operation(1u);
+        expect(operation->kind() == OperationKind::REDUCE);
+        expect(operation->reduction_policy() == policy);
+        AnalysisManager analyses{&kernel.function()};
+        expect(eq(*analyses.get<OrderedReductionAnalysis>(), policy != reduction::unordered_tree));
+        IRRewriter rewriter{&analyses};
+        expect(rewriter.set_reduction_policy(operation, reduction::fold_right));
+        expect(*analyses.get<OrderedReductionAnalysis>());
+        expect(rewriter.set_reduction_policy(operation, reduction::unordered_tree));
+        expect(!*analyses.get<OrderedReductionAnalysis>());
+        expect(!rewriter.set_reduction_policy(root->operation(0u), policy));
+        operation->set_reduction_policy(static_cast<ReductionPolicy>(255u));
+        expect(!verify(kernel.module()).ok());
+        operation->set_reduction_policy(policy);
+        expect(verify(kernel.module()).ok());
+        root->operation(0u)->set_reduction_policy(reduction::fold_left);
+        expect(!verify(kernel.module()).ok());
+    }
 }
 
 void test_parallel_cannot_capture_scalar_carry() {
@@ -262,6 +296,7 @@ int main(int argc, char *argv[]) {
     "tile_dsl_lambda_signature_and_fresh_specializations"_test = test_lambda_signature_capture;
     "tile_dsl_elementwise_capture"_test = test_elementwise_capture;
     "tile_dsl_reduction_capture"_test = test_reduction_capture_and_implicit_carry;
+    "tile_dsl_reduction_policy_validation"_test = test_reduction_policies;
     "tile_dsl_rejects_parallel_scalar_carry"_test = test_parallel_cannot_capture_scalar_carry;
     "tile_dsl_logical_and_masked_view_capture"_test = test_logical_and_masked_view_capture;
     "tile_dsl_pipeline_policy_validation"_test = test_pipeline_policy;

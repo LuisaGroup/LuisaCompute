@@ -120,13 +120,14 @@ instruction shapes, and resource protocol.
 
 ## Reduction is a structured algebraic region
 
-**Current surface versus proposed contract.** `Nest::reduce(IndexSpace)` and
-ordinary carried assignment are implemented. Per-region fold/tree policies,
-custom reducer contracts and the more general domain conveniences below are
-design extensions. Current reference lowering is an ordered recurrence;
-Metal's explicit `metal_subgroup_reductions` option also authorizes supported
-FP32 trees. The proposed policy must eventually live on each operation, with
-backend switches controlling candidate availability only.
+**Current surface versus proposed contract.** `Nest::reduce(IndexSpace, policy)`
+and ordinary carried assignment are implemented. The default is
+`reduction::unordered_tree`; each REDUCE operation stores a typed
+`ReductionPolicy`. TIRx and XIR preserve explicit order restrictions, and backend
+switches control candidate availability only. Custom lift/merge contracts,
+their general validation and the richer domain conveniences below remain design
+extensions. Unrecognized bodies currently retain a serial realization; they
+are not silently granted an invented parallel merge.
 
 A reduction uses the same invariant as every other range-for construct: the
 loop variable is the current region scope, never a data value or accumulator
@@ -244,15 +245,15 @@ with a target atom without losing the original reducer contract.
 
 ### Reference fold and permitted regrouping
 
-The following presets are **proposed, not implemented C++ API**. They extend
-the existing `reduce` primitive rather than introducing four kinds of nest.
+The following presets are implemented C++ API. They extend the existing
+`reduce` primitive rather than introducing four kinds of nest.
 For the source contribution sequence `x0, x1, x2` and incoming state `z`:
 
 ```{table} Reduction policies: default freedom and explicit restrictions
 :class: design-table
 :name: reduction-policies
 
-| Proposed policy | Reference / permission | Required contract |
+| Policy | Reference / permission | Required contract |
 |---|---|---|
 | `reduction::unordered_tree` (default) | Regroup and permute contributions; seed exactly once | Compatible lift/merge |
 | `reduction::ordered_tree` | Regroup; preserve leaf order and the seed's reference position | Compatible lift/merge |
@@ -260,8 +261,8 @@ For the source contribution sequence `x0, x1, x2` and incoming state `z`:
 | `reduction::fold_right` | `op(x0, op(x1, op(x2, z)))` | No merge law required; preserve this update chain and operand orientation |
 ```
 
-**The language-design default is `unordered_tree`.** Ordinary `nest.reduce(domain)`
-authorizes the registered reducer's tree regrouping and contribution permutation,
+**The source default is `unordered_tree`.** Ordinary `nest.reduce(domain)`
+authorizes a compatible reducer's tree regrouping and contribution permutation,
 including changed FP32-add rounding; users need not add a fast-math switch to
 obtain that permission. `ordered_tree`, `fold_left` and `fold_right` are explicit
 restrictions. A tree policy permits a serial realization too: it describes a
@@ -271,8 +272,17 @@ This default does not authorize a different accumulation dtype, approximate
 transcendentals, FMA contraction or ignoring NaNs; those remain independent
 arithmetic contracts. A strict floating-point operation mode does not retract
 the reduction's regrouping permission. Conversely, an explicit fold restriction
-must survive every backend and tuning configuration. The current backend-option
-implementation described above has **not yet adopted this default**.
+must survive every backend and tuning configuration. Current striped Metal
+collectives and CPU array reductions require `unordered_tree`; ordered trees
+conservatively retain a source-ordered recurrence. XIR/SIMD currently retains
+serial reductions for all four policies. The Metal and SIMD Runtime factories
+disable kernel-wide fast-math when any reduction requires order, because their
+current final compiler interfaces cannot express a local arithmetic override.
+This does not turn unrelated unordered reductions into explicit folds.
+The TIRx LLVM target likewise cannot override order with global fast-math
+flags. TVM's own Metal runtime requires the optional precise-math extension;
+without it, ordered reductions fail compilation explicitly. Luisa's Metal
+Runtime uses its own compiler options and needs no such TVM extension.
 
 For order-sensitive policies, multidimensional source order is lexicographic
 in the `IndexSpace` axis order over active coordinates; physical layout, lane
@@ -284,7 +294,7 @@ evidence. FP32 addition does not have exact associativity.
 The ordinary assignment spelling remains visible in both directions:
 
 ~~~cpp
-// Proposed policy overloads; x is an existing Tile over the axis k.
+// x is an existing Tile over the axis k.
 auto left = Scalar<float>{0.0f};
 for (auto &r : nest.reduce(shape(k), reduction::fold_left)) {
     left = left - x.at(r);
@@ -409,8 +419,11 @@ The first proof-driven realization of this factoring is now implemented for
 Metal FP32 add/max/min row programs. It maps a logical reduction to one or more
 SIMD groups and derives worker-private/shared storage from the selected owner
 map; see [the generated SIMD-group intrinsic path](../internals/tile/reductions.md#warp-and-simd-group-intrinsics-in-the-generated-code). In that bounded
-implementation, the explicit `metal_subgroup_reductions` compile option is the
-floating-point tree-order permission. A richer per-reducer accuracy,
+implementation, `metal_subgroup_reductions` only enables the candidate family;
+the per-operation policy supplies tree-order permission. The Metal Runtime
+enables this family automatically when it owns capability/noalias validation
+and the caller has not supplied an explicit TIRx configuration. Standalone
+TIRx compilation still requires those target contracts. A richer per-reducer accuracy,
 determinism, NaN and signed-zero policy remains part of this language design,
 not a feature already exposed by the current C++ surface.
 

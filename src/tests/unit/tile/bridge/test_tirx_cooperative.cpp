@@ -374,6 +374,79 @@ void test_batched_copies(Runtime &runtime) {
     }
 }
 
+void test_cooperative_reduction_tiles(Runtime &runtime) {
+    for (auto dimensions : {std::pair{1, 1}, {3, 7}, {17, 32}, {3, 33}, {5, 257}}) {
+        auto [rows, columns] = dimensions;
+        for (auto first_axis : {false, true}) {
+            auto output_size = first_axis ? columns : rows;
+            auto scope = root_scope(runtime);
+            auto definition = tile_kernel("cooperative_reduction_tiles", [=](TensorView<const float, 3> X,
+                                                                             TensorView<float, 2> Sum,
+                                                                             TensorView<float, 2> Maximum,
+                                                                             TensorView<float, 2> Minimum) {
+                auto g = axis("g", 1), m = axis("m", rows), n = axis("n", columns);
+                for (auto &nest : parallel(shape(3), scope)) {
+                    auto origin = coord(nest.index(), 0, 0);
+                    auto x = X[origin, shape(g, m, n)];
+                    // A reduction region is a phase inside a shared owner,
+                    // not necessarily a complete kernel or one scalar row.
+                    for (auto &phase : nest.pipeline(shape(2))) {
+                        phase.stage("reduce");
+                        auto shifted = x + cast<float>(phase.index());
+                        auto reduction_axis = first_axis ? m : n;
+                        auto output = shape(g, first_axis ? n : m);
+                        auto output_origin = coord(nest.index(), 0);
+                        Sum(output_origin, output).store(reduce(shifted, reduction_axis, add));
+                        Maximum(output_origin, output).store(reduce(shifted, reduction_axis, maximum));
+                        Minimum(output_origin, output).store(reduce(shifted, reduction_axis, minimum));
+                    }
+                }
+            });
+            auto kernel = definition.capture(tensor_shape(3, rows, columns), tensor_shape(3, output_size),
+                                             tensor_shape(3, output_size), tensor_shape(3, output_size));
+            auto input = values(3u * rows * columns);
+            auto source = runtime.upload<float>({3, rows, columns}, input);
+            auto count = 3u * output_size;
+            auto sum = runtime.allocate<float>({3, output_size});
+            auto peak = runtime.allocate<float>({3, output_size});
+            auto floor = runtime.allocate<float>({3, output_size});
+            luisa::vector<float> expected_sum(count, 0.0f), expected_peak(count, -INFINITY), expected_floor(count, INFINITY);
+            for (auto group = 0; group < 3; group++) {
+                for (auto row = 0; row < rows; row++) {
+                    for (auto column = 0; column < columns; column++) {
+                        auto index = group * output_size + (first_axis ? column : row);
+                        auto value = input[(group * rows + row) * columns + column] + 1.0f;
+                        expected_sum[index] += value;
+                        expected_peak[index] = std::max(expected_peak[index], value);
+                        expected_floor[index] = std::min(expected_floor[index], value);
+                    }
+                }
+            }
+            for (auto threads : {32u, 128u}) {
+                for (auto tree : {false, true}) {
+                    bridge::tirx::PlannerOptions planner;
+                    planner.threads_per_group = threads;
+                    planner.metal_subgroup_reductions = tree && runtime.target() == "metal";
+                    auto executable = runtime.build(kernel, true, false, true, false, planner);
+                    expect(executable.ok()) << executable.error;
+                    if (!executable.ok()) { continue; }
+                    if (runtime.target() == "metal") {
+                        auto source = metal_source(executable.module.value());
+                        auto text = std::string_view{source.data(), source.size()};
+                        for (auto name : {"simd_sum(", "simd_max(", "simd_min("}) {
+                            expect(eq(text.find(name) != std::string_view::npos, tree)) << name;
+                        }
+                    }
+                    (*executable.entry)(source, sum, peak, floor);
+                    expect_near(runtime.download<float>(sum, count), expected_sum);
+                    expect_near(runtime.download<float>(peak, count), expected_peak);
+                    expect_near(runtime.download<float>(floor, count), expected_floor);
+                }
+            }
+        }
+    }
+}
+
 void test_barrier_coalescing_nonadjacent_dependencies(Runtime &runtime) {
     constexpr auto groups = 3;
     auto scope = root_scope(runtime);
@@ -625,6 +698,7 @@ int main(int argc, char *argv[]) {
                                                     const_cast<const char **>(argc > 1 ? argv + 1 : argv));
     "tile_cooperative_shared_resources_and_global_order"_test = [&] { test_shared_tiles_and_global_order(runtime); };
     "tile_cooperative_softmax"_test = [&] { test_softmax(runtime); };
+    "tile_cooperative_reduction_tiles"_test = [&] { test_cooperative_reduction_tiles(runtime); };
     "tile_cooperative_batched_copies_and_guarded_tails"_test = [&] { test_batched_copies(runtime); };
     "tile_cooperative_barrier_nonadjacent_dependencies"_test = [&] { test_barrier_coalescing_nonadjacent_dependencies(runtime); };
     "tile_cooperative_barrier_global_aliases_and_backedge"_test = [&] { test_barrier_coalescing_global_aliases_and_loop_backedge(runtime); };

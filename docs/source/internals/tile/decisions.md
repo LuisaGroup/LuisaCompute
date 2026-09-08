@@ -46,7 +46,7 @@ mapping; it does not freeze the source tree into hardware levels.
 
 The documentation checkpoint resolves the reduction-policy contradiction and
 separates implemented IR from extension contracts. **The chosen source default
-is unordered tree; the current implementation still uses a backend opt-in flag.**
+is unordered tree; at that checkpoint the implementation still used a backend opt-in flag.**
 Changing that behavior needs an explicit implementation migration, not a new
 cost coefficient. This checkpoint changes documentation only: it does not
 complete or certify the existing uncommitted compiler changes, and it adds no
@@ -72,6 +72,29 @@ replicated layouts; and one producer with two in-flight consumers sharing a
 ring slot. These are planned acceptance criteria, not a list of tests already
 passed. General Machine TileIR, sibling fusion and asynchronous protocols remain
 extensions rather than prerequisites for every initial compiler change.
+
+## Reduction implementation follow-up: September 7, 2026
+
+The first milestone now has a typed implementation: `ReductionPolicy` is
+resolved on each REDUCE, with an unordered-tree default and explicit ordered
+tree / left-fold / right-fold policies. TIRx and XIR preserve the restrictions;
+the current collective and array-provider families require unordered-tree
+permission. Ordered trees and general folds retain serial realizations.
+
+Final compilation is part of this contract. SIMD and Metal Runtime disable
+kernel-wide fast math when order matters, and the raw TIRx LLVM target cannot
+override it with global fast-math flags. `DeviceArtifact` carries the required
+arithmetic mode beside its source/ABI. TVM's own Metal runtime requires the
+optional native precise-math extension; missing support fails explicitly.
+This does not disable legal collectives for another unordered operation.
+
+Composed-group analysis now accounts for complete-subgroup participation of
+an admitted reduction output. This repairs a reference-binding gap; it is
+not a calibrated mixed-phase cost model. General merge-law checking,
+ordered-tree emission and the broader semantic counterexample set above
+remain incomplete. See the Chinese review's implementation follow-up and
+[coverage](../../performance/tile/implementation.md) for remaining work. No
+new kernel-performance measurement accompanies this semantic migration.
 
 ## Original design checklist
 

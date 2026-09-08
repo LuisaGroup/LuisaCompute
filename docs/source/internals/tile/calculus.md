@@ -133,12 +133,14 @@ operand orientations; right fold is not simply the unchanged left update run
 backwards. Empty fibers return the incoming seed. Masks omit contributions;
 physical replicas never create additional semantic occurrences.
 
-**The proposed source default is `unordered_tree`.** For a compatible reducer,
+**The source default is `unordered_tree`.** For a compatible reducer,
 it permits merge trees and contribution permutations, including order-dependent
 floating-point results. Ordered trees and strict folds are explicit restrictions.
 These choices define sets of admitted computations; they do not oblige the
-backend to use a tree. A serial realization can be in that set too. The existing
-Metal opt-in tree flag is an implementation gap, not the intended source default.
+backend to use a tree. A serial realization can be in that set too. The typed
+local policy is implemented; the standalone Metal candidate flag now controls
+availability only. This does not make the general reducer-law calculus below
+an implemented decision procedure.
 
 For an exact left-reference tree rewrite, a sufficient contract is:
 

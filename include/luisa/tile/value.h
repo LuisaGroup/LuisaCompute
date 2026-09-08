@@ -426,7 +426,7 @@ template<scalar_cpp_type A, scalar_cpp_type B, scalar_cpp_type C>
     return Tile<C>{detail::make_mma(a.ir_value(), b.ir_value(), accumulator.ir_value(), policy)};
 }
 
-// Reduction policies are library values. They do not add operation kinds to
+// Reducers are library values. They do not add operation kinds to
 // TileIR: reductions compose tile.map, nest.reduce and pure tile extraction.
 struct AddReduction {
     template<scalar_cpp_type T>
@@ -463,7 +463,8 @@ inline constexpr MaxReduction maximum;
 inline constexpr MinReduction minimum;
 
 template<scalar_cpp_type T, typename Reducer>
-[[nodiscard]] Tile<T> reduce(const Tile<T> &value, const IndexSpace &dimensions, Reducer reducer) noexcept {
+[[nodiscard]] Tile<T> reduce(const Tile<T> &value, const IndexSpace &dimensions, Reducer reducer,
+                             ReductionPolicy policy = reduction::unordered_tree) noexcept {
     IndexSpace output;
     for (auto &&axis : dimensions.axes()) {
         auto index = value.space().axis_index(axis.dimension);
@@ -478,14 +479,21 @@ template<scalar_cpp_type T, typename Reducer>
     if (dimensions.empty()) { return value; }
     return map<T>(output, [&](const Nest &nest) {
         auto accumulator = Scalar<T>{Reducer::template identity<T>()};
-        for (auto &element : nest.reduce(dimensions)) { accumulator = reducer(accumulator, value.at(element)); }
+        for (auto &element : nest.reduce(dimensions, policy)) {
+            if (policy == reduction::fold_right) {
+                accumulator = reducer(value.at(element), accumulator);
+            } else {
+                accumulator = reducer(accumulator, value.at(element));
+            }
+        }
         return accumulator;
     });
 }
 
 template<scalar_cpp_type T, typename Reducer>
-[[nodiscard]] Tile<T> reduce(const Tile<T> &value, Axis dimension, Reducer reducer) noexcept {
-    return reduce(value, shape(dimension), reducer);
+[[nodiscard]] Tile<T> reduce(const Tile<T> &value, Axis dimension, Reducer reducer,
+                             ReductionPolicy policy = reduction::unordered_tree) noexcept {
+    return reduce(value, shape(dimension), reducer, policy);
 }
 
 [[nodiscard]] inline Tile<int64_t> iota(Axis axis) noexcept {

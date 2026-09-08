@@ -1,6 +1,8 @@
 #include "ut/ut.hpp"
 #include "test_device.h"
 #include "tile_xir_test_utils.h"
+#include "tile_reduction_policy_test_utils.h"
+#include <bit>
 #include <luisa/runtime/stream.h>
 #include <luisa/tile/runtime.h>
 #include <algorithm>
@@ -16,6 +18,43 @@ using namespace luisa::compute;
 using namespace boost::ut;
 
 namespace {
+
+void reduction_fold_policies(Device &device) {
+    namespace cases = test::tile_reduction;
+    constexpr auto rows = int64_t{3};
+    for (auto dimensions : {std::pair{0, 3}, std::pair{2, 0}, std::pair{1, 1},
+                            std::pair{1, 3}, std::pair{2, 3}, std::pair{3, 5}}) {
+        auto [outer, inner] = dimensions;
+        auto width = outer * inner;
+        auto stride = std::max(width, 1);
+        for (auto seed : {0.0f, -0.0f, 3.0f}) {
+            auto kernel = cases::folds(rows, outer, inner, seed);
+            auto shader = tile::compile(device, kernel, {}, {.enable_fast_math = true});
+            expect(static_cast<bool>(shader)) << shader.metadata().error;
+            if (!shader) { continue; }
+            expect(shader.metadata().realization.find("fast_math=false; ordered_reduction=true") != string::npos);
+            vector<float> values(rows * stride), actual(rows * cases::outputs);
+            for (auto r = int64_t{0}; r < rows; r++) {
+                for (auto i = 0; i < width; i++) {
+                    constexpr float cancellation[]{16777216.0f, 1.0f, -16777216.0f, 3.0f, -2.0f};
+                    values[r * stride + i] = r == 0 ? cancellation[i % 5] : static_cast<float>((i + 1) * (r + 1));
+                }
+            }
+            auto input = device.create_buffer<float>(values.size());
+            auto output = device.create_buffer<float>(actual.size());
+            auto stream = device.create_stream(StreamTag::COMPUTE);
+            stream << input.copy_from(values.data()) << shader(input, output).dispatch()
+                   << output.copy_to(actual.data()) << synchronize();
+            for (auto r = int64_t{0}; r < rows; r++) {
+                auto expected = cases::reference(span<const float>{values}.subspan(r * stride, width), seed);
+                for (auto mode = int64_t{0}; mode < cases::outputs; mode++) {
+                    expect(eq(std::bit_cast<uint32_t>(actual[r * cases::outputs + mode]), std::bit_cast<uint32_t>(expected[mode])))
+                        << "shape=" << outer << "," << inner << " row=" << r << " mode=" << mode << " seed=" << seed;
+                }
+            }
+        }
+    }
+}
 
 [[nodiscard]] bool close(span<const float> actual, span<const double> expected) {
     if (actual.size() != expected.size()) { return false; }
@@ -198,6 +237,7 @@ void clipped_origin(Device &device, bool overflow) {
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     auto [context, device] = test::create_device(argc, argv);
+    "tile_xir_runtime_reduction_fold_policies"_test = [&] { reduction_fold_policies(device); };
     "tile_xir_runtime_gemm"_test = [&] {
         gemm(device, {16, 24, 16, 1, 1, 8}, true);
         gemm(device, {17, 19, 13, 2, 3, 4, false, false, .25f}, true);

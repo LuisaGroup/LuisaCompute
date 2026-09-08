@@ -42,6 +42,19 @@ class LlmBenchmarkTests(unittest.TestCase):
                    correctness=dict(checks=2, elements_per_check=4, guard_elements_per_check=34, atol=5e-5, rtol=5e-5),
                    repetitions=10, throughput_us=[1., 2.], latency_us=[3., 4.])
         check_metadata(row, "cpu", "rope", (1, 4), (1, 1), 2)
+        current = row | dict(source_reduction_policy="unordered_tree", reduction_candidate_setting="not_applicable")
+        check_metadata(current, "cpu", "rope", (1, 4), (1, 1), 2)
+        for key, value in (("source_reduction_policy", "fold_left"), ("reduction_candidate_setting", "enabled")):
+            with self.assertRaises(ValueError):
+                check_metadata(current | {key: value}, "cpu", "rope", (1, 4), (1, 1), 2)
+        for tree, threads in ((True, 0), (False, 128)):
+            with self.assertRaises(ValueError):
+                check_metadata(row, "cpu", "rope", (1, 4), (1, 1), 2, tree, threads)
+        explicit = row | dict(reduction_tree=True, requested_group_threads=128)
+        check_metadata(explicit, "cpu", "rope", (1, 4), (1, 1), 2, True, 128)
+        for key, value in (("reduction_tree", 1), ("requested_group_threads", 128.0)):
+            with self.assertRaises(ValueError):
+                check_metadata(explicit | {key: value}, "cpu", "rope", (1, 4), (1, 1), 2, True, 128)
         for key, value in (("fast_math", 0), ("operation", "swiglu"), ("repetitions", 0), ("throughput_us", [float("nan"), 2])):
             bad = copy.deepcopy(row)
             bad[key] = value

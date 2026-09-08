@@ -305,13 +305,14 @@ to the owning pipeline. The iteration coordinate still comes from `k.index()`.
 range-for value is a non-copyable Nest handle with `index()`, just like the other
 three regions; it never changes type into an accumulator or an input Tile.
 The compiler infers reduction states from outer `Tile` variables updated by the
-body. The proposed default is `unordered_tree`: a compatible reducer contract
+body. The default is `unordered_tree`: a compatible reducer contract
 lets scheduling factor contributions into participants, serial steps and a
 merge tree, with regrouping and permutation allowed. Users explicitly select
 an ordered tree or strict left/right fold when needed. Strict folds need no
 parallel merge. There is no public loop-result accessor.
 [Reduction semantics](values.md#reference-fold-and-permitted-regrouping) separates
-this proposed per-region policy from today's narrower capture/lowering API.
+the implemented per-region order policy from the still-proposed general
+lift/merge contract system.
 
 This set is intended to cover the structured static-control kernel fragment
 specified in the [calculus](../internals/tile/calculus.md#scope-of-the-claims);

@@ -255,13 +255,12 @@ Documentation has one owner per question:
 | What came from prior work and what remains a research hypothesis? | Internals related work; detailed Chinese research notes under `src/tile/` |
 ```
 
-The proposed per-reduction policies, with `unordered_tree` as the language
-default, are specified in
-[values](values.md#reference-fold-and-permitted-regrouping). They are not yet
-C++ overloads or typed TileIR fields. The current `Nest::reduce(IndexSpace)`
-captures carried state; the Metal tree option still combines numerical
-permission with implementation selection. That implementation gap must not be
-hidden by a language-design example.
+Per-reduction policies, with `unordered_tree` as the source default, are
+implemented as C++ overloads and typed TileIR fields; see
+[values](values.md#reference-fold-and-permitted-regrouping). TIRx and XIR honor
+explicit order restrictions. Backend candidate selection is separate from this
+permission. General custom lift/merge contracts and their proof/diagnostic
+machinery remain extensions, not a consequence of adding an order enum.
 
 [TileIR and capture](../internals/tile/ir.md), [TIRx export](../internals/tile/lowering.md),
 and [planning](../internals/tile/planner.md) are implementation references, not

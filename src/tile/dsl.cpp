@@ -79,6 +79,7 @@ struct ScopeStorage {
     IndexSpace domain;
     exec::Scope execution_scope{exec::Scope::AUTOMATIC};
     PipelinePolicy pipeline_policy;
+    ReductionPolicy reduction_policy{reduction::unordered_tree};
     ScalarType element_type{ScalarType::INVALID};
     Value *element_result{nullptr};
     Block *parent_block{nullptr};
@@ -153,6 +154,9 @@ void enter_scope(ScopeStorage &scope) noexcept {
     if (scope.kind == OperationKind::PIPELINE) {
         scope.operation->set_attribute("stages", Attribute{static_cast<uint64_t>(scope.pipeline_policy.stages)});
         scope.operation->set_attribute("initiation_interval", Attribute{static_cast<uint64_t>(scope.pipeline_policy.initiation_interval)});
+    }
+    if (scope.kind == OperationKind::REDUCE) {
+        scope.operation->set_reduction_policy(scope.reduction_policy);
     }
     scope.body = scope.operation->region(0u)->block(0u);
     scope.coordinate_base = context->coordinates.size();
@@ -678,7 +682,8 @@ NestRange make_range(
     OperationKind kind,
     IndexSpace domain,
     exec::Scope scope,
-    PipelinePolicy policy) noexcept {
+    PipelinePolicy policy,
+    ReductionPolicy reduction_policy) noexcept {
     if (current_capture == nullptr) { return NestRange{nullptr}; }
     auto storage = luisa::make_unique<ScopeStorage>();
     storage->context = current_capture;
@@ -687,6 +692,7 @@ NestRange make_range(
     storage->domain = std::move(domain);
     storage->execution_scope = scope;
     storage->pipeline_policy = policy;
+    storage->reduction_policy = reduction_policy;
     return NestRange{std::move(storage)};
 }
 
@@ -741,8 +747,8 @@ NestRange Nest::serial(IndexSpace domain) const noexcept {
     return detail::make_range(this, OperationKind::SERIAL, std::move(domain), exec::Scope::AUTOMATIC, {});
 }
 
-NestRange Nest::reduce(IndexSpace domain) const noexcept {
-    return detail::make_range(this, OperationKind::REDUCE, std::move(domain), exec::Scope::AUTOMATIC, {});
+NestRange Nest::reduce(IndexSpace domain, ReductionPolicy policy) const noexcept {
+    return detail::make_range(this, OperationKind::REDUCE, std::move(domain), exec::Scope::AUTOMATIC, {}, policy);
 }
 
 NestRange Nest::pipeline(IndexSpace domain, PipelinePolicy policy) const noexcept {

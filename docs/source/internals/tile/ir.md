@@ -18,7 +18,7 @@ The current implementation and the target design must not be conflated:
 | Area | Implemented representation | Extension specified here |
 |---|---|---|
 | Mutation | Managed intrusive lists, SSA uses, typed kinds, structural verifier and basic rewriter/analysis manager | Dependency-aware analysis invalidation and transactional execution remapping |
-| Reduction | Domain, region arguments/results and captured state; bridge-local pattern recognition | Typed per-reduction fold/tree contract, with unordered-tree language default |
+| Reduction | Domain, captured state and typed per-operation fold/tree policy; unordered-tree default; bridge-local merge recognition | General typed lift/merge, law provenance and exceptional-value contracts |
 | Pipeline | `PIPELINE` body with `STAGE` marker operations | Stage subregions, explicit dependence/version protocol and modulo schedule |
 | Scheduling | Bridge-local mapping, matrix and reduction plans | Common Scheduled/Machine verifier forms and generic target atom calls |
 ```
@@ -186,12 +186,17 @@ switch or transient cost annotation. It contains:
 - arithmetic and determinism requirements, including exceptional values;
 - provenance for builtin laws, derived conditions and trusted custom contracts.
 
-Capture resolves an omitted policy to `unordered_tree` under the proposed
-language default; an explicit local restriction takes precedence. Tree
+Capture resolves an omitted policy to `unordered_tree`; an explicit local
+restriction takes precedence. This order-policy portion is implemented as
+`Operation::reduction_policy()`, separate from bridge-local body matching.
+`IRRewriter::set_reduction_policy` invalidates cached analyses; direct low-level
+mutation still requires the pass to invalidate them explicitly. Tree
 permission admits the registered reducer's changed evaluation order, not a
 different dtype or arbitrary approximation. Exact algebraic laws remain
 distinct from this permission. A default tree update without a compatible
-merge is diagnosed with the alternative of an explicit strict fold.
+merge should be diagnosed with the alternative of an explicit strict fold by
+the proposed general contract checker. Today unmatched bodies remain serial;
+only the bounded recognized merge family is admitted to tree lowering.
 
 All bridges consume the same resolved record. Backend options enable candidate
 families; they cannot strengthen the permission. Changing a contract invalidates

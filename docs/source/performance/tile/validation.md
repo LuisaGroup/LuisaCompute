@@ -3,6 +3,35 @@
 This record distinguishes executed correctness checks from performance claims.
 See [current status](index.md) for the latest bounded conclusion.
 
+## Per-operation reduction policy checkpoint
+
+The September 8 checkpoint passes a **full selected build and all 35 Tile
+CTests** (225.83 s), plus all 110 Python benchmark tests. The selected
+configuration enables SIMD, Metal and TIRx, with Metal4 disabled. To avoid
+mixing another unfinished matrix experiment into this result, the staged
+source was exported to a separate source/build tree. Dependency submodules
+retain their local checkout state; this is not an assertion that every
+dependency or the original worktree is clean.
+
+Coverage includes the default unordered tree, explicit ordered tree and both
+fold directions, multidimensional/empty domains, non-identity and signed-zero
+seeds, cancellation-sensitive FP32 data, mixed strict/relaxed reductions,
+analysis invalidation and target capability rejection. TIRx CPU/Metal and
+XIR/SIMD execute the fold fixtures. Tests also check the final LLVM/Metal
+fast-math boundary and precise TVM Metal module serialization/reload. Closed
+FP32 add/max/min Tiles use subgroup collectives inside composed programs;
+ordered policies still retain their serial implementation.
+
+The original worktree's separate full run passes **34/35**: the unfinished
+matrix-initializer experiment changes four structural matrix-count
+assertions in `test_tile_tirx_matrix_metal`. Those edits are excluded from
+this checkpoint, not deleted or hidden by weakening tests. The earlier
+memory/cooperative fence failures are repaired: without an applicable effect
+proof, phase publication must cover device as well as threadgroup memory.
+The {download}`raw build and regression logs <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-reduction-policy/notes.md>`
+distinguish the two source states. No new performance claim follows from
+these correctness results.
+
 ## Closed matrix epilogues: positive and fail-closed coverage
 
 The September 7 extension exercises ordinary clamp, polynomial and tanh-GELU

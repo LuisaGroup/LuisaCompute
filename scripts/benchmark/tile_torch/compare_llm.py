@@ -152,13 +152,24 @@ def validate_output(actual, expected):
     return dict(elements=expected.size, max_abs_error=float(difference.max()), atol=5e-5, rtol=5e-5)
 
 
-def check_metadata(result, backend, op, dims, block, samples):
+def check_metadata(result, backend, op, dims, block, samples, reduction_tree=False, group_threads=0):
     inputs, output = shapes_for(op, dims)
     fields = dict(implementation="tile_tirx_metal" if backend == "metal" else "tile_xir_simd", backend=backend,
                   precision="fp32", fast_math=False, relaxed_precision=False, runtime="luisa",
                   timing="synchronized_host_wall", batch_policy="one_runtime_command_list_per_batch",
                   operation=op, dimensions=list(dims), attention_block=list(block),
                   input_shapes=[list(s) for s in inputs], output_shape=list(output))
+    # Older default-policy artifacts may omit these fields. An explicit
+    # request must be acknowledged, never silently ignored by an old binary.
+    for key, value in (("reduction_tree", reduction_tree), ("requested_group_threads", group_threads)):
+        if value or key in result:
+            fields[key] = value
+    if "source_reduction_policy" in result:
+        fields["source_reduction_policy"] = "unordered_tree"
+    if "reduction_candidate_setting" in result:
+        settings = ("not_applicable",) if backend != "metal" else ("enabled",) if reduction_tree else ("automatic", "disabled")
+        if result["reduction_candidate_setting"] not in settings:
+            raise ValueError("native reduction candidate metadata mismatch")
     if any(type(result.get(k)) is not type(v) or result[k] != v for k, v in fields.items()):
         raise ValueError("native benchmark metadata mismatch")
     check = result["correctness"]
@@ -221,6 +232,8 @@ def main():
     parser.add_argument("--threads", type=int, default=8)
     parser.add_argument("--timeout", type=int, default=180)
     parser.add_argument("--metal-device-timing", type=Path)
+    parser.add_argument("--subgroup-reductions", action="store_true", help="enable the FP32 subgroup candidate family; source reduce already defaults to unordered tree; requires the TIRx llm entry")
+    parser.add_argument("--group-threads", type=int, default=0, help="exact Metal group width; zero uses the planner")
     args = parser.parse_args()
     if args.rounds < 2 or args.rounds % 2 or len(set(args.case)) != len(args.case) or min(args.samples, args.sample_ms, args.warmup_ms, args.threads, args.timeout) <= 0:
         parser.error("unique cases, positive settings and an even number of rounds >= 2 required")
@@ -228,6 +241,8 @@ def main():
         parser.error("invalid attention block")
     if args.backend != "metal" and args.metal_device_timing:
         parser.error("GPU timing cannot be used for CPU")
+    if not 0 <= args.group_threads <= 1024 or args.backend != "metal" and (args.subgroup_reductions or args.group_threads):
+        parser.error("subgroup candidates/group constraints require Metal; group width must be 0..1024")
     args.native = args.native.resolve(strict=True)
     if args.baseline:
         args.baseline = args.baseline.resolve(strict=True)
@@ -245,6 +260,10 @@ def main():
         if key.startswith("LUISA_SIMD_") and key != "LUISA_SIMD_WORKER_COUNT" or key in ("LUISA_ENABLE_VALIDATION", "DYLD_PRINT_LIBRARIES") or key.startswith("LUISA_TILE_BENCH_"):
             removed[key] = os.environ.pop(key)
     os.environ["LUISA_SIMD_WARP_WIDTH"] = "8"
+    if args.subgroup_reductions:
+        os.environ["LUISA_TILE_BENCH_REDUCTION_TREE"] = "1"
+    if args.group_threads:
+        os.environ["LUISA_TILE_BENCH_GROUP_THREADS"] = str(args.group_threads)
     if args.metal_device_timing:
         args.metal_device_timing = args.metal_device_timing.resolve(strict=True)
         os.environ["LUISA_TILE_BENCH_METAL_TIMING"] = str(args.metal_device_timing)
@@ -267,7 +286,8 @@ def main():
                                 source_sha256={p: digest(root / p) for p in ["src/tests/common/tile_llm_test_utils.h", "src/tests/common/tile_llm_benchmark.h", "scripts/benchmark/tile_torch/compare_llm.py", "scripts/benchmark/tile_torch/run.py"]},
                                 comparison="FP32 same exported inputs; warmed E2E excludes compile/upload; GPU control uses uninstrumented command-buffer intervals, not isolated kernel time",
                                 baseline=str(args.baseline) if args.baseline else None,
-                                selection="fixed capture; backend default planner; no timing-based tuning"), results=[])
+                                reduction_tree=args.subgroup_reductions, requested_group_threads=args.group_threads,
+                                selection="fixed capture; source unordered-tree policy; recorded candidate/group constraints; no timing-based tuning"), results=[])
     failed = False
     for op, dims in args.case:
         block = args.attention_block if op == "attention" else (1, 1)
@@ -301,7 +321,7 @@ def main():
                                 row.update(source=source.name, source_sha256=digest(source))
                             completed.check_returncode()
                             measurement = json.loads(completed.stdout)
-                            check_metadata(measurement, args.backend, op, dims, block, args.samples)
+                            check_metadata(measurement, args.backend, op, dims, block, args.samples, args.subgroup_reductions, args.group_threads)
                             actual = np.fromfile(output, dtype=np.float32).reshape(output_shape)
                         else:
                             if arrays is None:

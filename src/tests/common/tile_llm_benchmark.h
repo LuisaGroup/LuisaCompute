@@ -17,7 +17,8 @@
 
 namespace luisa::test::tile_llm {
 
-[[nodiscard]] inline int benchmark(int argc, char *argv[], string_view backend) {
+[[nodiscard]] inline int benchmark(int argc, char *argv[], string_view backend,
+                                   const compute::tile::CompileOptions &compile_options = {}, bool reduction_tree = false) {
     using namespace compute;
     using Clock = std::chrono::steady_clock;
     try {
@@ -98,7 +99,9 @@ namespace luisa::test::tile_llm {
         auto stream = device.create_stream(StreamTag::COMPUTE);
         auto runtime_ms = elapsed(start);
         start = Clock::now();
-        auto shader = tile::compile(device, fixture.kernel, {.lowering = backend == "metal" ? tile::Lowering::TIRX : tile::Lowering::NATIVE});
+        auto options = compile_options;
+        options.lowering = backend == "metal" ? tile::Lowering::TIRX : tile::Lowering::NATIVE;
+        auto shader = tile::compile(device, fixture.kernel, options);
         auto compile_ms = elapsed(start);
         if (!shader) { throw std::runtime_error{shader.metadata().error.c_str()}; }
         if (auto path = std::getenv("LUISA_TILE_BENCH_DUMP_SOURCE")) {
@@ -181,7 +184,16 @@ namespace luisa::test::tile_llm {
                   << std::quoted(op)
                   << ",\"dimensions\":";
         array(dimensions);
-        std::cout << ",\"attention_block\":[" << bq << ',' << bk << "],\"input_shapes\":[";
+        // These fixtures use the source default on every reduce. Keep the
+        // legacy requested candidate flag distinct from numerical permission
+        // and from the capability-resolved automatic Runtime choice.
+        std::cout << ",\"reduction_tree\":" << (reduction_tree ? "true" : "false")
+                  << ",\"source_reduction_policy\":\"unordered_tree\""
+                  << ",\"reduction_candidate_setting\":" << std::quoted(backend != "metal" ? "not_applicable" :
+                                                                               compile_options.tirx == nullptr ? "automatic" :
+                                                                               reduction_tree ? "enabled" : "disabled")
+                  << ",\"requested_group_threads\":" << options.threads_per_group
+                  << ",\"attention_block\":[" << bq << ',' << bk << "],\"input_shapes\":[";
         for (auto i = 0u; i < 3u; i++) {
             if (i != 0u) { std::cout << ','; }
             array(fixture.shapes[i]);

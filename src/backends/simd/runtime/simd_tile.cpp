@@ -1,6 +1,7 @@
 #include <exception>
 
 #include <luisa/core/stl/format.h>
+#include <luisa/tile/analysis.h>
 #include <luisa/tile/bridge/xir/lower.h>
 #include <luisa/tile/bridge/xir/planner.h>
 #include <luisa/tile/runtime.h>
@@ -45,11 +46,13 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
             metadata.error = std::move(lowered.error);
             return ShaderCreationInfo::make_invalid();
         }
+        auto ordered_reduction = tile::OrderedReductionAnalysis::run(kernel);
+        auto enable_fast_math = option.enable_fast_math && !ordered_reduction;
         // The bridge has already produced plain CFG/SSA. Reuse the shared
         // SSA factory; do not rerun AST destructuring/inlining or invent a
         // different pass list. Resource reads are not declared noalias.
         if (!detail::env_flag("LUISA_SIMD_DISABLE_TILE_XIR_CLEANUP")) {
-            auto cleanup = xir::create_ssa_optimization_pipeline({.enable_fast_math = option.enable_fast_math});
+            auto cleanup = xir::create_ssa_optimization_pipeline({.enable_fast_math = enable_fast_math});
             if (!cleanup.run(lowered.module.get()).succeeded()) {
                 metadata.error = "Tile XIR SSA cleanup failed";
                 return ShaderCreationInfo::make_invalid();
@@ -68,7 +71,7 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
         }
         auto packet_batch = _warp_width != 1u && threads > _warp_width && !detail::env_flag("LUISA_SIMD_DISABLE_PACKET_BATCH_ENTRY");
         auto block_batch = packet_batch && !detail::env_flag("LUISA_SIMD_DISABLE_BLOCK_BATCH_ENTRY");
-        auto compiled = compile_simd_kernel(lowered.function, _warp_width, kernel.name(), option.enable_fast_math,
+        auto compiled = compile_simd_kernel(lowered.function, _warp_width, kernel.name(), enable_fast_math,
                                             !detail::env_flag("LUISA_SIMD_DISABLE_UNIFORM_BUFFER_BROADCAST"),
                                             !detail::env_flag("LUISA_SIMD_DISABLE_LANE_AFFINE_BUFFER"),
                                             std::getenv("LUISA_SIMD_DUMP_ASSEMBLY_DIR") != nullptr,
@@ -93,6 +96,7 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
             metadata.realization.append(luisa::format("{}", plan.root_axis_order[i]));
         }
         metadata.realization.append("]");
+        metadata.realization.append(luisa::format("; fast_math={}; ordered_reduction={}", enable_fast_math, ordered_reduction));
         auto &arguments = kernel.body().block(0u)->arguments();
         for (size_t i = 0u; i < arguments.size(); i++) {
             metadata.arguments.emplace_back(tile::KernelArgument{arguments[i]->type().scalar_type(), lowered.argument_sizes_bytes[i], lowered.argument_usages[i]});

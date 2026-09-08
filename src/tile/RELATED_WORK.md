@@ -15,7 +15,7 @@
 
 本报告采用中文，保留必要英文术语。文献核对截止 **2026 年 9 月 7 日**。研究范围是与本项目直接重叠的编程模型、IR、映射代数、异步调度和优化方法；这是一份有重点的相关工作调查，不是穷尽检索，也不是新颖性证明。文献陈述以所链接版本的相关章节为准，不代表对应项目所有后续版本的能力。本轮没有复现论文性能实验，也不把不同硬件上的论文数字拼成性能排名。
 
-**文档归属与本次整理。** 本文件保留文献分析、审查依据和研究假设；正式语义以 [Tile 语言文档](../../docs/source/tile/design.md) 为准，变换义务以 [calculus](../../docs/source/internals/tile/calculus.md) 为准，候选组合以 [planner](../../docs/source/internals/tile/planner.md#compositional-search-contract) 为准，实施检查点见 [决策记录](../../docs/source/internals/tile/decisions.md)。本次把建议并入这些既有页面，不另建平行文档体系。按最新讨论，**普通 `reduce` 默认 `unordered_tree`；保序树与严格 fold 由用户显式选择**。这是设计决定，尚未改动当前后端 opt-in 实现。
+**文档归属与本次整理。** 本文件保留文献分析、审查依据和研究假设；正式语义以 [Tile 语言文档](../../docs/source/tile/design.md) 为准，变换义务以 [calculus](../../docs/source/internals/tile/calculus.md) 为准，候选组合以 [planner](../../docs/source/internals/tile/planner.md#compositional-search-contract) 为准，实施检查点见 [决策记录](../../docs/source/internals/tile/decisions.md)。本次把建议并入这些既有页面，不另建平行文档体系。按最新讨论，**普通 `reduce` 默认 `unordered_tree`；保序树与严格 fold 由用户显式选择**。§12 保留实现前的审查快照；逐操作 policy 现已落地，最新实现边界见 §13，不能再将快照中的“尚未实现”当作当前状态。
 
 ## 1. 先把比较对象拆清楚
 
@@ -798,3 +798,31 @@ for (auto &step : nest.reduce(shape(k), reduction::fold_left)) {
 最小语义反例集应包含：非结合纯 fold 的左右结果不同、精确结合但不交换的合并、FP32 对重结合敏感的输入、非 identity seed、空域/部分 lane、NaN/signed zero/tie、同 kernel 的混合严格/宽松 reduction、复制 layout 不得重复计数，以及一个 producer 两个 consumer 的循环 buffer 复用。性能消融应单独关闭 representation candidate、phase remapping 和版本复用，避免同时改变多项后只留下一个总 speedup。
 
 仍待回答的问题是：这些 region 边界摘要对我们声明的有界片段是否足够、低层 emitter 是否真正实现了被验证的 plan、以及预测目标能否在未见过的算子上正确排序。**把这三点连起来，才是“flexible 又 structured”从漂亮设计变成严谨、实用工作的路径。**
+
+## 13. 实现跟进：逐操作归约策略与最终编译边界
+
+这一轮落实了 §12.2 的首要缺口，不是新的性能排名，也没有完成整体 execution calculus 的形式证明。
+
+| 层次 | 已落实 | 保留的边界 |
+|---|---|---|
+| C++ DSL / TileIR | 原有 `reduce` 增加可选 `ReductionPolicy`；默认 `unordered_tree`，显式保序树、左 fold、右 fold；rewriter 修改策略会使分析缓存失效 | 不增加 nest primitive、accumulator proxy 或 `result()`；任意自定义 lift/merge 契约检查器仍未实现 |
+| TIRx | 独立传递数值策略与归约 body contract；CPU array provider、Metal striped/subgroup emitter 只接受无序树 | 保序树暂用保序串行实现；未知自定义 body 不凭空生成 merge |
+| XIR / SIMD | 保留词典序或逆词典序贡献遍历；严格策略关闭 SIMD 优化与 LLVM 编译的全局 fast math | 尚无一般 within-Tile 树化／packet 分布 emitter |
+| Metal Runtime | 有顺序要求时关闭最终编译 fast math；无显式 TIRx 配置且设备支持时自动启用 collective 候选族 | 候选开关不授予数值权限；每个操作仍分别准入 |
+| 独立 TVM Runtime | 通过小型原生 C++ precise-math 扩展，将要求保留到模块载入和 `MTLCompileOptions` | 未安装扩展时严格归约明确编译失败；Luisa Runtime 的源 artifact 路径不依赖该扩展 |
+
+右 fold 特别区分 **遍历方向** 与 **body 操作数方向**：nest 的策略只决定逆序访问，绝不自动改写用户 body；expression-level `reduce(x, axes, reducer, fold_right)` 则由库调用 `reducer(elem, state)`。多维贡献的顺序来自逻辑 domain，而非线程编号或物理 layout。测试覆盖非交换更新、空域、正负零 seed、非 identity seed、二维顺序指纹，以及对重结合敏感的 FP32 消去数据。
+
+### 13.1 两个有推广意义的失败
+
+第一，**合法的 IR 并不保证最终机器代码仍合法**。TVM Metal runtime 的原始实现将 `fastMathEnabled` 写死为 `YES`；即使 lowering 输出串行循环，`[2^24, 1, -2^24]` 这样的消去用例也会暴露重排。修复把需求一路传到最终编译：Luisa 的 `DeviceArtifact` 携带 `requires_precise_math`；独立 TVM 模块的精确模式同时有 compiler/runtime capability 检查并被序列化保存；LLVM target 的全局 fast-math flags 也不得覆盖严格策略。这不是放宽测试容差，不涉及生成 Python 或修改 shader 源字符串。
+
+第二，**只数输出元素会漏掉内部 collective 的执行宽度**。同一 group 内一处无序 sum、一处严格 fold 的用例，原 planner 因两个结果都是标量而分配一个线程，导致合法的 subgroup sum 无法出现。现在 workload analysis 与 emitter 共用同一个完整 body/policy matcher，为已准入 collective 的每个独立输出预留一个完整 subgroup，并按硬件上限限制宽度。显式线程限制仍可选择串行 fallback。这个修改与算子名、特定矩阵尺寸无关。
+
+这里必须区分**映射准入修正**和**成本模型完成**：上述 composed-group 选择仍是受限的参考绑定，不是已经校准的串行／subgroup／跨 subgroup 联合最优解。已有 whole-row reduction 的成本模型不能直接冒充 mixed matrix/reduction phases 的总成本。下一步应将每个 phase 的贡献工作、转换流量、峰值 live state、参与者占用及同步需求组合起来，再比较候选。
+
+完整回归还揭示了 phase fence 的另一条独立义务：共享中间结果与写入 global view 的结果都可能跨 phase 被消费。没有 effect/participant 证明时，不能将同时覆盖 device/threadgroup 的 fence 缩成仅 threadgroup fence。数值许可不等于内存排序许可。
+
+### 13.2 本轮不声称什么
+
+这些实现消除了归约调优的语义障碍，并增加了 composed-group collective 的可达性，但本轮未重测性能。因此没有新的 MPS/Torch 加速比，既有 attention/decode、较大 GEMM 与部分 normalization 的差距仍然成立。通用 lift/merge checker、保序树 emitter、XIR 内部 Tile 分布、边界摘要组合与 held-out 成本校准仍待完成。特别是任意自定义无序 body 的诊断尚未达到 §12 的设计目标；当前实现仅对已识别的 body 树化，其他 body 保守保留串行更新。

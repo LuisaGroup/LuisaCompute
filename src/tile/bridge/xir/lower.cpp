@@ -385,7 +385,15 @@ private:
         }
         _builder.cond_br(_compare(A::BINARY_LESS, induction, _index(_volume(domain))), loop_body, exit);
         _at(loop_body);
-        _bind_coordinates(*body, domain, induction);
+        x::Value *ordinal = induction;
+        if (op.kind() == OperationKind::REDUCE && op.reduction_policy() == reduction::fold_right) {
+            // Reverse the logical sequence, not the accumulator operands or
+            // the root worker permutation. This expression is unreachable for
+            // an empty domain, so there is no unsigned host-side underflow.
+            ordinal = _binary(A::BINARY_SUB, _index(_volume(domain)),
+                              _binary(A::BINARY_ADD, induction, _index(1u)));
+        }
+        _bind_coordinates(*body, domain, ordinal);
         auto yielded = _region(*body);
         if (yielded.size() != carries.size()) { _fail("XIR loop yield does not match its carried state"); }
         // Every incoming uses the old iteration's SSA definitions. No ordered

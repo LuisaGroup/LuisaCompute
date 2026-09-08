@@ -4,11 +4,13 @@
 #include <luisa/tile/runtime.h>
 #include <luisa/runtime/stream.h>
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <limits>
 
 #ifdef LUISA_TEST_TILE_NATIVE_TIRX
 #include "tile_tirx_test_utils.h"
+#include "tile_reduction_policy_test_utils.h"
 #endif
 
 using namespace luisa;
@@ -200,6 +202,55 @@ int main(int argc, char *argv[]) {
         stream << a.copy_from(ah.data()) << z.copy_from(zh.data())
                << shader(z, a, c, a).dispatch() << c.copy_to(ch.data()) << synchronize();
         for (auto i = 0u; i < 97u; i++) { expect(std::abs(ch[i] - (zh[i] + 2.0f * ah[i])) < 1e-6f); }
+    };
+    "tile_tirx_runtime_default_reduction_uses_collective"_test = [&] {
+        using namespace tile;
+        constexpr auto rows = int64_t{3}, columns = int64_t{257};
+        auto definition = tile_kernel("default_reduction", [](TensorView<const float, 2> input,
+                                                              TensorView<float, 1> output) {
+            auto one = axis("one", 1), column = axis("column", columns);
+            for (auto &nest : parallel(shape(rows))) {
+                auto x = input[coord(nest.index(), 0), shape(one, column)];
+                output(coord(nest.index()), shape(one)).store(reduce(x, column, add));
+            }
+        });
+        auto kernel = definition.capture(tensor_shape(rows, columns), tensor_shape(rows));
+        auto shader = tile::compile(device, kernel, {.lowering = Lowering::TIRX});
+        expect(static_cast<bool>(shader)) << shader.metadata().error;
+        if (!shader) { return; }
+        expect(shader.metadata().source.find("simd_sum(") != string::npos);
+        expect(shader.metadata().realization.find("fast_math=false") != string::npos);
+        vector<float> values(rows * columns, .25f), actual(rows);
+        auto input = device.create_buffer<float>(values.size());
+        auto output = device.create_buffer<float>(actual.size());
+        auto stream = device.create_stream(StreamTag::COMPUTE);
+        stream << input.copy_from(values.data()) << shader(input, output).dispatch()
+               << output.copy_to(actual.data()) << synchronize();
+        for (auto value : actual) { expect(eq(value, columns * .25f)); }
+    };
+    "tile_tirx_runtime_local_fold_overrides_global_fast_math"_test = [&] {
+        namespace cases = test::tile_reduction;
+        constexpr auto rows = int64_t{3}, width = int64_t{15};
+        auto kernel = cases::folds(rows, 3, 5, 3.0f);
+        auto shader = tile::compile(device, kernel, {.lowering = tile::Lowering::TIRX}, {.enable_fast_math = true});
+        expect(static_cast<bool>(shader)) << shader.metadata().error;
+        if (!shader) { return; }
+        expect(shader.metadata().realization.find("fast_math=false") != string::npos);
+        expect(shader.metadata().realization.find("ordered_reduction=true") != string::npos);
+        vector<float> values(rows * width), actual(rows * cases::outputs);
+        constexpr float cancellation[]{16777216.0f, 1.0f, -16777216.0f, 3.0f, -2.0f};
+        for (auto i = size_t{0}; i < values.size(); i++) { values[i] = cancellation[i % 5u]; }
+        auto input = device.create_buffer<float>(values.size());
+        auto output = device.create_buffer<float>(actual.size());
+        auto stream = device.create_stream(StreamTag::COMPUTE);
+        stream << input.copy_from(values.data()) << shader(input, output).dispatch()
+               << output.copy_to(actual.data()) << synchronize();
+        for (auto row = int64_t{0}; row < rows; row++) {
+            auto expected = cases::reference(span<const float>{values}.subspan(row * width, width), 3.0f);
+            for (auto mode = int64_t{0}; mode < cases::outputs; mode++) {
+                expect(eq(std::bit_cast<uint32_t>(actual[row * cases::outputs + mode]), std::bit_cast<uint32_t>(expected[mode])));
+            }
+        }
     };
     "tile_tirx_runtime_rejects_multiple_launches"_test = [&] {
         using namespace tile;
