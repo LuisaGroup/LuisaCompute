@@ -43,6 +43,16 @@ and negative results. Historical experiments are not one matched leaderboard.
 
 ## Results by route
 
+**SIMD CPU task grain: executable joint search, incomplete cost calibration.**
+The new [task-grain controls and cost-policy hooks](results.md#cpu-task-grain-is-independent-of-the-native-packet-body)
+separate CPU callback ranges from native block/packet mapping. At fixed code,
+129×768 RMSNorm improves 52.909→25.662 µs E2E under caller execution, while
+same-size softmax regresses 85.638→227.854 µs. The provisional model improves
+small RMSNorm and attention but still misprices ragged state-machine paths
+and coarse parallel tasks. It remains opt-in; this is not a new native-kernel
+or Torch/MPS victory. All 592 comparative outputs pass and 18 fixed-code
+cohorts preserve exact LLVM/object/output identity.
+
 **Metal matrix programs: broader legal lowering, incomplete profitability.**
 Bounded K/M/N views and [direct output](results.md#bounded-output-removes-shared-c-not-the-whole-library-gap)
 remove unnecessary staging using access/recurrence proofs. The

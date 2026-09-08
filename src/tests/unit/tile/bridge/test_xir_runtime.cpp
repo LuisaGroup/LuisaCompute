@@ -22,6 +22,55 @@ namespace {
 
 [[nodiscard]] bool close(span<const float> actual, span<const double> expected);
 
+void task_grain(Device &device, int64_t rows, uint32_t lanes) {
+    using namespace tile;
+    constexpr auto width = int64_t{65};
+    auto kernel = tile_kernel("task_grain", [=](TensorView<const float, 2> input, TensorView<float, 2> output) {
+                      auto m = axis("m", 1), n = axis("n", width);
+                      for (auto &nest : parallel(shape(rows))) {
+                          auto x = input[coord(nest.index(), 0), shape(m, n)];
+                          output(coord(nest.index(), 0), shape(m, n)).store(x + reduce(x, n, add));
+                      }
+                  }).capture(tensor_shape(rows, width), tensor_shape(rows, width));
+    constexpr auto pad = size_t{17u};
+    constexpr auto guard = -731.25f;
+    vector<float> input(rows * width), initial(rows * width + 2u * pad, guard), baseline;
+    vector<double> expected(rows * width);
+    for (int64_t row = 0; row < rows; row++) {
+        double sum = 0.0;
+        for (int64_t col = 0; col < width; col++) {
+            auto value = static_cast<float>((row * 3 + col * 7) % 31 - 15) * .125f;
+            input[row * width + col] = value;
+            sum += value;
+        }
+        for (int64_t col = 0; col < width; col++) { expected[row * width + col] = input[row * width + col] + sum; }
+    }
+    auto a = device.create_buffer<float>(input.size()), b = device.create_buffer<float>(initial.size());
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    stream << a.copy_from(span{input}) << synchronize();
+    string baseline_llvm;
+    for (auto grain : {0u, 1u, 3u, 16u, UINT32_MAX}) {
+        auto options = bridge::xir::PlannerOptions{.block_size = 32u, .local_lanes = lanes, .blocks_per_task = grain};
+        auto shader = compile(device, kernel, {.xir = &options}, {.enable_fast_math = false});
+        expect(static_cast<bool>(shader)) << shader.metadata().error;
+        if (!shader) { continue; }
+        expect(shader.metadata().realization.find(format("blocks_per_task={};", grain)) != string::npos);
+        auto output = initial;
+        stream << b.copy_from(span{initial}) << shader(a, b.view(pad, input.size())).dispatch()
+               << b.copy_to(span{output}) << synchronize();
+        expect(close(span{output}.subspan(pad, input.size()), expected));
+        expect(std::all_of(output.begin(), output.begin() + pad, [](float x) { return x == guard; }));
+        expect(std::all_of(output.end() - pad, output.end(), [](float x) { return x == guard; }));
+        if (grain == 0u) {
+            baseline = output;
+            baseline_llvm = shader.metadata().source;
+        } else {
+            expect(output == baseline);
+            expect(shader.metadata().source == baseline_llvm) << "CPU task grain must not alter native kernel code";
+        }
+    }
+}
+
 void fused_load_reductions(Device &device, int64_t width, uint32_t lanes, uint32_t variant) {
     using namespace tile;
     constexpr auto rows = int64_t{17};
@@ -623,6 +672,11 @@ void packet_local_reductions(Device &device, int64_t count, int64_t width, uint3
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     auto [context, device] = test::create_device(argc, argv);
+    "tile_xir_runtime_task_grain_preserves_kernel_and_guards"_test = [&] {
+        for (auto rows : {17, 129}) {
+            for (auto lanes : {1u, device.compute_warp_size()}) { task_grain(device, rows, lanes); }
+        }
+    };
     "tile_xir_runtime_fused_loads_preserve_alias_snapshots"_test = [&] {
         for (auto lanes : {1u, device.compute_warp_size()}) {
             for (auto width : {65, 256, 4096}) {

@@ -111,6 +111,8 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
         }
         metadata.realization.append("]");
         metadata.realization.append(luisa::format("; local_lanes={}", plan.local_lanes));
+        metadata.realization.append(luisa::format("; blocks_per_task={}; task_dispatch_cost={:.3f}; worker_activation_cost={:.3f}; custom_cost_policy={}",
+                                                  plan.blocks_per_task, plan.cost.task_dispatch_work, plan.cost.activation_work, planner_options.cost_policy != nullptr));
         metadata.realization.append(luisa::format("; max_unrolled_tile_elements={}", planner_options.max_unrolled_tile_elements));
         metadata.realization.append(luisa::format("; unordered_reduction_partitions={}", planner_options.reduction_partitions));
         metadata.realization.append(luisa::format("; load_reduction_fusion={}; fused_reduction_loads={}; elided_load_snapshots={}",
@@ -127,7 +129,7 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
             metadata.arguments.emplace_back(tile::KernelArgument{arguments[i]->type().scalar_type(), lowered.argument_sizes_bytes[i], lowered.argument_usages[i]});
         }
         auto block_size = make_uint3(threads, 1u, 1u);
-        auto shader = luisa::new_with_allocator<SIMDShader>(std::move(compiled), block_size, std::move(lowered.argument_usages));
+        auto shader = luisa::new_with_allocator<SIMDShader>(std::move(compiled), block_size, std::move(lowered.argument_usages), plan.blocks_per_task);
         ShaderCreationInfo info;
         info.handle = reinterpret_cast<uint64_t>(shader);
         info.native_handle = shader->native_handle();

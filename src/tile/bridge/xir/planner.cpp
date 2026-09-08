@@ -73,6 +73,34 @@ struct Work {
     return detail::bounded_tile(value, limit) || (lanes > 1u && detail::bounded_tile(value, lanes - 1u));
 }
 
+[[nodiscard]] ExecutionWork distribute_work(Work work, const ExecutionPlan &candidate, ExecutionTarget target) {
+    auto packets = ceil_div(static_cast<uint64_t>(candidate.dispatch_size), static_cast<uint64_t>(target.packet_width));
+    auto blocks = ceil_div(static_cast<uint64_t>(candidate.dispatch_size), static_cast<uint64_t>(candidate.block_size));
+    auto grain = candidate.blocks_per_task ? static_cast<uint64_t>(candidate.blocks_per_task) :
+                                             ceil_div(blocks, static_cast<uint64_t>(target.worker_count) * target.task_chunks_per_worker);
+    grain = std::min(grain, blocks);
+    auto tasks = ceil_div(blocks, grain);
+    auto workers = std::min<uint64_t>(tasks, target.worker_count);
+    // SIMDThreadPool executes one whole-range callback on the caller when
+    // only one worker can run, regardless of the requested subdivision.
+    if (workers == 1u) {
+        return {work.arithmetic, work.memory, packets, blocks, 1u, 1u,
+                static_cast<uint32_t>(blocks), packets, blocks, 1u};
+    }
+    // Round-robin home chunks: every chunk but the last is full. Compute the
+    // maximum load without iterating over the launch or the worker count.
+    auto critical = [&](uint64_t count, uint64_t capacity) {
+        auto full_tasks = tasks - 1u;
+        auto last = count - full_tasks * capacity;
+        return std::max(ceil_div(full_tasks, workers) * capacity,
+                        (full_tasks / workers) * capacity + last);
+    };
+    return {work.arithmetic, work.memory, packets, blocks, tasks,
+            static_cast<uint32_t>(workers), static_cast<uint32_t>(grain),
+            critical(packets, grain * candidate.block_size / target.packet_width),
+            critical(blocks, grain), ceil_div(tasks, workers)};
+}
+
 void read_work(const Value *value, double repetitions, bool dynamic,
                ExecutionTarget target, const ExecutionCostModel &cost, uint32_t limit, uint32_t lanes, Work &work,
                const PlannerOptions &options, const Operation *consumer) {
@@ -213,11 +241,14 @@ void measure(const Block &block, const Value *axis, double repetitions,
 }
 
 [[nodiscard]] PlanningResult solve(const Function &function, ExecutionTarget target, const PlannerOptions &options) {
-    if (!target.packet_width || target.packet_width > 16u || (target.packet_width & (target.packet_width - 1u)) || !target.worker_count || !options.max_candidates ||
+    if (!target.packet_width || target.packet_width > 16u || (target.packet_width & (target.packet_width - 1u)) || !target.worker_count || !target.task_chunks_per_worker || !options.max_candidates ||
         !options.reduction_partitions || options.reduction_partitions > 16u) {
         fail("invalid XIR target or search budget");
     }
-    for (auto coefficient : {options.cost.arithmetic, options.cost.broadcast_load, options.cost.contiguous_memory, options.cost.gathered_lane, options.cost.block_dispatch}) {
+    auto default_policy = AnalyticExecutionCostPolicy{};
+    auto &policy = options.cost_policy ? *options.cost_policy : default_policy;
+    auto model = policy.coefficients(target, options.cost);
+    for (auto coefficient : {model.arithmetic, model.broadcast_load, model.contiguous_memory, model.gathered_lane, model.block_dispatch, model.task_dispatch, model.worker_activation}) {
         if (!std::isfinite(coefficient) || coefficient < 0.0) { fail("XIR cost coefficients must be finite and nonnegative"); }
     }
     if (!function.parent_module() || !verify(*function.parent_module()) || function.body().block_count() != 1u) { fail("invalid TileIR before XIR planning"); }
@@ -279,26 +310,34 @@ void measure(const Block &block, const Value *axis, double repetitions,
     do {
         for (auto lanes : local_widths) {
             Work work;
-            measure(*body, indices[order.back()], 1.0, target, options.cost, indices, options.max_unrolled_tile_elements, lanes, work, options);
+            measure(*body, indices[order.back()], 1.0, target, model, indices, options.max_unrolled_tile_elements, lanes, work, options);
             // If a packet crosses the chosen innermost axis, its memory estimate
             // is conservatively penalized. No lane-coherence fact reaches codegen.
             auto extent = root->domain()->axis(order.back()).extent.constant_value();
             if (lanes == 1u && extent % target.packet_width != 0u) { work.memory *= 2.0; }
+            if (!std::isfinite(work.arithmetic) || !std::isfinite(work.memory)) { fail("XIR work estimate overflow"); }
             auto physical_count = count * lanes;
             for (auto width : widths) {
                 auto blocks = ceil_div(physical_count, static_cast<uint64_t>(width));
-                auto workers = std::min<uint64_t>(blocks, target.worker_count);
-                auto packets = ceil_div(physical_count, static_cast<uint64_t>(target.packet_width));
-                auto waves = ceil_div(blocks, workers);
-                ExecutionCost cost;
-                cost.arithmetic_work = work.arithmetic * packets / workers;
-                cost.memory_work = work.memory * packets / workers;
-                cost.dispatch_work = options.cost.block_dispatch * waves;
-                auto issued = static_cast<double>(waves * ceil_div(std::min<uint64_t>(physical_count, width), static_cast<uint64_t>(target.packet_width)));
-                cost.imbalance_work = std::max(0.0, issued - static_cast<double>(packets) / workers) * (work.arithmetic + work.memory);
-                cost.score = cost.arithmetic_work + cost.memory_work + cost.dispatch_work + cost.imbalance_work;
-                if (!std::isfinite(cost.score)) { fail("XIR cost estimate overflow"); }
-                result.candidates.emplace_back(ExecutionPlan{width, order, static_cast<uint32_t>(physical_count), cost, lanes});
+                luisa::vector<uint32_t> grains{options.blocks_per_task};
+                if (options.search_task_grain && !options.blocks_per_task) {
+                    grains = {static_cast<uint32_t>(ceil_div(blocks, static_cast<uint64_t>(target.worker_count) * target.task_chunks_per_worker)),
+                              static_cast<uint32_t>(blocks)};
+                    for (auto grain = uint64_t{1u}; grain < blocks; grain *= 2u) { grains.emplace_back(static_cast<uint32_t>(grain)); }
+                    std::sort(grains.begin(), grains.end());
+                    grains.erase(std::unique(grains.begin(), grains.end()), grains.end());
+                }
+                for (auto grain : grains) {
+                    if (result.candidates.size() >= options.max_candidates) { fail("XIR exact search exceeds its candidate budget"); }
+                    ExecutionPlan candidate{width, order, static_cast<uint32_t>(physical_count), {}, lanes, grain};
+                    auto cost = policy.evaluate(target, candidate, distribute_work(work, candidate, target), model);
+                    for (auto component : {cost.arithmetic_work, cost.memory_work, cost.dispatch_work, cost.imbalance_work,
+                                           cost.score, cost.task_dispatch_work, cost.activation_work}) {
+                        if (!std::isfinite(component) || component < 0.0) { fail("XIR cost policy returned a nonfinite or negative cost"); }
+                    }
+                    candidate.cost = cost;
+                    result.candidates.emplace_back(std::move(candidate));
+                }
             }
         }
     } while (!fixed_order && std::next_permutation(order.begin(), order.end()));
@@ -307,6 +346,20 @@ void measure(const Block &block, const Value *axis, double repetitions,
 }
 
 }// namespace
+
+ExecutionCost AnalyticExecutionCostPolicy::evaluate(
+    ExecutionTarget, const ExecutionPlan &, const ExecutionWork &work, const ExecutionCostModel &model) const noexcept {
+    auto average_packets = static_cast<double>(work.packet_count) / work.active_workers;
+    ExecutionCost cost;
+    cost.arithmetic_work = work.arithmetic_per_packet * average_packets;
+    cost.memory_work = work.memory_per_packet * average_packets;
+    cost.dispatch_work = model.block_dispatch * work.critical_blocks;
+    cost.imbalance_work = std::max(0.0, static_cast<double>(work.critical_packets) - average_packets) * (work.arithmetic_per_packet + work.memory_per_packet);
+    cost.task_dispatch_work = model.task_dispatch * work.critical_tasks;
+    cost.activation_work = work.active_workers > 1u ? model.worker_activation : 0.0;
+    cost.score = cost.arithmetic_work + cost.memory_work + cost.dispatch_work + cost.imbalance_work + cost.task_dispatch_work + cost.activation_work;
+    return cost;
+}
 
 PlanningResult plan(const Function &function, ExecutionTarget target, const PlannerOptions &options) noexcept {
     try {

@@ -18,6 +18,49 @@ of same-round numerator/denominator ratios, **not** a ratio of the displayed
 medians. Ranges and counts of slower rounds are descriptive, not confidence
 intervals. No slow or failed row is discarded to improve the headline.
 
+### CPU task grain is independent of the native packet body
+
+The September 8 {download}`task-grain report <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-task-grain/notes.md>`
+adds an independent blocks-per-CPU-task search and replaceable XIR cost policy.
+This is a Runtime scheduling change, **not a new native kernel speedup**:
+18 fixed-mapping cohorts have byte-identical LLVM, ORC objects and outputs
+across four task grains. All 592 comparative visits pass complete FP64
+output checks; a separate final-binary pilot is retained without merging its
+timings into these cohorts.
+
+At fixed FP32/W8/local=8/block=32, the same 129×768 shape needs different
+task policies for different primitive mixes. Times are Runtime E2E µs, with
+eight requested CPU workers, full-packet specialization on and fusion off.
+Caller executes the entire range on the submitting thread. Ratios are paired
+medians from two orders; they are descriptive, not confidence intervals.
+
+| 129×768 | Legacy grain | Caller | Caller/legacy |
+|---|---:|---:|---:|
+| RMSNorm | 52.909 | 25.662 | 0.486 |
+| LayerNorm | 62.951 | 42.272 | 0.672 |
+| RoPE | 56.531 | 27.680 | 0.490 |
+| Masked softmax | 85.638 | 227.854 | 2.661 |
+| SwiGLU | 73.753 | 132.546 | 1.797 |
+| GELU + residual | 86.084 | 239.004 | 2.776 |
+
+A provisional activation-cost extension improves pilot RMSNorm 64×256 from
+34.100 to 5.544 µs and small attention B,Hq,Hkv,Q,K,D,Dv=1,4,2,16,32,16,16
+from 35.189 to 14.872 µs. Attention still uses whole-program mapping, not a
+new local attention realization. The extension is **not a validated default**:
+LayerNorm 4096×1024 regresses from 359.189 to 389.362 µs under a coarser
+parallel grain, and ragged 257×1538 norm/softmax still select slow local
+state-machine paths. On RMSNorm 17×65, selected local takes 9.637 µs while
+whole-program takes 1.299 µs. A semantic work count does not capture this
+realization difference.
+
+The coefficients are prespecified relative-work priors, not fitted time or
+hardware facts. The {download}`full tables <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-task-grain/tables.md>`
+and {download}`audit <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-task-grain/audit.json>`
+retain all seven operators, 26 extended shapes and negative results. Future
+policy work must combine actual CFG/mask/math realization with task overhead
+and load-balancing risk. No new Torch/MPS/BLAS measurement, automatic default
+win or all-kernel parity is claimed.
+
 ### Full-packet specialization changes the profitable local mapping
 
 The September 8 {download}`full-packet report <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-full-packet/notes.md>`

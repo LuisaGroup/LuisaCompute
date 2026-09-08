@@ -610,8 +610,9 @@ SIMDShader::SIMDShader(
 SIMDShader::~SIMDShader() noexcept = default;
 
 SIMDShader::SIMDShader(SIMDCompiledKernel compiled, uint3 block_size,
-                       luisa::vector<Usage> argument_usages) noexcept
+                       luisa::vector<Usage> argument_usages, uint32_t blocks_per_task) noexcept
     : _compiled{std::move(compiled)}, _block_size{block_size},
+      _blocks_per_task{blocks_per_task},
       _argument_usages{std::move(argument_usages)} {
     LUISA_ASSERT(_compiled.succeeded() && _compiled.print_formats.empty(), "Invalid precompiled SIMD Tile entry.");
     LUISA_ASSERT(static_cast<uint64_t>(block_size.x) * block_size.y * block_size.z % _compiled.warp_width == 0u,
@@ -692,6 +693,7 @@ void SIMDShader::_dispatch_once(
     auto grain_size = grid_count == 0u ?
                           uint64_t{1u} :
                           (grid_count - 1u) / target_chunks + 1u;
+    if (_blocks_per_task != 0u) { grain_size = _blocks_per_task; }
     SIMDPrintDispatchContext debug_context{
         .formatters = &_print_formatters,
         .log_callback = &log_callback,

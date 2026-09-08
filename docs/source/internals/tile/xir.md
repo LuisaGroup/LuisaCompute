@@ -523,6 +523,14 @@ The first solver searches the Cartesian product of:
 - With `local_lanes=0`, whole-program lanes and an admitted full-packet local
   axis; `local_lanes=W` fixes the latter. The default remains `local_lanes=1`
   until tail-control and CPU worker-activation costs are modeled adequately.
+- With `search_task_grain=true`, power-of-two blocks-per-CPU-task, the legacy
+  grain and the whole launch. `blocks_per_task` fixes a grain independently
+  of the block width; zero without search retains the Runtime heuristic.
+
+Task grain changes only how consecutive blocks are assigned to CPU callbacks.
+It does not change the program hierarchy, native packet body, reduction tree,
+memory layout or logical block coordinates. A single task executes on the
+calling thread; it is not a one-worker GPU execution binding.
 
 The target packet width is an existing Device property, not a compiler guess.
 Block counts must satisfy XIR's block-size contract and be divisible by that
@@ -543,7 +551,10 @@ remain authoritative; a low score never makes unsupported code legal.
 `ExecutionCostModel` is an **uncalibrated relative-work prior**, not nanoseconds,
 hardware instruction counts or measured cache behavior. Default weights:
 arithmetic 1, broadcast load 1, contiguous memory 2, gathered lane 2, block
-dispatch 128. All coefficients must be finite and nonnegative.
+dispatch 128, task dispatch 0 and worker activation 0. All coefficients must
+be finite and nonnegative. The latter two are separate because an actual
+block-range callback can issue multiple blocks. The historical block weight
+is still an abstract per-block term, not a count of native calls.
 
 For each candidate, the estimator counts Tile work, local-loop
 repetition, ordered MMA multiply/add work, definition-time snapshot stores
@@ -564,25 +575,72 @@ An innermost extent not divisible by W conservatively doubles memory work.
 These classifications are **not passed to codegen as proven facts**.
 
 Let `a,m` be estimated arithmetic/memory work per packet, `H` available CPU
-workers, `P` physical workers (`root programs * local_lanes`), `Q=ceil(P/W)`, `L=ceil(P/B)`,
-`h=min(H,L)`, `waves=ceil(L/h)`, and `d` the dispatch weight:
+workers, `P` physical workers (`root programs * local_lanes`), `Q=ceil(P/W)`,
+`L=ceil(P/B)` and `G` blocks per task. The default grain is
+`ceil(L/(H*32))`; an explicit grain is clamped to L for estimation. There
+are `C=ceil(L/G)` chunks and `h=min(H,C)` active workers. If h=1, the Runtime
+collapses the entire range to one caller callback, regardless of G.
+
+For h>1, the static round-robin home assignment has C-1 full chunks and one
+possibly shorter final chunk. Let `F=C-1`, `R=G*B/W` and `last=Q-F*R`:
+
+```text
+critical_packets = max(ceil(F/h)*R, floor(F/h)*R + last)
+critical_blocks  = the same formula with Q=L and R=G
+critical_tasks   = ceil(C/h)
+```
+
+For h=1 these quantities are Q, L and 1. This exact count fixes the previous
+homogeneous-wave overestimate when only one worker receives a short last
+chunk. It is not an exact prediction of work stealing or heterogeneous-core
+time. With block, task and activation weights d, t and u:
 
 ```text
 arithmetic = a × Q / h
 memory     = m × Q / h
-dispatch   = d × waves
-imbalance  = max(0, waves × ceil(min(P,B)/W) − Q/h) × (a+m)
-score      = arithmetic + memory + dispatch + imbalance
+dispatch   = d × critical_blocks
+imbalance  = max(0, critical_packets − Q/h) × (a+m)
+task       = t × critical_tasks
+activation = h > 1 ? u : 0
+score      = arithmetic + memory + dispatch + imbalance + task + activation
 ```
 
-All four terms are retained in the plan and reported in shader realization
-metadata, along with the selected order and candidate count. This homogeneous
-wave model intentionally does not pretend to model the M1's heterogeneous
+All terms are retained in the plan and reported in shader realization
+metadata, along with order, candidate count and task grain. This static
+home-assignment model intentionally does not pretend to model the M1's heterogeneous
 cores, cache sharing, variable mask density, spills or actual thread timing.
 The experimental distribution estimator counts local iterations, external
 access slopes and a fixed shuffle prior. Its private-array estimate remains
 conservative and uncalibrated; it does not yet price the interleaved emitter's
 actual accesses. Joint search is therefore opt-in, not a promised speedup.
+
+### Backend cost policy, without changing the legal candidate space
+
+`ExecutionCostPolicy::coefficients()` replaces target coefficients before work
+extraction; `evaluate()` receives the candidate and `ExecutionWork`, and returns
+the complete objective. The solver does not divide that objective by workers
+again. `AnalyticExecutionCostPolicy` supplies the formula above; a backend can
+inherit either hook. The policy is borrowed only during synchronous planning.
+Invalid coefficients and nonfinite/negative returned cost components are
+rejected. Neither a policy nor a low score can waive IR, domain, binding,
+redistribution or candidate-budget checks.
+
+```text
+TileIR + hard realization constraints
+               │
+        legal (order, local lanes, block, task grain)
+               │
+        work extraction + home-chunk topology
+               │
+     backend coefficients / complete cost objective
+               │
+        exact finite minimum → native body + Runtime task grain
+```
+
+The [task-grain experiment](../../performance/tile/results.md#cpu-task-grain-is-independent-of-the-native-packet-body)
+shows why this hook must include actual realization costs before automatic
+rollout: a provisional activation-only extension helps small dispatches, but
+still underprices state-machine fallbacks and overly coarse parallel chunks.
 
 ### Reproducible fixed-plan controls
 

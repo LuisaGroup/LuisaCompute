@@ -8,12 +8,130 @@
 #include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/instructions/load.h>
 #include <luisa/xir/instructions/store.h>
+#include <limits>
 
 using namespace luisa;
 using namespace luisa::compute;
 using namespace boost::ut;
 
 int main() {
+    "tile_xir_task_distribution_matches_static_home_chunks"_test = [] {
+        using namespace tile;
+        namespace bx = bridge::xir;
+        struct AuditPolicy final : bx::AnalyticExecutionCostPolicy {
+            [[nodiscard]] bx::ExecutionCost evaluate(bx::ExecutionTarget target, const bx::ExecutionPlan &candidate,
+                                                     const bx::ExecutionWork &work, const bx::ExecutionCostModel &model) const noexcept override {
+                auto blocks = ceil_div(candidate.dispatch_size, candidate.block_size);
+                auto grain = candidate.blocks_per_task ? candidate.blocks_per_task : ceil_div(blocks, target.worker_count * target.task_chunks_per_worker);
+                auto tasks = ceil_div(blocks, grain);
+                auto workers = std::min(tasks, target.worker_count);
+                if (workers == 1u) {
+                    grain = blocks;
+                    tasks = 1u;
+                }
+                vector<uint64_t> packets_per_worker(workers), blocks_per_worker(workers), tasks_per_worker(workers);
+                for (auto task = 0u; task < tasks; task++) {
+                    auto begin = static_cast<uint64_t>(task) * grain;
+                    auto end = std::min<uint64_t>(begin + grain, blocks);
+                    auto owner = task % workers;
+                    tasks_per_worker[owner]++;
+                    for (auto block = begin; block < end; block++) {
+                        auto threads = std::min<uint64_t>(candidate.block_size, candidate.dispatch_size - block * candidate.block_size);
+                        packets_per_worker[owner] += ceil_div(threads, static_cast<uint64_t>(target.packet_width));
+                        blocks_per_worker[owner]++;
+                    }
+                }
+                expect(eq(work.block_count, static_cast<uint64_t>(blocks)));
+                expect(eq(work.packet_count, static_cast<uint64_t>(ceil_div(candidate.dispatch_size, target.packet_width))));
+                expect(eq(work.task_count, static_cast<uint64_t>(tasks)));
+                expect(eq(work.active_workers, workers));
+                expect(eq(work.blocks_per_task, std::min(grain, blocks)));
+                expect(eq(work.critical_packets, *std::max_element(packets_per_worker.begin(), packets_per_worker.end())));
+                expect(eq(work.critical_blocks, *std::max_element(blocks_per_worker.begin(), blocks_per_worker.end())));
+                expect(eq(work.critical_tasks, *std::max_element(tasks_per_worker.begin(), tasks_per_worker.end())));
+                return AnalyticExecutionCostPolicy::evaluate(target, candidate, work, model);
+            }
+        } policy;
+        for (auto count : {1, 7, 8, 9, 31, 32, 33, 65, 127, 257, 4097}) {
+            auto kernel = tile_kernel("task_home", [=](TensorView<float, 1> out) {
+                              for (auto &nest : parallel(shape(count))) { out(coord(nest.index()), shape(1)).store(full<float>(shape(1), 1.0f)); }
+                          }).capture(tensor_shape(count));
+            for (auto width : {1u, 2u, 4u, 8u, 16u}) {
+                for (auto workers : {1u, 3u, 8u}) {
+                    for (auto grain : {0u, 1u, 2u, 3u, 16u, UINT32_MAX}) {
+                        auto options = bx::PlannerOptions{.block_size = 32u, .blocks_per_task = grain, .cost_policy = &policy};
+                        auto result = bx::plan(kernel.function(), {width, workers}, options);
+                        expect(result.ok()) << result.error;
+                        if (result) { expect(eq(result.selected.blocks_per_task, grain)); }
+                    }
+                }
+            }
+        }
+    };
+    "tile_xir_task_search_and_policy_are_independent_of_legality"_test = [] {
+        using namespace tile;
+        namespace bx = bridge::xir;
+        auto definition = tile_kernel("task_search", [](TensorView<float, 1> out) {
+            for (auto &nest : parallel(shape(257))) { out(coord(nest.index()), shape(1)).store(full<float>(shape(1), 1.0f)); }
+        });
+        auto kernel = definition.capture(tensor_shape(257));
+        auto options = bx::PlannerOptions{.block_size = 32u, .search_task_grain = true};
+        auto result = bx::plan(kernel.function(), {8u, 8u}, options);
+        expect(result.ok() && result.candidates.size() == 5u);
+        if (result) {
+            vector<uint32_t> grains;
+            for (auto &candidate : result.candidates) {
+                grains.emplace_back(candidate.blocks_per_task);
+                expect(result.selected.cost.score <= candidate.cost.score);
+            }
+            expect(grains == vector<uint32_t>{1u, 2u, 4u, 8u, 9u});
+            expect(result.selected.blocks_per_task < 9u);
+        }
+        options.cost.worker_activation = 1e12;
+        options.cost.task_dispatch = 17.0;
+        result = bx::plan(kernel.function(), {8u, 8u}, options);
+        expect(result.ok());
+        if (result) {
+            expect(eq(result.selected.blocks_per_task, 9u));
+            expect(eq(result.selected.cost.activation_work, 0.0));
+            expect(eq(result.selected.cost.task_dispatch_work, 17.0));
+        }
+        options.max_candidates = 4u;
+        expect(!bx::plan(kernel.function(), {8u, 8u}, options));
+        options.blocks_per_task = 3u;
+        expect(bx::plan(kernel.function(), {8u, 8u}, options).candidates.size() == 1u);
+        expect(!bx::plan(kernel.function(), {8u, 8u, 0u}, options));
+        struct OverridePolicy final : bx::AnalyticExecutionCostPolicy {
+            double coefficient{2.0};
+            double objective{5.0};
+            mutable uint32_t evaluations{0u};
+            [[nodiscard]] bx::ExecutionCostModel coefficients(bx::ExecutionTarget, const bx::ExecutionCostModel &prior) const noexcept override {
+                auto model = prior;
+                model.worker_activation = coefficient;
+                return model;
+            }
+            [[nodiscard]] bx::ExecutionCost evaluate(bx::ExecutionTarget, const bx::ExecutionPlan &,
+                                                     const bx::ExecutionWork &, const bx::ExecutionCostModel &) const noexcept override {
+                evaluations++;
+                return {.score = objective};
+            }
+        } policy;
+        options.cost_policy = &policy;
+        result = bx::plan(kernel.function(), {8u, 8u}, options);
+        expect(result.ok() && result.selected.cost.score == 5.0 && policy.evaluations == 1u);
+        for (auto invalid : {-1.0, std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN()}) {
+            policy.objective = invalid;
+            expect(!bx::plan(kernel.function(), {8u, 8u}, options));
+            policy.objective = 5.0;
+            policy.coefficient = invalid;
+            expect(!bx::plan(kernel.function(), {8u, 8u}, options));
+            policy.coefficient = 2.0;
+        }
+        auto evaluations = policy.evaluations;
+        options.block_size = 33u;
+        expect(!bx::plan(kernel.function(), {8u, 8u}, options));
+        expect(eq(policy.evaluations, evaluations));
+    };
     "tile_xir_load_reduction_fusion_contract_and_cost"_test = [] {
         using namespace tile;
         for (auto lanes : {1u, 2u, 4u, 8u, 16u}) {
