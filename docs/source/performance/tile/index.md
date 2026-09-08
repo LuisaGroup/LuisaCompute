@@ -89,11 +89,13 @@ but all six measured GEMMs still lose to Torch. General packed/vector
 microkernels and Tile distribution remain missing. Attention, CNN/filter,
 sort and Top-K PoCs establish correctness, not broad optimized performance.
 
-The latest [Torch CPU code inspection](results.md#torch-cpu-code-inspection-exposes-missing-local-vector-candidates)
-confirms a structural gap: direct XIR still expands whole-row values and
-dynamic selection, whereas Inductor uses bounded contiguous vector loops.
-SIMD vector math already exists; local Tile distribution and physical value
-representation are the next priorities. This is diagnosis, not a new speedup.
+The [Torch CPU inspection](results.md#torch-cpu-code-inspection-exposes-missing-local-vector-candidates)
+has now led to [indexable XIR snapshots](results.md#indexable-xir-snapshots-remove-quadratic-extraction-work).
+Seven bounded reduction cases improve 1.17–5.32× versus the old XIR path in
+two balanced orders; SwiGLU is essentially unchanged. This is Runtime wall
+time, not pure-kernel timing or a Torch win. JIT, code size and stack usage
+regress, and larger probes remain incomplete. Bounded vector loops and local
+Tile distribution are still missing; existing SIMD vector math can be reused.
 
 The [LLM negative-result screen](results.md#attention-and-direct-simd-still-need-richer-execution-mappings)
 measures six direct-SIMD operators at 1.22–16.35× Torch E2E time. The subsequent

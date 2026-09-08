@@ -232,6 +232,100 @@ void clipped_origin(Device &device, bool overflow) {
     expect(close(b, overflow ? vector<double>{2.5, 0.0, 0.0} : vector<double>{0.0, 2.5, -3.0}));
 }
 
+void indexed_snapshots(Device &device, int64_t width, int64_t iterations, bool pipelined) {
+    using namespace tile;
+    constexpr auto count = int64_t{19};
+    auto definition = tile_kernel("indexed_snapshots", [=](TensorView<const float, 2> input,
+                                                           TensorView<float, 2> alias, TensorView<float, 2> output) {
+        for (auto &nest : parallel(shape(count))) {
+            auto snapshot = input[coord(nest.index(), 0), shape(1, width)];
+            auto a = snapshot, b = snapshot + 100.0f;
+            // The const View aliases this writable parameter at runtime.
+            alias(coord(nest.index(), 0), shape(1, width)).store(full<float>(shape(1, width), 17.0f));
+            auto trace = Scalar<float>{0.0f};
+            auto range = pipelined ? nest.pipeline(shape(iterations)) : nest.serial(shape(iterations));
+            for (auto &step : range) {
+                if (pipelined) { step.stage("compute"); }
+                auto index = step.index() % width;
+                trace += a.at(coord(0, index)) + 2.0f * b.at(coord(0, index)) + snapshot.at(coord(0, index));
+                auto old_a = a;
+                a = b + 3.0f;
+                b = old_a - 2.0f;
+            }
+            auto index = nest.index() % width;
+            for (auto column = 0; column < 4; column++) {
+                auto value = column == 0 ? trace : column == 1 ? a.at(coord(0, index)) :
+                                               column == 2     ? b.at(coord(0, index)) :
+                                                                 snapshot.at(coord(0, index));
+                output(coord(nest.index(), column), shape(1, 1)).store(full<float>(shape(1, 1), value));
+            }
+        }
+    });
+    auto kernel = definition.capture(tensor_shape(count, width), tensor_shape(count, width), tensor_shape(count, 4));
+    expect(kernel.valid());
+    auto shader = compile(device, kernel);
+    expect(static_cast<bool>(shader)) << shader.metadata().error;
+    if (!shader) { return; }
+    constexpr auto pad = size_t{17};
+    constexpr auto guard = -731.25f;
+    vector<float> input(count * width), actual(count * 4 + 2 * pad, guard), overwritten(input.size());
+    vector<double> expected(count * 4);
+    for (auto r = int64_t{0}; r < count; r++) {
+        vector<double> a(width), b(width);
+        for (auto i = int64_t{0}; i < width; i++) {
+            input[r * width + i] = static_cast<float>(r * width + i) * .125f;
+            a[i] = input[r * width + i];
+            b[i] = a[i] + 100.0;
+        }
+        auto trace = 0.0;
+        for (auto k = int64_t{0}; k < iterations; k++) {
+            auto i = k % width;
+            trace += a[i] + 2.0 * b[i] + input[r * width + i];
+            auto old_a = a;
+            for (auto j = int64_t{0}; j < width; j++) {
+                a[j] = b[j] + 3.0;
+                b[j] = old_a[j] - 2.0;
+            }
+        }
+        expected[r * 4] = trace;
+        expected[r * 4 + 1] = a[r % width];
+        expected[r * 4 + 2] = b[r % width];
+        expected[r * 4 + 3] = input[r * width + r % width];
+    }
+    auto ab = device.create_buffer<float>(input.size() + pad), cb = device.create_buffer<float>(actual.size());
+    auto av = ab.view(pad, input.size()), cv = cb.view(pad, expected.size());
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    stream << av.copy_from(input.data()) << cb.copy_from(actual.data()) << shader(av, av, cv).dispatch()
+           << cb.copy_to(actual.data()) << av.copy_to(overwritten.data()) << synchronize();
+    expect(close(span{actual}.subspan(pad, expected.size()), expected)) << "width=" << width << " iterations=" << iterations << " pipeline=" << pipelined;
+    expect(std::all_of(actual.begin(), actual.begin() + pad, [](float x) { return x == guard; }));
+    expect(std::all_of(actual.end() - pad, actual.end(), [](float x) { return x == guard; }));
+    expect(std::all_of(overwritten.begin(), overwritten.end(), [](float x) { return x == 17.0f; }));
+}
+
+void indexed_bounds(Device &device, int64_t width) {
+    using namespace tile;
+    auto definition = tile_kernel("indexed_bounds", [=](TensorView<const float, 1> input, TensorView<float, 1> output) {
+        for (auto &nest : parallel(shape(width + 2))) {
+            auto x = input[coord(0), shape(width)];
+            auto value = x.at(coord(nest.index() - 1));
+            output(coord(nest.index()), shape(1)).store(full<float>(shape(1), value));
+        }
+    });
+    auto input_count = std::max(width, int64_t{1});
+    auto kernel = definition.capture(tensor_shape(input_count), tensor_shape(width + 2));
+    auto shader = compile(device, kernel);
+    expect(static_cast<bool>(shader)) << shader.metadata().error;
+    if (!shader) { return; }
+    vector<float> input(input_count), actual(width + 2);
+    vector<double> expected(width + 2, 0.0);
+    for (auto i = int64_t{0}; i < width; i++) { expected[i + 1] = input[i] = static_cast<float>(i + 1) * .25f; }
+    auto ab = device.create_buffer<float>(input.size()), cb = device.create_buffer<float>(actual.size());
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    stream << ab.copy_from(input.data()) << shader(ab, cb).dispatch() << cb.copy_to(actual.data()) << synchronize();
+    expect(close(actual, expected)) << "width=" << width;
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -267,5 +361,14 @@ int main(int argc, char *argv[]) {
     "tile_xir_bounds_proof_rejects_negative_and_overflowing_origins"_test = [&] {
         clipped_origin(device, false);
         clipped_origin(device, true);
+    };
+    "tile_xir_runtime_indexable_snapshots_and_simultaneous_carries"_test = [&] {
+        for (auto width : {1, 7}) {
+            for (auto iterations : {0, 1, 5}) {
+                indexed_snapshots(device, width, iterations, false);
+                indexed_snapshots(device, width, iterations, true);
+            }
+        }
+        for (auto width : {0, 1, 7}) { indexed_bounds(device, width); }
     };
 }

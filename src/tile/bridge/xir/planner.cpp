@@ -6,6 +6,7 @@
 #include <luisa/core/mathematics.h>
 #include <luisa/tile/bridge/xir/planner.h>
 #include <luisa/tile/verifier.h>
+#include "representation.h"
 
 namespace luisa::compute::tile::bridge::xir {
 namespace {
@@ -68,6 +69,13 @@ struct Work {
 void measure(const Block &block, const Value *axis, double repetitions,
              ExecutionTarget target, const ExecutionCostModel &cost,
              luisa::vector<const Value *> indices, Work &work) {
+    auto snapshot = [&](const Value *value) {
+        if (detail::needs_indexable_snapshot(value)) {
+            auto count = volume(*value->type().index_space());
+            if (count > 1u) { work.memory += repetitions * count * cost.gathered_lane * target.packet_width; }
+        }
+    };
+    for (auto &argument : block.arguments()) { snapshot(argument.get()); }
     for (auto op : block.operations()) {
         if (auto binding = op->execution_scope_constraint(); binding && *binding != "worker" && *binding != "auto") {
             fail("XIR planner cannot satisfy this explicit execution binding");
@@ -105,14 +113,26 @@ void measure(const Block &block, const Value *axis, double repetitions,
                 if (!output.contains(dimension.dimension)) { contraction *= dimension.extent.constant_value(); }
             }
             work.arithmetic += repetitions * volume(output) * contraction * 2.0 * cost.arithmetic;
-        } else if (kind == OperationKind::ELEMENTWISE || kind == OperationKind::TILE_EXTRACT) {
+        } else if (kind == OperationKind::TILE_EXTRACT) {
+            auto count = volume(*op->operand(0u)->type().index_space());
+            if (!detail::expanded_extract(*op)) {
+                if (count > 1u) {
+                    // One indexed local read, not a full Tile selection per
+                    // reduction iteration. Definition-time stores are above.
+                    work.memory += repetitions * cost.gathered_lane * target.packet_width;
+                    work.arithmetic += repetitions * (4u + 3u * op->operand(0u)->type().index_space()->rank()) * cost.arithmetic;
+                } else {
+                    work.arithmetic += repetitions * count * cost.arithmetic;
+                }
+            }
+        } else if (kind == OperationKind::ELEMENTWISE) {
             auto &type = op->result(0u)->type();
             auto count = type.is_tile() ? volume(*type.index_space()) : 1u;
-            if (kind == OperationKind::TILE_EXTRACT) { count = volume(*op->operand(0u)->type().index_space()); }
             work.arithmetic += repetitions * count * cost.arithmetic;
         } else if (kind != OperationKind::CONSTANT && kind != OperationKind::YIELD && kind != OperationKind::STAGE) {
             fail("unsupported operation in XIR execution planning");
         }
+        for (size_t i = 0u; i < op->result_count(); i++) { snapshot(op->result(i)); }
     }
 }
 

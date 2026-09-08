@@ -18,6 +18,61 @@ of same-round numerator/denominator ratios, **not** a ratio of the displayed
 medians. Ranges and counts of slower rounds are descriptive, not confidence
 intervals. No slow or failed row is discarded to improve the headline.
 
+### Indexable XIR snapshots remove quadratic extraction work
+
+The September 8 {download}`snapshot implementation report <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-xir-indexable/notes.md>`
+turns the Torch inspection below into a generic Tile-to-XIR representation
+repair: compile-time coordinates project scalar SSA directly; runtime-indexed
+Tiles receive definition-time local snapshots and guarded indexed reads.
+The planner's work prior now accounts for stores and reads instead of charging
+a full SELECT chain for each reduction iteration. No operator-name dispatch
+or new DSL Memory annotation is involved; the root candidate family is unchanged.
+
+Two balanced orders, seven samples per visit, fixed W8/requested eight CPU
+workers, and unchanged per-case block/order plans give these **old-XIR/new-XIR**
+warm synchronized Runtime batch results. All 32 visits pass native full
+FP64/guard checks and independent Python FP64 comparisons. This is neither
+pure CPU kernel timing nor a new Torch/MPS comparison.
+
+| Operation / shape | Old XIR (µs) | New XIR (µs) | Paired old/new |
+|---|---:|---:|---:|
+| RMSNorm 17×7 | 0.392 | 0.335 | 1.170× |
+| RMSNorm 17×127 | 29.492 | 8.140 | 3.623× |
+| RMSNorm 64×256 | 225.980 | 87.514 | 2.582× |
+| RMSNorm 1024×256 | 874.441 | 268.943 | 3.252× |
+| RMSNorm 64×513 | 768.288 | 144.550 | 5.315× |
+| LayerNorm 64×256 | 390.033 | 117.339 | 3.338× |
+| Masked softmax 17×65 | 11.688 | 3.875 | 3.017× |
+| SwiGLU 17×65, no dynamic extraction | 4.356 | 4.293 | 1.015× |
+
+The reduction improvement repeats across both orders. The approximately 1.5%
+SwiGLU difference is a control observation, not attributed to this transform.
+Two orders are descriptive evidence, not confidence intervals or broad
+generalization. This patch combines constant projection and dynamic snapshots;
+it does not separately attribute their gains. Source, binary and input
+fingerprints are retained with the {download}`raw A/B <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-xir-indexable/ab/report.json>`.
+
+**Compilation and resource costs regress.** At 64×256 RMSNorm, ordinary JIT
+medians rise from 3.645 to 5.684 seconds. Actual ORC machine code replaces the
+256-choice-per-iteration chain with an indexed load loop, but object text grows
+from 214252 to 262772 bytes and the kernel frame from 33104 to 37376 bytes.
+Local arrays still use per-worker gather/scatter and whole-row expansion.
+At 64×513, JIT rises from 14.851 to 24.113 seconds despite the throughput win.
+
+Separate probes at 17×1537 and 1024×4096 time out at 60 seconds for both
+versions; 64×16384 hits the SSA expansion budget. None has a completed output
+or throughput result. Samples identify normal ORC compilation in MachineSinking
+and MachineCSE, not the prior extra assembly-copy path. Failed probes remain
+in the {download}`large-shape record <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-xir-indexable/large/report.json>`.
+
+The full isolated Tile suite passes 35/35; additional complete Runtime tests
+pass at W1/2/4/16 with 728 assertions each. Coverage includes strict folds,
+aliased const/writable inputs, dynamically indexed multi-element carries,
+zero-trip loops and tails. The {download}`independent audit <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-xir-indexable/audit.py>`
+recomputes timing summaries and verifies the actual code loop separately.
+Next work is [bounded local-vector distribution](../../internals/tile/xir.md#bounded-local-vector-candidates),
+phase liveness and explicit JIT/runtime objectives—not merely cost-weight tuning.
+
 ### Torch CPU code inspection exposes missing local-vector candidates
 
 The September 8 {download}`CPU SIMD inspection <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-torch-simd-inspection/notes.md>`
@@ -28,7 +83,7 @@ Torch's `DEFAULT` capability still emits 4-wide NEON; eager Softmax calls
 vector SLEEF, while eager RMSNorm is composite despite its internal name.
 Sampled GEMM calls Accelerate SGEMM; this does not identify its hidden ISA.
 
-At 64×256, direct XIR RMSNorm retains a **256-choice SELECT chain inside a
+In the pre-repair 64×256 capture, direct XIR RMSNorm retains a **256-choice SELECT chain inside a
 256-iteration reduction** in the actual machine code. Its object has 214252
 bytes of text and the kernel frame reserves 33104 bytes. SwiGLU already uses
 the native v8 exp provider, but statically duplicates 256 call sites; its
@@ -41,7 +96,8 @@ The missing family is [bounded local-vector distribution](../../internals/tile/x
 with indexable compiler-owned values, contribution/output partition factors,
 and phase-specific materialization. Root-order/block-width weights cannot
 create that family. Existing vector math should be reused; no production
-planner change or new performance ranking follows from this inspection.
+planner change or new performance ranking was part of the inspection itself.
+The subsequent snapshot repair and its measured tradeoffs are recorded above.
 The {download}`evidence checker <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-torch-simd-inspection/audit.py>`
 keeps provider identity, successful comparisons and the incomplete diagnostic
 separate from timing claims.

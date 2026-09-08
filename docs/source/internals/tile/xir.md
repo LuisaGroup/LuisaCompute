@@ -1,7 +1,7 @@
 # TileIR → XIR: execution planning and SIMD realization
 
-Status: executable CPU realization with bounded packet-index proofs,
-September 6, 2026. The finite root-mapping solver below is implemented. General Tile distribution, packed
+Status: executable CPU realization with bounded packet-index proofs and
+compiler-owned indexable snapshots, September 8, 2026. The finite root-mapping solver below is implemented. General Tile distribution, packed
 matrix atoms, software pipelining and measured cost calibration are not.
 
 This document complements the [language/layout design](../../tile/design.md),
@@ -131,6 +131,60 @@ floating-point address-slope estimate. It neither asserts noalias nor moves a
 load across an effect. LLVM simplification alone is too late to prevent
 unnecessary per-element branches from inflating the earlier SIMD Schedule.
 
+### Indexable snapshots preserve Tile value semantics
+
+A Tile is still an immutable SSA value, not a deferred buffer view. The XIR
+lowerer now distinguishes two access forms without changing the DSL:
+
+- A constant coordinate, including an expanded Tile-map coordinate and
+  supported checked integer expressions, directly selects the scalar SSA
+  element. It does not build a full SELECT chain for LLVM to simplify later.
+- A Tile with runtime-indexed extract users receives a compiler-owned local
+  array at its definition. The lowerer stores its elements once, then emits
+  a guarded GEP/load at each dynamic extract. Singleton/empty values and
+  unproved statically expanded expressions retain the SSA fallback.
+
+```text
+buffer.load at definition
+          │
+          ▼
+       Tile SSA
+          │ save once
+          ▼
+   private snapshot[D]
+          │ guarded indexed read
+          ▼
+    extract(index(r))
+
+Later buffer.store changes the
+buffer, not this snapshot.
+```
+
+For D input elements and R runtime extracts, the selected representation
+replaces D×R selection work with D definition-time stores plus R indexed
+reads. Stores must not be inserted inside the consuming reduction. A loop's
+carried snapshots are populated in its body after all simultaneous PHIs;
+escaping results are materialized at the exit, including zero-trip loops.
+Distinct SSA definitions have distinct storage, preserving multi-Tile swaps.
+An input parameter being `const` is not a noalias assertion: an overlapping
+writable argument may overwrite the buffer without changing the snapshot.
+
+This is a physical representation repair, **not contribution-axis vectorization**.
+The SIMD emitter currently allocates each worker's local array separately
+within a packet and uses its existing gather/scatter machinery. It may still
+spill and statically expand large expression bodies. `max_local_bytes` bounds
+the sum of snapshot allocations per logical worker (default 256 KiB), not
+peak liveness or the complete target stack; the packet multiplies this storage
+by W. The existing SSA expansion budget also charges allocation/GEP/store
+construction. Exceeding either bound rejects lowering rather than truncating
+values or silently changing semantics. This does not introduce manual Memory
+requirements or a new execution scope.
+
+The guarded load retains this bridge's existing flat-index zero fallback;
+it is not a new language-wide promise about invalid multidimensional
+coordinates. Neither extraction representation changes fold L/R order,
+reducer operand order, floating-point policy or the root execution mapping.
+
 ### Proven packet accesses, not estimated slopes
 
 The SIMD Schedule projection separately recognizes a bounded nonnegative
@@ -194,7 +248,12 @@ arithmetic 1, broadcast load 1, contiguous memory 2, gathered lane 2, block
 dispatch 128. All coefficients must be finite and nonnegative.
 
 For each candidate, the estimator counts static Tile work, local-loop
-repetition, ordered MMA multiply/add work, and Tile-extract selection work.
+repetition, ordered MMA multiply/add work, definition-time snapshot stores
+and runtime indexed reads. The planner and lowerer share the structural
+classification of expanded versus runtime Tile-extract coordinates. The
+indexed-read prior includes flat-index/guard arithmetic and gathered local
+memory; it no longer charges an entire Tile selection for every iteration.
+These are still relative-work estimates, not exact machine instruction counts.
 It estimates a buffer's flat address slope relative to the innermost root
 axis, using operand identity and supported constant/linear expressions.
 Slope zero on a load has a broadcast prior; absolute slope one has a
@@ -323,13 +382,13 @@ intermediate representation already exists.
 
 ### Bounded local-vector candidates
 
-**Proposed, not yet emitted by this bridge.** The
+**Local-vector distributions remain proposed; indexable snapshots are now implemented.** The
 [Torch CPU code inspection](../../performance/tile/results.md#torch-cpu-code-inspection-exposes-missing-local-vector-candidates)
-confirms that static Tile expansion and dynamic extraction survive into
-machine code. A root permutation cannot repair this value representation.
-The next candidate family must retain bounded loops, directly indexable
-compiler-owned snapshots or effect-safe deferred expressions, and independent
-output/contribution partition factors.
+identified static expansion and dynamic selection chains in the previous
+bridge's machine code. The indexable snapshot repair above addresses the
+selection representation, not the whole distribution problem. The next
+candidate family must retain bounded vector loops or effect-safe deferred
+expressions, plus independent output/contribution partition factors.
 
 For logical packet width W and p lanes per independent output, p dividing W,
 a local candidate maps lane l to `(o0 + floor(l/p), r0 + l%p)` and advances
@@ -356,10 +415,13 @@ new solver algorithm can substitute for a realizable local-vector family.
 
 - `test_tile_xir`: typed ABI, output verification, repeat lowering, bounds on
   expansion, unsupported bindings, permutation legality, exact minimum and
-  fixed-plan/budget failure cases.
+  fixed-plan/budget failure cases; linear snapshot construction, zero SELECTs
+  for proved static projections, and exact local-storage budget boundaries.
 - `test_tile_xir_runtime`: ragged/transposed GEMM, nonzero initial values,
   changed non-dyadic inputs, reductions/softmax, offset views, guards, shader
-  moves, zero-trip loops and read/write snapshot recurrences.
+  moves, zero-trip loops and read/write snapshot recurrences, including
+  dynamically indexed multi-element carry swaps and aliased const/writable
+  buffer arguments.
 - `test_tile_xir_llm`: normalization, activations, RoPE, masked softmax and
   online prefill/decode/GQA; same capture through XIR and native-target TIRx,
   each checked independently against an FP64 oracle.

@@ -12,6 +12,9 @@ struct LowerOptions {
     uint32_t max_expanded_values{262144u};
     // Empty preserves declaration order, useful as a fixed baseline.
     luisa::vector<uint32_t> root_axis_order;
+    // Total compiler-owned snapshot storage per logical worker (not packet).
+    // A hard bound, not a peak-liveness or target stack-size estimate.
+    uint32_t max_local_bytes{262144u};
 };
 
 struct NativeFunction {
@@ -27,7 +30,8 @@ struct NativeFunction {
 
 // In-memory, verified SSA/CFG bridge, with no AST or TVM intermediate.
 // One root parallel domain maps to independent Runtime workers. Static Tile
-// elements remain distinct SSA values inside each worker; the SIMD backend
+// elements remain distinct SSA values inside each worker; dynamically indexed
+// Tiles additionally receive a bounded, compiler-owned local snapshot. The SIMD backend
 // packs workers, not the logical Tile's memory dimensions. Serial/reduction
 // and pipeline recurrences preserve lexicographic order; explicit right folds
 // visit the reversed logical sequence without changing update operands. This CPU

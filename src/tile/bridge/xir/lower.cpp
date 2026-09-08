@@ -7,6 +7,7 @@
 #include <luisa/tile/verifier.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/verifier.h>
+#include "representation.h"
 
 namespace luisa::compute::tile::bridge::xir {
 namespace {
@@ -46,12 +47,14 @@ private:
     x::XIRBuilder _builder;
     x::BasicBlock *_block{nullptr};
     luisa::unordered_map<const Value *, Elements> _values;
+    luisa::unordered_map<const Value *, x::Value *> _snapshots;
     luisa::unordered_map<const Value *, uint32_t> _arguments;
     struct IndexRange {
         int64_t lo, hi;
     };
     luisa::unordered_map<const Value *, IndexRange> _coordinate_ranges;
     uint64_t _expanded_values{0u};
+    uint64_t _local_bytes{0u};
     bool _inside_parallel{false};
     bool _saw_parallel{false};
 
@@ -123,6 +126,27 @@ private:
         auto &elements = _get(value);
         if (value->type().is_tile() || elements.size() != 1u) { _fail("expected scalar TileIR operand"); }
         return elements.front();
+    }
+    void _define(const Value *value, Elements elements) {
+        if (elements.size() > 1u && detail::needs_indexable_snapshot(value)) {
+            auto type = _type(value->type());
+            auto bytes = elements.size() * type->size();
+            if (bytes > _options.max_local_bytes || _local_bytes > _options.max_local_bytes - bytes) {
+                _fail("XIR realization exceeds its local snapshot storage budget");
+            }
+            _local_bytes += bytes;
+            _charge(1u + 2u * elements.size());
+            auto storage = _builder.alloca_local(XType::array(type, elements.size()));
+            storage->set_name("tile_snapshot");
+            for (size_t i = 0u; i < elements.size(); i++) {
+                _builder.store(_builder.gep(type, storage, {_index(i)}), elements[i]);
+            }
+            // Stores occur at this SSA definition, not at the first extract:
+            // external writes cannot change a previously loaded Tile, and a
+            // reduction does not re-materialize its entire input per iteration.
+            _snapshots.insert_or_assign(value, storage);
+        }
+        _values.insert_or_assign(value, std::move(elements));
     }
     // An integer proof, independent of the planner's floating-point slope
     // heuristic. Unknown values, narrow arithmetic and any possible signed
@@ -306,7 +330,7 @@ private:
                 }
             }
         }
-        if (load) { _values.insert_or_assign(op.result(0u), std::move(result)); }
+        if (load) { _define(op.result(0u), std::move(result)); }
     }
     void _bind_coordinates(const Block &body, const IndexSpace &domain, x::Value *flat, luisa::span<const uint32_t> order = {}) {
         auto trailing = _volume(domain);
@@ -373,18 +397,19 @@ private:
         luisa::vector<luisa::vector<x::PhiInst *>> carries;
         for (size_t i = 0u; i < op.result_count(); i++) {
             luisa::vector<x::PhiInst *> phis;
-            Elements elements;
             for (auto value : _get(op.operand(i))) {
                 auto phi = _builder.phi(value->type(), {{value, preheader}});
                 phis.emplace_back(phi);
-                elements.emplace_back(phi);
             }
-            _values.insert_or_assign(body->argument(domain.rank() + i), elements);
-            _values.insert_or_assign(op.result(i), std::move(elements));
             carries.emplace_back(std::move(phis));
         }
         _builder.cond_br(_compare(A::BINARY_LESS, induction, _index(_volume(domain))), loop_body, exit);
         _at(loop_body);
+        // All PHIs must precede non-PHI instructions. Materialize carried
+        // snapshots only on an executed iteration, after simultaneous updates.
+        for (size_t i = 0u; i < carries.size(); i++) {
+            _define(body->argument(domain.rank() + i), Elements{carries[i].begin(), carries[i].end()});
+        }
         x::Value *ordinal = induction;
         if (op.kind() == OperationKind::REDUCE && op.reduction_policy() == reduction::fold_right) {
             // Reverse the logical sequence, not the accumulator operands or
@@ -405,6 +430,9 @@ private:
         induction->add_incoming(_binary(A::BINARY_ADD, induction, _index(1u)), _block);
         _builder.br(header);
         _at(exit);
+        for (size_t i = 0u; i < carries.size(); i++) {
+            _define(op.result(i), Elements{carries[i].begin(), carries[i].end()});
+        }
     }
     void _mma(const Operation &op) {
         auto result = op.result(0u);
@@ -431,7 +459,7 @@ private:
             }
             elements.emplace_back(sum);
         }
-        _values.insert_or_assign(result, std::move(elements));
+        _define(result, std::move(elements));
     }
     void _operation(const Operation &op) {
         switch (op.kind()) {
@@ -439,7 +467,7 @@ private:
                 auto result = op.result(0u);
                 auto count = result->type().is_tile() ? _volume(*result->type().index_space()) : 1u;
                 _charge(count);
-                _values.insert_or_assign(result, Elements(count, _literal(op)));
+                _define(result, Elements(count, _literal(op)));
                 break;
             }
             case OperationKind::ELEMENTWISE: {
@@ -452,7 +480,7 @@ private:
                     for (size_t j = 0u; j < op.operand_count(); j++) { inputs.emplace_back(_project(op.operand(j), domain, coordinates)); }
                     elements.emplace_back(_elementwise(op.elementwise_op(), _type(result->type()), inputs));
                 }
-                _values.insert_or_assign(result, std::move(elements));
+                _define(result, std::move(elements));
                 break;
             }
             case OperationKind::VIEW_LOAD:
@@ -468,24 +496,60 @@ private:
                 auto body = op.region(0u)->block(0u);
                 for (uint64_t i = 0u; i < _volume(*op.domain()); i++) {
                     auto coordinates = _coordinates(*op.domain(), i);
-                    for (size_t j = 0u; j < coordinates.size(); j++) { _values.insert_or_assign(body->argument(j), Elements{_index(coordinates[j])}); }
+                    for (size_t j = 0u; j < coordinates.size(); j++) {
+                        _values.insert_or_assign(body->argument(j), Elements{_index(coordinates[j])});
+                        auto c = static_cast<int64_t>(coordinates[j]);
+                        _coordinate_ranges.insert_or_assign(body->argument(j), IndexRange{c, c});
+                    }
                     auto yielded = _region(*body);
                     if (yielded.size() != 1u || yielded[0].size() != 1u) { _fail("Tile map must yield exactly one scalar"); }
                     values.emplace_back(yielded[0][0]);
                 }
-                _values.insert_or_assign(op.result(0u), std::move(values));
+                _define(op.result(0u), std::move(values));
                 break;
             }
             case OperationKind::TILE_EXTRACT: {
                 auto tile = op.operand(0u);
                 auto &space = *tile->type().index_space();
-                x::Value *flat = _index(0u);
-                for (size_t i = 0u; i < space.rank(); i++) { flat = _binary(A::BINARY_ADD, _binary(A::BINARY_MUL, flat, _index(_extent(space, i))), _scalar(op.operand(i + 1u))); }
+                auto &elements = _get(tile);
                 auto type = _type(op.result(0u)->type());
                 x::Value *value = _output.module->create_constant_zero(type);
-                auto &elements = _get(tile);
-                for (size_t i = 0u; i < elements.size(); i++) { value = _alu(type, A::SELECT, {value, elements[i], _compare(A::BINARY_EQUAL, flat, _index(i))}); }
-                _values.insert_or_assign(op.result(0u), Elements{value});
+                // Constant map coordinates project SSA directly. Use checked
+                // integer arithmetic; never a floating-point planner estimate.
+                luisa::optional<int64_t> constant_flat{0};
+                for (size_t i = 0u; i < space.rank() && constant_flat; i++) {
+                    auto range = _range(op.operand(i + 1u));
+                    auto product = checked_multiply(*constant_flat, static_cast<int64_t>(_extent(space, i)));
+                    constant_flat = range && range->lo == range->hi && product ? checked_add(*product, range->lo) : luisa::nullopt;
+                }
+                if (constant_flat) {
+                    if (*constant_flat >= 0 && static_cast<uint64_t>(*constant_flat) < elements.size()) { value = elements[*constant_flat]; }
+                    _define(op.result(0u), Elements{value});
+                    break;
+                }
+                x::Value *flat = _index(0u);
+                for (size_t i = 0u; i < space.rank(); i++) { flat = _binary(A::BINARY_ADD, _binary(A::BINARY_MUL, flat, _index(_extent(space, i))), _scalar(op.operand(i + 1u))); }
+                if (auto found = _snapshots.find(tile); found != _snapshots.end()) {
+                    auto valid = _binary(A::BINARY_BIT_AND, _compare(A::BINARY_GREATER_EQUAL, flat, _index(0u)),
+                                         _compare(A::BINARY_LESS, flat, _index(elements.size())));
+                    // Preserve the existing flat-index zero fallback, including
+                    // negative indices. Never issue an out-of-bounds local load.
+                    auto header = _block;
+                    auto read = _output.function->create_basic_block();
+                    auto merge = _output.function->create_basic_block();
+                    _builder.cond_br(valid, read, merge);
+                    _at(read);
+                    _charge(2u);
+                    auto loaded = _builder.load(type, _builder.gep(type, found->second, {flat}));
+                    _builder.br(merge);
+                    _at(merge);
+                    value = _builder.phi(type, {{value, header}, {loaded, read}});
+                } else {
+                    // Singleton/empty Tiles and statically expanded coordinates
+                    // whose checked proof failed retain the bounded SSA fallback.
+                    for (size_t i = 0u; i < elements.size(); i++) { value = _alu(type, A::SELECT, {value, elements[i], _compare(A::BINARY_EQUAL, flat, _index(i))}); }
+                }
+                _define(op.result(0u), Elements{value});
                 break;
             }
             default: _fail("unsupported TileIR operation in XIR worker realization; no fallback or effect erasure");
