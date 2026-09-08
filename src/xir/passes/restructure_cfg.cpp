@@ -7396,7 +7396,9 @@ index_remaining_divergent_candidates(
         exit_dispatch_headers) noexcept {
     RemainingDivergentIndex index;
     luisa::vector<BasicBlock *> blocks;
-    def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
+    luisa::unordered_set<BasicBlock *> indexed_blocks;
+    auto index_block = [&](BasicBlock *block) noexcept {
+        if (!indexed_blocks.emplace(block).second) { return; }
         blocks.emplace_back(block);
         if (!block->is_terminated()) { return; }
         auto *terminator = block->terminator();
@@ -7486,7 +7488,15 @@ index_remaining_divergent_candidates(
                     index, loop->body_block(), block, merge);
             }
         }
-    });
+    };
+    // The verifier and residual-branch check cover every owned block, not
+    // only the entry-rooted structural traversal. Exit canonicalization can
+    // disconnect a shell without releasing it, so include its roles and raw
+    // candidates too. Keep the original traversal order for the live CFG;
+    // appending disconnected blocks must not reorder its rewrite decisions.
+    def->traverse_basic_blocks(
+        [&](BasicBlock *block) noexcept { index_block(block); });
+    for (auto *block : def->basic_blocks()) { index_block(block); }
     index.indexed_block_count = blocks.size();
     for (auto *block : blocks) {
         if (index.header_set.contains(block) ||
@@ -7637,7 +7647,10 @@ struct RemainingDivergentOverlay {
             def, bb,
             luisa::span<BasicBlock *const>{successors},
             dominance);
-        if (merge == nullptr) {
+        // An entry-unreachable shell has no lexical dominance context.
+        // Like indexed-branch restructuring, give it a synthetic merge;
+        // global post-dominance alone cannot establish an in-region merge.
+        if (merge == nullptr && dominance.contains(bb)) {
             merge = common_postdom(
                 pdom,
                 luisa::span<BasicBlock *const>{successors},
