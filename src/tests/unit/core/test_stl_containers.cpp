@@ -2,6 +2,12 @@
 // Covers: vector + helpers (enlarge_by, size_bytes, vector_resize),
 //         string + format, map/set, unordered_map/set, optional, lru_cache.
 
+// Keep this first: the memory wrapper must provide its own trait dependencies.
+#include <luisa/core/stl/memory.h>
+
+static_assert(sizeof(luisa::aligned_storage_t<32u, 16u>) >= 32u);
+static_assert(alignof(luisa::aligned_storage_t<32u, 16u>) == 16u);
+
 #include "ut/ut.hpp"
 
 #include <luisa/core/stl/vector.h>
@@ -11,7 +17,6 @@
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/optional.h>
 #include <luisa/core/stl/lru_cache.h>
-#include <luisa/core/stl/memory.h>
 #include <luisa/core/logging.h>
 
 using namespace boost::ut;

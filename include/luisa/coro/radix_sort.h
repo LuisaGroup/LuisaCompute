@@ -4,6 +4,7 @@
 #include <cstdlib>
 
 #include <luisa/core/stl.h>
+#include <luisa/dsl/local.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/runtime/command_list.h>
 #include <luisa/runtime/buffer.h>
@@ -205,8 +206,8 @@ public:
 
                 Shared<uint> warp_prefix{onesweep_block_size / warp_size * digit};
                 Shared<uint> block_bin{digit};
-                ArrayUInt<onesweep_item_count> local_rank;
-                ArrayUInt<onesweep_item_count> local_key;
+                Local<uint> local_rank{onesweep_item_count};
+                Local<uint> local_key{onesweep_item_count};
 
                 $for (i, 0u, ceil_div(onesweep_block_size / warp_size * digit, onesweep_block_size)) {
                     auto slot = i * onesweep_block_size + thread_x();

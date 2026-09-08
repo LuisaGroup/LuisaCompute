@@ -60,7 +60,6 @@ if (NOT SKBUILD AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/scripts/options.cmake")
     include(scripts/options.cmake)
 else ()
     option(LUISA_COMPUTE_ENABLE_DSL "Enable C++ DSL" ON)
-    option(LUISA_COMPUTE_ENABLE_TENSOR "Enable C++ DSL tensor extension" OFF)
     option(LUISA_COMPUTE_ENABLE_DX "Enable DirectX backend" ON)
     option(LUISA_COMPUTE_ENABLE_METAL "Enable Metal backend" ON)
     option(LUISA_COMPUTE_ENABLE_METAL4 "Enable experimental Metal 4 AIR backend" OFF)
@@ -78,6 +77,20 @@ endif ()
 # The SIMD CPU backend is staged behind an explicit option until the Phase 2
 # runtime shell reaches parity with the selected fallback core suite.
 option(LUISA_COMPUTE_ENABLE_SIMD "Enable experimental SIMD CPU backend" OFF)
+
+# TVMx is an optional external compiler bridge rather than a Luisa hardware
+# backend. Keep its headers and libraries out of the TileIR core unless the
+# bridge is explicitly requested.
+option(LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE
+        "Enable the native C++ TileIR to TVM TIRx bridge" OFF)
+set(LUISA_COMPUTE_TVM_INCLUDE_DIR "" CACHE PATH
+        "TVM development include directory containing tvm/tirx")
+set(LUISA_COMPUTE_TVM_FFI_INCLUDE_DIR "" CACHE PATH
+        "TVM FFI include directory containing tvm/ffi")
+set(LUISA_COMPUTE_TVM_LIBRARY_DIR "" CACHE PATH
+        "Directory containing the TVM compiler/runtime libraries")
+set(LUISA_COMPUTE_TVM_FFI_LIBRARY_DIR "" CACHE PATH
+        "Directory containing the TVM FFI library")
 
 # The C++ remote backend is opt-in while its protocol and backend coverage are
 # being brought to parity with the native backends. It has no dependency on

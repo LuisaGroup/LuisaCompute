@@ -317,7 +317,10 @@ public:
     [[nodiscard]] static auto create(const CoroFrameDesc *desc) noexcept {
         auto *fb = detail::FunctionBuilder::current();
         auto *expr = fb->local(desc->frame_type());
-        fb->assign(expr, fb->call(desc->frame_type(), CallOp::ZERO, {}));
+        // A frame is reconstructed according to the exact live-field contract.
+        // Mark the new lexical lifetime without manufacturing values for fields
+        // that are not live in this coroutine state.
+        fb->assign(expr, fb->call(desc->frame_type(), CallOp::UNDEFINED, {}));
         return CoroFrame{desc, expr};
     }
 

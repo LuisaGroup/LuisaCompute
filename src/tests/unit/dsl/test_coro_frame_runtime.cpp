@@ -5,6 +5,7 @@
 #include <luisa/runtime/stream.h>
 #include <luisa/runtime/buffer.h>
 #include <luisa/ast/type_registry.h>
+#include <luisa/ast/statement.h>
 
 #include "ut/ut.hpp"
 #include "coro_test_utils.h"
@@ -54,9 +55,65 @@ void reg_coro_frame_static() {
         auto *nf = desc.field("nonexistent");
         expect(nf == nullptr);
     };
+
+    "coro_frame_create_emits_undefined_lifetime_seed"_test = [] {
+        CoroFrameDesc desc;
+        desc.add_field("value", Type::of<float>());
+        Kernel1D kernel = [&desc]() noexcept {
+            auto frame = CoroFrame::create(&desc);
+            frame.target_token = 1u;
+        };
+
+        const AssignStmt *lifetime_seed = nullptr;
+        for (auto *statement :
+             kernel.function()->function().body()->statements()) {
+            if (statement->tag() != Statement::Tag::ASSIGN) { continue; }
+            auto *assignment = static_cast<const AssignStmt *>(statement);
+            if (assignment->lhs()->tag() == Expression::Tag::REF &&
+                assignment->lhs()->type() == desc.frame_type()) {
+                expect(lifetime_seed == nullptr)
+                    << "one CoroFrame declaration must have one lifetime seed";
+                lifetime_seed = assignment;
+            }
+        }
+        expect(lifetime_seed != nullptr);
+        if (lifetime_seed == nullptr) { return; }
+        expect(is_local_undefined_lifetime_seed(lifetime_seed))
+            << "CoroFrame storage must begin a lifetime without clearing every field";
+    };
 }
 
 void reg_coro_frame_runtime(Device &device) {
+    "ordinary_values_still_default_to_zero"_test = [&device] {
+        auto stream = device.create_stream();
+        auto output = device.create_buffer<float4>(257u);
+        Kernel1D kernel = [](BufferFloat4 output) noexcept {
+            Bool b;
+            Int i;
+            UInt u;
+            Float f;
+            Float3 v;
+            UInt4 w;
+            ArrayFloat<4u> a;
+            // Observe every component, including dynamically indexed Array
+            // elements. Local/frame lifetime changes must not change Var's
+            // default value semantics.
+            output.write(dispatch_x(), make_float4(
+                cast<float>(b) + cast<float>(i) + cast<float>(u) + f,
+                v.x + v.y + v.z,
+                cast<float>(w.x + w.y + w.z + w.w),
+                a[dispatch_x() % 4u]));
+        };
+        auto shader = device.compile(kernel);
+        luisa::vector<float4> actual(257u, make_float4(-1.0f));
+        stream << shader(output).dispatch(257u)
+               << output.copy_to(luisa::span{actual}) << synchronize();
+        for (auto value : actual) {
+            expect(value.x == 0.0f && value.y == 0.0f &&
+                   value.z == 0.0f && value.w == 0.0f);
+        }
+    };
+
     "coro_frame_coro_id_assign_and_read"_test = [&device] {
         Stream stream = device.create_stream();
         // coro_id is a UInt3 Var member - can assign and read back

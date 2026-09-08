@@ -23,6 +23,7 @@
 #include <luisa/xir/passes/pointer_usage.h>
 
 #include "coro_frame_access.h"
+#include "coro_discriminated_prefix.h"
 #include "coro_initialized_prefix.h"
 #include "coro_predicate_analysis.h"
 #include "coro_semantic_graph.h"
@@ -1506,7 +1507,6 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
             }
         }
     }
-
     for (auto *alloca : allocas) {
         ++info.scanned_local_alloca_count;
         auto phase_begin = profile_begin();
@@ -1617,6 +1617,40 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
                 }
             }
             if (!proof.succeeded) {
+                phase_begin = profile_begin();
+                // Earlier alloca contractions may move another local's
+                // first defining store. A discriminated counted-array proof
+                // observes such stores (not merely this alloca's own uses),
+                // so an instruction-location snapshot created at pass entry
+                // would be stale here. Build the candidate analysis from the
+                // current XIR after all preceding mutations; it is immutable
+                // for the duration of prove().
+                detail::CoroDiscriminatedPrefixAnalysis
+                    discriminated_prefixes{definition, graph};
+                auto discriminated_proof =
+                    discriminated_prefixes.prove(
+                        alloca, target, insertion.instruction);
+                proof_ms += profile_elapsed_ms(phase_begin);
+                info.discriminated_prefix_candidate_count +=
+                    discriminated_proof.candidate_count;
+                info.discriminated_prefix_rejected_missing_publication_count +=
+                    discriminated_proof.rejected_missing_publication_count;
+                info.discriminated_prefix_block_evaluation_count +=
+                    discriminated_proof.block_evaluation_count;
+                if (discriminated_proof.succeeded) {
+                    proof.succeeded = true;
+                    proof.guarded = false;
+                    proof.failing_read = nullptr;
+                    target = discriminated_proof.placement_block;
+                    insertion.instruction =
+                        discriminated_proof.placement_instruction;
+                    ++info.discriminated_prefix_proof_count;
+                } else if (discriminated_proof.failing_read != nullptr) {
+                    proof.failing_read =
+                        discriminated_proof.failing_read;
+                }
+            }
+            if (!proof.succeeded) {
                 if (dump_scope_rejections) {
                     const auto alloca_name =
                         alloca->name().value_or("<unnamed>");
@@ -1674,6 +1708,34 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
         } else {
             ++info.cross_block_contraction_count;
         }
+    }
+
+    // `store local, undef` anchors a fresh lexical lifetime for the analysis
+    // above; it is not a required device write. Once final alloca placement
+    // records that boundary, leaving the previous physical bits untouched is
+    // one valid refinement of the arbitrary value. Erase the marker here so
+    // aggregate seeds can never turn into zero-fill loops in a direct backend.
+    // This scan deliberately happens after every candidate proof: removing
+    // instructions earlier would invalidate the immutable location snapshot.
+    luisa::vector<StoreInst *> undefined_lifetime_seeds;
+    for (auto *block : definition->basic_blocks()) {
+        for (auto *instruction : block->instructions()) {
+            if (!instruction->isa<StoreInst>()) { continue; }
+            auto *store = static_cast<StoreInst *>(instruction);
+            auto *destination = store->variable();
+            if (destination != nullptr &&
+                destination->isa<AllocaInst>() &&
+                static_cast<AllocaInst *>(destination)->is_local() &&
+                store->value() != nullptr &&
+                store->value()->derived_value_tag() ==
+                    DerivedValueTag::UNDEFINED) {
+                undefined_lifetime_seeds.emplace_back(store);
+            }
+        }
+    }
+    for (auto *seed : undefined_lifetime_seeds) {
+        static_cast<void>(seed->remove_self());
+        ++info.removed_undefined_lifetime_seed_count;
     }
     if (profile_compilation) {
         LUISA_INFO(

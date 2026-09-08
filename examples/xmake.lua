@@ -58,17 +58,6 @@ example_proj("example_win_hdr", "gui/win_hdr.cpp", true)
 
     -- compute
     example_proj("example_helloworld", "compute/helloworld.cpp", false)
-       example_proj("example_tensor_stub", "tensor/main.cpp", false, function()
-            add_files("tensor/kernel_*.cpp")
-            add_files("tensor/cnn_kernels.cpp", "tensor/cnn_inference.cpp")
-            add_files("tensor/poly_fit_kernels.cpp", "tensor/poly_fit.cpp")
-            add_files("tensor/linear_regression_kernels.cpp", "tensor/linear_regression.cpp")
-            add_files("tensor/mlp.cpp", "tensor/mnist.cpp", "tensor/rnn.cpp", "tensor/tensor_basics.cpp")
-            add_files("tensor/torch2_import.cpp")
-            if has_config("lc_yyjson_use_xrepo") then add_packages("yyjson")
-            else add_deps("lc-yyjson") end
-        end)
-example_proj("example_tile_bench", "compute/tile_bench.cpp", false)
     example_proj("example_cluster_launch_control", "compute/cluster_launch_control.cpp", false)
     example_proj("example_async_copy_prefetch", "compute/async_copy_prefetch.cpp", false)
     example_proj("example_image_processing", "compute/image_processing.cpp", true)

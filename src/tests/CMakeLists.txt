@@ -130,6 +130,10 @@ if (TARGET luisa-compute-simd-llvm)
     set_tests_properties(test_fallback_llvm_abi_alignment PROPERTIES
             LABELS "unit;unit_fallback;unit_llvm")
 
+    luisa_compute_add_test(test_simd_phi_parallel_copy unit/simd/test_phi_parallel_copy.cpp
+            LABELS "unit;unit_simd;unit_llvm;integration_simd")
+    target_link_libraries(test_simd_phi_parallel_copy PRIVATE luisa-compute-simd-compiler)
+    target_include_directories(test_simd_phi_parallel_copy PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd)
     add_executable(test_fallback_llvm_native_math
             unit/fallback/test_fallback_llvm_native_math.cpp
             ../backends/fallback/fallback_codegen.cpp)
@@ -551,7 +555,165 @@ luisa_compute_add_test(test_builtin_kernel  unit/ast/test_builtin_kernel.cpp)
 target_include_directories(test_builtin_kernel PRIVATE ${CMAKE_SOURCE_DIR}/src/runtime)
 luisa_compute_add_test(test_manual_ast      unit/ast/test_manual_ast.cpp)
   luisa_compute_add_test(test_cooperative_vector unit/ast/test_cooperative_vector.cpp)
-  luisa_compute_add_test(test_tensor unit/ast/test_tensor.cpp LABELS "unit;unit_ast")
+
+# --- unit/tile: execution-first TileIR and layout algebra ---
+luisa_compute_add_test(test_tile_layout unit/tile/test_tile_layout.cpp LABELS "unit;unit_tile")
+luisa_compute_add_test(test_tile_ir unit/tile/test_tile_ir.cpp LABELS "unit;unit_tile")
+luisa_compute_add_test(test_tile_dsl unit/tile/test_tile_dsl.cpp LABELS "unit;unit_tile")
+luisa_compute_add_test(test_tile_memory unit/tile/test_tile_memory.cpp LABELS "unit;unit_tile")
+luisa_compute_add_test(test_tile_xir unit/tile/bridge/test_xir.cpp LABELS "unit;unit_tile;unit_tile_xir")
+target_link_libraries(test_tile_xir PRIVATE luisa::tile-xir)
+if (TARGET luisa-compute-backend-simd)
+    luisa_compute_add_test(benchmark_tile_xir benchmark/benchmark_tile_xir.cpp)
+    add_dependencies(benchmark_tile_xir luisa-compute-backend-simd)
+    luisa_compute_add_test(test_tile_xir_runtime unit/tile/bridge/test_xir_runtime.cpp
+            LABELS "integration;integration_tile_xir;integration_simd" ARGS simd)
+    add_dependencies(test_tile_xir_runtime luisa-compute-backend-simd)
+    luisa_compute_add_test(test_tile_xir_llm unit/tile/bridge/test_xir_llm.cpp
+            LABELS "integration;integration_tile_xir;integration_simd" ARGS simd)
+    add_dependencies(test_tile_xir_llm luisa-compute-backend-simd)
+    if (LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE)
+        target_link_libraries(test_tile_xir_runtime PRIVATE luisa::tile-tirx)
+        target_compile_definitions(test_tile_xir_runtime PRIVATE LUISA_TEST_TILE_XIR_TIRX=1)
+        target_link_libraries(test_tile_xir_llm PRIVATE luisa::tile-tirx)
+        target_compile_definitions(test_tile_xir_llm PRIVATE LUISA_TEST_TILE_XIR_TIRX=1)
+    endif ()
+endif ()
+set(_tile_test_cpp_standards 20)
+set(_tile_poc_cpp_standard 20)
+if ("cxx_std_23" IN_LIST CMAKE_CXX_COMPILE_FEATURES)
+    list(APPEND _tile_test_cpp_standards 23)
+    set(_tile_poc_cpp_standard 23)
+endif ()
+foreach (_tile_cpp_standard IN LISTS _tile_test_cpp_standards)
+    luisa_compute_add_test(test_tile_values_cpp${_tile_cpp_standard}
+            unit/tile/test_tile_values.cpp LABELS "unit;unit_tile")
+    target_include_directories(test_tile_values_cpp${_tile_cpp_standard}
+            PRIVATE ${PROJECT_SOURCE_DIR}/docs/source/tile)
+    set_target_properties(test_tile_values_cpp${_tile_cpp_standard} PROPERTIES
+            CXX_STANDARD ${_tile_cpp_standard} CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+endforeach ()
+if (LUISA_COMPUTE_ENABLE_METAL AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    luisa_compute_add_test(test_tile_native_codegen
+            unit/tile/test_tile_native_codegen.cpp LABELS "unit;unit_tile;unit_tile_native")
+    target_sources(test_tile_native_codegen PRIVATE ../backends/metal/tile/metal_tile_codegen.cpp)
+    target_include_directories(test_tile_native_codegen PRIVATE ../backends/metal/tile)
+    luisa_compute_add_test(test_tile_native_runtime
+            unit/tile/test_tile_native_runtime.cpp LABELS "integration;integration_tile_native" ARGS metal)
+    luisa_compute_add_test(benchmark_tile_native benchmark/benchmark_tile_native.cpp)
+    if (LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE AND LUISA_TILE_TVM_METAL_RUNTIME_LIBRARY)
+        target_link_libraries(test_tile_native_runtime PRIVATE luisa::tile-tirx)
+        target_compile_definitions(test_tile_native_runtime PRIVATE LUISA_TEST_TILE_NATIVE_TIRX=1)
+    endif ()
+endif ()
+if (APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    # Independent system-library baselines, not a Tile/TVM lowering path.
+    enable_language(OBJCXX)
+    # Opt-in diagnostics shared by native benchmarks and Python via ctypes.
+    # No framework/backend dependency and no hooks at library-load time.
+    add_library(luisa-benchmark-metal-timing SHARED common/metal_benchmark_timing.mm)
+    set_target_properties(luisa-benchmark-metal-timing PROPERTIES
+            OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED ON OBJCXX_EXTENSIONS OFF)
+    target_compile_options(luisa-benchmark-metal-timing PRIVATE -fobjc-arc)
+    target_link_libraries(luisa-benchmark-metal-timing PRIVATE "-framework Foundation" "-framework Metal")
+    add_executable(test_tile_metal_timing unit/tile/test_metal_timing.mm)
+    set_target_properties(test_tile_metal_timing PROPERTIES
+            OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED ON OBJCXX_EXTENSIONS OFF)
+    target_compile_options(test_tile_metal_timing PRIVATE -fobjc-arc)
+    target_include_directories(test_tile_metal_timing PRIVATE ./ common)
+    target_link_libraries(test_tile_metal_timing PRIVATE luisa-benchmark-metal-timing
+            "-framework Foundation" "-framework Metal")
+    add_test(NAME test_tile_metal_timing COMMAND test_tile_metal_timing)
+    set_tests_properties(test_tile_metal_timing PROPERTIES LABELS "integration;integration_tile_timing")
+    add_executable(benchmark_tile_system benchmark/benchmark_tile_system.mm)
+    target_include_directories(benchmark_tile_system PRIVATE common)
+    set_target_properties(benchmark_tile_system PROPERTIES
+            OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED ON OBJCXX_EXTENSIONS OFF)
+    target_compile_options(benchmark_tile_system PRIVATE -fobjc-arc)
+    target_link_libraries(benchmark_tile_system PRIVATE
+            "-framework Foundation" "-framework Accelerate"
+            "-framework Metal" "-framework MetalPerformanceShaders")
+    add_executable(benchmark_tile_manual benchmark/benchmark_tile_manual.mm)
+    set_target_properties(benchmark_tile_manual PROPERTIES
+            OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED ON OBJCXX_EXTENSIONS OFF)
+    target_compile_options(benchmark_tile_manual PRIVATE -fobjc-arc)
+    target_link_libraries(benchmark_tile_manual PRIVATE
+            "-framework Foundation" "-framework Metal")
+    add_executable(benchmark_tile_mpp benchmark/benchmark_tile_mpp.mm)
+    set_target_properties(benchmark_tile_mpp PROPERTIES
+            OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED ON OBJCXX_EXTENSIONS OFF)
+    target_compile_options(benchmark_tile_mpp PRIVATE -fobjc-arc)
+    target_link_libraries(benchmark_tile_mpp PRIVATE
+            "-framework Foundation" "-framework Metal")
+    foreach (_system_backend IN ITEMS cpu metal)
+        add_test(NAME test_tile_system_${_system_backend}
+                COMMAND benchmark_tile_system --self-test ${_system_backend})
+    endforeach ()
+    set_tests_properties(test_tile_system_cpu PROPERTIES
+            LABELS "unit;unit_tile;unit_tile_system")
+    # Hardware availability must not become a new default host-unit dependency.
+    set_tests_properties(test_tile_system_metal PROPERTIES
+            LABELS "integration;integration_tile_system;unit_tile_system")
+endif ()
+if (LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE)
+    luisa_compute_add_test(test_tile_tirx
+            unit/tile/bridge/test_tirx_layout.cpp
+            LABELS "unit;unit_tile;unit_tile_tirx")
+    target_link_libraries(test_tile_tirx PRIVATE luisa::tile-tirx)
+    luisa_compute_add_test(test_tile_tirx_values
+            unit/tile/bridge/test_tirx_values.cpp LABELS "unit;unit_tile;unit_tile_tirx")
+    target_link_libraries(test_tile_tirx_values PRIVATE luisa::tile-tirx)
+    set_target_properties(test_tile_tirx_values PROPERTIES CXX_STANDARD ${_tile_poc_cpp_standard} CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+    luisa_compute_add_test(test_tile_tirx_execution
+            unit/tile/bridge/test_tirx_execution.cpp LABELS "unit;unit_tile;unit_tile_tirx")
+    target_link_libraries(test_tile_tirx_execution PRIVATE luisa::tile-tirx)
+    luisa_compute_add_test(test_tile_tirx_cooperative
+            unit/tile/bridge/test_tirx_cooperative.cpp LABELS "unit;unit_tile;unit_tile_tirx")
+    target_link_libraries(test_tile_tirx_cooperative PRIVATE luisa::tile-tirx)
+    luisa_compute_add_test(test_tile_tirx_memory
+            unit/tile/bridge/test_tirx_memory.cpp LABELS "unit;unit_tile;unit_tile_tirx")
+    target_link_libraries(test_tile_tirx_memory PRIVATE luisa::tile-tirx)
+    luisa_compute_add_test(test_tile_tirx_pipeline
+            unit/tile/bridge/test_tirx_pipeline.cpp LABELS "unit;unit_tile;unit_tile_tirx")
+    target_link_libraries(test_tile_tirx_pipeline PRIVATE luisa::tile-tirx)
+    luisa_compute_add_test(test_tile_tirx_matrix
+            unit/tile/bridge/test_tirx_matrix.cpp LABELS "unit;unit_tile;unit_tile_tirx")
+    target_link_libraries(test_tile_tirx_matrix PRIVATE luisa::tile-tirx)
+    luisa_compute_add_test(test_tile_tirx_planner
+            unit/tile/bridge/test_tirx_planner.cpp LABELS "unit;unit_tile;unit_tile_tirx")
+    target_link_libraries(test_tile_tirx_planner PRIVATE luisa::tile-tirx)
+    # Opt-in timing executable: never a noisy CTest performance threshold.
+    luisa_compute_add_test(benchmark_tile_tirx benchmark/benchmark_tile_tirx.cpp)
+    target_link_libraries(benchmark_tile_tirx PRIVATE luisa::tile-tirx)
+    set_target_properties(benchmark_tile_tirx PROPERTIES CXX_STANDARD ${_tile_poc_cpp_standard} CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+    luisa_compute_add_test(test_tile_tirx_poc
+            unit/tile/bridge/test_tirx_poc.cpp
+            LABELS "unit;unit_tile;unit_tile_tirx;unit_tile_poc")
+    target_link_libraries(test_tile_tirx_poc PRIVATE luisa::tile-tirx)
+    luisa_compute_add_test(test_tile_tirx_poc_neural
+            unit/tile/bridge/test_tirx_poc_neural.cpp
+            LABELS "unit;unit_tile;unit_tile_tirx;unit_tile_poc")
+    target_link_libraries(test_tile_tirx_poc_neural PRIVATE luisa::tile-tirx)
+    luisa_compute_add_test(test_tile_tirx_poc_algorithms
+            unit/tile/bridge/test_tirx_poc_algorithms.cpp
+            LABELS "unit;unit_tile;unit_tile_tirx;unit_tile_poc")
+    target_link_libraries(test_tile_tirx_poc_algorithms PRIVATE luisa::tile-tirx)
+    # Prefer native C++23 subscript syntax when available, without raising
+    # the project's C++20 minimum. Both modes share the same source.
+    set_target_properties(test_tile_tirx_poc test_tile_tirx_poc_neural test_tile_tirx_poc_algorithms
+            PROPERTIES CXX_STANDARD ${_tile_poc_cpp_standard} CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+    if (APPLE AND LUISA_TILE_TVM_METAL_RUNTIME_LIBRARY)
+        luisa_compute_add_test(test_tile_tirx_targets
+                unit/tile/bridge/test_tirx_targets.cpp
+                LABELS "unit;unit_tile;unit_tile_tirx;unit_tile_targets")
+        target_link_libraries(test_tile_tirx_targets PRIVATE luisa::tile-tirx)
+        foreach (_tile_poc IN ITEMS test_tile_tirx_poc test_tile_tirx_poc_neural test_tile_tirx_poc_algorithms test_tile_tirx_values test_tile_tirx_execution test_tile_tirx_cooperative test_tile_tirx_memory test_tile_tirx_pipeline test_tile_tirx_matrix)
+            add_test(NAME ${_tile_poc}_metal COMMAND ${_tile_poc} metal)
+            set_tests_properties(${_tile_poc}_metal PROPERTIES
+                    LABELS "unit;unit_tile;unit_tile_tirx;unit_tile_poc;unit_tile_targets")
+        endforeach ()
+    endif ()
+endif ()
 
 # --- unit/dsl: standalone tests (need backend, NOT auto-run via CTest) ---
 luisa_compute_add_test(test_binding_group          unit/dsl/test_binding_group.cpp)
@@ -610,6 +772,13 @@ if (TARGET luisa-compute-backend-fallback)
     # uniform arguments. Kept out of unattended CTest because it requires the
     # optional LLVM/Embree fallback backend at runtime.
     luisa_compute_add_test(test_fallback_shader_cache unit/runtime/test_fallback_shader_cache.cpp)
+    luisa_compute_add_test(test_fallback_coro_allocation
+            unit/runtime/test_fallback_coro_allocation.cpp
+            LABELS "unit;unit_runtime;integration_fallback")
+    add_dependencies(test_fallback_coro_allocation luisa-compute-backend-fallback)
+    luisa_compute_add_test(test_fallback_coro_arena
+            unit/fallback/test_fallback_coro_arena.cpp LABELS "unit;unit_fallback")
+    target_include_directories(test_fallback_coro_arena PRIVATE ../backends/fallback)
 endif ()
 luisa_compute_add_test(test_bindless_mip        unit/runtime/test_bindless_mip.cpp)
 luisa_compute_add_test(test_direct_texture_sampling unit/runtime/test_direct_texture_sampling.cpp)
@@ -629,9 +798,6 @@ if (TARGET luisa-compute-backend-fallback)
 endif ()
 luisa_compute_add_test(test_shared_memory       unit/runtime/test_shared_memory.cpp)
 luisa_compute_add_test(test_softmax             unit/runtime/test_softmax.cpp)
-if (LUISA_COMPUTE_ENABLE_TENSOR AND FALSE) # disabled: link errors against missing Tensor symbols
-    luisa_compute_add_test(test_tensor              unit/runtime/test_tensor.cpp)
-endif ()
 luisa_compute_add_test(test_texture_compress    unit/runtime/test_texture_compress.cpp)
 luisa_compute_add_test(test_pbrt_curve_parser  unit/runtime/test_pbrt_curve_parser.cpp LABELS "unit;unit_runtime")
 luisa_compute_add_test(test_texture_io          unit/runtime/test_texture_io.cpp)
@@ -753,12 +919,14 @@ luisa_compute_add_test(test_xir_translators unit/xir/test_xir_translators.cpp LA
 luisa_compute_add_test(test_xir_interchange unit/xir/test_xir_interchange.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir2ast_translators unit/xir/test_xir2ast_translators.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_passes      unit/xir/test_xir_passes.cpp      LABELS "unit;unit_xir")
+luisa_compute_add_test(test_xir_pass_promote_ref_forwarding unit/xir/test_xir_pass_promote_ref_forwarding.cpp LABELS "unit;unit_xir;unit_coro")
 luisa_compute_add_test(test_xir_aggregate_field_bitmask unit/xir/test_xir_aggregate_field_bitmask.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_alias_analysis unit/xir/test_xir_pass_alias_analysis.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_core_analyses unit/xir/test_xir_pass_core_analyses.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_defer_local_aggregate_load unit/xir/test_xir_pass_defer_local_aggregate_load.cpp LABELS "unit;unit_xir;unit_coro")
 luisa_compute_add_test(test_xir_pass_coro_rematerialize unit/xir/test_xir_pass_coro_rematerialize.cpp LABELS "unit;unit_xir;unit_coro")
 luisa_compute_add_test(test_xir_pass_coro_alloca_scope unit/xir/test_xir_pass_coro_alloca_scope.cpp LABELS "unit;unit_xir;unit_coro")
+luisa_compute_add_test(test_xir_pass_coro_discriminated_prefix unit/xir/test_xir_pass_coro_discriminated_prefix.cpp LABELS "unit;unit_xir;unit_coro")
 luisa_compute_add_test(test_xir_pass_pointer_usage unit/xir/test_xir_pass_pointer_usage.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_scalar_evolution unit/xir/test_xir_pass_scalar_evolution.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_integer_alignment unit/xir/test_xir_integer_alignment.cpp LABELS "unit;unit_xir")
@@ -779,6 +947,24 @@ luisa_compute_add_test(test_coro_frame_desc unit/dsl/test_coro_frame_desc.cpp LA
 luisa_compute_add_test(test_coro_frame_runtime unit/dsl/test_coro_frame_runtime.cpp)
 luisa_compute_add_test(test_coro_compile_trigger unit/dsl/test_coro_compile_trigger.cpp LABELS "unit;unit_xir;unit_coro")
 luisa_compute_add_test(test_coro_func            unit/dsl/test_coro_func.cpp            LABELS "unit;unit_xir;unit_coro")
+luisa_compute_add_test(test_coro_readonly_forwarding unit/coro/test_coro_readonly_forwarding.cpp)
+foreach(_readonly_backend IN ITEMS hip fallback vk)
+    string(TOUPPER "${_readonly_backend}" _readonly_backend_option)
+    if(_readonly_backend STREQUAL "vk")
+        set(_readonly_backend_option VULKAN)
+    endif()
+    if(NOT LUISA_COMPUTE_ENABLE_${_readonly_backend_option})
+        continue()
+    endif()
+    add_test(NAME test_coro_readonly_forwarding_${_readonly_backend}
+        COMMAND test_coro_readonly_forwarding ${_readonly_backend})
+    set_tests_properties(test_coro_readonly_forwarding_${_readonly_backend}
+        PROPERTIES LABELS "unit_coro_runtime")
+endforeach()
+if(TEST test_coro_readonly_forwarding_vk)
+    set_tests_properties(test_coro_readonly_forwarding_vk PROPERTIES ENVIRONMENT
+        "LUISA_VULKAN_USE_XIR=1;LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV=1;LUISA_VULKAN_DISABLE_DXC=1")
+endif()
 luisa_compute_add_test(test_coro_suspend         unit/dsl/test_coro_suspend.cpp         LABELS "unit;unit_xir;unit_coro")
 luisa_compute_add_test(test_coro_graph unit/coro/test_coro_graph.cpp LABELS "unit;unit_coro")
 luisa_compute_add_test(test_coro_graph_wavefront_policy unit/coro/test_coro_graph_wavefront_policy.cpp LABELS "unit;unit_coro")

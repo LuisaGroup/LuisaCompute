@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="530" viewBox="0 0 1040 530" role="img" aria-labelledby="title desc">
+  <title id="title">TileIR, execution planning, compiler bridges and Runtime</title>
+  <desc id="desc">A C++ definition creates TileIR. The XIR planner chooses a legal execution map, then the bridge emits mutable XIR. The SIMD backend compiles it to a normal shader. Metal native and TIRx remain separate compiler routes.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8" fill="none" stroke="#526170" stroke-width="1.3"/></marker>
+    <style>text{font-family:Arial,sans-serif;fill:#213547;font-size:15px}.title{font-size:22px;font-weight:700}.head{font-size:16px;font-weight:700}.small{font-size:13px}.box{fill:#f0f6fd;stroke:#6d8da9;stroke-width:1.4;rx:8}.neutral{fill:#f7f8fa;stroke:#8793a1;stroke-width:1.4;rx:8}.edge{fill:none;stroke:#526170;stroke-width:1.5;marker-end:url(#arrow)}</style>
+  </defs>
+  <rect width="1040" height="530" fill="white"/>
+  <text class="title" x="28" y="34">One execution-first program, independent compiler routes</text>
+  <rect class="box" x="28" y="62" width="228" height="65"/>
+  <text class="head" x="46" y="87">C++ kernel definition</text><text class="small" x="46" y="109">Recapture for each JIT variant</text>
+  <path class="edge" d="M256 94 H299"/>
+  <rect class="box" x="301" y="62" width="236" height="65"/>
+  <text class="head" x="319" y="87">Verified, mutable TileIR</text><text class="small" x="319" y="109">Regions · SSA · layouts · effects</text>
+  <path class="edge" d="M537 94 H580"/>
+  <rect class="neutral" x="582" y="62" width="426" height="65"/>
+  <text class="head" x="600" y="87">DeviceInterface::create_tile_kernel</text><text class="small" x="600" y="109">Backend selects a supported compiler route</text>
+  <rect x="28" y="169" width="980" height="194" rx="10" fill="#fafcff" stroke="#bac8d5"/>
+  <text class="head" x="44" y="195">CPU / SIMD route</text>
+  <path class="edge" d="M795 127 V149 H142 V218"/>
+  <rect class="box" x="44" y="222" width="209" height="112"/>
+  <text class="head" x="60" y="248">XIR execution planner</text><text class="small" x="60" y="271">Semantic facts + target facts</text><text class="small" x="60" y="291">Legal candidates → cost → min</text><text class="small" x="60" y="313">Output: order + worker packing</text>
+  <path class="edge" d="M253 278 H285"/>
+  <rect class="box" x="287" y="222" width="214" height="112"/>
+  <text class="head" x="303" y="248">tile/bridge/xir</text><text class="small" x="303" y="271">Integer bounds proof</text><text class="small" x="303" y="291">Direct XIRBuilder lowering</text><text class="small" x="303" y="313">Owned SSA / PHI / CFG Module</text>
+  <path class="edge" d="M501 278 H533"/>
+  <rect class="box" x="535" y="222" width="210" height="112"/>
+  <text class="head" x="551" y="248">SIMD backend</text><text class="small" x="551" y="271">Shared SSA cleanup + verify</text><text class="small" x="551" y="291">Schedule → LLVM → ORC</text><text class="small" x="551" y="313">Reuse the existing compiler</text>
+  <path class="edge" d="M745 278 H777"/>
+  <rect class="neutral" x="779" y="222" width="211" height="112"/>
+  <text class="head" x="795" y="248">Normal SIMDShader</text><text class="small" x="795" y="271">BufferView offsets + usages</text><text class="small" x="795" y="291">Luisa Stream / command list</text><text class="small" x="795" y="313">Existing CPU worker pool</text>
+  <rect class="neutral" x="44" y="402" width="282" height="86"/>
+  <text class="head" x="60" y="428">Metal native route</text><text class="small" x="60" y="451">Typed TileIR → native MPP</text><text class="small" x="60" y="472">MetalShader → the same Luisa Runtime</text>
+  <rect class="neutral" x="362" y="402" width="340" height="86"/>
+  <text class="head" x="378" y="428">Independent tile/bridge/tirx</text><text class="small" x="378" y="451">Typed C++ API; TVM device/host passes</text><text class="small" x="378" y="472">TVM runtime or Metal device artifact</text>
+  <rect class="neutral" x="738" y="402" width="252" height="86"/>
+  <text class="head" x="754" y="428">Not interchangeable evidence</text><text class="small" x="754" y="451">Native MPP ≠ TIRx MPP ≠ SIMD</text><text class="small" x="754" y="472">Keep timings and limits separate</text>
+  <text class="small" x="28" y="515">The bridge owns representation; the backend owns machine compilation; Runtime owns dispatch and resource lifetime.</text>
+</svg>

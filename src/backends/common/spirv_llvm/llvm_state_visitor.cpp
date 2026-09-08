@@ -1577,6 +1577,7 @@ void LLVMStateVisitor::visit(const SuspendStmt *) {
 }
 
 void LLVMStateVisitor::visit(const AssignStmt *stmt) {
+    if (is_local_undefined_lifetime_seed(stmt)) { return; }
     auto *rhs = EvalExpr(stmt->rhs());
     // LHS must be a RefExpr (reference to a variable)
     auto *lhs = stmt->lhs();

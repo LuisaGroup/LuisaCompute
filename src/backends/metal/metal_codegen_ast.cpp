@@ -1909,6 +1909,7 @@ void MetalCodegenAST::visit(const SwitchDefaultStmt *stmt) noexcept {
 }
 
 void MetalCodegenAST::visit(const AssignStmt *stmt) noexcept {
+    if (is_local_undefined_lifetime_seed(stmt)) { return; }
     auto previous_temporary_count = _reference_temporaries.size();
     _emit_swizzle_reference_temporaries(stmt->rhs());
     if (_reference_temporaries.size() != previous_temporary_count) {

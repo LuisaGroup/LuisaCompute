@@ -9,6 +9,12 @@ DeviceInterface::DeviceInterface(Context &&ctx) noexcept
 
 DeviceInterface::~DeviceInterface() noexcept = default;
 
+ShaderCreationInfo DeviceInterface::create_tile_kernel(
+    const ShaderOption &, const tile::Function &,
+    const tile::CompileOptions &, tile::KernelMetadata &) noexcept {
+    return ShaderCreationInfo::make_invalid();
+}
+
 Context DeviceInterface::context() const noexcept {
     return Context{_ctx_impl};
 }
@@ -35,16 +41,5 @@ ResourceCreationInfo DeviceInterface::create_motion_instance(const AccelMotionOp
 
 void DeviceInterface::destroy_motion_instance(uint64_t handle) noexcept {
     LUISA_NOT_IMPLEMENTED();
-}
-TileShaderCreationInfo DeviceInterface::create_tile_shader(const TileShaderOption &option, const detail::TileFunctionBuilder *tile_kernel) noexcept {
-    LUISA_NOT_IMPLEMENTED();
-    return {};
-}
-void DeviceInterface::destroy_tile_shader(uint64_t handle) noexcept {
-    LUISA_NOT_IMPLEMENTED();
-}
-Usage DeviceInterface::tile_shader_argument_usage(uint64_t handle, size_t index) noexcept {
-    LUISA_NOT_IMPLEMENTED();
-    return {};
 }
 }// namespace luisa::compute

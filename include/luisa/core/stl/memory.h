@@ -5,6 +5,7 @@
 #include <cassert>
 #include <memory>
 #include <cstring>
+#include <type_traits>
 
 #ifdef LUISA_USE_SYSTEM_STL
 

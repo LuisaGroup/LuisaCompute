@@ -1,0 +1,1478 @@
+{
+  "schema": "reduction_service_calibration_v1",
+  "source": "m1-max-20260905-resource-map-search/results.json",
+  "source_sha256": "17e3a59130652df4a5c66acfb3b8aad16a11b4de26d096f43e703d983b5d6644",
+  "fit_script_sha256": "693015da8ee0c8c703c71827e82d7a4b546065966a99662fadd428c84e654d69",
+  "numpy_version": "2.5.2",
+  "training_valid_trials": 101,
+  "training_rejected_trials": 19,
+  "training_shapes": [
+    [
+      23,
+      769
+    ],
+    [
+      128,
+      2048
+    ],
+    [
+      128,
+      8193
+    ],
+    [
+      1024,
+      4096
+    ]
+  ],
+  "numerical_policy": "FP32 subgroup trees, V4/U1/P1, private budget 64",
+  "fit_objective": "sum of squared per-trial relative timing errors; nonnegative coefficients",
+  "capacity_selection": "lowest mean leave-one-shape-out per-case regret, then smallest capacity",
+  "timing": "no-counter command-buffer GPU batched throughput us/op; not isolated-kernel time",
+  "coefficient_names": [
+    "dispatch",
+    "scalar_round",
+    "collective",
+    "global_program_byte",
+    "global_worker_byte",
+    "private_worker_byte"
+  ],
+  "native_argument": "service-v1,512,3.2916011189278369,0.0036317277214723059,0.0034232968457137843,1.0065583053146008e-06,0.0028459431572213007,0",
+  "selected_capacity": 512,
+  "candidates": [
+    {
+      "capacity": 64,
+      "coefficients": [
+        3.216253844406487,
+        0.0021055034731185334,
+        0.00020100363175675753,
+        8.18931269025187e-07,
+        0.0036064131520744938,
+        0.0
+      ],
+      "cv_mean_regret": 0.06511600857190962,
+      "cv_max_regret": 0.2968241803536049,
+      "folds": [
+        {
+          "case": "layernorm_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 5.501542378567162,
+          "measured_us": 4.805990101890625,
+          "best_measured_us": 3.919922164640625,
+          "regret": 0.22604222737959256
+        },
+        {
+          "case": "rmsnorm_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 5.3490422563585875,
+          "measured_us": 3.141276465609375,
+          "best_measured_us": 3.141276465609375,
+          "regret": 0.0
+        },
+        {
+          "case": "softmax_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 5.296344269292019,
+          "measured_us": 3.36588527715625,
+          "best_measured_us": 3.168619514328125,
+          "regret": 0.062256058809242454
+        },
+        {
+          "case": "layernorm_128x2048",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 8.083777962302326,
+          "measured_us": 9.406250683234376,
+          "best_measured_us": 8.894531674734376,
+          "regret": 0.057531866456058456
+        },
+        {
+          "case": "rmsnorm_128x2048",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 6.6620995477965925,
+          "measured_us": 8.33072954265625,
+          "best_measured_us": 8.05664149084375,
+          "regret": 0.03402013756277933
+        },
+        {
+          "case": "softmax_128x2048",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 6.236944273106465,
+          "measured_us": 8.82617223396875,
+          "best_measured_us": 6.80598986946875,
+          "regret": 0.2968241803536049
+        },
+        {
+          "case": "layernorm_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 22.998164782807784,
+          "measured_us": 23.9082037296875,
+          "best_measured_us": 23.9082037296875,
+          "regret": 0.0
+        },
+        {
+          "case": "rmsnorm_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 17.24979856870572,
+          "measured_us": 21.00455640171875,
+          "best_measured_us": 20.80078047578125,
+          "regret": 0.009796551921441798
+        },
+        {
+          "case": "softmax_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 15.67917042539327,
+          "measured_us": 19.9661453734375,
+          "best_measured_us": 19.2682300621875,
+          "regret": 0.03622103893287054
+        },
+        {
+          "case": "layernorm_1024x4096",
+          "threads": 128,
+          "cache": true,
+          "prediction_us": 92.4246067690535,
+          "measured_us": 61.321614339218755,
+          "best_measured_us": 61.321614339218755,
+          "regret": 0.0
+        },
+        {
+          "case": "rmsnorm_1024x4096",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 66.93470000485217,
+          "measured_us": 53.4160162715625,
+          "best_measured_us": 53.4160162715625,
+          "regret": 0.0
+        },
+        {
+          "case": "softmax_1024x4096",
+          "threads": 128,
+          "cache": true,
+          "prediction_us": 57.87878073201499,
+          "measured_us": 53.1914056409375,
+          "best_measured_us": 50.2421871715625,
+          "regret": 0.058700041447325324
+        }
+      ],
+      "training_relative_rmse": 0.1627807064099423,
+      "training_picks": [
+        {
+          "case": "layernorm_1024x4096",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 81.06905377226788,
+          "measured_us": 62.2936204309375,
+          "best_measured_us": 61.321614339218755,
+          "regret": 0.015850954059066558
+        },
+        {
+          "case": "layernorm_128x2048",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 8.435260925251454,
+          "measured_us": 9.406250683234376,
+          "best_measured_us": 8.894531674734376,
+          "regret": 0.057531866456058456
+        },
+        {
+          "case": "layernorm_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 23.871059348400717,
+          "measured_us": 23.9082037296875,
+          "best_measured_us": 23.9082037296875,
+          "regret": 0.0
+        },
+        {
+          "case": "layernorm_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 3.809127900588357,
+          "measured_us": 4.805990101890625,
+          "best_measured_us": 3.919922164640625,
+          "regret": 0.22604222737959256
+        },
+        {
+          "case": "rmsnorm_1024x4096",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 58.26888659613299,
+          "measured_us": 53.4160162715625,
+          "best_measured_us": 53.4160162715625,
+          "regret": 0.0
+        },
+        {
+          "case": "rmsnorm_128x2048",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 6.876923891891103,
+          "measured_us": 8.33072954265625,
+          "best_measured_us": 8.05664149084375,
+          "regret": 0.03402013756277933
+        },
+        {
+          "case": "rmsnorm_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 17.796855625640067,
+          "measured_us": 21.00455640171875,
+          "best_measured_us": 20.80078047578125,
+          "regret": 0.009796551921441798
+        },
+        {
+          "case": "rmsnorm_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 3.6404378773220394,
+          "measured_us": 3.141276465609375,
+          "best_measured_us": 3.141276465609375,
+          "regret": 0.0
+        },
+        {
+          "case": "softmax_1024x4096",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 53.12865930962299,
+          "measured_us": 51.621745114999996,
+          "best_measured_us": 50.2421871715625,
+          "regret": 0.027458158593428816
+        },
+        {
+          "case": "softmax_128x2048",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 6.563466787363556,
+          "measured_us": 6.80598986946875,
+          "best_measured_us": 6.80598986946875,
+          "regret": 0.0
+        },
+        {
+          "case": "softmax_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 16.510055179304267,
+          "measured_us": 19.9661453734375,
+          "best_measured_us": 19.2682300621875,
+          "regret": 0.03622103893287054
+        },
+        {
+          "case": "softmax_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 3.5778471808799854,
+          "measured_us": 3.36588527715625,
+          "best_measured_us": 3.168619514328125,
+          "regret": 0.062256058809242454
+        }
+      ]
+    },
+    {
+      "capacity": 128,
+      "coefficients": [
+        3.2232572179329533,
+        0.0036105581270484896,
+        0.00048279272498530574,
+        8.55483346074597e-07,
+        0.0033820007457042284,
+        0.0
+      ],
+      "cv_mean_regret": 0.072792501232413,
+      "cv_max_regret": 0.2968241803536049,
+      "folds": [
+        {
+          "case": "layernorm_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 5.501542378567162,
+          "measured_us": 4.805990101890625,
+          "best_measured_us": 3.919922164640625,
+          "regret": 0.22604222737959256
+        },
+        {
+          "case": "rmsnorm_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 5.3490422563585875,
+          "measured_us": 3.141276465609375,
+          "best_measured_us": 3.141276465609375,
+          "regret": 0.0
+        },
+        {
+          "case": "softmax_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 5.296344269292019,
+          "measured_us": 3.36588527715625,
+          "best_measured_us": 3.168619514328125,
+          "regret": 0.062256058809242454
+        },
+        {
+          "case": "layernorm_128x2048",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 8.069562202782429,
+          "measured_us": 9.406250683234376,
+          "best_measured_us": 8.894531674734376,
+          "regret": 0.057531866456058456
+        },
+        {
+          "case": "rmsnorm_128x2048",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 6.676350961628286,
+          "measured_us": 8.33072954265625,
+          "best_measured_us": 8.05664149084375,
+          "regret": 0.03402013756277933
+        },
+        {
+          "case": "softmax_128x2048",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 6.168366072888025,
+          "measured_us": 8.82617223396875,
+          "best_measured_us": 6.80598986946875,
+          "regret": 0.2968241803536049
+        },
+        {
+          "case": "layernorm_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 22.73975589607902,
+          "measured_us": 23.9082037296875,
+          "best_measured_us": 23.9082037296875,
+          "regret": 0.0
+        },
+        {
+          "case": "rmsnorm_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 17.19096032136279,
+          "measured_us": 21.00455640171875,
+          "best_measured_us": 20.80078047578125,
+          "regret": 0.009796551921441798
+        },
+        {
+          "case": "softmax_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 15.106209234125018,
+          "measured_us": 19.9661453734375,
+          "best_measured_us": 19.2682300621875,
+          "regret": 0.03622103893287054
+        },
+        {
+          "case": "layernorm_1024x4096",
+          "threads": 128,
+          "cache": true,
+          "prediction_us": 90.88748132095917,
+          "measured_us": 61.321614339218755,
+          "best_measured_us": 61.321614339218755,
+          "regret": 0.0
+        },
+        {
+          "case": "rmsnorm_1024x4096",
+          "threads": 128,
+          "cache": true,
+          "prediction_us": 66.67090617483362,
+          "measured_us": 58.33658815390625,
+          "best_measured_us": 53.4160162715625,
+          "regret": 0.09211791192604069
+        },
+        {
+          "case": "softmax_1024x4096",
+          "threads": 128,
+          "cache": true,
+          "prediction_us": 54.324250161609235,
+          "measured_us": 53.1914056409375,
+          "best_measured_us": 50.2421871715625,
+          "regret": 0.058700041447325324
+        }
+      ],
+      "training_relative_rmse": 0.16611428311034335,
+      "training_picks": [
+        {
+          "case": "layernorm_1024x4096",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 80.48000229569152,
+          "measured_us": 62.2936204309375,
+          "best_measured_us": 61.321614339218755,
+          "regret": 0.015850954059066558
+        },
+        {
+          "case": "layernorm_128x2048",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 8.430430961880084,
+          "measured_us": 9.406250683234376,
+          "best_measured_us": 8.894531674734376,
+          "regret": 0.057531866456058456
+        },
+        {
+          "case": "layernorm_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 23.65509126013195,
+          "measured_us": 23.9082037296875,
+          "best_measured_us": 23.9082037296875,
+          "regret": 0.0
+        },
+        {
+          "case": "layernorm_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 3.7967079875576726,
+          "measured_us": 4.805990101890625,
+          "best_measured_us": 3.919922164640625,
+          "regret": 0.22604222737959256
+        },
+        {
+          "case": "rmsnorm_1024x4096",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 58.2693124470824,
+          "measured_us": 53.4160162715625,
+          "best_measured_us": 53.4160162715625,
+          "regret": 0.0
+        },
+        {
+          "case": "rmsnorm_128x2048",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 6.8935332669968545,
+          "measured_us": 8.33072954265625,
+          "best_measured_us": 8.05664149084375,
+          "regret": 0.03402013756277933
+        },
+        {
+          "case": "rmsnorm_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 17.74878142286619,
+          "measured_us": 21.00455640171875,
+          "best_measured_us": 20.80078047578125,
+          "regret": 0.009796551921441798
+        },
+        {
+          "case": "rmsnorm_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 3.6349987050599304,
+          "measured_us": 3.141276465609375,
+          "best_measured_us": 3.141276465609375,
+          "regret": 0.0
+        },
+        {
+          "case": "softmax_1024x4096",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 51.34184843724884,
+          "measured_us": 51.621745114999996,
+          "best_measured_us": 50.2421871715625,
+          "regret": 0.027458158593428816
+        },
+        {
+          "case": "softmax_128x2048",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 6.450959945298694,
+          "measured_us": 6.80598986946875,
+          "best_measured_us": 6.80598986946875,
+          "regret": 0.0
+        },
+        {
+          "case": "softmax_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 16.017948703021663,
+          "measured_us": 19.9661453734375,
+          "best_measured_us": 19.2682300621875,
+          "regret": 0.03622103893287054
+        },
+        {
+          "case": "softmax_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 3.5674364921589663,
+          "measured_us": 3.36588527715625,
+          "best_measured_us": 3.168619514328125,
+          "regret": 0.062256058809242454
+        }
+      ]
+    },
+    {
+      "capacity": 256,
+      "coefficients": [
+        3.2579934857624395,
+        0.005087165793563907,
+        0.0012464148669357566,
+        9.192470332695503e-07,
+        0.002838899538992265,
+        0.0
+      ],
+      "cv_mean_regret": 0.072792501232413,
+      "cv_max_regret": 0.2968241803536049,
+      "folds": [
+        {
+          "case": "layernorm_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 5.565785418927281,
+          "measured_us": 4.805990101890625,
+          "best_measured_us": 3.919922164640625,
+          "regret": 0.22604222737959256
+        },
+        {
+          "case": "rmsnorm_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 5.406954061263338,
+          "measured_us": 3.141276465609375,
+          "best_measured_us": 3.141276465609375,
+          "regret": 0.0
+        },
+        {
+          "case": "softmax_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 5.380884562569156,
+          "measured_us": 3.36588527715625,
+          "best_measured_us": 3.168619514328125,
+          "regret": 0.062256058809242454
+        },
+        {
+          "case": "layernorm_128x2048",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 8.047665402845645,
+          "measured_us": 9.406250683234376,
+          "best_measured_us": 8.894531674734376,
+          "regret": 0.057531866456058456
+        },
+        {
+          "case": "rmsnorm_128x2048",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 6.705367494536453,
+          "measured_us": 8.33072954265625,
+          "best_measured_us": 8.05664149084375,
+          "regret": 0.03402013756277933
+        },
+        {
+          "case": "softmax_128x2048",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 6.040924053784153,
+          "measured_us": 8.82617223396875,
+          "best_measured_us": 6.80598986946875,
+          "regret": 0.2968241803536049
+        },
+        {
+          "case": "layernorm_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 22.29436417805926,
+          "measured_us": 23.9082037296875,
+          "best_measured_us": 23.9082037296875,
+          "regret": 0.0
+        },
+        {
+          "case": "rmsnorm_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 17.075623597232543,
+          "measured_us": 21.00455640171875,
+          "best_measured_us": 20.80078047578125,
+          "regret": 0.009796551921441798
+        },
+        {
+          "case": "softmax_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 14.177663902932455,
+          "measured_us": 19.9661453734375,
+          "best_measured_us": 19.2682300621875,
+          "regret": 0.03622103893287054
+        },
+        {
+          "case": "layernorm_1024x4096",
+          "threads": 128,
+          "cache": true,
+          "prediction_us": 89.13109050205794,
+          "measured_us": 61.321614339218755,
+          "best_measured_us": 61.321614339218755,
+          "regret": 0.0
+        },
+        {
+          "case": "rmsnorm_1024x4096",
+          "threads": 128,
+          "cache": true,
+          "prediction_us": 66.08317393291627,
+          "measured_us": 58.33658815390625,
+          "best_measured_us": 53.4160162715625,
+          "regret": 0.09211791192604069
+        },
+        {
+          "case": "softmax_1024x4096",
+          "threads": 128,
+          "cache": true,
+          "prediction_us": 50.0347387824739,
+          "measured_us": 53.1914056409375,
+          "best_measured_us": 50.2421871715625,
+          "regret": 0.058700041447325324
+        }
+      ],
+      "training_relative_rmse": 0.17076115829581964,
+      "training_picks": [
+        {
+          "case": "layernorm_1024x4096",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 79.3356847492289,
+          "measured_us": 62.2936204309375,
+          "best_measured_us": 61.321614339218755,
+          "regret": 0.015850954059066558
+        },
+        {
+          "case": "layernorm_128x2048",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 8.370691213838171,
+          "measured_us": 8.894531674734376,
+          "best_measured_us": 8.894531674734376,
+          "regret": 0.0
+        },
+        {
+          "case": "layernorm_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 23.232817758373912,
+          "measured_us": 23.9082037296875,
+          "best_measured_us": 23.9082037296875,
+          "regret": 0.0
+        },
+        {
+          "case": "layernorm_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 3.821508566439211,
+          "measured_us": 4.805990101890625,
+          "best_measured_us": 3.919922164640625,
+          "regret": 0.22604222737959256
+        },
+        {
+          "case": "rmsnorm_1024x4096",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 58.203249165665966,
+          "measured_us": 53.4160162715625,
+          "best_measured_us": 53.4160162715625,
+          "regret": 0.0
+        },
+        {
+          "case": "rmsnorm_128x2048",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 6.933870814256936,
+          "measured_us": 8.33072954265625,
+          "best_measured_us": 8.05664149084375,
+          "regret": 0.03402013756277933
+        },
+        {
+          "case": "rmsnorm_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 17.640450227793636,
+          "measured_us": 21.00455640171875,
+          "best_measured_us": 20.80078047578125,
+          "regret": 0.009796551921441798
+        },
+        {
+          "case": "rmsnorm_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 3.6603826394215835,
+          "measured_us": 3.141276465609375,
+          "best_measured_us": 3.141276465609375,
+          "regret": 0.0
+        },
+        {
+          "case": "softmax_1024x4096",
+          "threads": 128,
+          "cache": true,
+          "prediction_us": 48.0122493712807,
+          "measured_us": 53.1914056409375,
+          "best_measured_us": 50.2421871715625,
+          "regret": 0.058700041447325324
+        },
+        {
+          "case": "softmax_128x2048",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 6.2612008890273625,
+          "measured_us": 6.80598986946875,
+          "best_measured_us": 6.80598986946875,
+          "regret": 0.0
+        },
+        {
+          "case": "softmax_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 15.134583094847683,
+          "measured_us": 19.9661453734375,
+          "best_measured_us": 19.2682300621875,
+          "regret": 0.03622103893287054
+        },
+        {
+          "case": "softmax_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 3.6005940029719503,
+          "measured_us": 3.36588527715625,
+          "best_measured_us": 3.168619514328125,
+          "regret": 0.062256058809242454
+        }
+      ]
+    },
+    {
+      "capacity": 512,
+      "coefficients": [
+        3.291601118927837,
+        0.003631727721472306,
+        0.0034232968457137843,
+        1.0065583053146008e-06,
+        0.0028459431572213007,
+        0.0
+      ],
+      "cv_mean_regret": 0.048057152869612596,
+      "cv_max_regret": 0.22604222737959256,
+      "folds": [
+        {
+          "case": "layernorm_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 5.7480731913630665,
+          "measured_us": 4.805990101890625,
+          "best_measured_us": 3.919922164640625,
+          "regret": 0.22604222737959256
+        },
+        {
+          "case": "rmsnorm_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 5.555981878977241,
+          "measured_us": 3.141276465609375,
+          "best_measured_us": 3.141276465609375,
+          "regret": 0.0
+        },
+        {
+          "case": "softmax_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 5.592836609898455,
+          "measured_us": 3.36588527715625,
+          "best_measured_us": 3.168619514328125,
+          "regret": 0.062256058809242454
+        },
+        {
+          "case": "layernorm_128x2048",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 8.041603111688758,
+          "measured_us": 9.406250683234376,
+          "best_measured_us": 8.894531674734376,
+          "regret": 0.057531866456058456
+        },
+        {
+          "case": "rmsnorm_128x2048",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 6.754682931111378,
+          "measured_us": 8.33072954265625,
+          "best_measured_us": 8.05664149084375,
+          "regret": 0.03402013756277933
+        },
+        {
+          "case": "softmax_128x2048",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 5.842440868258092,
+          "measured_us": 6.80598986946875,
+          "best_measured_us": 6.80598986946875,
+          "regret": 0.0
+        },
+        {
+          "case": "layernorm_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 21.76908459445921,
+          "measured_us": 23.9082037296875,
+          "best_measured_us": 23.9082037296875,
+          "regret": 0.0
+        },
+        {
+          "case": "rmsnorm_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 16.980168033202776,
+          "measured_us": 21.00455640171875,
+          "best_measured_us": 20.80078047578125,
+          "regret": 0.009796551921441798
+        },
+        {
+          "case": "softmax_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 12.90652989408978,
+          "measured_us": 19.9661453734375,
+          "best_measured_us": 19.2682300621875,
+          "regret": 0.03622103893287054
+        },
+        {
+          "case": "layernorm_1024x4096",
+          "threads": 128,
+          "cache": true,
+          "prediction_us": 86.8890631140945,
+          "measured_us": 61.321614339218755,
+          "best_measured_us": 61.321614339218755,
+          "regret": 0.0
+        },
+        {
+          "case": "rmsnorm_1024x4096",
+          "threads": 128,
+          "cache": true,
+          "prediction_us": 65.24679344741085,
+          "measured_us": 58.33658815390625,
+          "best_measured_us": 53.4160162715625,
+          "regret": 0.09211791192604069
+        },
+        {
+          "case": "softmax_1024x4096",
+          "threads": 128,
+          "cache": true,
+          "prediction_us": 46.3080173127751,
+          "measured_us": 53.1914056409375,
+          "best_measured_us": 50.2421871715625,
+          "regret": 0.058700041447325324
+        }
+      ],
+      "training_relative_rmse": 0.17584084292873925,
+      "training_picks": [
+        {
+          "case": "layernorm_1024x4096",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 77.0941224625918,
+          "measured_us": 62.2936204309375,
+          "best_measured_us": 61.321614339218755,
+          "regret": 0.015850954059066558
+        },
+        {
+          "case": "layernorm_128x2048",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 8.277777086047042,
+          "measured_us": 8.894531674734376,
+          "best_measured_us": 8.894531674734376,
+          "regret": 0.0
+        },
+        {
+          "case": "layernorm_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 22.62797461551027,
+          "measured_us": 23.9082037296875,
+          "best_measured_us": 23.9082037296875,
+          "regret": 0.0
+        },
+        {
+          "case": "layernorm_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 3.8859967328884566,
+          "measured_us": 4.805990101890625,
+          "best_measured_us": 3.919922164640625,
+          "regret": 0.22604222737959256
+        },
+        {
+          "case": "rmsnorm_1024x4096",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 57.727109406027445,
+          "measured_us": 53.4160162715625,
+          "best_measured_us": 53.4160162715625,
+          "regret": 0.0
+        },
+        {
+          "case": "rmsnorm_128x2048",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 6.960265986843861,
+          "measured_us": 8.277344022640625,
+          "best_measured_us": 8.05664149084375,
+          "regret": 0.027393862820841663
+        },
+        {
+          "case": "rmsnorm_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 17.49911762850673,
+          "measured_us": 21.00455640171875,
+          "best_measured_us": 20.80078047578125,
+          "regret": 0.009796551921441798
+        },
+        {
+          "case": "rmsnorm_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 3.7128094588510296,
+          "measured_us": 3.141276465609375,
+          "best_measured_us": 3.141276465609375,
+          "regret": 0.0
+        },
+        {
+          "case": "softmax_1024x4096",
+          "threads": 128,
+          "cache": true,
+          "prediction_us": 42.662357258500734,
+          "measured_us": 53.1914056409375,
+          "best_measured_us": 50.2421871715625,
+          "regret": 0.058700041447325324
+        },
+        {
+          "case": "softmax_128x2048",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 5.9847309608777515,
+          "measured_us": 6.80598986946875,
+          "best_measured_us": 6.80598986946875,
+          "regret": 0.0
+        },
+        {
+          "case": "softmax_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 13.796272577995026,
+          "measured_us": 19.9661453734375,
+          "best_measured_us": 19.2682300621875,
+          "regret": 0.03622103893287054
+        },
+        {
+          "case": "softmax_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 3.65250257788858,
+          "measured_us": 3.36588527715625,
+          "best_measured_us": 3.168619514328125,
+          "regret": 0.062256058809242454
+        }
+      ]
+    },
+    {
+      "capacity": 1024,
+      "coefficients": [
+        3.2727298413440864,
+        0.0,
+        0.007339893214432571,
+        1.0538831419418722e-06,
+        0.0034867614035931733,
+        0.0
+      ],
+      "cv_mean_regret": 0.048057152869612596,
+      "cv_max_regret": 0.22604222737959256,
+      "folds": [
+        {
+          "case": "layernorm_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 5.8347446226018205,
+          "measured_us": 4.805990101890625,
+          "best_measured_us": 3.919922164640625,
+          "regret": 0.22604222737959256
+        },
+        {
+          "case": "rmsnorm_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 5.615020909170631,
+          "measured_us": 3.141276465609375,
+          "best_measured_us": 3.141276465609375,
+          "regret": 0.0
+        },
+        {
+          "case": "softmax_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 5.68663191765878,
+          "measured_us": 3.36588527715625,
+          "best_measured_us": 3.168619514328125,
+          "regret": 0.062256058809242454
+        },
+        {
+          "case": "layernorm_128x2048",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 8.048915441377954,
+          "measured_us": 9.406250683234376,
+          "best_measured_us": 8.894531674734376,
+          "regret": 0.057531866456058456
+        },
+        {
+          "case": "rmsnorm_128x2048",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 6.795653833353558,
+          "measured_us": 8.33072954265625,
+          "best_measured_us": 8.05664149084375,
+          "regret": 0.03402013756277933
+        },
+        {
+          "case": "softmax_128x2048",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 5.691678936136677,
+          "measured_us": 6.80598986946875,
+          "best_measured_us": 6.80598986946875,
+          "regret": 0.0
+        },
+        {
+          "case": "layernorm_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 21.767586369995698,
+          "measured_us": 23.9082037296875,
+          "best_measured_us": 23.9082037296875,
+          "regret": 0.0
+        },
+        {
+          "case": "rmsnorm_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 17.010324711130178,
+          "measured_us": 21.00455640171875,
+          "best_measured_us": 20.80078047578125,
+          "regret": 0.009796551921441798
+        },
+        {
+          "case": "softmax_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 12.732577062725817,
+          "measured_us": 19.9661453734375,
+          "best_measured_us": 19.2682300621875,
+          "regret": 0.03622103893287054
+        },
+        {
+          "case": "layernorm_1024x4096",
+          "threads": 128,
+          "cache": true,
+          "prediction_us": 87.64431018305761,
+          "measured_us": 61.321614339218755,
+          "best_measured_us": 61.321614339218755,
+          "regret": 0.0
+        },
+        {
+          "case": "rmsnorm_1024x4096",
+          "threads": 128,
+          "cache": true,
+          "prediction_us": 66.12979826414674,
+          "measured_us": 58.33658815390625,
+          "best_measured_us": 53.4160162715625,
+          "regret": 0.09211791192604069
+        },
+        {
+          "case": "softmax_1024x4096",
+          "threads": 128,
+          "cache": true,
+          "prediction_us": 45.943478677845064,
+          "measured_us": 53.1914056409375,
+          "best_measured_us": 50.2421871715625,
+          "regret": 0.058700041447325324
+        }
+      ],
+      "training_relative_rmse": 0.17819935604777137,
+      "training_picks": [
+        {
+          "case": "layernorm_1024x4096",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 75.82974753658111,
+          "measured_us": 62.2936204309375,
+          "best_measured_us": 61.321614339218755,
+          "regret": 0.015850954059066558
+        },
+        {
+          "case": "layernorm_128x2048",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 8.256779870214295,
+          "measured_us": 8.894531674734376,
+          "best_measured_us": 8.894531674734376,
+          "regret": 0.0
+        },
+        {
+          "case": "layernorm_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 22.37426557263726,
+          "measured_us": 23.9082037296875,
+          "best_measured_us": 23.9082037296875,
+          "regret": 0.0
+        },
+        {
+          "case": "layernorm_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 3.911561360709385,
+          "measured_us": 4.805990101890625,
+          "best_measured_us": 3.919922164640625,
+          "regret": 0.22604222737959256
+        },
+        {
+          "case": "rmsnorm_1024x4096",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 57.45561652991,
+          "measured_us": 53.4160162715625,
+          "best_measured_us": 53.4160162715625,
+          "regret": 0.0
+        },
+        {
+          "case": "rmsnorm_128x2048",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 6.981407790139013,
+          "measured_us": 8.277344022640625,
+          "best_measured_us": 8.05664149084375,
+          "regret": 0.027393862820841663
+        },
+        {
+          "case": "rmsnorm_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 17.481443348383046,
+          "measured_us": 21.00455640171875,
+          "best_measured_us": 20.80078047578125,
+          "regret": 0.009796551921441798
+        },
+        {
+          "case": "rmsnorm_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 3.72249390801033,
+          "measured_us": 3.141276465609375,
+          "best_measured_us": 3.141276465609375,
+          "regret": 0.0
+        },
+        {
+          "case": "softmax_1024x4096",
+          "threads": 128,
+          "cache": true,
+          "prediction_us": 39.76266756576068,
+          "measured_us": 53.1914056409375,
+          "best_measured_us": 50.2421871715625,
+          "regret": 0.058700041447325324
+        },
+        {
+          "case": "softmax_128x2048",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 5.8234740014946516,
+          "measured_us": 6.80598986946875,
+          "best_measured_us": 6.80598986946875,
+          "regret": 0.0
+        },
+        {
+          "case": "softmax_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 13.058374289852516,
+          "measured_us": 19.9661453734375,
+          "best_measured_us": 19.2682300621875,
+          "regret": 0.03622103893287054
+        },
+        {
+          "case": "softmax_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 3.6508647467421964,
+          "measured_us": 3.36588527715625,
+          "best_measured_us": 3.168619514328125,
+          "regret": 0.062256058809242454
+        }
+      ]
+    },
+    {
+      "capacity": 2048,
+      "coefficients": [
+        3.2183329609697413,
+        0.0,
+        0.010180006279353436,
+        1.0762493915351525e-06,
+        0.003463635560645547,
+        0.0
+      ],
+      "cv_mean_regret": 0.06511600857190962,
+      "cv_max_regret": 0.2968241803536049,
+      "folds": [
+        {
+          "case": "layernorm_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 5.889446379212109,
+          "measured_us": 4.805990101890625,
+          "best_measured_us": 3.919922164640625,
+          "regret": 0.22604222737959256
+        },
+        {
+          "case": "rmsnorm_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 5.63884470500863,
+          "measured_us": 3.141276465609375,
+          "best_measured_us": 3.141276465609375,
+          "regret": 0.0
+        },
+        {
+          "case": "softmax_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 5.709334177797201,
+          "measured_us": 3.36588527715625,
+          "best_measured_us": 3.168619514328125,
+          "regret": 0.062256058809242454
+        },
+        {
+          "case": "layernorm_128x2048",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 7.98978092581026,
+          "measured_us": 9.406250683234376,
+          "best_measured_us": 8.894531674734376,
+          "regret": 0.057531866456058456
+        },
+        {
+          "case": "rmsnorm_128x2048",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 6.7477080051248794,
+          "measured_us": 8.33072954265625,
+          "best_measured_us": 8.05664149084375,
+          "regret": 0.03402013756277933
+        },
+        {
+          "case": "softmax_128x2048",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 5.6688923203964094,
+          "measured_us": 8.82617223396875,
+          "best_measured_us": 6.80598986946875,
+          "regret": 0.2968241803536049
+        },
+        {
+          "case": "layernorm_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 21.963827741141436,
+          "measured_us": 23.9082037296875,
+          "best_measured_us": 23.9082037296875,
+          "regret": 0.0
+        },
+        {
+          "case": "rmsnorm_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 17.174369140914564,
+          "measured_us": 21.00455640171875,
+          "best_measured_us": 20.80078047578125,
+          "regret": 0.009796551921441798
+        },
+        {
+          "case": "softmax_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 12.726500091484374,
+          "measured_us": 19.9661453734375,
+          "best_measured_us": 19.2682300621875,
+          "regret": 0.03622103893287054
+        },
+        {
+          "case": "layernorm_1024x4096",
+          "threads": 128,
+          "cache": true,
+          "prediction_us": 91.33607149392924,
+          "measured_us": 61.321614339218755,
+          "best_measured_us": 61.321614339218755,
+          "regret": 0.0
+        },
+        {
+          "case": "rmsnorm_1024x4096",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 68.95702132486635,
+          "measured_us": 53.4160162715625,
+          "best_measured_us": 53.4160162715625,
+          "regret": 0.0
+        },
+        {
+          "case": "softmax_1024x4096",
+          "threads": 128,
+          "cache": true,
+          "prediction_us": 47.46509534061785,
+          "measured_us": 53.1914056409375,
+          "best_measured_us": 50.2421871715625,
+          "regret": 0.058700041447325324
+        }
+      ],
+      "training_relative_rmse": 0.1813564939912198,
+      "training_picks": [
+        {
+          "case": "layernorm_1024x4096",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 76.98241811298892,
+          "measured_us": 62.2936204309375,
+          "best_measured_us": 61.321614339218755,
+          "regret": 0.015850954059066558
+        },
+        {
+          "case": "layernorm_128x2048",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 8.279882965703823,
+          "measured_us": 9.406250683234376,
+          "best_measured_us": 8.894531674734376,
+          "regret": 0.057531866456058456
+        },
+        {
+          "case": "layernorm_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 22.54487470481233,
+          "measured_us": 23.9082037296875,
+          "best_measured_us": 23.9082037296875,
+          "regret": 0.0
+        },
+        {
+          "case": "layernorm_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 3.907455705130028,
+          "measured_us": 4.805990101890625,
+          "best_measured_us": 3.919922164640625,
+          "regret": 0.22604222737959256
+        },
+        {
+          "case": "rmsnorm_1024x4096",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 58.378516724514476,
+          "measured_us": 53.4160162715625,
+          "best_measured_us": 53.4160162715625,
+          "regret": 0.0
+        },
+        {
+          "case": "rmsnorm_128x2048",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 6.933055414285475,
+          "measured_us": 8.33072954265625,
+          "best_measured_us": 8.05664149084375,
+          "regret": 0.03402013756277933
+        },
+        {
+          "case": "rmsnorm_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 17.631799218616855,
+          "measured_us": 21.00455640171875,
+          "best_measured_us": 20.80078047578125,
+          "regret": 0.009796551921441798
+        },
+        {
+          "case": "rmsnorm_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 3.6944549939725424,
+          "measured_us": 3.141276465609375,
+          "best_measured_us": 3.141276465609375,
+          "regret": 0.0
+        },
+        {
+          "case": "softmax_1024x4096",
+          "threads": 128,
+          "cache": true,
+          "prediction_us": 40.38084078827231,
+          "measured_us": 53.1914056409375,
+          "best_measured_us": 50.2421871715625,
+          "regret": 0.058700041447325324
+        },
+        {
+          "case": "softmax_128x2048",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 5.85994430127744,
+          "measured_us": 6.80598986946875,
+          "best_measured_us": 6.80598986946875,
+          "regret": 0.0
+        },
+        {
+          "case": "softmax_128x8193",
+          "threads": 512,
+          "cache": true,
+          "prediction_us": 13.04448393336069,
+          "measured_us": 19.9661453734375,
+          "best_measured_us": 19.2682300621875,
+          "regret": 0.03622103893287054
+        },
+        {
+          "case": "softmax_23x769",
+          "threads": 256,
+          "cache": true,
+          "prediction_us": 3.644334383284712,
+          "measured_us": 3.36588527715625,
+          "best_measured_us": 3.168619514328125,
+          "regret": 0.062256058809242454
+        }
+      ]
+    }
+  ],
+  "holdout_shapes": [
+    [
+      37,
+      1537
+    ],
+    [
+      256,
+      3072
+    ],
+    [
+      768,
+      6144
+    ],
+    [
+      64,
+      12289
+    ]
+  ],
+  "holdout_operations": [
+    "softmax",
+    "rmsnorm",
+    "layernorm"
+  ],
+  "holdout_selection": "old automatic width with reload vs service automatic width and model-only reload/cache JIT product",
+  "holdout_replay": {
+    "rounds": 4,
+    "samples": 9,
+    "sample_ms": 30,
+    "warmup_ms": 200
+  },
+  "defaults_changed": false
+}

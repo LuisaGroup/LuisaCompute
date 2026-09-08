@@ -115,13 +115,13 @@ void ScheduleEmitter::_emit_instruction(
 }
 
 void ScheduleEmitter::_assign(schedule::EdgeAssignment assignment,
-                              ::llvm::Value *mask) {
+                              ::llvm::Value *mask, ::llvm::Value *value) {
     auto *destination = _source.value(assignment.destination);
     auto *source = _source.value(assignment.source);
     if (destination == nullptr || source == nullptr) { return; }
     // The coalescer proves that the logical source and destination have
     // noninterfering per-lane live ranges. Their masked state move is then an
-    // identity; cross-copy source interference keeps sequential emission safe.
+    // identity. Other sources were snapshotted before any destination write.
     if (destination->origin == schedule::ValueOrigin::state_slot &&
         source->origin == schedule::ValueOrigin::state_slot &&
         assignment.destination.value < _state_slots.size() &&
@@ -131,7 +131,6 @@ void ScheduleEmitter::_assign(schedule::EdgeAssignment assignment,
             _state_slots[assignment.source.value]) {
         return;
     }
-    auto *value = _load_value(assignment.source);
     if (value == nullptr) { return; }
     auto *slot = _state_slots[assignment.destination.value];
     if (_is_local_lvalue(assignment.destination)) {
@@ -158,8 +157,17 @@ void ScheduleEmitter::_assign(schedule::EdgeAssignment assignment,
 void ScheduleEmitter::_apply_assignments(
     const std::vector<schedule::EdgeAssignment> &assignments,
     ::llvm::Value *mask) {
+    // PHI edge copies are simultaneous. Interference between distinct slots
+    // does not protect a source that is itself another copy's destination
+    // (a <- b, b <- a). Load every old value before updating any state slot.
+    std::vector<::llvm::Value *> sources;
+    sources.reserve(assignments.size());
     for (auto assignment : assignments) {
-        _assign(assignment, mask);
+        sources.emplace_back(_load_value(assignment.source));
+        if (_failed()) { return; }
+    }
+    for (auto i = size_t{0u}; i < assignments.size(); i++) {
+        _assign(assignments[i], mask, sources[i]);
         if (_failed()) { return; }
     }
 }

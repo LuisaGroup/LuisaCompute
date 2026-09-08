@@ -369,9 +369,8 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
     TRY_PARSE_SCALAR_TYPE(double, FLOAT64, 8u)
     TRY_PARSE_SCALAR_TYPE(float8e4m3, FLOAT8_E4M3, 1u)
     TRY_PARSE_SCALAR_TYPE(float8e5m2, FLOAT8_E5M2, 1u)
-    // 4-bit sub-byte quantized types: stored as 1 byte per element (the lower
-    // nibble holds the value; the upper nibble is zero/unused), matching the
-    // host-side tensor_element_type_size_bytes packing (2 elements per byte).
+    // 4-bit sub-byte quantized types use one byte in the host-side type model;
+    // target lowering may pack two logical values per byte.
     TRY_PARSE_SCALAR_TYPE(int4, INT4, 1u)
     TRY_PARSE_SCALAR_TYPE(fp4e2m1, FP4_E2M1, 1u)
 #undef TRY_PARSE_SCALAR_TYPE

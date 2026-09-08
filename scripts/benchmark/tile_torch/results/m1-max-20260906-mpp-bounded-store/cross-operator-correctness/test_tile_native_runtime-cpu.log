@@ -1,0 +1,8 @@
+[2026-09-06 16:10:10.235] [console] [info] Created context for program 'test_tile_native_runtime'.
+[2026-09-06 16:10:10.235] [console] [info] Runtime directory: /private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin.
+[2026-09-06 16:10:10.236] [console] [error] Backend 'cpu' is not installed. [/Users/mike/CLionProjects/luisa/src/runtime/context.cpp:114]
+     0 [0x000102aabd04]: libluisa-runtime.dylib :: luisa::compute::detail::ContextImpl::load_backend(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&) + 2028
+     1 [0x000102aab194]: libluisa-runtime.dylib :: luisa::compute::Context::create_device(std::__1::basic_string_view<char, std::__1::char_traits<char>>, luisa::compute::DeviceConfig const*, bool) + 164
+     2 [0x00010215e820]: test_tile_native_runtime :: luisa::test::create_device(int, char**) + 144
+     3 [0x000102159570]: test_tile_native_runtime :: main + 116
+     4 [0x0001861804e4]: dyld :: start + 6992

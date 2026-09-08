@@ -1,0 +1,120 @@
+
+Running test "tile_planner_realized_work_pareto_objective"... [31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m
+
+ 0 0
+Running test "tile_planner_realized_work_pareto_objective"... [31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0 0[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m
+
+ 0 1
+Running test "tile_planner_realized_work_pareto_objective"... [31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0 0[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m
+
+ 0 2
+Running test "tile_planner_realized_work_pareto_objective"... [31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0 0[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0 2[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m
+
+ 0.1 0
+Running test "tile_planner_realized_work_pareto_objective"... [31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0 0[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0 2[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0.1 0[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m
+
+ 0.1 1
+Running test "tile_planner_realized_work_pareto_objective"... [31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0 0[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0 2[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0.1 0[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0.1 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m
+
+ 0.1 2
+Running test "tile_planner_realized_work_pareto_objective"... [31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0 0[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0 2[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0.1 0[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0.1 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0.1 2[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m
+
+ 1 0
+Running test "tile_planner_realized_work_pareto_objective"... [31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0 0[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0 2[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0.1 0[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0.1 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0.1 2[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 1 0[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m
+
+ 1 1
+Running test "tile_planner_realized_work_pareto_objective"... [31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0 0[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0 2[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0.1 0[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0.1 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0.1 2[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 1 0[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 1 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m
+
+ 1 2
+Running test "tile_planner_realized_work_pareto_objective"... [31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0 0[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0 2[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0.1 0[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0.1 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0.1 2[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 1 0[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 1 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 1 2[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m
+
+ 10 0
+Running test "tile_planner_realized_work_pareto_objective"... [31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0 0[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0 2[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0.1 0[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0.1 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0.1 2[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 1 0[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 1 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 1 2[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 10 0[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m
+
+ 10 1
+Running test "tile_planner_realized_work_pareto_objective"... [31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0 0[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0 2[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0.1 0[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0.1 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 0.1 2[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 1 0[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 1 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 1 2[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 10 0[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m 10 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_planner.cpp:576[31m - test condition:  [false[31m][0m
+
+ 10 2
+===============================================================================
+Suite global
+tests:   13 | [31m12 failed[0m
+asserts: 14406 | 12 passed | [31m12 failed[0m
+

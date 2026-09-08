@@ -165,7 +165,9 @@ struct SIMDCompiledKernel {
     bool capture_assembly = false,
     uint32_t dispatch_worker_count = 1u,
     bool enable_packet_batch_entry = false,
-    bool enable_block_batch_entry = false);
+    bool enable_block_batch_entry = false,
+    // Retain pre-JIT IR without performing a second assembly compilation.
+    bool capture_ir = false);
 
 // Translates a DSL/AST kernel to XIR, legalizes its structured control flow,
 // inlines callables, promotes local SSA storage, and then invokes the packet

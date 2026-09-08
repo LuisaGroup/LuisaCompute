@@ -189,7 +189,10 @@ const Expression *CoroSlotAccess::_read(CoroFrame &frame) const noexcept {
                  "Coroutine binding read has no frame/type metadata.");
     auto *builder = detail::FunctionBuilder::current();
     auto *result = builder->local(_type);
-    builder->assign(result, builder->call(_type, CallOp::ZERO, {}));
+    // The materialized pieces form the complete static partition of this
+    // binding. Begin the aggregate lifetime without clearing it, then rebuild
+    // every semantic leaf from the exact frame projection below.
+    builder->assign(result, builder->call(_type, CallOp::UNDEFINED, {}));
     for (auto &piece : _pieces) {
         LUISA_ASSERT(
             piece.field_index < frame.desc()->frame_field_count() &&

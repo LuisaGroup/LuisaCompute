@@ -6469,6 +6469,91 @@ make_lane_affine_buffer_schedule(uint32_t width) {
     return true;
 }
 
+[[nodiscard]] bool run_flat_packet_buffer_codegen() {
+    using Entry = void(const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+    constexpr uint32_t count = 81u;
+    for (auto width : {4u, 8u, 16u}) {
+        for (auto columns : {32, 33}) {
+            for (auto sparse : {false, true}) {
+                xir::Module source;
+                auto *kernel = source.create_kernel();
+                kernel->set_block_size(luisa::make_uint3(64u, 1u, 1u));
+                auto *buffer_type = Type::buffer(Type::of<float>());
+                auto *a = kernel->create_resource_argument(buffer_type);
+                auto *b = kernel->create_resource_argument(buffer_type);
+                auto *c = kernel->create_resource_argument(buffer_type);
+                auto *entry = kernel->create_body_block();
+                auto *body = kernel->create_basic_block();
+                auto *exit = kernel->create_basic_block();
+                xir::XIRBuilder builder;
+                builder.set_insertion_point(entry);
+                auto *zero = source.create_constant_zero(Type::of<uint32_t>());
+                auto *x = builder.call(Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT, {source.create_dispatch_id(), zero});
+                if (sparse) {
+                    auto *odd = builder.call(Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_BIT_AND,
+                                             {x, source.create_constant_one(Type::of<uint32_t>())});
+                    auto *condition = builder.call(Type::of<bool>(), xir::ArithmeticOp::BINARY_NOT_EQUAL, {odd, zero});
+                    builder.cond_br(condition, body, exit);
+                } else {
+                    builder.br(body);
+                }
+                builder.set_insertion_point(body);
+                auto *index = builder.static_cast_(Type::of<int64_t>(), x);
+                auto columns_i64 = static_cast<int64_t>(columns);
+                auto *divisor = source.create_constant(Type::of<int64_t>(), &columns_i64);
+                auto *row = builder.call(Type::of<int64_t>(), xir::ArithmeticOp::BINARY_DIV, {index, divisor});
+                auto *col = builder.call(Type::of<int64_t>(), xir::ArithmeticOp::BINARY_MOD, {index, divisor});
+                auto *lhs = builder.call(Type::of<float>(), xir::ResourceReadOp::BUFFER_READ, {a, builder.static_cast_(Type::of<uint64_t>(), row)});
+                auto *rhs = builder.call(Type::of<float>(), xir::ResourceReadOp::BUFFER_READ, {b, builder.static_cast_(Type::of<uint64_t>(), col)});
+                auto *product = builder.call(Type::of<float>(), xir::ArithmeticOp::BINARY_MUL, {lhs, rhs});
+                builder.call(xir::ResourceWriteOp::BUFFER_WRITE, {c, builder.static_cast_(Type::of<uint64_t>(), index), product});
+                builder.br(exit);
+                builder.set_insertion_point(exit);
+                builder.return_void();
+                auto lowered = schedule::lower_xir_to_schedule(kernel, {.logical_warp_width = width});
+                CHECK(lowered.succeeded());
+                for (auto enabled : {false, true}) {
+                    auto context = std::make_unique<::llvm::LLVMContext>();
+                    auto module = std::make_unique<::llvm::Module>("flat-packet-buffer", *context);
+                    auto codegen = lower_schedule_to_llvm(*module, *lowered.function, width, "flat_packet_buffer",
+                                                          false, {64u, 1u, 1u}, enabled, enabled);
+                    CHECK(codegen.succeeded());
+                    CHECK(codegen.uniform_buffer_broadcast_count == (enabled && columns == 32 ? 1u : 0u));
+                    CHECK(codegen.contiguous_buffer_read_count == (enabled && columns == 32 ? 1u : 0u));
+                    CHECK(!::llvm::verifyModule(*module, &::llvm::errs()));
+                    LLVMJIT jit;
+                    CHECK(jit.succeeded());
+                    CHECK(jit.add_module(std::move(module), std::move(context)));
+                    auto function = reinterpret_cast<Entry *>(jit.lookup("flat_packet_buffer"));
+                    CHECK(function != nullptr);
+                    std::array<float, 3u> lhs{0.5f, 1.25f, -2.0f};
+                    std::array<float, 33u> rhs{};
+                    std::array<float, count + 2u> output{};
+                    output.fill(-777.0f);
+                    for (auto i = size_t{0u}; i < rhs.size(); i++) { rhs[i] = static_cast<float>(i) * 0.25f - 3.0f; }
+                    alignas(16) std::array<SIMDHostBufferView, 3u> arguments{
+                        SIMDHostBufferView{lhs.data(), sizeof(lhs)},
+                        SIMDHostBufferView{rhs.data(), sizeof(rhs)},
+                        SIMDHostBufferView{output.data() + 1u, count * sizeof(float)},
+                    };
+                    auto config = launch_1d(count, 64u);
+                    for (uint32_t first = 0u; first < count; first += width) {
+                        config.block_id[0u] = first / 64u;
+                        config.thread_index = first % 64u;
+                        function(arguments.data(), nullptr, &config, width);
+                    }
+                    CHECK(output.front() == -777.0f && output.back() == -777.0f);
+                    for (uint32_t i = 0u; i < count; i++) {
+                        auto expected = sparse && i % 2u == 0u ? -777.0f : lhs[i / columns] * rhs[i % columns];
+                        CHECK(output[i + 1u] == expected);
+                    }
+                }
+            }
+        }
+    }
+    return true;
+}
+
 [[nodiscard]] std::optional<schedule::Function>
 make_uniform_buffer_broadcast_schedule(
     uint32_t width, bool volatile_read) {
@@ -15848,6 +15933,8 @@ int main() {
          &run_faceforward_codegen},
         {"lane-affine scalar buffer load/store",
          &run_lane_affine_buffer_codegen},
+        {"bounded flat packet buffer load/store",
+         &run_flat_packet_buffer_codegen},
         {"uniform buffer read broadcast",
          &run_uniform_buffer_broadcast_codegen},
         {"XIR texture packet callback", &run_texture_packet_codegen},

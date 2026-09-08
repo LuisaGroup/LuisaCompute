@@ -2517,10 +2517,10 @@ private:
                     b, _lookup_value(current, b, inst->operand(1u)), llvm_x);
                 // constant 0, 1, -2, and 3
                 auto llvm_elem_type = _translate_type(elem_type, false);
-                auto llvm_zero = llvm::ConstantFP::get(llvm_elem_type, 0.);
-                auto llvm_one = llvm::ConstantFP::get(llvm_elem_type, 1.);
-                auto llvm_minus_two = llvm::ConstantFP::get(llvm_elem_type, -2.);
-                auto llvm_three = llvm::ConstantFP::get(llvm_elem_type, 3.);
+                llvm::Constant *llvm_zero = llvm::ConstantFP::get(llvm_elem_type, 0.);
+                llvm::Constant *llvm_one = llvm::ConstantFP::get(llvm_elem_type, 1.);
+                llvm::Constant *llvm_minus_two = llvm::ConstantFP::get(llvm_elem_type, -2.);
+                llvm::Constant *llvm_three = llvm::ConstantFP::get(llvm_elem_type, 3.);
                 if (type->is_vector()) {
                     auto dim = llvm::ElementCount::getFixed(type->dimension());
                     llvm_zero = llvm::ConstantVector::getSplat(dim, llvm_zero);
@@ -2913,7 +2913,7 @@ private:
                 auto operand_type = inst->operand(0u)->type();
                 auto operand_elem_type = operand_type->is_vector() ? operand_type->element() : operand_type;
                 auto llvm_elem_type = _translate_type(operand_elem_type, false);
-                auto llvm_one = llvm::ConstantFP::get(llvm_elem_type, 1.f);
+                llvm::Constant *llvm_one = llvm::ConstantFP::get(llvm_elem_type, 1.f);
                 if (operand_type->is_vector()) {
                     auto dim = operand_type->dimension();
                     llvm_one = llvm::ConstantVector::getSplat(llvm::ElementCount::getFixed(dim), llvm_one);

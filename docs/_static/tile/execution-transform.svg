@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="650" viewBox="0 0 1280 650" role="img" aria-labelledby="title desc">
+  <title id="title">Legal and illegal execution hierarchy transforms</title>
+  <desc id="desc">Splitting a subnest below a memory owner preserves the owner prefix and is legal. Moving the subnest above its owner makes the old owner projection non-injective and requires explicit memory rehoming or rejection.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#64748b"/>
+    </marker>
+    <style>
+      text { font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif; fill: #0f172a; }
+      .title { font-size: 27px; font-weight: 700; }
+      .heading { font-size: 18px; font-weight: 700; }
+      .label { font-size: 14px; font-weight: 600; }
+      .small { font-size: 12px; fill: #475569; }
+      .level { fill: #eff6ff; stroke: #3b82f6; stroke-width: 2; rx: 9; }
+      .link { fill: none; stroke: #64748b; stroke-width: 2; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect x="10" y="10" width="1260" height="630" rx="18" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="640" y="50" text-anchor="middle" class="title">Execution transforms must preserve the meaning of prefix cuts</text>
+
+  <rect x="40" y="82" width="1200" height="238" rx="16" fill="#f0fdf4" stroke="#86efac" stroke-width="2"/>
+  <text x="70" y="116" class="heading" fill="#047857">LEGAL · split below the owner cut</text>
+
+  <text x="90" y="162" class="small">old E</text>
+  <rect x="150" y="136" width="150" height="54" class="level"/>
+  <text x="225" y="169" text-anchor="middle" class="label">nest</text>
+  <line x1="306" y1="128" x2="306" y2="206" stroke="#f97316" stroke-width="4"/>
+  <text x="306" y="222" text-anchor="middle" class="small" fill="#c2410c">Memory owner cut</text>
+  <rect x="320" y="136" width="150" height="54" class="level"/>
+  <text x="395" y="169" text-anchor="middle" class="label">subnest</text>
+  <rect x="490" y="136" width="150" height="54" class="level"/>
+  <text x="565" y="169" text-anchor="middle" class="label">leaf</text>
+
+  <path d="M680 163 L745 163" class="link"/>
+  <text x="712" y="151" text-anchor="middle" class="small">split(subnest)</text>
+
+  <text x="770" y="112" class="small">new E'</text>
+  <rect x="770" y="136" width="115" height="54" class="level"/>
+  <text x="827" y="169" text-anchor="middle" class="label">nest</text>
+  <line x1="892" y1="128" x2="892" y2="206" stroke="#f97316" stroke-width="4"/>
+  <rect x="905" y="136" width="125" height="54" class="level"/>
+  <text x="967" y="160" text-anchor="middle" class="label">subnest_outer</text>
+  <text x="967" y="178" text-anchor="middle" class="small">mixed radix</text>
+  <rect x="1045" y="136" width="125" height="54" class="level"/>
+  <text x="1107" y="160" text-anchor="middle" class="label">subnest_inner</text>
+  <text x="1107" y="178" text-anchor="middle" class="small">mixed radix</text>
+
+  <rect x="340" y="252" width="600" height="44" rx="9" fill="#ffffff" stroke="#10b981"/>
+  <text x="640" y="271" text-anchor="middle" class="label">tau(nest, subnest_outer, subnest_inner, leaf) = (nest, subnest, leaf)</text>
+  <text x="640" y="289" text-anchor="middle" class="small">tau_owner(nest) = nest is bijective; one logical allocation remains one allocation</text>
+
+  <rect x="40" y="342" width="1200" height="268" rx="16" fill="#fff1f2" stroke="#fda4af" stroke-width="2"/>
+  <text x="70" y="378" class="heading" fill="#be123c">ILLEGAL AS A SILENT REMAP · move subnest above the nest owner</text>
+
+  <text x="90" y="424" class="small">old E</text>
+  <rect x="150" y="398" width="150" height="54" class="level"/>
+  <text x="225" y="431" text-anchor="middle" class="label">nest</text>
+  <line x1="306" y1="390" x2="306" y2="468" stroke="#f97316" stroke-width="4"/>
+  <rect x="320" y="398" width="150" height="54" class="level"/>
+  <text x="395" y="431" text-anchor="middle" class="label">subnest</text>
+  <rect x="490" y="398" width="150" height="54" class="level"/>
+  <text x="565" y="431" text-anchor="middle" class="label">leaf</text>
+
+  <path d="M680 425 L745 425" class="link"/>
+  <text x="712" y="413" text-anchor="middle" class="small">permute</text>
+
+  <text x="770" y="374" class="small">attempted E'</text>
+  <rect x="770" y="398" width="125" height="54" class="level"/>
+  <text x="832" y="431" text-anchor="middle" class="label">subnest</text>
+  <rect x="910" y="398" width="125" height="54" class="level"/>
+  <text x="972" y="431" text-anchor="middle" class="label">nest</text>
+  <line x1="1042" y1="390" x2="1042" y2="468" stroke="#f97316" stroke-width="4"/>
+  <rect x="1055" y="398" width="125" height="54" class="level"/>
+  <text x="1117" y="431" text-anchor="middle" class="label">leaf</text>
+
+  <path d="M820 480 L990 545" stroke="#be123c" stroke-width="4"/>
+  <path d="M990 480 L820 545" stroke="#be123c" stroke-width="4"/>
+  <rect x="230" y="502" width="500" height="72" rx="10" fill="#ffffff" stroke="#fb7185"/>
+  <text x="480" y="529" text-anchor="middle" class="label">tau_owner(subnest, nest) = nest is not injective</text>
+  <text x="480" y="551" text-anchor="middle" class="small">several new prefixes would claim the same old Memory identity</text>
+  <rect x="875" y="502" width="300" height="72" rx="10" fill="#ffffff" stroke="#fb7185"/>
+  <text x="1025" y="529" text-anchor="middle" class="label">Reject, or rewrite explicitly</text>
+  <text x="1025" y="551" text-anchor="middle" class="small">re-home / replicate / synchronize memory</text>
+</svg>

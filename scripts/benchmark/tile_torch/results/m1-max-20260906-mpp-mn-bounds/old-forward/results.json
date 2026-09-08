@@ -1,0 +1,494 @@
+{
+  "metadata": {
+    "timestamp": "2026-09-06T03:49:07.501891+00:00",
+    "cpu": "Apple M1 Max",
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "python": "3.13.7 (main, Sep  2 2025, 14:05:52) [Clang 20.1.4 ]",
+    "torch_version": "2.14.0",
+    "torch_config": "PyTorch built with:\n  - GCC 4.2\n  - C++ Version: 202002\n  - clang 21.0.0\n  - OpenMP 202011\n  - LAPACK is enabled (usually provided by MKL)\n  - NNPACK is enabled\n  - CPU capability usage: DEFAULT\n  - Build settings: BLAS_INFO=accelerate, BUILD_TYPE=Release, COMMIT_SHA=08187d9e0fba026dc8217405802ab5381dc88d90, CUDA_FLAGS= -DLIBCUDACXX_ENABLE_SIMPLIFIED_COMPLEX_OPERATIONS -Xfatbin -compress-all  -Wno-deprecated-gpu-targets --expt-extended-lambda -DCUB_WRAPPED_NAMESPACE=at_cuda_detail -DDISABLE_CUSPARSE_DEPRECATED -DCUDA_HAS_FP16=1 -D__CUDA_NO_HALF_OPERATORS__ -D__CUDA_NO_HALF_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__ -D__CUDA_NO_BFLOAT16_CONVERSIONS__ -DC10_NODEPRECATED, CXX_COMPILER=/usr/bin/c++, CXX_FLAGS= -fvisibility-inlines-hidden -DUSE_PTHREADPOOL -DNDEBUG -DUSE_KINETO -DUSE_PYTORCH_QNNPACK -DAT_BUILD_ARM_VEC256_WITH_SLEEF -DUSE_PYTORCH_METAL_EXPORT -DSYMBOLICATE_MOBILE_DEBUG_HANDLE -DUSE_COREML_DELEGATE -O2 -fPIC -DC10_NODEPRECATED -Wall -Wextra -Werror=return-type -Werror=non-virtual-dtor -Werror=braced-scalar-init -Werror=range-loop-construct -Werror=bool-operation -Wnarrowing -Wno-missing-field-initializers -Wno-unknown-pragmas -Wno-unused-parameter -Wno-strict-overflow -Wno-strict-aliasing -Wvla-extension -Wsuggest-override -Wnewline-eof -Winconsistent-missing-override -Winconsistent-missing-destructor-override -Wno-pass-failed -Wno-error=old-style-cast -Wconstant-conversion -Qunused-arguments -faligned-new -fno-math-errno -fno-trapping-math -Werror=format -fclang-abi-compat=17 -DUSE_MPS -Wno-missing-braces, LAPACK_INFO=accelerate, TORCH_VERSION=2.14.0, USE_CUDA=OFF, USE_CUDNN=OFF, USE_CUSPARSELT=OFF, USE_EIGEN_FOR_BLAS=ON, USE_GFLAGS=OFF, USE_GLOG=OFF, USE_GLOO=ON, USE_HIPSPARSELT=OFF, USE_MKL=OFF, USE_MKLDNN=OFF, USE_MPI=OFF, USE_NCCL=OFF, USE_NNPACK=ON, USE_OPENMP=ON, USE_ROCM=OFF, USE_ROCM_KERNEL_ASSERT=OFF, USE_XCCL=OFF, USE_XPU=OFF, \n",
+    "threads": 8,
+    "thread_environment": {
+      "TVM_NUM_THREADS": "8",
+      "OMP_NUM_THREADS": "8",
+      "VECLIB_MAXIMUM_THREADS": "8"
+    },
+    "loader_environment": {
+      "DYLD_LIBRARY_PATH": "/tmp/luisa-mpp-mn-baseline.gFce8i",
+      "DYLD_FALLBACK_LIBRARY_PATH": null,
+      "LD_LIBRARY_PATH": null
+    },
+    "git_revision": "20ccf9744215f89cb97cab826e0cdfc442ef0121",
+    "worktree_dirty": true,
+    "native_binary": "/private/tmp/luisa-mpp-mn-baseline.gFce8i/benchmark_tile_tirx",
+    "native_sha256": "a505ca99de39bef7c1e38c253272725a684d0b895f2f8e082bb17a181dfd1f86",
+    "metal_device_timing": {
+      "library": "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-benchmark-metal-timing.dylib",
+      "sha256": "01fc5fde7cf4fc531b6a96b0223f98965741652cf4068477f1691fee2aa60ef1"
+    },
+    "system_baseline": {
+      "binary": "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_system",
+      "sha256": "3d6ec98f2ee4cdea36603052f83a4f8044cb31ad1ecde6254d63a4957dbb686a"
+    },
+    "adjacent_tile_library_sha256": {
+      "libluisa-tile-bridge-tirx.dylib": "cdc8b3e8f18d8713f21e6f0f4652c4625ae0c177f2b6ca6fe3c8a25150aaa3af",
+      "libluisa-tile-bridge-xir.dylib": "86a4f5d2e0029ffa4315763a1153ba64117ff5e09325e0df48bae1a77c738815",
+      "libluisa-tile.dylib": "4b0b3cec0d41b3d36682b77b21743dbc95ee83f7926474a662ecf3a291664947"
+    },
+    "samples": 5,
+    "sample_ms": 20,
+    "warmup_ms": 100,
+    "execution_scope": "group",
+    "pipeline_window": 1,
+    "cooperative_matrix": true,
+    "matrix_realization": "mpp-views",
+    "metal_subgroup_reductions": false,
+    "reduction_programs_per_group": 0,
+    "element_grid": null,
+    "reduction_unroll": 1,
+    "reduction_lane_elements": 1,
+    "cache_reduction_inputs": false,
+    "reduction_cost_profile": "analytic",
+    "shared_tile_materialization": "preserve",
+    "vectorize": true,
+    "auto_vectorize": false,
+    "cpu_stack_bytes": 0,
+    "capture_sources": true,
+    "cpu_vector_lanes": 16,
+    "cpu_input_views": false,
+    "input_views": false,
+    "cpu_model": null,
+    "cpu_matrix_backend": "reference",
+    "cpu_math_backend": "reference",
+    "group_threads": 128,
+    "copy_batch": 1,
+    "gemm_tuning_candidates": [
+      {
+        "block": [
+          128,
+          32,
+          16
+        ],
+        "pipeline_window": 1
+      },
+      {
+        "block": [
+          128,
+          32,
+          1024
+        ],
+        "pipeline_window": 1
+      },
+      {
+        "block": [
+          128,
+          32,
+          4096
+        ],
+        "pipeline_window": 1
+      }
+    ],
+    "joint_tuning_candidates": [
+      {
+        "block": [
+          128,
+          32,
+          16
+        ],
+        "pipeline_window": 1,
+        "group_threads": 128,
+        "copy_batch": 1,
+        "shared_tile_materialization": "preserve",
+        "reduction_programs_per_group": 0,
+        "reduction_unroll": 1,
+        "reduction_lane_elements": 1,
+        "cache_reduction_inputs": false
+      },
+      {
+        "block": [
+          128,
+          32,
+          1024
+        ],
+        "pipeline_window": 1,
+        "group_threads": 128,
+        "copy_batch": 1,
+        "shared_tile_materialization": "preserve",
+        "reduction_programs_per_group": 0,
+        "reduction_unroll": 1,
+        "reduction_lane_elements": 1,
+        "cache_reduction_inputs": false
+      },
+      {
+        "block": [
+          128,
+          32,
+          4096
+        ],
+        "pipeline_window": 1,
+        "group_threads": 128,
+        "copy_batch": 1,
+        "shared_tile_materialization": "preserve",
+        "reduction_programs_per_group": 0,
+        "reduction_unroll": 1,
+        "reduction_lane_elements": 1,
+        "cache_reduction_inputs": false
+      }
+    ],
+    "max_tuning_candidates": 3,
+    "tuning_metric": "gpu-control",
+    "quick": false,
+    "timing": "synchronized device-resident host wall time including dispatch"
+  },
+  "results": [
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 129,
+        "n": 257,
+        "k": 61
+      },
+      "name": "gemm_129x257x61",
+      "backend": "metal",
+      "valid": false,
+      "error": "no numerically valid JIT candidate",
+      "tuning": {
+        "selection_wall_ms": 2503.102667,
+        "selection_metric": "native_gpu_command_buffer_throughput_us_p50",
+        "reported_measurement": "fresh post-selection recapture/JIT and timing, not the search minimum",
+        "trials": [
+          {
+            "block": [
+              128,
+              32,
+              16
+            ],
+            "pipeline_window": 1,
+            "group_threads": 128,
+            "copy_batch": 1,
+            "shared_tile_materialization": "preserve",
+            "reduction_programs_per_group": 0,
+            "reduction_unroll": 1,
+            "reduction_lane_elements": 1,
+            "cache_reduction_inputs": false,
+            "valid": false,
+            "error": "native benchmark failed (-6):\ndyld[29596]: Library not loaded: @rpath/libluisa-osl.dylib\n  Referenced from: <4B7B9C9F-DD6A-3FD8-83B0-44074FBE56DE> /private/tmp/luisa-mpp-mn-baseline.gFce8i/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../bin/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../lib/libluisa-osl.dylib' (no such file), '/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../bin/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../lib/libluisa-osl.dylib' (no such file)\n\n"
+          },
+          {
+            "block": [
+              128,
+              32,
+              1024
+            ],
+            "pipeline_window": 1,
+            "group_threads": 128,
+            "copy_batch": 1,
+            "shared_tile_materialization": "preserve",
+            "reduction_programs_per_group": 0,
+            "reduction_unroll": 1,
+            "reduction_lane_elements": 1,
+            "cache_reduction_inputs": false,
+            "valid": false,
+            "error": "native benchmark failed (-6):\ndyld[29620]: Library not loaded: @rpath/libluisa-osl.dylib\n  Referenced from: <4B7B9C9F-DD6A-3FD8-83B0-44074FBE56DE> /private/tmp/luisa-mpp-mn-baseline.gFce8i/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../bin/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../lib/libluisa-osl.dylib' (no such file), '/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../bin/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../lib/libluisa-osl.dylib' (no such file)\n\n"
+          },
+          {
+            "block": [
+              128,
+              32,
+              4096
+            ],
+            "pipeline_window": 1,
+            "group_threads": 128,
+            "copy_batch": 1,
+            "shared_tile_materialization": "preserve",
+            "reduction_programs_per_group": 0,
+            "reduction_unroll": 1,
+            "reduction_lane_elements": 1,
+            "cache_reduction_inputs": false,
+            "valid": false,
+            "error": "native benchmark failed (-6):\ndyld[29622]: Library not loaded: @rpath/libluisa-osl.dylib\n  Referenced from: <4B7B9C9F-DD6A-3FD8-83B0-44074FBE56DE> /private/tmp/luisa-mpp-mn-baseline.gFce8i/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../bin/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../lib/libluisa-osl.dylib' (no such file), '/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../bin/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../lib/libluisa-osl.dylib' (no such file)\n\n"
+          }
+        ]
+      }
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 1025,
+        "n": 1025,
+        "k": 1024
+      },
+      "name": "gemm_1025x1025x1024",
+      "backend": "metal",
+      "valid": false,
+      "error": "no numerically valid JIT candidate",
+      "tuning": {
+        "selection_wall_ms": 1220.3055,
+        "selection_metric": "native_gpu_command_buffer_throughput_us_p50",
+        "reported_measurement": "fresh post-selection recapture/JIT and timing, not the search minimum",
+        "trials": [
+          {
+            "block": [
+              128,
+              32,
+              1024
+            ],
+            "pipeline_window": 1,
+            "group_threads": 128,
+            "copy_batch": 1,
+            "shared_tile_materialization": "preserve",
+            "reduction_programs_per_group": 0,
+            "reduction_unroll": 1,
+            "reduction_lane_elements": 1,
+            "cache_reduction_inputs": false,
+            "valid": false,
+            "error": "native benchmark failed (-6):\ndyld[29623]: Library not loaded: @rpath/libluisa-osl.dylib\n  Referenced from: <4B7B9C9F-DD6A-3FD8-83B0-44074FBE56DE> /private/tmp/luisa-mpp-mn-baseline.gFce8i/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../bin/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../lib/libluisa-osl.dylib' (no such file), '/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../bin/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../lib/libluisa-osl.dylib' (no such file)\n\n"
+          },
+          {
+            "block": [
+              128,
+              32,
+              4096
+            ],
+            "pipeline_window": 1,
+            "group_threads": 128,
+            "copy_batch": 1,
+            "shared_tile_materialization": "preserve",
+            "reduction_programs_per_group": 0,
+            "reduction_unroll": 1,
+            "reduction_lane_elements": 1,
+            "cache_reduction_inputs": false,
+            "valid": false,
+            "error": "native benchmark failed (-6):\ndyld[29625]: Library not loaded: @rpath/libluisa-osl.dylib\n  Referenced from: <4B7B9C9F-DD6A-3FD8-83B0-44074FBE56DE> /private/tmp/luisa-mpp-mn-baseline.gFce8i/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../bin/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../lib/libluisa-osl.dylib' (no such file), '/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../bin/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../lib/libluisa-osl.dylib' (no such file)\n\n"
+          },
+          {
+            "block": [
+              128,
+              32,
+              16
+            ],
+            "pipeline_window": 1,
+            "group_threads": 128,
+            "copy_batch": 1,
+            "shared_tile_materialization": "preserve",
+            "reduction_programs_per_group": 0,
+            "reduction_unroll": 1,
+            "reduction_lane_elements": 1,
+            "cache_reduction_inputs": false,
+            "valid": false,
+            "error": "native benchmark failed (-6):\ndyld[29631]: Library not loaded: @rpath/libluisa-osl.dylib\n  Referenced from: <4B7B9C9F-DD6A-3FD8-83B0-44074FBE56DE> /private/tmp/luisa-mpp-mn-baseline.gFce8i/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../bin/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../lib/libluisa-osl.dylib' (no such file), '/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../bin/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../lib/libluisa-osl.dylib' (no such file)\n\n"
+          }
+        ]
+      }
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 2049,
+        "n": 4097,
+        "k": 1025
+      },
+      "name": "gemm_2049x4097x1025",
+      "backend": "metal",
+      "valid": false,
+      "error": "no numerically valid JIT candidate",
+      "tuning": {
+        "selection_wall_ms": 2645.605833,
+        "selection_metric": "native_gpu_command_buffer_throughput_us_p50",
+        "reported_measurement": "fresh post-selection recapture/JIT and timing, not the search minimum",
+        "trials": [
+          {
+            "block": [
+              128,
+              32,
+              4096
+            ],
+            "pipeline_window": 1,
+            "group_threads": 128,
+            "copy_batch": 1,
+            "shared_tile_materialization": "preserve",
+            "reduction_programs_per_group": 0,
+            "reduction_unroll": 1,
+            "reduction_lane_elements": 1,
+            "cache_reduction_inputs": false,
+            "valid": false,
+            "error": "native benchmark failed (-6):\ndyld[29642]: Library not loaded: @rpath/libluisa-osl.dylib\n  Referenced from: <4B7B9C9F-DD6A-3FD8-83B0-44074FBE56DE> /private/tmp/luisa-mpp-mn-baseline.gFce8i/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../bin/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../lib/libluisa-osl.dylib' (no such file), '/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../bin/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../lib/libluisa-osl.dylib' (no such file)\n\n"
+          },
+          {
+            "block": [
+              128,
+              32,
+              16
+            ],
+            "pipeline_window": 1,
+            "group_threads": 128,
+            "copy_batch": 1,
+            "shared_tile_materialization": "preserve",
+            "reduction_programs_per_group": 0,
+            "reduction_unroll": 1,
+            "reduction_lane_elements": 1,
+            "cache_reduction_inputs": false,
+            "valid": false,
+            "error": "native benchmark failed (-6):\ndyld[29676]: Library not loaded: @rpath/libluisa-osl.dylib\n  Referenced from: <4B7B9C9F-DD6A-3FD8-83B0-44074FBE56DE> /private/tmp/luisa-mpp-mn-baseline.gFce8i/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../bin/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../lib/libluisa-osl.dylib' (no such file), '/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../bin/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../lib/libluisa-osl.dylib' (no such file)\n\n"
+          },
+          {
+            "block": [
+              128,
+              32,
+              1024
+            ],
+            "pipeline_window": 1,
+            "group_threads": 128,
+            "copy_batch": 1,
+            "shared_tile_materialization": "preserve",
+            "reduction_programs_per_group": 0,
+            "reduction_unroll": 1,
+            "reduction_lane_elements": 1,
+            "cache_reduction_inputs": false,
+            "valid": false,
+            "error": "native benchmark failed (-6):\ndyld[29678]: Library not loaded: @rpath/libluisa-osl.dylib\n  Referenced from: <4B7B9C9F-DD6A-3FD8-83B0-44074FBE56DE> /private/tmp/luisa-mpp-mn-baseline.gFce8i/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../bin/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../lib/libluisa-osl.dylib' (no such file), '/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../bin/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../lib/libluisa-osl.dylib' (no such file)\n\n"
+          }
+        ]
+      }
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 4097,
+        "n": 4097,
+        "k": 4096
+      },
+      "name": "gemm_4097x4097x4096",
+      "backend": "metal",
+      "valid": false,
+      "error": "no numerically valid JIT candidate",
+      "tuning": {
+        "selection_wall_ms": 3593.224292,
+        "selection_metric": "native_gpu_command_buffer_throughput_us_p50",
+        "reported_measurement": "fresh post-selection recapture/JIT and timing, not the search minimum",
+        "trials": [
+          {
+            "block": [
+              128,
+              32,
+              16
+            ],
+            "pipeline_window": 1,
+            "group_threads": 128,
+            "copy_batch": 1,
+            "shared_tile_materialization": "preserve",
+            "reduction_programs_per_group": 0,
+            "reduction_unroll": 1,
+            "reduction_lane_elements": 1,
+            "cache_reduction_inputs": false,
+            "valid": false,
+            "error": "native benchmark failed (-6):\ndyld[29679]: Library not loaded: @rpath/libluisa-osl.dylib\n  Referenced from: <4B7B9C9F-DD6A-3FD8-83B0-44074FBE56DE> /private/tmp/luisa-mpp-mn-baseline.gFce8i/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../bin/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../lib/libluisa-osl.dylib' (no such file), '/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../bin/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../lib/libluisa-osl.dylib' (no such file)\n\n"
+          },
+          {
+            "block": [
+              128,
+              32,
+              1024
+            ],
+            "pipeline_window": 1,
+            "group_threads": 128,
+            "copy_batch": 1,
+            "shared_tile_materialization": "preserve",
+            "reduction_programs_per_group": 0,
+            "reduction_unroll": 1,
+            "reduction_lane_elements": 1,
+            "cache_reduction_inputs": false,
+            "valid": false,
+            "error": "native benchmark failed (-6):\ndyld[29703]: Library not loaded: @rpath/libluisa-osl.dylib\n  Referenced from: <4B7B9C9F-DD6A-3FD8-83B0-44074FBE56DE> /private/tmp/luisa-mpp-mn-baseline.gFce8i/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../bin/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../lib/libluisa-osl.dylib' (no such file), '/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../bin/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../lib/libluisa-osl.dylib' (no such file)\n\n"
+          },
+          {
+            "block": [
+              128,
+              32,
+              4096
+            ],
+            "pipeline_window": 1,
+            "group_threads": 128,
+            "copy_batch": 1,
+            "shared_tile_materialization": "preserve",
+            "reduction_programs_per_group": 0,
+            "reduction_unroll": 1,
+            "reduction_lane_elements": 1,
+            "cache_reduction_inputs": false,
+            "valid": false,
+            "error": "native benchmark failed (-6):\ndyld[29705]: Library not loaded: @rpath/libluisa-osl.dylib\n  Referenced from: <4B7B9C9F-DD6A-3FD8-83B0-44074FBE56DE> /private/tmp/luisa-mpp-mn-baseline.gFce8i/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../bin/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../lib/libluisa-osl.dylib' (no such file), '/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../bin/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../lib/libluisa-osl.dylib' (no such file)\n\n"
+          }
+        ]
+      }
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 1024,
+        "n": 1024,
+        "k": 1024
+      },
+      "name": "gemm_1024x1024x1024",
+      "backend": "metal",
+      "valid": false,
+      "error": "no numerically valid JIT candidate",
+      "tuning": {
+        "selection_wall_ms": 2179.535792,
+        "selection_metric": "native_gpu_command_buffer_throughput_us_p50",
+        "reported_measurement": "fresh post-selection recapture/JIT and timing, not the search minimum",
+        "trials": [
+          {
+            "block": [
+              128,
+              32,
+              1024
+            ],
+            "pipeline_window": 1,
+            "group_threads": 128,
+            "copy_batch": 1,
+            "shared_tile_materialization": "preserve",
+            "reduction_programs_per_group": 0,
+            "reduction_unroll": 1,
+            "reduction_lane_elements": 1,
+            "cache_reduction_inputs": false,
+            "valid": false,
+            "error": "native benchmark failed (-6):\ndyld[29707]: Library not loaded: @rpath/libluisa-osl.dylib\n  Referenced from: <4B7B9C9F-DD6A-3FD8-83B0-44074FBE56DE> /private/tmp/luisa-mpp-mn-baseline.gFce8i/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../bin/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../lib/libluisa-osl.dylib' (no such file), '/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../bin/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../lib/libluisa-osl.dylib' (no such file)\n\n"
+          },
+          {
+            "block": [
+              128,
+              32,
+              4096
+            ],
+            "pipeline_window": 1,
+            "group_threads": 128,
+            "copy_batch": 1,
+            "shared_tile_materialization": "preserve",
+            "reduction_programs_per_group": 0,
+            "reduction_unroll": 1,
+            "reduction_lane_elements": 1,
+            "cache_reduction_inputs": false,
+            "valid": false,
+            "error": "native benchmark failed (-6):\ndyld[29712]: Library not loaded: @rpath/libluisa-osl.dylib\n  Referenced from: <4B7B9C9F-DD6A-3FD8-83B0-44074FBE56DE> /private/tmp/luisa-mpp-mn-baseline.gFce8i/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../bin/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../lib/libluisa-osl.dylib' (no such file), '/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../bin/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../lib/libluisa-osl.dylib' (no such file)\n\n"
+          },
+          {
+            "block": [
+              128,
+              32,
+              16
+            ],
+            "pipeline_window": 1,
+            "group_threads": 128,
+            "copy_batch": 1,
+            "shared_tile_materialization": "preserve",
+            "reduction_programs_per_group": 0,
+            "reduction_unroll": 1,
+            "reduction_lane_elements": 1,
+            "cache_reduction_inputs": false,
+            "valid": false,
+            "error": "native benchmark failed (-6):\ndyld[29734]: Library not loaded: @rpath/libluisa-osl.dylib\n  Referenced from: <4B7B9C9F-DD6A-3FD8-83B0-44074FBE56DE> /private/tmp/luisa-mpp-mn-baseline.gFce8i/benchmark_tile_tirx\n  Reason: tried: '/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../bin/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../lib/libluisa-osl.dylib' (no such file), '/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/tmp/luisa-tvm-mpp.VaKmzx/build/lib/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../bin/libluisa-osl.dylib' (no such file), '/private/tmp/luisa-mpp-mn-baseline.gFce8i/../lib/libluisa-osl.dylib' (no such file)\n\n"
+          }
+        ]
+      }
+    }
+  ]
+}

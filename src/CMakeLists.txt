@@ -40,6 +40,7 @@ endif ()
 
 add_subdirectory(core)
 add_subdirectory(vstl)
+add_subdirectory(tile)
 add_subdirectory(ast)
 add_subdirectory(xir)
 add_subdirectory(runtime)
@@ -56,6 +57,7 @@ target_compile_features(compute INTERFACE cxx_std_20)
 
 target_link_libraries(compute INTERFACE
         luisa-compute-core
+        luisa-compute-tile
         luisa-compute-ast
         luisa-compute-xir
         luisa-compute-dsl
