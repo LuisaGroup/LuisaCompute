@@ -78,7 +78,8 @@ encoding, XIR semantics and device arithmetic are unchanged.
   native Vulkan. Covers separate and grouped signed/unsigned 8-/16-/64-bit
   labels, default, loop break/continue, early return, and StateMachine plus
   Wavefront coroutine suspension. No failing type is excluded.
-- Full 32-thread build and 133/133 unit CTests in `build-tests-hip`.
+- Full 32-thread build and 133/133 CTests selected by `-L '^unit'` in
+  `build-tests-hip`; the narrower exact `unit` label selects 132/132.
 
 The Vulkan run sets `LUISA_VULKAN_USE_XIR=1`,
 `LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV=1` and `LUISA_VULKAN_DISABLE_DXC=1`.
@@ -100,6 +101,7 @@ Local evidence: `/var/tmp/psycles-shared-case-Btjjlq`. Primary records are
 `cfg-red.log`, `cfg-green.log`, `spirv-literal-analysis.md`,
 `runtime-vk-narrow-red.log`, `runtime-hip-final.log`,
 `runtime-fallback-final.log`, `runtime-vk-green.log`,
-`child-full-build-final.log`, `child-unit-complete.log` and `profiles.json`.
+`child-full-build-final.log`, `child-unit-complete.log`,
+`child-unit-complete-expanded.log` and `profiles.json`.
 The application owns the complete image/timing report. These primitive tests
 and structural controls do not implement a CPU shader oracle.
