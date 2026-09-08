@@ -39,7 +39,6 @@
 #include <iomanip>
 #include <iostream>
 #include <numeric>
-#include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -51,6 +50,12 @@ using namespace luisa::compute;
 namespace {
 
 constexpr auto k_results_dir = "benchmark_results";
+
+// Histogram bucket count. Declared at namespace scope so it is a constant with
+// static storage duration: the DSL kernel lambda can reference it without any
+// capture (both MSVC and Clang reject capturing a function-local `constexpr`
+// from a nested lambda).
+constexpr uint32_t k_hist_bins = 4096u;
 
 struct BenchRow {
     std::string backend;
@@ -601,11 +606,9 @@ void case_register_heavy(BenchContext &bc) {
         $if (i < count) { ov.write(i, s); };
     });
 
-    std::optional<decltype(bc.device.compile(kernel))> shader;
-    try {
-        shader = bc.device.compile(kernel);
-    } catch (const std::exception &e) {
-        LUISA_WARNING("register_heavy BS={} failed to compile: {}", BS, e.what());
+    auto shader = bc.device.compile(kernel);
+    if (!shader || !shader.compile_ok()) {
+        LUISA_WARNING("register_heavy BS={} failed to compile.", BS);
         bc.add_row("register_heavy", std::to_string(BS), BS, 0.0, 0.0, "", 0,
                    "LAUNCH-FAIL");
         return;
@@ -615,14 +618,7 @@ void case_register_heavy(BenchContext &bc) {
     // correctness: first 16 outputs, CPU simulation
     constexpr uint32_t check = 16u;
     std::vector<float4> oh(check);
-    try {
-        bc.stream << (*shader)(data, out, n).dispatch(split.d1, split.d2) << synchronize();
-    } catch (const std::exception &e) {
-        LUISA_WARNING("register_heavy BS={} failed to dispatch: {}", BS, e.what());
-        bc.add_row("register_heavy", std::to_string(BS), BS, 0.0, 0.0, "", 0,
-                   "LAUNCH-FAIL");
-        return;
-    }
+    bc.stream << shader(data, out, n).dispatch(split.d1, split.d2) << synchronize();
     bc.stream << out.view(0, check).copy_to(luisa::span{oh}) << synchronize();
     bool ok = true;
     for (uint32_t i = 0; i < check && ok; ++i) {
@@ -657,7 +653,7 @@ void case_register_heavy(BenchContext &bc) {
     double ms = 0.0;
     if (ok) {
         auto enqueue = [&] {
-            bc.stream << (*shader)(data, out, n).dispatch(split.d1, split.d2);
+            bc.stream << shader(data, out, n).dispatch(split.d1, split.d2);
         };
         ms = time_dispatches(bc.stream, enqueue, iters);
     }
@@ -672,7 +668,7 @@ void case_register_heavy(BenchContext &bc) {
 template<uint32_t BS, bool SHARED>
 void case_histogram(BenchContext &bc) {
     constexpr uint32_t n = 16u * 1024u * 1024u;
-    constexpr uint32_t bins = 4096u;
+    constexpr uint32_t bins = k_hist_bins;
     auto values = bc.device.create_buffer<uint>(n);
     auto counters = bc.device.create_buffer<uint>(bins);
 
@@ -687,12 +683,12 @@ void case_histogram(BenchContext &bc) {
 
     auto shader = [&bc] {
         if constexpr (SHARED) {
-            auto kernel = Kernel2D([bins](BufferVar<uint> vv, BufferVar<uint> cv,
-                                          UInt count) noexcept {
+            auto kernel = Kernel2D([](BufferVar<uint> vv, BufferVar<uint> cv,
+                                      UInt count) noexcept {
                 set_block_size(BS, 1u, 1u);
-                Shared<uint> sc{bins};
+                Shared<uint> sc{k_hist_bins};
                 auto tid = thread_id().x;
-                $for(i, tid, bins, BS) { sc.write(i, 0u); };
+                $for(i, tid, k_hist_bins, BS) { sc.write(i, 0u); };
                 sync_block();
                 auto i = flat_dispatch_id();
                 $if (i < count) {
@@ -700,7 +696,7 @@ void case_histogram(BenchContext &bc) {
                     sc.atomic(bin).fetch_add(1u);
                 };
                 sync_block();
-                $for(i, tid, bins, BS) {
+                $for(i, tid, k_hist_bins, BS) {
                     auto c = sc.read(i);
                     $if (c > 0u) { cv.atomic(i).fetch_add(c); };
                 };
@@ -895,13 +891,10 @@ int main(int argc, char *argv[]) {
 
     DeviceConfig config{};
     config.device_index = device_index;
-    Device device;
-    try {
-        device = context.create_device(backend, &config);
-    } catch (const std::exception &e) {
-        LUISA_ERROR("Failed to create device '{}' index {}: {}", backend,
-                    device_index, e.what());
-        return 1;
+    auto device = context.create_device(backend, &config);
+    if (!device) {
+        LUISA_ERROR("Failed to create device '{}' index {}.", backend,
+                    device_index);
     }
     std::string device_name = names.empty() ? "unknown"
                                             : std::string{names[device_index]};
