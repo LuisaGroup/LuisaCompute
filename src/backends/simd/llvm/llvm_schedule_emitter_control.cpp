@@ -664,8 +664,8 @@ void ScheduleEmitter::_find_instruction_spills() {
         for (auto &&block : _source.blocks()) {
             if (auto diamond =
                     _find_predicated_memory_diamond(block)) {
-                emission_blocks[diamond->true_block->id.value] = block.id;
-                emission_blocks[diamond->false_block->id.value] = block.id;
+                if (diamond->true_block) { emission_blocks[diamond->true_block->id.value] = block.id; }
+                if (diamond->false_block) { emission_blocks[diamond->false_block->id.value] = block.id; }
             }
         }
     }

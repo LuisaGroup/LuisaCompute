@@ -285,7 +285,10 @@ SIMDCompiledKernel compile_simd_kernel(
             detail::env_flag(
                 "LUISA_SIMD_FORCE_STRUCTURED_EARLY_EXIT_LOOP") ?
                 4u :
-                25u};
+                25u,
+        .enable_counted_loop_uniformity =
+            detail::env_flag("LUISA_SIMD_ENABLE_PREDICATED_MEMORY_EFFECTS") &&
+            !detail::env_flag("LUISA_SIMD_DISABLE_PREDICATED_MEMORY_EFFECTS")};
     auto schedule_result = schedule::lower_xir_to_schedule(
         function, schedule_options);
     if (!schedule_result.succeeded()) {

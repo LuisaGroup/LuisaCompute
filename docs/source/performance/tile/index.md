@@ -33,6 +33,9 @@ Keep these objectives separate:
 - **Batched E2E throughput:** warm host time per invocation, amortized over
   dispatches and synchronization; JIT/setup excluded.
 - **Single-call E2E latency:** one dispatch through completion.
+- **CPU native entry:** actual emitted kernel entry called from C++, with
+  Runtime dispatch/Python/JIT/allocation excluded. Required native traversal
+  and launch-record resets stay inside; this is not a hardware cycle counter.
 - **GPU timing:** instrumented compute-pass intervals plus a separate
   no-counter command-buffer control. The control includes GPU work and
   intra-buffer gaps, not isolated kernel time.
@@ -42,6 +45,16 @@ fusion, output-allocation and math-policy differences, paired round ratios
 and negative results. Historical experiments are not one matched leaderboard.
 
 ## Results by route
+
+**SIMD ragged lowering: native progress, remaining Inductor gap.**
+The latest [masked-region and counted-header realization](results.md#ragged-control-flow-is-a-realization-cost-not-extra-tile-work)
+improves three fixed-local RMSNorm native cohorts by roughly 3.3–7.1×,
+but they remain 1.87–2.23× slower than one-thread TorchInductor. An aligned
+control preserves byte-identical code and its existing advantage. All 344
+cross-operator E2E visits and 72 native visits pass complete output checks.
+The rule is generic and opt-in; task grain, per-use private index facts and
+realization-sensitive cost calibration still need work. This is not an
+automatic planner victory or a new Metal/MPS result.
 
 **SIMD CPU task grain: executable joint search, incomplete cost calibration.**
 The new [task-grain controls and cost-policy hooks](results.md#cpu-task-grain-is-independent-of-the-native-packet-body)

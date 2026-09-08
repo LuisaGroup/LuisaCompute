@@ -1,0 +1,252 @@
+{
+  "static_only": true,
+  "hardware_profile": false,
+  "observations": [
+    {
+      "shape": [
+        17,
+        65
+      ],
+      "enabled": false,
+      "command": [
+        "/opt/homebrew/opt/llvm@21/bin/llvm-objdump",
+        "-d",
+        "--no-show-raw-insn",
+        "/tmp/luisa-ragged-cfg.pbUI2k/capture/rmsnorm-17x65-r0-l8-p0/object/tile_xir_w8_72041_1788863216614377_0.o"
+      ],
+      "object_sha256": "3d4d0ad5273a8f7c942f47821da80f1fb636cac7d712e77dd24a846f3b47c99b",
+      "compiler_asm_sha256": "5204672fe5682ff57ebd33337d1ee2fb7d0dce9a1a7bf6890a7b372415daf3d9",
+      "vector_lane_load_sites": 70,
+      "scalar_or_vector_divide_sites": 5,
+      "scope": "entire emitted ORC object including residual fallback paths; static sites, not dynamic execution counts"
+    },
+    {
+      "shape": [
+        17,
+        65
+      ],
+      "enabled": true,
+      "command": [
+        "/opt/homebrew/opt/llvm@21/bin/llvm-objdump",
+        "-d",
+        "--no-show-raw-insn",
+        "/tmp/luisa-ragged-cfg.pbUI2k/capture/rmsnorm-17x65-r0-l8-p1/object/tile_xir_w8_72042_1788863217042849_0.o"
+      ],
+      "object_sha256": "d3e91633f747fe015c604317071036ca9f1ed68c642c85a9c4d9939723e8f132",
+      "compiler_asm_sha256": "b68c4c3ae74b69251af624570d7932b9653673e67d9f6639707bf05c3452a0d3",
+      "vector_lane_load_sites": 255,
+      "scalar_or_vector_divide_sites": 27,
+      "scope": "entire emitted ORC object including residual fallback paths; static sites, not dynamic execution counts"
+    },
+    {
+      "shape": [
+        17,
+        65
+      ],
+      "implementation": "inductor",
+      "command": [
+        "/opt/homebrew/opt/llvm@21/bin/llvm-objdump",
+        "--disassemble-symbols=_kernel",
+        "--no-show-raw-insn",
+        "/private/tmp/luisa-ragged-cfg.pbUI2k/native-17x65/inductor/yh/cyhuzwrm6vgeemgughw44mwhwghv755kvprb3qqx3mixdpovrpuk.main.so"
+      ],
+      "source_sha256": "67b18352290857925c13d6daaf815d49250c1f9c99d22b68b2bb3323a921474d",
+      "source_tail_partition": true,
+      "source_cascade_sum": false,
+      "scope": "exported kernel disassembly; callees are not flattened"
+    },
+    {
+      "shape": [
+        257,
+        1538
+      ],
+      "enabled": false,
+      "command": [
+        "/opt/homebrew/opt/llvm@21/bin/llvm-objdump",
+        "-d",
+        "--no-show-raw-insn",
+        "/tmp/luisa-ragged-cfg.pbUI2k/capture/rmsnorm-257x1538-r0-l8-p0/object/tile_xir_w8_72043_1788863217710517_0.o"
+      ],
+      "object_sha256": "a23b46204ec72f20f2057a6ae9d51e61ef3d46060d9c80804703d3d8f94c59ad",
+      "compiler_asm_sha256": "2110d9dbd5f341bda6bb38d3b05745447d009ef5d7567fe041239b4f32806c1b",
+      "vector_lane_load_sites": 70,
+      "scalar_or_vector_divide_sites": 5,
+      "scope": "entire emitted ORC object including residual fallback paths; static sites, not dynamic execution counts"
+    },
+    {
+      "shape": [
+        257,
+        1538
+      ],
+      "enabled": true,
+      "command": [
+        "/opt/homebrew/opt/llvm@21/bin/llvm-objdump",
+        "-d",
+        "--no-show-raw-insn",
+        "/tmp/luisa-ragged-cfg.pbUI2k/capture/rmsnorm-257x1538-r0-l8-p1/object/tile_xir_w8_72045_1788863218172703_0.o"
+      ],
+      "object_sha256": "7c31c788ac88dc46aacde0c27be4c79d67b2e29bd8933fcce0747475dbad2d64",
+      "compiler_asm_sha256": "536bdda8e15f1cb10c7d9a369b2fffaa54e8810e4c33debc3f6ba555eb932b43",
+      "vector_lane_load_sites": 260,
+      "scalar_or_vector_divide_sites": 22,
+      "scope": "entire emitted ORC object including residual fallback paths; static sites, not dynamic execution counts"
+    },
+    {
+      "shape": [
+        257,
+        1538
+      ],
+      "implementation": "inductor",
+      "command": [
+        "/opt/homebrew/opt/llvm@21/bin/llvm-objdump",
+        "--disassemble-symbols=_kernel",
+        "--no-show-raw-insn",
+        "/private/tmp/luisa-ragged-cfg.pbUI2k/native-257x1538/inductor/2u/c2utptxdervntjtedme5grohjlvbrntjb7kpxlavmamlhnem6idq.main.so"
+      ],
+      "source_sha256": "195da029ff26f9d480133cafd87709a35d6cd9ad2ac82d066eec7204b55e6aed",
+      "source_tail_partition": true,
+      "source_cascade_sum": false,
+      "scope": "exported kernel disassembly; callees are not flattened"
+    },
+    {
+      "shape": [
+        1024,
+        4097
+      ],
+      "enabled": false,
+      "command": [
+        "/opt/homebrew/opt/llvm@21/bin/llvm-objdump",
+        "-d",
+        "--no-show-raw-insn",
+        "/tmp/luisa-ragged-cfg.pbUI2k/capture/rmsnorm-1024x4097-r0-l8-p0/object/tile_xir_w8_72046_1788863218908734_0.o"
+      ],
+      "object_sha256": "c3430a05aad78eed5c52b2b68ff12c7d2163af1add433b3474c6059a959cf220",
+      "compiler_asm_sha256": "65bd762e1d9b9ef106d6f5c81dc04c9912a187d1634651be001a76db6d3ba80a",
+      "vector_lane_load_sites": 70,
+      "scalar_or_vector_divide_sites": 5,
+      "scope": "entire emitted ORC object including residual fallback paths; static sites, not dynamic execution counts"
+    },
+    {
+      "shape": [
+        1024,
+        4097
+      ],
+      "enabled": true,
+      "command": [
+        "/opt/homebrew/opt/llvm@21/bin/llvm-objdump",
+        "-d",
+        "--no-show-raw-insn",
+        "/tmp/luisa-ragged-cfg.pbUI2k/capture/rmsnorm-1024x4097-r0-l8-p1/object/tile_xir_w8_72047_1788863219711516_0.o"
+      ],
+      "object_sha256": "c3f8f826ecb1553269913f9c1805cbdad17c2ca18d0c614e79b0c608f22c77e6",
+      "compiler_asm_sha256": "45db3e8de98f8fa64976e052c3d3a2a41eea17d15157c9df53bf05c962ef1d43",
+      "vector_lane_load_sites": 255,
+      "scalar_or_vector_divide_sites": 27,
+      "scope": "entire emitted ORC object including residual fallback paths; static sites, not dynamic execution counts"
+    },
+    {
+      "shape": [
+        1024,
+        4097
+      ],
+      "implementation": "inductor",
+      "command": [
+        "/opt/homebrew/opt/llvm@21/bin/llvm-objdump",
+        "--disassemble-symbols=_kernel",
+        "--no-show-raw-insn",
+        "/private/tmp/luisa-ragged-cfg.pbUI2k/native-1024x4097/inductor/oh/cohwsiyfpihsxsbv2loxydaneo5uxr7xwcaamt7m37roarpeg355.main.so"
+      ],
+      "source_sha256": "6ce2da46d29971c242a6f987b1bdd126512cff634e7e320efc936869bc691622",
+      "source_tail_partition": true,
+      "source_cascade_sum": true,
+      "scope": "exported kernel disassembly; callees are not flattened"
+    },
+    {
+      "shape": [
+        129,
+        768
+      ],
+      "enabled": false,
+      "command": [
+        "/opt/homebrew/opt/llvm@21/bin/llvm-objdump",
+        "-d",
+        "--no-show-raw-insn",
+        "/tmp/luisa-ragged-cfg.pbUI2k/capture/rmsnorm-129x768-r0-l8-p0/object/tile_xir_w8_72048_1788863220202812_0.o"
+      ],
+      "object_sha256": "ddf14b3008839ff5853d78998f7b32ec091ac52a0fe39f179b4648d1679972b5",
+      "compiler_asm_sha256": "0eaa2759d5c3824f1c0651b604714a12d30b0d9e8a66683fc525f45acaefccc5",
+      "vector_lane_load_sites": 14,
+      "scalar_or_vector_divide_sites": 19,
+      "scope": "entire emitted ORC object including residual fallback paths; static sites, not dynamic execution counts"
+    },
+    {
+      "shape": [
+        129,
+        768
+      ],
+      "enabled": true,
+      "command": [
+        "/opt/homebrew/opt/llvm@21/bin/llvm-objdump",
+        "-d",
+        "--no-show-raw-insn",
+        "/tmp/luisa-ragged-cfg.pbUI2k/capture/rmsnorm-129x768-r0-l8-p1/object/tile_xir_w8_72049_1788863220549210_0.o"
+      ],
+      "object_sha256": "ddf14b3008839ff5853d78998f7b32ec091ac52a0fe39f179b4648d1679972b5",
+      "compiler_asm_sha256": "0eaa2759d5c3824f1c0651b604714a12d30b0d9e8a66683fc525f45acaefccc5",
+      "vector_lane_load_sites": 14,
+      "scalar_or_vector_divide_sites": 19,
+      "scope": "entire emitted ORC object including residual fallback paths; static sites, not dynamic execution counts"
+    },
+    {
+      "shape": [
+        129,
+        768
+      ],
+      "implementation": "inductor",
+      "command": [
+        "/opt/homebrew/opt/llvm@21/bin/llvm-objdump",
+        "--disassemble-symbols=_kernel",
+        "--no-show-raw-insn",
+        "/private/tmp/luisa-ragged-cfg.pbUI2k/native-129x768/inductor/yg/cygdjjqsjvh3vp2cbj3o7av4tvbc7qefs6jq6or3nvlccxglrlnl.main.so"
+      ],
+      "source_sha256": "7313611831da61df187f1f3ce5f2831497e7961e825704329d60056c33e3d0ad",
+      "source_tail_partition": false,
+      "source_cascade_sum": false,
+      "scope": "exported kernel disassembly; callees are not flattened"
+    }
+  ],
+  "controls": [
+    {
+      "shape": [
+        17,
+        65
+      ],
+      "object_identity": false,
+      "llvm_identity": false
+    },
+    {
+      "shape": [
+        257,
+        1538
+      ],
+      "object_identity": false,
+      "llvm_identity": false
+    },
+    {
+      "shape": [
+        1024,
+        4097
+      ],
+      "object_identity": false,
+      "llvm_identity": false
+    },
+    {
+      "shape": [
+        129,
+        768
+      ],
+      "object_identity": true,
+      "llvm_identity": true
+    }
+  ]
+}

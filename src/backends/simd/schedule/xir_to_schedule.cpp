@@ -597,6 +597,11 @@ private:
                         _uniformity.is_uniform(bounds.start_value) ?
                     bounds.induction_phi :
                     nullptr;
+            if (_options.enable_counted_loop_uniformity && bounds.is_valid() &&
+                bounds.stride_is_constant && _uniformity.is_uniform(bounds.start_value) &&
+                _uniformity.is_uniform(bounds.bound_value)) {
+                early_exit_header_condition = bounds.comparison_inst;
+            }
             std::vector<BlockId> blocks;
             blocks.reserve(source_loop.body_blocks.size() + 1u);
             blocks.emplace_back(_block_ids.at(source_loop.header));
@@ -680,8 +685,8 @@ private:
         // predication later in LLVM lowering.
         if (!_options.enable_cohort_uniform_induction) { return; }
         for (auto &&loop : _loops) {
-            if (loop.size <
-                _options.cohort_uniform_induction_min_loop_block_count) {
+            if (!_options.enable_counted_loop_uniformity && loop.size <
+                                                                _options.cohort_uniform_induction_min_loop_block_count) {
                 continue;
             }
             auto *condition = loop.cohort_uniform_header_condition;

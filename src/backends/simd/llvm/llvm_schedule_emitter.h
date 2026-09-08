@@ -214,6 +214,10 @@ private:
     struct PredicatedMemoryDiamond {
         const schedule::BasicBlock *true_block{nullptr};
         const schedule::BasicBlock *false_block{nullptr};
+        // An empty arm goes directly from the split to the merge. Preserve
+        // its edge assignments instead of synthesizing a fake basic block.
+        const schedule::ControlEdge *true_exit{nullptr};
+        const schedule::ControlEdge *false_exit{nullptr};
         schedule::BlockId merge{};
         size_t instruction_count{0u};
     };

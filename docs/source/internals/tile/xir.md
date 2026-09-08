@@ -341,6 +341,58 @@ candidate must be evaluated independently of load/reduction fusion, at fixed
 execution mapping, before adding a joint profitability policy. Fewer source
 loads or fewer mask expressions alone do not imply faster native code.
 
+### Ragged memory regions and cohort-equal counted headers
+
+The experimental SIMD control
+`LUISA_SIMD_ENABLE_PREDICATED_MEMORY_EFFECTS=1` extends bounded memory
+if-conversion. `LUISA_SIMD_DISABLE_PREDICATED_MEMORY_EFFECTS=1` takes
+precedence. It is off by default and does not change the Tile primitives,
+distribution, resource ownership or reduction order.
+
+```text
+logical tile with a partial local interval
+    │
+    ├─ tail if ── exact arm mask on reads, private state and writes
+    │             empty arm keeps its own masked PHI assignments
+    │
+    └─ later counted loop ── equal start + constant stride + equal bound
+                            use-site cohort-equal condition, not scalar state
+                                      │
+                       direct CFG if every region is admitted
+                                      │
+                       eligible for separate full-packet specialization
+```
+
+Previously the memory recognizer accepted only small two-arm diamonds.
+Ragged programs commonly contain one-arm triangles, including a direct
+split-to-merge edge carrying PHI assignments. The extension admits either
+empty arm and bounded private GEP/load/store and nonvolatile buffer writes,
+using the existing masked memory emitters. It preserves the outer mask and
+active-lane seed at the merge. Empty masks must not access a null buffer or
+an invalid tail address; private and output guards are part of the tests.
+Shared memory, atomics, volatile operations, participant-mask collectives,
+opaque effects, integer division and float-to-integer conversion remain
+outside this rule. Eligible floating-point math retains non-trapping XIR
+semantics; no fast-math permission is added. The 32-instruction cap bounds
+construction, **not measured profitability**.
+
+A second issue is independent of memory legality: conservative control
+uniformity can mark a later fixed-count loop as varying after a preceding
+tail branch. Existing canonical-loop analysis now supplies a **use-site**
+cohort-equal header predicate for equal start/bound and constant stride.
+It does not globally scalarize induction values or loop-carried state.
+Direct CFG can consume this fact and reads the condition from the active
+seed lane, not unconditionally lane zero. A genuinely lane-varying bound
+still needs the scheduled fallback. Existing proven cohort header facts are
+also accepted by direct CFG with the new memory extension disabled.
+
+This is a generic compiler realization, not an operator-name dispatch or
+a new cost coefficient. It demonstrates why the planner must distinguish
+semantic work from *realized* scheduled/direct control flow, tail masks and
+full-packet eligibility. That realization-sensitive profitability model is
+still pending. See the
+[fixed-mapping evidence](../../performance/tile/results.md#ragged-control-flow-is-a-realization-cost-not-extra-tile-work).
+
 ### Packet-private storage budgets
 
 The SIMD adapter separately budgets **physical packet storage**:

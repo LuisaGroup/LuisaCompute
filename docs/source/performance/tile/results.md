@@ -18,6 +18,73 @@ of same-round numerator/denominator ratios, **not** a ratio of the displayed
 medians. Ranges and counts of slower rounds are descriptive, not confidence
 intervals. No slow or failed row is discarded to improve the headline.
 
+### Ragged control flow is a realization cost, not extra Tile work
+
+The September 8 {download}`ragged-CFG report <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-ragged-cfg/notes.md>`
+adds generic masked memory triangles and use-site cohort-equal counted-loop
+headers. At fixed mapping this turns eligible state-machine programs into
+direct CFG, enabling the separate full-packet clone. It changes neither
+reduction order nor Tile semantics and remains **off by default**.
+
+The new **single-thread native-entry** comparison uses actual ORC objects and
+TorchInductor 2.14.0 generated C++ entries. All six orders, seven samples per
+visit, no Runtime dispatch/Python/JIT/allocation inside timing. Packet-only
+baselines retain the required block traversal in the C++ replay; block-batch
+candidates use their actual emitted entry. Native call, launch-record reset
+and emitted libc work stay inside the timer. This is not a hardware-cycle
+counter or a claim that entry overhead has been removed.
+
+| RMSNorm | Off µs | On µs | Inductor µs | On/off | On/Inductor |
+|---|---:|---:|---:|---:|---:|
+| 17×65 | 9.508 | 1.334 | 0.714 | 0.140 | 1.869 |
+| 257×1538 | 1818.533 | 526.531 | 236.831 | 0.290 | 2.224 |
+| 1024×4097 | 18361.792 | 5645.630 | 2531.710 | 0.308 | 2.230 |
+| 129×768, aligned control | 25.616 | 25.579 | 59.315 | 0.998 | 0.431 |
+
+All 18 ragged paired rounds improve, and **all 18 still lose to Inductor**.
+The aligned control's LLVM/object bytes are unchanged; its existing win is
+not a new optimization benefit. Torch retains reciprocal-multiply and its
+wide-row cascade reduction, while this Tile program keeps division; both
+pass the same complete FP64 tolerance check, not a bitwise-equivalence test.
+
+The separate **344-visit Runtime E2E** screen covers all six row operators
+and two attention shapes at eight requested workers. These fixed-local=8,
+1024-row examples use width 4097, or 4098 for even-width RoPE. Ratios are
+same-round paired medians; two orders do not establish confidence intervals.
+
+| Operator | Off µs | On µs | On/off |
+|---|---:|---:|---:|
+| RMSNorm | 2623.024 | 859.845 | 0.329 |
+| LayerNorm | 4652.261 | 1610.669 | 0.346 |
+| Masked softmax | 6290.556 | 3025.538 | 0.481 |
+| SwiGLU | 3223.042 | 1407.687 | 0.437 |
+| GELU + residual | 4078.573 | 2268.784 | 0.556 |
+| RoPE | 3055.139 | 1003.560 | 0.328 |
+
+This generalizes the lowering mechanism, not automatic mapping profitability:
+17×65 RMSNorm still costs 28.119 µs E2E locally versus 1.276 µs whole-program.
+Aligned 64×256 GELU local measures 55.312→59.552 µs (paired 1.082);
+attention has no new local path or consistent improvement. Full shapes,
+negative results and descriptive ranges remain in the
+{download}`complete tables <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-ragged-cfg/tables.md>`.
+
+The {download}`audit <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-ragged-cfg/audit.json>`
+independently rechecks all 352 Runtime/capture outputs; 72 native visits each
+check complete outputs and guards during replay. Ninety fixed-mapping groups
+preserve exact output bits. All 66 Tile/SIMD CTests and opt-in Runtime checks
+at W2/W8/W16 pass. ABI preflight failures are retained separately and the
+complete native experiment was rerun after correcting the replay helper.
+
+Actual Torch sources split the contiguous vector interval from the masked
+tail. Luisa's emitted assembly still contains per-lane private loads in
+full-range loops: header equality does not yet establish common-slot
+equality at each memory use. This motivates epoch-scoped access facts and
+full/tail partitioning, not global scalarization. The fixed mapping's
+uncalibrated cost is identical on/off despite the large native difference;
+realization-sensitive model calibration remains pending. No new Metal, MPS,
+BLAS or non-RMSNorm native Torch result, default win or all-kernel parity is
+claimed.
+
 ### CPU task grain is independent of the native packet body
 
 The September 8 {download}`task-grain report <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-task-grain/notes.md>`

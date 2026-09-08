@@ -16167,6 +16167,141 @@ template<typename T>
     return true;
 }
 
+[[nodiscard]] bool run_predicated_private_memory_effects() {
+    ScopedEnvironmentVariable enable{"LUISA_SIMD_ENABLE_PREDICATED_MEMORY_EFFECTS", "1"};
+    for (auto width : {2u, 4u, 8u, 16u}) {
+        for (auto variant : {0u, 1u, 2u}) {
+            xir::Module module;
+            auto kernel = module.create_kernel();
+            kernel->set_block_size(luisa::make_uint3(32u, 1u, 1u));
+            auto type = Type::of<uint32_t>();
+            auto flags = kernel->create_resource_argument(Type::buffer(type));
+            auto input = kernel->create_resource_argument(Type::buffer(type));
+            auto tail_output = kernel->create_resource_argument(Type::buffer(type));
+            auto output = kernel->create_resource_argument(Type::buffer(type));
+            auto entry_block = kernel->create_body_block();
+            auto arm = kernel->create_basic_block();
+            auto merge = kernel->create_basic_block();
+            auto header = kernel->create_basic_block();
+            auto body = kernel->create_basic_block();
+            auto exit = kernel->create_basic_block();
+            xir::XIRBuilder builder;
+            auto constant = [&](uint32_t value) { return module.create_constant(type, &value); };
+            auto alu = [&](xir::ArithmeticOp op, xir::Value *a, xir::Value *b) {
+                return builder.call(type, op, {a, b});
+            };
+            builder.set_insertion_point(entry_block);
+            auto index = alu(xir::ArithmeticOp::EXTRACT, module.create_dispatch_id(), constant(0u));
+            auto storage = builder.alloca_local(Type::array(type, 17u));
+            auto pointer = builder.gep(type, storage, {constant(16u)});
+            auto initial = alu(xir::ArithmeticOp::BINARY_ADD, index, constant(10u));
+            builder.store(pointer, initial);
+            auto flag = builder.call(type, xir::ResourceReadOp::BUFFER_READ, {flags, index});
+            auto condition = builder.call(Type::of<bool>(), variant == 1u ? xir::ArithmeticOp::BINARY_EQUAL : xir::ArithmeticOp::BINARY_NOT_EQUAL, {flag, constant(0u)});
+            builder.cond_br(condition, variant == 1u ? merge : arm, variant == 1u ? arm : merge);
+            builder.set_insertion_point(arm);
+            // Lane zero forms UINT_MAX. An empty arm additionally receives
+            // null input/output buffers. Neither memory effect may execute.
+            auto address = alu(xir::ArithmeticOp::BINARY_SUB, index, constant(1u));
+            auto loaded = builder.call(type, xir::ResourceReadOp::BUFFER_READ, {input, address});
+            auto value = alu(xir::ArithmeticOp::BINARY_MUL, loaded, constant(2u));
+            auto arm_pointer = builder.gep(type, storage, {constant(16u)});
+            builder.store(arm_pointer, value);
+            auto saved = builder.load(type, arm_pointer);
+            builder.call(xir::ResourceWriteOp::BUFFER_WRITE, {tail_output, address, saved});
+            builder.br(merge);
+            builder.set_insertion_point(merge);
+            auto carried = builder.phi(type, {{initial, entry_block}, {saved, arm}});
+            xir::Value *limit = constant(3u);
+            if (variant == 2u) {
+                limit = alu(xir::ArithmeticOp::BINARY_ADD, alu(xir::ArithmeticOp::BINARY_MOD, index, constant(3u)), constant(1u));
+            }
+            builder.br(header);
+            builder.set_insertion_point(header);
+            auto iteration = builder.phi(type, {{constant(0u), merge}});
+            auto sum = builder.phi(type, {{carried, merge}});
+            auto loop_condition = builder.call(Type::of<bool>(), xir::ArithmeticOp::BINARY_LESS, {iteration, limit});
+            builder.cond_br(loop_condition, body, exit);
+            builder.set_insertion_point(body);
+            iteration->add_incoming(alu(xir::ArithmeticOp::BINARY_ADD, iteration, constant(1u)), body);
+            sum->add_incoming(alu(xir::ArithmeticOp::BINARY_ADD, sum, index), body);
+            builder.br(header);
+            builder.set_insertion_point(exit);
+            builder.call(xir::ResourceWriteOp::BUFFER_WRITE, {output, index, sum});
+            builder.return_void();
+            CHECK(xir::xir_verify_module(&module).succeeded());
+
+            std::vector<uint32_t> oracle;
+            for (auto enabled : {false, true}) {
+                ScopedEnvironmentVariable disable{"LUISA_SIMD_DISABLE_PREDICATED_MEMORY_EFFECTS", enabled ? nullptr : "1"};
+                auto compiled = compile_simd_kernel(kernel, width, "private_memory_triangle", false, true, true, false, 1u, false, false, true, 1u, true, true);
+                if (!compiled.succeeded()) {
+                    for (auto &error : compiled.diagnostics) { std::cerr << error << '\n'; }
+                    return false;
+                }
+                CHECK(compiled.direct_control_flow == (enabled && variant != 2u));
+                CHECK(compiled.private_workspace_size == size_t{17u} * width * sizeof(uint32_t));
+                struct alignas(64) Chunk {
+                    std::byte bytes[64];
+                };
+                std::vector<Chunk> workspace((compiled.private_workspace_size + 63u) / 64u + 2u);
+                auto memory = reinterpret_cast<std::byte *>(workspace.data());
+                using Entry = void(const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+                auto entry = reinterpret_cast<Entry *>(compiled.entry);
+                CHECK(entry != nullptr);
+                auto visit = size_t{0u};
+                for (auto active = 0u; active <= width; active++) {
+                    for (auto pattern = 0u; pattern < 4u; pattern++) {
+                        std::vector<uint32_t> mask(width), data(width), result(width + 34u, 731u), tail(width + 34u, 731u);
+                        for (auto lane = 0u; lane < width; lane++) {
+                            mask[lane] = lane != 0u && (pattern == 3u || (pattern == 1u && (lane & 1u)) || (pattern == 2u && !(lane & 1u)));
+                            data[lane] = lane * 11u + 5u;
+                        }
+                        alignas(16) std::array<SIMDHostBufferView, 4u> arguments{
+                            SIMDHostBufferView{mask.data(), width * sizeof(uint32_t)},
+                            SIMDHostBufferView{pattern == 0u ? nullptr : data.data(), width * sizeof(uint32_t)},
+                            SIMDHostBufferView{pattern == 0u ? nullptr : tail.data() + 17u, width * sizeof(uint32_t)},
+                            SIMDHostBufferView{result.data() + 17u, width * sizeof(uint32_t)}};
+                        std::memset(memory, 0xa5, workspace.size() * sizeof(Chunk));
+                        auto config = launch_1d(active, 32u);
+                        config.private_workspace = memory + 64u;
+                        entry(arguments.data(), nullptr, &config, active);
+                        for (auto lane = 0u; lane < width; lane++) {
+                            auto expected = uint32_t{731u};
+                            if (lane < active) {
+                                auto seed = mask[lane] ? data[lane - 1u] * 2u : lane + 10u;
+                                expected = seed + (variant == 2u ? lane % 3u + 1u : 3u) * lane;
+                            }
+                            CHECK(result[17u + lane] == expected);
+                            auto next = lane + 1u;
+                            CHECK(tail[17u + lane] == (next < active && mask[next] ? data[lane] * 2u : 731u));
+                            if (!enabled) {
+                                oracle.emplace_back(result[17u + lane]);
+                            } else {
+                                CHECK(result[17u + lane] == oracle[visit++]);
+                            }
+                        }
+                        for (auto i = 0u; i < 17u; i++) {
+                            CHECK(result[i] == 731u && result[17u + width + i] == 731u);
+                            CHECK(tail[i] == 731u && tail[17u + width + i] == 731u);
+                        }
+                        for (auto i = size_t{0u}; i < 64u; i++) {
+                            CHECK(memory[i] == std::byte{0xa5});
+                            CHECK(memory[64u + compiled.private_workspace_size + i] == std::byte{0xa5});
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Existing two-arm, non-prefix-mask, 32/64-bit private-byte oracles and
+    // volatile/integer-division rejection tests also run with the extension.
+    CHECK(run_contiguous_private_accesses<uint32_t>());
+    CHECK(run_contiguous_private_accesses<uint64_t>());
+    CHECK(run_ast_predicated_memory_diamond());
+    return true;
+}
+
 }// namespace
 
 int main() {
@@ -16175,6 +16310,7 @@ int main() {
         bool (*run)();
     };
     constexpr Test tests[]{
+        {"predicated private memory triangles and counted loops", &run_predicated_private_memory_effects},
         {"contiguous private 32-bit masks and slots", &run_contiguous_private_accesses<uint32_t>},
         {"contiguous private 64-bit masks and slots", &run_contiguous_private_accesses<uint64_t>},
         {"private workspace capacity and lane intervals", &run_private_workspace_policy},
