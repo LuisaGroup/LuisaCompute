@@ -2,10 +2,10 @@
 
 ## Failure domain and proof
 
-Let V be the blocks owned by a FunctionDefinition, R its entry-rooted
-structural traversal (including declared construct boundaries), and D its
-executable dominator-tree domain. In general D is a subset of R, which is a
-subset of V. CFG canonicalization can disconnect an old block without
+Let V be the blocks owned by a FunctionDefinition and R its entry-rooted
+executable successor traversal. The dominator-tree domain D equals R;
+declarative merge/body/update links do not add executable edges. In general
+R is a subset of V. CFG canonicalization can disconnect an old block without
 releasing it. That block remains part of the public XIR module contract.
 
 The verifier and final residual-branch check quantify over V, but the

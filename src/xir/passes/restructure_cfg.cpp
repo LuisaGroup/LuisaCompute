@@ -7980,6 +7980,14 @@ struct RemainingDivergentOverlay {
     ScopedTimer _timer_fixup_exits("fixup_construct_exits");
     static_cast<void>(info);
     auto modified = false;
+    // An inner-to-outer funnel discharges one (construct, parent) exit
+    // obligation. Repairing ancestors may expose a more distant parent, but
+    // must not recreate the same obligation: that means the inferred regions
+    // cross or the ownership relation is unstable. No rewrite in this drain
+    // creates a structured header, so this finite relation is also an
+    // explicit termination certificate, independent of CFG size or a budget.
+    luisa::unordered_map<BasicBlock *, luisa::unordered_set<BasicBlock *>>
+        discharged_obligations;
 
     for (;;) {
         // Basic blocks are owned in creation order. Unlike executable DFS or
@@ -8342,6 +8350,18 @@ struct RemainingDivergentOverlay {
             }
         }
         if (candidate == nullptr) { break; }
+
+        if (!discharged_obligations[candidate->header]
+                 .emplace(candidate->parent->header).second) {
+            LUISA_WARNING_WITH_LOCATION(
+                "restructure_cfg construct-exit progress failed: header {} "
+                "again crosses parent {} after its exit was normalized. "
+                "Construct ownership is crossing or unstable.",
+                block_index(candidate->header),
+                block_index(candidate->parent->header));
+            ++info.invalid_construct_count;
+            return modified;
+        }
 
         luisa::sort(
             candidate_exits.begin(), candidate_exits.end(),
@@ -9017,10 +9037,14 @@ restructure_cfg_on_definition_in_place(
     if (lower_cyclic_indexed_branches(def)) {
         ++info.canonicalized_cfg_count;
     }
-    // Recover native multi-way selection boundaries before generic loop/if
-    // structurization. Otherwise those passes can mistake an indexed branch's
-    // case subgraph for an ordinary cross-edge region and clone through it.
-    restructure_indexed_branches(def, info);
+    // Selection merge inference requires the enclosing loop epochs first.
+    // In a raw CFG an arm may revisit its selection through a backedge; a
+    // merge inferred before loop recovery can consequently fall inside a
+    // nested loop. That creates crossing constructs which exit subdivision
+    // cannot turn into a hierarchy. Keep indexed branches intact while
+    // recovering loops, then recover their selections before generic If
+    // inference and construct-entry cloning.
+    auto indexed_branches_pending = true;
     bool main_last_modified = false;
     for (size_t iteration = 0u;
          iteration < options.main_iteration_limit;
@@ -9035,22 +9059,19 @@ restructure_cfg_on_definition_in_place(
         auto pdom = compute_post_dom(def, info);
         if (try_restructure_loop(def, dom, pdom, info)) {
             main_last_modified = true;
-            // Fast path: if no conditional branches remain after restructuring
-            // all loops, there are no if-candidates either — break early.
-            bool has_cbr = false;
-            def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
-                if (has_cbr) { return; }
-                if (bb->is_terminated()) {
-                    if (bb->terminator()->isa<ConditionalBranchInst>()) {
-                        has_cbr = true;
-                    }
-                }
-            });
-            if (!has_cbr) {
-                main_last_modified = false;
-                break;
-            }
+            // One invocation recovers one loop. Absence of raw binary
+            // branches says nothing about remaining unconditional loops or
+            // indexed branches, so it is not a termination certificate.
             continue;
+        }
+        if (indexed_branches_pending) {
+            indexed_branches_pending = false;
+            auto previous = info.restructured_switch_count;
+            restructure_indexed_branches(def, info);
+            if (info.restructured_switch_count != previous) {
+                main_last_modified = true;
+                continue;
+            }
         }
         if (try_restructure_if_batch(def, dom, pdom, info, all_created_structural_merges, sm_to_header)) {
             main_last_modified = true;
@@ -9190,6 +9211,7 @@ restructure_cfg_on_definition_in_place(
                     fixup_construct_exits(
                         def, dom, pdom, info,
                         exit_dispatch_headers);
+                if (info.invalid_construct_count != 0u) { return info; }
                 if (construct_exit_changed) {
                     ++info.canonicalized_cfg_count;
                     local = true;
@@ -9252,6 +9274,7 @@ restructure_cfg_on_definition_in_place(
                     fixup_construct_exits(
                         def, dom, pdom, info,
                         exit_dispatch_headers);
+                if (info.invalid_construct_count != 0u) { return info; }
             }
             construct_exit_changed |=
                 selection_construct_exit_changed;
