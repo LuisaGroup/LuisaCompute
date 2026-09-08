@@ -12925,6 +12925,163 @@ void bindless_uniform_gradient_probe(
     return true;
 }
 
+[[nodiscard]] bool run_full_packet_specialization() {
+    // Full and partial wrappers must share the original per-packet resource
+    // lifetime. Exercise promoted workspace as well as stack-private storage;
+    // odd origins prevent the test from assuming aligned logical packets.
+    ScopedEnvironmentVariable enable{"LUISA_SIMD_ENABLE_FULL_PACKET_SPECIALIZATION", "1"};
+    for (auto width : {2u, 4u, 8u, 16u}) {
+        constexpr auto block_size = 32u;
+        xir::Module module;
+        auto kernel = module.create_kernel();
+        kernel->set_block_size(luisa::make_uint3(block_size, 1u, 1u));
+        auto output_arg = kernel->create_resource_argument(Type::of<Buffer<uint32_t>>());
+        xir::XIRBuilder builder;
+        builder.set_insertion_point(kernel->create_body_block());
+        auto constant = [&](uint32_t value) { return module.create_constant(Type::of<uint32_t>(), &value); };
+        auto add = [&](xir::Value *a, xir::Value *b) { return builder.call(Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD, {a, b}); };
+        auto extract_x = [&](xir::Value *v) { return builder.call(Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT, {v, constant(0u)}); };
+        auto global = extract_x(module.create_dispatch_id());
+        auto block = extract_x(module.create_block_id());
+        auto thread = extract_x(module.create_thread_id());
+        auto value = add(add(global, block), thread);
+        auto storage = builder.alloca_local(Type::array(Type::of<uint32_t>(), 5u));
+        for (auto i = 0u; i < 5u; i++) {
+            auto pointer = builder.gep(Type::of<uint32_t>(), storage, {constant(i)});
+            builder.store(pointer, add(value, constant(i)));
+        }
+        auto slot = builder.call(Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_MOD, {global, constant(5u)});
+        auto pointer = builder.gep(Type::of<uint32_t>(), storage, {slot});
+        auto loaded = builder.load(Type::of<uint32_t>(), pointer);
+        builder.call(xir::ResourceWriteOp::BUFFER_WRITE, {output_arg, global, loaded});
+        builder.return_void();
+
+        for (auto workspace : {false, true}) {
+            for (auto blocks : {false, true}) {
+                auto compile = [&](bool specialize) {
+                    ScopedEnvironmentVariable disable{"LUISA_SIMD_DISABLE_FULL_PACKET_SPECIALIZATION", specialize ? nullptr : "1"};
+                    return compile_simd_kernel(kernel, width, "full_packet_probe", false, true, true, false, 1u, true, blocks, true, workspace ? 1u : 0u, true);
+                };
+                auto baseline = compile(false);
+                auto candidate = compile(true);
+                CHECK(baseline.succeeded() && candidate.succeeded());
+                CHECK(baseline.full_packet_specialization_count == 0u);
+                CHECK(candidate.full_packet_specialization_count == 1u);
+                CHECK(candidate.full_packet_cloned_instruction_count > 0u);
+                CHECK(candidate.full_packet_cloned_instruction_count <= 4096u);
+                CHECK(candidate.llvm_ir.find("define internal void @full_packet_probe.full_packet(") != std::string::npos);
+                CHECK(line_containing(candidate.llvm_ir, "define internal void @full_packet_probe.full_packet(").find("active_lane_count") == std::string_view::npos);
+                CHECK(candidate.private_workspace_size == baseline.private_workspace_size);
+                CHECK((candidate.private_workspace_size != 0u) == workspace);
+                CHECK(candidate.linear_1d_block_coalescing_count == 0u);
+                struct alignas(64) Chunk {
+                    std::byte bytes[64];
+                };
+                auto bytes = candidate.private_workspace_size;
+                auto chunks = (bytes + 63u) / 64u + 2u;
+                std::vector<Chunk> scratch(chunks);
+                auto memory = reinterpret_cast<std::byte *>(scratch.data());
+                constexpr auto sentinel = uint32_t{0xdeadbeefu};
+                auto capacity = 3u * block_size;
+                std::vector<uint32_t> outputs[2] = {std::vector<uint32_t>(capacity + 2u), std::vector<uint32_t>(capacity + 2u)};
+                using Entry = void(const void *, void *, SIMDPacketLaunchConfig *, uint32_t);
+                // All residues 0..W-1, empty ranges, full ranges, and a partial
+                // last block. The descriptor capacity exceeds dispatch size,
+                // so an erroneously executed inactive lane changes a sentinel.
+                for (auto dispatch = 0u; dispatch <= 2u * block_size + 1u; dispatch++) {
+                    for (auto origin : {0u, 1u, 3u, block_size - 2u, block_size, block_size + 1u}) {
+                        for (auto count : {0u, 1u, 2u, block_size / width}) {
+                            if (blocks && (origin > 1u || count > 2u)) { continue; }
+                            auto initial = launch_1d(dispatch, block_size);
+                            initial.grid_size[0u] = 3u;
+                            initial.grid_size[1u] = initial.grid_size[2u] = 1u;
+                            initial.block_id[0u] = blocks ? origin : 0u;
+                            initial.thread_index = blocks ? 3u : origin;
+                            SIMDPacketLaunchConfig configs[2] = {initial, initial};
+                            SIMDCompiledKernel *compiled[2] = {&baseline, &candidate};
+                            for (auto v = 0u; v < 2u; v++) {
+                                std::fill(outputs[v].begin(), outputs[v].end(), sentinel);
+                                std::memset(memory, 0xa5, chunks * sizeof(Chunk));
+                                configs[v].private_workspace = workspace ? memory + 64u : nullptr;
+                                alignas(16) SIMDHostBufferView argument{outputs[v].data() + 1u, capacity * sizeof(uint32_t)};
+                                auto address = blocks ? compiled[v]->block_batch_entry : compiled[v]->packet_batch_entry;
+                                CHECK(address != nullptr);
+                                reinterpret_cast<Entry *>(address)(&argument, nullptr, &configs[v], count);
+                                if (workspace) {
+                                    for (auto j = size_t{0u}; j < 64u; j++) { CHECK(memory[j] == std::byte{0xa5}); }
+                                    for (auto j = 64u + bytes; j < chunks * sizeof(Chunk); j++) { CHECK(memory[j] == std::byte{0xa5}); }
+                                }
+                            }
+                            CHECK(outputs[0] == outputs[1]);
+                            CHECK(std::memcmp(&configs[0], &configs[1], sizeof(initial)) == 0);
+                            CHECK(outputs[1].front() == sentinel && outputs[1].back() == sentinel);
+                            auto start = blocks ? origin * block_size : origin;
+                            auto end = blocks ? (origin + count) * block_size : std::min(block_size, origin + count * width);
+                            for (auto i = 0u; i < capacity; i++) {
+                                auto visited = i >= start && i < end && i < dispatch;
+                                auto expected = visited ? i + i / block_size + i % block_size + i % 5u : sentinel;
+                                CHECK(outputs[1][i + 1u] == expected);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        {
+            ScopedEnvironmentVariable disable_tail{"LUISA_SIMD_DISABLE_LINEAR_1D_PACKET_TAIL_NARROWING", "1"};
+            auto excluded = compile_simd_kernel(kernel, width, "full_packet_no_tail", false, true, true, false, 1u, true);
+            CHECK(excluded.succeeded() && excluded.full_packet_specialization_count == 0u);
+        }
+        {
+            auto standalone = compile_simd_kernel(kernel, width, "full_packet_standalone");
+            CHECK(standalone.succeeded() && standalone.full_packet_specialization_count == 0u);
+            ScopedEnvironmentVariable disable_direct{"LUISA_SIMD_DISABLE_COHERENT_DIRECT_CFG", "1"};
+            auto scheduled = compile_simd_kernel(kernel, width, "full_packet_scheduled", false, true, true, false, 1u, true);
+            CHECK(scheduled.succeeded() && scheduled.full_packet_specialization_count == 0u);
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_full_packet_specialization_rejections() {
+    ScopedEnvironmentVariable enable{"LUISA_SIMD_ENABLE_FULL_PACKET_SPECIALIZATION", "1"};
+    for (auto variant : {0u, 1u, 2u}) {
+        auto width = variant == 0u ? 1u : 8u;
+        auto shape = variant == 1u ? std::array{16u, 2u, 1u} : std::array{32u, 1u, 1u};
+        xir::Module source;
+        auto kernel = source.create_kernel();
+        kernel->set_block_size(luisa::make_uint3(shape[0], shape[1], shape[2]));
+        auto output = kernel->create_resource_argument(Type::of<Buffer<uint32_t>>());
+        xir::XIRBuilder builder;
+        builder.set_insertion_point(kernel->create_body_block());
+        auto zero = source.create_constant_zero(Type::of<uint32_t>());
+        auto global = builder.call(Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT, {source.create_dispatch_id(), zero});
+        auto value = global;
+        for (auto i = 0u; i < (variant == 2u ? 5000u : 1u); i++) {
+            value = builder.call(Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD, {value, global});
+        }
+        builder.call(xir::ResourceWriteOp::BUFFER_WRITE, {output, global, value});
+        builder.return_void();
+        auto schedule = schedule::lower_xir_to_schedule(kernel, {.logical_warp_width = width});
+        CHECK(schedule.succeeded());
+        ::llvm::LLVMContext context;
+        ::llvm::Module module{"full_packet_rejection", context};
+        auto codegen = lower_schedule_to_llvm(module, *schedule.function, width, "full_packet_rejection", false, shape, true, true, false, 1u, true, true);
+        CHECK(codegen.succeeded() && codegen.direct_control_flow);
+        CHECK(codegen.packet_batch_entry != nullptr);
+        CHECK(codegen.full_packet_specialization_count == 0u);
+        CHECK(codegen.full_packet_cloned_instruction_count == 0u);
+        CHECK(module.getFunction("full_packet_rejection.full_packet") == nullptr);
+        CHECK(!::llvm::verifyModule(module, &::llvm::errs()));
+        if (variant == 2u) {
+            auto count = size_t{0u};
+            for (auto &block : *codegen.entry) { count += block.size(); }
+            CHECK(count > 4096u);
+        }
+    }
+    return true;
+}
+
 [[nodiscard]] bool run_ast_packet_batch_entry() {
     static constexpr auto width = 8u;
     static constexpr auto count = 22u;
@@ -13025,6 +13182,7 @@ void bindless_uniform_gradient_probe(
 }
 
 [[nodiscard]] bool run_ast_cooperative_block_codegen() {
+    ScopedEnvironmentVariable enable{"LUISA_SIMD_ENABLE_FULL_PACKET_SPECIALIZATION", "1"};
     static constexpr auto width = 8u;
     Kernel1D kernel = [](BufferUInt output) noexcept {
         set_block_size(32u, 1u, 1u);
@@ -13043,6 +13201,7 @@ void bindless_uniform_gradient_probe(
         return false;
     }
     CHECK(compiled.cooperative_block);
+    CHECK(compiled.full_packet_specialization_count == 0u);
     CHECK(compiled.entry == nullptr);
     CHECK(compiled.packet_batch_entry != nullptr);
     CHECK(compiled.block_batch_entry == nullptr);
@@ -16141,6 +16300,8 @@ int main() {
          &run_bindless_uniform_gradient_lod_codegen},
         {"AST buffer dispatch", &run_ast_buffer_codegen},
         {"AST packet-batch runtime entry", &run_ast_packet_batch_entry},
+        {"full-packet specialization and tail isolation", &run_full_packet_specialization},
+        {"full-packet specialization rejection bounds", &run_full_packet_specialization_rejections},
         {"AST cooperative block codegen",
          &run_ast_cooperative_block_codegen},
         {"AST block-batch runtime entry", &run_ast_block_batch_entry},

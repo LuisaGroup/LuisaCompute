@@ -295,6 +295,52 @@ not justify enabling this rule by default. See the
 `fused_reduction_loads` and `elided_load_snapshots` are static construction
 counts in realization metadata, not dynamic memory-transaction counts.
 
+### Full-packet specialization is separate from Tile fusion
+
+The SIMD backend has an opt-in, default-disabled codegen candidate. Its
+diagnostic controls are:
+
+```sh
+LUISA_SIMD_ENABLE_FULL_PACKET_SPECIALIZATION=1
+LUISA_SIMD_DISABLE_FULL_PACKET_SPECIALIZATION=1
+```
+
+The disable switch takes precedence.
+It does not alter the Tile program, execution distribution, memory layout,
+partial-reduction tree or numerical policy.
+
+```text
+exact 1D runtime range
+         ├── complete packets ── one shared body with active_lanes = W
+         │                       (three internal pointer arguments)
+         └── at most one tail ── original body with dynamic active_lanes
+                                 (unchanged four-argument packet ABI)
+```
+
+The wrapper already computes the full/tail split. This candidate additionally
+clones the emitted body once, replacing its active-lane parameter with the
+constant W using LLVM's
+[function-cloning API](https://llvm.org/doxygen/Cloning_8h.html).
+Every complete-packet call, including complete packets in a partial block,
+uses that clone. Only the genuinely narrow tail uses the original body.
+The ordinary LLVM inliner still decides whether to inline these bodies;
+constant-width specialization is not forced inlining or a claim that inner
+divergent masks disappear. Wrapper launch-config mutation and packet-private
+workspace lifetimes remain unchanged.
+
+Admission requires direct control flow, a static nonempty 1D packet range,
+the existing exact tail-narrowing contract, W2/W4/W8/W16, and at most 4096
+pre-optimization LLVM instructions in the original body. The bound limits
+clone construction cost; it is **not** a calibrated profitability threshold.
+Cooperative/coroutine entries, state-machine entries, standalone packet
+calls and unsupported range shapes retain their original paths.
+
+`full_packet_specializations` and `full_packet_cloned_instructions` report
+construction counts, not native instruction counts or dynamic work. This
+candidate must be evaluated independently of load/reduction fusion, at fixed
+execution mapping, before adding a joint profitability policy. Fewer source
+loads or fewer mask expressions alone do not imply faster native code.
+
 ### Packet-private storage budgets
 
 The SIMD adapter separately budgets **physical packet storage**:

@@ -94,8 +94,16 @@ still remain 1.260/1.503. This is generic backend lowering, not a calibrated
 new solver. The subsequent first-consumer load/reduction fusion is legal but
 **default-disabled**: actual native RMSNorm regressions are 17–23% despite
 lower estimated memory work. This points to missing full-packet
-specialization/inlining and phase-cost interactions. Joint mapping search
-also remains opt-in: narrow-row regressions persist.
+specialization/inlining and phase-cost interactions.
+The latest [full-packet specialization](results.md#full-packet-specialization-changes-the-profitable-local-mapping)
+addresses one such interaction: at fixed packet-local mapping with fusion off,
+native RMSNorm reaches 5.334 µs / 1117.151 µs for 64×256 / 1024×4096,
+with paired new/Inductor ratios 0.603 / 0.511. All 12 corresponding paired
+rounds win. This generic backend candidate remains opt-in, as does joint
+mapping search; it does not establish default-path or all-operator parity.
+The accompanying 240-visit Runtime E2E screen also improves broad norm and
+GELU cases, while retaining narrow-row mapping regressions and weak SwiGLU
+results. Native and E2E timing remain separate.
 General packed
 microkernels and arbitrary Tile redistribution remain missing. Attention, CNN/filter,
 sort and Top-K PoCs establish correctness, not broad optimized performance.
@@ -106,7 +114,7 @@ and [bounded traversal/private workspace](results.md#bounded-xir-traversal-impro
 Those earlier checkpoints improve compilation/code size and complete all 11
 large-shape cases, without establishing Torch parity. Local-vector distribution
 now exists as a bounded opt-in candidate; safe snapshot/phase fusion and
-independent CPU task grain remain open. The latest 120-visit fixed-mapping
+independent CPU task grain remain open. The earlier private-vector 120-visit fixed-mapping
 E2E screen also improves LayerNorm, softmax, SwiGLU and GELU, with non-winning
 RoPE and narrow-local cases retained. Native-entry and Runtime E2E measurements
 are reported separately rather than combined into a historical leaderboard.

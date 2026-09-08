@@ -878,6 +878,8 @@ SIMDCompiledKernel compile_simd_kernel(
         llvm_result.linear_1d_packet_tail_narrowing_count;
     result.linear_1d_block_coalescing_count =
         llvm_result.linear_1d_block_coalescing_count;
+    result.full_packet_specialization_count = llvm_result.full_packet_specialization_count;
+    result.full_packet_cloned_instruction_count = llvm_result.full_packet_cloned_instruction_count;
     result.shared_memory_size = llvm_result.shared_memory_size;
     result.block_barrier_count = llvm_result.block_barrier_count;
     result.block_barrier_loop_epoch_count =

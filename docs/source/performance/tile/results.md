@@ -18,9 +18,67 @@ of same-round numerator/denominator ratios, **not** a ratio of the displayed
 medians. Ranges and counts of slower rounds are descriptive, not confidence
 intervals. No slow or failed row is discarded to improve the headline.
 
+### Full-packet specialization changes the profitable local mapping
+
+The September 8 {download}`full-packet report <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-full-packet/notes.md>`
+separates a backend codegen decision from Tile fusion and execution mapping.
+One bounded internal clone receives constant active-lane count W; the
+original packet body still handles genuine tails. No operator-name rule,
+reduction-tree change or reciprocal rewrite is used. Both this candidate and
+local mapping search remain opt-in; this is not yet a calibrated default
+solver.
+
+**Packet-local RMSNorm now beats one-thread TorchInductor in two native-entry
+cohorts.** This table holds fusion off and mapping fixed within each row.
+P=0 uses the ordinary packet body; P=1 adds the full-packet clone.
+Times are µs, from six balanced orders and seven samples per visit; Torch is
+remeasured independently for each row. Ratios are medians of paired rounds.
+
+| RMSNorm | Mapping | P=0 | P=1 | Inductor | P1/P0 | P1/Inductor |
+|---|---|---:|---:|---:|---:|---:|
+| 64×256 | Whole program | 11.404 | 11.406 | 9.123 | 1.000 | 1.250 |
+| 64×256 | Packet-local | 14.593 | 5.334 | 8.840 | 0.366 | 0.603 |
+| 1024×4096 | Whole program | 3251.837 | 3251.474 | 2185.154 | 1.000 | 1.489 |
+| 1024×4096 | Packet-local | 3293.971 | 1117.151 | 2184.957 | 0.339 | 0.511 |
+
+All 12 paired no-fusion packet-local comparisons beat Inductor. The replay
+links the actual ORC objects, excludes Runtime/Python/allocations/thread-pool
+dispatch, and retains the native call, launch-record reset and LLVM-emitted
+system `memcpy`. It is native-entry wall time, not a cycle counter. The first
+no-import replay stopped at `memcpy`; all eight factorial cells were rerun
+with an explicit libc-only allowlist. That preflight is retained separately.
+
+The complete native factorial has **144 correct visits**. With fusion on,
+specialization also helps, but local 1024×4096 is 2091.677 µs versus
+1117.151 µs without fusion; its paired Inductor ratio is 0.957 with one of
+six rounds losing. Removing the snapshot is still not the best measured
+realization. Whole-program paths still lose to Inductor. Math differences
+remain explicit: Torch uses reciprocal-then-multiply where this Tile program
+uses division.
+
+The separate **240-visit Runtime E2E** screen covers six operators and 15
+shapes at eight requested CPU workers. With fusion off and local mapping
+fixed, RMSNorm 1024×4096 improves 706.820→307.779 µs, LayerNorm
+1024×4096 1093.969→449.250 µs, softmax 64×4096 191.515→168.982 µs,
+and GELU 1024×4096 2984.755→2137.794 µs. These are not new Torch comparisons
+for the other operators. SwiGLU has no consistent improvement, and narrow
+17×65 RMSNorm remains far slower under local mapping: 37.690 µs versus
+1.314 µs whole-program. This is evidence that CPU task grain still matters.
+Two E2E orders do not establish a confidence interval; complete ranges,
+negative controls and failures are retained in the
+{download}`audit <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-full-packet/audit.json>`.
+
+The compiler change leaves all eight disabled-candidate RMSNorm LLVM/object
+captures byte-identical to the previous checkpoint. Native assembly confirms
+a distinct constant-width body and contiguous copy realization; static
+instruction counts are not measurements of branch stalls or spilling.
+The cost model needs separate full/tail realization costs jointly with
+distribution, fusion and task grain. No new Metal/MPS/BLAS result, automatic
+default victory or all-kernel parity is implied.
+
 ### SIMD local distribution and private layout are separate decisions
 
-The latest September 8 {download}`load/reduction fusion report <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-load-reduction/notes.md>`
+The earlier September 8 {download}`load/reduction fusion report <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-load-reduction/notes.md>`
 adds a legal first-consumer realization and matching work accounting, but
 **leaves it opt-in and default-disabled after measured regressions**.
 It follows the {download}`private-vector improvement <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-private-vector/notes.md>`

@@ -119,6 +119,8 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
         metadata.realization.append(luisa::format("; contiguous_private_reads={}; contiguous_private_writes={}",
                                                   compiled.contiguous_private_read_count, compiled.contiguous_private_write_count));
         metadata.realization.append(luisa::format("; private_workspace_bytes={}", compiled.private_workspace_size));
+        metadata.realization.append(luisa::format("; full_packet_specializations={}; full_packet_cloned_instructions={}",
+                                                  compiled.full_packet_specialization_count, compiled.full_packet_cloned_instruction_count));
         metadata.realization.append(luisa::format("; fast_math={}; ordered_reduction={}", enable_fast_math, ordered_reduction));
         auto &arguments = kernel.body().block(0u)->arguments();
         for (size_t i = 0u; i < arguments.size(); i++) {

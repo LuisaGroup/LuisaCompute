@@ -134,6 +134,8 @@ struct SIMDCompiledKernel {
     size_t linear_1d_thread_id_count{0u};
     size_t linear_1d_packet_tail_narrowing_count{0u};
     size_t linear_1d_block_coalescing_count{0u};
+    size_t full_packet_specialization_count{0u};
+    size_t full_packet_cloned_instruction_count{0u};
     size_t shared_memory_size{0u};
     size_t block_barrier_count{0u};
     size_t block_barrier_loop_epoch_count{0u};
