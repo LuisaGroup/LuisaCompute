@@ -330,6 +330,18 @@ if (TARGET luisa-compute-backend-hip)
             LABELS "unit;unit_core;unit_hip")
 endif ()
 if (TARGET luisa-compute-backend-hip AND LLVM_FOUND)
+    luisa_compute_add_test(test_hip_floating_remainder unit/core/test_hip_floating_remainder.cpp LABELS "unit;unit_core;unit_hip")
+    target_sources(test_hip_floating_remainder PRIVATE
+            ../backends/hip/llvm_codegen/hip_floating_remainder.cpp)
+    target_include_directories(test_hip_floating_remainder PRIVATE
+            ../backends/hip/llvm_codegen ${LLVM_INCLUDE_DIRS})
+    if (TARGET LLVM)
+        target_link_libraries(test_hip_floating_remainder PRIVATE LLVM)
+    else ()
+        llvm_map_components_to_libnames(_hip_floating_remainder_llvm_libs core support)
+        target_link_libraries(test_hip_floating_remainder PRIVATE
+                ${_hip_floating_remainder_llvm_libs})
+    endif ()
     luisa_compute_add_test(test_hip_callable_abi unit/core/test_hip_callable_abi.cpp LABELS "unit;unit_core")
     target_sources(test_hip_callable_abi PRIVATE
         unit/core/test_hip_late_inline.cpp
@@ -905,6 +917,7 @@ luisa_compute_add_test(test_gemm                unit/runtime/test_gemm.cpp)
 luisa_compute_add_test(test_block_size_bench    unit/runtime/test_block_size_bench.cpp)
 luisa_compute_add_test(benchmark_simd_gemm      unit/simd/benchmark_simd_gemm.cpp)
 luisa_compute_add_test(test_hip_codegen_arithmetic unit/runtime/test_hip_codegen_arithmetic.cpp)
+luisa_compute_add_test(test_hip_fmod unit/runtime/test_hip_fmod.cpp)
 luisa_compute_add_test(test_hip_curve_ray_query unit/runtime/test_hip_curve_ray_query.cpp)
 luisa_compute_add_test(test_hip_motion_instance_matrix unit/runtime/test_hip_motion_instance_matrix.cpp)
 luisa_compute_add_test(test_hip_motion_instance_device_ops unit/runtime/test_hip_motion_instance_device_ops.cpp)

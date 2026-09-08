@@ -6,6 +6,7 @@
 #include <numbers>
 
 #include "hip_codegen_llvm_impl.h"
+#include "hip_floating_remainder.h"
 
 namespace luisa::compute::hip {
 
@@ -209,7 +210,7 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_arithmetic_inst(IB &b, FunctionConte
         case xir::ArithmeticOp::BINARY_MOD: return translate_binary([&](auto lhs, auto rhs) noexcept {
             return inst->type()->is_int_or_int_vector()   ? b.CreateSRem(lhs, rhs) :
                    inst->type()->is_uint_or_uint_vector() ? b.CreateURem(lhs, rhs) :
-                                                            b.CreateFRem(lhs, rhs);
+                                                            emit_hip_floating_remainder(b, *_llvm_module, lhs, rhs);
         });
         case xir::ArithmeticOp::BINARY_BIT_AND: return translate_binary([&](auto lhs, auto rhs) noexcept {
             LUISA_DEBUG_ASSERT(lhs->getType()->isIntOrIntVectorTy());
