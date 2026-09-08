@@ -416,14 +416,14 @@ void reg_restructure_cfg() {
         expect(predecessor_count == 1u);
 
         // Dominance and post-dominance traversal must accept multiple switch
-        // operands that represent the same CFG successor. The restructurer then
-        // gives each switch label a unique proxy as required by code generation.
+        // operands that represent the same CFG successor. These labels name
+        // one case construct; code generation does not require proxy entries.
         auto info = restructure_cfg_pass_run_on_function(kernel);
         expect(info.restructured_if_count == 0u);
         expect(info.restructured_loop_count == 0u);
         expect(info.restructured_switch_count == 0u);
-        expect(info.canonicalized_cfg_count >= 1u);
-        expect(info.changed());
+        expect(info.canonicalized_cfg_count == 0u);
+        expect(!info.changed());
         expect(info.succeeded());
         expect(body->terminator()->isa<SwitchInst>());
         auto *normalized = static_cast<SwitchInst *>(body->terminator());
@@ -431,9 +431,9 @@ void reg_restructure_cfg() {
         auto *default_target = normalized->default_block();
         auto *case_0_target = normalized->case_block(0u);
         auto *case_1_target = normalized->case_block(1u);
-        expect(default_target != case_0_target);
-        expect(default_target != case_1_target);
-        expect(case_0_target != case_1_target);
+        expect(default_target == case_0_target);
+        expect(default_target == case_1_target);
+        expect(case_0_target == shared_target);
         expect(branch_chain_reaches(default_target, merge));
         expect(branch_chain_reaches(case_0_target, merge));
         expect(branch_chain_reaches(case_1_target, merge));
@@ -5118,12 +5118,12 @@ void reg_restructure_cfg() {
         expect(body->terminator()->isa<SwitchInst>());
         auto *switch_inst =
             static_cast<SwitchInst *>(body->terminator());
-        luisa::unordered_set<BasicBlock *> arm_entries;
-        arm_entries.emplace(switch_inst->default_block());
+        expect(switch_inst->default_block() == default_unreachable);
         for (auto i = size_t{0u};
              i < switch_inst->case_count(); ++i) {
             auto *case_entry = switch_inst->case_block(i);
-            expect(arm_entries.emplace(case_entry).second);
+            expect(case_entry == shared_return);
+            expect(switch_inst->case_value(i) == i);
             expect(branch_chain_reaches(
                 case_entry, shared_return));
         }

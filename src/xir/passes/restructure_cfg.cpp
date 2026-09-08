@@ -7187,40 +7187,6 @@ void enforce_unique_construct_entries(FunctionDefinition *def,
     }
 }
 
-// Ensure each case target of a SwitchInst is unique.
-// If multiple cases branch to the same block, a proxy block is inserted.
-// Ported from LLVM SPIRVStructurizer::splitSwitchCases.
-[[nodiscard]] static bool split_switch_cases(FunctionDefinition *def) noexcept {
-    ScopedTimer _timer_split_switch("split_switch_cases");
-    bool modified = false;
-    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
-        if (!bb->is_terminated()) { return; }
-        auto *term = bb->terminator();
-        if (!term->isa<SwitchInst>()) { return; }
-        auto *sw = static_cast<SwitchInst *>(term);
-
-        luisa::unordered_set<BasicBlock *> seen;
-        if (auto *db = sw->default_block(); db != nullptr) { seen.emplace(db); }
-
-        for (size_t i = 0; i < sw->case_count();) {
-            auto *target = sw->case_block(i);
-            if (target == nullptr || !seen.contains(target)) {
-                if (target != nullptr) { seen.emplace(target); }
-                ++i;
-                continue;
-            }
-            modified = true;
-            auto *proxy = def->create_basic_block();
-            XIRBuilder b;
-            b.set_insertion_point(proxy);
-            b.br(target);
-            sw->set_case_block(i, proxy);
-            ++i;
-        }
-    });
-    return modified;
-}
-
 // Structurize remaining conditional branches that were missed by
 // try_restructure_if_batch (e.g., when both arms eventually return). Uses the
 // nearest common post-dominator of all successors as the merge block.
@@ -9106,9 +9072,11 @@ restructure_cfg_on_definition_in_place(
         ++info.canonicalized_cfg_count;
     }
     enforce_unique_construct_entries(def, info);
-    if (split_switch_cases(def)) {
-        ++info.canonicalized_cfg_count;
-    }
+    // Distinct switch labels may share one case construct. Do not turn these
+    // parallel edges into distinct proxy entries: that destroys the shared
+    // target's case-entry dominance and invents cross-case exits/reentries for
+    // the exit repair below. OpSwitch requires unique literals, not targets.
+    // Genuine cross-construct entries remain covered by the enforcement above.
 
     // Post-restructure fixed-point: each phase drains its independent
     // candidates before returning. This budget therefore guards only cycles

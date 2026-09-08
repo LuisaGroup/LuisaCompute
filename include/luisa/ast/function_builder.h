@@ -484,6 +484,7 @@ public:
     [[nodiscard]] SwitchStmt *switch_(const Expression *expr) noexcept;
     /// Add case statement
     [[nodiscard]] SwitchCaseStmt *case_(const Expression *expr) noexcept;
+    [[nodiscard]] SwitchCaseStmt *case_(luisa::span<const Expression *const> expressions) noexcept;
     /// Add default statement
     [[nodiscard]] SwitchDefaultStmt *default_() noexcept;
     /// Add for statement

@@ -845,6 +845,10 @@ luisa_compute_add_test(test_hip_wave_size       unit/runtime/test_hip_wave_size.
 luisa_compute_add_test(test_mha_warp_reduction  unit/runtime/test_mha_warp_reduction.cpp)
 luisa_compute_add_test(test_ast_json_serde      unit/ast/test_ast_json_serde.cpp
         LABELS "unit;unit_ast")
+luisa_compute_add_test(test_switch_case_group unit/dsl/test_switch_case_group.cpp
+        LABELS "unit;unit_ast;unit_xir;unit_dsl")
+luisa_compute_add_test(test_xir_restructure_shared_switch unit/xir/test_xir_restructure_shared_switch.cpp
+        LABELS "unit;unit_xir")
 if (LUISA_COMPUTE_ENABLE_REMOTE)
     luisa_compute_add_test(test_remote_blob_cache
             unit/runtime/test_remote_blob_cache.cpp
@@ -918,6 +922,23 @@ luisa_compute_add_test(test_block_size_bench    unit/runtime/test_block_size_ben
 luisa_compute_add_test(benchmark_simd_gemm      unit/simd/benchmark_simd_gemm.cpp)
 luisa_compute_add_test(test_hip_codegen_arithmetic unit/runtime/test_hip_codegen_arithmetic.cpp)
 luisa_compute_add_test(test_hip_fmod unit/runtime/test_hip_fmod.cpp)
+luisa_compute_add_test(test_switch_case_group_runtime unit/runtime/test_switch_case_group_runtime.cpp)
+foreach(switch_backend IN ITEMS HIP FALLBACK VULKAN)
+    if (LUISA_COMPUTE_ENABLE_${switch_backend})
+        string(TOLOWER "${switch_backend}" switch_backend_name)
+        if (switch_backend STREQUAL "VULKAN")
+            set(switch_backend_name vk)
+        endif ()
+        add_test(NAME test_switch_case_group_${switch_backend_name}
+            COMMAND test_switch_case_group_runtime ${switch_backend_name})
+        set_tests_properties(test_switch_case_group_${switch_backend_name} PROPERTIES
+            LABELS "runtime;runtime_${switch_backend_name}" TIMEOUT 120)
+        if (switch_backend STREQUAL "VULKAN")
+            set_tests_properties(test_switch_case_group_vk PROPERTIES ENVIRONMENT
+                "LUISA_VULKAN_USE_XIR=1;LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV=1;LUISA_VULKAN_DISABLE_DXC=1")
+        endif ()
+    endif ()
+endforeach()
 luisa_compute_add_test(test_hip_curve_ray_query unit/runtime/test_hip_curve_ray_query.cpp)
 luisa_compute_add_test(test_hip_motion_instance_matrix unit/runtime/test_hip_motion_instance_matrix.cpp)
 luisa_compute_add_test(test_hip_motion_instance_device_ops unit/runtime/test_hip_motion_instance_device_ops.cpp)

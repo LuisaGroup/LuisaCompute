@@ -1864,9 +1864,12 @@ void MetalCodegenAST::visit(const SwitchStmt *stmt) noexcept {
 
 void MetalCodegenAST::visit(const SwitchCaseStmt *stmt) noexcept {
     _emit_indention();
-    _scratch << "case ";
-    stmt->expression()->accept(*this);
-    _scratch << ": {\n";
+    for (auto expression : stmt->expressions()) {
+        _scratch << "case ";
+        expression->accept(*this);
+        _scratch << ": ";
+    }
+    _scratch << "{\n";
     _indention++;
     _emit_scope_local_variables(stmt->body());
     auto has_break = false;

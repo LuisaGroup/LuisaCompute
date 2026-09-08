@@ -296,6 +296,13 @@ SwitchCaseStmt *FunctionBuilder::case_(const Expression *expr) noexcept {
     return _create_and_append_statement<SwitchCaseStmt>(expr);
 }
 
+SwitchCaseStmt *FunctionBuilder::case_(luisa::span<const Expression *const> expressions) noexcept {
+    luisa::vector<const Expression *> internalized;
+    internalized.reserve(expressions.size());
+    for (auto expr : expressions) { internalized.emplace_back(_internalize(expr)); }
+    return _create_and_append_statement<SwitchCaseStmt>(luisa::span{internalized});
+}
+
 SwitchDefaultStmt *FunctionBuilder::default_() noexcept {
     return _create_and_append_statement<SwitchDefaultStmt>();
 }

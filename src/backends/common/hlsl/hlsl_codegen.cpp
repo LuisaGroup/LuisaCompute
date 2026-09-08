@@ -497,9 +497,11 @@ void StringStateVisitor::visit(const SwitchCaseStmt *state) {
         return;
     }
     switchCount.back()++;
-    str << "case ";
-    state->expression()->accept(*this);
-    str << ":";
+    for (auto expression : state->expressions()) {
+        str << "case ";
+        expression->accept(*this);
+        str << ":";
+    }
     {
         Scope scope{this};
         state->body()->accept(*this);

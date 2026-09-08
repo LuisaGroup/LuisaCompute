@@ -461,10 +461,12 @@ private:
                 _dup_scope(s->body(), sw->body());
                 break;
             }
-            case Statement::Tag::SWITCH_CASE: {
+            case Statement::Tag::SWITCH_CASE:
+            case Statement::Tag::SWITCH_CASE_GROUP: {
                 auto s = static_cast<const SwitchCaseStmt *>(stmt);
-                auto e = _dup_expr(s->expression());
-                auto sw = fb->case_(e);
+                luisa::vector<const Expression *> labels;
+                for (auto e : s->expressions()) { labels.emplace_back(_dup_expr(e)); }
+                auto sw = fb->case_(luisa::span{labels});
                 _dup_scope(s->body(), sw->body());
                 break;
             }

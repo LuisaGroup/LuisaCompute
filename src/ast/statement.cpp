@@ -196,7 +196,28 @@ uint64_t SwitchStmt::_compute_hash() const noexcept {
 }
 
 uint64_t SwitchCaseStmt::_compute_hash() const noexcept {
-    return hash_combine({_body.hash(), _expr->hash()});
+    auto h = hash_combine({_body.hash(), _expr->hash()});
+    for (auto i = 1u; i < _expressions.size(); i++) {
+        h = hash_combine({h, _expressions[i]->hash()});
+    }
+    return h;
+}
+
+SwitchCaseStmt::SwitchCaseStmt(luisa::span<const Expression *const> expressions) noexcept
+    : Statement{expressions.size() > 1u ? Tag::SWITCH_CASE_GROUP : Tag::SWITCH_CASE} {
+    LUISA_ASSERT(!expressions.empty(), "A switch case must have at least one label.");
+    _expr = expressions.front();
+    if (expressions.size() > 1u) {
+        _expressions.assign(expressions.begin(), expressions.end());
+    }
+    for (auto expr : expressions) {
+        LUISA_ASSERT(expr != nullptr && expr->tag() == Expression::Tag::LITERAL &&
+                         (expr->type()->is_int() || expr->type()->is_uint() || expr->type()->is_bool()),
+                     "Switch case labels must be integral literals.");
+        LUISA_ASSERT(expr->type() == _expr->type(),
+                     "Labels in one switch case must have the same type.");
+        expr->mark(Usage::READ);
+    }
 }
 
 uint64_t SwitchDefaultStmt::_compute_hash() const noexcept {

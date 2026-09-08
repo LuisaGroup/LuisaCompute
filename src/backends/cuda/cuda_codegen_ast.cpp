@@ -1533,9 +1533,11 @@ void CUDACodegenAST::visit(const SwitchStmt *stmt) {
 }
 
 void CUDACodegenAST::visit(const SwitchCaseStmt *stmt) {
-    _scratch << "case ";
-    stmt->expression()->accept(*this);
-    _scratch << ": ";
+    for (auto expression : stmt->expressions()) {
+        _scratch << "case ";
+        expression->accept(*this);
+        _scratch << ": ";
+    }
     stmt->body()->accept(*this);
     if (std::none_of(stmt->body()->statements().begin(),
                      stmt->body()->statements().end(),

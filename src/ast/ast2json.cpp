@@ -972,7 +972,8 @@ private:
             case Statement::Tag::LOOP: _convert_loop_stmt(j, static_cast<const LoopStmt *>(stmt)); break;
             case Statement::Tag::EXPR: _convert_expr_stmt(j, static_cast<const ExprStmt *>(stmt)); break;
             case Statement::Tag::SWITCH: _convert_switch_stmt(j, static_cast<const SwitchStmt *>(stmt)); break;
-            case Statement::Tag::SWITCH_CASE: _convert_switch_case_stmt(j, static_cast<const SwitchCaseStmt *>(stmt)); break;
+            case Statement::Tag::SWITCH_CASE:
+            case Statement::Tag::SWITCH_CASE_GROUP: _convert_switch_case_stmt(j, static_cast<const SwitchCaseStmt *>(stmt)); break;
             case Statement::Tag::SWITCH_DEFAULT: _convert_switch_default_stmt(j, static_cast<const SwitchDefaultStmt *>(stmt)); break;
             case Statement::Tag::ASSIGN: _convert_assign_stmt(j, static_cast<const AssignStmt *>(stmt)); break;
             case Statement::Tag::FOR: _convert_for_stmt(j, static_cast<const ForStmt *>(stmt)); break;
@@ -1018,24 +1019,33 @@ private:
         j["body"] = _convert_stmt(stmt->body());
     }
     void _convert_switch_case_stmt(JSON &j, const SwitchCaseStmt *stmt) noexcept {
-        LUISA_ASSERT(stmt->expression()->tag() == Expression::Tag::LITERAL,
-                     "Switch case expression must be a literal.");
-        auto literal = static_cast<const LiteralExpr *>(stmt->expression());
-        j["value"] = luisa::visit(
-            []<typename T>(T v) noexcept -> int32_t {
-                if constexpr (std::is_integral_v<T>) {
-                    auto vv = static_cast<int32_t>(v);
-                    LUISA_ASSERT(static_cast<T>(vv) == v,
-                                 "Switch case expression must "
-                                 "be an int32 literal (got {}).",
-                                 Type::of<T>()->description());
-                    return vv;
-                } else {
-                    LUISA_ERROR_WITH_LOCATION(
-                        "Switch case expression must be an integer literal.");
-                }
-            },
-            literal->value());
+        auto convert_value = [](const Expression *expression) noexcept {
+            LUISA_ASSERT(expression->tag() == Expression::Tag::LITERAL,
+                         "Switch case expression must be a literal.");
+            auto literal = static_cast<const LiteralExpr *>(expression);
+            return luisa::visit(
+                []<typename T>(T v) noexcept -> int32_t {
+                    if constexpr (std::is_integral_v<T>) {
+                        auto vv = static_cast<int32_t>(v);
+                        LUISA_ASSERT(static_cast<T>(vv) == v,
+                                     "Switch case expression must "
+                                     "be an int32 literal (got {}).",
+                                     Type::of<T>()->description());
+                        return vv;
+                    } else {
+                        LUISA_ERROR_WITH_LOCATION(
+                            "Switch case expression must be an integer literal.");
+                    }
+                },
+                literal->value());
+        };
+        if (stmt->tag() == Statement::Tag::SWITCH_CASE_GROUP) {
+            JSON::Array values;
+            for (auto expression : stmt->expressions()) { values.emplace_back(convert_value(expression)); }
+            j["values"] = std::move(values);
+        } else {
+            j["value"] = convert_value(stmt->expression());
+        }
         j["body"] = _convert_stmt(stmt->body());
     }
     void _convert_switch_default_stmt(JSON &j, const SwitchDefaultStmt *stmt) noexcept {
