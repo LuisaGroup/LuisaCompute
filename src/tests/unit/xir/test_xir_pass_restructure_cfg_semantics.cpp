@@ -911,9 +911,81 @@ void check_nested_loop_exit_to_outer_header(RestructureCFGMutationMode mode, uin
     });
 }
 
+void check_update_bypass(RestructureCFGMutationMode mode, uint32_t rotation,
+                         bool structured_prepare, bool explicit_continue) {
+    Module module;
+    auto *f = module.create_kernel();
+    std::array<BasicBlock *, 7u> blocks{};
+    blocks[0] = f->create_body_block();
+    for (auto i = 1u; i < blocks.size(); ++i) {
+        blocks[1u + (i - 1u + rotation) % 6u] = f->create_basic_block();
+    }
+    auto [entry, prepare, body, define, update, merge, guard] = blocks;
+    auto *input = f->create_value_argument(Type::of<uint32_t>());
+    auto *output = f->create_reference_argument(Type::of<uint32_t>());
+    auto constant = [&](uint32_t value) { return module.create_constant(Type::of<uint32_t>(), &value); };
+    XIRBuilder b;
+    b.set_insertion_point(entry);
+    auto *remaining = b.alloca_local(Type::of<uint32_t>());
+    b.store(remaining, constant(1u));
+    b.store(output, constant(7u));
+    auto *loop = b.loop();
+    loop->set_prepare_block(prepare);
+    loop->set_body_block(body);
+    loop->set_update_block(update);
+    loop->set_merge_block(merge);
+    b.set_insertion_point(prepare);
+    auto *again = b.load(Type::of<uint32_t>(), remaining);
+    auto *repeat = b.call(Type::of<bool>(), ArithmeticOp::BINARY_NOT_EQUAL, {again, constant(0u)});
+    if (structured_prepare) {
+        auto *condition = b.if_(repeat);
+        condition->set_true_target(body);
+        condition->set_false_target(merge);
+        condition->set_merge_block(merge);
+    } else {
+        b.cond_br(repeat, body, merge);
+    }
+    b.set_insertion_point(body);
+    b.store(remaining, constant(0u));
+    auto *take_payload = b.call(Type::of<bool>(), ArithmeticOp::BINARY_EQUAL, {input, constant(0u)});
+    b.cond_br(take_payload, define, guard);
+    b.set_insertion_point(define);
+    auto *value = b.call(Type::of<uint32_t>(), ArithmeticOp::BINARY_ADD, {input, constant(42u)});
+    if (explicit_continue) { b.continue_(update); } else { b.br(update); }
+    b.set_insertion_point(update);
+    b.store(output, value);
+    b.br(prepare);
+    b.set_insertion_point(guard);
+    auto *skip = b.call(Type::of<bool>(), ArithmeticOp::BINARY_EQUAL, {input, constant(1u)});
+    b.cond_br(skip, prepare, merge);
+    b.set_insertion_point(merge);
+    b.return_void();
+    // Selector 0 enters U and stores 42. Selector 1 completes the iteration
+    // directly at P and must skip U. Selector 2 breaks. Earlier reg2mem may
+    // hide invalid scalar dominance, so compare observable effects as well.
+    auto name = std::string{"prepare-update-bypass-"} + std::to_string(rotation) +
+                (structured_prepare ? "-structured" : "-raw") +
+                (explicit_continue ? "-continue" : "-branch");
+    check_execution(module, f, input, output, mode, name, 3u, [](uint32_t selector, auto const &actual) {
+        auto expected = selector == 0u ? ExecutionResult{42u, {7u, 42u}} : ExecutionResult{7u, {7u}};
+        expect(actual == std::optional{expected});
+    });
+}
+
 }// namespace
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
+    "prepare_bypass_preserves_observable_update_store_sequence"_test = [] {
+        for (auto mode : {RestructureCFGMutationMode::TRANSACTIONAL, RestructureCFGMutationMode::IN_PLACE_DISCARDABLE}) {
+            for (auto rotation : {0u, 1u, 5u}) {
+                for (auto structured : {false, true}) {
+                    for (auto explicit_continue : {false, true}) {
+                        check_update_bypass(mode, rotation, structured, explicit_continue);
+                    }
+                }
+            }
+        }
+    };
     "nested_loop_exit_to_outer_header_is_not_an_inner_reentry"_test = [] {
         for (auto mode : {RestructureCFGMutationMode::TRANSACTIONAL, RestructureCFGMutationMode::IN_PLACE_DISCARDABLE}) {
             for (auto rotation : {0u, 1u, 3u}) { check_nested_loop_exit_to_outer_header(mode, rotation); }

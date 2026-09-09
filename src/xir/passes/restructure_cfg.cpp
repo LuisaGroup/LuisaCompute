@@ -2568,6 +2568,9 @@ collect_loop_boundary_selection_entries(
     return changed;
 }
 
+[[nodiscard]] bool has_executable_edge(
+    BasicBlock *from, BasicBlock *to) noexcept;
+
 [[nodiscard]] bool canonicalize_loop_update_blocks(FunctionDefinition *def) noexcept {
     ScopedTimer _timer_canonicalize_loop_update_blocks(
         "canonicalize_loop_update_blocks");
@@ -2592,6 +2595,20 @@ collect_loop_boundary_selection_entries(
         }
         auto canonical = update->is_terminated() && update->terminator()->isa<BranchInst>() &&
                          static_cast<BranchInst *>(update->terminator())->target_block() == prepare;
+        if (canonical && !has_only_terminator(update)) {
+            // A backedge to P bypasses U's payload. Normalizing it into
+            // Continue(U) would execute that payload on a new path. Factor
+            // U only when such an edge actually exists: the loop owner's
+            // entry and U's own backedge do not bypass a running iteration.
+            // Retaining an ordinary unique latch also preserves its update
+            // ownership against unrelated selection-entry node splitting.
+            prepare->traverse_predecessors(false, [&](BasicBlock *predecessor) noexcept {
+                if (predecessor != bb && predecessor != update &&
+                    has_executable_edge(predecessor, prepare)) {
+                    canonical = false;
+                }
+            });
+        }
         if (!canonical) {
             loops.emplace_back(
                 LoopSite{loop, update, prepare, merge});
@@ -2675,8 +2692,6 @@ collect_loop_boundary_selection_entries(
     return true;
 }
 
-[[nodiscard]] bool has_executable_edge(
-    BasicBlock *from, BasicBlock *to) noexcept;
 [[nodiscard]] bool retarget_executable_edge(
     Instruction *terminator, BasicBlock *from,
     BasicBlock *to) noexcept;
@@ -9709,6 +9724,30 @@ restructure_cfg_on_definition_in_place(
                     "[restructure_cfg] selection-exit drain yielded to "
                     "the remaining post canonicalizers after a site revisit.");
             }
+            // Establish exact physical loop boundaries before either family
+            // of continuation rewrites observes them. Prepare subdivision
+            // can change the backedge target; update factoring must therefore
+            // follow it. When a prepare backedge bypasses update payload, the
+            // factored continue block is payload-free: routing that backedge
+            // through it only subdivides the edge, without executing payload.
+            auto loop_prepare_changed =
+                canonicalize_loop_prepare_blocks(def);
+            if (loop_prepare_changed) {
+                ++info.canonicalized_cfg_count;
+                local = true;
+                construct_exits_dirty = true;
+                dom = compute_restructure_dom(def);
+                pdom = compute_post_dom(def, info);
+            }
+            auto loop_update_changed =
+                canonicalize_loop_update_blocks(def);
+            if (loop_update_changed) {
+                ++info.canonicalized_cfg_count;
+                local = true;
+                construct_exits_dirty = true;
+                dom = compute_restructure_dom(def);
+                pdom = compute_post_dom(def, info);
+            }
             auto boundary_merge_changed =
                 canonicalize_loop_boundary_selection_merges(
                     def, info);
@@ -9730,15 +9769,6 @@ restructure_cfg_on_definition_in_place(
                 dom = compute_restructure_dom(def);
                 pdom = compute_post_dom(def, info);
             }
-            auto loop_prepare_changed =
-                canonicalize_loop_prepare_blocks(def);
-            if (loop_prepare_changed) {
-                ++info.canonicalized_cfg_count;
-                local = true;
-                construct_exits_dirty = true;
-                dom = compute_restructure_dom(def);
-                pdom = compute_post_dom(def, info);
-            }
             auto loop_continue_changed =
                 normalize_structured_loop_continues(
                     def, dom, info);
@@ -9746,15 +9776,6 @@ restructure_cfg_on_definition_in_place(
                 ++info.canonicalized_cfg_count;
                 local = true;
                 construct_exits_dirty = true;
-                pdom = compute_post_dom(def, info);
-            }
-            auto loop_update_changed =
-                canonicalize_loop_update_blocks(def);
-            if (loop_update_changed) {
-                ++info.canonicalized_cfg_count;
-                local = true;
-                construct_exits_dirty = true;
-                dom = compute_restructure_dom(def);
                 pdom = compute_post_dom(def, info);
             }
             for (auto *header : exit_dispatch_headers) {
