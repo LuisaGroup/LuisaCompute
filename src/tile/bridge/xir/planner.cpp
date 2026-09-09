@@ -105,13 +105,12 @@ void read_work(const Value *value, double repetitions, bool dynamic,
                ExecutionTarget target, const ExecutionCostModel &cost, uint32_t limit, uint32_t lanes, Work &work,
                const PlannerOptions &options, const Operation *consumer) {
     if (!value->type().is_tile()) { return; }
-    if (options.enable_load_reduction_fusion) {
-        if (auto fusion = detail::load_reduction_fusion(value, limit, lanes, options.reduction_partitions);
-            fusion && consumer->parent_block() == fusion->reduction->region(0u)->block(0u)) {
-            // The external read is charged once at VIEW_LOAD; its first
-            // reduction uses that scalar directly, including repeated x*x.
-            return;
-        }
+    if (auto fusion = detail::reduction_producer_fusion(value, limit, lanes, options.reduction_partitions,
+                                                        options.enable_load_reduction_fusion, options.enable_expression_reduction_fusion);
+        fusion && consumer->parent_block() == fusion->reduction->region(0u)->block(0u)) {
+        // Production is charged once at its definition; the first reduction
+        // uses that scalar directly, including repeated x*x. No rematerialization.
+        return;
     }
     if (materialized(value, limit, lanes)) {
         auto op = value->defining_operation();
@@ -136,10 +135,9 @@ void measure(const Block &block, const Value *axis, double repetitions,
              ExecutionTarget target, const ExecutionCostModel &cost,
              luisa::vector<const Value *> indices, uint32_t limit, uint32_t lanes, Work &work, const PlannerOptions &options) {
     auto snapshot = [&](const Value *value) {
-        if (options.enable_load_reduction_fusion) {
-            if (auto fusion = detail::load_reduction_fusion(value, limit, lanes, options.reduction_partitions);
-                fusion && !fusion->retain_snapshot) { return; }
-        }
+        if (auto fusion = detail::reduction_producer_fusion(value, limit, lanes, options.reduction_partitions,
+                                                            options.enable_load_reduction_fusion, options.enable_expression_reduction_fusion);
+            fusion && !fusion->retain_snapshot) { return; }
         if (materialized(value, limit, lanes)) {
             auto op = value->defining_operation();
             // Large carries are parallel copies, charged at their loop below.

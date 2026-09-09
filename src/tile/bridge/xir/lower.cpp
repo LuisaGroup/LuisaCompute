@@ -56,7 +56,7 @@ private:
         const Operation *expression{nullptr};
         luisa::vector<const Representation *> inputs;
         bool splat{false};
-        bool pending_load{false};
+        bool pending_producer{false};
     };
     luisa::vector<luisa::unique_ptr<Representation>> _definitions;
     luisa::unordered_map<const Value *, const Representation *> _values;
@@ -72,11 +72,11 @@ private:
         x::Value *fill{nullptr};
         x::Value *mask{nullptr};
     };
-    struct FusedLoad {
-        ViewAccess access;
+    struct FusedProducer {
+        luisa::optional<ViewAccess> access;
         Representation *result;
     };
-    luisa::unordered_map<const Operation *, luisa::vector<FusedLoad>> _pending_loads;
+    luisa::unordered_map<const Operation *, luisa::vector<FusedProducer>> _pending_producers;
     luisa::unordered_map<const Representation *, x::Value *> _fused_elements;
     luisa::unordered_map<const Value *, IndexRange> _coordinate_ranges;
     uint64_t _expanded_values{0u};
@@ -364,16 +364,17 @@ private:
         }
         return {};
     }
+    [[nodiscard]] x::Value *_expression_element(const Representation *data, x::Value *flat) {
+        auto &domain = *data->type->index_space();
+        auto coordinates = _coordinates(domain, flat);
+        Elements inputs;
+        for (auto input : data->inputs) { inputs.emplace_back(_project(input, domain, coordinates)); }
+        return _elementwise(data->expression->elementwise_op(), _type(*data->type), inputs);
+    }
     [[nodiscard]] x::Value *_read(const Representation *data, x::Value *flat) {
         if (auto found = _fused_elements.find(data); found != _fused_elements.end()) { return found->second; }
         if (data->splat) { return data->elements.front(); }
-        if (data->expression) {
-            auto &domain = *data->type->index_space();
-            auto coordinates = _coordinates(domain, flat);
-            Elements inputs;
-            for (auto input : data->inputs) { inputs.emplace_back(_project(input, domain, coordinates)); }
-            return _elementwise(data->expression->elementwise_op(), _type(*data->type), inputs);
-        }
+        if (data->expression && !data->pending_producer) { return _expression_element(data, flat); }
         uint64_t constant = 0u;
         if (!data->elements.empty() && x::try_decode_constant_nonnegative_integer(flat, constant)) {
             return data->elements.at(constant);
@@ -382,7 +383,7 @@ private:
             _charge(2u);
             return _builder.load(_type(*data->type), _builder.gep(_type(*data->type), data->storage, {_storage_index(*data->type, flat)}));
         }
-        if (data->pending_load) { _fail("elided load snapshot has a consumer outside its fused traversal"); }
+        if (data->pending_producer) { _fail("elided producer snapshot has a consumer outside its fused traversal"); }
         auto type = _type(*data->type);
         x::Value *value = _output.module->create_constant_zero(type);
         for (size_t i = 0u; i < data->elements.size(); i++) {
@@ -548,17 +549,16 @@ private:
         auto count = op.domain() ? _volume(*op.domain()) : 1u;
         auto access = [&](x::Value *flat) { return _view_element(captured, flat); };
         if (op.kind() == OperationKind::VIEW_LOAD) {
-            if (_options.enable_load_reduction_fusion) {
-                if (auto fusion = detail::load_reduction_fusion(op.result(0u), _options.max_unrolled_tile_elements,
-                                                                _options.local_lanes, _options.reduction_partitions)) {
-                    auto result = _representation(op.result(0u));
-                    result->pending_load = true;
-                    if (fusion->retain_snapshot) { result->storage = _allocate(*result->type); }
-                    _pending_loads[fusion->reduction].emplace_back(FusedLoad{std::move(captured), result});
-                    _output.fused_reduction_loads++;
-                    _output.elided_load_snapshots += !fusion->retain_snapshot;
-                    return;
-                }
+            if (auto fusion = detail::reduction_producer_fusion(op.result(0u), _options.max_unrolled_tile_elements,
+                                                                _options.local_lanes, _options.reduction_partitions,
+                                                                _options.enable_load_reduction_fusion, _options.enable_expression_reduction_fusion)) {
+                auto result = _representation(op.result(0u));
+                result->pending_producer = true;
+                if (fusion->retain_snapshot) { result->storage = _allocate(*result->type); }
+                _pending_producers[fusion->reduction].emplace_back(FusedProducer{std::move(captured), result});
+                _output.fused_reduction_loads++;
+                _output.elided_load_snapshots += !fusion->retain_snapshot;
+                return;
             }
             if (op.result(0u)->type().is_tile()) {
                 _emit_tile(op.result(0u), access);
@@ -715,33 +715,33 @@ private:
         auto initial = _scalar(op.operand(0u));
         // Consume, rather than retain, this host-side plan. The same source
         // operation can be lowered again by an enclosing expanded loop/map.
-        luisa::vector<FusedLoad> loads;
-        if (auto found = _pending_loads.find(&op); found != _pending_loads.end()) {
-            loads = std::move(found->second);
-            _pending_loads.erase(found);
+        luisa::vector<FusedProducer> producers;
+        if (auto found = _pending_producers.find(&op); found != _pending_producers.end()) {
+            producers = std::move(found->second);
+            _pending_producers.erase(found);
         }
         auto evaluate = [&](x::Value *ordinal) {
             auto previous = _local_slot;
             if (distributed) { _local_slot = ordinal; }
             if (distributed) { ordinal = _binary(A::BINARY_ADD, _binary(A::BINARY_MUL, ordinal, _index(lanes)), _lane); }
             _bind_coordinates(*body, *op.domain(), ordinal);
-            for (auto &load : loads) {
-                auto &space = *load.result->type->index_space();
+            for (auto &producer : producers) {
+                auto &space = *producer.result->type->index_space();
                 auto flat = _index(0u);
                 for (size_t i = 0u; i < space.rank(); i++) {
                     auto axis = op.domain()->axis_index(space.axis(i).dimension);
                     auto coordinate = _extent(space, i) == 1u ? _index(0u) : _scalar(body->argument(*axis));
                     flat = _binary(A::BINARY_ADD, _binary(A::BINARY_MUL, flat, _index(_extent(space, i))), coordinate);
                 }
-                auto element = _view_element(load.access, flat);
-                if (load.result->storage) { _store_local(*load.result->type, load.result->storage, flat, element); }
-                _fused_elements.emplace(load.result, element);
+                auto element = producer.access ? _view_element(*producer.access, flat) : _expression_element(producer.result, flat);
+                if (producer.result->storage) { _store_local(*producer.result->type, producer.result->storage, flat, element); }
+                _fused_elements.emplace(producer.result, element);
             }
             for (auto operation : body->operations()) {
                 if (operation != update && operation != yield) { _operation(*operation); }
             }
             auto result = _scalar(contribution);
-            for (auto &load : loads) { _fused_elements.erase(load.result); }
+            for (auto &producer : producers) { _fused_elements.erase(producer.result); }
             _local_slot = previous;
             return result;
         };
@@ -976,12 +976,25 @@ private:
                 if (detail::deferred_elementwise(result, _options.max_unrolled_tile_elements, _options.local_lanes)) {
                     // Capture immutable physical operands now, not mutable
                     // TileIR-to-XIR bindings that another map/carry may replace.
-                    // Only pure single-use arithmetic is deferred. Loads and
-                    // multi-consumer values stay materialized at their definition.
+                    // Single-use arithmetic is evaluated at its consumer.
                     _charge();
                     auto data = _representation(result);
                     data->expression = &op;
                     for (size_t j = 0u; j < op.operand_count(); j++) { data->inputs.emplace_back(_get(op.operand(j))); }
+                    break;
+                }
+                if (auto fusion = detail::reduction_producer_fusion(result, _options.max_unrolled_tile_elements,
+                                                                    _options.local_lanes, _options.reduction_partitions,
+                                                                    _options.enable_load_reduction_fusion, _options.enable_expression_reduction_fusion)) {
+                    _charge();
+                    auto data = _representation(result);
+                    data->expression = &op;
+                    data->pending_producer = true;
+                    for (size_t j = 0u; j < op.operand_count(); j++) { data->inputs.emplace_back(_get(op.operand(j))); }
+                    if (fusion->retain_snapshot) { data->storage = _allocate(*data->type); }
+                    _pending_producers[fusion->reduction].emplace_back(FusedProducer{{}, data});
+                    _output.fused_reduction_expressions++;
+                    _output.elided_expression_snapshots += !fusion->retain_snapshot;
                     break;
                 }
                 auto evaluate = [&](x::Value *flat) {

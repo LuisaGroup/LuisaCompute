@@ -2,7 +2,7 @@
 
 Status: executable CPU realization with bounded packet-index proofs and
 compiler-owned snapshots, bounded Tile traversal, closed unordered partials and
-an opt-in packet-local mapping, September 8, 2026. The finite solver below is implemented. General Tile distribution, packed
+an opt-in packet-local mapping, September 9, 2026. The finite solver below is implemented. General Tile distribution, packed
 matrix atoms, software pipelining and measured cost calibration are not.
 
 This document complements the [language/layout design](../../tile/design.md),
@@ -208,7 +208,7 @@ lowerer's value lookup table.
 fully expanded diagnostic form without removing IR/storage budgets. Loop
 instructions no longer grow with a large Tile's element count. This does not
 bound total code size independently of the number of operations or nested
-small expansions. Multi-consumer expressions remain materialized; there is
+small expansions. Multi-consumer expressions normally remain materialized; there is
 no calibrated recomputation/materialization search yet.
 
 ```text
@@ -283,8 +283,8 @@ The work prior charges the external read once, removes private reads in the
 fused first consumer, and removes snapshot writes only when no later consumer
 needs storage. It uses the **same admission helper** as lowering. This is
 realization-derived work accounting, not measured cycle calibration or a
-general phase-fusion solver. Multiple-use math recipes, nonunit wrapper maps,
-arbitrary gather consumers and cross-effect reloads remain unoptimized here.
+general phase-fusion solver. Nonunit wrapper maps, arbitrary gather consumers
+and cross-effect reloads remain unoptimized here.
 
 The SIMD diagnostic switch `LUISA_SIMD_ENABLE_LOAD_REDUCTION_FUSION=1`
 enables both planning and lowering of this rule for fixed-mapping A/B tests;
@@ -294,6 +294,41 @@ not justify enabling this rule by default. See the
 [performance evidence](../../performance/tile/results.md#simd-local-distribution-and-private-layout-are-separate-decisions).
 `fused_reduction_loads` and `elided_load_snapshots` are static construction
 counts in realization metadata, not dynamic memory-transaction counts.
+
+The independent `enable_expression_reduction_fusion` option extends this same
+admission rule to **materialized pure elementwise producers**. For example,
+softmax's shared `e = exp(x - peak)` can compute `e[i]`, save it and accumulate
+the sum during the same traversal. The later division still reads the saved
+`e`, rather than recomputing `exp`. An expression used repeatedly only inside
+the first reduction can omit its snapshot entirely.
+
+```text
+captured immutable inputs
+           |
+first reduction traversal
+  expression[i] → cached scalar
+                    ├─> reduction
+                    └─> snapshot[i]*
+  *only for later consumers
+```
+
+This is producer/consumer loop fusion, not general rematerialization. The
+producer's operands are captured at its definition; every point is evaluated
+once, and repeated extracts share that scalar. The same no-write/no-stage,
+coordinate-bijection and unordered-reduction restrictions apply. Single-use
+recipes already deferred to a consumer do not count as newly fused producers.
+The planner charges production once, removes the first consumer's private
+reads, and removes snapshot writes only if no later consumer needs them.
+The chosen reduction tree, source initial value, math policy and resource
+alias contract do not change.
+
+`LUISA_SIMD_ENABLE_EXPRESSION_REDUCTION_FUSION=1` enables the option;
+`LUISA_SIMD_DISABLE_EXPRESSION_REDUCTION_FUSION=1` takes precedence.
+`fused_reduction_expressions` and `elided_expression_snapshots` are static
+realization counts. This candidate remains default-disabled: relative work
+savings are not evidence of native profitability, and the finite solver does
+not yet search this choice. General map producers and cross-scope fusion are
+not implemented by this option.
 
 ### Guarded pointwise DAG fusion keeps an alias-safe fallback
 

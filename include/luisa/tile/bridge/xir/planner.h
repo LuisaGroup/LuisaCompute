@@ -51,6 +51,9 @@ struct PlannerOptions {
     // Fixed guarded streaming candidate. The current prior still estimates
     // the original snapshot path, not an assumed noalias probability.
     bool enable_pointwise_fusion{false};
+    // Same first-consumer admission as lowering. Prices saved snapshot
+    // accesses, not an assumed native speedup or automatically selected winner.
+    bool enable_expression_reduction_fusion{false};
 };
 
 struct ExecutionCost {

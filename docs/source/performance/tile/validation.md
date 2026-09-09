@@ -3,6 +3,40 @@
 This record distinguishes executed correctness checks from performance claims.
 See [current status](index.md) for the latest bounded conclusion.
 
+## Expression producers join their first reduction traversal
+
+The September 9 expression-fusion checkpoint uses `2634be45d` (including
+`next@8911828eb`) plus an explicit eight-file C++ overlay in an isolated,
+recursively pinned source export. It passes a full configured build,
+**35 Tile CTests** and **79 XIR/SIMD CTests**. Additional exact-name tests at
+W1/W2/W4/W8/W16 execute nonzero assertions and pass with expression fusion
+alone and combined with the existing load/pointwise options. Snapshot
+retention/elision, alias writes, strict folds, stage boundaries, zero-trip
+and repeated scopes, fill, tails and permuted dimensions are covered.
+
+The first width-test wildcard selected no cases; those empty successes are
+excluded. An initial exact-name audit also incorrectly required a per-case
+PASSED banner from a reporter that prints only the aggregate. The final
+receipts require exactly one executed case and nonzero assertions; both
+earlier invocation/audit mistakes remain in the evidence.
+
+The [shared planner/lowering rule](../../internals/tile/xir.md#first-consumer-fusion-preserves-the-snapshot-contract)
+fuses two producers in each of four masked-softmax cases and one in each of
+four LayerNorm cases. The other 16 cases have byte-identical LLVM and ORC
+objects. All 48 capture outputs and 72 native smoke outputs pass complete
+FP64 checks; all 24 off/on pairs are bitwise equal. An independent audit
+rereads 138 snapshots, including 18 from an excluded partial timing run,
+and rejects eight in-memory corruptions of output or evidence records.
+
+**No new performance claim is accepted.** Schedule blocks fall, but static
+clone instruction counts rise and retained workspace sizes do not fall.
+Background CPU activity survives the named-process preflight; foreign
+rendering subsequently resumes. The owned benchmark is stopped, and all
+96 visits from that partial timing cohort are excluded. No second cohort,
+default change, cost calibration or automatic fusion selection is claimed.
+The {download}`Chinese checkpoint report <../../../../scripts/benchmark/tile_torch/results/m1-max-20260909-expression-reduction/notes.md>`
+records the scope, tradeoffs, exact source/binary lineage and remaining work.
+
 ## next integration keeps performance qualification separate
 
 The September 9 merge includes `origin/next` through `8911828eb`, with merge

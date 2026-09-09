@@ -34,6 +34,10 @@ struct LowerOptions {
     // when resource intervals are disjoint, otherwise retain eager snapshots.
     // Opt-in while native profitability and resource costs are evaluated.
     bool enable_pointwise_fusion{false};
+    // Move a materialized pure expression into its first reduction traversal.
+    // Compute each point once, retaining its snapshot for later consumers.
+    // Independent opt-in; preserves the chosen reduction tree and math policy.
+    bool enable_expression_reduction_fusion{false};
 };
 
 struct NativeFunction {
@@ -52,6 +56,8 @@ struct NativeFunction {
     uint32_t fused_pointwise_loads{0u};
     uint32_t fused_pointwise_stores{0u};
     uint32_t pointwise_alias_checks{0u};
+    uint32_t fused_reduction_expressions{0u};
+    uint32_t elided_expression_snapshots{0u};
     luisa::string error;
     [[nodiscard]] bool ok() const noexcept { return module != nullptr && function != nullptr && error.empty(); }
     [[nodiscard]] explicit operator bool() const noexcept { return ok(); }

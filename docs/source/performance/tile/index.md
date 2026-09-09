@@ -64,7 +64,11 @@ not a new compiler optimization or calibrated automatic policy. The separate
 task regressions and non-winning attention. Shared-input/multi-output DAG
 fusion now has a [guarded, opt-in implementation](../../internals/tile/xir.md#guarded-pointwise-dag-fusion-keeps-an-alias-safe-fallback)
 with alias and bounds regressions; it is **not yet a measured performance
-win**. Softmax phase planning remains a next candidate.
+win**. A separate [expression/reduction fusion checkpoint](validation.md#expression-producers-join-their-first-reduction-traversal)
+now merges two producer traversals in masked softmax and one in LayerNorm,
+with full output checks at four sizes. It remains opt-in: an interrupted,
+contended timing cohort is excluded, so the native ratios above are not
+replaced by a new speedup claim.
 The subsequent [next integration check](validation.md#next-integration-keeps-performance-qualification-separate)
 keeps two contended native replay attempts out of the performance evidence.
 [Independent task grain](results.md#cpu-task-grain-is-independent-of-the-native-packet-body)

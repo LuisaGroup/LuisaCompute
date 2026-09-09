@@ -64,21 +64,31 @@ struct ClosedReduction {
     return ClosedReduction{update, yield, update->operand(left ? 1u : 0u), left};
 }
 
-struct LoadReductionFusion {
+struct ReductionProducerFusion {
     const Operation *reduction;
     bool retain_snapshot;
 };
 
-// A load may join its first pointwise reduction traversal, but must not cross
+// A materialized producer may join its first pointwise reduction traversal,
+// computing each point once (including multi-consumer expressions). It must not cross
 // any write (including through another argument), stage, or unknown effect.
 // Unit maps are transparent execution wrappers, as used by library reduce().
 // This is a realization admission rule, not a noalias or parallelism proof.
-[[nodiscard]] inline luisa::optional<LoadReductionFusion> load_reduction_fusion(
-    const Value *value, uint32_t limit, uint32_t lanes, uint32_t partitions) noexcept {
-    auto load = value->defining_operation();
-    if (!load || load->kind() != OperationKind::VIEW_LOAD || !value->type().is_tile() ||
+[[nodiscard]] inline luisa::optional<ReductionProducerFusion> reduction_producer_fusion(
+    const Value *value, uint32_t limit, uint32_t lanes, uint32_t partitions,
+    bool enable_loads, bool enable_expressions) noexcept {
+    if (!enable_loads && !enable_expressions) { return {}; }
+    auto producer = value->defining_operation();
+    if (!producer || !value->type().is_tile() ||
         !(bounded_tile(value, limit) || (lanes > 1u && bounded_tile(value, lanes - 1u)))) { return {}; }
-    auto block = load->parent_block();
+    if (producer->kind() == OperationKind::VIEW_LOAD) {
+        if (!enable_loads) { return {}; }
+    } else if (producer->kind() == OperationKind::ELEMENTWISE) {
+        if (!enable_expressions || deferred_elementwise(value, limit, lanes)) { return {}; }
+    } else {
+        return {};
+    }
+    auto block = producer->parent_block();
     luisa::vector<const Value *> recipes{value};
     luisa::vector<const Operation *> consumers;
     for (size_t i = 0u; i < recipes.size(); i++) {
@@ -132,7 +142,7 @@ struct LoadReductionFusion {
         }
         for (auto op : body.operations()) {
             if (!active) {
-                active = op == load;
+                active = op == producer;
                 continue;
             }
             auto used = std::any_of(consumers.begin(), consumers.end(), [&](auto user) { return inside(user, op); });
@@ -156,7 +166,7 @@ struct LoadReductionFusion {
         !((lanes > 1u && bounded_domain(*reduction->domain(), lanes - 1u)) ||
           (partitions > 1u && bounded_domain(*reduction->domain(), limit)))) { return {}; }
     auto &domain = *reduction->domain();
-    // Bijection of nonunit dimensions: every load point is visited exactly
+    // Bijection of nonunit dimensions: every producer point is visited exactly
     // once. Unit axes may be inserted/projected by a library wrapper.
     for (auto recipe : recipes) {
         auto &space = *recipe->type().index_space();
@@ -201,7 +211,7 @@ struct LoadReductionFusion {
             }
         }
     }
-    return LoadReductionFusion{reduction, retain};
+    return ReductionProducerFusion{reduction, retain};
 }
 
 // A sufficient, exact admission contract for packet-local distribution. It is

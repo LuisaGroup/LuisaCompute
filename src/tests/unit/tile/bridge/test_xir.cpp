@@ -15,6 +15,60 @@ using namespace luisa::compute;
 using namespace boost::ut;
 
 int main() {
+    "tile_xir_expression_reduction_fusion_contract_and_cost"_test = [] {
+        using namespace tile;
+        for (auto lanes : {1u, 2u, 4u, 8u, 16u}) {
+            for (auto variant = 0u; variant < 6u; variant++) {
+                // Repeated first-consumer reads, retained snapshot, write
+                // boundary, strict fold, reversed coordinates, first store.
+                if (lanes > 1u && (variant == 3u || variant == 4u)) { continue; }
+                auto kernel = tile_kernel("expression_consumer", [=](TensorView<const float, 2> input,
+                                                                     TensorView<float, 2> alias, TensorView<float, 2> output) {
+                                  auto m = axis("m", 1), n = axis("n", 65);
+                                  for (auto &nest : parallel(shape(17))) {
+                                      auto x = input[coord(nest.index(), 0), shape(m, n)];
+                                      auto y = exp(x);
+                                      if (variant == 2u || variant == 5u) {
+                                          alias(coord(nest.index(), 0), shape(m, n)).store(variant == 5u ? y : full<float>(shape(m, n), 9.0f));
+                                      }
+                                      auto sum = Scalar<float>{2.5f};
+                                      auto policy = variant == 3u ? reduction::fold_left : reduction::unordered_tree;
+                                      for (auto &element : nest.reduce(shape(n), policy)) {
+                                          auto i = variant == 4u ? 64 - element.index() : element.index();
+                                          sum += y.at(coord(0, i)) * y.at(coord(0, i));
+                                      }
+                                      output(coord(nest.index(), 0), shape(m, n)).store(variant == 1u ? y + sum : full<float>(shape(m, n), sum));
+                                  }
+                              }).capture(tensor_shape(17, 65), tensor_shape(17, 65), tensor_shape(17, 65));
+                auto off = bridge::xir::lower(kernel.function(), {.local_lanes = lanes});
+                auto on = bridge::xir::lower(kernel.function(), {.local_lanes = lanes, .enable_expression_reduction_fusion = true});
+                expect(off.ok() && on.ok()) << off.error << on.error;
+                if (!off || !on) { continue; }
+                auto admitted = variant < 2u;
+                expect(eq(on.fused_reduction_expressions, admitted ? 1u : 0u)) << variant << lanes;
+                expect(eq(on.elided_expression_snapshots, variant == 0u ? 1u : 0u));
+                expect(eq(off.fused_reduction_expressions, 0u));
+                expect(eq(on.fused_reduction_loads, 0u));
+                expect(xir::xir_verify_module(on.module.get(), {.require_reachable_blocks = true}).succeeded());
+                auto allocations = [](const auto &lowered) {
+                    size_t count = 0u;
+                    lowered.function->traverse_instructions([&](xir::Instruction *inst) noexcept { count += inst->isa<xir::AllocaInst>(); });
+                    return count;
+                };
+                expect(eq(allocations(off) - allocations(on), static_cast<size_t>(on.elided_expression_snapshots)));
+                // One CPU worker makes the prior's packet multiplier explicit.
+                auto a = bridge::xir::plan(kernel.function(), {lanes, 1u}, {.block_size = 32u, .local_lanes = lanes});
+                auto b = bridge::xir::plan(kernel.function(), {lanes, 1u}, {.block_size = 32u, .local_lanes = lanes, .enable_expression_reduction_fusion = true});
+                expect(a.ok() && b.ok());
+                if (a && b) {
+                    auto packets = ceil_div(17u * lanes, lanes);
+                    auto saved = admitted ? static_cast<double>((2u + on.elided_expression_snapshots) * ceil_div(65u, lanes) * lanes * 2u * packets) : 0.0;
+                    expect(eq(a.selected.cost.memory_work - b.selected.cost.memory_work, saved)) << variant << lanes;
+                    expect(eq(a.selected.cost.arithmetic_work, b.selected.cost.arithmetic_work));
+                }
+            }
+        }
+    };
     "tile_xir_pointwise_effect_intervals_and_partitioned_outputs"_test = [] {
         using namespace tile;
         for (auto lanes : {1u, 2u, 4u, 8u, 16u}) {

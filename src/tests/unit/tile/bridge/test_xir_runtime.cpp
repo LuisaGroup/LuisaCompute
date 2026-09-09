@@ -216,7 +216,77 @@ void fused_load_reductions(Device &device, int64_t width, uint32_t lanes, uint32
     }
 }
 
-void fused_load_scopes(Device &device, int64_t iterations, bool staged, bool retained) {
+void fused_expression_reductions(Device &device, int64_t width, uint32_t lanes, uint32_t variant) {
+    using namespace tile;
+    constexpr auto rows = int64_t{17};
+    auto kernel = tile_kernel("expression_reductions", [=](TensorView<const float, 2> input,
+                                                           TensorView<float, 2> alias, TensorView<float, 2> output) {
+                      auto m = axis("m", 1), n = axis("n", width);
+                      for (auto &nest : parallel(shape(rows))) {
+                          auto x = input[coord(nest.index(), 0), shape(m, n)];
+                          auto y = variant == 4u ? exp(x - reduce(x, n, maximum)) : x * x + 2.0f;
+                          if (variant == 2u) { alias(coord(nest.index(), 0), shape(m, n)).store(full<float>(shape(m, n), 9.0f)); }
+                          auto policy = variant == 3u ? reduction::fold_left : reduction::unordered_tree;
+                          auto sum = reduce(variant == 4u ? y : y * y, n, add, policy);
+                          if (variant == 5u) { alias(coord(nest.index(), 0), shape(m, n)).store(full<float>(shape(m, n), 9.0f)); }
+                          auto result = variant == 4u ? y / sum : variant == 1u || variant == 5u ? y + sum :
+                                                                                                   full<float>(shape(m, n), sum.at(coord(0)));
+                          output(coord(nest.index(), 0), shape(m, n)).store(result);
+                      }
+                  }).capture(tensor_shape(rows, width), tensor_shape(rows, width), tensor_shape(rows, width));
+    constexpr auto pad = size_t{17u};
+    constexpr auto guard = -731.25f;
+    auto count = static_cast<size_t>(rows * width);
+    vector<float> original(count + 2u * pad, guard), baseline;
+    vector<double> expected(count);
+    for (int64_t row = 0; row < rows; row++) {
+        auto max_value = -std::numeric_limits<double>::infinity();
+        for (int64_t col = 0; col < width; col++) {
+            auto value = static_cast<float>((row * 3 + col * 7) % 17 - 8) * .125f;
+            original[pad + row * width + col] = value;
+            max_value = std::max(max_value, static_cast<double>(value));
+        }
+        vector<double> values(width);
+        double sum = 0.0;
+        for (int64_t col = 0; col < width; col++) {
+            auto x = static_cast<double>(original[pad + row * width + col]);
+            auto y = variant == 4u ? std::exp(x - max_value) : x * x + 2.0;
+            values[col] = y;
+            sum += variant == 4u ? y : y * y;
+        }
+        for (int64_t col = 0; col < width; col++) {
+            expected[row * width + col] = variant == 4u ? values[col] / sum : sum + (variant == 1u || variant == 5u ? values[col] : 0.0);
+        }
+    }
+    for (auto mode : {0u, 1u, 2u}) {
+        auto fusion = mode != 0u;
+        auto options = bridge::xir::PlannerOptions{.block_size = 32u, .local_lanes = lanes, .enable_load_reduction_fusion = mode == 2u, .enable_pointwise_fusion = mode == 2u, .enable_expression_reduction_fusion = fusion};
+        auto shader = compile(device, kernel, {.xir = &options}, {.enable_fast_math = false});
+        expect(static_cast<bool>(shader)) << shader.metadata().error;
+        if (!shader) { return; }
+        expect(shader.metadata().realization.find(format("fused_reduction_expressions={};", fusion && variant != 2u && variant != 3u ? 1u : 0u)) != string::npos);
+        auto a = device.create_buffer<float>(original.size()), b = device.create_buffer<float>(original.size());
+        auto data = original;
+        vector<float> actual(original.size(), guard);
+        auto stream = device.create_stream(StreamTag::COMPUTE);
+        auto av = a.view(pad, count);
+        stream << a.copy_from(span{data}) << b.copy_from(span{actual}) << shader(av, av, b.view(pad, count)).dispatch()
+               << a.copy_to(span{data}) << b.copy_to(span{actual}) << synchronize();
+        expect(close(span{actual}.subspan(pad, count), expected)) << variant << width << lanes;
+        for (size_t i = 0u; i < count; i++) { expect(eq(data[pad + i], variant == 2u || variant == 5u ? 9.0f : original[pad + i])); }
+        for (auto values : {span{actual}, span{data}}) {
+            expect(std::all_of(values.begin(), values.begin() + pad, [](float x) { return x == guard; }));
+            expect(std::all_of(values.end() - pad, values.end(), [](float x) { return x == guard; }));
+        }
+        if (!fusion) {
+            baseline = actual;
+        } else {
+            for (size_t i = 0u; i < actual.size(); i++) { expect(eq(std::bit_cast<uint32_t>(actual[i]), std::bit_cast<uint32_t>(baseline[i]))); }
+        }
+    }
+}
+
+void fused_producer_scopes(Device &device, int64_t iterations, bool staged, bool retained, bool expression = false) {
     using namespace tile;
     constexpr auto width = int64_t{69};
     auto definition = tile_kernel("fused_load_scopes", [=](TensorView<const float, 2> input, TensorView<float, 2> output) {
@@ -226,10 +296,16 @@ void fused_load_scopes(Device &device, int64_t iterations, bool staged, bool ret
             for (auto &step : range) {
                 // Different captured origins, an out-of-bounds first row,
                 // and a multidimensional/permuted reduction domain.
-                auto x = input.tile(coord(step.index() * 3 - 3, 0), shape(m, n), bounds::zero).load();
+                auto loaded = input.tile(coord(step.index() * 3 - 3, 0), shape(m, n), bounds::zero).load();
+                auto x = expression ? loaded * loaded + 2.0f : loaded;
                 if (staged) { step.stage("consumer"); }
                 auto sum = Scalar<float>{2.5f};
-                for (auto &element : step.reduce(shape(n, m))) { sum += x.at(coord(element.index(m), element.index(n))); }
+                for (auto &element : step.reduce(shape(n, m))) {
+                    // Two direct users make the expression materialized even
+                    // when the snapshot has no consumer after this reduction.
+                    auto value = x.at(coord(element.index(m), element.index(n)));
+                    sum += expression ? value * x.at(coord(element.index(m), element.index(n))) : value;
+                }
                 auto y = retained ? x + sum : full<float>(shape(m, n), sum);
                 output(coord(step.index() * 3, 0), shape(m, n)).store(y);
             }
@@ -240,17 +316,20 @@ void fused_load_scopes(Device &device, int64_t iterations, bool staged, bool ret
     for (size_t i = 0u; i < input.size(); i++) { input[i] = static_cast<float>(i % 13u) * .125f; }
     for (int64_t step = 0; step < iterations; step++) {
         auto sum = 2.5f;
-        if (step != 0) {
-            for (int64_t i = 0; i < width; i++) { sum += input[(step - 1) * width + i]; }
-        }
-        for (int64_t i = 0; i < width; i++) { expected[step * width + i] = sum + (retained && step != 0 ? input[(step - 1) * width + i] : 0.0f); }
+        auto point = [&](int64_t i) {
+            auto value = step != 0 ? input[(step - 1) * width + i] : 0.0f;
+            return expression ? value * value + 2.0f : value;
+        };
+        for (int64_t i = 0; i < width; i++) { sum += expression ? point(i) * point(i) : point(i); }
+        for (int64_t i = 0; i < width; i++) { expected[step * width + i] = sum + (retained ? point(i) : 0.0f); }
     }
     for (auto fusion : {false, true}) {
-        auto options = bridge::xir::PlannerOptions{.enable_load_reduction_fusion = fusion};
+        auto options = bridge::xir::PlannerOptions{.enable_load_reduction_fusion = fusion && !expression, .enable_expression_reduction_fusion = fusion && expression};
         auto shader = compile(device, kernel, {.xir = &options}, {.enable_fast_math = false});
         expect(static_cast<bool>(shader)) << shader.metadata().error;
         if (!shader) { return; }
         if (staged) { expect(shader.metadata().realization.find("fused_reduction_loads=0;") != string::npos); }
+        if (staged) { expect(shader.metadata().realization.find("fused_reduction_expressions=0;") != string::npos); }
         constexpr auto pad = size_t{17};
         constexpr auto guard = -731.25f;
         vector<float> actual(input.size() + 2u * pad, guard);
@@ -777,6 +856,20 @@ void packet_local_reductions(Device &device, int64_t count, int64_t width, uint3
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     auto [context, device] = test::create_device(argc, argv);
+    "tile_xir_runtime_fused_expressions_preserve_tree_and_snapshots"_test = [&] {
+        for (auto lanes : {1u, device.compute_warp_size()}) {
+            for (auto width : {65, 256, 4097}) {
+                for (auto variant : {0u, 1u, 2u, 3u, 4u, 5u}) {
+                    if (lanes == 1u || variant != 3u) { fused_expression_reductions(device, width, lanes, variant); }
+                }
+            }
+        }
+        for (auto iterations : {0, 1, 3}) {
+            for (auto staged : {false, true}) {
+                for (auto retained : {false, true}) { fused_producer_scopes(device, iterations, staged, retained, true); }
+            }
+        }
+    };
     "tile_xir_runtime_shared_pointwise_alias_paths"_test = [&] {
         for (auto lanes : {1u, device.compute_warp_size()}) {
             for (auto width : {65, 128, 257}) {
@@ -803,7 +896,7 @@ int main(int argc, char *argv[]) {
         }
         for (auto iterations : {0, 1, 3}) {
             for (auto staged : {false, true}) {
-                for (auto retained : {false, true}) { fused_load_scopes(device, iterations, staged, retained); }
+                for (auto retained : {false, true}) { fused_producer_scopes(device, iterations, staged, retained); }
             }
         }
     };
