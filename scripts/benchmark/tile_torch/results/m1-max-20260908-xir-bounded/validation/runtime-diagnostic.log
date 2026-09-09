@@ -1,0 +1,15 @@
+[2026-09-08 11:53:21.332] [console] [info] Created context for program 'test_tile_xir_runtime'.
+[2026-09-08 11:53:21.333] [console] [info] Runtime directory: /private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin.
+[2026-09-08 11:53:21.336] [console] [info] Loaded dynamic module '/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-backend-simd.so' in 3.086791 ms.
+[2026-09-08 11:53:21.336] [console] [info] Test device backend: simd.
+[2026-09-08 11:53:39.768] [console] [warning] Row mismatch width=4096 softmax=false index=16384 actual=0.56826895 fp64=0.5683016598632094 fp32_sequential=0.56826895
+
+Running test "tile_xir_runtime_elementwise_reductions_softmax"... [31mFAILED
+[0min: /tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/unit/tile/bridge/test_xir_runtime.cpp:176[31m - test condition:  [false[31m][0m
+
+ width= 4096  softmax= 0
+===============================================================================
+Suite global
+tests:   8 | [31m1 failed[0m
+asserts: 926 | 7 passed | [31m1 failed[0m
+

@@ -158,6 +158,7 @@ using AccumulatorLoops = luisa::unordered_map<const tvm::tirx::ForNode *, Accumu
 // in the emitter and is checked there again. No source names drive semantics.
 class GroupWorkloadAnalysis final : public tvm::tirx::StmtVisitor {
 private:
+    bool _cooperative_reductions;
     bool _matrix;
     bool _metal_mpp;
     bool _matrix_epilogues;
@@ -269,7 +270,8 @@ private:
         auto extent = loop->extent.as<tvm::IntImmNode>();
         auto sequence = loop->body.as<tvm::tirx::SeqStmtNode>();
         auto step = loop->step ? loop->step.value().as<tvm::IntImmNode>() : nullptr;
-        auto ordinary_annotations = loop->annotations.size() == loop->annotations.count(deferred_pipeline_annotation);
+        auto ordinary_annotations = loop->annotations.size() == loop->annotations.count(deferred_pipeline_annotation) + loop->annotations.count(reduction_policy_annotation) &&
+                                    (!loop->annotations.count(reduction_policy_annotation) || permits_unordered_reduction(loop));
         if (loop->kind != tvm::tirx::ForKind::kSerial || loop->thread_binding || !ordinary_annotations || extent == nullptr || extent->value <= 0 ||
             (loop->step && (step == nullptr || step->value != 1)) || sequence == nullptr) { return; }
         const tvm::tirx::ForNode *matrix = nullptr;
@@ -379,6 +381,11 @@ protected:
             auto domain = element_domain(loop);
             workload.max_independent_elements = std::max(workload.max_independent_elements, domain.count);
             if (_lane_depth == 0u) {
+                if (_cooperative_reductions) {
+                    if (auto count = metal_reduction_tile_output_count(tvm::ffi::GetRef<tvm::tirx::For>(loop))) {
+                        workload.max_collective_outputs = std::max(workload.max_collective_outputs, *count);
+                    }
+                }
                 auto matrix = _matrix ? metal_matrix_workload(tvm::ffi::GetRef<tvm::tirx::For>(loop), [this](tvm::tirx::BufferVar buffer) { return _matrix_buffer(std::move(buffer)); }, _metal_mpp, _ancestors) : std::nullopt;
                 if (matrix) {
                     matrix->executions = _executions;
@@ -410,8 +417,8 @@ public:
     GroupWorkload workload;
     MatrixPlanIndices matrices;
     AccumulatorLoops accumulators;
-    GroupWorkloadAnalysis(bool matrix, bool metal_mpp, bool matrix_epilogues, const tvm::tirx::ForNode *root, luisa::span<const tvm::tirx::BufferVar> readonly_inputs)
-        : _matrix{matrix}, _metal_mpp{metal_mpp}, _matrix_epilogues{matrix_epilogues}, _root{root}, _ancestors{root}, _readonly_inputs{readonly_inputs} {}
+    GroupWorkloadAnalysis(bool matrix, bool metal_mpp, bool matrix_epilogues, bool cooperative_reductions, const tvm::tirx::ForNode *root, luisa::span<const tvm::tirx::BufferVar> readonly_inputs)
+        : _cooperative_reductions{cooperative_reductions}, _matrix{matrix}, _metal_mpp{metal_mpp}, _matrix_epilogues{matrix_epilogues}, _root{root}, _ancestors{root}, _readonly_inputs{readonly_inputs} {}
 };
 
 class CooperativeGroupMapper final : public tvm::tirx::StmtExprMutator {
@@ -425,6 +432,7 @@ private:
     uint32_t _prefetch_budget;
     uint32_t _lane_depth{0u};
     bool _cooperative_matrix;
+    bool _cooperative_reductions{false};
     const MatrixPlanIndices &_matrix_indices;
     GroupPlan &_plan;
     const AccumulatorLoops &_accumulators;
@@ -648,6 +656,11 @@ protected:
             if (emission != nullptr && !matrix.defined()) { throw std::runtime_error{"planned matrix recurrence failed emission verification"}; }
             if (matrix.defined()) { return _synchronize(std::move(matrix)); }
         }
+        if (elements && _lane_depth == 0u && _cooperative_reductions) {
+            auto reduction = try_metal_reduction_tile(tvm::ffi::GetRef<tvm::tirx::For>(loop), _thread, _threads,
+                                                      [this](tvm::tirx::BufferVar buffer) { return _buffer(std::move(buffer)); });
+            if (reduction.defined()) { return _synchronize(std::move(reduction)); }
+        }
         if ((logical || elements) && _lane_depth == 0u) { return _distribute(loop); }
         auto result = StmtExprMutator::VisitStmt_(loop).as_or_throw<tvm::tirx::For>();
         auto node = result.CopyOnWrite();
@@ -657,6 +670,8 @@ protected:
         node->annotations.erase(independent_elements_annotation);
         node->annotations.erase(mma_annotation);
         node->annotations.erase(deferred_pipeline_annotation);
+        node->annotations.erase(reduction_contract_annotation);
+        node->annotations.erase(reduction_policy_annotation);
         return result;
     }
 
@@ -759,6 +774,7 @@ public:
     }
 
     [[nodiscard]] tvm::tirx::Stmt map(const tvm::tirx::Stmt &body, const PlannerOptions &options) {
+        _cooperative_reductions = options.enabled && options.metal_subgroup_reductions;
         auto result = StmtExprMutator::operator()(body);
         return coalesce_group_barriers(std::move(result), _compiler_barrier, _shared_allocations,
                                        options.enabled && options.coalesce_group_barriers, options.elide_independent_subgroup_barriers, _plan,
@@ -793,6 +809,7 @@ protected:
         for (auto &&[name, value] : loop->annotations) {
             valid &= name == independent_elements_annotation || name == mma_annotation ||
                      name == materialized_pure_tile_annotation || name == reduction_contract_annotation ||
+                     name == reduction_policy_annotation ||
                      name == deferred_pipeline_annotation;
         }
         if (auto permission = loop->annotations.Get(mma_annotation)) {
@@ -828,7 +845,7 @@ tvm::tirx::Stmt map_metal_cooperative_group(const tvm::tirx::For &loop, uint32_t
                                             luisa::span<const tvm::tirx::BufferVar> readonly_inputs) {
     validate_domain(loop.get());
     auto groups = static_extent(loop->extent);
-    GroupWorkloadAnalysis analysis{cooperative_matrix, metal_mpp, options.fuse_matrix_epilogues, loop.get(), readonly_inputs};
+    GroupWorkloadAnalysis analysis{cooperative_matrix, metal_mpp, options.fuse_matrix_epilogues, options.enabled && options.metal_subgroup_reductions, loop.get(), readonly_inputs};
     analysis.workload.programs = groups;
     analysis(loop->body);
     auto planned = plan_group(analysis.workload, ExecutionLimits{max_threads, 32u, shared_memory_limit}, options,

@@ -335,7 +335,14 @@ PlanningResult plan_group(const GroupWorkload &workload, const ExecutionLimits &
     plan.shared_memory_bytes = workload.shared_memory_bytes;
     plan.max_copy_batch = options.enabled ? options.max_copy_batch : 1u;
     auto reference_threads = std::min<uint64_t>(std::max<uint64_t>(1u, workload.max_independent_elements), limits.max_threads);
-    if (!workload.matrices.empty() && limits.max_threads >= limits.subgroup_size) {
+    if (workload.max_collective_outputs != 0u && limits.max_threads >= limits.subgroup_size) {
+        // The admitted emitter assigns an output to a complete subgroup, not
+        // to one lane. Bound before multiplying; explicit thread overrides
+        // still select the valid serial fallback when no subgroup fits.
+        auto collective_groups = std::min<uint64_t>(workload.max_collective_outputs, limits.max_threads / limits.subgroup_size);
+        reference_threads = std::max(reference_threads, collective_groups * limits.subgroup_size);
+    }
+    if ((!workload.matrices.empty() || workload.max_collective_outputs != 0u) && limits.max_threads >= limits.subgroup_size) {
         reference_threads = std::min<uint64_t>((reference_threads + limits.subgroup_size - 1u) / limits.subgroup_size,
                                                limits.max_threads / limits.subgroup_size) *
                             limits.subgroup_size;

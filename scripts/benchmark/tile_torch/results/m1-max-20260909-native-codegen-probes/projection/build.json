@@ -1,0 +1,16 @@
+{
+  "started_unix": 1788936493.0913332,
+  "command": [
+    "cmake",
+    "--build",
+    "/private/tmp/luisa-packet-inline.UY1lIE/build",
+    "--parallel",
+    "8"
+  ],
+  "source_snapshot_sha256": "e978393cc51bf68ff0a61d35e8a7425eb5f3172c2f4b460505fb6b12f20c6926",
+  "exit_code": 0,
+  "log_sha256": "62787fccc98ad7bf29801a9439ddcfeec21bcc3619acefa63a76bfe707b73e91",
+  "finished_unix": 1788936493.19747,
+  "source_unchanged": true,
+  "passed": true
+}

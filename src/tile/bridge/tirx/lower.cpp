@@ -891,6 +891,8 @@ private:
         auto body = operation.region(0u)->block(0u);
         auto is_parallel = operation.kind() == OperationKind::PARALLEL;
         auto is_pipeline = operation.kind() == OperationKind::PIPELINE;
+        auto reverse = operation.kind() == OperationKind::REDUCE &&
+                       operation.reduction_policy() == reduction::fold_right;
         auto flatten_domain = is_parallel || is_pipeline;
         tvm::ffi::Array<tvm::tirx::PrimVar> loop_variables;
         tvm::ffi::Array<tvm::PrimExpr> loop_extents;
@@ -912,7 +914,14 @@ private:
             loop_variables.push_back(variable);
             loop_extents.push_back(tvm::IntImm::Int64(static_cast<int64_t>(axis.extent.constant_value())));
             constant_extents.emplace_back(axis.extent.constant_value());
-            if (!flatten_domain) { _bind_expression(body->argument(i), variable); }
+            if (!flatten_domain) {
+                // Increasing physical induction with reversed logical
+                // coordinates preserves lexicographic source order in either
+                // direction. The captured update's operands are not swapped.
+                _bind_expression(body->argument(i), reverse ?
+                                                        loop_extents.back() - tvm::IntImm::Int64(1) - variable :
+                                                        tvm::PrimExpr{variable});
+            }
         }
 
         tvm::tirx::PrimVar parallel_variable;
@@ -1004,11 +1013,15 @@ private:
                     std::move(loop_body)};
             }
         }
-        if (auto contract = match_reduction_contract(operation)) {
+        if (operation.kind() == OperationKind::REDUCE) {
             if (auto loop = loop_body.as<tvm::tirx::For>()) {
                 loop.value().CopyOnWrite()->annotations.Set(
-                    reduction_contract_annotation,
-                    tvm::IntImm::Int32(*contract));
+                    reduction_policy_annotation,
+                    tvm::IntImm::Int32(static_cast<int32_t>(operation.reduction_policy())));
+                if (auto contract = match_reduction_contract(operation)) {
+                    loop.value().CopyOnWrite()->annotations.Set(
+                        reduction_contract_annotation, tvm::IntImm::Int32(*contract));
+                }
                 loop_body = loop.value();
             }
         }

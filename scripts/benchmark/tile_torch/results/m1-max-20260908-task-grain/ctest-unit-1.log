@@ -1,0 +1,15 @@
+Test project /tmp/luisa-reduction-checkpoint.gQUERp/build
+    Start  6: test_simd_thread_pool
+1/2 Test  #6: test_simd_thread_pool ............   Passed    0.05 sec
+    Start 54: test_tile_xir
+2/2 Test #54: test_tile_xir ....................   Passed    0.95 sec
+
+100% tests passed out of 2
+
+Label Time Summary:
+unit             =   1.00 sec*proc (2 tests)
+unit_simd        =   0.05 sec*proc (1 test)
+unit_tile        =   0.95 sec*proc (1 test)
+unit_tile_xir    =   0.95 sec*proc (1 test)
+
+Total Test time (real) =   1.01 sec

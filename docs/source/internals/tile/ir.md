@@ -9,6 +9,20 @@ This page owns in-memory IR, capture dataflow, ownership and verification. The m
 
 ## TileIR as a thin but transformable IR
 
+The current implementation and the target design must not be conflated:
+
+```{table} Implemented IR versus extension contracts
+:class: design-table
+:name: tile-ir-implementation-boundary
+
+| Area | Implemented representation | Extension specified here |
+|---|---|---|
+| Mutation | Managed intrusive lists, SSA uses, typed kinds, structural verifier and basic rewriter/analysis manager | Dependency-aware analysis invalidation and transactional execution remapping |
+| Reduction | Domain, captured state and typed per-operation fold/tree policy; unordered-tree default; bridge-local merge recognition | General typed lift/merge, law provenance and exceptional-value contracts |
+| Pipeline | `PIPELINE` body with `STAGE` marker operations | Stage subregions, explicit dependence/version protocol and modulo schedule |
+| Scheduling | Bridge-local mapping, matrix and reduction plans | Common Scheduled/Machine verifier forms and generic target atom calls |
+```
+
 Primitive semantics and their refinement rules live in the
 [execution calculus](calculus.md). `verify(module, target)` checks structure,
 types, use/ownership relations, state flow and explicit target constraints;
@@ -103,7 +117,7 @@ The Candidate semantic core needs only the following operation families:
 |---|---|
 | Control | function, call, return, block argument, branch, conditional, region yield |
 | Structured execution | `parallel`; `serial` as the canonical counted loop; `pipeline` with ordered stage subregions and dependence edges |
-| Algebraic | `reduce` with logical/index domain, state update, reducer contract, and grouping map |
+| Aggregation | `reduce` with ordered contribution domain, grouping, state update and resolved fold/tree policy; tree policies also require a compatible merge |
 | Pure values | constant, tuple/aggregate, generic scalar SSA region lifted over dimension identities, reindex, semantic `mma(a, b, c)` |
 | Addressable effects | `view(base, domain, index_map, validity)`, explicit `memory`, load, store, atomic, abstract sync |
 
@@ -111,13 +125,15 @@ This is an operation inventory, not a list of every IR class. Dimensions, layout
 anchor/frontier constraints, bindings, reducer laws, source locations, and
 remap proofs are immutable attributes or analysis/proof objects. Frontend Tile
 variables are capture bookkeeping and are promoted immediately to block
-arguments and SSA values. `k.stage()` creates pipeline subregion boundaries;
-there is no StageMarkerOp. `subview`, reshape, transpose, broadcast, slicing,
+arguments and SSA values. In the proposed region form, `k.stage()` becomes
+pipeline subregion boundaries, not a lasting executable marker. Current capture
+does use `OperationKind::STAGE`; removing it is an IR normalization extension,
+not an implemented fact. `subview`, reshape, transpose, broadcast, slicing,
 padding, and swizzle are constructors for the one view/index-map form, not
 opcodes. `Repartition` is an explicit Scheduled TileIR realization record and
 cost boundary, not Candidate value semantics.
 
-Machine TileIR adds only one parameterized operation form:
+The proposed Machine TileIR adds one parameterized operation form:
 
 ~~~text
 atom.call(catalog_id, operands, layout/effect/protocol attributes)
@@ -145,7 +161,7 @@ verified attributes.
 
 ### Forms and invariants
 
-One IR data structure has progressively stronger verified forms:
+The design gives one IR data structure progressively stronger verified forms:
 
 1. **Candidate TileIR**: logical hierarchy and semantic operations; some
    anchors, frontiers, layouts, bindings, distributions, and realizations may
@@ -155,7 +171,38 @@ One IR data structure has progressively stronger verified forms:
 3. **Machine TileIR**: atom calls, explicit realized transfers/synchronization,
    and addresses are legal for one target.
 
-Forms are verifier states, not three unrelated object models.
+These are intended verifier states, not three unrelated object models. The
+general Scheduled/Machine verification pipeline is not implemented yet.
+
+### Proposed reduction contract record
+
+The semantic record belongs on the reduction operation, not in a target-name
+switch or transient cost annotation. It contains:
+
+- the contribution domain, grouping and source order;
+- state/element types, the typed update and its operand orientation;
+- incoming seed and, when available, lift/merge and identity;
+- the resolved regrouping/permutation permission and reference fold direction;
+- arithmetic and determinism requirements, including exceptional values;
+- provenance for builtin laws, derived conditions and trusted custom contracts.
+
+Capture resolves an omitted policy to `unordered_tree`; an explicit local
+restriction takes precedence. This order-policy portion is implemented as
+`Operation::reduction_policy()`, separate from bridge-local body matching.
+`IRRewriter::set_reduction_policy` invalidates cached analyses; direct low-level
+mutation still requires the pass to invalidate them explicitly. Tree
+permission admits the registered reducer's changed evaluation order, not a
+different dtype or arbitrary approximation. Exact algebraic laws remain
+distinct from this permission. A default tree update without a compatible
+merge should be diagnosed with the alternative of an explicit strict fold by
+the proposed general contract checker. Today unmatched bodies remain serial;
+only the bounded recognized merge family is admitted to tree lowering.
+
+All bridges consume the same resolved record. Backend options enable candidate
+families; they cannot strengthen the permission. Changing a contract invalidates
+its derived placement, protocol and cost summaries. Stable immutable semantic
+data and revision-keyed analysis side tables keep this distinction transformable,
+without making a serializable attribute the only source of compiler structure.
 
 ### Essential analyses
 
@@ -210,11 +257,20 @@ reduction_state = written_inside
 next_s = Update_s(incoming_s, reduction_coord, captured_values)
 ~~~
 
-Every `reduction_state` must read its incoming definition on every contributing
-path and match a known update/merge homomorphism or an explicit contract.
-Several valid states are combined as one product reducer. A write-only outer
-Tile is not a reduction; a disjoint per-coordinate assembly belongs in
-`parallel`. An unproved recurrence belongs in `serial`.
+Capture first verifies typed reaching definitions, region state flow and the
+pure state-update boundary. Recognition of a merge is a separate obligation:
+tree policies, including the proposed default, need a compatible lift/merge
+under their arithmetic contract. An explicitly selected strict fold can retain
+a pure update without any parallel merge law. Merely reading the incoming
+state does not prove associativity; conversely, an update may ignore it on a
+path without making a strict fold structurally invalid.
+
+Independent states can form a product only with each component's permissions
+preserved; coupled states require a joint contract. Disjoint per-coordinate
+assembly belongs in `parallel`, not an inferred last-writer-wins reduction.
+General ordered effects and observable prefixes remain `serial` or scan
+semantics. This is the target contract, not a claim that current capture
+already implements these algebra and policy checks.
 
 An `ancestor_update` is legal only when `Assembly` proves an exact disjoint
 cover, proves that replicas agree, or names an explicit associative combiner.

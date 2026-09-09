@@ -700,15 +700,16 @@ void test_shared_arithmetic_preserves_ssa() {
     expect(!invalid.ok());
 }
 
-[[nodiscard]] Kernel make_row_sum(int64_t rows, int64_t columns, exec::Scope scope = exec::Scope::AUTOMATIC) {
-    auto definition = tile_kernel("metal_subgroup_sum", [scope](TensorView<const float, 2> input,
-                                                                TensorView<float, 1> output) {
+[[nodiscard]] Kernel make_row_sum(int64_t rows, int64_t columns, exec::Scope scope = exec::Scope::AUTOMATIC,
+                                  ReductionPolicy policy = reduction::unordered_tree) {
+    auto definition = tile_kernel("metal_subgroup_sum", [scope, policy](TensorView<const float, 2> input,
+                                                                        TensorView<float, 1> output) {
         auto rows = axis("rows", input.extent<0>());
         auto one = axis("one", 1);
         auto columns = axis("columns", input.extent<1>());
         for (auto &nest : parallel(shape(rows), scope)) {
             auto value = input[coord(nest.index(), 0), shape(one, columns)];
-            output(coord(nest.index()), shape(one)).store(reduce(value, columns, add));
+            output(coord(nest.index()), shape(one)).store(reduce(value, columns, add, policy));
         }
     });
     return definition.capture(tensor_shape(rows, columns), tensor_shape(rows));
@@ -894,6 +895,132 @@ void test_metal_subgroup_reduction_contract(Runtime &runtime) {
         expect(std::string_view{source.data(), source.size()}.find("simd_sum(") ==
                std::string_view::npos)
             << source;
+    }
+}
+
+void test_reduction_policy_admission(Runtime &runtime) {
+    constexpr auto rows = int64_t{3}, columns = int64_t{37};
+    for (auto policy : {reduction::unordered_tree, reduction::ordered_tree,
+                        reduction::fold_left, reduction::fold_right}) {
+        auto kernel = make_row_sum(rows, columns, exec::Scope::AUTOMATIC, policy);
+        auto native = lower(kernel.function());
+        expect(native.ok()) << native.error;
+        if (!native) { continue; }
+        auto seen = 0u;
+        tvm::tirx::PostOrderVisit(native.value->body, [&](const tvm::ffi::ObjectRef &node) {
+            if (auto loop = node.as<tvm::tirx::ForNode>()) {
+                if (auto annotation = loop->annotations.Get("luisa.tile.reduction_policy")) {
+                    auto value = annotation.value().as<tvm::IntImmNode>();
+                    expect(value != nullptr);
+                    if (value) { expect(eq(value->value, static_cast<int64_t>(policy))); }
+                    expect(loop->annotations.count("luisa.tile.contract.reduction") != 0u);
+                    seen++;
+                }
+            }
+        });
+        expect(eq(seen, 1u));
+        auto planner = PlannerOptions{};
+        planner.metal_subgroup_reductions = runtime.target() == "metal";
+        auto math = runtime.target() == "llvm" ? CpuMathBackend::ACCELERATE : CpuMathBackend::REFERENCE;
+        auto executable = runtime.build(kernel, true, false, true, true, planner, false, true,
+                                        CpuMatrixBackend::REFERENCE, math);
+        if (policy != reduction::unordered_tree && !runtime.supports_ordered_reductions()) {
+            expect(!executable.ok());
+            expect(executable.error.find("metal-precise-math-v1.patch") != luisa::string::npos) << executable.error;
+            continue;
+        }
+        expect(executable.ok()) << executable.error;
+        if (!executable.ok()) { continue; }
+        auto source = runtime.target() == "metal" ? metal_source(executable.module.value()) : executable.module.value()->InspectSource("ll");
+        auto needle = runtime.target() == "metal" ? "simd_sum(" : "call void @luisa_tile_accelerate_reduce_add_f32(";
+        expect(eq(std::string_view{source.data(), source.size()}.find(needle) != std::string_view::npos,
+                  policy == reduction::unordered_tree))
+            << source;
+        luisa::vector<float> values(rows * columns);
+        for (auto i = size_t{0}; i < values.size(); i++) { values[i] = static_cast<float>(i % 11u) * .25f; }
+        auto input = runtime.upload<float>({rows, columns}, values);
+        auto output = runtime.allocate<float>({rows});
+        (*executable.entry)(input, output);
+        auto actual = runtime.download<float>(output, rows);
+        for (auto row = int64_t{0}; row < rows; row++) {
+            auto expected = 0.0f;
+            for (auto column = int64_t{0}; column < columns; column++) { expected += values[row * columns + column]; }
+            expect(eq(actual[row], expected));
+        }
+    }
+}
+
+void test_mixed_reduction_policies(Runtime &runtime) {
+    constexpr auto rows = int64_t{3}, columns = int64_t{37};
+    auto definition = tile_kernel("mixed_reduction_policies", [&](TensorView<const float, 2> input,
+                                                                  TensorView<float, 2> output) {
+        auto one = axis("one", 1), column = axis("column", columns);
+        // A cooperative group can contain both collective and lane-local
+        // folds. Do not require the whole row-program matcher to accept both.
+        auto scope = runtime.target() == "metal" ? exec::Scope::GROUP : exec::Scope::AUTOMATIC;
+        for (auto &nest : parallel(shape(rows), scope)) {
+            auto x = input[coord(nest.index(), 0), shape(one, column)];
+            auto tree = reduce(x, column, add);
+            auto fold = reduce(x, column, add, reduction::fold_left);
+            output(coord(nest.index(), 0), shape(1, 1)).store(full<float>(shape(1, 1), tree.at(coord(0))));
+            output(coord(nest.index(), 1), shape(1, 1)).store(full<float>(shape(1, 1), fold.at(coord(0))));
+        }
+    });
+    auto kernel = definition.capture(tensor_shape(rows, columns), tensor_shape(rows, 2));
+    auto planner = PlannerOptions{};
+    planner.metal_subgroup_reductions = runtime.target() == "metal";
+    auto math = runtime.target() == "llvm" ? CpuMathBackend::ACCELERATE : CpuMathBackend::REFERENCE;
+    auto executable = runtime.build(kernel, true, false, true, false, planner, false, true,
+                                    CpuMatrixBackend::REFERENCE, math);
+    if (!runtime.supports_ordered_reductions()) {
+        expect(!executable.ok());
+        expect(executable.error.find("metal-precise-math-v1.patch") != luisa::string::npos) << executable.error;
+        return;
+    }
+    expect(executable.ok()) << executable.error;
+    if (!executable.ok()) { return; }
+    auto source = runtime.target() == "metal" ? metal_source(executable.module.value()) : executable.module.value()->InspectSource("ll");
+    auto code = std::string_view{source.data(), source.size()};
+    auto needle = runtime.target() == "metal" ? "simd_sum(" : "call void @luisa_tile_accelerate_reduce_add_f32(";
+    auto first = code.find(needle);
+    expect(first != std::string_view::npos) << source;
+    if (first != std::string_view::npos) { expect(code.find(needle, first + 1u) == std::string_view::npos) << source; }
+    luisa::vector<float> values(rows * columns, 1.0f);
+    for (auto row = int64_t{0}; row < rows; row++) {
+        values[row * columns] = 16777216.0f;
+        values[row * columns + columns - 1] = -16777216.0f;
+    }
+    auto input = runtime.upload<float>({rows, columns}, values);
+    auto output = runtime.allocate<float>({rows, 2});
+    (*executable.entry)(input, output);
+    auto actual = runtime.download<float>(output, rows * 2);
+    if (runtime.target() == "metal") {
+        // Reload the native device payload, without an in-memory source map.
+        // Its final arithmetic setting must survive serialization as well.
+        auto device_modules = 0u;
+        for (auto &&child : executable.module.value()->imports()) {
+            auto module = child.cast<tvm::ffi::Module>();
+            if (std::string_view{module->kind()} != "metal") { continue; }
+            device_modules++;
+            auto bytes = module->SaveToBytes();
+            auto restored = tvm::ffi::Function::GetGlobalRequired("ffi.Module.load_from_bytes.metal")(bytes).cast<tvm::ffi::Module>();
+            auto serialized = restored->SaveToBytes();
+            expect(std::string_view{serialized.data(), serialized.size()} == std::string_view{bytes.data(), bytes.size()});
+            // This fixture has the explicit two-buffer ABI and a single
+            // group root: grid rows, block threads (checked in its plan).
+            expect(eq(executable.plans.size(), size_t{1}));
+            if (executable.plans.size() != 1u) { continue; }
+            auto entry = restored->GetFunction("mixed_reduction_policies_kernel");
+            expect(entry.has_value());
+            if (!entry) { continue; }
+            (*entry)(input->data, output->data, rows, executable.plans.front().threads);
+            actual = runtime.download<float>(output, rows * 2);
+        }
+        expect(eq(device_modules, 1u));
+    }
+    for (auto row = int64_t{0}; row < rows; row++) {
+        expect(std::isfinite(actual[row * 2]) && actual[row * 2] >= 0.0f && actual[row * 2] <= 36.0f);
+        expect(eq(actual[row * 2 + 1], 0.0f));
     }
 }
 
@@ -1251,7 +1378,7 @@ void test_metal_cooperating_packing_proofs(Runtime &runtime) {
     if (runtime.target() != "metal") { return; }
     auto i64 = [](int64_t value) { return tvm::IntImm::Int64(value); };
     auto f32 = [](float value) { return tvm::FloatImm{tvm::PrimType::Float(32), value}; };
-    for (auto mode = 0u; mode != 6u; mode++) {
+    for (auto mode = 0u; mode != 10u; mode++) {
         auto input = tvm::tirx::decl_buffer({i64(5), i64(257)}, tvm::PrimType::Float(32), "input");
         auto output = tvm::tirx::decl_buffer({i64(5)}, tvm::PrimType::Float(32), "output");
         auto carry = tvm::tirx::decl_buffer({i64(1)}, tvm::PrimType::Float(32), "carry", "local");
@@ -1265,6 +1392,16 @@ void test_metal_cooperating_packing_proofs(Runtime &runtime) {
             tvm::tirx::BufferStore{temporary, tvm::tirx::BufferLoad{carry, {i64(0)}} + tvm::tirx::BufferLoad{input, {p - i64(2), k}}, {i64(0)}},
             tvm::tirx::BufferStore{carry, tvm::tirx::BufferLoad{temporary, {i64(0)}}, {i64(0)}}});
         auto reduction = tvm::tirx::For{k, i64(0), i64(257), tvm::tirx::ForKind::kSerial, std::move(update), {}, {{"luisa.tile.contract.reduction", i64(1)}}};
+        // Body/identity provenance alone is not numerical permission. Keep
+        // the original packing counterexamples and independently test absent
+        // permission, ordered trees, and both explicit fold directions.
+        if (mode != 6u) {
+            auto policy = mode == 7u ? reduction::ordered_tree :
+                          mode == 8u ? reduction::fold_left :
+                          mode == 9u ? reduction::fold_right :
+                                       reduction::unordered_tree;
+            reduction.CopyOnWrite()->annotations.Set("luisa.tile.reduction_policy", i64(static_cast<int64_t>(policy)));
+        }
         auto destination = mode == 4u ? input : output;
         auto indices = mode == 4u ? tvm::ffi::Array<tvm::PrimExpr>{p - i64(2), e} : tvm::ffi::Array<tvm::PrimExpr>{p - i64(2) + e};
         auto store = tvm::tirx::For{e, i64(0), i64(1), tvm::tirx::ForKind::kSerial, tvm::tirx::BufferStore{destination, tvm::tirx::BufferLoad{carry, {i64(0)}}, indices}, {}, {{"luisa.tile.independent_elements", i64(1)}}};
@@ -2265,6 +2402,8 @@ int main(int argc, char *argv[]) {
     "tile_execution_metal_subgroup_cross_entropy"_test = [&] { test_metal_subgroup_cross_entropy(runtime); };
     "tile_execution_metal_subgroup_extrema"_test = [&] { test_metal_subgroup_extrema(runtime); };
     "tile_execution_cpu_accelerate_math"_test = [&] { test_cpu_accelerate_math(runtime); };
+    "tile_execution_reduction_policy_admission"_test = [&] { test_reduction_policy_admission(runtime); };
+    "tile_execution_mixed_reduction_policies"_test = [&] { test_mixed_reduction_policies(runtime); };
     "tile_execution_scope_preserved"_test = test_scope_survives_export;
     "tile_execution_unsupported_scopes"_test = [&] { test_unsupported_scopes(runtime); };
     "tile_execution_unknown_scope"_test = [&] { test_unknown_scope(runtime); };

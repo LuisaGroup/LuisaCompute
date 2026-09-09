@@ -116,7 +116,7 @@ enum class RowOp { RMS_NORM,
 // positions are the final Q positions in the KV sequence; Hq/Hkv implements GQA.
 [[nodiscard]] inline Case attention(int64_t batches, int64_t heads, int64_t kv_heads,
                                     int64_t queries, int64_t keys, int64_t channels, int64_t value_channels,
-                                    int64_t bq = 2, int64_t bk = 3) {
+                                    int64_t bq = 2, int64_t bk = 3, bool qk_reduction = false) {
     using namespace compute::tile;
     if (batches <= 0 || heads <= 0 || kv_heads <= 0 || heads % kv_heads || queries <= 0 || keys < queries || channels <= 0 || value_channels <= 0 || bq <= 0 || bk <= 0) {
         throw std::invalid_argument{"invalid attention shape"};
@@ -140,7 +140,14 @@ enum class RowOp { RMS_NORM,
                 auto key = K.tile(coord(b0, kh, k0, 0), shape(b, h, n, d)).load();
                 auto value = V.tile(coord(b0, kh, k0, 0), shape(b, h, n, dv)).load();
                 step.stage("score");
-                auto score = mma(query, key, zeros<float>(shape(b, h, m, n))) * scale;
+                // Benchmark-only decomposition probe. Keep the public DSL and
+                // PV contraction unchanged; production scheduling must choose
+                // its mapping from the contraction's access/layout contract.
+                auto dot = [&] {
+                    if (qk_reduction) { return reduce(query * key, d, add); }
+                    return mma(query, key, zeros<float>(shape(b, h, m, n)));
+                }();
+                auto score = dot * scale;
                 auto valid = (iota(n) + k0 < keys) && (iota(n) + k0 <= iota(m) + q0 + keys - queries);
                 auto masked = ite(valid, score, -1e30f);
                 auto next_max = max(row_max, reduce(masked, n, maximum));

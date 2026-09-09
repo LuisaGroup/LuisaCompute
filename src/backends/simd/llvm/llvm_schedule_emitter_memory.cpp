@@ -46,7 +46,7 @@ namespace luisa::compute::simd::detail {
 
 [[nodiscard]] bool ScheduleEmitter::_advance_aggregate_offset(
     ::llvm::Value *&offsets, const Type *&current_type,
-    schedule::ValueId index_id) {
+    schedule::ValueId index_id, uint32_t scale) {
     auto *index_value = _source.value(index_id);
     if (index_value == nullptr || index_value->type == nullptr ||
         !index_value->type->is_scalar() ||
@@ -67,7 +67,7 @@ namespace luisa::compute::simd::detail {
             offsets = _builder.CreateAdd(
                 offsets,
                 _builder.CreateVectorSplat(
-                    _width, _builder.getInt64(child_offset)));
+                    _width, _builder.getInt64(child_offset * scale)));
         }
         current_type = _child_type(
             current_type, static_cast<uint32_t>(*index));
@@ -85,6 +85,7 @@ namespace luisa::compute::simd::detail {
     auto stride = current_type->is_vector() ?
                       current_type->element()->size() :
                       current_type->size() / current_type->dimension();
+    stride *= scale;
     if (stride != 1u) {
         extended = _builder.CreateMul(
             extended,
@@ -131,7 +132,7 @@ namespace luisa::compute::simd::detail {
     for (auto i = size_t{1u}; i < instruction.operands.size(); i++) {
         if (!_advance_aggregate_offset(
                 offsets, current_type,
-                instruction.operands[i])) {
+                instruction.operands[i], _interleaved_local_values[instruction.result->value] ? _width : 1u)) {
             return nullptr;
         }
     }
@@ -140,6 +141,103 @@ namespace luisa::compute::simd::detail {
         return nullptr;
     }
     return _local_handle(base, offsets);
+}
+
+void ScheduleEmitter::_find_interleaved_private_arrays() {
+    _interleaved_local_values.assign(_source.values().size(), 0u);
+    _contiguous_private_accesses.clear();
+    if (!_enable_interleaved_private_arrays || _width == 1u) { return; }
+    struct Use {
+        const schedule::Instruction *instruction;
+        size_t operand;
+        const schedule::BasicBlock *block;
+    };
+    std::vector<std::vector<Use>> users(_source.values().size());
+    std::vector<uint8_t> escapes(_source.values().size(), 0u);
+    for (auto &block : _source.blocks()) {
+        for (auto &instruction : block.instructions) {
+            for (size_t i = 0u; i < instruction.operands.size(); i++) {
+                users[instruction.operands[i].value].emplace_back(Use{&instruction, i, &block});
+            }
+        }
+        _for_each_assignment(block, [&](schedule::EdgeAssignment assignment) {
+            escapes[assignment.source.value] = escapes[assignment.destination.value] = 1u;
+        });
+        if (auto ret = std::get_if<schedule::ReturnTerminator>(&block.terminator); ret && ret->value) {
+            escapes[ret->value->value] = 1u;
+        }
+    }
+    for (auto &block : _source.blocks()) {
+        for (auto &allocation : block.instructions) {
+            if (allocation.opcode != schedule::Opcode::alloca || !allocation.result || _is_shared_lvalue(*allocation.result)) { continue; }
+            auto id = allocation.result->value;
+            auto type = _source.value(*allocation.result)->type;
+            if (!type || !type->is_array() || !type->element()->is_scalar() ||
+                (type->element()->size() != 4u && type->element()->size() != 8u) || escapes[id]) { continue; }
+            // A closed, typed address tree: allocation -> element GEP ->
+            // scalar load/store. Reject aggregate access, pointer arithmetic,
+            // PHIs, reference calls and all other address escapes. Thus every
+            // observable byte access participates in the same bijection:
+            //   (lane, element) -> (element * W + lane) * sizeof(T).
+            auto legal = true;
+            for (auto use : users[id]) {
+                auto gep = use.instruction;
+                if (use.operand != 0u || gep->opcode != schedule::Opcode::gep || !gep->result ||
+                    gep->operands.size() != 2u || _source.value(*gep->result)->type != type->element() || escapes[gep->result->value]) {
+                    legal = false;
+                    break;
+                }
+                for (auto access : users[gep->result->value]) {
+                    auto op = access.instruction->opcode;
+                    if (access.operand != 0u || (op != schedule::Opcode::load && op != schedule::Opcode::store)) {
+                        legal = false;
+                        break;
+                    }
+                }
+                if (!legal) { break; }
+            }
+            if (!legal) { continue; }
+            _interleaved_local_values[id] = 1u;
+            for (auto use : users[id]) {
+                auto gep = use.instruction;
+                _interleaved_local_values[gep->result->value] = 1u;
+                if (!_enable_contiguous_private_access) { continue; }
+                auto index = _source.value(gep->operands[1u]);
+                for (auto access : users[gep->result->value]) {
+                    // A cohort-uniform index can differ after suspension or
+                    // reconvergence. Admit it only at uses in the GEP's own
+                    // Schedule block. Warp-uniform indices survive epochs.
+                    if (index->value_class == schedule::ValueClass::warp_uniform ||
+                        ((index->value_class == schedule::ValueClass::cohort_uniform ||
+                          gep->cohort_uniform_operand_index == 1u) &&
+                         access.block == use.block)) {
+                        _contiguous_private_accesses.emplace(access.instruction, *allocation.result);
+                    }
+                }
+            }
+            _result.interleaved_private_arrays++;
+        }
+    }
+}
+
+[[nodiscard]] ::llvm::Value *ScheduleEmitter::_contiguous_private_address(::llvm::Value *handle, const Type *type, schedule::ValueId allocation) {
+    // For every active lane l, the admitted handle addresses
+    //   base + (q * W + l) * sizeof(T)
+    // with one q in this cohort. The allocation's immutable base dominates
+    // every use; do not reconstruct it from a masked vector of handles.
+    // Keep the GEP's saved offset (rather than re-evaluating its index), so
+    // accesses across Schedule blocks retain the original address snapshot.
+    auto base = _local_base(_builder, _local_allocations[allocation.value]);
+    auto offsets = _local_offsets(_builder, handle);
+    auto seed = _seed_lane ? _seed_lane : _safe_first_lane(_active_mask);
+    auto scalar_base = _builder.CreateExtractElement(base, _builder.getInt32(0u));
+    auto offset = _builder.CreateExtractElement(offsets, seed);
+    auto lane_bytes = _builder.CreateMul(_builder.CreateZExtOrTrunc(seed, _builder.getInt64Ty()), _builder.getInt64(type->size()));
+    offset = _builder.CreateSub(offset, lane_bytes);
+    // An empty cohort need not have a valid handle. Use the first allocated
+    // slot instead: every private slot physically contains all W lanes.
+    offset = _builder.CreateSelect(_builder.CreateOrReduce(_active_mask), offset, _builder.getInt64(0u));
+    return _builder.CreateGEP(_builder.getInt8Ty(), scalar_base, offset, "private.contiguous.address");
 }
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_local_load(
@@ -155,6 +253,17 @@ namespace luisa::compute::simd::detail {
         variable->type != result->type) {
         _fail("thread-local load has mismatched value types");
         return nullptr;
+    }
+    if (auto access = _contiguous_private_accesses.find(&instruction); access != _contiguous_private_accesses.end()) {
+        auto lanes = ::llvm::FixedVectorType::get(_data_type(result->type, false), _width);
+        _result.contiguous_private_read_count++;
+        // This closed allocation is private to this packet invocation. A
+        // common valid slot contains W readable lanes, including inactive
+        // lanes. Select away their values; no external-buffer overread or
+        // widened shared-memory effect is admitted by this realization.
+        auto loaded = _builder.CreateAlignedLoad(lanes, _contiguous_private_address(handle, result->type, access->second),
+                                                 ::llvm::Align{result->type->alignment()}, "private.contiguous.load");
+        return _builder.CreateSelect(_active_mask, loaded, ::llvm::Constant::getNullValue(lanes));
     }
     return _gather_data(
         _local_base(_builder, handle),
@@ -178,10 +287,17 @@ void ScheduleEmitter::_local_store(const schedule::Instruction &instruction) {
         _fail("thread-local store has mismatched value types");
         return;
     }
-    _scatter_data(
-        _local_base(_builder, handle),
-        _local_offsets(_builder, handle),
-        written_value->type, written);
+    if (auto access = _contiguous_private_accesses.find(&instruction); access != _contiguous_private_accesses.end()) {
+        _result.contiguous_private_write_count++;
+        auto address = _contiguous_private_address(handle, written_value->type, access->second);
+        auto alignment = ::llvm::Align{written_value->type->alignment()};
+        auto previous = _builder.CreateAlignedLoad(written->getType(), address, alignment, "private.contiguous.preserve");
+        // Preserve every inactive lane bit-for-bit. There are no concurrent
+        // observers or escaping aliases of this packet-private allocation.
+        _builder.CreateAlignedStore(_builder.CreateSelect(_active_mask, written, previous), address, alignment);
+    } else {
+        _scatter_data(_local_base(_builder, handle), _local_offsets(_builder, handle), written_value->type, written);
+    }
     // A proven ray-query sidecar becomes valid only when the pointer value is
     // actually installed in its thread-local owner. Construction may precede
     // this masked store, so publishing validity in _ray_query_create would let

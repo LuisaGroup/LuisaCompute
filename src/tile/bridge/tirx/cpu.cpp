@@ -188,7 +188,7 @@ void flatten_sequence(
     auto minimum = loop->min.as<tvm::IntImmNode>();
     auto extent = loop->extent.as<tvm::IntImmNode>();
     auto step = loop->step ? loop->step.value().as<tvm::IntImmNode>() : nullptr;
-    if (kind == nullptr ||
+    if (!permits_unordered_reduction(loop.get()) || kind == nullptr ||
         (kind->value != reduction_add_contract && kind->value != reduction_max_contract &&
          kind->value != reduction_min_contract) ||
         loop->kind != tvm::tirx::ForKind::kSerial || loop->thread_binding ||
@@ -370,9 +370,7 @@ protected:
                             "luisa_tile_accelerate_reduce_max_f32" :
                             "luisa_tile_accelerate_reduce_min_f32";
             return tvm::tirx::Evaluate{tvm::Call{
-                tvm::PrimType::Void(), tvm::tirx::builtin::call_extern(),
-                {tvm::tirx::StringImm{name}, std::move(source), std::move(output),
-                 tvm::IntImm::Int64(reduction->element_count)}}};
+                tvm::PrimType::Void(), tvm::tirx::builtin::call_extern(), {tvm::tirx::StringImm{name}, std::move(source), std::move(output), tvm::IntImm::Int64(reduction->element_count)}}};
         }
         auto matched = match_vector_exp_map(loop);
         if (!matched) { return StmtMutator::VisitStmt_(node); }
@@ -424,7 +422,8 @@ protected:
 [[nodiscard]] tvm::PrimExpr call_packed(tvm::ffi::Array<tvm::Expr> arguments) {
     return tvm::Call{
         tvm::PrimType::Int(32), tvm::tirx::builtin::tvm_call_packed(),
-        std::move(arguments)}.as_or_throw<tvm::PrimExpr>();
+        std::move(arguments)}
+        .as_or_throw<tvm::PrimExpr>();
 }
 
 [[nodiscard]] int64_t required_positive_attribute(

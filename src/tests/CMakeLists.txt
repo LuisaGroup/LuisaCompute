@@ -1063,6 +1063,7 @@ luisa_compute_add_test(test_coro_wavefront_auxiliary_admission
         unit/coro/test_coro_wavefront_auxiliary_admission.cpp)
 luisa_compute_add_test(test_coro_radix_sort     unit/coro/test_coro_radix_sort.cpp)
 luisa_compute_add_test(test_coro_all_schedulers unit/coro/test_coro_all_schedulers.cpp)
+luisa_compute_add_test(test_coro_packed_word unit/coro/test_coro_packed_word.cpp)
 foreach (_target test_coro_wavefront test_coro_all_schedulers)
     target_compile_options(${_target} PRIVATE
             $<$<CXX_COMPILER_ID:MSVC>:/bigobj>)

@@ -1,6 +1,7 @@
 #include <exception>
 
 #include <luisa/core/stl/format.h>
+#include <luisa/tile/analysis.h>
 #include <luisa/tile/bridge/xir/lower.h>
 #include <luisa/tile/bridge/xir/planner.h>
 #include <luisa/tile/runtime.h>
@@ -26,6 +27,12 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
             return ShaderCreationInfo::make_invalid();
         }
         auto planner_options = tile_options.xir ? *tile_options.xir : tile::bridge::xir::PlannerOptions{};
+        planner_options.enable_load_reduction_fusion |= detail::env_flag("LUISA_SIMD_ENABLE_LOAD_REDUCTION_FUSION");
+        planner_options.enable_load_reduction_fusion &= !detail::env_flag("LUISA_SIMD_DISABLE_LOAD_REDUCTION_FUSION");
+        planner_options.enable_pointwise_fusion |= detail::env_flag("LUISA_SIMD_ENABLE_POINTWISE_FUSION");
+        planner_options.enable_pointwise_fusion &= !detail::env_flag("LUISA_SIMD_DISABLE_POINTWISE_FUSION");
+        planner_options.enable_expression_reduction_fusion |= detail::env_flag("LUISA_SIMD_ENABLE_EXPRESSION_REDUCTION_FUSION");
+        planner_options.enable_expression_reduction_fusion &= !detail::env_flag("LUISA_SIMD_DISABLE_EXPRESSION_REDUCTION_FUSION");
         if (tile_options.threads_per_group != 0u) {
             if (planner_options.block_size != 0u && planner_options.block_size != tile_options.threads_per_group) {
                 metadata.error = "Conflicting XIR and Runtime block width constraints";
@@ -40,16 +47,30 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
         }
         auto &plan = planned.selected;
         auto threads = plan.block_size;
-        auto lowered = tile::bridge::xir::lower(kernel, {.block_size = threads, .root_axis_order = plan.root_axis_order});
+        auto lowered = tile::bridge::xir::lower(kernel, {.block_size = threads,
+                                                         .root_axis_order = plan.root_axis_order,
+                                                         .max_local_bytes = static_cast<uint32_t>(simd_max_private_workspace_bytes / _warp_width),
+                                                         .max_unrolled_tile_elements = planner_options.max_unrolled_tile_elements,
+                                                         .reduction_partitions = planner_options.reduction_partitions,
+                                                         .local_lanes = plan.local_lanes,
+                                                         .enable_load_reduction_fusion = planner_options.enable_load_reduction_fusion,
+                                                         .enable_pointwise_fusion = planner_options.enable_pointwise_fusion,
+                                                         .enable_expression_reduction_fusion = planner_options.enable_expression_reduction_fusion});
         if (!lowered) {
             metadata.error = std::move(lowered.error);
             return ShaderCreationInfo::make_invalid();
         }
+        if (lowered.required_packet_width != 0u && lowered.required_packet_width != _warp_width) {
+            metadata.error = "Tile XIR packet-width contract differs from the SIMD target";
+            return ShaderCreationInfo::make_invalid();
+        }
+        auto ordered_reduction = tile::OrderedReductionAnalysis::run(kernel);
+        auto enable_fast_math = option.enable_fast_math && !ordered_reduction;
         // The bridge has already produced plain CFG/SSA. Reuse the shared
         // SSA factory; do not rerun AST destructuring/inlining or invent a
         // different pass list. Resource reads are not declared noalias.
         if (!detail::env_flag("LUISA_SIMD_DISABLE_TILE_XIR_CLEANUP")) {
-            auto cleanup = xir::create_ssa_optimization_pipeline({.enable_fast_math = option.enable_fast_math});
+            auto cleanup = xir::create_ssa_optimization_pipeline({.enable_fast_math = enable_fast_math});
             if (!cleanup.run(lowered.module.get()).succeeded()) {
                 metadata.error = "Tile XIR SSA cleanup failed";
                 return ShaderCreationInfo::make_invalid();
@@ -68,11 +89,13 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
         }
         auto packet_batch = _warp_width != 1u && threads > _warp_width && !detail::env_flag("LUISA_SIMD_DISABLE_PACKET_BATCH_ENTRY");
         auto block_batch = packet_batch && !detail::env_flag("LUISA_SIMD_DISABLE_BLOCK_BATCH_ENTRY");
-        auto compiled = compile_simd_kernel(lowered.function, _warp_width, kernel.name(), option.enable_fast_math,
+        auto compiled = compile_simd_kernel(lowered.function, _warp_width, kernel.name(), enable_fast_math,
                                             !detail::env_flag("LUISA_SIMD_DISABLE_UNIFORM_BUFFER_BROADCAST"),
                                             !detail::env_flag("LUISA_SIMD_DISABLE_LANE_AFFINE_BUFFER"),
                                             std::getenv("LUISA_SIMD_DUMP_ASSEMBLY_DIR") != nullptr,
-                                            _thread_pool->worker_count(), packet_batch, block_batch, true);
+                                            _thread_pool->worker_count(), packet_batch, block_batch, true,
+                                            64u * 1024u, !detail::env_flag("LUISA_SIMD_DISABLE_INTERLEAVED_PRIVATE_ARRAYS"),
+                                            !detail::env_flag("LUISA_SIMD_DISABLE_CONTIGUOUS_PRIVATE_ACCESS"));
         if (!compiled.succeeded()) {
             for (auto &error : compiled.diagnostics) { metadata.error.append(error).append("\n"); }
             return ShaderCreationInfo::make_invalid();
@@ -93,12 +116,31 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
             metadata.realization.append(luisa::format("{}", plan.root_axis_order[i]));
         }
         metadata.realization.append("]");
+        metadata.realization.append(luisa::format("; local_lanes={}", plan.local_lanes));
+        metadata.realization.append(luisa::format("; blocks_per_task={}; task_dispatch_cost={:.3f}; worker_activation_cost={:.3f}; custom_cost_policy={}",
+                                                  plan.blocks_per_task, plan.cost.task_dispatch_work, plan.cost.activation_work, planner_options.cost_policy != nullptr));
+        metadata.realization.append(luisa::format("; max_unrolled_tile_elements={}", planner_options.max_unrolled_tile_elements));
+        metadata.realization.append(luisa::format("; unordered_reduction_partitions={}", planner_options.reduction_partitions));
+        metadata.realization.append(luisa::format("; load_reduction_fusion={}; fused_reduction_loads={}; elided_load_snapshots={}",
+                                                  planner_options.enable_load_reduction_fusion, lowered.fused_reduction_loads, lowered.elided_load_snapshots));
+        metadata.realization.append(luisa::format("; interleaved_private_arrays={}", compiled.interleaved_private_arrays));
+        metadata.realization.append(luisa::format("; expression_reduction_fusion={}; fused_reduction_expressions={}; elided_expression_snapshots={}",
+                                                  planner_options.enable_expression_reduction_fusion, lowered.fused_reduction_expressions, lowered.elided_expression_snapshots));
+        metadata.realization.append(luisa::format("; pointwise_fusion={}; fused_pointwise_regions={}; fused_pointwise_loads={}; fused_pointwise_stores={}; pointwise_alias_checks={}",
+                                                  planner_options.enable_pointwise_fusion, lowered.fused_pointwise_regions, lowered.fused_pointwise_loads,
+                                                  lowered.fused_pointwise_stores, lowered.pointwise_alias_checks));
+        metadata.realization.append(luisa::format("; contiguous_private_reads={}; contiguous_private_writes={}",
+                                                  compiled.contiguous_private_read_count, compiled.contiguous_private_write_count));
+        metadata.realization.append(luisa::format("; private_workspace_bytes={}", compiled.private_workspace_size));
+        metadata.realization.append(luisa::format("; full_packet_specializations={}; full_packet_cloned_instructions={}",
+                                                  compiled.full_packet_specialization_count, compiled.full_packet_cloned_instruction_count));
+        metadata.realization.append(luisa::format("; fast_math={}; ordered_reduction={}", enable_fast_math, ordered_reduction));
         auto &arguments = kernel.body().block(0u)->arguments();
         for (size_t i = 0u; i < arguments.size(); i++) {
             metadata.arguments.emplace_back(tile::KernelArgument{arguments[i]->type().scalar_type(), lowered.argument_sizes_bytes[i], lowered.argument_usages[i]});
         }
         auto block_size = make_uint3(threads, 1u, 1u);
-        auto shader = luisa::new_with_allocator<SIMDShader>(std::move(compiled), block_size, std::move(lowered.argument_usages));
+        auto shader = luisa::new_with_allocator<SIMDShader>(std::move(compiled), block_size, std::move(lowered.argument_usages), plan.blocks_per_task);
         ShaderCreationInfo info;
         info.handle = reinterpret_cast<uint64_t>(shader);
         info.native_handle = shader->native_handle();

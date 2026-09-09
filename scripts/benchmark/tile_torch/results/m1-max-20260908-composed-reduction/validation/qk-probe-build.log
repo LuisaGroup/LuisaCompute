@@ -1,0 +1,68 @@
+[0/2] Re-checking globbed directories...
+[1/18] Embedding metal built-in sources...
+[2/12] Building CXX object src/tests/CMakeFiles/benchmark_tile_native.dir/benchmark/benchmark_tile_native.cpp.o
+[3/12] Building CXX object src/tests/CMakeFiles/benchmark_tile_xir.dir/benchmark/benchmark_tile_xir.cpp.o
+[4/12] Linking CXX executable bin/benchmark_tile_native
+[5/12] Linking CXX executable bin/benchmark_tile_xir
+[6/12] Building CXX object src/tests/CMakeFiles/test_tile_xir_llm.dir/unit/tile/bridge/test_xir_llm.cpp.o
+[7/12] Linking CXX executable bin/test_tile_xir_llm
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[8/12] Building CXX object src/tests/CMakeFiles/benchmark_tile_tirx.dir/benchmark/benchmark_tile_tirx.cpp.o
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/benchmark/benchmark_tile_tirx.cpp:4:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/./common/tile_tirx_test_utils.h:21:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/tile/bridge/tirx/lower.h:10:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/tile/ir.h:8:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/managed_ilist.h:4:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/concepts.h:7:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/basic_types.h:7:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/basic_traits.h:9:
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/ext/half/include/half.hpp:2391:65: warning: 'denorm_present' is deprecated [-Wdeprecated-declarations]
+ 2391 |     static HALF_CONSTEXPR_CONST float_denorm_style has_denorm = denorm_present;
+      |                                                                 ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/limits:130:6: note: 'float_denorm_style' has been explicitly marked deprecated here
+  130 | enum _LIBCPP_DEPRECATED_IN_CXX23 float_denorm_style {
+      |      ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:593:41: note: expanded from macro '_LIBCPP_DEPRECATED_IN_CXX23'
+  593 | #    define _LIBCPP_DEPRECATED_IN_CXX23 _LIBCPP_DEPRECATED
+      |                                         ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:554:49: note: expanded from macro '_LIBCPP_DEPRECATED'
+  554 | #      define _LIBCPP_DEPRECATED __attribute__((__deprecated__))
+      |                                                 ^
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/benchmark/benchmark_tile_tirx.cpp:4:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/./common/tile_tirx_test_utils.h:21:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/tile/bridge/tirx/lower.h:10:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/tile/ir.h:8:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/managed_ilist.h:4:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/concepts.h:7:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/basic_types.h:7:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/basic_traits.h:9:
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/ext/half/include/half.hpp:2391:33: warning: 'float_denorm_style' is deprecated [-Wdeprecated-declarations]
+ 2391 |     static HALF_CONSTEXPR_CONST float_denorm_style has_denorm = denorm_present;
+      |                                 ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/limits:130:6: note: 'float_denorm_style' has been explicitly marked deprecated here
+  130 | enum _LIBCPP_DEPRECATED_IN_CXX23 float_denorm_style {
+      |      ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:593:41: note: expanded from macro '_LIBCPP_DEPRECATED_IN_CXX23'
+  593 | #    define _LIBCPP_DEPRECATED_IN_CXX23 _LIBCPP_DEPRECATED
+      |                                         ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:554:49: note: expanded from macro '_LIBCPP_DEPRECATED'
+  554 | #      define _LIBCPP_DEPRECATED __attribute__((__deprecated__))
+      |                                                 ^
+2 warnings generated.
+[9/12] Linking CXX executable bin/benchmark_tile_tirx
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[10/12] Building CXX object src/tests/CMakeFiles/test_tile_tirx_matrix.dir/unit/tile/bridge/test_tirx_matrix.cpp.o
+[11/12] Linking CXX executable bin/test_tile_tirx_matrix
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0

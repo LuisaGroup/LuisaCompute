@@ -1,0 +1,122 @@
+{
+  "started_unix": 1788939078.5645921,
+  "code_commit": "2cfc804932a014cd7a07eb3896166d53db32b3eb",
+  "runs": [
+    {
+      "name": "doxygen",
+      "command": [
+        "doxygen",
+        "docs/Doxyfile"
+      ],
+      "log": "docs-v3-doxygen.log",
+      "started_unix": 1788939078.565421,
+      "exit_code": 0,
+      "finished_unix": 1788939104.208925,
+      "log_sha256": "3fa8e02bef18774759ea57bf724d72def7fac7e2d38ce206ba87072834364abd"
+    },
+    {
+      "name": "sphinx",
+      "command": [
+        "uv",
+        "run",
+        "--offline",
+        "--no-project",
+        "--python",
+        "3.13",
+        "--with",
+        "sphinx",
+        "--with",
+        "sphinx-rtd-theme",
+        "--with",
+        "myst-parser",
+        "--with",
+        "breathe",
+        "sphinx-build",
+        "-b",
+        "html",
+        "-W",
+        "--keep-going",
+        "docs",
+        "/private/tmp/luisa-packet-inline.UY1lIE/docs-html-v3"
+      ],
+      "log": "docs-v3-sphinx.log",
+      "started_unix": 1788939104.214387,
+      "exit_code": 0,
+      "finished_unix": 1788939180.20342,
+      "log_sha256": "2703ad983c03c45acaa593a2a678b2e41537ee049c4ec53ae829d78c1fd97fc6"
+    },
+    {
+      "name": "links",
+      "command": [
+        "uv",
+        "run",
+        "--offline",
+        "--no-project",
+        "--python",
+        "3.13",
+        "--with",
+        "sphinx",
+        "--with",
+        "sphinx-rtd-theme",
+        "--with",
+        "myst-parser",
+        "--with",
+        "breathe",
+        "python",
+        "scripts/check_docs.py",
+        "/private/tmp/luisa-packet-inline.UY1lIE/docs-html-v3"
+      ],
+      "log": "docs-v3-links.log",
+      "started_unix": 1788939180.2050612,
+      "exit_code": 0,
+      "finished_unix": 1788939180.904234,
+      "log_sha256": "40bedf079569262fb4c9a72f256477f3dd988d616f33d9078ee238dde0570e78"
+    }
+  ],
+  "previous_attempts": [
+    {
+      "started_unix": 1788938757.865622,
+      "code_commit": "2cfc804932a014cd7a07eb3896166d53db32b3eb",
+      "runs": [
+        {
+          "name": "doxygen",
+          "command": [
+            "doxygen",
+            "docs/Doxyfile"
+          ],
+          "log": "docs-v2-doxygen.log",
+          "started_unix": 1788938757.866338,
+          "exit_code": -10,
+          "finished_unix": 1788938759.4443069,
+          "log_sha256": "258eab63e3ff71376eee8801305098560312aebc7b010b2fc7237dbd46ab28cf"
+        }
+      ],
+      "source_sha256": {
+        "docs/Doxyfile": "48ab0698d3a41305fc7255a9f8543f585f4372bc78c04dec05c7cf16e1ad5ede",
+        "docs/conf.py": "b64bf476e090f9c51b92f16cccba82ed9e80a72627d5ae9fb29642dd817d6d1e",
+        "docs/source/performance/tile/index.md": "17fb3c9d94845c7253f67bd7323a90a6ec1cdfe3d8f850e25cfcd9bd94d9222e",
+        "docs/source/performance/tile/results.md": "fe01e50242938afce604b707b11e12ef98ce74aa3cd5519588c3afe1a652c819",
+        "docs/source/performance/tile/validation.md": "ce53ba3bd26ca689d8c8db27dc5312bf7578c34dbcf016b0d239e65c40ea60f1",
+        "scripts/benchmark/tile_torch/results/m1-max-20260909-native-codegen-probes/notes.md": "f42008be50a6353bb0961ceda46ad8715e6789b3a69e089988b279d81bb3005e",
+        "scripts/benchmark/tile_torch/results/m1-max-20260909-native-codegen-probes/tables.md": "2710fa4ec5148478a5e710093c1fe45c5a49ab65e30757537659530283c0be07",
+        "scripts/benchmark/tile_torch/results/m1-max-20260909-native-codegen-probes/freeze.py": "2595b52d186f7d0aa9c511305912706cb4af67824dda5c84e099c332a337d825",
+        "scripts/benchmark/tile_torch/results/m1-max-20260909-native-codegen-probes/provenance.json": "0990441550960ffae53d8acf9d3d9359b65e972f7a5506737cde458ccf24b40c"
+      }
+    }
+  ],
+  "retry_scope": "Unchanged Doxyfile and input. Previous Doxygen 1.18.0 run crashed with SIGBUS in commentscanYYlex; retained here, not counted as success. No input exclusions or warning relaxation.",
+  "source_sha256": {
+    "docs/Doxyfile": "48ab0698d3a41305fc7255a9f8543f585f4372bc78c04dec05c7cf16e1ad5ede",
+    "docs/conf.py": "b64bf476e090f9c51b92f16cccba82ed9e80a72627d5ae9fb29642dd817d6d1e",
+    "docs/source/performance/tile/index.md": "17fb3c9d94845c7253f67bd7323a90a6ec1cdfe3d8f850e25cfcd9bd94d9222e",
+    "docs/source/performance/tile/results.md": "fe01e50242938afce604b707b11e12ef98ce74aa3cd5519588c3afe1a652c819",
+    "docs/source/performance/tile/validation.md": "ce53ba3bd26ca689d8c8db27dc5312bf7578c34dbcf016b0d239e65c40ea60f1",
+    "scripts/benchmark/tile_torch/results/m1-max-20260909-native-codegen-probes/notes.md": "f42008be50a6353bb0961ceda46ad8715e6789b3a69e089988b279d81bb3005e",
+    "scripts/benchmark/tile_torch/results/m1-max-20260909-native-codegen-probes/tables.md": "2710fa4ec5148478a5e710093c1fe45c5a49ab65e30757537659530283c0be07",
+    "scripts/benchmark/tile_torch/results/m1-max-20260909-native-codegen-probes/freeze.py": "2595b52d186f7d0aa9c511305912706cb4af67824dda5c84e099c332a337d825",
+    "scripts/benchmark/tile_torch/results/m1-max-20260909-native-codegen-probes/provenance.json": "0990441550960ffae53d8acf9d3d9359b65e972f7a5506737cde458ccf24b40c"
+  },
+  "source_unchanged": true,
+  "passed": true,
+  "finished_unix": 1788939180.9066272
+}

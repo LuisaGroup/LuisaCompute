@@ -7,6 +7,10 @@ proofs live in the [language reference](../../tile/design.md); the
 [compiler index](index.md) and [implementation coverage](../../performance/tile/implementation.md)
 separate realized behavior from the remaining design.
 
+```{table} Architecture decisions
+:class: design-table
+:name: architecture-decision-table
+
 | Question | Decision | Consequence |
 |---|---|---|
 | Programming model | Execution structure first, not an algorithm graph with a schedule attached afterwards | Lexical Nest structure exists before target mapping; operations inherit anchor/frontier from it |
@@ -16,13 +20,14 @@ separate realized behavior from the remaining design.
 | Layout algebra | One typed mixed-radix/index-map composition algebra for execution binding, value distribution, views, addresses and atom operands | Domain/codomain and proof obligations prevent composing unrelated coordinate spaces; representability is broader than any one emitter |
 | Execution versus memory | Execution hierarchy chooses participants; resources attach independently to an owner prefix and access map | Several differently laid-out memories may serve one Nest; memory kinds are capabilities, not a fake total hierarchy |
 | Pipeline | A temporal producer/consumer Nest with lexical stage cuts and dependence distances | It may organize participant specialization, overlap and versions, but a stage name alone does not promise async hardware |
-| Reduction | An algebraic Nest with domain, grouping, identity/update/merge and numerical policy | Serial fold, subgroup tree, Welford and tuple states are realizations of one semantic contract, not unrelated source constructs |
+| Reduction | One aggregation Nest; `unordered_tree` by default, explicit ordered-tree or left/right-fold restrictions | Tree permission needs a compatible merge, not a new primitive or a backend-specific numerical switch; strict folds do not require merge laws |
 | Tile SSA versus `Memory` | Preserve semantic sharing; plan retain/recompute/materialize per target. Manual `Memory` means stable addressable identity | Compiler stripes/registers/workspace do not leak into ordinary kernels; manual writes always use `.store()` |
 | TileIR | Thin, typed, mutable SSA/region IR with managed intrusive ownership/use lists and analyses | It is transformable like XIR/LLVM, not a SPIR-V-style serialization schema and not an MLIR dependency |
 | Backend boundary | Public `tile::compile(device, TileIR)` calls the optional backend `DeviceInterface::create_tile_kernel` factory, which selects native lowering or `tile/bridge/{tirx,xir}` | TIRx and XIR remain comparable bootstrap paths while Metal/CUDA/CPU keep target-specific bindings and atoms |
 | Planning | Solve binding `B`, distribution `D`, atom `A`, resources `R` and schedule `Theta` under hard proofs, then rank | Enumeration/Pareto DP are implemented for bounded families; MILP, CP-SAT, beam or annealing are optional search engines, never legality oracles |
 | Autotuning | Ordinary concrete host configurations are recaptured and JIT-compiled as a finite product | No capture-once super-kernel is required; every candidate and the fresh winner receive the full correctness oracle |
 | Machine TileIR | Add it only when several backends/passes need a common scheduled atom/resource/protocol form | Current bridge-local plans remain honest stepping stones; no premature backend instruction serialization |
+```
 
 “Layout completeness” therefore has three separate meanings. The algebra is
 closed over the admitted typed finite maps and can embed the CuTe-style
@@ -30,6 +35,66 @@ mixed-radix constructions used here; proof procedures intentionally return
 unknown outside their decidable fragments; emitters support smaller target
 subsets and fail closed. A complete representation never licenses an
 unsupported lowering.
+
+## Design review checkpoint: September 7, 2026
+
+The [detailed Chinese research and implementation review](related-work.md)
+informs the following decisions. It does not replace the language reference or
+constitute a completed proof. Execution-first means a flexible structured
+semantic model, with the compiler solving its realizable space/time resource
+mapping; it does not freeze the source tree into hardware levels.
+
+The documentation checkpoint resolves the reduction-policy contradiction and
+separates implemented IR from extension contracts. **The chosen source default
+is unordered tree; at that checkpoint the implementation still used a backend opt-in flag.**
+Changing that behavior needs an explicit implementation migration, not a new
+cost coefficient. This checkpoint changes documentation only: it does not
+complete or certify the existing uncommitted compiler changes, and it adds no
+kernel performance measurement.
+
+```{table} Next implementation milestones and acceptance criteria
+:class: design-table
+:name: design-review-milestones
+
+| Next milestone | Acceptance evidence |
+|---|---|
+| Per-operation reduction semantics | Capture resolves the default and explicit restrictions; all bridges preserve them; mixed-policy and nonassociative fold tests |
+| Checked realization interfaces | Contribution coverage, boundary values/distributions, participants and ready/release obligations survive rewriting and emission |
+| Broader candidate families | Equivalent source variants retain supported matrix/reduction candidates; within-Tile SIMD decomposition is represented, not just rescored |
+| Compositional planning | Original/materialized/resident alternatives compete with explicit conversion and peak-live-resource costs; small cases checked against bounded enumeration |
+| Calibrated generalization | Held-out shapes/operators, equal numerical permissions and budgets, device versus dispatch timing, regressions and regret reported separately |
+```
+
+The semantic counterexample set must include: left/right subtraction folds;
+associative but noncommutative merges; FP32-sensitive regrouping; nonidentity
+seeds; empty/masked domains; NaN/signed-zero/ties; mixed strict/default reductions;
+replicated layouts; and one producer with two in-flight consumers sharing a
+ring slot. These are planned acceptance criteria, not a list of tests already
+passed. General Machine TileIR, sibling fusion and asynchronous protocols remain
+extensions rather than prerequisites for every initial compiler change.
+
+## Reduction implementation follow-up: September 7, 2026
+
+The first milestone now has a typed implementation: `ReductionPolicy` is
+resolved on each REDUCE, with an unordered-tree default and explicit ordered
+tree / left-fold / right-fold policies. TIRx and XIR preserve the restrictions;
+the current collective and array-provider families require unordered-tree
+permission. Ordered trees and general folds retain serial realizations.
+
+Final compilation is part of this contract. SIMD and Metal Runtime disable
+kernel-wide fast math when order matters, and the raw TIRx LLVM target cannot
+override it with global fast-math flags. `DeviceArtifact` carries the required
+arithmetic mode beside its source/ABI. TVM's own Metal runtime requires the
+optional native precise-math extension; missing support fails explicitly.
+This does not disable legal collectives for another unordered operation.
+
+Composed-group analysis now accounts for complete-subgroup participation of
+an admitted reduction output. This repairs a reference-binding gap; it is
+not a calibrated mixed-phase cost model. General merge-law checking,
+ordered-tree emission and the broader semantic counterexample set above
+remain incomplete. See the Chinese review's implementation follow-up and
+[coverage](../../performance/tile/implementation.md) for remaining work. No
+new kernel-performance measurement accompanies this semantic migration.
 
 ## Original design checklist
 

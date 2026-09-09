@@ -17,11 +17,11 @@ namespace {
     return condition;
 }
 
-#define CHECK(EXPR)                                                           \
-    do {                                                                      \
-        if (!check(static_cast<bool>(EXPR), #EXPR, __FILE__, __LINE__)) {     \
-            return false;                                                     \
-        }                                                                     \
+#define CHECK(EXPR)                                                       \
+    do {                                                                  \
+        if (!check(static_cast<bool>(EXPR), #EXPR, __FILE__, __LINE__)) { \
+            return false;                                                 \
+        }                                                                 \
     } while (false)
 
 [[nodiscard]] bool contains_error(const VerificationResult &result,
@@ -267,6 +267,26 @@ namespace {
     return true;
 }
 
+[[nodiscard]] bool test_cohort_gep_annotation() {
+    Function function{"cohort_gep"};
+    auto entry = function.add_block("entry");
+    function.set_entry(entry);
+    auto base = function.add_value(ValueClass::varying, nullptr, ValueOrigin::parameter);
+    auto index = function.add_value(ValueClass::varying, nullptr, ValueOrigin::parameter);
+    function.block(entry)->instructions.emplace_back(Instruction{.opcode = Opcode::gep, .operands = {base, index}, .cohort_uniform_operand_index = 1u});
+    function.block(entry)->terminator = ReturnTerminator{};
+    CHECK(verify(function).succeeded());
+    auto &instruction = function.block(entry)->instructions.front();
+    instruction.cohort_uniform_operand_index = 0u;
+    CHECK(contains_error(verify(function), "not its base"));
+    instruction.cohort_uniform_operand_index = 2u;
+    CHECK(contains_error(verify(function), "out of range"));
+    instruction.cohort_uniform_operand_index = 1u;
+    instruction.opcode = Opcode::store;
+    CHECK(contains_error(verify(function), "does not support"));
+    return true;
+}
+
 [[nodiscard]] bool test_invalid_width() {
     auto function = make_diamond(129u);
     auto result = verify(function);
@@ -321,6 +341,7 @@ int main() {
         bool (*run)();
     };
     constexpr Test tests[]{
+        {"cohort GEP annotation", &test_cohort_gep_annotation},
         {"valid diamond", &test_valid_diamond},
         {"symbolic width", &test_symbolic_width},
         {"valid loop", &test_valid_loop},

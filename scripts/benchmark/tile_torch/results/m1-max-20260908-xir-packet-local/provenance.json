@@ -1,0 +1,30 @@
+{
+  "base_source": "f5daf25e6",
+  "helper_checkpoint": "db52dbc59",
+  "overlay_base": "3b96c263d",
+  "previous_checkpoint": "3df09347e",
+  "tested_source_sha256": {
+    "include/luisa/tile/bridge/xir/lower.h": "41c122fcc227927189b2f9df6033bc9e0c11dd2cdd395891ba5dac9e4b72160a",
+    "include/luisa/tile/bridge/xir/planner.h": "85e34435edb19cdff358889ac1243fc55c10701c7efeb36d845c362e28b037f6",
+    "src/tile/bridge/xir/lower.cpp": "58c8965c636d71c8d8cbb8e08e8b426232bcdb1fb3c6f853734872a0531ff2b6",
+    "src/tile/bridge/xir/planner.cpp": "5681668956fccab5cf0315c09be0bba2e17f1acab60a90f3fddd9e58b0f2fe91",
+    "src/tile/bridge/xir/representation.h": "e4b2c60f193c961702bf299e21facf8e190f07c2a79aab662044a02db12b004f",
+    "src/backends/simd/runtime/simd_tile.cpp": "43c61b5157c8fdc052e547e37f60d15e4b134063c5779d9341b5e8df339fca68",
+    "src/backends/simd/runtime/simd_shader.cpp": "47473d6d270dbcff01a474048840a22f854e5276f0eea818b5fffd19de5c4619",
+    "src/backends/simd/simd_compiler.cpp": "2149c395892f38febe90f41f2d2d79a35c500cb523f7292aae6f085e9cc53896",
+    "src/backends/simd/simd_compiler.h": "f8c32470560b54a96720bd730cd94cf774d696c445e692308d5ab1254db4c4df",
+    "src/backends/simd/llvm/llvm_schedule_codegen.h": "3e8e9fe3140f18459401e73a07d7d315a394d27aff1749ea8aa60beeb3c88924",
+    "src/backends/simd/llvm/llvm_schedule_codegen.cpp": "f3e5668786b47b40aa7dc7cfed2d7680c2bc455da429a3a5f0c626caba415292",
+    "src/backends/simd/llvm/llvm_schedule_emitter.h": "b0ca5a7ab68bb38b75bf45626a29bbb44a526c044576630b81fba72aae686ae0",
+    "src/backends/simd/llvm/llvm_schedule_emitter.cpp": "4efa889ec387bd2e93101b7aeb9fd4390675a89760111e16d53c567fc5a39f54",
+    "src/backends/simd/llvm/llvm_schedule_emitter_control.cpp": "83a3390d8a03eba31e7c1e581552a67d0707c4ab86ed20239f6b63fb5cfe93f0",
+    "src/backends/simd/llvm/llvm_schedule_emitter_memory.cpp": "47cabd7fa695e64dff4b8d0a77a37fa5b6b3097c481725ce4674d1b134dafc7b",
+    "src/tests/unit/tile/bridge/test_xir.cpp": "874d083d92482de83d6e911c2e99a0a9ff75d5395157654a8f44e667a31d34fb",
+    "src/tests/unit/tile/bridge/test_xir_runtime.cpp": "97d86c42b9d507b82dfef21dd6c13af83ca5da196e194bdb66e61c9ec11aaea4",
+    "src/tests/unit/tile/bridge/test_xir_llm.cpp": "68d6167c07a8ab66290ed1745d31bb901a1cac1334ab0cf6842a51e6a9b9417d",
+    "src/tests/unit/simd/test_llvm_schedule_codegen.cpp": "772f9ed845bdf467c0996ec6663f881ccc63af7a3c0f6cd0ec9429b57969c7bb",
+    "src/tests/benchmark/benchmark_tile_xir.cpp": "0f8b7e3f60acb2fcfeb5339dd1067797a6fab6e3ae6a1449f7bdc143bde7c517"
+  },
+  "overlay_matches_isolated": true,
+  "build_cache_sha256": "fd75df539a1b89f0fa41c944bfb6dc29d8ff68b5ef24a28c8823a759f9ad5e53"
+}

@@ -1,0 +1,65 @@
+{
+  "passed": true,
+  "visits": 592,
+  "fixed_llvm_and_object_identity_groups": 18,
+  "fixed_output_identity_groups": 18,
+  "rejected_mutated_evidence": [
+    "missing_visit",
+    "duplicate_visit",
+    "failed_oracle",
+    "changed_median",
+    "mixed_inputs",
+    "wrong_worker_count"
+  ],
+  "metric": "runtime_e2e_synchronized_host_wall_us",
+  "native_time_claim": "none; fixed-grain native code is byte-identical"
+}
+pilot rmsnorm (17, 65) {'whole': 1.2987640197850001, 'local': 37.54181411325, 'joint_legacy': 36.1895493003, 'joint_tasks': 9.63727105396} paired ratio 0.267
+pilot rmsnorm (64, 256) {'whole': 38.197314734399995, 'local': 35.8114399837, 'joint_legacy': 34.10035277035, 'joint_tasks': 5.543615596145} paired ratio 0.163
+pilot rmsnorm (1024, 4096) {'whole': 534.706737988, 'local': 266.87650855749996, 'joint_legacy': 273.4688536625, 'joint_tasks': 268.563305195} paired ratio 0.982
+pilot gelu_residual (64, 256) {'whole': 66.00099034585, 'local': 59.70230745925, 'joint_legacy': 58.385870559699995, 'joint_tasks': 39.81374155665} paired ratio 0.682
+pilot swiglu (64, 256) {'whole': 53.5548598137, 'local': 48.670232629, 'joint_legacy': 48.1729452489, 'joint_tasks': 22.23337856185} paired ratio 0.462
+validation rmsnorm (3, 1024) {'whole': 5.13388186324, 'local': 0.9012933432825001, 'joint_legacy': 0.889418118543, 'joint_tasks': 0.8723955179295} paired ratio 0.979
+validation rmsnorm (129, 768) {'whole': 66.05708717105, 'local': 51.60692984225, 'joint_legacy': 50.6561303051, 'joint_tasks': 50.54132226545} paired ratio 1.003
+validation rmsnorm (257, 1538) {'whole': 107.827432407, 'local': 301.521667781, 'joint_legacy': 298.9819146615, 'joint_tasks': 298.585254357} paired ratio 1.0
+validation rmsnorm (4096, 1024) {'whole': 533.604265263, 'local': 259.27054978900003, 'joint_legacy': 264.6729728895, 'joint_tasks': 268.80082251} paired ratio 1.02
+validation layernorm (3, 1024) {'whole': 7.40957109641, 'local': 1.37869157268, 'joint_legacy': 1.42697324488, 'joint_tasks': 1.37883741453} paired ratio 0.969
+validation layernorm (129, 768) {'whole': 72.34271972510001, 'local': 60.77542421015001, 'joint_legacy': 60.6310594932, 'joint_tasks': 63.75008972715} paired ratio 1.01
+validation layernorm (257, 1538) {'whole': 111.495265337, 'local': 496.7070744215, 'joint_legacy': 498.2322875, 'joint_tasks': 498.079061184} paired ratio 1.0
+validation layernorm (4096, 1024) {'whole': 644.385080645, 'local': 326.8859233235, 'joint_legacy': 359.1892956685, 'joint_tasks': 389.3621444445} paired ratio 1.122
+validation masked_softmax (3, 1024) {'whole': 22.4398032764, 'local': 7.230322439355, 'joint_legacy': 7.29866696982, 'joint_tasks': 7.210333456535} paired ratio 0.986
+validation masked_softmax (129, 768) {'whole': 123.03263797700001, 'local': 89.06319808514999, 'joint_legacy': 89.00596528795, 'joint_tasks': 88.8492388468} paired ratio 0.999
+validation masked_softmax (257, 1538) {'whole': 204.0592783505, 'local': 639.345813508, 'joint_legacy': 634.6487106855, 'joint_tasks': 638.337846774} paired ratio 1.007
+validation masked_softmax (4096, 1024) {'whole': 1664.7445297650002, 'local': 1379.5922500000001, 'joint_legacy': 1377.744607145, 'joint_tasks': 1383.7239026} paired ratio 1.005
+validation swiglu (3, 1024) {'whole': 16.7639528178, 'local': 4.17941828453, 'joint_legacy': 4.179939149275, 'joint_tasks': 4.198545660945} paired ratio 1.002
+validation swiglu (129, 768) {'whole': 108.593939097, 'local': 71.9129432989, 'joint_legacy': 71.78312571250001, 'joint_tasks': 132.57036423850002} paired ratio 1.845
+validation swiglu (257, 1538) {'whole': 177.304203319, 'local': 355.8221951755, 'joint_legacy': 353.9865934665, 'joint_tasks': 354.05250350899996} paired ratio 1.0
+validation swiglu (4096, 1024) {'whole': 1303.142176925, 'local': 878.444458498, 'joint_legacy': 880.5581638755, 'joint_tasks': 888.8551136364999} paired ratio 1.01
+validation gelu_residual (3, 1024) {'whole': 32.927647783249995, 'local': 7.52587139529, 'joint_legacy': 7.57866838995, 'joint_tasks': 7.576288188745} paired ratio 1.0
+validation gelu_residual (129, 768) {'whole': 134.1334996465, 'local': 90.7871680945, 'joint_legacy': 91.2236136112, 'joint_tasks': 90.58955137845001} paired ratio 0.995
+validation gelu_residual (257, 1538) {'whole': 250.1739625, 'local': 438.54895498049996, 'joint_legacy': 438.78692248050004, 'joint_tasks': 439.3066766305} paired ratio 1.0
+validation gelu_residual (4096, 1024) {'whole': 1949.05835, 'local': 1489.365346155, 'joint_legacy': 1496.963153845, 'joint_tasks': 1489.227538465} paired ratio 0.995
+validation rope (3, 1024) {'whole': 5.787357661505, 'local': 0.8488921577455, 'joint_legacy': 0.845987496565, 'joint_tasks': 0.856392086765} paired ratio 1.014
+validation rope (129, 768) {'whole': 69.6602235676, 'local': 53.3921393046, 'joint_legacy': 53.552965721999996, 'joint_tasks': 53.487935889949995} paired ratio 1.004
+validation rope (257, 1538) {'whole': 121.89442764750001, 'local': 381.61072520150003, 'joint_legacy': 351.1786969945, 'joint_tasks': 337.38786426649995} paired ratio 0.948
+validation rope (4096, 1024) {'whole': 696.0606695404999, 'local': 412.3539777275, 'joint_legacy': 416.9049911615, 'joint_tasks': 422.41160434799997} paired ratio 1.019
+validation attention (1, 4, 2, 16, 32, 16, 16) {'whole': 34.79484113425, 'joint_legacy': 35.18855624605, 'joint_tasks': 14.8717479261} paired ratio 0.424
+validation attention (1, 4, 1, 64, 128, 32, 32) {'whole': 99.788492857, 'joint_legacy': 99.98156980665, 'joint_tasks': 103.0810255368} paired ratio 1.009
+fixed-grain rmsnorm (17, 66) {'grain_0': 36.240785572600004, 'grain_1': 42.0379026982, 'grain_3': 41.396121534049996, 'grain_4294967295': 9.5928151342} paired ratio 0.266
+fixed-grain rmsnorm (129, 768) {'grain_0': 52.908834145, 'grain_1': 54.00075015345, 'grain_3': 49.8125901277, 'grain_4294967295': 25.66244167165} paired ratio 0.486
+fixed-grain rmsnorm (1024, 4096) {'grain_0': 281.0134842255, 'grain_1': 273.49022173599997, 'grain_3': 258.94339740249995, 'grain_4294967295': 1118.1084558799998} paired ratio 3.98
+fixed-grain layernorm (17, 66) {'grain_0': 38.86895776975, 'grain_1': 38.2967881731, 'grain_3': 37.944944114950005, 'grain_4294967295': 15.59076772005} paired ratio 0.401
+fixed-grain layernorm (129, 768) {'grain_0': 62.95053978025, 'grain_1': 62.121692806949994, 'grain_3': 60.88861617055, 'grain_4294967295': 42.27177024745} paired ratio 0.672
+fixed-grain layernorm (1024, 4096) {'grain_0': 359.7948291935, 'grain_1': 354.193241379, 'grain_3': 334.458661097, 'grain_4294967295': 1896.0061999999998} paired ratio 5.276
+fixed-grain masked_softmax (17, 66) {'grain_0': 41.42780482455, 'grain_1': 41.44833391505, 'grain_3': 41.616632964800004, 'grain_4294967295': 20.0088000075} paired ratio 0.483
+fixed-grain masked_softmax (129, 768) {'grain_0': 85.6381126403, 'grain_1': 85.85507718855, 'grain_3': 85.95776913515, 'grain_4294967295': 227.853862183} paired ratio 2.661
+fixed-grain masked_softmax (1024, 4096) {'grain_0': 1380.51042857, 'grain_1': 1379.88392857, 'grain_3': 1391.69642857, 'grain_4294967295': 9787.093499999999} paired ratio 7.089
+fixed-grain swiglu (17, 66) {'grain_0': 34.178838178250004, 'grain_1': 34.1328509648, 'grain_3': 33.04538389335, 'grain_4294967295': 9.767598865135} paired ratio 0.286
+fixed-grain swiglu (129, 768) {'grain_0': 73.75331686780001, 'grain_1': 73.50056887955, 'grain_3': 70.26174526630001, 'grain_4294967295': 132.54639} paired ratio 1.797
+fixed-grain swiglu (1024, 4096) {'grain_0': 866.0570869565, 'grain_1': 846.6213913045001, 'grain_3': 878.6594130435, 'grain_4294967295': 5641.715333335} paired ratio 6.516
+fixed-grain gelu_residual (17, 66) {'grain_0': 35.772515731, 'grain_1': 37.7109777005, 'grain_3': 34.66847442205, 'grain_4294967295': 11.986806577300001} paired ratio 0.335
+fixed-grain gelu_residual (129, 768) {'grain_0': 86.0837796644, 'grain_1': 85.84085801045, 'grain_3': 82.6078711111, 'grain_4294967295': 239.00430789} paired ratio 2.776
+fixed-grain gelu_residual (1024, 4096) {'grain_0': 1457.075307695, 'grain_1': 1461.41023077, 'grain_3': 1468.600439105, 'grain_4294967295': 10236.63525} paired ratio 7.025
+fixed-grain rope (17, 66) {'grain_0': 34.642139778650005, 'grain_1': 34.4273564352, 'grain_3': 33.0165021646, 'grain_4294967295': 9.213981253755001} paired ratio 0.266
+fixed-grain rope (129, 768) {'grain_0': 56.5305040002, 'grain_1': 56.4123317035, 'grain_3': 53.76683848485, 'grain_4294967295': 27.679818738949997} paired ratio 0.49
+fixed-grain rope (1024, 4096) {'grain_0': 420.9527469565, 'grain_1': 419.5191210475, 'grain_3': 384.596909833, 'grain_4294967295': 1347.82251905} paired ratio 3.203

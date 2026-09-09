@@ -55,10 +55,15 @@ ScheduleEmitter::ScheduleEmitter(
     bool enable_predicated_acyclic_control_flow,
     bool enable_biased_narrow_buffer_gather,
     bool enable_gathered_native_texture_read,
-    bool enable_native_half4_texture_packet)
+    bool enable_native_half4_texture_packet,
+    size_t private_stack_budget_bytes, bool enable_interleaved_private_arrays,
+    bool enable_contiguous_private_access)
     : _module{module},
       _source{source},
       _width{width},
+      _private_stack_budget_bytes{private_stack_budget_bytes},
+      _enable_interleaved_private_arrays{enable_interleaved_private_arrays},
+      _enable_contiguous_private_access{enable_contiguous_private_access},
       _entry_name{entry_name},
       _enable_fast_math{enable_fast_math},
       _static_block_size{static_block_size},

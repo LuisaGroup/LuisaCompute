@@ -1,0 +1,36 @@
+{
+  "scope": "selected source overlay and isolated helper identity; not a full external-dependency lock",
+  "base_source": "f5daf25e6",
+  "helper_checkpoint": "db52dbc59",
+  "baseline_xir_checkpoint": "3b96c263d",
+  "source_root": "/tmp/luisa-reduction-checkpoint.gQUERp/source",
+  "current_head": "3b96c263d7eb2492820f2b67b2f4f31be095ea08",
+  "overlay_sha256": {
+    "include/luisa/tile/bridge/xir/lower.h": "9e86e2f78f0d8b15f6e568319652841b0b6fc0bcace0d5a63991e555ce9f10a5",
+    "include/luisa/tile/bridge/xir/planner.h": "e0d79d16101b9e5271473f34ad86ec0ec5d7a21d0fc6eb898b8600c48f014f06",
+    "src/tile/bridge/xir/lower.cpp": "cf9d652b86d827aedd79738f290ead046302cdf177a4f276fc95c1ac78353aed",
+    "src/tile/bridge/xir/planner.cpp": "1bea25af9ec6d248cdb7218ebc5701169587370464ef2ec838ffaf90aa98c796",
+    "src/tile/bridge/xir/representation.h": "9dc487682b7cccd92069e4211b181279fbf093b7bde03b30218bc4175ec4be52",
+    "src/backends/simd/runtime/simd_tile.cpp": "0fcf7671b2bb8d4494e61e02cb9b5b7fefc314ec714b0dfbe5f33bd812997f47",
+    "src/backends/simd/runtime/simd_shader.cpp": "47473d6d270dbcff01a474048840a22f854e5276f0eea818b5fffd19de5c4619",
+    "src/backends/simd/simd_compiler.cpp": "e199a21b96835532541921da1bc2977f73466c9c89c18ce9daffda8e30921712",
+    "src/backends/simd/simd_compiler.h": "7b20d962955181434318e539209eb44fe7a7919360a56c636b350c0d72d33fdd",
+    "src/backends/simd/llvm/llvm_schedule_codegen.h": "6ed7c6647a3416c19736d2269c00201034ea96fbcf41b26c094fd0f5bcd00b36",
+    "src/backends/simd/llvm/llvm_schedule_codegen.cpp": "85359a6f64bc27985ef5f37805a8e5f2d26ab5ed21804465d9b9e16a3b202025",
+    "src/backends/simd/llvm/llvm_schedule_emitter.h": "3c70e752451292f008a46828a7babf82e92776957eacaef6ee9bacd89134de99",
+    "src/backends/simd/llvm/llvm_schedule_emitter.cpp": "a32b26c1785c1224183c5713cd7c00f4a64845d002e3c6e24fb99489d39bf28e",
+    "src/backends/simd/llvm/llvm_schedule_emitter_control.cpp": "06e2e5b62d722e5dc714f96f2cb8ba3c36f656feeb251b883d4b2502deb0229f",
+    "src/tests/unit/tile/bridge/test_xir.cpp": "a445397fdad45bfdd535b9c9c16403aeeb3f3cba996d946a82831ea50b60f8b4",
+    "src/tests/unit/tile/bridge/test_xir_runtime.cpp": "890a45629c7557803d4a8fc406d8dfecfc7a2a5c337f3c100c13b9c020824887",
+    "src/tests/unit/tile/bridge/test_xir_llm.cpp": "68d6167c07a8ab66290ed1745d31bb901a1cac1334ab0cf6842a51e6a9b9417d",
+    "src/tests/unit/simd/test_llvm_schedule_codegen.cpp": "eb01e1e9458c3f6cbb37adf967fb7dbdece58eae66644cc2d97a62235ded3a36"
+  },
+  "isolated_helpers_sha256": {
+    "tile_llm_benchmark.h": "726c1f044d35d5d0e8fe212056a8ee7340f8f8399a3ee2cf11441115b2ec8ab8",
+    "tile_llm_test_utils.h": "180afeeda467f9463bcda87b66f2e39610c30f860e261d5d035aaef5820f3227",
+    "tile_xir_test_utils.h": "72d01b43de85daa52fad3128576d18756b56387cfdf7c98e1a4a193754ad081d",
+    "tile_reduction_policy_test_utils.h": "f9ded20bf4ef8de11d10285864b6e2e09706275aa43a3639e198cb530154cbbe"
+  },
+  "build_cache_sha256": "fd75df539a1b89f0fa41c944bfb6dc29d8ff68b5ef24a28c8823a759f9ad5e53",
+  "overlay_matches_isolated": true
+}

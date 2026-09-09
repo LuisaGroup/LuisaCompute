@@ -1,0 +1,91 @@
+{
+  "parent_commit": "3a012b547",
+  "tested_source_sha256": {
+    "include/luisa/tile/bridge/xir/lower.h": "33c3a165e90cc9df77dcd59fd322a94515fffd5bfc67756b1a4ea6843cac93d5",
+    "include/luisa/tile/bridge/xir/planner.h": "3c28c20e4a0c1abb79ed14d4845ab3282b924dadb7c0f736c2aabcbcd3576c90",
+    "src/backends/simd/llvm/llvm_schedule_codegen.cpp": "3f93e1d5a5377dbc061cce995834175a5d9611faeb7eb495a17417b493338ab5",
+    "src/backends/simd/llvm/llvm_schedule_codegen.h": "f6d2edd8c2c98241f70de6ca78dff382201cd7a84411a2edcee638b53590adcb",
+    "src/backends/simd/llvm/llvm_schedule_emitter.cpp": "c2a3f5758180f38b38aaaf212f5804ff07ec0ffa6afa42fb0d13813d3c8f722b",
+    "src/backends/simd/llvm/llvm_schedule_emitter.h": "a4edf190bc5260671a907ac74df6e8568b0e5759f21613ec3cf8e34933be7531",
+    "src/backends/simd/llvm/llvm_schedule_emitter_control.cpp": "83a3390d8a03eba31e7c1e581552a67d0707c4ab86ed20239f6b63fb5cfe93f0",
+    "src/backends/simd/llvm/llvm_schedule_emitter_memory.cpp": "5e6a72661f36af19058b1501142cab1632d983b63c253ba45cfef92ed157ebcb",
+    "src/backends/simd/runtime/simd_shader.cpp": "47473d6d270dbcff01a474048840a22f854e5276f0eea818b5fffd19de5c4619",
+    "src/backends/simd/runtime/simd_tile.cpp": "8ffcc573a9935c7495683fd0f87c56a725adf776ecde9e26620b5082789cd501",
+    "src/backends/simd/simd_compiler.cpp": "53cc2cfff449b21c5c376f38c440cfc1386932267daab1781de77990359286e0",
+    "src/backends/simd/simd_compiler.h": "ea072ab10ea31c35854de9722bfa1c00d0420c61483e18c491901fdb1c02c23d",
+    "src/tests/benchmark/benchmark_tile_xir.cpp": "0f8b7e3f60acb2fcfeb5339dd1067797a6fab6e3ae6a1449f7bdc143bde7c517",
+    "src/tests/unit/simd/test_llvm_schedule_codegen.cpp": "296ddf0d9f67512526543c50d92ca1885b4b110435303052715e585611faeeeb",
+    "src/tests/unit/tile/bridge/test_xir.cpp": "95a861cdb3dff31b732ef9a7c5aa5e2178d304eca50dc0739ce3a15a7a2de444",
+    "src/tests/unit/tile/bridge/test_xir_llm.cpp": "68d6167c07a8ab66290ed1745d31bb901a1cac1334ab0cf6842a51e6a9b9417d",
+    "src/tests/unit/tile/bridge/test_xir_runtime.cpp": "f8a1e51a032b60a69464a931d33d0eff377d3e0c5d1464c2aa0b1dbcc9b93c1e",
+    "src/tile/bridge/xir/lower.cpp": "7110fa69162475395a68a7e9b1f3240e6a58f902ecac2159dbf37c947f82d2f8",
+    "src/tile/bridge/xir/planner.cpp": "d8c13477fda296e2275f839f38139b1b728e27cdffea1d515ec3f9270f5492a4",
+    "src/tile/bridge/xir/representation.h": "887294b25a683ebc3f8a7dee099a4fb8d243a408bfb86febe9e805ca30ff4cb0"
+  },
+  "isolated_context": "../m1-max-20260908-load-reduction/provenance.json",
+  "overlay_matches_isolated": true,
+  "raw": "/tmp/luisa-full-packet.UEezjO",
+  "cmake_cache_sha256": "fd75df539a1b89f0fa41c944bfb6dc29d8ff68b5ef24a28c8823a759f9ad5e53",
+  "defaults": {
+    "full_packet_specialization": false,
+    "load_reduction_fusion": false
+  },
+  "caveat": "4096-instruction clone budget is a construction cap, not measured profitability",
+  "measure.py_sha256": "95fbe03c46f45d5b07391df45c6dbeda7d5faddf45ba9250515b1eb99a31d6d7",
+  "run_native.py_sha256": "0d3fe0749604ae679dbff3c2b50d6aed122152092367aff60aa9b5e0bab59933",
+  "replay_native.py_sha256": "96c76467efc3338783270a9cec4cc018ec7e4892ce3afe560ee5e102456a2aaf",
+  "replay_source_sha256": {
+    "replay_native.py": "ea6fcba684480fef5c67d2a39b3d5260e7ea380f710d08d6c6e223cad214db49",
+    "replay_native.cpp": "95662b4bf6f34705dbc8177168a88d71b1e2ee690dcf50861f042b043f254191"
+  },
+  "default_code_identity": [
+    {
+      "case": "rmsnorm-1024x4096-r0-l1-f0-p0",
+      "previous_case": "rmsnorm-1024x4096-r0-l1-v0",
+      "object_byte_identical": true,
+      "llvm_byte_identical": true
+    },
+    {
+      "case": "rmsnorm-1024x4096-r0-l1-f1-p0",
+      "previous_case": "rmsnorm-1024x4096-r0-l1-v1",
+      "object_byte_identical": true,
+      "llvm_byte_identical": true
+    },
+    {
+      "case": "rmsnorm-1024x4096-r0-l8-f0-p0",
+      "previous_case": "rmsnorm-1024x4096-r0-l8-v0",
+      "object_byte_identical": true,
+      "llvm_byte_identical": true
+    },
+    {
+      "case": "rmsnorm-1024x4096-r0-l8-f1-p0",
+      "previous_case": "rmsnorm-1024x4096-r0-l8-v1",
+      "object_byte_identical": true,
+      "llvm_byte_identical": true
+    },
+    {
+      "case": "rmsnorm-64x256-r0-l1-f0-p0",
+      "previous_case": "rmsnorm-64x256-r0-l1-v0",
+      "object_byte_identical": true,
+      "llvm_byte_identical": true
+    },
+    {
+      "case": "rmsnorm-64x256-r0-l1-f1-p0",
+      "previous_case": "rmsnorm-64x256-r0-l1-v1",
+      "object_byte_identical": true,
+      "llvm_byte_identical": true
+    },
+    {
+      "case": "rmsnorm-64x256-r0-l8-f0-p0",
+      "previous_case": "rmsnorm-64x256-r0-l8-v0",
+      "object_byte_identical": true,
+      "llvm_byte_identical": true
+    },
+    {
+      "case": "rmsnorm-64x256-r0-l8-f1-p0",
+      "previous_case": "rmsnorm-64x256-r0-l8-v1",
+      "object_byte_identical": true,
+      "llvm_byte_identical": true
+    }
+  ]
+}

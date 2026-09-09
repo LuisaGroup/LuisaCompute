@@ -55,6 +55,12 @@ source/
   remains in use; the shared layout redirects only those moved fragments.
   Every old section must still exist or resolve to its new owner.
 
+Install Doxygen first (`brew install doxygen` on macOS; the Linux docs CI uses
+`sudo apt-get install -y doxygen`). Doxygen parses the C++ declarations and
+comments into `docs/output/xml/`; Sphinx's Breathe extension reads that index
+to render API Reference. It is a generated, Git-ignored artifact, not a source
+file to recover or commit. Regenerate it after API changes or in a fresh checkout.
+
 Build from the repository root:
 
 ```sh

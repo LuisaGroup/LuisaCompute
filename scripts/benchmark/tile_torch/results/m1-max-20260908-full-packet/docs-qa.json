@@ -1,0 +1,79 @@
+{
+  "passed": true,
+  "browser": "152.0.7977.76",
+  "receipts": [
+    {
+      "file": "source/performance/tile/results.html",
+      "id": "full-packet-specialization-changes-the-profitable-local-mapping",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-full-packet.UEezjO/docs-qa-final/full-packet-specialization-changes-the-profitable-local-mapping-1280.png",
+      "scrolledScreenshot": "/tmp/luisa-full-packet.UEezjO/docs-qa-final/full-packet-specialization-changes-the-profitable-local-mapping-1280-right.png",
+      "scrolls": [
+        {
+          "element": "TABLE",
+          "maximum": 15,
+          "reached": 15
+        }
+      ],
+      "tables": [
+        [
+          5,
+          7
+        ]
+      ],
+      "pageWidth": 1280
+    },
+    {
+      "file": "source/internals/tile/xir.html",
+      "id": "full-packet-specialization-is-separate-from-tile-fusion",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-full-packet.UEezjO/docs-qa-final/full-packet-specialization-is-separate-from-tile-fusion-1280.png",
+      "scrolledScreenshot": null,
+      "scrolls": [],
+      "tables": [],
+      "pageWidth": 1280
+    },
+    {
+      "file": "source/performance/tile/results.html",
+      "id": "full-packet-specialization-changes-the-profitable-local-mapping",
+      "width": 390,
+      "screenshot": "/tmp/luisa-full-packet.UEezjO/docs-qa-final/full-packet-specialization-changes-the-profitable-local-mapping-390.png",
+      "scrolledScreenshot": "/tmp/luisa-full-packet.UEezjO/docs-qa-final/full-packet-specialization-changes-the-profitable-local-mapping-390-right.png",
+      "scrolls": [
+        {
+          "element": "TABLE",
+          "maximum": 373,
+          "reached": 373
+        }
+      ],
+      "tables": [
+        [
+          5,
+          7
+        ]
+      ],
+      "pageWidth": 390
+    },
+    {
+      "file": "source/internals/tile/xir.html",
+      "id": "full-packet-specialization-is-separate-from-tile-fusion",
+      "width": 390,
+      "screenshot": "/tmp/luisa-full-packet.UEezjO/docs-qa-final/full-packet-specialization-is-separate-from-tile-fusion-390.png",
+      "scrolledScreenshot": "/tmp/luisa-full-packet.UEezjO/docs-qa-final/full-packet-specialization-is-separate-from-tile-fusion-390-right.png",
+      "scrolls": [
+        {
+          "element": "PRE",
+          "maximum": 28,
+          "reached": 28
+        },
+        {
+          "element": "PRE",
+          "maximum": 208,
+          "reached": 208
+        }
+      ],
+      "tables": [],
+      "pageWidth": 390
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+Test project /tmp/luisa-reduction-checkpoint.gQUERp/build
+    Start 79: test_tile_tirx_values_metal
+1/2 Test #79: test_tile_tirx_values_metal ......   Passed    1.00 sec
+    Start 80: test_tile_tirx_execution_metal
+2/2 Test #80: test_tile_tirx_execution_metal ...   Passed    7.92 sec
+
+100% tests passed out of 2
+
+Label Time Summary:
+unit                 =   8.92 sec*proc (2 tests)
+unit_tile            =   8.92 sec*proc (2 tests)
+unit_tile_poc        =   8.92 sec*proc (2 tests)
+unit_tile_targets    =   8.92 sec*proc (2 tests)
+unit_tile_tirx       =   8.92 sec*proc (2 tests)
+
+Total Test time (real) =   8.93 sec

@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <charconv>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -53,7 +54,42 @@ void samples(const char *name, span<const double> values) {
 }// namespace
 
 int main(int argc, char *argv[]) {
-    if (argc > 1 && std::string_view{argv[1]} == "llm") { return test::tile_llm::benchmark(argc, argv, "simd"); }
+    if (argc > 1 && std::string_view{argv[1]} == "llm") {
+        auto planner = tile::bridge::xir::PlannerOptions{};
+        // Diagnostic candidate control belongs to the benchmark, not a
+        // kernel-name or environment special case in production planning.
+        auto search_grain = uint32_t{0u};
+        for (auto [name, value] : {std::pair{"LUISA_TILE_BENCH_XIR_LOCAL_LANES", &planner.local_lanes},
+                                   std::pair{"LUISA_TILE_BENCH_XIR_BLOCK_SIZE", &planner.block_size},
+                                   std::pair{"LUISA_TILE_BENCH_XIR_BLOCKS_PER_TASK", &planner.blocks_per_task},
+                                   std::pair{"LUISA_TILE_BENCH_XIR_SEARCH_TASK_GRAIN", &search_grain}}) {
+            if (auto setting = std::getenv(name)) {
+                auto text = std::string_view{setting};
+                auto parsed = std::from_chars(text.data(), text.data() + text.size(), *value);
+                if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size()) {
+                    std::cerr << "Invalid " << name << " (expected unsigned integer)\n";
+                    return 1;
+                }
+            }
+        }
+        if (search_grain > 1u) {
+            std::cerr << "Invalid LUISA_TILE_BENCH_XIR_SEARCH_TASK_GRAIN (expected 0 or 1)\n";
+            return 1;
+        }
+        planner.search_task_grain = search_grain != 0u;
+        for (auto [name, value] : {std::pair{"LUISA_TILE_BENCH_XIR_WORKER_ACTIVATION", &planner.cost.worker_activation},
+                                   std::pair{"LUISA_TILE_BENCH_XIR_TASK_DISPATCH", &planner.cost.task_dispatch}}) {
+            if (auto setting = std::getenv(name)) {
+                char *end = nullptr;
+                *value = std::strtod(setting, &end);
+                if (end == setting || *end != '\0') {
+                    std::cerr << "Invalid " << name << " (expected cost coefficient)\n";
+                    return 1;
+                }
+            }
+        }
+        return test::tile_llm::benchmark(argc, argv, "simd", {.xir = &planner});
+    }
     if (argc < 12 || argc > 14) {
         std::cerr << "Usage: benchmark_tile_xir fp32 M N K samples sample-ms warmup-ms output.f32 tile-M tile-N tile-K [planned|canonical|reversed [block-workers]]\n";
         return 1;

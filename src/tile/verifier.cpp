@@ -535,6 +535,17 @@ private:
     }
 
     void _verify_core_operation(const Operation *operation) noexcept {
+        switch (operation->reduction_policy()) {
+            case ReductionPolicy::UNORDERED_TREE: break;
+            case ReductionPolicy::ORDERED_TREE:
+            case ReductionPolicy::FOLD_LEFT:
+            case ReductionPolicy::FOLD_RIGHT:
+                if (operation->kind() != OperationKind::REDUCE) {
+                    _error(operation, "reduction order policy requires a reduce operation");
+                }
+                break;
+            default: _error(operation, "invalid reduction order policy"); break;
+        }
         auto structured = operation->kind() == OperationKind::PARALLEL ||
                           operation->kind() == OperationKind::SERIAL ||
                           operation->kind() == OperationKind::PIPELINE ||

@@ -1,4 +1,39 @@
-# Optional TVMx Metal MPP extension
+# Optional TVMx Metal extensions
+
+## Ordered reduction arithmetic
+
+`metal-precise-math-v1.patch` is independent of the MPP extensions below. It
+supports the same pinned TVM commit and preserves a typed IRModule attribute,
+`tirx.metal.precise_math`, through native code generation, module serialization
+and final `MTLCompileOptions`. The stock TVM Metal runtime unconditionally sets
+`fastMathEnabled = YES`, which can reassociate even a serial FP32 fold.
+
+The extension advertises version 1 of both
+`target.metal.precise_math_contract_version` and
+`runtime.metal.precise_math_contract_version`. The bridge checks both before
+compiling an ordered reduction for **TVM Runtime**. A missing half fails with
+an explicit diagnostic; it does not quietly produce a relaxed fold. The
+serialized source payload format `metal_precise` selects fast math off on load.
+Legacy `metal`/`metallib` payloads keep their existing behavior. The old global
+`tvm_callback_metal_compile` ABI cannot carry this requirement, so combining it
+with precise compilation is rejected rather than replacing a user's callback.
+
+Luisa Runtime's `compile_device` path does **not** need this patch: it returns
+`DeviceArtifact::requires_precise_math` beside the unchanged generated MSL, and
+the Metal backend applies that requirement to its own compiler options. SIMD
+likewise disables global fast math if any reduction has an ordered policy.
+This conservative whole-kernel setting does not prevent another explicitly
+unordered reduction from using a legal collective. It is not a cross-device
+bitwise-determinism guarantee or a complete NaN/denormal/accuracy policy.
+
+Apply the patch to a pinned checkout, build the entire TVM configuration, then
+reconfigure/rebuild Luisa against that compiler **and** runtime. CMake does not
+modify a user's TVM checkout. To validate, run the TIRx CPU/Metal values and
+execution tests plus the native Runtime and XIR/SIMD tests after a full build.
+Unpatched TVM tests check the explicit rejection; the patched tests execute
+adversarial cancellation, multidimensional folds, empty domains and nonzero seeds.
+
+## MPP memory extension
 
 `metal-mpp-memory-v2.patch` is an experimental, native C++ TVM codegen extension,
 against Apache TVM commit `c7b458e946bc4266915da582457476bdcd9705ae`. Its pinned

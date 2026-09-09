@@ -1,0 +1,73 @@
+{
+  "implementation": "tile_xir_simd",
+  "backend": "cpu",
+  "precision": "fp32",
+  "fast_math": false,
+  "relaxed_precision": false,
+  "runtime": "luisa",
+  "timing": "synchronized_host_wall",
+  "batch_policy": "one_runtime_command_list_per_batch",
+  "operation": "masked_softmax",
+  "dimensions": [
+    257,
+    1538
+  ],
+  "reduction_tree": false,
+  "requested_input_views": false,
+  "attention_qk": "not_applicable",
+  "source_reduction_policy": "unordered_tree",
+  "reduction_candidate_setting": "not_applicable",
+  "requested_group_threads": 0,
+  "attention_block": [
+    1,
+    1
+  ],
+  "input_shapes": [
+    [
+      257,
+      1538
+    ],
+    [
+      257,
+      1538
+    ],
+    [
+      257,
+      1538
+    ]
+  ],
+  "output_shape": [
+    257,
+    1538
+  ],
+  "fixture_ms": 11.090834,
+  "runtime_init_ms": 11.689667,
+  "compile_ms": 190.043208,
+  "allocation_upload_ms": 0.768583,
+  "cold_call_ms": 1.159667,
+  "warmup_ms": 9.133125,
+  "repetitions": 1,
+  "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 1 CPU workers; ordered CPU pipeline; Schedule blocks=42, direct CFG=true, contiguous reads=2, broadcasts=0; exact search 1 candidates, uncalibrated cost 12164934.000 (arithmetic 1641202.000, memory 10515412.000, dispatch 8320.000, imbalance 0.000), root order [0]; local_lanes=8; blocks_per_task=0; task_dispatch_cost=0.000; worker_activation_cost=0.000; custom_cost_policy=false; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; load_reduction_fusion=false; fused_reduction_loads=0; elided_load_snapshots=0; interleaved_private_arrays=4; pointwise_fusion=true; fused_pointwise_regions=1; fused_pointwise_loads=0; fused_pointwise_stores=1; pointwise_alias_checks=0; contiguous_private_reads=26; contiguous_private_writes=8; private_workspace_bytes=0; full_packet_specializations=1; full_packet_cloned_instructions=2196; fast_math=false; ordered_reduction=false",
+  "correctness": {
+    "checks": 2,
+    "elements_per_check": 395266,
+    "guard_elements_per_check": 34,
+    "atol": 5e-05,
+    "rtol": 5e-05,
+    "max_abs_error": 2.38656004958e-08
+  },
+  "throughput_us": [
+    1151.791,
+    1877.75,
+    1326.917
+  ],
+  "latency_us": [
+    1171.625,
+    1143.25,
+    1133.125
+  ],
+  "throughput_us_p50": 1326.917,
+  "throughput_us_p90": 1767.5834,
+  "latency_us_p50": 1143.25,
+  "latency_us_p90": 1165.95
+}

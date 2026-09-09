@@ -3,6 +3,7 @@
 #include "../metal_compiler.h"
 #include "../metal_shader.h"
 #include <luisa/core/clock.h>
+#include <luisa/tile/analysis.h>
 #include <algorithm>
 #ifdef LUISA_METAL_TILE_TIRX
 #include <luisa/tile/bridge/tirx/compiler.h>
@@ -11,11 +12,14 @@
 
 namespace luisa::compute::metal {
 
-ShaderCreationInfo MetalDevice::create_tile_kernel(const ShaderOption &option, const tile::Function &kernel,
+ShaderCreationInfo MetalDevice::create_tile_kernel(const ShaderOption &requested_option, const tile::Function &kernel,
                                                    const tile::CompileOptions &tile_options,
                                                    tile::KernelMetadata &metadata) noexcept {
     return with_autorelease_pool([&] {
         metadata = {};
+        auto option = requested_option;
+        auto ordered_reduction = tile::OrderedReductionAnalysis::run(kernel);
+        option.enable_fast_math &= !ordered_reduction;
         if (tile_options.xir != nullptr) {
             metadata.error = "Metal cannot use the CPU XIR execution planner";
             return ShaderCreationInfo::make_invalid();
@@ -60,7 +64,13 @@ ShaderCreationInfo MetalDevice::create_tile_kernel(const ShaderOption &option, c
             auto shared = _handle->maxThreadgroupMemoryLength();
             auto options = tile_options.tirx ? *tile_options.tirx : tile::bridge::tirx::CompileOptions{};
             auto matrix_capable = _handle->supportsFamily(MTL::GPUFamilyApple7);
-            if (!tile_options.tirx) { options.cooperative_matrix = matrix_capable; }
+            if (!tile_options.tirx) {
+                options.cooperative_matrix = matrix_capable;
+                // The device supplies capability and the Runtime enforces
+                // noalias below. Source reduction policy supplies numerical
+                // permission, so ordinary kernels need no backend opt-in.
+                options.planner.metal_subgroup_reductions = matrix_capable;
+            }
             if (options.cooperative_matrix && !matrix_capable) { return fail("Selected Metal device lacks FP32 cooperative matrices"); }
             options.target = luisa::format(R"({{"kind":"metal","thread_warp_size":32,"max_num_threads":{},"max_shared_memory_per_block":{}}})", max_threads, shared);
             // SplitHostDevice's pointer ABI requires disjoint writable args.
@@ -76,6 +86,7 @@ ShaderCreationInfo MetalDevice::create_tile_kernel(const ShaderOption &option, c
             auto compiled = tile::bridge::tirx::compile_device(std::move(lowered.value), kernel.name(), options);
             if (!compiled) { return fail(compiled.error); }
             auto &artifact = compiled.artifact;
+            option.enable_fast_math &= !artifact.requires_precise_math;
             auto language_version = MTL::LanguageVersion3_0;
             if (artifact.requires_metal4) {
                 if (__builtin_available(macOS 26.0, iOS 26.0, *)) {
@@ -100,6 +111,7 @@ ShaderCreationInfo MetalDevice::create_tile_kernel(const ShaderOption &option, c
             metadata.source = std::move(artifact.source);
             metadata.realization = luisa::format("TIRx -> Metal source -> Luisa Runtime; {} threads/group; {} group plans; direct-buffer ABI; fast_math={}; mpp={}",
                                                  threads, compiled.plans.size(), option.enable_fast_math, artifact.requires_metal4);
+            metadata.realization.append(luisa::format("; ordered_reduction={}", ordered_reduction));
             auto codegen_ms = codegen_clock.toc();
             MetalShaderMetadata shader_metadata{};
             shader_metadata.block_size = block_size;
