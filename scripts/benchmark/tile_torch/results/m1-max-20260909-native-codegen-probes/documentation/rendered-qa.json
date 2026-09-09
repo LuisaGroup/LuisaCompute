@@ -1,0 +1,87 @@
+{
+  "passed": true,
+  "nodeExecutable": "/Users/mike/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node",
+  "browser": "153.0.8010.36",
+  "receipts": [
+    {
+      "file": "source/performance/tile/validation.html",
+      "id": "native-codegen-prototypes-remain-separate-from-production-promotion",
+      "width": 1280,
+      "pageWidth": 1280,
+      "required": [
+        "80 XIR/SIMD CTests and 35 Tile CTests",
+        "384 retained output snapshots",
+        "not",
+        "diagnostic-only"
+      ],
+      "screenshot": "/tmp/luisa-packet-inline.UY1lIE/docs-qa/native-codegen-prototypes-remain-separate-from-production-promotion-1280.png",
+      "fullScreenshot": "/tmp/luisa-packet-inline.UY1lIE/docs-qa/native-codegen-prototypes-remain-separate-from-production-promotion-1280-full.png"
+    },
+    {
+      "file": "source/performance/tile/results.html",
+      "id": "late-native-codegen-probes-separate-address-demand-from-inlining",
+      "width": 1280,
+      "pageWidth": 1280,
+      "required": [
+        "Both complete timing cohorts are diagnostic-only",
+        "864 timed native visits",
+        "remain outside the working compiler"
+      ],
+      "screenshot": "/tmp/luisa-packet-inline.UY1lIE/docs-qa/late-native-codegen-probes-separate-address-demand-from-inlining-1280.png",
+      "fullScreenshot": "/tmp/luisa-packet-inline.UY1lIE/docs-qa/late-native-codegen-probes-separate-address-demand-from-inlining-1280-full.png"
+    },
+    {
+      "file": "source/performance/tile/index.html",
+      "id": "results-by-route",
+      "width": 1280,
+      "pageWidth": 1280,
+      "required": [
+        "native codegen probes",
+        "0.337–0.469",
+        "not promoted into the working compiler"
+      ],
+      "screenshot": "/tmp/luisa-packet-inline.UY1lIE/docs-qa/results-by-route-1280.png",
+      "fullScreenshot": "/tmp/luisa-packet-inline.UY1lIE/docs-qa/results-by-route-1280-full.png"
+    },
+    {
+      "file": "source/performance/tile/validation.html",
+      "id": "native-codegen-prototypes-remain-separate-from-production-promotion",
+      "width": 390,
+      "pageWidth": 390,
+      "required": [
+        "80 XIR/SIMD CTests and 35 Tile CTests",
+        "384 retained output snapshots",
+        "not",
+        "diagnostic-only"
+      ],
+      "screenshot": "/tmp/luisa-packet-inline.UY1lIE/docs-qa/native-codegen-prototypes-remain-separate-from-production-promotion-390.png",
+      "fullScreenshot": "/tmp/luisa-packet-inline.UY1lIE/docs-qa/native-codegen-prototypes-remain-separate-from-production-promotion-390-full.png"
+    },
+    {
+      "file": "source/performance/tile/results.html",
+      "id": "late-native-codegen-probes-separate-address-demand-from-inlining",
+      "width": 390,
+      "pageWidth": 390,
+      "required": [
+        "Both complete timing cohorts are diagnostic-only",
+        "864 timed native visits",
+        "remain outside the working compiler"
+      ],
+      "screenshot": "/tmp/luisa-packet-inline.UY1lIE/docs-qa/late-native-codegen-probes-separate-address-demand-from-inlining-390.png",
+      "fullScreenshot": "/tmp/luisa-packet-inline.UY1lIE/docs-qa/late-native-codegen-probes-separate-address-demand-from-inlining-390-full.png"
+    },
+    {
+      "file": "source/performance/tile/index.html",
+      "id": "results-by-route",
+      "width": 390,
+      "pageWidth": 390,
+      "required": [
+        "native codegen probes",
+        "0.337–0.469",
+        "not promoted into the working compiler"
+      ],
+      "screenshot": "/tmp/luisa-packet-inline.UY1lIE/docs-qa/results-by-route-390.png",
+      "fullScreenshot": "/tmp/luisa-packet-inline.UY1lIE/docs-qa/results-by-route-390-full.png"
+    }
+  ]
+}

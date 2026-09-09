@@ -1,0 +1,70 @@
+{
+  "finished_unix": 1788936260.77767,
+  "passed": true,
+  "source_files": 19177,
+  "source_location": "/private/tmp/luisa-packet-inline.UY1lIE/frozen-stage-a-source",
+  "source_snapshot_sha256": "c8c7ad9fdb71c25506798a33876d2c2e742bee5c8f1aa4fd1497f231e5ca5135",
+  "binary_relocations": {
+    "/private/tmp/luisa-packet-inline.UY1lIE/build/bin/benchmark_tile_xir": {
+      "path": "/private/tmp/luisa-packet-inline.UY1lIE/frozen-stage-a-bin/benchmark_tile_xir",
+      "sha256": "a26c583e503ab473c6fd729d4a338bb6275aeb5f12bf395110cd01cdf5129700"
+    },
+    "/private/tmp/luisa-packet-inline.UY1lIE/build/bin/libluisa-ast.dylib": {
+      "path": "/private/tmp/luisa-packet-inline.UY1lIE/frozen-stage-a-bin/libluisa-ast.dylib",
+      "sha256": "7346ce73847e2d1ed5c8e27bbc59d50fe2f470d6e7140fd1287ecb7e4e88cf17"
+    },
+    "/private/tmp/luisa-packet-inline.UY1lIE/build/bin/libluisa-backend-metal.so": {
+      "path": "/private/tmp/luisa-packet-inline.UY1lIE/frozen-stage-a-bin/libluisa-backend-metal.so",
+      "sha256": "aa73a3688f204ca03299bc148e550228281e6188b091bdfb8b2182f9e0fa5801"
+    },
+    "/private/tmp/luisa-packet-inline.UY1lIE/build/bin/libluisa-backend-simd.so": {
+      "path": "/private/tmp/luisa-packet-inline.UY1lIE/frozen-stage-a-bin/libluisa-backend-simd.so",
+      "sha256": "ae735e71e77e959f2b141d4b4d4bf46fd12fdecf55c0a0a9043ab5e19321fd17"
+    },
+    "/private/tmp/luisa-packet-inline.UY1lIE/build/bin/libluisa-benchmark-metal-timing.dylib": {
+      "path": "/private/tmp/luisa-packet-inline.UY1lIE/frozen-stage-a-bin/libluisa-benchmark-metal-timing.dylib",
+      "sha256": "1de90a88d2528b288a6b041d8fefaea6c9826ebe5a13fd1ab98f48a766148ff5"
+    },
+    "/private/tmp/luisa-packet-inline.UY1lIE/build/bin/libluisa-core.dylib": {
+      "path": "/private/tmp/luisa-packet-inline.UY1lIE/frozen-stage-a-bin/libluisa-core.dylib",
+      "sha256": "73896c0c0db1c18591eadb2e7ff476dc7600bae6769a667f1611d698532b1842"
+    },
+    "/private/tmp/luisa-packet-inline.UY1lIE/build/bin/libluisa-coro.dylib": {
+      "path": "/private/tmp/luisa-packet-inline.UY1lIE/frozen-stage-a-bin/libluisa-coro.dylib",
+      "sha256": "c24ac47fa4ea43ce5699c5ade91067b61e1d613378b7fb1e7c9055f5d3d847ac"
+    },
+    "/private/tmp/luisa-packet-inline.UY1lIE/build/bin/libluisa-dsl.dylib": {
+      "path": "/private/tmp/luisa-packet-inline.UY1lIE/frozen-stage-a-bin/libluisa-dsl.dylib",
+      "sha256": "7588db20e7ffd8266d6b1ef8a53c22f9a53f24c22ad49d439b814aff1621d089"
+    },
+    "/private/tmp/luisa-packet-inline.UY1lIE/build/bin/libluisa-osl.dylib": {
+      "path": "/private/tmp/luisa-packet-inline.UY1lIE/frozen-stage-a-bin/libluisa-osl.dylib",
+      "sha256": "451246f4bb87872fefb8995171c471a234cf42844bd0106724af1d778b7709fe"
+    },
+    "/private/tmp/luisa-packet-inline.UY1lIE/build/bin/libluisa-runtime.dylib": {
+      "path": "/private/tmp/luisa-packet-inline.UY1lIE/frozen-stage-a-bin/libluisa-runtime.dylib",
+      "sha256": "852e3842566559b90e5df167e01129a48698be2810b28ca82e8c33502982b88f"
+    },
+    "/private/tmp/luisa-packet-inline.UY1lIE/build/bin/libluisa-tile-bridge-tirx.dylib": {
+      "path": "/private/tmp/luisa-packet-inline.UY1lIE/frozen-stage-a-bin/libluisa-tile-bridge-tirx.dylib",
+      "sha256": "f723ef442185716bc3a40abd9f9c76549d95fa45062c9aa06d282371cacdb68b"
+    },
+    "/private/tmp/luisa-packet-inline.UY1lIE/build/bin/libluisa-tile-bridge-xir.dylib": {
+      "path": "/private/tmp/luisa-packet-inline.UY1lIE/frozen-stage-a-bin/libluisa-tile-bridge-xir.dylib",
+      "sha256": "40971445211d6262e9dd9feb49884db1b6ee0af171ac91295b298dfd0ffb6b15"
+    },
+    "/private/tmp/luisa-packet-inline.UY1lIE/build/bin/libluisa-tile.dylib": {
+      "path": "/private/tmp/luisa-packet-inline.UY1lIE/frozen-stage-a-bin/libluisa-tile.dylib",
+      "sha256": "b4bf662a2cb5a63cccb491c458c29d42ec22a217d35a24ad714d5e3ec560316a"
+    },
+    "/private/tmp/luisa-packet-inline.UY1lIE/build/bin/libluisa-validation-layer.so": {
+      "path": "/private/tmp/luisa-packet-inline.UY1lIE/frozen-stage-a-bin/libluisa-validation-layer.so",
+      "sha256": "fa2e34c3aa856a221932d5f4eb6a80eede1bd6850926ce65dd2532747dfa6127"
+    },
+    "/private/tmp/luisa-packet-inline.UY1lIE/build/bin/libluisa-xir.dylib": {
+      "path": "/private/tmp/luisa-packet-inline.UY1lIE/frozen-stage-a-bin/libluisa-xir.dylib",
+      "sha256": "3b10bf097931c25bc5b29af89a1d56eb39f56bc47ede9507a0908642e9ec5775"
+    }
+  },
+  "note": "Phase A is closed. Captured native libraries and results remain unchanged; only source/build are reused by a separately versioned next phase."
+}

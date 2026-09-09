@@ -78,6 +78,33 @@ Realization-sensitive cost calibration and independent CPU task grain remain
 open. This fixed opt-in cohort establishes neither automatic/default-path
 parity nor new Metal/MPS/BLAS/GEMM/attention performance.
 
+### Late native codegen probes separate address demand from inlining
+
+The later September 9 {download}`Chinese codegen investigation <../../../../scripts/benchmark/tile_torch/results/m1-max-20260909-native-codegen-probes/notes.md>`
+captures two independent 24-case experiments from `2cfc80493`: forced
+packet-loop inlining, and a separate late integer-lane projection prototype.
+Both use actual ORC objects and the same frozen Inductor entries, with fixed
+W8/local=8/block=32, precise math and existing opt-in pointwise realization.
+**Both complete timing cohorts are diagnostic-only under desktop coactivity**;
+they do not replace the accepted native ratios above or calibrate a policy.
+
+Actual RoPE objects expose vector integer work and register transfers for an
+address needing only one scalar lane. The projection prototype removes that
+work without rewriting FP arithmetic, duplicating loads or matching operator
+names. Packet-loop inlining instead removes helper calls and hoists guards
+to once per block; its diagnostic small-RoPE benefit coexists with large
+LayerNorm regressions. These are different decisions, not a blanket argument
+for inlining or evidence that the execution solver is now calibrated.
+
+All 864 timed native visits pass the recorded full-output checks; an
+independent audit rereads 384 output snapshots across captures, smoke and
+timed cohorts. The two experiments retain {download}`all diagnostic tables
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260909-native-codegen-probes/tables.md>`.
+The temporary C++ overlays remain outside the working compiler: demanded-lane
+profitability, poison/undef and code-growth tests, joint decisions and unseen
+program holdouts still precede production promotion. See the
+[validation boundary](validation.md#native-codegen-prototypes-remain-separate-from-production-promotion).
+
 ### Use-site private indices unlock contiguous SIMD memory
 
 The September 9 {download}`private-index report <../../../../scripts/benchmark/tile_torch/results/m1-max-20260909-cohort-private/notes.md>`

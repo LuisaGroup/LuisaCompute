@@ -97,6 +97,31 @@ preparation and raw runs, and explains privacy-minimized coactivity records.
 Correctness and source integration do not establish a new speedup or parity
 result. Pointwise fusion remains opt-in, and its cost prior is not recalibrated.
 
+## Native codegen prototypes remain separate from production promotion
+
+Two later September 9 diagnostic experiments use recursive pinned exports of
+`2cfc80493`, with separate packet-inlining and integer-projection overlays.
+Both pass their full configured-build gates. The projection-enabled build
+passes **80 XIR/SIMD CTests and 35 Tile CTests**, with no failure or skip.
+These are existing regressions, not new exhaustive projection-semantic tests.
+
+Each phase completes 48 capture outputs, 72 native smoke visits and 432 timed
+native visits at the same 24 finite-input FP32 cases. All complete FP64 checks
+pass, and all 24 off/on pairs per phase are bitwise equal. An independent
+audit rereads **384 retained output snapshots** and rejects eight evidence
+mutations; freed guard arrays are represented by replay receipts, not reread.
+The 24 control objects are identical across phases, as are the projection
+phase's off/on pre-O2 LLVM files. Phase A source and binary closure are frozen
+before phase B reuses the build directory.
+
+The {download}`Chinese report and evidence index <../../../../scripts/benchmark/tile_torch/results/m1-max-20260909-native-codegen-probes/notes.md>`
+retain negative inlining results, an unadopted cross-target roundeven probe,
+and the corrected generated-Metal-source snapshot gate. Draft roundeven
+tests were **not** compiled or executed. Both complete timing cohorts were
+prospectively diagnostic-only under coactivity; no new performance ranking,
+default, production compiler edit or cost calibration follows. Original
+unfinished worktree files and dependency checkouts remain untouched.
+
 ## Per-operation reduction policy checkpoint
 
 The September 8 checkpoint passes a **full selected build and all 35 Tile

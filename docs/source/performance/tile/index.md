@@ -71,6 +71,10 @@ contended timing cohort is excluded, so the native ratios above are not
 replaced by a new speedup claim.
 The subsequent [next integration check](validation.md#next-integration-keeps-performance-qualification-separate)
 keeps two contended native replay attempts out of the performance evidence.
+Two later [native codegen probes](results.md#late-native-codegen-probes-separate-address-demand-from-inlining)
+isolate scalar address demand and packet-loop inlining. Their correctness and
+code evidence are complete, but both timing cohorts remain diagnostic-only;
+the experimental overlays are not promoted into the working compiler.
 [Independent task grain](results.md#cpu-task-grain-is-independent-of-the-native-packet-body)
 and realization-sensitive cost calibration remain necessary; native superiority
 alone does not establish dispatch latency or default-path parity.
