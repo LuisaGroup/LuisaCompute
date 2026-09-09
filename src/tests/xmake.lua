@@ -330,7 +330,11 @@ test_proj("benchmark_simd_gemm", "unit/simd/benchmark_simd_gemm.cpp")
 test_proj("test_hip_codegen_arithmetic", "unit/runtime/test_hip_codegen_arithmetic.cpp")
 test_proj("test_hip_fmod", "unit/runtime/test_hip_fmod.cpp")
 test_proj("test_switch_case_group", "unit/dsl/test_switch_case_group.cpp")
-test_proj("test_switch_case_group_runtime", "unit/runtime/test_switch_case_group_runtime.cpp")
+if has_config("lc_enable_xir") then
+    test_proj("test_switch_case_group_runtime", "unit/runtime/test_switch_case_group_runtime.cpp", false, function()
+        add_deps("lc-coro")
+    end)
+end
 test_proj("test_xir_restructure_shared_switch", "unit/xir/test_xir_restructure_shared_switch.cpp")
 test_proj("test_hip_curve_ray_query", "unit/runtime/test_hip_curve_ray_query.cpp")
 test_proj("test_hip_motion_instance_matrix", "unit/runtime/test_hip_motion_instance_matrix.cpp")
