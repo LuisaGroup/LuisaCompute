@@ -13,7 +13,7 @@ checkpoints
 
 ## Current conclusion
 
-As of September 8, 2026, on `codex/tile-programming-design`:
+As of September 9, 2026, on `codex/tile-programming-design`:
 **the architecture runs, but the general MPS/Torch performance goal is not
 complete.** Several bounded FP32 cohorts on Apple M1 Max beat eager Torch;
 large GEMM and direct XIR/SIMD still have substantial gaps. These results do
@@ -46,14 +46,25 @@ and negative results. Historical experiments are not one matched leaderboard.
 
 ## Results by route
 
-**SIMD ragged lowering: native progress, remaining Inductor gap.**
-The latest [masked-region and counted-header realization](results.md#ragged-control-flow-is-a-realization-cost-not-extra-tile-work)
+**SIMD private indices: the measured native RMSNorm gap closes.**
+The latest [use-site memory realization](results.md#use-site-private-indices-unlock-contiguous-simd-memory)
+brings six fixed-local FP32 RMSNorm native cohorts to 0.340–0.471×
+one-thread TorchInductor time; all 36 paired rounds win. Five ragged shapes
+improve another 4.7–5.5×, while an aligned control preserves identical code.
+The 440-visit E2E screen benefits broad large/local row programs but retains
+small-task regressions and non-winning attention. This is generic opt-in
+lowering, not recalibrated automatic planning, default-path parity or a new
+Metal/MPS/BLAS result. Task grain and realization-sensitive cost policy remain
+important open work.
+
+**Previous SIMD ragged lowering: native progress before private-index facts.**
+The September 8 [masked-region and counted-header realization](results.md#ragged-control-flow-is-a-realization-cost-not-extra-tile-work)
 improves three fixed-local RMSNorm native cohorts by roughly 3.3–7.1×,
 but they remain 1.87–2.23× slower than one-thread TorchInductor. An aligned
 control preserves byte-identical code and its existing advantage. All 344
 cross-operator E2E visits and 72 native visits pass complete output checks.
-The rule is generic and opt-in; task grain, per-use private index facts and
-realization-sensitive cost calibration still need work. This is not an
+The rule is generic and opt-in; the following checkpoint supplies per-use
+private index facts, while task grain and cost calibration still need work. This is not an
 automatic planner victory or a new Metal/MPS result.
 
 **SIMD CPU task grain: executable joint search, incomplete cost calibration.**

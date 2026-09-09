@@ -1,6 +1,6 @@
 # Tile performance by compiler route
 
-Saved comparisons through September 8, 2026. These are separate experiments,
+Saved comparisons through September 9, 2026. These are separate experiments,
 not a cross-route leaderboard with one matched timing and math policy.
 See [current status](index.md) for the conclusion and remaining goal.
 
@@ -17,6 +17,75 @@ Report tables use medians of within-round p50s. A paired ratio is the median
 of same-round numerator/denominator ratios, **not** a ratio of the displayed
 medians. Ranges and counts of slower rounds are descriptive, not confidence
 intervals. No slow or failed row is discarded to improve the headline.
+
+### Use-site private indices unlock contiguous SIMD memory
+
+The September 9 {download}`private-index report <../../../../scripts/benchmark/tile_torch/results/m1-max-20260909-cohort-private/notes.md>`
+closes the previously measured ragged RMSNorm gap at **fixed local mapping**.
+It carries an existing use-site equality fact into private-memory realization,
+without globally scalarizing varying state or adding an operator-specific rule.
+The feature remains **opt-in**, and the automatic cost model is not recalibrated.
+
+The **single-thread native-entry** experiment compares the actual ORC and
+TorchInductor 2.14.0 entries, with six balanced orders and seven samples per
+visit. Runtime/Python/JIT/allocation are excluded; required native traversal,
+launch-record resets and emitted libc calls remain. W8/local=8/block=32 are
+fixed, predicated effects and full-packet specialization are on, fusion and
+fast math are off. Only the new private-index feature changes on/off.
+
+| RMSNorm | Off µs | On µs | Inductor µs | On/off | On/Inductor |
+|---|---:|---:|---:|---:|---:|
+| 17×65 | 1.364 | 0.249 | 0.729 | 0.182 | 0.340 |
+| 257×1538 | 544.018 | 116.720 | 247.348 | 0.213 | 0.469 |
+| 1024×4097 | 5784.021 | 1148.873 | 2593.370 | 0.198 | 0.442 |
+| 129×768, aligned control | 26.311 | 26.238 | 63.246 | 0.998 | 0.416 |
+| 137×1023, new shape | 193.905 | 40.881 | 86.733 | 0.211 | 0.471 |
+| 513×2051, new shape | 1456.840 | 283.972 | 655.054 | 0.197 | 0.436 |
+
+All 36 paired rounds beat Inductor. Five ragged cohorts improve another
+4.7–5.5× over the preceding implementation. The aligned control has identical
+LLVM/object bytes; its existing win and tiny timing movement are not a new
+optimization benefit. Inductor still uses reciprocal-multiply and a cascade
+reduction at width 4097; Tile keeps division. Both pass a complete FP64
+tolerance check, not a cross-implementation bitwise-equivalence contract.
+
+The separate **440-visit Runtime E2E** experiment covers six row operators
+at nine dimensions and two attention shapes. These examples fix local=8 and
+1024 rows, with width 4097 (4098 for even-width RoPE), at eight requested CPU
+workers. They show cross-operator lowering benefits, not native Torch parity.
+
+| Operator | Off µs | On µs | On/off |
+|---|---:|---:|---:|
+| RMSNorm | 889.739 | 307.457 | 0.346 |
+| LayerNorm | 1739.144 | 413.998 | 0.238 |
+| Masked softmax | 3661.417 | 1913.912 | 0.531 |
+| SwiGLU | 1566.149 | 934.094 | 0.597 |
+| GELU + residual | 2513.825 | 1566.668 | 0.624 |
+| RoPE | 1179.285 | 450.866 | 0.383 |
+
+Negative results remain: 17×65 RMSNorm local E2E grows 30.472→32.095 µs
+(paired 1.053), despite the native win; whole-program on is 1.335 µs.
+Aligned 64×256 LayerNorm local and new 137×1024 RoPE local measure paired
+1.046/1.048. Their object identities were not captured, so neither a code
+regression nor a pure-noise explanation is established. Attention has no
+consistent improvement. Two E2E orders and their ranges are descriptive,
+especially for the noisier softmax/whole-program cases. See all 110 fixed
+mapping comparisons in the {download}`complete tables <../../../../scripts/benchmark/tile_torch/results/m1-max-20260909-cohort-private/tables.md>`.
+
+The {download}`audit <../../../../scripts/benchmark/tile_torch/results/m1-max-20260909-cohort-private/audit.json>`
+rechecks all 452 Runtime/capture outputs; 116 fixed-mapping groups preserve
+exact output bits. All 108 native visits check complete outputs and guards.
+Initial broad CTest is 205/209, including 64/64 SIMD/Tile XIR tests; the two
+Metal timeout cases pass unchanged on recheck, while two tutorials require
+the absent fallback backend. Feature-on W2/W8/W16 Runtime checks pass.
+
+Actual full-range assembly replaces per-lane private loads with `ldp q` and
+`stp q`. This is static code evidence plus a controlled timing comparison,
+not sampled hardware bottleneck attribution. Mapping and the estimated
+`62030848` relative work stay unchanged for 1024×4097 despite the native
+improvement. [Epoch-scoped access facts](../../internals/tile/xir.md#private-index-equality-belongs-to-a-use-and-an-epoch)
+need to inform realization-sensitive cost policy and task-grain search.
+This does not establish automatic/default-path, all-operator or Metal/MPS/BLAS parity.
 
 ### Ragged control flow is a realization cost, not extra Tile work
 

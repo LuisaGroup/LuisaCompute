@@ -1398,6 +1398,15 @@ private:
                 } else if (step == LaneIndexStep::consecutive) {
                     instruction.lane_consecutive_operand_index = 1u;
                 }
+            } else if (_options.enable_cohort_private_access &&
+                       instruction.opcode == Opcode::gep &&
+                       source_instruction->operand_count() == 2u &&
+                       _lane_index_step(source_instruction->operand(1u),
+                                        source_instruction->parent_block()) == LaneIndexStep::equal) {
+                // The index is equal at this GEP, not necessarily after a
+                // later reconvergence. Keep its varying backing state and
+                // require consumers to preserve the address snapshot.
+                instruction.cohort_uniform_operand_index = 1u;
             }
         }
         if (instruction.opcode == Opcode::warp_collective) {

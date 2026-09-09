@@ -208,7 +208,9 @@ void ScheduleEmitter::_find_interleaved_private_arrays() {
                     // reconvergence. Admit it only at uses in the GEP's own
                     // Schedule block. Warp-uniform indices survive epochs.
                     if (index->value_class == schedule::ValueClass::warp_uniform ||
-                        (index->value_class == schedule::ValueClass::cohort_uniform && access.block == use.block)) {
+                        ((index->value_class == schedule::ValueClass::cohort_uniform ||
+                          gep->cohort_uniform_operand_index == 1u) &&
+                         access.block == use.block)) {
                         _contiguous_private_accesses.emplace(access.instruction, *allocation.result);
                     }
                 }

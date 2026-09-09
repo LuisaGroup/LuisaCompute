@@ -153,6 +153,8 @@ struct Instruction {
     // One operand may be lane-equal only at this instruction's dynamic
     // continuation even when its backing state is varying across loop exits.
     // This is a use-site fact, not a global ValueClass refinement.
+    // For a GEP index, users must establish the same dynamic epoch before
+    // using equality to realize a contiguous private access.
     std::optional<uint32_t> cohort_uniform_operand_index{};
     // One integer operand may be proven to increase by exactly one between
     // adjacent physical packet lanes. The proof is use-site-local and relies

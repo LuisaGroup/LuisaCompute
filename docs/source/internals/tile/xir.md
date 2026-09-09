@@ -393,6 +393,49 @@ full-packet eligibility. That realization-sensitive profitability model is
 still pending. See the
 [fixed-mapping evidence](../../performance/tile/results.md#ragged-control-flow-is-a-realization-cost-not-extra-tile-work).
 
+### Private index equality belongs to a use and an epoch
+
+An induction value can require varying backing storage while its active
+lanes have the same value at a particular loop-body access. For a canonical
+counted loop with lane-equal start `s` and constant step `d`, active lanes in
+body epoch `q` use `s + q*d`. The upper bound may differ by lane: lanes that
+exit early retain different final values after reconvergence. Consequently,
+this is not permission to globally scalarize the induction value.
+
+```text
+canonical loop / equal integer expressions
+  → GEP index is equal at this use
+  → cohort_uniform_operand_index = 1 (backing ValueClass unchanged)
+  → closed interleaved private array + load/store in the same Schedule block
+  → saved GEP address snapshot → contiguous slot vector
+
+varying start / cross-block pointer use / divergent loop exit
+  → no new contiguous-access permission → existing gather/scatter fallback
+```
+
+`LUISA_SIMD_ENABLE_COHORT_PRIVATE_ACCESS=1` enables this experimental
+XIR-to-Schedule fact propagation; the corresponding `DISABLE` flag wins.
+It is default-off and independent of predicated memory effects. The existing
+integer access analysis supplies the fact; the memory realization consumes
+it only for a direct single-index GEP into a closed private scalar array.
+No operator-name recognition or reduction reassociation is involved.
+
+Consumers must preserve the GEP address snapshot and dynamic epoch. The
+current implementation accepts only same-block accesses for this new fact;
+it does not infer that a pointer transported through another block, PHI,
+suspension or escape still names an equal slot. Existing globally
+warp-uniform indices retain their stronger permission. Shared and opaque
+storage do not enter the closed-private-array realization.
+
+This extends the existing immutable-base contiguous access implementation:
+inactive lanes are masked from reads and preserved by stores, including an
+empty cohort. Tests compare every byte of 32/64-bit private storage and
+guards at W2/4/8/16, with divergent bounds, non-prefix masks, differing
+starts and cross-block counterexamples. The transformation changes an
+access realization, not the execution mapping, memory ownership or
+floating-point contract. Realization-sensitive cost calibration remains
+separate from this legality improvement.
+
 ### Packet-private storage budgets
 
 The SIMD adapter separately budgets **physical packet storage**:

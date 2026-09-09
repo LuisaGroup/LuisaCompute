@@ -460,8 +460,7 @@ void register_block_barrier_tests() {
                 result.function->blocks().size());
             if (barrier->resume_edge.target.value <
                 result.function->blocks().size()) {
-                const auto &resume = result.function->blocks()[
-                    barrier->resume_edge.target.value];
+                const auto &resume = result.function->blocks()[barrier->resume_edge.target.value];
                 expect(std::holds_alternative<ReturnTerminator>(
                     resume.terminator));
             }
@@ -818,6 +817,73 @@ void register_diagnostic_tests() {
 }
 
 void register_memory_layout_tests() {
+    "simd_xir_lowering_keeps_private_index_equality_at_its_use"_test = [] {
+        for (auto variant : {0u, 1u, 2u}) {
+            Module module;
+            auto *kernel = module.create_kernel();
+            auto *entry = kernel->create_body_block();
+            auto *arm = kernel->create_basic_block();
+            auto *merge = kernel->create_basic_block();
+            auto *header = kernel->create_basic_block();
+            auto *body = kernel->create_basic_block();
+            auto *exit = kernel->create_basic_block();
+            auto type = Type::of<uint32_t>();
+            auto constant = [&](uint32_t value) { return module.create_constant(type, &value); };
+            auto lane = module.create_warp_lane_id();
+            XIRBuilder builder;
+            builder.set_insertion_point(entry);
+            auto storage = builder.alloca_local(Type::array(type, 33u));
+            auto condition = builder.call(Type::of<bool>(), ArithmeticOp::BINARY_NOT_EQUAL, {lane, constant(0u)});
+            builder.cond_br(condition, arm, merge);
+            builder.set_insertion_point(arm);
+            builder.store(builder.gep(type, storage, {constant(32u)}), lane);
+            builder.br(merge);
+            builder.set_insertion_point(merge);
+            xir::Value *start = variant == 2u ? static_cast<xir::Value *>(lane) : constant(0u);
+            xir::Value *limit = constant(4u);
+            if (variant == 1u) { limit = builder.call(type, ArithmeticOp::BINARY_ADD, {lane, constant(1u)}); }
+            builder.br(header);
+            builder.set_insertion_point(header);
+            auto iteration = builder.phi(type, {{start, merge}});
+            iteration->set_name("cohort_iv");
+            builder.cond_br(builder.call(Type::of<bool>(), ArithmeticOp::BINARY_LESS, {iteration, limit}), body, exit);
+            builder.set_insertion_point(body);
+            auto slot = builder.call(type, ArithmeticOp::BINARY_ADD, {builder.call(type, ArithmeticOp::BINARY_MUL, {iteration, constant(2u)}), constant(1u)});
+            auto pointer = builder.gep(type, storage, {slot});
+            pointer->set_name("loop_pointer");
+            builder.store(pointer, lane);
+            iteration->add_incoming(builder.call(type, ArithmeticOp::BINARY_ADD, {iteration, constant(1u)}), body);
+            builder.br(header);
+            builder.set_insertion_point(exit);
+            auto escaped = builder.gep(type, storage, {iteration});
+            escaped->set_name("exit_pointer");
+            builder.load(type, escaped);
+            builder.return_void();
+            for (auto enabled : {false, true}) {
+                auto lowered = lower_xir_to_schedule(kernel, {.logical_warp_width = 8u, .enable_cohort_private_access = enabled});
+                expect(lowered.succeeded()) << diagnostics_text(lowered);
+                if (!lowered.succeeded()) { continue; }
+                auto iv = find_value(*lowered.function, "cohort_iv");
+                expect(iv != nullptr && iv->value_class == ValueClass::varying);
+                auto count = 0u;
+                for (auto &block : lowered.function->blocks()) {
+                    for (auto &instruction : block.instructions) {
+                        if (instruction.opcode != Opcode::gep || !instruction.result) { continue; }
+                        auto value = lowered.function->value(*instruction.result);
+                        if (value->name == "loop_pointer") {
+                            expect((instruction.cohort_uniform_operand_index == 1u) == (enabled && variant != 2u));
+                            count++;
+                        } else if (value->name == "exit_pointer") {
+                            expect(!instruction.cohort_uniform_operand_index);
+                            count++;
+                        }
+                    }
+                }
+                expect(eq(count, 2u));
+                expect(verify(*lowered.function).succeeded());
+            }
+        }
+    };
     "simd_xir_lowering_proves_bounded_packet_quotient_remainder"_test = [] {
         auto check = [](uint32_t width, uint32_t block_x, int64_t divisor, int64_t offset,
                         const Type *cast_type, bool bitcast, bool dynamic_divisor,

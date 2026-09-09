@@ -57,6 +57,9 @@ struct XIRToScheduleOptions {
     // earlier divergence. Publish a use-site predicate fact, not a global
     // scalarization of induction/state values across reconvergence.
     bool enable_counted_loop_uniformity{false};
+    // Preserve lane-equal integer GEP indices as use-site facts. Consumers
+    // must not widen this equality across divergent loop exits or epochs.
+    bool enable_cohort_private_access{false};
 };
 
 struct XIRToScheduleResult {
