@@ -14,6 +14,7 @@
 #include <luisa/coro/radix_sort.h>
 #include <luisa/coro/schedulers/wavefront_auxiliary.h>
 #include <luisa/coro/schedulers/wavefront_extension.h>
+#include <luisa/coro/schedulers/wavefront_extension_batch.h>
 #include <luisa/core/clock.h>
 #include <luisa/dsl/coro_func.h>
 #include <luisa/dsl/sugar.h>
@@ -1181,6 +1182,51 @@ private:
         }
     }
 
+    void _coalesce_resume_annotation_queues() noexcept {
+        using BatchEntry = detail::WavefrontCoroResumeBatchEntry;
+        luisa::vector<luisa::vector<BatchEntry>> batches(_extension_stages.size());
+        luisa::vector<uint> canonical(_queue_count);
+        for (auto i = 0u; i < canonical.size(); ++i) { canonical[i] = i; }
+        for (size_t i = 0u; i < _extension_stages.size(); ++i) {
+            auto &registered = _extension_stages[i];
+            if (registered.before_resume_chain.empty()) { continue; }
+            auto &batch = batches[i];
+            for (auto index : registered.before_resume_chain) {
+                auto &member = _extension_stages[index];
+                batch.emplace_back(BatchEntry{&member.stage, member.handler.get()});
+            }
+            for (size_t j = 0u; j < i; ++j) {
+                auto &representative = _extension_stages[j];
+                auto queue = representative.stage.queue_index;
+                if (batches[j].empty() || canonical[queue] != queue ||
+                    !detail::wavefront_coro_resume_batch_compatible(
+                        luisa::span<const BatchEntry>{batch},
+                        luisa::span<const BatchEntry>{batches[j]})) { continue; }
+                canonical[registered.stage.queue_index] = static_cast<uint>(queue);
+                if (_config.report_stats || std::getenv("LUISA_CORO_WAVEFRONT_STATS") != nullptr) {
+                    LUISA_INFO(
+                        "Wavefront before-resume batch alias: queue={} boundary={} "
+                        "-> queue={} boundary={} continuation={}.",
+                        registered.stage.queue_index, registered.stage.boundary->index,
+                        queue, representative.stage.boundary->index,
+                        registered.stage.boundary->to_index);
+                }
+                break;
+            }
+        }
+        // Shader-side source routes read this dynamic table. Redirect only
+        // suffix heads after all independent semantic prefixes are connected;
+        // no source spill, compiler boundary or binding descriptor is changed.
+        // Equal resident certificates make the representative queue's existing
+        // compaction plan valid for the disjoint union of incoming frames.
+        for (auto &queue : _extension_route_table) { queue = canonical[queue]; }
+        for (auto &registered : _extension_stages) {
+            registered.next_queue = canonical[registered.next_queue];
+        }
+        // Retain every prepared handler, including inactive aliases: commands
+        // enqueued during preparation can still reference its owned resources.
+    }
+
     void _finalize_extension_handlers() noexcept {
         if (_extension_handlers_finalized) { return; }
         if (_extension_stages.empty()) {
@@ -1274,6 +1320,7 @@ private:
                 _refill_at[queue] = _refill_at[boundary.to_index];
             }
         }
+        _coalesce_resume_annotation_queues();
         _extension_handlers_finalized = true;
     }
 
@@ -1386,6 +1433,14 @@ private:
         auto resumed_count = uint64_t{0u};
         auto max_scan_count = 0u;
         auto max_active_count = 0u;
+        luisa::vector<uint> logical_count(nq, 0u);
+        luisa::vector<uint> logical_members(nq, 0u);
+        auto queue_owner = [&](size_t queue) noexcept {
+            // Independent Extensions have distinct scheduling identities;
+            // only before-resume suffixes belong to their continuation.
+            return _queue_continuation[queue] < nc ?
+                       _queue_continuation[queue] : static_cast<uint>(queue);
+        };
         auto resume = [&](size_t continuation, uint source_queue,
                           BufferView<uint> indices, uint count) noexcept {
             stream << _resume_kernels[continuation](
@@ -1500,28 +1555,24 @@ private:
             }
 
             auto active_count = 0u;
+            std::fill(logical_count.begin(), logical_count.end(), 0u);
+            std::fill(logical_members.begin(), logical_members.end(), 0u);
             for (size_t i = 1u; i < nq; ++i) {
                 active_count += _host_count[i];
-                if (report_stats) {
-                    if (i < nc) {
-                        auto &continuation =
-                            _last_dispatch_stats.continuations[i];
-                        continuation.peak_queued_count = std::max(
-                            continuation.peak_queued_count,
-                            _host_count[i]);
-                    } else {
-                        auto &extension =
-                            _last_dispatch_stats.extensions[i - nc];
-                        extension.peak_queued_count = std::max(
-                            extension.peak_queued_count,
-                            _host_count[i]);
-                        if (_queue_continuation[i] < nc) {
-                            auto &continuation = _last_dispatch_stats.continuations[
-                                _queue_continuation[i]];
-                            continuation.peak_queued_count = std::max(
-                                continuation.peak_queued_count, _host_count[i]);
-                        }
-                    }
+                auto owner = queue_owner(i);
+                logical_count[owner] += _host_count[i];
+                logical_members[owner] += static_cast<uint>(_host_count[i] != 0u);
+                if (report_stats && i >= nc) {
+                    auto &extension = _last_dispatch_stats.extensions[i - nc];
+                    extension.peak_queued_count = std::max(
+                        extension.peak_queued_count, _host_count[i]);
+                }
+            }
+            if (report_stats) {
+                for (size_t i = 1u; i < nc; ++i) {
+                    auto &continuation = _last_dispatch_stats.continuations[i];
+                    continuation.peak_queued_count = std::max(
+                        continuation.peak_queued_count, logical_count[i]);
                 }
             }
             max_active_count = std::max(max_active_count, active_count);
@@ -1601,19 +1652,20 @@ private:
             auto selected_count = 0u;
             auto selected_priority = nq;
             for (size_t i = 1u; i < nq; ++i) {
-                // An annotation suffix is part of its target continuation,
-                // including its tie priority. Physical Extension queue IDs
-                // must not silently change the logical scheduling policy.
-                auto priority = _queue_continuation[i] < nc ? _queue_continuation[i] : i;
-                if (_host_count[i] > selected_count ||
-                    (_host_count[i] != 0u && _host_count[i] == selected_count &&
-                     priority < selected_priority)) {
-                    selected = i;
-                    selected_count = _host_count[i];
-                    selected_priority = priority;
+                // Compare the complete continuation, not its separately
+                // annotated entry queues. Ascending owners retain tie order.
+                if (logical_count[i] > selected_count) {
+                    selected_count = logical_count[i];
+                    selected_priority = i;
                 }
             }
-            auto selected_continuation = selected < nq ? _queue_continuation[selected] : nc;
+            for (size_t i = 1u; i < nq; ++i) {
+                if (_host_count[i] != 0u && queue_owner(i) == selected_priority) {
+                    selected = i;
+                    break;
+                }
+            }
+            auto selected_continuation = selected_priority < nc ? selected_priority : nc;
 
             // Individual side stages compete with main continuations by
             // cardinality, but admission accounts for ALL live stages sharing
@@ -1816,32 +1868,57 @@ private:
                 if (_config.incremental_continuation_counts &&
                     selected < nq && selected_count != 0u &&
                     scan_count != 0u) {
-                    stream << _clear_count_shader(_global_buffer, 1u)
-                                  .dispatch(1u);
-                    stream << _gather_selected_shader(
-                                  _config.thread_count, _resume_index,
-                                  _global_buffer,
-                                  static_cast<uint>(selected), scan_count)
-                                  .dispatch(scan_count);
-                    if (verify_queues) {
-                        uint gathered_count = 0u;
-                        stream << _global_buffer.copy_to(
-                                      luisa::span{&gathered_count, 1u})
-                               << synchronize();
-                        LUISA_ASSERT(
-                            gathered_count == selected_count,
-                            "Incremental wavefront selected-queue gather "
-                            "violation at iteration {}, continuation {}: "
-                            "gathered {} frames, expected {}.",
-                            iteration_count, selected, gathered_count,
-                            selected_count);
+                    if (logical_members[selected_priority] > 1u) {
+                        // Snapshot all memberships before resuming any member.
+                        // A member may requeue paths into another entry of the
+                        // same continuation; those new paths must not leak
+                        // into this decision's still-unconsumed snapshot.
+                        stream << _resume_offset.copy_from(luisa::span{_host_offset});
+                        stream << _gather_shader(
+                                      _config.thread_count, _resume_index,
+                                      _resume_offset, scan_count)
+                                      .dispatch(scan_count);
+                        if (verify_queues) {
+                            luisa::vector<uint> ends(nq);
+                            stream << _resume_offset.copy_to(luisa::span{ends})
+                                   << synchronize();
+                            for (size_t i = 0u; i < nq; ++i) {
+                                LUISA_ASSERT(
+                                    ends[i] >= _host_offset[i] &&
+                                        ends[i] - _host_offset[i] == _host_count[i],
+                                    "Logical wavefront snapshot gather violation "
+                                    "at iteration {}, queue {}: expected {} frames.",
+                                    iteration_count, i, _host_count[i]);
+                            }
+                        }
+                    } else {
+                        stream << _clear_count_shader(_global_buffer, 1u)
+                                      .dispatch(1u);
+                        stream << _gather_selected_shader(
+                                      _config.thread_count, _resume_index,
+                                      _global_buffer,
+                                      static_cast<uint>(selected), scan_count)
+                                      .dispatch(scan_count);
+                        if (verify_queues) {
+                            uint gathered_count = 0u;
+                            stream << _global_buffer.copy_to(
+                                          luisa::span{&gathered_count, 1u})
+                                   << synchronize();
+                            LUISA_ASSERT(
+                                gathered_count == selected_count,
+                                "Incremental wavefront selected-queue gather "
+                                "violation at iteration {}, continuation {}: "
+                                "gathered {} frames, expected {}.",
+                                iteration_count, selected, gathered_count,
+                                selected_count);
+                        }
+                        _host_offset[selected] = 0u;
                     }
                     gather_scan_count += scan_count;
-                    _host_offset[selected] = 0u;
                 }
                 for (size_t i = nc; i < nq; ++i) {
                     if (_config.largest_continuation_first &&
-                        i != selected) {
+                        queue_owner(i) != selected_priority) {
                         continue;
                     }
                     auto count = _host_count[i];
@@ -1905,7 +1982,7 @@ private:
                     }
                 }
                 for (size_t i = 1u; i < nc; ++i) {
-                    if (_config.largest_continuation_first && i != selected) {
+                    if (_config.largest_continuation_first && queue_owner(i) != selected_priority) {
                         continue;
                     }
                     auto count = _host_count[i];
