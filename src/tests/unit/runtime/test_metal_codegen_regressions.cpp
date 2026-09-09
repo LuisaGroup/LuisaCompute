@@ -367,10 +367,8 @@ int main(int argc, char *argv[]) {
     auto dc = luisa::test::create_device_from_ut(argc, argv, &config);
     if (!dc) { return 0; }
     test_local_lifetime_declarations(dc->device, binary_io);
-    // The remaining historical fixture exercises AST-specific mutable
-    // swizzle references. Keep the new portable lifetime gate selectable.
-    // Boost.UT's comparison/logical operators need not short-circuit. Guard
-    // the argument access before constructing its comparison expression.
+    // Keep the focused lifetime gate selectable. Do not combine the bounds
+    // check with a Boost.UT comparison: its overloaded && is not short-circuit.
     if (argc > 2) {
         if (luisa::string_view{argv[2]} == "--local-only") { return 0; }
     }

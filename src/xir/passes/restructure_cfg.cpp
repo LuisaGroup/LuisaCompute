@@ -7609,10 +7609,11 @@ struct RemainingDivergentOverlay {
         // block into the new selection merge. Use the same lexical merge
         // inference as indexed-branch restructuring before falling back to
         // global post-dominance.
-        auto *merge = infer_selection_merge(
+        auto *lexical_merge = infer_selection_merge(
             def, bb,
             luisa::span<BasicBlock *const>{successors},
             dominance);
+        auto *merge = lexical_merge;
         // An entry-unreachable shell has no lexical dominance context.
         // Like indexed-branch restructuring, give it a synthetic merge;
         // global post-dominance alone cannot establish an in-region merge.
@@ -7631,6 +7632,7 @@ struct RemainingDivergentOverlay {
 
         if (!is_synthetic) {
             bool has_bad = false;
+            bool crosses_enclosing_continue = false;
             luisa::unordered_set<BasicBlock *> visited;
             luisa::vector<BasicBlock *> work;
             work.push_back(t);
@@ -7652,6 +7654,9 @@ struct RemainingDivergentOverlay {
                 }
                 if (index.continue_set.contains(cur)) {
                     has_bad = true;
+                    crosses_enclosing_continue =
+                        is_enclosing_remaining_divergent_boundary(
+                            bb, cur, index, dominates);
                     break;
                 }
                 if (!cur->is_terminated()) { continue; }
@@ -7661,7 +7666,21 @@ struct RemainingDivergentOverlay {
                         work.emplace_back(successor);
                     });
             }
-            if (has_bad) { continue; }
+            if (has_bad) {
+                if (lexical_merge != nullptr ||
+                    !crosses_enclosing_continue) {
+                    continue;
+                }
+                // No arm convergence exists within the current loop epoch.
+                // The global fallback reaches its candidate only after an
+                // enclosing continue; choosing it would move the selection
+                // merge across that epoch boundary. Both original transfers
+                // remain valid under a fresh unreachable lexical merge.
+                // Merely skipping the candidate leaves a generated
+                // terminal/payload-continue dispatch permanently raw.
+                merge = nullptr;
+                is_synthetic = true;
+            }
         }
 
         found_bb = bb;

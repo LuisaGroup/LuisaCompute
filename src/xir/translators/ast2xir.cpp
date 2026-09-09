@@ -416,19 +416,76 @@ private:
                          "Custom function argument count mismatch.");
             luisa::fixed_vector<Value *, 16u> args;
             args.reserve(expr->arguments().size());
+            struct SwizzleReference {
+                Value *base;
+                Value *temporary;
+                luisa::fixed_vector<Value *, 4u> indices;
+            };
+            luisa::fixed_vector<SwizzleReference, 4u> writebacks;
             auto formal = f->arguments().begin();
+            auto argument_index = 0u;
             for (auto ast_arg : ast_args) {
                 // Opaque/custom AST arguments may use a resource-shaped AST
                 // variable (for example IndirectDispatchBuffer) while XIR
                 // deliberately represents them as reference arguments. The
                 // XIR callee ABI is therefore the authoritative load/lvalue
                 // boundary, just as it is for external calls above.
-                auto arg = _translate_expression(
-                    b, ast_arg, !(*formal)->is_reference());
+                Value *arg = nullptr;
+                if ((*formal)->is_reference() && ast_arg->tag() == Expression::Tag::MEMBER &&
+                    static_cast<const MemberExpr *>(ast_arg)->is_swizzle() &&
+                    static_cast<const MemberExpr *>(ast_arg)->swizzle_size() > 1u) {
+                    // A multi-component swizzle is a value, not an addressable
+                    // subobject. Materialize the callable's copy-in/copy-out
+                    // reference and capture its base (including dynamic access
+                    // indices) exactly once. Compose nested swizzles first.
+                    auto member = static_cast<const MemberExpr *>(ast_arg);
+                    luisa::fixed_vector<uint32_t, 4u> component_indices;
+                    for (auto i = 0u; i < member->swizzle_size(); i++) {
+                        component_indices.emplace_back(member->swizzle_index(i));
+                    }
+                    auto self = member->self();
+                    while (self->tag() == Expression::Tag::MEMBER) {
+                        auto parent = static_cast<const MemberExpr *>(self);
+                        if (!parent->is_swizzle()) { break; }
+                        for (auto &index : component_indices) { index = parent->swizzle_index(index); }
+                        self = parent->self();
+                    }
+                    auto base = _translate_expression(b, self, false);
+                    LUISA_ASSERT(base->is_lvalue(), "Callable swizzle reference requires an lvalue base.");
+                    luisa::fixed_vector<Value *, 4u> indices;
+                    luisa::fixed_vector<Value *, 5u> gather;
+                    gather.emplace_back(b.load(base->type(), base));
+                    for (auto index : component_indices) {
+                        auto value = _translate_constant_access_index(index);
+                        indices.emplace_back(value);
+                        gather.emplace_back(value);
+                    }
+                    arg = b.alloca_local(ast_arg->type());
+                    b.store(arg, b.call(ast_arg->type(), ArithmeticOp::SHUFFLE, gather));
+                    auto usage = ast.variable_usage(ast.arguments()[argument_index].uid());
+                    if ((to_underlying(usage) & to_underlying(Usage::WRITE)) != 0u) {
+                        writebacks.emplace_back(SwizzleReference{base, arg, std::move(indices)});
+                    }
+                } else {
+                    arg = _translate_expression(b, ast_arg, !(*formal)->is_reference());
+                }
                 args.emplace_back(arg);
                 ++formal;
+                ++argument_index;
             }
-            return b.call(f->type(), f, args);
+            auto result = b.call(f->type(), f, args);
+            for (auto &&writeback : writebacks) {
+                auto value = b.load(writeback.temporary->type(), writeback.temporary);
+                auto element_type = value->type()->element();
+                for (auto i = 0u; i < writeback.indices.size(); i++) {
+                    auto element = b.call(element_type, ArithmeticOp::EXTRACT,
+                                          {value, _translate_constant_access_index(i)});
+                    b.store(b.gep(element_type, writeback.base, {writeback.indices[i]}), element);
+                }
+            }
+            // Complete copy-out before the caller consumes the result, e.g.
+            // an assignment to a component overlapping the swizzle argument.
+            return result;
         }
         auto ast_op = expr->op();
         auto bindless_access = BindlessResourceAccess{
