@@ -132,6 +132,44 @@ JSON records their SHA256 and complete validation, and retains generated
 source and process logs. No timing selects a schedule. See
 [the first LLM coverage and partitioned-output replay](results/m1-max-20260907-llm-coverage/notes.md).
 
+## Actual native row entries without Runtime
+
+`native_rows.py` compares actual emitted XIR/SIMD ORC entries and generated
+TorchInductor C++ entries through one C++ callback timer. It handles static
+FP32 input order, scratch reuse, const-correct pointer ABIs and partitioned
+output aliases by inspecting the real generated wrapper; it does not
+reimplement the operators. Unknown wrapper effects fail closed.
+
+Capture, preparation and timing are separate phases. This checkpoint's
+capture deliberately verifies the source and binary closure against
+`results/m1-max-20260909-cohort-private/provenance.json`; it is not an
+unversioned benchmark for arbitrary builds. Establish a new recorded
+baseline when updating compiler sources. Each output directory must be new.
+
+```bash
+uv run --offline --no-project --python 3.13 --with numpy \
+  python scripts/benchmark/tile_torch/native_rows.py capture \
+  --binary VERIFIED_BUILD/bin/benchmark_tile_xir --output NEW_CAPTURE
+uv run --offline --no-project --python 3.13 --with numpy --with torch==2.14.0 \
+  python scripts/benchmark/tile_torch/native_rows.py prepare \
+  --capture NEW_CAPTURE --output NEW_PREPARED
+uv run --offline --no-project --python 3.13 --with numpy --with torch==2.14.0 \
+  python scripts/benchmark/tile_torch/native_rows.py replay \
+  --prepared NEW_PREPARED --output NEW_REPLAY
+uv run --offline --no-project --python 3.13 --with numpy \
+  python scripts/benchmark/tile_torch/audit_native_rows.py \
+  --capture NEW_CAPTURE --prepared NEW_PREPARED --replay NEW_REPLAY \
+  --output NEW_AUDIT.json
+```
+
+The timer excludes Runtime/Python/JIT and caller allocations. It includes
+the common callback, actual entry, required block traversal/launch resets,
+and compiler-emitted libc/internal allocations. No build, test or other
+benchmark should run during replay. Six balanced orders, all samples,
+complete FP64 checks, guards and repeated-output hashes are retained.
+See the [24-case native report, including all losses](results/m1-max-20260909-native-rows/notes.md).
+This is single-thread native evidence, not multi-thread E2E or GPU timing.
+
 ## Direct XIR/SIMD planner comparison
 
 `compare_xir.py` is the independent CPU pilot for the direct

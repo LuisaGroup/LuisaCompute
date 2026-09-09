@@ -34,8 +34,9 @@ Keep these objectives separate:
   dispatches and synchronization; JIT/setup excluded.
 - **Single-call E2E latency:** one dispatch through completion.
 - **CPU native entry:** actual emitted kernel entry called from C++, with
-  Runtime dispatch/Python/JIT/allocation excluded. Required native traversal
-  and launch-record resets stay inside; this is not a hardware cycle counter.
+  Runtime dispatch/Python/JIT and caller allocations excluded. Required native
+  traversal, launch resets and compiler-emitted internal allocations stay
+  inside; this is not a hardware cycle counter.
 - **GPU timing:** instrumented compute-pass intervals plus a separate
   no-counter command-buffer control. The control includes GPU work and
   intra-buffer gaps, not isolated kernel time.
@@ -46,36 +47,25 @@ and negative results. Historical experiments are not one matched leaderboard.
 
 ## Results by route
 
-**SIMD private indices: the measured native RMSNorm gap closes.**
-The latest [use-site memory realization](results.md#use-site-private-indices-unlock-contiguous-simd-memory)
-brings six fixed-local FP32 RMSNorm native cohorts to 0.340–0.471×
-one-thread TorchInductor time; all 36 paired rounds win. Five ragged shapes
-improve another 4.7–5.5×, while an aligned control preserves identical code.
-The 440-visit E2E screen benefits broad large/local row programs but retains
-small-task regressions and non-winning attention. This is generic opt-in
-lowering, not recalibrated automatic planning, default-path parity or a new
-Metal/MPS/BLAS result. Task grain and realization-sensitive cost policy remain
-important open work.
+**Direct SIMD: three native operator families win; three still lose.**
+The latest [24-case native comparison](results.md#native-row-entries-expose-both-broader-wins-and-remaining-gaps)
+uses actual ORC and TorchInductor 2.14.0 entries, FP32 and one CPU thread,
+at four sizes through approximately 4.2 million elements. Fixed local=8
+RMSNorm, LayerNorm and GELU+residual respectively take 0.337–0.469×,
+0.374–0.735× and 0.568–0.645× Inductor time; all 72 paired rounds win.
+Masked softmax, SwiGLU and RoPE remain 1.350–1.607×, 1.166–1.244× and
+1.247–1.944×; all their 72 paired rounds lose. Actual variance/reduction/math
+implementation differences remain documented alongside full FP64 checks.
 
-**Previous SIMD ragged lowering: native progress before private-index facts.**
-The September 8 [masked-region and counted-header realization](results.md#ragged-control-flow-is-a-realization-cost-not-extra-tile-work)
-improves three fixed-local RMSNorm native cohorts by roughly 3.3–7.1×,
-but they remain 1.87–2.23× slower than one-thread TorchInductor. An aligned
-control preserves byte-identical code and its existing advantage. All 344
-cross-operator E2E visits and 72 native visits pass complete output checks.
-The rule is generic and opt-in; the following checkpoint supplies per-use
-private index facts, while task grain and cost calibration still need work. This is not an
-automatic planner victory or a new Metal/MPS result.
-
-**SIMD CPU task grain: executable joint search, incomplete cost calibration.**
-The new [task-grain controls and cost-policy hooks](results.md#cpu-task-grain-is-independent-of-the-native-packet-body)
-separate CPU callback ranges from native block/packet mapping. At fixed code,
-129×768 RMSNorm improves 52.909→25.662 µs E2E under caller execution, while
-same-size softmax regresses 85.638→227.854 µs. The provisional model improves
-small RMSNorm and attention but still misprices ragged state-machine paths
-and coarse parallel tasks. It remains opt-in; this is not a new native-kernel
-or Torch/MPS victory. All 592 comparative outputs pass and 18 fixed-code
-cohorts preserve exact LLVM/object/output identity.
+This new measurement uses the existing opt-in
+[use-site memory realization](results.md#use-site-private-indices-unlock-contiguous-simd-memory),
+not a new compiler optimization or calibrated automatic policy. The separate
+440-visit E2E screen improves many large/local row programs but retains small
+task regressions and non-winning attention. Shared-input/multi-output DAG
+fusion and softmax phase planning are next candidates, not implemented wins.
+[Independent task grain](results.md#cpu-task-grain-is-independent-of-the-native-packet-body)
+and realization-sensitive cost calibration remain necessary; native superiority
+alone does not establish dispatch latency or default-path parity.
 
 **Metal matrix programs: broader legal lowering, incomplete profitability.**
 Bounded K/M/N views and [direct output](results.md#bounded-output-removes-shared-c-not-the-whole-library-gap)
@@ -129,7 +119,7 @@ new solver. The subsequent first-consumer load/reduction fusion is legal but
 **default-disabled**: actual native RMSNorm regressions are 17–23% despite
 lower estimated memory work. This points to missing full-packet
 specialization/inlining and phase-cost interactions.
-The latest [full-packet specialization](results.md#full-packet-specialization-changes-the-profitable-local-mapping)
+The earlier [full-packet specialization](results.md#full-packet-specialization-changes-the-profitable-local-mapping)
 addresses one such interaction: at fixed packet-local mapping with fusion off,
 native RMSNorm reaches 5.334 µs / 1117.151 µs for 64×256 / 1024×4096,
 with paired new/Inductor ratios 0.603 / 0.511. All 12 corresponding paired

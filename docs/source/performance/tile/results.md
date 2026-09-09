@@ -18,6 +18,66 @@ of same-round numerator/denominator ratios, **not** a ratio of the displayed
 medians. Ranges and counts of slower rounds are descriptive, not confidence
 intervals. No slow or failed row is discarded to improve the headline.
 
+### Native row entries expose both broader wins and remaining gaps
+
+The September 9 {download}`six-operator native report <../../../../scripts/benchmark/tile_torch/results/m1-max-20260909-native-rows/notes.md>`
+extends the existing private-index checkpoint to **24 fixed FP32 cases**,
+without changing the compiler or fitting a new cost policy. Actual SIMD ORC
+entries and TorchInductor 2.14.0 entries run through a common single-thread
+C++ callback timer, in all six orders. The first three operator families win
+all 72 paired comparisons; the other three lose all 72.
+
+Each range below spans the four shapes' paired median **Tile/Inductor time
+ratios**, not a confidence interval. Lower is better. Shapes are 17×65,
+129×768, 257×1538 and 1024×4097; RoPE rounds the odd widths up to even.
+Local=8, packet W8 and block=32 are fixed; full-packet, predicated effects and
+cohort-private access are on, load/reduction fusion and fast math are off.
+
+| Operator | Time ratio | Wins |
+|---|---:|---:|
+| RMSNorm | 0.337–0.469 | 24/24 |
+| LayerNorm | 0.374–0.735 | 24/24 |
+| GELU + residual | 0.568–0.645 | 24/24 |
+| Masked softmax | 1.350–1.607 | 0/24 |
+| SwiGLU | 1.166–1.244 | 0/24 |
+| RoPE | 1.247–1.944 | 0/24 |
+
+All 24 whole/local/Inductor times, six-order ranges and mapping comparisons
+remain in the {download}`complete tables <../../../../scripts/benchmark/tile_torch/results/m1-max-20260909-native-rows/tables.md>`.
+These are **native-entry host-wall times**, not Runtime latency or hardware
+cycles. Runtime/Python/JIT and caller allocations are excluded; actual entry,
+callback, necessary traversal/launch resets and compiler-emitted libc or
+internal allocations remain. In particular, Inductor allocates a width-sized
+scratch inside each masked-softmax entry; it is not moved outside timing.
+Alignment is fixed at 64 bytes. Do not splice these timings into older cohorts
+with different replay helpers or alignment.
+
+The wrapper parser recovers real FX input order, pointer constness, reused
+scratch and partitioned output aliases. It rejects unknown effects or ABIs;
+the C++ helper contains no operator implementation. Every one of 432 native
+visits checks full FP64 output tolerance, input immutability and guards. The
+{download}`independent audit <../../../../scripts/benchmark/tile_torch/results/m1-max-20260909-native-rows/audit.json>`
+rereads all 48 capture outputs and 72 unique native snapshots, recomputes
+statistics, and rejects nine evidence mutations. Guard arrays were checked
+during replay, not retained for later rereading.
+
+Numerical differences remain explicit: Tile LayerNorm uses centered-square
+reduction while large-width Inductor uses Welford; wide-row Inductor retains
+cascade reductions. Both GELU graphs use the tanh approximation but different
+math implementations. FP64 checks use `atol=rtol=5e-5` on the same deterministic
+finite inputs, not cross-framework bitwise equality or an all-domain accuracy
+guarantee.
+
+Actual RoPE C++ shares four input vectors across two stores in one loop.
+The XIR bridge still materializes loads and multi-consumer values, deferring
+only pure single-use arithmetic. This motivates an effect-aware shared-DAG
+fusion candidate, followed by softmax phase/materialization search. It is
+static code evidence, not measured hardware bottleneck attribution. GELU's
+win also rules out a blanket claim that every transcendental path is slow.
+Realization-sensitive cost calibration and independent CPU task grain remain
+open. This fixed opt-in cohort establishes neither automatic/default-path
+parity nor new Metal/MPS/BLAS/GEMM/attention performance.
+
 ### Use-site private indices unlock contiguous SIMD memory
 
 The September 9 {download}`private-index report <../../../../scripts/benchmark/tile_torch/results/m1-max-20260909-cohort-private/notes.md>`
