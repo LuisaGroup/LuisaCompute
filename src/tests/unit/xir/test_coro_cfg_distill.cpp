@@ -842,7 +842,8 @@ void reg_coro_cfg_distill() {
         auto *bypass_block = kernel->create_basic_block();
         auto *resume_block = kernel->create_basic_block();
         XIRBuilder b;
-        auto *condition = m.create_constant_one(Type::of<bool>());
+        // Both the exporting suspension and its bypass must be executable.
+        auto *condition = kernel->create_value_argument(Type::of<bool>());
         auto *hint = m.create_constant_one(Type::of<uint>());
         std::array<luisa::string, 1u> export_names{
             luisa::string{"coro_hint"}};
@@ -1308,7 +1309,8 @@ void reg_coro_cfg_distill() {
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);
         XIRBuilder b;
-        auto *loop_cond = m.create_constant_one(Type::of<bool>());
+        // A constant-true loop has no executable suspension after its exit.
+        auto *loop_cond = k->create_value_argument(Type::of<bool>());
         auto *zero = m.create_constant_zero(Type::of<int>());
 
         auto *loop_header = k->create_basic_block();
@@ -1499,7 +1501,7 @@ void reg_coro_cfg_distill() {
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);
         XIRBuilder b;
-        auto *cond = m.create_constant_one(Type::of<bool>());
+        auto *cond = k->create_value_argument(Type::of<bool>());
         auto *one = m.create_constant_one(Type::of<int>());
 
         auto *suspend_bb = k->create_basic_block();
@@ -1557,7 +1559,7 @@ void reg_coro_cfg_distill() {
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);
         XIRBuilder b;
-        auto *cond = m.create_constant_one(Type::of<bool>());
+        auto *cond = k->create_value_argument(Type::of<bool>());
         auto *one = m.create_constant_one(Type::of<int>());
 
         auto *suspend_block = k->create_basic_block();

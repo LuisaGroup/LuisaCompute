@@ -29,6 +29,7 @@
 
 #include "../pointer_containers.h"
 #include "coro_cfg_dataflow.h"
+#include "coro_scope_reachability.h"
 #include "coro_frame_abi.h"
 #include "coro_frame_access.h"
 #include "coro_replayable.h"
@@ -194,7 +195,7 @@ resolve_static_local_lvalue_access_chain(Value *value) noexcept {
     DistillCertificateHasher h;
     // Version the schema so adding a semantic field cannot silently retain a
     // certificate computed by an older layout.
-    h.add(uint64_t{8u});
+    h.add(uint64_t{9u});
     h.add_pointer(definition);
     if (definition != nullptr) {
         h.add_pointer(definition->body_block());
@@ -259,6 +260,11 @@ resolve_static_local_lvalue_access_chain(Value *value) noexcept {
     for (auto &scope : result.scopes) {
         h.add(scope.blocks.size());
         for (auto *block : scope.blocks) { h.add_pointer(block); }
+        h.add(scope.selected_successors.size());
+        for (auto selected : scope.selected_successors) {
+            h.add_pointer(selected.block);
+            h.add_pointer(selected.successor);
+        }
         h.add(scope.suspend_points.size());
         for (auto &point : scope.suspend_points) {
             h.add_pointer(point.block);
@@ -815,7 +821,15 @@ static void analyze_live_variables(
         designated_values_by_name;
     luisa::unordered_map<Value *, luisa::vector<luisa::string>>
         designated_aliases_by_value;
+    luisa::unordered_set<BasicBlock *> executable_suspends;
+    for (const auto &scope : result.scopes) {
+        for (const auto &point : scope.suspend_points) { executable_suspends.emplace(point.block); }
+    }
     for (auto *block : def->basic_blocks()) {
+        // A scheduler can observe a designated snapshot only on an executable
+        // suspension. Do not turn an export on a proved-dead arm into a
+        // mandatory frame field merely because it exists in the source CFG.
+        if (!executable_suspends.contains(block)) { continue; }
         for (auto *instruction : block->instructions()) {
             if (!instruction->isa<CoroSuspendInst>()) { continue; }
             auto *suspend =
@@ -950,6 +964,7 @@ static void analyze_live_variables(
         if (exit_block == nullptr || !exit_block->is_terminated()) { return; }
         luisa::vector<uint8_t> seen_targets(n, 0u);
         exit_block->traverse_successors(true, [&](BasicBlock *succ) noexcept {
+            if (!result.scopes[from].allows_successor(exit_block, succ)) { return; }
             if (scope_block_indices[from].contains(succ)) {
                 return;
             }
@@ -1941,6 +1956,11 @@ static void analyze_live_variables(
     }
 
     auto reachable = collect_coro_reachable_blocks(def, token_to_resume);
+    auto feasible = analyze_coro_scope_reachability(def);
+    if (stats != nullptr) {
+        stats->reachability_state_count = feasible.state_count;
+        stats->reachability_widened = feasible.widened;
+    }
 
     struct Root {
         BasicBlock *block;
@@ -1953,6 +1973,7 @@ static void analyze_live_variables(
     resume_tokens.reserve(token_to_resume.size());
     for (auto &[token, bb] : token_to_resume) {
         if (!reachable.contains(bb)) { continue; }
+        if (feasible.valid && !feasible.scopes.contains(token)) { continue; }
         resume_tokens.emplace_back(token);
     }
     std::sort(resume_tokens.begin(), resume_tokens.end());
@@ -1970,6 +1991,7 @@ static void analyze_live_variables(
         scope.scope_id = static_cast<int>(i);
         scope.trigger_token = roots[i].token;
         scope.trigger_name = roots[i].name;
+        const auto *feasible_scope = feasible.valid ? &feasible.scopes.at(roots[i].token) : nullptr;
 
         luisa::unordered_set<BasicBlock *> visited;
         luisa::deque<BasicBlock *> worklist;
@@ -1987,6 +2009,12 @@ static void analyze_live_variables(
             }
             if (!visited.emplace(bb).second) { continue; }
             scope.blocks.emplace_back(bb);
+            if (feasible_scope != nullptr) {
+                if (auto selected = feasible_scope->selected_successors.find(bb);
+                    selected != feasible_scope->selected_successors.end()) {
+                    scope.selected_successors.push_back({bb, selected->second});
+                }
+            }
             if (!bb->is_terminated()) { continue; }
             auto *term = bb->terminator();
             switch (term->derived_instruction_tag()) {
@@ -2009,6 +2037,7 @@ static void analyze_live_variables(
                     break;
                 default:
                     bb->traverse_successors(true, [&](BasicBlock *succ) noexcept {
+                        if (!scope.allows_successor(bb, succ)) { return; }
                         worklist.emplace_back(succ);
                     });
                     break;
@@ -2038,6 +2067,7 @@ static void analyze_live_variables(
         for (auto *bb : result.scopes[i].blocks) {
             if (!bb->is_terminated()) { continue; }
             bb->traverse_successors(true, [&](BasicBlock *succ) noexcept {
+                if (!result.scopes[i].allows_successor(bb, succ)) { return; }
                 if (scope_blocks[i].contains(succ)) { return; }
                 for (size_t j = 0u; j < scope_blocks.size(); ++j) {
                     if (j != i && scope_blocks[j].contains(succ)) {
@@ -2052,6 +2082,23 @@ static void analyze_live_variables(
     for (size_t i = 0u; i < edge_sets.size(); ++i) {
         result.edges[i].assign(edge_sets[i].begin(), edge_sets[i].end());
         std::sort(result.edges[i].begin(), result.edges[i].end());
+    }
+
+    auto selected_count = size_t{0u};
+    for (const auto &scope : result.scopes) { selected_count += scope.selected_successors.size(); }
+    if (stats != nullptr) { stats->selected_successor_count = selected_count; }
+    if (auto *flag = std::getenv("LUISA_CORO_DUMP_FRAME_LAYOUT");
+        flag != nullptr && luisa::string_view{flag} == "1") {
+        LUISA_INFO("Coroutine feasible reachability: valid={} widened={} states={} selected_arms={} scopes={}.",
+                   feasible.valid, feasible.widened, feasible.state_count, selected_count, result.scopes.size());
+        // Emit the executable relation before any liveness/coloring/layout
+        // decision, so frame changes can be audited against their cause.
+        for (size_t i = 0u; i < result.scopes.size(); ++i) {
+            for (auto target : result.edges[i]) {
+                LUISA_INFO("Coroutine feasible transition: {} -> {}.",
+                           result.scopes[i].trigger_token, result.scopes[target].trigger_token);
+            }
+        }
     }
 
     analyze_live_variables(result, def, stats);

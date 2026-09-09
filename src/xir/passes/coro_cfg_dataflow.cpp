@@ -442,6 +442,7 @@ analyze_scope_use_def_pointer_oracle(
             block->traverse_predecessors(
                 false, [&](BasicBlock *predecessor) noexcept {
                     if (!scope_blocks.contains(predecessor)) { return; }
+                    if (!scope.allows_successor(predecessor, block)) { return; }
                     auto iter = out_states.find(predecessor);
                     if (iter == out_states.end()) { return; }
                     merge_pointer_state_into_entry(
@@ -717,6 +718,7 @@ DenseScopeDataflowResult analyze_scope_use_def(
     for (size_t i = 0u; i < block_count; ++i) {
         scope.blocks[i]->traverse_successors(
             false, [&](BasicBlock *successor) noexcept {
+                if (!scope.allows_successor(scope.blocks[i], successor)) { return; }
                 auto iter = block_indices.find(successor);
                 if (iter == block_indices.end()) { return; }
                 auto j = iter->second;

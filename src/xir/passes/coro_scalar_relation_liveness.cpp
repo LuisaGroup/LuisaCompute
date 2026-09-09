@@ -325,6 +325,50 @@ CoroBooleanPredicateLiveness::CoroBooleanPredicateLiveness(
                 _live_in[block_id].emplace_back(predicates[i]);
             }
         }
+        auto live = live_out_bits[block_id];
+        luisa::vector<Instruction *> instructions;
+        for (auto *instruction : graph.block(block_id)->instructions()) {
+            instructions.emplace_back(instruction);
+        }
+        for (auto iter = instructions.rbegin(); iter != instructions.rend(); ++iter) {
+            auto *instruction = *iter;
+            auto use_iter = semantic_uses.find(instruction);
+            auto def_iter = semantic_definitions.find(instruction);
+            // DEAD[i] = (USE[i] union DEF[i]) - LIVE_AFTER[i]. Compute both
+            // sets against the same live-after state, before killing any
+            // definition: a value can be both used and defined here. Include
+            // never-used definitions, whose newly created relation also dies.
+            auto record_deaths = [&](const auto &values) noexcept {
+                for (auto *predicate : values) {
+                    if (auto id = predicate_ids.find(predicate);
+                        id != predicate_ids.end() && !bit_test(live, id->second)) {
+                        auto &dead = _dead_after[instruction];
+                        if (std::find(dead.begin(), dead.end(), predicate) == dead.end()) {
+                            dead.emplace_back(predicate);
+                        }
+                    }
+                }
+            };
+            if (use_iter != semantic_uses.end()) { record_deaths(use_iter->second); }
+            if (def_iter != semantic_definitions.end()) { record_deaths(def_iter->second); }
+            // LIVE_BEFORE[i] = USE[i] union (LIVE_AFTER[i] - DEF[i]). The
+            // enclosing fixed point includes every semantic loop/resume edge,
+            // so retirement cannot discard an instance used on a later visit.
+            if (def_iter != semantic_definitions.end()) {
+                for (auto *predicate : def_iter->second) {
+                    if (auto id = predicate_ids.find(predicate); id != predicate_ids.end()) {
+                        bit_clear(live, id->second);
+                    }
+                }
+            }
+            if (use_iter != semantic_uses.end()) {
+                for (auto *predicate : use_iter->second) {
+                    if (auto id = predicate_ids.find(predicate); id != predicate_ids.end()) {
+                        bit_set(live, id->second);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -334,6 +378,15 @@ CoroBooleanPredicateLiveness::live_in(
     return block_id < _live_in.size() ?
                luisa::span<Value *const>{_live_in[block_id]} :
                luisa::span<Value *const>{};
+}
+
+luisa::span<Value *const>
+CoroBooleanPredicateLiveness::dead_after(
+    Instruction *instruction) const noexcept {
+    if (auto iter = _dead_after.find(instruction); iter != _dead_after.end()) {
+        return iter->second;
+    }
+    return {};
 }
 
 }// namespace luisa::compute::xir::detail

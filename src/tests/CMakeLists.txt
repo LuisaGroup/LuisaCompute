@@ -1091,6 +1091,17 @@ if(TEST test_coro_readonly_forwarding_vk)
 endif()
 luisa_compute_add_test(test_coro_suspend         unit/dsl/test_coro_suspend.cpp         LABELS "unit;unit_xir;unit_coro")
 luisa_compute_add_test(test_coro_graph unit/coro/test_coro_graph.cpp LABELS "unit;unit_coro")
+luisa_compute_add_test(test_coro_transition_predicates unit/coro/test_coro_transition_predicates.cpp
+        LABELS "unit;unit_coro;unit_xir")
+luisa_compute_add_test(test_coro_transition_predicate_retirement unit/coro/test_coro_transition_predicate_retirement.cpp
+        LABELS "unit;unit_coro;unit_xir")
+luisa_compute_add_test(test_coro_boolean_predicate_liveness unit/coro/test_coro_boolean_predicate_liveness.cpp
+        LABELS "unit;unit_coro;unit_xir")
+# Exercise the private liveness API without widening the SDK's exported ABI.
+target_sources(test_coro_boolean_predicate_liveness PRIVATE
+        ../xir/passes/coro_scalar_relation_liveness.cpp
+        ../xir/passes/coro_semantic_graph.cpp)
+target_include_directories(test_coro_boolean_predicate_liveness PRIVATE ../xir/passes)
 luisa_compute_add_test(test_coro_graph_wavefront_policy unit/coro/test_coro_graph_wavefront_policy.cpp LABELS "unit;unit_coro")
 luisa_compute_add_test(test_coro_scheduler_base unit/coro/test_coro_scheduler_base.cpp LABELS "unit;unit_coro")
 luisa_compute_add_test(test_coro_state_machine unit/coro/test_coro_state_machine.cpp)

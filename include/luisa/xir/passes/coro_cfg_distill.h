@@ -100,6 +100,11 @@ struct CoroCfgDistillResult {
     };
 
     struct Scope {
+        struct SelectedSuccessor {
+            BasicBlock *block{nullptr};
+            BasicBlock *successor{nullptr};
+            [[nodiscard]] bool operator==(const SelectedSuccessor &) const noexcept = default;
+        };
         struct SuspendPoint {
             BasicBlock *block{nullptr};
             uint32_t token{0u};
@@ -107,6 +112,22 @@ struct CoroCfgDistillResult {
             CoroSuspendExtensionOwner extension_owner;
         };
         luisa::vector<BasicBlock *> blocks;
+        // Executable one-arm proofs are scope-specific, not mutations of the
+        // shared input CFG. Dataflow and split must consume the same sealed
+        // relation; pruning graph metadata alone would leave false token
+        // stores in the cloned continuation.
+        luisa::vector<SelectedSuccessor> selected_successors;
+        [[nodiscard]] BasicBlock *selected_successor(const BasicBlock *block) const noexcept {
+            for (auto selected : selected_successors) {
+                if (selected.block == block) { return selected.successor; }
+            }
+            return nullptr;
+        }
+        [[nodiscard]] bool allows_successor(const BasicBlock *block,
+                                            const BasicBlock *successor) const noexcept {
+            auto *selected = selected_successor(block);
+            return selected == nullptr || selected == successor;
+        }
         luisa::vector<SuspendPoint> suspend_points;
         int scope_id{0};
         luisa::optional<uint32_t> suspend_token;
@@ -218,6 +239,9 @@ public:
 // including rejected input, and do not participate in the immutable semantic
 // certificate carried by CoroCfgDistillResult.
 struct CoroCfgDistillStats {
+    size_t reachability_state_count{0u};
+    size_t selected_successor_count{0u};
+    bool reachability_widened{false};
     size_t call_context_state_count{0u};
     size_t value_atom_count{0u};
     size_t scope_count{0u};

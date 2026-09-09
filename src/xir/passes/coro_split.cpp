@@ -75,6 +75,7 @@ private:
     Value *_frame_arg{nullptr};
     Module *_module{nullptr};
     const BasicBlock *_scope_root{nullptr};
+    const CoroCfgDistillResult::Scope *_scope{nullptr};
     const BasicBlock *_current_orig_block{nullptr};
     detail::CoroReplayableValueAnalysis _replayable;
 
@@ -94,6 +95,7 @@ private:
             work.pop_back();
             auto *mut_bb = const_cast<BasicBlock *>(bb);
             mut_bb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
+                if (_scope != nullptr && !_scope->allows_successor(bb, succ)) { return; }
                 if (!_scope_blocks.contains(succ) || succ == def) { return; }
                 if (visited.emplace(succ).second) {
                     work.emplace_back(succ);
@@ -119,8 +121,10 @@ public:
         _frame_arg = frame_arg;
     }
 
-    void set_scope(const BasicBlock *root, luisa::unordered_set<const BasicBlock *> blocks) noexcept {
-        _scope_root = root;
+    void set_scope(const CoroCfgDistillResult::Scope &scope,
+                   luisa::unordered_set<const BasicBlock *> blocks) noexcept {
+        _scope = &scope;
+        _scope_root = scope.blocks.front();
         _scope_blocks = std::move(blocks);
     }
 
@@ -384,6 +388,7 @@ public:
         auto &lhs = result.scopes[i];
         auto &rhs = canonical.scopes[i];
         if (lhs.blocks != rhs.blocks ||
+            lhs.selected_successors != rhs.selected_successors ||
             lhs.suspend_points.size() != rhs.suspend_points.size() ||
             lhs.scope_id != rhs.scope_id ||
             lhs.suspend_token != rhs.suspend_token ||
@@ -585,6 +590,17 @@ public:
                 scope_suspend_blocks.emplace(block);
             }
         }
+        luisa::unordered_set<BasicBlock *> selected_blocks;
+        for (auto selected : scope.selected_successors) {
+            if (!scope_blocks.contains(selected.block) ||
+                !selected_blocks.emplace(selected.block).second ||
+                !selected.block->is_terminated() ||
+                !selected.block->terminator()->isa<ConditionalBranchInst>()) { return false; }
+            auto *branch = static_cast<ConditionalBranchInst *>(selected.block->terminator());
+            if (selected.successor == nullptr ||
+                (selected.successor != branch->true_block() &&
+                 selected.successor != branch->false_block())) { return false; }
+        }
         for (auto &point : scope.suspend_points) {
             if (point.block == nullptr || point.token == 0u || point.token == TERMINAL_TOKEN) {
                 return false;
@@ -603,7 +619,13 @@ public:
         }
     }
     for (size_t i = 1u; i < result.scopes.size(); ++i) {
-        if (!suspends.contains(result.scopes[i].trigger_token)) { return false; }
+        // A raw ordinary branch may enter a resume while its matching static
+        // suspend is infeasible. The sealed executable transition relation,
+        // not presence of a reached suspension, establishes the incoming
+        // scope transfer in that case.
+        auto incoming = std::any_of(result.transition_edges.begin(), result.transition_edges.end(),
+                                    [i](const auto &edge) noexcept { return edge.to_scope == i; });
+        if (!incoming) { return false; }
     }
     for (auto token : suspends) {
         if (!triggers.contains(token)) { return false; }
@@ -1140,7 +1162,7 @@ static void clone_scope(Module *mod, const CoroCfgDistillResult::Scope &scope,
     for (auto *bb : scope.blocks) {
         scope_block_set.insert(bb);
     }
-    resolver.set_scope(scope.blocks.front(), scope_block_set);
+    resolver.set_scope(scope, scope_block_set);
 
     luisa::unordered_map<const BasicBlock *, size_t> block_to_scope_index;
     for (size_t i = 0u; i < result.scopes.size(); ++i) {
@@ -1168,6 +1190,7 @@ static void clone_scope(Module *mod, const CoroCfgDistillResult::Scope &scope,
         clone_order.emplace_back(block);
         luisa::vector<BasicBlock *> successors;
         block->traverse_successors(false, [&](BasicBlock *successor) noexcept {
+            if (!scope.allows_successor(block, successor)) { return; }
             if (scope_block_set.contains(successor) && !visited_blocks.contains(successor)) {
                 successors.emplace_back(successor);
             }
@@ -1299,6 +1322,17 @@ static void clone_scope(Module *mod, const CoroCfgDistillResult::Scope &scope,
                 }
                 case DerivedInstructionTag::CONDITIONAL_BRANCH: {
                     auto *cbr = static_cast<ConditionalBranchInst *>(inst);
+                    if (auto *selected = scope.selected_successor(orig_bb)) {
+                        // Resolve only the executable arm. Resolving a pruned
+                        // arm could synthesize a fallback return/token store
+                        // for a transition that the certificate excludes.
+                        auto *target = resolve_branch_target(orig_bb, selected);
+                        b.set_insertion_point(cloned_bb);
+                        auto *cloned = b.br(target);
+                        coro_split_clone_instruction_metadata(inst, cloned);
+                        resolver.map_value(inst, cloned);
+                        break;
+                    }
                     auto *cond = resolver.resolve(cbr->condition());
                     auto *true_block = resolve_branch_target(orig_bb, cbr->true_block());
                     auto *false_block = resolve_branch_target(orig_bb, cbr->false_block());
