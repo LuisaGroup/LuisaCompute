@@ -28,6 +28,7 @@ checkout or installing the old Tile frontend into the current library.
 | `precision-final-source` | Exact implementation/test/benchmark overlay for that replay |
 | `precision-matrix-v2-source-and-final-validation` | Exact 17-file matrix v2 overlay, 80 XIR/SIMD + 41 Tile + Metal-codegen final regression receipts, and the v2 six-test targeted rerun |
 | `precision-final-boundary-source-and-validation` | Later 17-file overlay with explicit TIRx BF16 MMA-accumulator rejection, its negative test, and six passing precision/migration tests; no matrix rerun claimed |
+| `upstream-integration` | Subsequent CUDA upstream merge, one-line TVM string conversion build fix, six passing type/migration CTests and one retained CUDA-artifact test failure |
 | `legacy-sized-equivalence` | Original and parameterized exporters produce byte-identical AST and launch at all 16 original cases |
 | `legacy-build-provenance` | Pinned source/submodules, build commands, exporter hashes and dimension-only derivation |
 | `build-test-and-failed-attempts` | Initial merge verification, precision iterations and retained failures; later final regression receipts are supplementary |
@@ -90,7 +91,7 @@ checks establish reproducible evidence, **not** benchmark correctness by
 themselves; oracle, guard, timing and source-snapshot receipts establish the
 separate experiment contracts described in the canonical report.
 
-Audit result (2026-09-09): **11 bundles / 581 tar members**, all 589 unique
+Audit result (2026-09-09): **12 bundles / 591 tar members**, all 589 unique
 matrix chunks and all 1,861 reconstructed matrix files pass size/SHA-256
 verification. The existing intermediate bundles were not regenerated. Small
 verifier fixtures also pass exact-byte restoration, existing-directory
@@ -102,11 +103,22 @@ Documentation QA: Doxygen XML generation completed (with existing documentation
 warnings); strict Sphinx HTML generation passed. The final local-link check
 covered 67 pages, 5,106 links/assets and 199 compatibility anchors. The two
 post-matrix C++ files pass the repository clangd checker and clang-format.
-`docs-qa-final/receipt.json` and screenshots verify the full 38-row matrix and
+`docs-qa-reindex/receipt.json` and screenshots verify the full 38-row matrix and
 scan/exchange design at 1280px and 390px, including access to the horizontally
-scrollable rightmost matrix column. `docs-qa/` retains the initial visual visit.
+scrollable rightmost matrix column. `docs-qa/` and `docs-qa-final/` retain earlier
+visual visits before the library-first scan clarification. The subsequent
+CUDA-merge and reindex documentation pass checks 5,109 links/assets with the same page and
+compatibility-anchor counts.
 Run `qa-docs.cjs` with the built HTML root, a new output directory, and the
 installed Playwright module path to repeat the rendering checks.
+
+The upstream integration receipt deliberately reports a nonzero CTest exit:
+six type/migration tests pass, but `test_tirx_device_cuda` fails because the
+pinned TVMx lacks CUDA `header_generator` / `get_codegen` registrations. Its
+three positive artifact cases fail; its negative-option case passes. This is
+not a skipped test or CUDA execution qualification. The committed build fix
+contains only the explicit TVM string conversion; the unrelated user compiler
+patch was restored after the merge and retains its original patch ID.
 
 Timing definitions: `throughput_us` and `latency_us` include host/Runtime
 dispatch. Metal's separate `device_timing.throughput[*].compute_ns` must be

@@ -3550,5 +3550,71 @@
         "sha256": "62a14e35953af63a6d46eea645df4169551ddec8784119fcef9427fed38165bb"
       }
     ]
+  },
+  "upstream-integration.tar.gz": {
+    "size": 23511,
+    "sha256": "9c0f376567224064bed34f61c12a6574c5cb8dfb31bd3053478c5d559167685f",
+    "members": [
+      {
+        "path": "receipt.json",
+        "source": "/private/tmp/luisa-tile-next-merge.wN5DnV/receipt.json",
+        "size": 3040,
+        "sha256": "ea0b2e3516aab589a7276d06582381fe84eb27360b8dbcb2d5ff21f29a18f891"
+      },
+      {
+        "path": "build.log",
+        "source": "/private/tmp/luisa-tile-next-merge.wN5DnV/build.log",
+        "size": 6784,
+        "sha256": "24cf00af782b5f4a688df3b6e982b74e5b1c00cb1190b6a90c54bb25ed5ed6ea"
+      },
+      {
+        "path": "build-fixed.log",
+        "source": "/private/tmp/luisa-tile-next-merge.wN5DnV/build-fixed.log",
+        "size": 37215,
+        "sha256": "e88e9b0c8209eeca5252e56b53ea2a63e54baf732eb8a745333ec207a3efae40"
+      },
+      {
+        "path": "tests-fixed.log",
+        "source": "/private/tmp/luisa-tile-next-merge.wN5DnV/tests-fixed.log",
+        "size": 3681,
+        "sha256": "b6c6951f6ed7a012fe21b0cf72843235f5d6f966548b0293fa0a180b2c5e44cf"
+      },
+      {
+        "path": "tests-fixed.xml",
+        "source": "/private/tmp/luisa-tile-next-merge.wN5DnV/tests-fixed.xml",
+        "size": 8612,
+        "sha256": "0b0eaa027717c1331a194c717f71e080158f22cd5efb29a1daef41d5dc5595c5"
+      },
+      {
+        "path": "syntax-fixed.log",
+        "source": "/private/tmp/luisa-tile-next-merge.wN5DnV/syntax-fixed.log",
+        "size": 22,
+        "sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "path": "sphinx-reindex.log",
+        "source": "/private/tmp/luisa-tile-next-merge.wN5DnV/sphinx-reindex.log",
+        "size": 18201,
+        "sha256": "a6ddbbbeb70d67e8ed987338a007155cc061df9d380b7bd98f323a3ebb0c64ba"
+      },
+      {
+        "path": "inspect-source.patch",
+        "source": "/private/tmp/luisa-tile-next-merge.wN5DnV/inspect-source.patch",
+        "size": 837,
+        "sha256": "d12875178a4b12a522c6940d1ff0723a56e9d43d20283e6a23df528892e9bc83"
+      },
+      {
+        "path": "integration-final.json",
+        "source": "/private/tmp/luisa-tile-next-merge.wN5DnV/integration-final.json",
+        "size": 645,
+        "sha256": "2de6cb81d2d91cf1064ff44af966e0bc7ba0f763026bc0918570903cd8ee576e"
+      },
+      {
+        "path": "source/src/tile/bridge/tirx/compiler.cpp",
+        "source": "/tmp/luisa-next-integration.roZbN8/source/src/tile/bridge/tirx/compiler.cpp",
+        "size": 57983,
+        "sha256": "e2a2b9605ac2bce6baf1aedc691e2d8498449c464a13b8deea55364b3959cf00"
+      }
+    ]
   }
 }

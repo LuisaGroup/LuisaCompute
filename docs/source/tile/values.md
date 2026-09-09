@@ -525,18 +525,21 @@ The frontend never disguises an illegal global synchronization as a Tile op.
 
 ## Scan preserves prefixes, not a new execution hierarchy
 
-**Design decision, not an implemented builtin yet (September 9, 2026).** Add a
-pure Tile-level `scan`, analogous to `mma`, rather than another range-for Nest
-primitive. Reuse the reducer's identity, combine function, accumulator type and
-numerical contract. The current migrated examples still expand a blocked
-Hillis–Steele scan through ordinary Tile operations; they do not use this
-proposed operation or a cooperative scan planner.
+**Design direction, no new core primitive required (September 9, 2026).** Keep
+`scan` as a Tile-level library operation, not another range-for Nest. A chain
+of logical reindex/gather and elementwise operations already expresses prefix
+scan. The current migrated examples use exactly such a blocked Hillis–Steele
+composition; they do not use a SCAN opcode or a cooperative scan planner.
+Their slow realization is evidence of a communication/mapping gap, not proof
+that the core language lacks expressive power. A public `scan` convenience
+can reuse the reducer's identity, combine function, accumulator type and
+numerical contract without requiring a new primitive.
 
 The proposed simple surface is:
 
 ~~~cpp
 auto x = A.tile(origin, shape(rows, columns), bounds::zero).load();
-auto prefix = scan(x, columns, add); // proposed: inclusive, ordered tree
+auto prefix = scan(x, columns, add); // proposed library helper: inclusive, ordered tree
 Y.tile(origin, shape(rows, columns)).store(prefix);
 ~~~
 
@@ -545,7 +548,25 @@ hardware axis. An options argument can request exclusive output, an explicit
 seed, or a strict left fold; it does not specify a warp width. The first
 implementation should support existing builtin reducers before introducing
 custom tuple-state combine regions. Spelling of those options is not yet part
-of the implemented C++ API.
+of the implemented C++ API. The underlying composition is already expressible:
+
+~~~cpp
+auto prefix = x;
+for (int64_t distance = 1; distance < width; distance *= 2) { // host staging
+    auto left = gather(prefix, iota(columns) - distance, columns, 0.0f);
+    prefix = left + prefix;
+}
+~~~
+
+Here `width` is the staged column extent. `gather` supplies a logical shift
+with defined boundary fill; a bare out-of-bounds `reindex` would not. Each
+iteration reads the previous SSA Tile, so updates are simultaneous rather than
+an in-place sequential sweep. For length `n`, this direct Hillis–Steele chain
+has `O(n log n)` work and `O(log n)` depth. Work-efficient up/down-sweep and
+hierarchical segmented algorithms are alternative library compositions. In the
+current bounded example, fixed-width chunks bound the chain size and a serial
+carry joins chunks; that bounds temporary size but does not select a profitable
+worker layout.
 
 ### Why not just infer it from reduce?
 
@@ -576,19 +597,30 @@ NaN, signed-zero or rounding rules.
 The current closed-reduction fast path recognizes a final scalar carry with
 restricted pure updates; stores of intermediate carries do not qualify.
 Reconstructing all prefixes from arbitrary effects would require additional
-alias, observation and dependence analysis. A compact, typed SCAN operation
-retains this information directly, while keeping `parallel`, `serial`,
-`pipeline` and `reduce` as the execution-region vocabulary. Its results are
-ordinary SSA Tiles, and its eventual custom combine body is a pure region,
-not a string-dispatched opaque call or a serialization-only record.
+alias, observation and dependence analysis. The pure reindex-chain composition
+avoids that issue without a SCAN opcode. First improve preservation and
+optimization of those logical read relations for all operations. If expanding
+early demonstrably prevents useful algorithm selection or causes excessive IR
+growth, retain a typed, decomposable scan library operation until planning.
+That is an optional compiler representation choice, not an additional source
+execution primitive or an opaque function-name-based optimization rule.
+
+A hand-written chain specifies a particular arithmetic graph. Replacing it
+with a different scan tree requires the corresponding numerical permissions;
+recognizing shifted indices alone does not authorize reassociation. A library
+scan may declare the ordered-tree contract and expose several equivalent
+decompositions for JIT/planner selection. Keep that contract and its provenance
+with the computation if needed; do not infer arbitrary custom associativity
+from the body or erase intermediate low-precision rounding.
 
 Empty input produces an empty output; a separate final-state result, if added,
 would be the seed. Masked contributions are skipped under a defined mask
 contract, rather than treating every padding value as a valid identity. A
 strict fold preserves the recurrence above. Reversing the axis is expressible
 by reindexing, and segmented scans can use a lifted `(head, value)` associative
-state; neither needs a new Nest kind. A reference expansion should perform
-linear work, not independently reduce all `n` prefixes in quadratic work.
+state; neither needs a new Nest kind. A serial reference expansion can perform
+linear work. The parallel library algorithm need not independently reduce all
+`n` prefixes in quadratic work.
 
 ### What the old implementation and other systems teach us
 
@@ -613,15 +645,17 @@ copy into the new frontend.
 | [CUB](https://nvidia.github.io/cccl/unstable/cub/index.html) | Thread, Warp, Block and Device algorithm layers | Keep hierarchy-specific algorithms and their workspace costs behind target capabilities |
 
 These are existing precedents, not evidence that scan or execution/memory
-separation is novel. Our design choice is to solve the collective's placement
-within the existing execution/resource mapping rather than bake one physical
-hierarchy into the source operation.
+separation is novel. Their builtins demonstrate a useful representation option,
+not a requirement to copy their primitive sets. Our design choice is to solve
+the composition's placement within the existing execution/resource mapping
+rather than bake one physical hierarchy into the source operation.
 
 The new [legacy comparison](../performance/tile/migration.md) exposes a real
 gap: current scans retain worker-private arrays and nested loops where the old
 path uses lane exchange. Ordinary Metal sum reductions already emit `simd_sum`;
-that does not mean scans benefit from the same machinery. First-class scan
-semantics enables, but does not itself implement, a better realization.
+that does not mean scans benefit from the same machinery. Preserving scan
+semantics can aid algorithm selection, but fixing general logical exchange is
+the first priority; an added opcode would not itself implement that mapping.
 
 ## Logical exchange versus physical shuffle
 

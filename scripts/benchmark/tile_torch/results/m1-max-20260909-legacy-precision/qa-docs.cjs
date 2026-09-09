@@ -19,7 +19,7 @@ const {pathToFileURL} = require('node:url');
                 ['source/performance/tile/migration.html', 'full-baseline-current-matrix',
                     ['Error', 'Current XIR/SIMD', '4096']],
                 ['source/tile/values.html', 'scan-preserves-prefixes-not-a-new-execution-hierarchy',
-                    ['not an implemented builtin yet', 'ordered tree', 'commutativity is not required']],
+                    ['no new core primitive required', 'ordered tree', 'commutativity is not required']],
                 ['source/tile/values.html', 'logical-exchange-versus-physical-shuffle',
                     ['cross-worker communication', 'reindex', 'gather']],
             ]) {

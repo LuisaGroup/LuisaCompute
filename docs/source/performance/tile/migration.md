@@ -322,6 +322,19 @@ six type/migration CTests after this change. This is a separate source snapshot;
 the matrix above remains the v2 measurement, not a remeasurement of the final
 boundary patch. All measured low-precision GEMMs use FP32 accumulation.
 
+### Upstream CUDA integration check
+
+After checkpoint `1c914d827`, upstream `17b71d4b4` was merged as `14ec3b7e8`.
+Its new device-artifact exporter needed an explicit `tvm::ffi::String`
+conversion for `InspectSource`; that one-line compatibility fix restores the
+configured build. The six type/migration CTests pass again on the integrated
+source. The additional upstream host CUDA-artifact test **fails** because the
+pinned TVMx process has no `tirx.intrinsics.cuda.header_generator` or
+`tirx.intrinsics.cuda.get_codegen` registration. Its negative-option case
+passes, but its three artifact-generation cases do not. The failure is retained,
+not skipped or counted as CUDA validation. No NVIDIA execution was attempted.
+This integration check is separate from all matrix timings above.
+
 ## Failures retained and what they teach
 
 1. **Numerical boundaries matter under fusion.** The first BF16 round-trip

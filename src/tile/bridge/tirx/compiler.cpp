@@ -923,7 +923,7 @@ DeviceCompilationResult compile_device(tvm::tirx::PrimFunc function, luisa::stri
             // InspectSource returns the code generator's own output unchanged.
             // ABI metadata was already extracted from the typed launch above.
             auto compiled = detail::codegen(std::move(device_module), target);
-            auto source = compiled->InspectSource(inspect_source);
+            auto source = compiled->InspectSource(tvm::ffi::String{inspect_source.data(), inspect_source.size()});
             result.artifact.source.assign(source.data(), source.size());
             if (source.empty()) { throw std::runtime_error{std::string{target->kind->name} + " code generator returned no source artifact"}; }
         }
