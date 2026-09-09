@@ -7,6 +7,75 @@ These are language contracts and design extensions, not a promise of complete ta
 :depth: 2
 ```
 
+## Storage and arithmetic precision
+
+`TensorView<T, Rank>` and `Tile<T>` carry an exact element format. Changing `T`
+does not create an execution Nest or choose a memory resource. The public
+header `luisa/tile/types.h` exposes `half` (the existing `luisa::half`),
+`bfloat16` / `bf16`, `float8_e4m3fn`, and `float8_e5m2`, alongside the ordinary
+fixed-width integer types. Include `luisa/tile/runtime.h` for typed Runtime
+buffers and shader invocation.
+
+| C++ type | Storage | Numerical format |
+|---|---|---|
+| `half` | 2 bytes | IEEE binary16, 5 exponent / 10 fraction bits |
+| `bf16` | 2 bytes | BF16, 8 exponent / 7 fraction bits |
+| `float8_e4m3fn` | 1 byte | Bias 7, finite values through ±448, signed zeros and NaNs, no infinities |
+| `float8_e5m2` | 1 byte | Bias 15, finite values through ±57344, signed zeros, infinities and NaNs |
+| `int8_t`, `uint8_t` | 1 byte | Signed / unsigned integers; not implicitly scaled quantities |
+
+The exact FP8 variant matters. E4M3FN, IEEE-style E4M3, and FNUZ are not
+interchangeable. `ScalarType::FLOAT8_E4M3FN` is the canonical TileIR name;
+the old `FLOAT8_E4M3` spelling remains an equal-valued compatibility alias
+because this bridge has always mapped it to DLPack `e4m3fn`.
+
+Storage, operation and accumulation precision are independent:
+
+~~~cpp
+// A/B/C are TensorView<half, 2> arguments of an ordinary staged kernel.
+auto acc = zeros<float>(shape(m, n));
+auto a = A(coord(m0, k0), shape(m, k)).load();
+auto b = B(coord(k0, n0), shape(k, n)).load();
+acc = mma(a, b, acc);                         // FP16 inputs, FP32 accumulator
+C(coord(m0, n0), shape(m, n)).store(cast<half>(acc));
+~~~
+
+A narrowing cast is a numerical event: `cast<float>(cast<bf16>(x))` is not
+`x`. Fusion, forwarding and temporary promotion must retain that rounding.
+BF16 host conversion from float32 uses nearest, ties to even, preserves
+signed zeros/subnormals, overflows to infinity and quiets NaNs. BF16 arithmetic
+in the reference realizations uses FP32 and rounds its BF16 result explicitly.
+Raw `from_bits()` / `bits()` and load/store copying preserve the encoded value;
+they are not numeric conversion and preserve NaN payloads. Narrowing a wide
+integer or FP64 value to BF16 currently requires an explicit intermediate
+`cast<float>` on these bridges, rather than silently introducing double rounding.
+
+FP8 host wrappers expose exact bit storage and decoding to float32, but no
+implicit float-to-FP8 constructor. A future quantizing conversion must specify
+rounding and overflow/saturation independently of the format. Scale, zero point
+and per-channel/per-block scale tensors remain explicit values and indexing,
+not hidden fields of a layout or execution Nest. Packed INT4/FP4 likewise need
+an explicit packing/address map; an element must not be misrepresented as a
+byte merely because the Runtime is byte-addressable.
+
+**Current target boundary:** FP16/BF16 and INT8/UINT8 mixed-precision examples
+are exercised on XIR/SIMD and Metal/TIRx; native Metal MPP remains its existing
+FP32 subset. Both bridges reject BF16 MMA accumulation until its rounding is
+qualified; BF16 inputs with an explicit FP32 accumulator are supported.
+FP8 capture and typed Buffer allocation are available, but these
+two Runtime routes reject FP8 execution explicitly. The XIR FP8 legalizer is
+not implemented, and the pinned TIRx/Metal FP8 path is not qualified. Manual
+`Memory<half/bf16>` works on Metal/TIRx; the XIR planner still rejects manual
+Memory for all dtypes. See the [migration and precision report](../performance/tile/migration.md).
+
+LLVM's layers should not be conflated: the checked local LLVM 21.1.8 has
+`half` and `bfloat` IR types but no general FP8 IR scalar type; its `APFloat`
+already represents multiple FP8 formats. Neither fact guarantees target
+instruction support. TileIR therefore retains the format until the bridge
+chooses a native atom, bit-storage legalization/conversion, or an explicit
+unsupported diagnostic. See the [LLVM type reference](https://llvm.org/docs/LangRef.html#floating-point-types)
+and [APFloat formats](https://llvm.org/doxygen/classllvm_1_1APFloatBase.html).
+
 ## Elementwise operators lift directly to tiles
 
 Pure scalar operators are rank-polymorphically lifted to `Tile` values. Common
@@ -453,6 +522,170 @@ single-dispatch realization (for example a supported cooperative collective or
 an explicitly permitted atomic result), writes per-root partials and launches a
 second reduction kernel, or lives in a future multi-dispatch `tile_program`.
 The frontend never disguises an illegal global synchronization as a Tile op.
+
+## Scan preserves prefixes, not a new execution hierarchy
+
+**Design decision, not an implemented builtin yet (September 9, 2026).** Add a
+pure Tile-level `scan`, analogous to `mma`, rather than another range-for Nest
+primitive. Reuse the reducer's identity, combine function, accumulator type and
+numerical contract. The current migrated examples still expand a blocked
+Hillis–Steele scan through ordinary Tile operations; they do not use this
+proposed operation or a cooperative scan planner.
+
+The proposed simple surface is:
+
+~~~cpp
+auto x = A.tile(origin, shape(rows, columns), bounds::zero).load();
+auto prefix = scan(x, columns, add); // proposed: inclusive, ordered tree
+Y.tile(origin, shape(rows, columns)).store(prefix);
+~~~
+
+`columns` is an ordinary user-defined Axis, not a predefined semantic or
+hardware axis. An options argument can request exclusive output, an explicit
+seed, or a strict left fold; it does not specify a warp width. The first
+implementation should support existing builtin reducers before introducing
+custom tuple-state combine regions. Spelling of those options is not yet part
+of the implemented C++ API.
+
+### Why not just infer it from reduce?
+
+A serial carried assignment followed by a store can express a prefix scan.
+However, a final-state reduction and an observable sequence of intermediate
+states grant different transformations. For an ordered fiber `x[0..n)` with
+seed `z` and combine operation `op`:
+
+~~~text
+left prefix[0] = z
+left prefix[i + 1] = op(left prefix[i], x[i])
+inclusive[i] = left prefix[i + 1]
+exclusive[i] = left prefix[i]
+reduce result = left prefix[n]
+~~~
+
+An ordered-tree scan may regroup each prefix when the merge/math contract
+permits it, but must preserve that prefix's leaf sequence and include the seed
+once. The existing default `reduce` policy remains **unordered tree**. Moving
+`[1, 2, 3]` to `[3, 1, 2]` preserves an integer sum of 6, but changes inclusive
+prefixes from `[1, 3, 6]` to `[3, 4, 6]`. Therefore scan must not inherit the
+permission to globally permute reduction contributions. Associativity permits
+parallel prefix evaluation; commutativity is not required. A noncommutative
+combine must receive the earlier subsequence on its left. Floating-point
+regrouping permission does not imply exact real associativity or relax dtype,
+NaN, signed-zero or rounding rules.
+
+The current closed-reduction fast path recognizes a final scalar carry with
+restricted pure updates; stores of intermediate carries do not qualify.
+Reconstructing all prefixes from arbitrary effects would require additional
+alias, observation and dependence analysis. A compact, typed SCAN operation
+retains this information directly, while keeping `parallel`, `serial`,
+`pipeline` and `reduce` as the execution-region vocabulary. Its results are
+ordinary SSA Tiles, and its eventual custom combine body is a pure region,
+not a string-dispatched opaque call or a serialization-only record.
+
+Empty input produces an empty output; a separate final-state result, if added,
+would be the seed. Masked contributions are skipped under a defined mask
+contract, rather than treating every padding value as a valid identity. A
+strict fold preserves the recurrence above. Reversing the axis is expressible
+by reindexing, and segmented scans can use a lifted `(head, value)` associative
+state; neither needs a new Nest kind. A reference expansion should perform
+linear work, not independently reduce all `n` prefixes in quadratic work.
+
+### What the old implementation and other systems teach us
+
+The pinned legacy `tile_to_kernel.cpp` at commit
+`ccdfcbebef7fa95431c988e1fcbdd87ffdce9fdc` has a dedicated `_emit_scan` for
+`CUMSUM`/`CUMMAX`. Its actual code uses unconditional, clamped
+`WARP_READ_LANE` exchanges followed by guarded combines. One warp handles a
+scan line in chunks and carries each chunk's total into the next. When there
+are too few lines, a separate multi-warp path computes segment totals,
+communicates prefixes through shared memory, then recomputes the segments with
+their incoming carry. The old source warns about a prefix-sum intrinsic in
+nested control flow; that historical comment is not a newly reproduced backend
+defect. The implementation's hard-coded 32-lane block heuristic, sum/max-only
+combine ordering, and fragment staging are not general reducer contracts to
+copy into the new frontend.
+
+| System | Relevant separation | Lesson for this design |
+|---|---|---|
+| [Triton associative scan](https://triton-lang.org/main/python-api/generated/triton.language.associative_scan.html) and [ScanOp](https://triton-lang.org/main/dialects/TritonOps.html#tt-scan-triton-scanop) | Generic combine, distinct pure scan operation, same logical result shape | Preserve prefix semantics and custom state in IR without adding an execution region; no MLIR dependency is implied |
+| [TileLang instructions](https://github.com/tile-ai/tilelang/blob/main/docs/programming_guides/instructions.md) | `cumsum`/`cummax` coexist with reductions and explicit low-level warp shuffles | Borrow collective lowering techniques; do not make physical warp operations mandatory in portable Tile code |
+| [cuTile scan](https://docs.nvidia.com/cuda/cutile-python/generated/cuda.tile.scan.html) | Inclusive Tile scan with combine, identity and tuple state | A value builtin can remain generic and composable |
+| [CUB](https://nvidia.github.io/cccl/unstable/cub/index.html) | Thread, Warp, Block and Device algorithm layers | Keep hierarchy-specific algorithms and their workspace costs behind target capabilities |
+
+These are existing precedents, not evidence that scan or execution/memory
+separation is novel. Our design choice is to solve the collective's placement
+within the existing execution/resource mapping rather than bake one physical
+hierarchy into the source operation.
+
+The new [legacy comparison](../performance/tile/migration.md) exposes a real
+gap: current scans retain worker-private arrays and nested loops where the old
+path uses lane exchange. Ordinary Metal sum reductions already emit `simd_sum`;
+that does not mean scans benefit from the same machinery. First-class scan
+semantics enables, but does not itself implement, a better realization.
+
+## Logical exchange versus physical shuffle
+
+Keep the public portable vocabulary small: `reindex` for coordinate maps and
+`gather` for data-dependent selection from an SSA Tile. Today both are library
+compositions over `map` and Tile extraction, not dedicated exchange primitives.
+They are expressive enough to describe logical permutation and selection, but
+their current scalarized representation does not guarantee efficient
+cross-worker communication.
+
+| Logical operation | Coordinate relation along one axis | Possible library spelling |
+|---|---|---|
+| Axis permutation / transpose | Permute coordinate components | `reindex` / `transpose` |
+| Shift with defined boundary fill | `source = destination - delta` | `gather` with fallback; optional `shift` helper |
+| Butterfly partner | `source = destination xor distance` within a defined domain | `reindex` or bounded `gather` |
+| Broadcast one element | Constant source coordinate | Projection and broadcast |
+| Dynamic selection | Source coordinate comes from an index Tile | `gather` |
+
+The right column describes existing operations or optional library helpers,
+not a new implemented API set. In particular, a logical butterfly is not
+necessarily a physical lane XOR: blocked layouts may put partners in different
+registers, lanes or subgroups. Axis permutation can even cost no data movement
+when the output ownership is free to change. Triton's
+[transpose encoding discussion](https://triton-lang.org/main/dialects/TritonOps.html#tt-trans-triton-transop)
+illustrates this distinction: logical coordinate renaming and physical layout
+conversion are separate decisions.
+
+For a logical read relation `source = f(destination)`, let `S(q)` be the set of
+physical occurrences providing source element `q`, and `D(j)` the selected
+occurrence consuming destination element `j`. The communication plan selects
+a valid provider in `S(f(j))` for each consumer. These relations include the
+ancestor execution coordinates, local register/storage coordinates, validity
+and availability time; a replicated value does not require a unique inverse
+layout map. Depending on the selected providers, the plan can be a register
+rename/local read, SIMD permutation, subgroup shuffle, shared-memory exchange
+with synchronization, or an explicit inter-program communication phase.
+
+The planner must jointly price source/output ownership, communication and
+consumers, rather than assuming every `reindex` is free or every `gather` needs
+shared memory. Candidate costs include work and critical-path depth, live
+state/register pressure, shuffle traffic, shared bytes/bank conflicts,
+barriers, occupancy and global memory traffic. Backend policies supply measured
+capabilities/costs; the solver chooses among legal candidates. For scan this
+includes contiguous local segments, subgroup prefixes, block-level carry
+exchange and possible recomputation versus retained local prefixes. The
+baseline algorithm and its work bound remain available when a target lacks a
+specialized collective.
+
+Do not add mandatory `shuffle_up/down/xor` calls to generic Tile kernels now.
+First preserve or canonicalize the logical read relation and teach the
+bridges to lower it using the selected owner map. A future explicitly bound
+SIMT escape hatch may expose physical lane intrinsics with convergence,
+participation-mask, width and capability constraints; it must not silently
+restrict the remapping freedom of ordinary Tile code. That extension is
+separate from the current standalone Tile-kernel work. Ballot/bit packing is
+also a different semantic operation, not an excuse to collect unrelated warp
+intrinsics under a generic shuffle primitive.
+
+Validation should cover noncommutative associative combines, seeds,
+inclusive/exclusive boundaries, empty/single/ragged axes, non-power-of-two
+lengths, subgroup/block boundaries, strict floating-point folds, exceptional
+values and low-precision accumulator conversion. A device-wide scan still
+needs an explicit supported multi-dispatch/synchronization plan; no independent
+root instance acquires an implicit global barrier.
 
 ## Ordering and selection stay logical Tile operations
 

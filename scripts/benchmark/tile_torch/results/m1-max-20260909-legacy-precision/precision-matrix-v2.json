@@ -1,0 +1,80 @@
+{
+  "label": "precision-matrix-v2",
+  "base": "2d02721b89980cd9191976c64b05d00b2342a03d",
+  "overlay": {
+    "examples/compute/tile/kernels.h": "c73a2f5e00d1800a918e6dab0fb88458fae889b928b495c831a5c4e6c869c894",
+    "src/tests/common/tile_migrated_test_utils.h": "6539adb194c6750b1d55178bdba77285782b946484bbba59cf9a72126b96060d",
+    "src/tests/benchmark/benchmark_tile_migrated.cpp": "36f44aa74018ec2d3e87a6541b3bd03f61b27c7ea643aa8ceffe32a0cf02f165",
+    "src/tests/unit/tile/test_tile_migrated.cpp": "ad6dda6ee5e501bac448cb47ef74648b19b9363e47e4179a863d131b45ec1711",
+    "src/tests/CMakeLists.txt": "32562413e1b8f46b66f6e1ee5b5bb32cce57841c92ec44d20b96a7ef646a889f",
+    "src/tests/xmake.lua": "520d5768cf7aa2e6310c7487798d02dbc209dbd5ceab24810f22c4357fbd40e0",
+    "docs/source/performance/validation.md": "08bb95b91daefa3fad43a6abad0668ab1cf95fd5ca854c0a0c710d37285c8863",
+    "include/luisa/tile/types.h": "d4feafd391c80688db96c8789ce70220cfb8097edfa4ed9fd1e7a61e1b3ef424",
+    "include/luisa/tile/ir.h": "b5a965ea9114b58bbdd4cd9ded3f114fea46297eba51d693dad042e36fc6291e",
+    "include/luisa/tile/dsl.h": "7d8338a236a7ca36ab376f71a3d65bacd73ba8126f7d18f499c70e8d20a72aa3",
+    "include/luisa/tile/value.h": "0f410bac0bc9bb92202ffe5ac0b8928f3c709615b6a598f01123d358f37e510e",
+    "include/luisa/tile/runtime.h": "a073a98672de228a3d481d68dee744fee331536dd4e8528a743678a26e154e54",
+    "src/tile/bridge/xir/lower.cpp": "6c00e44544fb62149783266f5114674463b617f61fdc0c5fe3c5a20fb58b0b24",
+    "src/tile/bridge/tirx/lower.cpp": "ad476cf0690e2b5f9a2ea45e53391eb85b6a3c74896ef034c0ed3d3d59c15c70",
+    "src/tile/bridge/tirx/execution.cpp": "89992d8f1cc964212ebbca00cdbce3d8e5c1650b0a9551d389642848411021a5",
+    "src/backends/metal/tile/metal_tile.cpp": "84e0466728817b9e6148f2d36af9c1999607da89381c2acd7ac3a79f534d7198",
+    "src/tests/unit/tile/test_tile_types.cpp": "7e193d29b8e72b100be36af9a8e55207bc6b3d7cbb3b42d5f7c8d85db6194d9a"
+  },
+  "runs": [
+    {
+      "name": "build",
+      "argv": [
+        "cmake",
+        "--build",
+        "/private/tmp/luisa-next-integration.roZbN8/build",
+        "--target",
+        "test_tile_types",
+        "test_tile_migrated",
+        "benchmark_tile_migrated",
+        "--parallel",
+        "4"
+      ],
+      "started_unix": 1788945897.1911108,
+      "log": "precision-matrix-v2-build.log",
+      "exit_code": 0,
+      "finished_unix": 1788945909.5618129,
+      "log_sha256": "4593fe747a6569f17e6c55ce65a7de892dd43c5ef11974d5484c9d8f109fc0fd"
+    },
+    {
+      "name": "types",
+      "argv": [
+        "ctest",
+        "--test-dir",
+        "/private/tmp/luisa-next-integration.roZbN8/build",
+        "-R",
+        "^test_tile_types(_simd|_metal)?$",
+        "--output-on-failure",
+        "--parallel",
+        "1"
+      ],
+      "started_unix": 1788945909.56234,
+      "log": "precision-matrix-v2-types.log",
+      "exit_code": 0,
+      "finished_unix": 1788945913.7122262,
+      "log_sha256": "caa81d7b1ab449a4d3d1d1b15afd439583e3aefad90b9994a204234f567c832d"
+    },
+    {
+      "name": "migration",
+      "argv": [
+        "ctest",
+        "--test-dir",
+        "/private/tmp/luisa-next-integration.roZbN8/build",
+        "-R",
+        "^test_tile_migrated(_simd|_metal)?$",
+        "--output-on-failure",
+        "--parallel",
+        "1"
+      ],
+      "started_unix": 1788945913.712697,
+      "log": "precision-matrix-v2-migration.log",
+      "exit_code": 0,
+      "finished_unix": 1788945935.183938,
+      "log_sha256": "3515fd6fd70b17920491e9d6456900eb596befd266cca0628a40714ecb61910b"
+    }
+  ]
+}

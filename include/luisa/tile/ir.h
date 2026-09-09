@@ -32,13 +32,40 @@ enum class ScalarType : uint8_t {
     UINT32,
     INT64,
     UINT64,
-    FLOAT8_E4M3,
+    FLOAT8_E4M3FN,
+    // Compatibility spelling: this has always mapped to DLPack e4m3fn.
+    // It does NOT denote IEEE-style E4M3 or the FNUZ variant.
+    FLOAT8_E4M3 = FLOAT8_E4M3FN,
     FLOAT8_E5M2,
     BFLOAT16,
     FLOAT16,
     FLOAT32,
     FLOAT64
 };
+
+// Byte-addressable scalar storage size, independent of compute/accumulator
+// precision. Packed INT4/FP4 need a separate packing layout, not a fake byte.
+[[nodiscard]] constexpr size_t scalar_type_size(ScalarType type) noexcept {
+    switch (type) {
+        case ScalarType::BOOL:
+        case ScalarType::INT8:
+        case ScalarType::UINT8:
+        case ScalarType::FLOAT8_E4M3FN:
+        case ScalarType::FLOAT8_E5M2: return 1u;
+        case ScalarType::INT16:
+        case ScalarType::UINT16:
+        case ScalarType::BFLOAT16:
+        case ScalarType::FLOAT16: return 2u;
+        case ScalarType::INT32:
+        case ScalarType::UINT32:
+        case ScalarType::FLOAT32: return 4u;
+        case ScalarType::INT64:
+        case ScalarType::UINT64:
+        case ScalarType::FLOAT64: return 8u;
+        case ScalarType::INVALID: return 0u;
+    }
+    return 0u;
+}
 
 enum class TypeKind : uint8_t {
     INVALID,

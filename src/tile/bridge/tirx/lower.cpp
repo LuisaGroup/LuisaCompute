@@ -4,6 +4,7 @@
 #include <initializer_list>
 #include <limits>
 #include <optional>
+#include <stdexcept>
 #include <string>
 
 #include <tvm/ir/attrs.h>
@@ -479,8 +480,40 @@ private:
         return {};
     }
 
+    [[nodiscard]] static tvm::PrimExpr _round_bfloat16(tvm::PrimExpr value) {
+        auto u32 = tvm::PrimType::UInt(32);
+        auto word = [&](uint32_t x) { return tvm::IntImm{u32, static_cast<int64_t>(x)}; };
+        value = tvm::cast(tvm::PrimType::Float(32), value);
+        auto bits = tvm::reinterpret(u32, value);
+        auto high = bits >> word(16u);
+        auto odd = tvm::bitwise_and(high, word(1u));
+        auto rounded = (bits + word(0x7fffu) + odd) >> word(16u);
+        auto nan = tvm::greater(tvm::bitwise_and(bits, word(0x7fffffffu)), word(0x7f800000u));
+        auto quiet = tvm::bitwise_or(high, word(0x40u));
+        auto storage = tvm::cast(tvm::PrimType::UInt(16), tvm::if_then_else(nan, quiet, rounded));
+        // BF16ComputeLegalize may otherwise erase f32 -> bf16 -> f32 and
+        // widen all intermediate buffers. An explicit bit encoding preserves
+        // the semantic rounding event while still using native TVMx passes.
+        return tvm::reinterpret(tvm::PrimType::BFloat(16), storage);
+    }
+
     [[nodiscard]] static tvm::PrimExpr _apply_elementwise(
         ElementwiseOp op, luisa::span<const tvm::PrimExpr> operands, tvm::PrimType result_type) {
+        auto bf16 = tvm::PrimType::BFloat(16);
+        auto f32 = tvm::PrimType::Float(32);
+        if (result_type == bf16 && op != ElementwiseOp::SELECT) {
+            if (op == ElementwiseOp::CAST) {
+                if (operands[0u].ty() == bf16) { return operands[0u]; }
+                auto from = operands[0u].ty();
+                if (from.bits() > 32 || (from.bits() == 32 && from != f32)) {
+                    throw std::runtime_error{"Tile to TIRx: wide-source BF16 conversion requires an explicit intermediate cast<float>"};
+                }
+                return _round_bfloat16(operands[0u]);
+            }
+            luisa::vector<tvm::PrimExpr> promoted;
+            for (auto &operand : operands) { promoted.emplace_back(tvm::cast(f32, operand)); }
+            return _round_bfloat16(_apply_elementwise(op, promoted, f32));
+        }
         switch (op) {
             case ElementwiseOp::ADD: return tvm::add(operands[0u], operands[1u]);
             case ElementwiseOp::SUB: return tvm::sub(operands[0u], operands[1u]);
@@ -826,6 +859,13 @@ private:
 
     void _lower_mma(const Operation &operation, Statements &statements) {
         auto result = operation.result(0);
+        if (result->type().scalar_type() == ScalarType::BFLOAT16) {
+            // The pinned BF16 legalizer promotes internal accumulator storage
+            // and would erase per-step rounding. Qualify a round-aware MMA
+            // realization before admitting a BF16 accumulator.
+            _fail("TIRx MMA with BF16 accumulation is not supported; use an FP32 accumulator and explicitly cast the result");
+            return;
+        }
         auto &&space = *result->type().index_space();
         auto contraction = IndexSpace{};
         auto domain = space;

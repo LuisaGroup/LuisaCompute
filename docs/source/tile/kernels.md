@@ -13,6 +13,31 @@ This is not a performance-parity claim. Safe pipeline cuts can use two-window
 software prefetching; hardware-asynchronous transfers and warp specialization
 remain future work.
 
+## Migrated examples and low precision
+
+`examples/compute/tile/kernels.h` contains current execution-first counterparts
+of the restored legacy benchmark: copy, add, SAXPY, clamp, exp, unweighted
+RMSNorm, sum/max/min/absolute reductions, inclusive sum/max scan, transpose and
+GEMM. They use current TensorView parameters, explicit stores and ordinary
+staging values, not the old Tile frontend. The legacy SAXPY expression is
+`a / 0.4f + b`; RMSNorm retains the old `1e-12f` epsilon and no scale weight.
+Scans use a library-composed blocked inclusive scan, not a new primitive or
+a claim of hardware prefix-scan lowering.
+
+The shared GEMM capture accepts `gemm<half>(m, n, k, block)` or
+`gemm<bf16>(...)`, with FP32 accumulation and explicit output conversion;
+`gemm<int8_t, int32_t>(...)` chooses an integer accumulator. The same
+execution structure serves each dtype. See [precision semantics](values.md#storage-and-arithmetic-precision).
+
+`test_tile_migrated` validates captures/oracles without a backend; the `simd`
+and `metal` variants check 45 complete output/guard cases. `test_tile_types`
+adds low-precision storage, conversion, mixed MMA and explicit FP8 rejection
+tests. The opt-in `benchmark_tile_migrated` accepts the 15 operation names plus
+`gemm_fp16`, `gemm_bf16`, and a separately labelled full-K `gemm_direct`, with
+separate shape, block and timing arguments.
+The [migration report](../performance/tile/migration.md) records comparisons
+with the original lowering, including regressions and unsupported cases.
+
 ## 1. One memory-access convention
 
 | Expression | Result / effect |

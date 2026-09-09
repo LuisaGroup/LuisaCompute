@@ -22,6 +22,7 @@ The original report paths are retained so existing links remain valid.
 ../../validation/2026-09-07/fallback-coro-arena/README
 ../../validation/2026-09-07/fallback-abi-temporaries/README
 ../../validation/2026-09-08/fallback-queue-wakeup/README
+../../validation/2026-09-09/coro-packed-word-definedness/README
 ```
 
 ## Control-flow reconstruction

@@ -1,0 +1,3554 @@
+{
+  "initial-fp32-pilot.tar.gz": {
+    "size": 42709037,
+    "sha256": "362897fc65d74cc2fa6bfaa5f0041fbcf2cfa74b416a0f00190ab0cfa45e4a06",
+    "members": [
+      {
+        "path": "add-legacy.expected.f64",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/add-legacy.expected.f64",
+        "size": 33554432,
+        "sha256": "c55726f9793a969975eecb750bbc303e00462f76ec4c2f8bd3d1e26b7d403122"
+      },
+      {
+        "path": "add-legacy.input0.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/add-legacy.input0.f32",
+        "size": 16777216,
+        "sha256": "8d2b5b76b4dc897b7d3d6690b384cce7282c7f90f350b6565bdef32e6af9461c"
+      },
+      {
+        "path": "add-legacy.input1.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/add-legacy.input1.f32",
+        "size": 16777216,
+        "sha256": "5bd28ee2a757168713f182cbf84c25c731aca50f69f14f538d346f4b8615b3ab"
+      },
+      {
+        "path": "add-legacy.log",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/add-legacy.log",
+        "size": 2789,
+        "sha256": "48d189a8d5a0feae1a353844c10ec22e0022fd37b46424be962121cc4d03ac42"
+      },
+      {
+        "path": "add-legacy.output.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/add-legacy.output.f32",
+        "size": 16777216,
+        "sha256": "51e130f51259ae742c6689f0ad11c2fddec81ed30c806925d7ebe1191d2de2f8"
+      },
+      {
+        "path": "add-legacy.source.txt",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/add-legacy.source.txt",
+        "size": 91264,
+        "sha256": "b8790a97786330d0609a208bff8994862550f346bf0f2b093a7d030cf2e9d9fa"
+      },
+      {
+        "path": "add-modern.expected.f64",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/add-modern.expected.f64",
+        "size": 33554432,
+        "sha256": "c55726f9793a969975eecb750bbc303e00462f76ec4c2f8bd3d1e26b7d403122"
+      },
+      {
+        "path": "add-modern.input0.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/add-modern.input0.f32",
+        "size": 16777216,
+        "sha256": "8d2b5b76b4dc897b7d3d6690b384cce7282c7f90f350b6565bdef32e6af9461c"
+      },
+      {
+        "path": "add-modern.input1.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/add-modern.input1.f32",
+        "size": 16777216,
+        "sha256": "5bd28ee2a757168713f182cbf84c25c731aca50f69f14f538d346f4b8615b3ab"
+      },
+      {
+        "path": "add-modern.log",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/add-modern.log",
+        "size": 2850,
+        "sha256": "8da10a204a6ca49134c9f9db1d1370fe79b8e5725e497a9a978732b50569bf46"
+      },
+      {
+        "path": "add-modern.output.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/add-modern.output.f32",
+        "size": 16777216,
+        "sha256": "51e130f51259ae742c6689f0ad11c2fddec81ed30c806925d7ebe1191d2de2f8"
+      },
+      {
+        "path": "add-modern.source.txt",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/add-modern.source.txt",
+        "size": 981,
+        "sha256": "5b8d98288691c07de8002e8d6b346ff4e6530a536d6562f7efbc63bfc3d5dafa"
+      },
+      {
+        "path": "copy-legacy.expected.f64",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/copy-legacy.expected.f64",
+        "size": 33554432,
+        "sha256": "fa50c08f149ce999a1863944388c46d3031f89c335649cc01aeb539d0e2ef7e7"
+      },
+      {
+        "path": "copy-legacy.input0.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/copy-legacy.input0.f32",
+        "size": 16777216,
+        "sha256": "8d2b5b76b4dc897b7d3d6690b384cce7282c7f90f350b6565bdef32e6af9461c"
+      },
+      {
+        "path": "copy-legacy.input1.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/copy-legacy.input1.f32",
+        "size": 16777216,
+        "sha256": "5bd28ee2a757168713f182cbf84c25c731aca50f69f14f538d346f4b8615b3ab"
+      },
+      {
+        "path": "copy-legacy.log",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/copy-legacy.log",
+        "size": 2791,
+        "sha256": "5bdc5c7d2b1c39333eac5380dc4f67b3303d8d7ba1d98d01128fe8efeb869261"
+      },
+      {
+        "path": "copy-legacy.output.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/copy-legacy.output.f32",
+        "size": 16777216,
+        "sha256": "8d2b5b76b4dc897b7d3d6690b384cce7282c7f90f350b6565bdef32e6af9461c"
+      },
+      {
+        "path": "copy-legacy.source.txt",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/copy-legacy.source.txt",
+        "size": 56425,
+        "sha256": "24500eb67acb22e7166bed29d87e28ca68896f889d60e01d2d72afaac0a579ab"
+      },
+      {
+        "path": "copy-modern.expected.f64",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/copy-modern.expected.f64",
+        "size": 33554432,
+        "sha256": "fa50c08f149ce999a1863944388c46d3031f89c335649cc01aeb539d0e2ef7e7"
+      },
+      {
+        "path": "copy-modern.input0.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/copy-modern.input0.f32",
+        "size": 16777216,
+        "sha256": "8d2b5b76b4dc897b7d3d6690b384cce7282c7f90f350b6565bdef32e6af9461c"
+      },
+      {
+        "path": "copy-modern.input1.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/copy-modern.input1.f32",
+        "size": 16777216,
+        "sha256": "5bd28ee2a757168713f182cbf84c25c731aca50f69f14f538d346f4b8615b3ab"
+      },
+      {
+        "path": "copy-modern.log",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/copy-modern.log",
+        "size": 2840,
+        "sha256": "49465da48dd48d4157da44890e12a0bf1e8b416d9e1a768bb28136f7f4efdd2c"
+      },
+      {
+        "path": "copy-modern.output.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/copy-modern.output.f32",
+        "size": 16777216,
+        "sha256": "8d2b5b76b4dc897b7d3d6690b384cce7282c7f90f350b6565bdef32e6af9461c"
+      },
+      {
+        "path": "copy-modern.source.txt",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/copy-modern.source.txt",
+        "size": 912,
+        "sha256": "38682d21d4da54b2137ff1a7ece7f88977486b4283bebe89d0fd2b81b28bf009"
+      },
+      {
+        "path": "cummax-legacy.expected.f64",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/cummax-legacy.expected.f64",
+        "size": 33554432,
+        "sha256": "85b26cd31333ca7ebf24f60809ad155c916e8c601f28901cfa8f2cacd6176dd4"
+      },
+      {
+        "path": "cummax-legacy.input0.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/cummax-legacy.input0.f32",
+        "size": 16777216,
+        "sha256": "8d2b5b76b4dc897b7d3d6690b384cce7282c7f90f350b6565bdef32e6af9461c"
+      },
+      {
+        "path": "cummax-legacy.log",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/cummax-legacy.log",
+        "size": 2806,
+        "sha256": "3f26fb2341f43ede77e8adf803ef10522f20d10d48f828b39a1c854bac4463c4"
+      },
+      {
+        "path": "cummax-legacy.output.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/cummax-legacy.output.f32",
+        "size": 16777216,
+        "sha256": "03883675548960ee98b2d0dfc396ef5faeb63d923b33e7e503f8e97197eb9d1c"
+      },
+      {
+        "path": "cummax-legacy.source.txt",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/cummax-legacy.source.txt",
+        "size": 169942,
+        "sha256": "a8dfd557c90799decec3731c117708b99d8eb5d9677f2132b7b46bb0394523b9"
+      },
+      {
+        "path": "cummax-modern.expected.f64",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/cummax-modern.expected.f64",
+        "size": 33554432,
+        "sha256": "85b26cd31333ca7ebf24f60809ad155c916e8c601f28901cfa8f2cacd6176dd4"
+      },
+      {
+        "path": "cummax-modern.input0.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/cummax-modern.input0.f32",
+        "size": 16777216,
+        "sha256": "8d2b5b76b4dc897b7d3d6690b384cce7282c7f90f350b6565bdef32e6af9461c"
+      },
+      {
+        "path": "cummax-modern.log",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/cummax-modern.log",
+        "size": 47,
+        "sha256": "ff965d4863010d8991a1192f5932b259027ea4979204d5c43448e04fb814f111"
+      },
+      {
+        "path": "cumsum-legacy.expected.f64",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/cumsum-legacy.expected.f64",
+        "size": 2097152,
+        "sha256": "54a6c4e7ff3746dcc062246e4f4319ec6248944f5de8f833c52490d224a74b64"
+      },
+      {
+        "path": "cumsum-legacy.input0.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/cumsum-legacy.input0.f32",
+        "size": 1048576,
+        "sha256": "6b77c4dcfe034e0a38ffe68099fb24491bd306280b9e859891ecad78316ea5d4"
+      },
+      {
+        "path": "cumsum-legacy.log",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/cumsum-legacy.log",
+        "size": 2791,
+        "sha256": "3587442536efdaf035c572ec27044df3e321b3149b55967b7881a70e205336f1"
+      },
+      {
+        "path": "cumsum-legacy.output.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/cumsum-legacy.output.f32",
+        "size": 1048576,
+        "sha256": "64c076175a14827175a140dbec62ea5a8e2108a2e4d4d1d66851a9c85f23b597"
+      },
+      {
+        "path": "cumsum-legacy.source.txt",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/cumsum-legacy.source.txt",
+        "size": 169009,
+        "sha256": "c90adc8a494b95e571e131fe2cde7e0803cf39c39ff43f43130948c8a828813a"
+      },
+      {
+        "path": "cumsum-modern.expected.f64",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/cumsum-modern.expected.f64",
+        "size": 2097152,
+        "sha256": "54a6c4e7ff3746dcc062246e4f4319ec6248944f5de8f833c52490d224a74b64"
+      },
+      {
+        "path": "cumsum-modern.input0.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/cumsum-modern.input0.f32",
+        "size": 1048576,
+        "sha256": "6b77c4dcfe034e0a38ffe68099fb24491bd306280b9e859891ecad78316ea5d4"
+      },
+      {
+        "path": "cumsum-modern.log",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/cumsum-modern.log",
+        "size": 47,
+        "sha256": "ff965d4863010d8991a1192f5932b259027ea4979204d5c43448e04fb814f111"
+      },
+      {
+        "path": "gemm-legacy.expected.f64",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/gemm-legacy.expected.f64",
+        "size": 134217728,
+        "sha256": "ec23918fb3a1942ec9aae14958cca87ba867972873764a60bb7aaff7a9162dd8"
+      },
+      {
+        "path": "gemm-legacy.input0.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/gemm-legacy.input0.f32",
+        "size": 67108864,
+        "sha256": "c7ab2a9308ef6f39ac28afdeb51c74486981067ee11d1fa93aa9f2dcbd8696b5"
+      },
+      {
+        "path": "gemm-legacy.input1.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/gemm-legacy.input1.f32",
+        "size": 67108864,
+        "sha256": "a42e193c1ebad4d26626b22dbfdd2045940de64eb2129e2cd173751a5d2e0dc5"
+      },
+      {
+        "path": "gemm-legacy.log",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/gemm-legacy.log",
+        "size": 2851,
+        "sha256": "d21b87b0eb534f384b4224e2855a92a058fb1068e11db4976f770bc192561fd6"
+      },
+      {
+        "path": "gemm-legacy.output.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/gemm-legacy.output.f32",
+        "size": 67108864,
+        "sha256": "a50e202d02cf3ecba388306cc54306cee86c85ac1f15dd9c0028d6ac0e369879"
+      },
+      {
+        "path": "gemm-legacy.source.txt",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/gemm-legacy.source.txt",
+        "size": 2624195,
+        "sha256": "5705092128c4d09ceed092626e9486369e53d677262fabfe8afb79b5bcf46b8c"
+      },
+      {
+        "path": "gemm-modern.expected.f64",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/gemm-modern.expected.f64",
+        "size": 134217728,
+        "sha256": "ec23918fb3a1942ec9aae14958cca87ba867972873764a60bb7aaff7a9162dd8"
+      },
+      {
+        "path": "gemm-modern.input0.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/gemm-modern.input0.f32",
+        "size": 67108864,
+        "sha256": "c7ab2a9308ef6f39ac28afdeb51c74486981067ee11d1fa93aa9f2dcbd8696b5"
+      },
+      {
+        "path": "gemm-modern.input1.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/gemm-modern.input1.f32",
+        "size": 67108864,
+        "sha256": "a42e193c1ebad4d26626b22dbfdd2045940de64eb2129e2cd173751a5d2e0dc5"
+      },
+      {
+        "path": "gemm-modern.log",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/gemm-modern.log",
+        "size": 2915,
+        "sha256": "97c955980db9f2fa896fec4a3084f0c655926946644925348a410adb7cbe3041"
+      },
+      {
+        "path": "gemm-modern.output.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/gemm-modern.output.f32",
+        "size": 67108864,
+        "sha256": "a50e202d02cf3ecba388306cc54306cee86c85ac1f15dd9c0028d6ac0e369879"
+      },
+      {
+        "path": "gemm-modern.source.txt",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/gemm-modern.source.txt",
+        "size": 1516,
+        "sha256": "9c6e948eaf2d6b75c69ec2f19a70a5502774000d453684d25d32431bbb359567"
+      },
+      {
+        "path": "max-legacy.expected.f64",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/max-legacy.expected.f64",
+        "size": 65536,
+        "sha256": "45e42f4411f6b37239c6a697fe04bbd512bceac6c5fbd3d944e3c06bb5ada124"
+      },
+      {
+        "path": "max-legacy.input0.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/max-legacy.input0.f32",
+        "size": 16777216,
+        "sha256": "8d2b5b76b4dc897b7d3d6690b384cce7282c7f90f350b6565bdef32e6af9461c"
+      },
+      {
+        "path": "max-legacy.log",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/max-legacy.log",
+        "size": 2788,
+        "sha256": "be2bdeef301c9cc59ca507d89db84feaf024f18a9c5b0b70b646a53b67650ead"
+      },
+      {
+        "path": "max-legacy.output.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/max-legacy.output.f32",
+        "size": 32768,
+        "sha256": "b0ce89ca7ba9aab68a2fe2b5ef6289c64c77c971612416a7b94f6d4705fc9562"
+      },
+      {
+        "path": "max-legacy.source.txt",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/max-legacy.source.txt",
+        "size": 120260,
+        "sha256": "25e4749f6c00f9434d74c62e9ed9dc3bf3003c99eb1f0832029e38fa153b753b"
+      },
+      {
+        "path": "max-modern.expected.f64",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/max-modern.expected.f64",
+        "size": 65536,
+        "sha256": "45e42f4411f6b37239c6a697fe04bbd512bceac6c5fbd3d944e3c06bb5ada124"
+      },
+      {
+        "path": "max-modern.input0.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/max-modern.input0.f32",
+        "size": 16777216,
+        "sha256": "8d2b5b76b4dc897b7d3d6690b384cce7282c7f90f350b6565bdef32e6af9461c"
+      },
+      {
+        "path": "max-modern.log",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/max-modern.log",
+        "size": 2840,
+        "sha256": "19ad64ac428731d28ea36e8ded0af0cfa9b2a90e326378a0a735a3de5052daad"
+      },
+      {
+        "path": "max-modern.output.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/max-modern.output.f32",
+        "size": 32768,
+        "sha256": "b0ce89ca7ba9aab68a2fe2b5ef6289c64c77c971612416a7b94f6d4705fc9562"
+      },
+      {
+        "path": "max-modern.source.txt",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/max-modern.source.txt",
+        "size": 1185,
+        "sha256": "87d72f06f7da0dfbe03690f7bbfec1ac64b816e0a4467563a1a901f28c6f49ed"
+      },
+      {
+        "path": "results.json",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/results.json",
+        "size": 106968,
+        "sha256": "e63594e5de6db330be259ef9eade08a9384bfca67334f5b657695c462dfa7088"
+      },
+      {
+        "path": "rmsnorm-legacy.expected.f64",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/rmsnorm-legacy.expected.f64",
+        "size": 4194304,
+        "sha256": "1fb7b785d60b3bdf7ae7b72d0f5b32b8dd47b91765189069338ef0c6a439b7fe"
+      },
+      {
+        "path": "rmsnorm-legacy.input0.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/rmsnorm-legacy.input0.f32",
+        "size": 2097152,
+        "sha256": "a866e8d13416e4f65b709f8f40699fa76ba4f154535ee475b84e9bde1b2230a9"
+      },
+      {
+        "path": "rmsnorm-legacy.log",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/rmsnorm-legacy.log",
+        "size": 2804,
+        "sha256": "a24d24b26c467011b3ca929d25526ba5dad96b5d09c3dc03474b939f3832db6b"
+      },
+      {
+        "path": "rmsnorm-legacy.output.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/rmsnorm-legacy.output.f32",
+        "size": 2097152,
+        "sha256": "84f5e919d19aec4bc968265d6a22cffe0d3a3e990fe6d8da6a33c9b0808c944e"
+      },
+      {
+        "path": "rmsnorm-legacy.source.txt",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/rmsnorm-legacy.source.txt",
+        "size": 213081,
+        "sha256": "39cf82c8204f04d233c0289f9ceac01b879084f7a1d91eb1a989817dd01072a4"
+      },
+      {
+        "path": "rmsnorm-modern.expected.f64",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/rmsnorm-modern.expected.f64",
+        "size": 4194304,
+        "sha256": "1fb7b785d60b3bdf7ae7b72d0f5b32b8dd47b91765189069338ef0c6a439b7fe"
+      },
+      {
+        "path": "rmsnorm-modern.input0.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/rmsnorm-modern.input0.f32",
+        "size": 2097152,
+        "sha256": "a866e8d13416e4f65b709f8f40699fa76ba4f154535ee475b84e9bde1b2230a9"
+      },
+      {
+        "path": "rmsnorm-modern.log",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/rmsnorm-modern.log",
+        "size": 2852,
+        "sha256": "bb10490037a221dc940431077e51e6951b0c11055453c63dd9462d66693f825a"
+      },
+      {
+        "path": "rmsnorm-modern.output.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/rmsnorm-modern.output.f32",
+        "size": 2097152,
+        "sha256": "9fe6370568cf16de44d6105ba96967c26fd025e91505ae443eb172386d5c1f31"
+      },
+      {
+        "path": "rmsnorm-modern.source.txt",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/rmsnorm-modern.source.txt",
+        "size": 2179,
+        "sha256": "b9f14013fbbb08e130e42960abf744d2e57996b2f1550fe919b0dcfb0bdc310e"
+      },
+      {
+        "path": "saxpy-legacy.expected.f64",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/saxpy-legacy.expected.f64",
+        "size": 33554432,
+        "sha256": "22d7e4301984cad8753557dabadb7226b5f062ed71cec45de734860790d7a90f"
+      },
+      {
+        "path": "saxpy-legacy.input0.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/saxpy-legacy.input0.f32",
+        "size": 16777216,
+        "sha256": "8d2b5b76b4dc897b7d3d6690b384cce7282c7f90f350b6565bdef32e6af9461c"
+      },
+      {
+        "path": "saxpy-legacy.input1.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/saxpy-legacy.input1.f32",
+        "size": 16777216,
+        "sha256": "5bd28ee2a757168713f182cbf84c25c731aca50f69f14f538d346f4b8615b3ab"
+      },
+      {
+        "path": "saxpy-legacy.log",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/saxpy-legacy.log",
+        "size": 2803,
+        "sha256": "8ec6c2a8a140a93ee7a9c1c91c252ffbbd906f0d1b8ca8f2271173efa602c03f"
+      },
+      {
+        "path": "saxpy-legacy.output.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/saxpy-legacy.output.f32",
+        "size": 16777216,
+        "sha256": "0dc8ca48efa2dfa0ff12f3e9943799032012add4ac4477547de5aa35c9d993b8"
+      },
+      {
+        "path": "saxpy-legacy.source.txt",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/saxpy-legacy.source.txt",
+        "size": 92632,
+        "sha256": "3af5906f16bc0ca73f330105af29a2cf62104f66e80d289d0ad5f2bddcf020be"
+      },
+      {
+        "path": "saxpy-modern.expected.f64",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/saxpy-modern.expected.f64",
+        "size": 33554432,
+        "sha256": "22d7e4301984cad8753557dabadb7226b5f062ed71cec45de734860790d7a90f"
+      },
+      {
+        "path": "saxpy-modern.input0.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/saxpy-modern.input0.f32",
+        "size": 16777216,
+        "sha256": "8d2b5b76b4dc897b7d3d6690b384cce7282c7f90f350b6565bdef32e6af9461c"
+      },
+      {
+        "path": "saxpy-modern.input1.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/saxpy-modern.input1.f32",
+        "size": 16777216,
+        "sha256": "5bd28ee2a757168713f182cbf84c25c731aca50f69f14f538d346f4b8615b3ab"
+      },
+      {
+        "path": "saxpy-modern.log",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/saxpy-modern.log",
+        "size": 2858,
+        "sha256": "7abb2a51e6382d4cde2d62437c3d5c9cf854fe4986ff08d4f20b43a51c596eb4"
+      },
+      {
+        "path": "saxpy-modern.output.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/saxpy-modern.output.f32",
+        "size": 16777216,
+        "sha256": "0dc8ca48efa2dfa0ff12f3e9943799032012add4ac4477547de5aa35c9d993b8"
+      },
+      {
+        "path": "saxpy-modern.source.txt",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/saxpy-modern.source.txt",
+        "size": 987,
+        "sha256": "ba8f9c3ba342ab8f894c13f6881f6a08099bc9089150564ee8f6df42cd3f9119"
+      },
+      {
+        "path": "sum-legacy.expected.f64",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/sum-legacy.expected.f64",
+        "size": 65536,
+        "sha256": "0b8c60b83525e0fd4b25f1872f6213a427d3a59a09df4dacd57660546bebd6fb"
+      },
+      {
+        "path": "sum-legacy.input0.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/sum-legacy.input0.f32",
+        "size": 16777216,
+        "sha256": "8d2b5b76b4dc897b7d3d6690b384cce7282c7f90f350b6565bdef32e6af9461c"
+      },
+      {
+        "path": "sum-legacy.log",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/sum-legacy.log",
+        "size": 2780,
+        "sha256": "f4bcf35525c5710d947c1a92b4f617d0d8547beb956932fcb2bfb07e7a81eb04"
+      },
+      {
+        "path": "sum-legacy.output.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/sum-legacy.output.f32",
+        "size": 32768,
+        "sha256": "8518994711d5ddecc0fb15caa8eaa39e824ab614012112be7bf6608935c6f027"
+      },
+      {
+        "path": "sum-legacy.source.txt",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/sum-legacy.source.txt",
+        "size": 119580,
+        "sha256": "5be239c909e5ac15cda7903996d3326e41219a62d2d06890d42a65d892b21c8f"
+      },
+      {
+        "path": "sum-modern.expected.f64",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/sum-modern.expected.f64",
+        "size": 65536,
+        "sha256": "0b8c60b83525e0fd4b25f1872f6213a427d3a59a09df4dacd57660546bebd6fb"
+      },
+      {
+        "path": "sum-modern.input0.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/sum-modern.input0.f32",
+        "size": 16777216,
+        "sha256": "8d2b5b76b4dc897b7d3d6690b384cce7282c7f90f350b6565bdef32e6af9461c"
+      },
+      {
+        "path": "sum-modern.log",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/sum-modern.log",
+        "size": 2842,
+        "sha256": "5a5949dcd3aaa4b7595dac3fa7dc79bd26ab55a55e346b802c21d55fad02f609"
+      },
+      {
+        "path": "sum-modern.output.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/sum-modern.output.f32",
+        "size": 32768,
+        "sha256": "8518994711d5ddecc0fb15caa8eaa39e824ab614012112be7bf6608935c6f027"
+      },
+      {
+        "path": "sum-modern.source.txt",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/sum-modern.source.txt",
+        "size": 1187,
+        "sha256": "33bdeba2cd4eea19400a1ac9e7617bc333d1d571e6414b05865088031a30ec64"
+      },
+      {
+        "path": "transpose-legacy.expected.f64",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/transpose-legacy.expected.f64",
+        "size": 41472,
+        "sha256": "32425b44bf7d21cb4b9effbad0511b4096aa8af021910d1d92371edb5bee6c2f"
+      },
+      {
+        "path": "transpose-legacy.input0.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/transpose-legacy.input0.f32",
+        "size": 20736,
+        "sha256": "f782267aae17c3e441bed7dfab16803d75fac552c8ccc7981e552722b5a54f22"
+      },
+      {
+        "path": "transpose-legacy.log",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/transpose-legacy.log",
+        "size": 919,
+        "sha256": "d09c26f0e9203aa5f34f14fec1ac8c9de7090273368282d21ff51276deaaff0d"
+      },
+      {
+        "path": "transpose-modern.expected.f64",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/transpose-modern.expected.f64",
+        "size": 41472,
+        "sha256": "32425b44bf7d21cb4b9effbad0511b4096aa8af021910d1d92371edb5bee6c2f"
+      },
+      {
+        "path": "transpose-modern.input0.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/transpose-modern.input0.f32",
+        "size": 20736,
+        "sha256": "f782267aae17c3e441bed7dfab16803d75fac552c8ccc7981e552722b5a54f22"
+      },
+      {
+        "path": "transpose-modern.log",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/transpose-modern.log",
+        "size": 2833,
+        "sha256": "39b2fad6122fd1233ce8e602505387b927c97adce8bb6572ac284b4dfd72a629"
+      },
+      {
+        "path": "transpose-modern.output.f32",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/transpose-modern.output.f32",
+        "size": 20736,
+        "sha256": "07d077d6c9d5b8ca480089e72d57b69cae6995c02c277ef352bcfd324e9e3e48"
+      },
+      {
+        "path": "transpose-modern.source.txt",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/metal-pilot/transpose-modern.source.txt",
+        "size": 983,
+        "sha256": "5e8b035f9c311e2cbe642df92916f075027d8695afc5ef30fd16961a9a32eb35"
+      }
+    ]
+  },
+  "precision-v9-pilot-with-harness-failures.tar.gz": {
+    "size": 6495315,
+    "sha256": "bf3a56c04d326c119fc10e5a9c74a1e0bc94c203a0ba261ba50a75378009d13a",
+    "members": [
+      {
+        "path": "metal-cummax-0-legacy.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cummax-0-legacy.expected.f64",
+        "size": 33554432,
+        "sha256": "85b26cd31333ca7ebf24f60809ad155c916e8c601f28901cfa8f2cacd6176dd4"
+      },
+      {
+        "path": "metal-cummax-0-legacy.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cummax-0-legacy.input0.f32",
+        "size": 16777216,
+        "sha256": "8d2b5b76b4dc897b7d3d6690b384cce7282c7f90f350b6565bdef32e6af9461c"
+      },
+      {
+        "path": "metal-cummax-0-legacy.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cummax-0-legacy.log",
+        "size": 2826,
+        "sha256": "75b49b6d723498209a4a0006a120786b59eee0ecf08fd5494cd7c857e8d4e543"
+      },
+      {
+        "path": "metal-cummax-0-legacy.output.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cummax-0-legacy.output.f32",
+        "size": 16777216,
+        "sha256": "03883675548960ee98b2d0dfc396ef5faeb63d923b33e7e503f8e97197eb9d1c"
+      },
+      {
+        "path": "metal-cummax-0-legacy.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cummax-0-legacy.source.txt",
+        "size": 169942,
+        "sha256": "a8dfd557c90799decec3731c117708b99d8eb5d9677f2132b7b46bb0394523b9"
+      },
+      {
+        "path": "metal-cummax-0-modern.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cummax-0-modern.expected.f64",
+        "size": 33554432,
+        "sha256": "85b26cd31333ca7ebf24f60809ad155c916e8c601f28901cfa8f2cacd6176dd4"
+      },
+      {
+        "path": "metal-cummax-0-modern.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cummax-0-modern.input0.f32",
+        "size": 16777216,
+        "sha256": "8d2b5b76b4dc897b7d3d6690b384cce7282c7f90f350b6565bdef32e6af9461c"
+      },
+      {
+        "path": "metal-cummax-0-modern.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cummax-0-modern.log",
+        "size": 2893,
+        "sha256": "34e125735e5052c86d322e744030ef3030640cb074b9ec3b296d17a094402029"
+      },
+      {
+        "path": "metal-cummax-0-modern.output.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cummax-0-modern.output.f32",
+        "size": 16777216,
+        "sha256": "03883675548960ee98b2d0dfc396ef5faeb63d923b33e7e503f8e97197eb9d1c"
+      },
+      {
+        "path": "metal-cummax-0-modern.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cummax-0-modern.source.txt",
+        "size": 7318,
+        "sha256": "0c0c017c332d5dfaee203a8de172a3345849211868da6f77c4cf5a625f769dad"
+      },
+      {
+        "path": "metal-cummax-1-legacy.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cummax-1-legacy.expected.f64",
+        "size": 33554432,
+        "sha256": "85b26cd31333ca7ebf24f60809ad155c916e8c601f28901cfa8f2cacd6176dd4"
+      },
+      {
+        "path": "metal-cummax-1-legacy.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cummax-1-legacy.input0.f32",
+        "size": 16777216,
+        "sha256": "8d2b5b76b4dc897b7d3d6690b384cce7282c7f90f350b6565bdef32e6af9461c"
+      },
+      {
+        "path": "metal-cummax-1-legacy.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cummax-1-legacy.log",
+        "size": 2818,
+        "sha256": "bc187a983ea0fb25ba2f02aaea86a4123a76c74254b2c92258659bd133b9e4cc"
+      },
+      {
+        "path": "metal-cummax-1-legacy.output.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cummax-1-legacy.output.f32",
+        "size": 16777216,
+        "sha256": "03883675548960ee98b2d0dfc396ef5faeb63d923b33e7e503f8e97197eb9d1c"
+      },
+      {
+        "path": "metal-cummax-1-legacy.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cummax-1-legacy.source.txt",
+        "size": 169942,
+        "sha256": "a8dfd557c90799decec3731c117708b99d8eb5d9677f2132b7b46bb0394523b9"
+      },
+      {
+        "path": "metal-cummax-1-modern.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cummax-1-modern.expected.f64",
+        "size": 33554432,
+        "sha256": "85b26cd31333ca7ebf24f60809ad155c916e8c601f28901cfa8f2cacd6176dd4"
+      },
+      {
+        "path": "metal-cummax-1-modern.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cummax-1-modern.input0.f32",
+        "size": 16777216,
+        "sha256": "8d2b5b76b4dc897b7d3d6690b384cce7282c7f90f350b6565bdef32e6af9461c"
+      },
+      {
+        "path": "metal-cummax-1-modern.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cummax-1-modern.log",
+        "size": 2898,
+        "sha256": "5a3a0a3e44fb14dfa24877911b14985bd7e945ee683b8cab4c0310858cbb23c9"
+      },
+      {
+        "path": "metal-cummax-1-modern.output.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cummax-1-modern.output.f32",
+        "size": 16777216,
+        "sha256": "03883675548960ee98b2d0dfc396ef5faeb63d923b33e7e503f8e97197eb9d1c"
+      },
+      {
+        "path": "metal-cummax-1-modern.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cummax-1-modern.source.txt",
+        "size": 7318,
+        "sha256": "0c0c017c332d5dfaee203a8de172a3345849211868da6f77c4cf5a625f769dad"
+      },
+      {
+        "path": "metal-cumsum-0-legacy.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cumsum-0-legacy.expected.f64",
+        "size": 2097152,
+        "sha256": "54a6c4e7ff3746dcc062246e4f4319ec6248944f5de8f833c52490d224a74b64"
+      },
+      {
+        "path": "metal-cumsum-0-legacy.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cumsum-0-legacy.input0.f32",
+        "size": 1048576,
+        "sha256": "6b77c4dcfe034e0a38ffe68099fb24491bd306280b9e859891ecad78316ea5d4"
+      },
+      {
+        "path": "metal-cumsum-0-legacy.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cumsum-0-legacy.log",
+        "size": 2816,
+        "sha256": "b5c3aa6aa0cac3abf420e2e734fe88650c2869d988f394d769b4ce5612e8b170"
+      },
+      {
+        "path": "metal-cumsum-0-legacy.output.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cumsum-0-legacy.output.f32",
+        "size": 1048576,
+        "sha256": "64c076175a14827175a140dbec62ea5a8e2108a2e4d4d1d66851a9c85f23b597"
+      },
+      {
+        "path": "metal-cumsum-0-legacy.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cumsum-0-legacy.source.txt",
+        "size": 169009,
+        "sha256": "c90adc8a494b95e571e131fe2cde7e0803cf39c39ff43f43130948c8a828813a"
+      },
+      {
+        "path": "metal-cumsum-0-modern.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cumsum-0-modern.expected.f64",
+        "size": 2097152,
+        "sha256": "54a6c4e7ff3746dcc062246e4f4319ec6248944f5de8f833c52490d224a74b64"
+      },
+      {
+        "path": "metal-cumsum-0-modern.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cumsum-0-modern.input0.f32",
+        "size": 1048576,
+        "sha256": "6b77c4dcfe034e0a38ffe68099fb24491bd306280b9e859891ecad78316ea5d4"
+      },
+      {
+        "path": "metal-cumsum-0-modern.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cumsum-0-modern.log",
+        "size": 2907,
+        "sha256": "184f78374189fa8d413ce576fbc24f3d6dd2427f603bd1826f118a9a83508b23"
+      },
+      {
+        "path": "metal-cumsum-0-modern.output.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cumsum-0-modern.output.f32",
+        "size": 1048576,
+        "sha256": "64c076175a14827175a140dbec62ea5a8e2108a2e4d4d1d66851a9c85f23b597"
+      },
+      {
+        "path": "metal-cumsum-0-modern.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cumsum-0-modern.source.txt",
+        "size": 7177,
+        "sha256": "156bd231731b7f6f28a6995c3667cfda91ab7d61b33014f8daf85842d5c7eb3e"
+      },
+      {
+        "path": "metal-cumsum-1-legacy.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cumsum-1-legacy.expected.f64",
+        "size": 2097152,
+        "sha256": "54a6c4e7ff3746dcc062246e4f4319ec6248944f5de8f833c52490d224a74b64"
+      },
+      {
+        "path": "metal-cumsum-1-legacy.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cumsum-1-legacy.input0.f32",
+        "size": 1048576,
+        "sha256": "6b77c4dcfe034e0a38ffe68099fb24491bd306280b9e859891ecad78316ea5d4"
+      },
+      {
+        "path": "metal-cumsum-1-legacy.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cumsum-1-legacy.log",
+        "size": 2815,
+        "sha256": "80dc628d5ba895546bcfdd264e6e7fd8694fb9b6d90beec5787464f2bbcc8d08"
+      },
+      {
+        "path": "metal-cumsum-1-legacy.output.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cumsum-1-legacy.output.f32",
+        "size": 1048576,
+        "sha256": "64c076175a14827175a140dbec62ea5a8e2108a2e4d4d1d66851a9c85f23b597"
+      },
+      {
+        "path": "metal-cumsum-1-legacy.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cumsum-1-legacy.source.txt",
+        "size": 169009,
+        "sha256": "c90adc8a494b95e571e131fe2cde7e0803cf39c39ff43f43130948c8a828813a"
+      },
+      {
+        "path": "metal-cumsum-1-modern.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cumsum-1-modern.expected.f64",
+        "size": 2097152,
+        "sha256": "54a6c4e7ff3746dcc062246e4f4319ec6248944f5de8f833c52490d224a74b64"
+      },
+      {
+        "path": "metal-cumsum-1-modern.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cumsum-1-modern.input0.f32",
+        "size": 1048576,
+        "sha256": "6b77c4dcfe034e0a38ffe68099fb24491bd306280b9e859891ecad78316ea5d4"
+      },
+      {
+        "path": "metal-cumsum-1-modern.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cumsum-1-modern.log",
+        "size": 2891,
+        "sha256": "8ec033a178980a3ddb419ac07be668828e226f04cb6f73a77574c7038b1d2145"
+      },
+      {
+        "path": "metal-cumsum-1-modern.output.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cumsum-1-modern.output.f32",
+        "size": 1048576,
+        "sha256": "64c076175a14827175a140dbec62ea5a8e2108a2e4d4d1d66851a9c85f23b597"
+      },
+      {
+        "path": "metal-cumsum-1-modern.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-cumsum-1-modern.source.txt",
+        "size": 7177,
+        "sha256": "156bd231731b7f6f28a6995c3667cfda91ab7d61b33014f8daf85842d5c7eb3e"
+      },
+      {
+        "path": "metal-gemm_fp16-0-legacy.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-gemm_fp16-0-legacy.expected.f64",
+        "size": 2097152,
+        "sha256": "0a50594906580cf347f6b8d2b3833c3767eef573e3d29bcff6d57d8fd9b9bfd4"
+      },
+      {
+        "path": "metal-gemm_fp16-0-legacy.input0.f16",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-gemm_fp16-0-legacy.input0.f16",
+        "size": 524288,
+        "sha256": "c92ed2ad24e82ac2090e732fc55513088ac85acad9fb6d2ca3a54e9504bfa799"
+      },
+      {
+        "path": "metal-gemm_fp16-0-legacy.input1.f16",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-gemm_fp16-0-legacy.input1.f16",
+        "size": 524288,
+        "sha256": "c6e820eb23eb4fc949a8dd7dba5e4fed9a27fa15affb1a93ee2190fd6c8af64f"
+      },
+      {
+        "path": "metal-gemm_fp16-0-legacy.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-gemm_fp16-0-legacy.log",
+        "size": 2824,
+        "sha256": "427ff5aca16b27f522e462e548c8df2fe67449394a21bd1ec87685603f18488c"
+      },
+      {
+        "path": "metal-gemm_fp16-0-legacy.output.f16",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-gemm_fp16-0-legacy.output.f16",
+        "size": 524288,
+        "sha256": "23878b5ea54e9b6f4cfbfdddb87c38e174c7574f47657893257534c8a8c04b27"
+      },
+      {
+        "path": "metal-gemm_fp16-0-legacy.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-gemm_fp16-0-legacy.source.txt",
+        "size": 1971330,
+        "sha256": "f60c48d2701ed129e11a581fd629be3d8edfbb6afbbfabfbe9da15b26d6a58dd"
+      },
+      {
+        "path": "metal-gemm_fp16-0-modern.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-gemm_fp16-0-modern.expected.f64",
+        "size": 2097152,
+        "sha256": "0a50594906580cf347f6b8d2b3833c3767eef573e3d29bcff6d57d8fd9b9bfd4"
+      },
+      {
+        "path": "metal-gemm_fp16-0-modern.input0.f16",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-gemm_fp16-0-modern.input0.f16",
+        "size": 524288,
+        "sha256": "c92ed2ad24e82ac2090e732fc55513088ac85acad9fb6d2ca3a54e9504bfa799"
+      },
+      {
+        "path": "metal-gemm_fp16-0-modern.input1.f16",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-gemm_fp16-0-modern.input1.f16",
+        "size": 524288,
+        "sha256": "c6e820eb23eb4fc949a8dd7dba5e4fed9a27fa15affb1a93ee2190fd6c8af64f"
+      },
+      {
+        "path": "metal-gemm_fp16-0-modern.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-gemm_fp16-0-modern.log",
+        "size": 2885,
+        "sha256": "876b3e5b8e88d6d26f9ba8266f23a0c44f754b306ee995f6b709a3cf02ed510e"
+      },
+      {
+        "path": "metal-gemm_fp16-0-modern.output.f16",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-gemm_fp16-0-modern.output.f16",
+        "size": 524288,
+        "sha256": "23878b5ea54e9b6f4cfbfdddb87c38e174c7574f47657893257534c8a8c04b27"
+      },
+      {
+        "path": "metal-gemm_fp16-0-modern.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-gemm_fp16-0-modern.source.txt",
+        "size": 2383,
+        "sha256": "f4fa043cf667b0cdb0c0f462be9ba0d7491d56477bd35a8a96b9c3d9821402e0"
+      },
+      {
+        "path": "metal-gemm_fp16-1-legacy.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-gemm_fp16-1-legacy.expected.f64",
+        "size": 2097152,
+        "sha256": "0a50594906580cf347f6b8d2b3833c3767eef573e3d29bcff6d57d8fd9b9bfd4"
+      },
+      {
+        "path": "metal-gemm_fp16-1-legacy.input0.f16",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-gemm_fp16-1-legacy.input0.f16",
+        "size": 524288,
+        "sha256": "c92ed2ad24e82ac2090e732fc55513088ac85acad9fb6d2ca3a54e9504bfa799"
+      },
+      {
+        "path": "metal-gemm_fp16-1-legacy.input1.f16",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-gemm_fp16-1-legacy.input1.f16",
+        "size": 524288,
+        "sha256": "c6e820eb23eb4fc949a8dd7dba5e4fed9a27fa15affb1a93ee2190fd6c8af64f"
+      },
+      {
+        "path": "metal-gemm_fp16-1-legacy.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-gemm_fp16-1-legacy.log",
+        "size": 2826,
+        "sha256": "55888c87af210323593fea3ffc0527681130343a4c39711473f44f6a1141d507"
+      },
+      {
+        "path": "metal-gemm_fp16-1-legacy.output.f16",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-gemm_fp16-1-legacy.output.f16",
+        "size": 524288,
+        "sha256": "23878b5ea54e9b6f4cfbfdddb87c38e174c7574f47657893257534c8a8c04b27"
+      },
+      {
+        "path": "metal-gemm_fp16-1-legacy.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-gemm_fp16-1-legacy.source.txt",
+        "size": 1971330,
+        "sha256": "f60c48d2701ed129e11a581fd629be3d8edfbb6afbbfabfbe9da15b26d6a58dd"
+      },
+      {
+        "path": "metal-gemm_fp16-1-modern.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-gemm_fp16-1-modern.expected.f64",
+        "size": 2097152,
+        "sha256": "0a50594906580cf347f6b8d2b3833c3767eef573e3d29bcff6d57d8fd9b9bfd4"
+      },
+      {
+        "path": "metal-gemm_fp16-1-modern.input0.f16",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-gemm_fp16-1-modern.input0.f16",
+        "size": 524288,
+        "sha256": "c92ed2ad24e82ac2090e732fc55513088ac85acad9fb6d2ca3a54e9504bfa799"
+      },
+      {
+        "path": "metal-gemm_fp16-1-modern.input1.f16",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-gemm_fp16-1-modern.input1.f16",
+        "size": 524288,
+        "sha256": "c6e820eb23eb4fc949a8dd7dba5e4fed9a27fa15affb1a93ee2190fd6c8af64f"
+      },
+      {
+        "path": "metal-gemm_fp16-1-modern.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-gemm_fp16-1-modern.log",
+        "size": 2883,
+        "sha256": "99abd44bac1c5a06bb764e738f43dac3b22c5607eda2d42c417220687eededdd"
+      },
+      {
+        "path": "metal-gemm_fp16-1-modern.output.f16",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-gemm_fp16-1-modern.output.f16",
+        "size": 524288,
+        "sha256": "23878b5ea54e9b6f4cfbfdddb87c38e174c7574f47657893257534c8a8c04b27"
+      },
+      {
+        "path": "metal-gemm_fp16-1-modern.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/metal-gemm_fp16-1-modern.source.txt",
+        "size": 2383,
+        "sha256": "f4fa043cf667b0cdb0c0f462be9ba0d7491d56477bd35a8a96b9c3d9821402e0"
+      },
+      {
+        "path": "results.json",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/results.json",
+        "size": 85633,
+        "sha256": "8c919c2d76084fd65336f8c693943aba56041e8d01fa295ee0b5b4d3222e514c"
+      },
+      {
+        "path": "simd-rmsnorm-0-legacy.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/simd-rmsnorm-0-legacy.expected.f64",
+        "size": 4194304,
+        "sha256": "1fb7b785d60b3bdf7ae7b72d0f5b32b8dd47b91765189069338ef0c6a439b7fe"
+      },
+      {
+        "path": "simd-rmsnorm-0-legacy.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/simd-rmsnorm-0-legacy.input0.f32",
+        "size": 2097152,
+        "sha256": "a866e8d13416e4f65b709f8f40699fa76ba4f154535ee475b84e9bde1b2230a9"
+      },
+      {
+        "path": "simd-rmsnorm-0-legacy.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/simd-rmsnorm-0-legacy.log",
+        "size": 56,
+        "sha256": "42ff1ec95a8dddaa99421a69747d05868713d4a620d538bfe9cbe6998e8f1b25"
+      },
+      {
+        "path": "simd-rmsnorm-0-legacy.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/simd-rmsnorm-0-legacy.source.txt",
+        "size": 213081,
+        "sha256": "39cf82c8204f04d233c0289f9ceac01b879084f7a1d91eb1a989817dd01072a4"
+      },
+      {
+        "path": "simd-rmsnorm-0-modern.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/simd-rmsnorm-0-modern.expected.f64",
+        "size": 4194304,
+        "sha256": "1fb7b785d60b3bdf7ae7b72d0f5b32b8dd47b91765189069338ef0c6a439b7fe"
+      },
+      {
+        "path": "simd-rmsnorm-0-modern.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/simd-rmsnorm-0-modern.input0.f32",
+        "size": 2097152,
+        "sha256": "a866e8d13416e4f65b709f8f40699fa76ba4f154535ee475b84e9bde1b2230a9"
+      },
+      {
+        "path": "simd-rmsnorm-0-modern.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/simd-rmsnorm-0-modern.log",
+        "size": 56,
+        "sha256": "42ff1ec95a8dddaa99421a69747d05868713d4a620d538bfe9cbe6998e8f1b25"
+      },
+      {
+        "path": "simd-rmsnorm-0-modern.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/simd-rmsnorm-0-modern.source.txt",
+        "size": 96199,
+        "sha256": "dcf432a5f3b96c74c628dcc1f56c57a7aa27abaf3c936b2b619938ba63ed8871"
+      },
+      {
+        "path": "simd-rmsnorm-1-legacy.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/simd-rmsnorm-1-legacy.expected.f64",
+        "size": 4194304,
+        "sha256": "1fb7b785d60b3bdf7ae7b72d0f5b32b8dd47b91765189069338ef0c6a439b7fe"
+      },
+      {
+        "path": "simd-rmsnorm-1-legacy.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/simd-rmsnorm-1-legacy.input0.f32",
+        "size": 2097152,
+        "sha256": "a866e8d13416e4f65b709f8f40699fa76ba4f154535ee475b84e9bde1b2230a9"
+      },
+      {
+        "path": "simd-rmsnorm-1-legacy.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/simd-rmsnorm-1-legacy.log",
+        "size": 56,
+        "sha256": "42ff1ec95a8dddaa99421a69747d05868713d4a620d538bfe9cbe6998e8f1b25"
+      },
+      {
+        "path": "simd-rmsnorm-1-legacy.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/simd-rmsnorm-1-legacy.source.txt",
+        "size": 213081,
+        "sha256": "39cf82c8204f04d233c0289f9ceac01b879084f7a1d91eb1a989817dd01072a4"
+      },
+      {
+        "path": "simd-rmsnorm-1-modern.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/simd-rmsnorm-1-modern.expected.f64",
+        "size": 4194304,
+        "sha256": "1fb7b785d60b3bdf7ae7b72d0f5b32b8dd47b91765189069338ef0c6a439b7fe"
+      },
+      {
+        "path": "simd-rmsnorm-1-modern.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/simd-rmsnorm-1-modern.input0.f32",
+        "size": 2097152,
+        "sha256": "a866e8d13416e4f65b709f8f40699fa76ba4f154535ee475b84e9bde1b2230a9"
+      },
+      {
+        "path": "simd-rmsnorm-1-modern.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/simd-rmsnorm-1-modern.log",
+        "size": 56,
+        "sha256": "42ff1ec95a8dddaa99421a69747d05868713d4a620d538bfe9cbe6998e8f1b25"
+      },
+      {
+        "path": "simd-rmsnorm-1-modern.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/simd-rmsnorm-1-modern.source.txt",
+        "size": 96199,
+        "sha256": "dcf432a5f3b96c74c628dcc1f56c57a7aa27abaf3c936b2b619938ba63ed8871"
+      },
+      {
+        "path": "simd-sum-0-legacy.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/simd-sum-0-legacy.expected.f64",
+        "size": 65536,
+        "sha256": "0b8c60b83525e0fd4b25f1872f6213a427d3a59a09df4dacd57660546bebd6fb"
+      },
+      {
+        "path": "simd-sum-0-legacy.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/simd-sum-0-legacy.input0.f32",
+        "size": 16777216,
+        "sha256": "8d2b5b76b4dc897b7d3d6690b384cce7282c7f90f350b6565bdef32e6af9461c"
+      },
+      {
+        "path": "simd-sum-0-legacy.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/simd-sum-0-legacy.log",
+        "size": 56,
+        "sha256": "42ff1ec95a8dddaa99421a69747d05868713d4a620d538bfe9cbe6998e8f1b25"
+      },
+      {
+        "path": "simd-sum-0-legacy.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/simd-sum-0-legacy.source.txt",
+        "size": 119580,
+        "sha256": "5be239c909e5ac15cda7903996d3326e41219a62d2d06890d42a65d892b21c8f"
+      },
+      {
+        "path": "simd-sum-0-modern.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/simd-sum-0-modern.expected.f64",
+        "size": 65536,
+        "sha256": "0b8c60b83525e0fd4b25f1872f6213a427d3a59a09df4dacd57660546bebd6fb"
+      },
+      {
+        "path": "simd-sum-0-modern.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/simd-sum-0-modern.input0.f32",
+        "size": 16777216,
+        "sha256": "8d2b5b76b4dc897b7d3d6690b384cce7282c7f90f350b6565bdef32e6af9461c"
+      },
+      {
+        "path": "simd-sum-0-modern.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/simd-sum-0-modern.log",
+        "size": 56,
+        "sha256": "42ff1ec95a8dddaa99421a69747d05868713d4a620d538bfe9cbe6998e8f1b25"
+      },
+      {
+        "path": "simd-sum-0-modern.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/simd-sum-0-modern.source.txt",
+        "size": 79159,
+        "sha256": "4e9a82af3496430d940e6b185a18f0e3e7b6534d1a2065c4a790dd1bca26300e"
+      },
+      {
+        "path": "simd-sum-1-legacy.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/simd-sum-1-legacy.expected.f64",
+        "size": 65536,
+        "sha256": "0b8c60b83525e0fd4b25f1872f6213a427d3a59a09df4dacd57660546bebd6fb"
+      },
+      {
+        "path": "simd-sum-1-legacy.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/simd-sum-1-legacy.input0.f32",
+        "size": 16777216,
+        "sha256": "8d2b5b76b4dc897b7d3d6690b384cce7282c7f90f350b6565bdef32e6af9461c"
+      },
+      {
+        "path": "simd-sum-1-legacy.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/simd-sum-1-legacy.log",
+        "size": 56,
+        "sha256": "42ff1ec95a8dddaa99421a69747d05868713d4a620d538bfe9cbe6998e8f1b25"
+      },
+      {
+        "path": "simd-sum-1-legacy.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/simd-sum-1-legacy.source.txt",
+        "size": 119580,
+        "sha256": "5be239c909e5ac15cda7903996d3326e41219a62d2d06890d42a65d892b21c8f"
+      },
+      {
+        "path": "simd-sum-1-modern.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/simd-sum-1-modern.expected.f64",
+        "size": 65536,
+        "sha256": "0b8c60b83525e0fd4b25f1872f6213a427d3a59a09df4dacd57660546bebd6fb"
+      },
+      {
+        "path": "simd-sum-1-modern.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/simd-sum-1-modern.input0.f32",
+        "size": 16777216,
+        "sha256": "8d2b5b76b4dc897b7d3d6690b384cce7282c7f90f350b6565bdef32e6af9461c"
+      },
+      {
+        "path": "simd-sum-1-modern.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/simd-sum-1-modern.log",
+        "size": 56,
+        "sha256": "42ff1ec95a8dddaa99421a69747d05868713d4a620d538bfe9cbe6998e8f1b25"
+      },
+      {
+        "path": "simd-sum-1-modern.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-pilot/simd-sum-1-modern.source.txt",
+        "size": 79159,
+        "sha256": "4e9a82af3496430d940e6b185a18f0e3e7b6534d1a2065c4a790dd1bca26300e"
+      }
+    ]
+  },
+  "precision-cpu-replay.tar.gz": {
+    "size": 4324845,
+    "sha256": "324d4e819a425569e319eb5bbbd6d95b5016161a5460c9cd62a31b64d78c6cb8",
+    "members": [
+      {
+        "path": "results.json",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/results.json",
+        "size": 30872,
+        "sha256": "fe4cd0e874d9b020d41e457a0c095ab02f92373f8159ac4687e7ddd28d4f3076"
+      },
+      {
+        "path": "simd-rmsnorm-0-legacy.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-rmsnorm-0-legacy.expected.f64",
+        "size": 4194304,
+        "sha256": "1fb7b785d60b3bdf7ae7b72d0f5b32b8dd47b91765189069338ef0c6a439b7fe"
+      },
+      {
+        "path": "simd-rmsnorm-0-legacy.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-rmsnorm-0-legacy.input0.f32",
+        "size": 2097152,
+        "sha256": "a866e8d13416e4f65b709f8f40699fa76ba4f154535ee475b84e9bde1b2230a9"
+      },
+      {
+        "path": "simd-rmsnorm-0-legacy.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-rmsnorm-0-legacy.log",
+        "size": 1044,
+        "sha256": "7c66747deebee89deab209601c93f1cd379951a894052767fd170eb68c21166b"
+      },
+      {
+        "path": "simd-rmsnorm-0-legacy.output.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-rmsnorm-0-legacy.output.f32",
+        "size": 2097152,
+        "sha256": "9fe6370568cf16de44d6105ba96967c26fd025e91505ae443eb172386d5c1f31"
+      },
+      {
+        "path": "simd-rmsnorm-0-legacy.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-rmsnorm-0-legacy.source.txt",
+        "size": 213081,
+        "sha256": "39cf82c8204f04d233c0289f9ceac01b879084f7a1d91eb1a989817dd01072a4"
+      },
+      {
+        "path": "simd-rmsnorm-0-modern.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-rmsnorm-0-modern.expected.f64",
+        "size": 4194304,
+        "sha256": "1fb7b785d60b3bdf7ae7b72d0f5b32b8dd47b91765189069338ef0c6a439b7fe"
+      },
+      {
+        "path": "simd-rmsnorm-0-modern.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-rmsnorm-0-modern.input0.f32",
+        "size": 2097152,
+        "sha256": "a866e8d13416e4f65b709f8f40699fa76ba4f154535ee475b84e9bde1b2230a9"
+      },
+      {
+        "path": "simd-rmsnorm-0-modern.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-rmsnorm-0-modern.log",
+        "size": 1985,
+        "sha256": "3cd1507aa5a60dc988705e38e0c5babcc65698efa9495e2c494209c4b36e695a"
+      },
+      {
+        "path": "simd-rmsnorm-0-modern.output.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-rmsnorm-0-modern.output.f32",
+        "size": 2097152,
+        "sha256": "9fe6370568cf16de44d6105ba96967c26fd025e91505ae443eb172386d5c1f31"
+      },
+      {
+        "path": "simd-rmsnorm-0-modern.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-rmsnorm-0-modern.source.txt",
+        "size": 96199,
+        "sha256": "dcf432a5f3b96c74c628dcc1f56c57a7aa27abaf3c936b2b619938ba63ed8871"
+      },
+      {
+        "path": "simd-rmsnorm-1-legacy.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-rmsnorm-1-legacy.expected.f64",
+        "size": 4194304,
+        "sha256": "1fb7b785d60b3bdf7ae7b72d0f5b32b8dd47b91765189069338ef0c6a439b7fe"
+      },
+      {
+        "path": "simd-rmsnorm-1-legacy.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-rmsnorm-1-legacy.input0.f32",
+        "size": 2097152,
+        "sha256": "a866e8d13416e4f65b709f8f40699fa76ba4f154535ee475b84e9bde1b2230a9"
+      },
+      {
+        "path": "simd-rmsnorm-1-legacy.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-rmsnorm-1-legacy.log",
+        "size": 1039,
+        "sha256": "2e19415665e4007e8466144770c74a46458c3a801399be8c7421c5575beeabd4"
+      },
+      {
+        "path": "simd-rmsnorm-1-legacy.output.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-rmsnorm-1-legacy.output.f32",
+        "size": 2097152,
+        "sha256": "9fe6370568cf16de44d6105ba96967c26fd025e91505ae443eb172386d5c1f31"
+      },
+      {
+        "path": "simd-rmsnorm-1-legacy.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-rmsnorm-1-legacy.source.txt",
+        "size": 213081,
+        "sha256": "39cf82c8204f04d233c0289f9ceac01b879084f7a1d91eb1a989817dd01072a4"
+      },
+      {
+        "path": "simd-rmsnorm-1-modern.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-rmsnorm-1-modern.expected.f64",
+        "size": 4194304,
+        "sha256": "1fb7b785d60b3bdf7ae7b72d0f5b32b8dd47b91765189069338ef0c6a439b7fe"
+      },
+      {
+        "path": "simd-rmsnorm-1-modern.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-rmsnorm-1-modern.input0.f32",
+        "size": 2097152,
+        "sha256": "a866e8d13416e4f65b709f8f40699fa76ba4f154535ee475b84e9bde1b2230a9"
+      },
+      {
+        "path": "simd-rmsnorm-1-modern.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-rmsnorm-1-modern.log",
+        "size": 1983,
+        "sha256": "d6e9c590c1ea15ff21b6b30a50d5e4dbc00dd732ae8dfcbac2c1f1508551f9b4"
+      },
+      {
+        "path": "simd-rmsnorm-1-modern.output.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-rmsnorm-1-modern.output.f32",
+        "size": 2097152,
+        "sha256": "9fe6370568cf16de44d6105ba96967c26fd025e91505ae443eb172386d5c1f31"
+      },
+      {
+        "path": "simd-rmsnorm-1-modern.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-rmsnorm-1-modern.source.txt",
+        "size": 96199,
+        "sha256": "dcf432a5f3b96c74c628dcc1f56c57a7aa27abaf3c936b2b619938ba63ed8871"
+      },
+      {
+        "path": "simd-sum-0-legacy.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-sum-0-legacy.expected.f64",
+        "size": 65536,
+        "sha256": "0b8c60b83525e0fd4b25f1872f6213a427d3a59a09df4dacd57660546bebd6fb"
+      },
+      {
+        "path": "simd-sum-0-legacy.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-sum-0-legacy.input0.f32",
+        "size": 16777216,
+        "sha256": "8d2b5b76b4dc897b7d3d6690b384cce7282c7f90f350b6565bdef32e6af9461c"
+      },
+      {
+        "path": "simd-sum-0-legacy.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-sum-0-legacy.log",
+        "size": 1018,
+        "sha256": "c57aa18ec1b8ab01f4ae07b98f1b7ab02acb0541dae8a74d1b1185deb92a78de"
+      },
+      {
+        "path": "simd-sum-0-legacy.output.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-sum-0-legacy.output.f32",
+        "size": 32768,
+        "sha256": "8518994711d5ddecc0fb15caa8eaa39e824ab614012112be7bf6608935c6f027"
+      },
+      {
+        "path": "simd-sum-0-legacy.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-sum-0-legacy.source.txt",
+        "size": 119580,
+        "sha256": "5be239c909e5ac15cda7903996d3326e41219a62d2d06890d42a65d892b21c8f"
+      },
+      {
+        "path": "simd-sum-0-modern.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-sum-0-modern.expected.f64",
+        "size": 65536,
+        "sha256": "0b8c60b83525e0fd4b25f1872f6213a427d3a59a09df4dacd57660546bebd6fb"
+      },
+      {
+        "path": "simd-sum-0-modern.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-sum-0-modern.input0.f32",
+        "size": 16777216,
+        "sha256": "8d2b5b76b4dc897b7d3d6690b384cce7282c7f90f350b6565bdef32e6af9461c"
+      },
+      {
+        "path": "simd-sum-0-modern.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-sum-0-modern.log",
+        "size": 1967,
+        "sha256": "78932a89b7541eacce1dfb353c2ee4a0b59e030c578574af6795b2efaf67ea2e"
+      },
+      {
+        "path": "simd-sum-0-modern.output.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-sum-0-modern.output.f32",
+        "size": 32768,
+        "sha256": "8518994711d5ddecc0fb15caa8eaa39e824ab614012112be7bf6608935c6f027"
+      },
+      {
+        "path": "simd-sum-0-modern.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-sum-0-modern.source.txt",
+        "size": 79159,
+        "sha256": "4e9a82af3496430d940e6b185a18f0e3e7b6534d1a2065c4a790dd1bca26300e"
+      },
+      {
+        "path": "simd-sum-1-legacy.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-sum-1-legacy.expected.f64",
+        "size": 65536,
+        "sha256": "0b8c60b83525e0fd4b25f1872f6213a427d3a59a09df4dacd57660546bebd6fb"
+      },
+      {
+        "path": "simd-sum-1-legacy.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-sum-1-legacy.input0.f32",
+        "size": 16777216,
+        "sha256": "8d2b5b76b4dc897b7d3d6690b384cce7282c7f90f350b6565bdef32e6af9461c"
+      },
+      {
+        "path": "simd-sum-1-legacy.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-sum-1-legacy.log",
+        "size": 1008,
+        "sha256": "7a5b7d36762b2423eb66a698bb5a0844582030b0d0bd9d3cd3ec227193a74ff0"
+      },
+      {
+        "path": "simd-sum-1-legacy.output.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-sum-1-legacy.output.f32",
+        "size": 32768,
+        "sha256": "8518994711d5ddecc0fb15caa8eaa39e824ab614012112be7bf6608935c6f027"
+      },
+      {
+        "path": "simd-sum-1-legacy.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-sum-1-legacy.source.txt",
+        "size": 119580,
+        "sha256": "5be239c909e5ac15cda7903996d3326e41219a62d2d06890d42a65d892b21c8f"
+      },
+      {
+        "path": "simd-sum-1-modern.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-sum-1-modern.expected.f64",
+        "size": 65536,
+        "sha256": "0b8c60b83525e0fd4b25f1872f6213a427d3a59a09df4dacd57660546bebd6fb"
+      },
+      {
+        "path": "simd-sum-1-modern.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-sum-1-modern.input0.f32",
+        "size": 16777216,
+        "sha256": "8d2b5b76b4dc897b7d3d6690b384cce7282c7f90f350b6565bdef32e6af9461c"
+      },
+      {
+        "path": "simd-sum-1-modern.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-sum-1-modern.log",
+        "size": 1972,
+        "sha256": "b0c50f6b5dbaa612f24e2ca1c626ed4af3b13c0e08e52e6a196f06f5b427fff4"
+      },
+      {
+        "path": "simd-sum-1-modern.output.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-sum-1-modern.output.f32",
+        "size": 32768,
+        "sha256": "8518994711d5ddecc0fb15caa8eaa39e824ab614012112be7bf6608935c6f027"
+      },
+      {
+        "path": "simd-sum-1-modern.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-cpu-replay/simd-sum-1-modern.source.txt",
+        "size": 79159,
+        "sha256": "4e9a82af3496430d940e6b185a18f0e3e7b6534d1a2065c4a790dd1bca26300e"
+      }
+    ]
+  },
+  "precision-final-replay.tar.gz": {
+    "size": 7902145,
+    "sha256": "cc1853986aa3f3d7db4ea367830c991ce08316ddae6f5fddae5868354113d209",
+    "members": [
+      {
+        "path": "metal-cummax-0-legacy.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cummax-0-legacy.expected.f64",
+        "size": 33554432,
+        "sha256": "85b26cd31333ca7ebf24f60809ad155c916e8c601f28901cfa8f2cacd6176dd4"
+      },
+      {
+        "path": "metal-cummax-0-legacy.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cummax-0-legacy.input0.f32",
+        "size": 16777216,
+        "sha256": "8d2b5b76b4dc897b7d3d6690b384cce7282c7f90f350b6565bdef32e6af9461c"
+      },
+      {
+        "path": "metal-cummax-0-legacy.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cummax-0-legacy.log",
+        "size": 2830,
+        "sha256": "d466622df601329f78b66826995c7311cb79f2e992123b869c3996a63d111331"
+      },
+      {
+        "path": "metal-cummax-0-legacy.output.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cummax-0-legacy.output.f32",
+        "size": 16777216,
+        "sha256": "03883675548960ee98b2d0dfc396ef5faeb63d923b33e7e503f8e97197eb9d1c"
+      },
+      {
+        "path": "metal-cummax-0-legacy.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cummax-0-legacy.source.txt",
+        "size": 169942,
+        "sha256": "a8dfd557c90799decec3731c117708b99d8eb5d9677f2132b7b46bb0394523b9"
+      },
+      {
+        "path": "metal-cummax-0-modern.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cummax-0-modern.expected.f64",
+        "size": 33554432,
+        "sha256": "85b26cd31333ca7ebf24f60809ad155c916e8c601f28901cfa8f2cacd6176dd4"
+      },
+      {
+        "path": "metal-cummax-0-modern.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cummax-0-modern.input0.f32",
+        "size": 16777216,
+        "sha256": "8d2b5b76b4dc897b7d3d6690b384cce7282c7f90f350b6565bdef32e6af9461c"
+      },
+      {
+        "path": "metal-cummax-0-modern.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cummax-0-modern.log",
+        "size": 2897,
+        "sha256": "c53b05d958059763b59d474c0539d920cf8962dbac51f49ebcd3edcd731f9f79"
+      },
+      {
+        "path": "metal-cummax-0-modern.output.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cummax-0-modern.output.f32",
+        "size": 16777216,
+        "sha256": "03883675548960ee98b2d0dfc396ef5faeb63d923b33e7e503f8e97197eb9d1c"
+      },
+      {
+        "path": "metal-cummax-0-modern.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cummax-0-modern.source.txt",
+        "size": 7318,
+        "sha256": "0c0c017c332d5dfaee203a8de172a3345849211868da6f77c4cf5a625f769dad"
+      },
+      {
+        "path": "metal-cummax-1-legacy.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cummax-1-legacy.expected.f64",
+        "size": 33554432,
+        "sha256": "85b26cd31333ca7ebf24f60809ad155c916e8c601f28901cfa8f2cacd6176dd4"
+      },
+      {
+        "path": "metal-cummax-1-legacy.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cummax-1-legacy.input0.f32",
+        "size": 16777216,
+        "sha256": "8d2b5b76b4dc897b7d3d6690b384cce7282c7f90f350b6565bdef32e6af9461c"
+      },
+      {
+        "path": "metal-cummax-1-legacy.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cummax-1-legacy.log",
+        "size": 2832,
+        "sha256": "39f93f4251e0e37b52ef4cac3fae9e12d6329f0eedc94d7777f43f2d49f53518"
+      },
+      {
+        "path": "metal-cummax-1-legacy.output.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cummax-1-legacy.output.f32",
+        "size": 16777216,
+        "sha256": "03883675548960ee98b2d0dfc396ef5faeb63d923b33e7e503f8e97197eb9d1c"
+      },
+      {
+        "path": "metal-cummax-1-legacy.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cummax-1-legacy.source.txt",
+        "size": 169942,
+        "sha256": "a8dfd557c90799decec3731c117708b99d8eb5d9677f2132b7b46bb0394523b9"
+      },
+      {
+        "path": "metal-cummax-1-modern.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cummax-1-modern.expected.f64",
+        "size": 33554432,
+        "sha256": "85b26cd31333ca7ebf24f60809ad155c916e8c601f28901cfa8f2cacd6176dd4"
+      },
+      {
+        "path": "metal-cummax-1-modern.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cummax-1-modern.input0.f32",
+        "size": 16777216,
+        "sha256": "8d2b5b76b4dc897b7d3d6690b384cce7282c7f90f350b6565bdef32e6af9461c"
+      },
+      {
+        "path": "metal-cummax-1-modern.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cummax-1-modern.log",
+        "size": 2900,
+        "sha256": "04e9e7f71bd7bd0cf218faafceebd4240afc024a0acd9192b4eb7cd64e3d6022"
+      },
+      {
+        "path": "metal-cummax-1-modern.output.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cummax-1-modern.output.f32",
+        "size": 16777216,
+        "sha256": "03883675548960ee98b2d0dfc396ef5faeb63d923b33e7e503f8e97197eb9d1c"
+      },
+      {
+        "path": "metal-cummax-1-modern.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cummax-1-modern.source.txt",
+        "size": 7318,
+        "sha256": "0c0c017c332d5dfaee203a8de172a3345849211868da6f77c4cf5a625f769dad"
+      },
+      {
+        "path": "metal-cumsum-0-legacy.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cumsum-0-legacy.expected.f64",
+        "size": 2097152,
+        "sha256": "54a6c4e7ff3746dcc062246e4f4319ec6248944f5de8f833c52490d224a74b64"
+      },
+      {
+        "path": "metal-cumsum-0-legacy.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cumsum-0-legacy.input0.f32",
+        "size": 1048576,
+        "sha256": "6b77c4dcfe034e0a38ffe68099fb24491bd306280b9e859891ecad78316ea5d4"
+      },
+      {
+        "path": "metal-cumsum-0-legacy.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cumsum-0-legacy.log",
+        "size": 2818,
+        "sha256": "976135b0b169d41d9a95d0b942bfa40671904806ac3a3af1c81252e638bd7caa"
+      },
+      {
+        "path": "metal-cumsum-0-legacy.output.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cumsum-0-legacy.output.f32",
+        "size": 1048576,
+        "sha256": "64c076175a14827175a140dbec62ea5a8e2108a2e4d4d1d66851a9c85f23b597"
+      },
+      {
+        "path": "metal-cumsum-0-legacy.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cumsum-0-legacy.source.txt",
+        "size": 169009,
+        "sha256": "c90adc8a494b95e571e131fe2cde7e0803cf39c39ff43f43130948c8a828813a"
+      },
+      {
+        "path": "metal-cumsum-0-modern.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cumsum-0-modern.expected.f64",
+        "size": 2097152,
+        "sha256": "54a6c4e7ff3746dcc062246e4f4319ec6248944f5de8f833c52490d224a74b64"
+      },
+      {
+        "path": "metal-cumsum-0-modern.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cumsum-0-modern.input0.f32",
+        "size": 1048576,
+        "sha256": "6b77c4dcfe034e0a38ffe68099fb24491bd306280b9e859891ecad78316ea5d4"
+      },
+      {
+        "path": "metal-cumsum-0-modern.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cumsum-0-modern.log",
+        "size": 2899,
+        "sha256": "5f6f7fc1b24811e2374de00a3c50632254f9090d5157fccff2d67690038dd7c4"
+      },
+      {
+        "path": "metal-cumsum-0-modern.output.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cumsum-0-modern.output.f32",
+        "size": 1048576,
+        "sha256": "64c076175a14827175a140dbec62ea5a8e2108a2e4d4d1d66851a9c85f23b597"
+      },
+      {
+        "path": "metal-cumsum-0-modern.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cumsum-0-modern.source.txt",
+        "size": 7177,
+        "sha256": "156bd231731b7f6f28a6995c3667cfda91ab7d61b33014f8daf85842d5c7eb3e"
+      },
+      {
+        "path": "metal-cumsum-1-legacy.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cumsum-1-legacy.expected.f64",
+        "size": 2097152,
+        "sha256": "54a6c4e7ff3746dcc062246e4f4319ec6248944f5de8f833c52490d224a74b64"
+      },
+      {
+        "path": "metal-cumsum-1-legacy.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cumsum-1-legacy.input0.f32",
+        "size": 1048576,
+        "sha256": "6b77c4dcfe034e0a38ffe68099fb24491bd306280b9e859891ecad78316ea5d4"
+      },
+      {
+        "path": "metal-cumsum-1-legacy.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cumsum-1-legacy.log",
+        "size": 2827,
+        "sha256": "5299f30adfb8ca0bd6f97891a948cda34401e3b1bc25ecc6524f7ad996997ca6"
+      },
+      {
+        "path": "metal-cumsum-1-legacy.output.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cumsum-1-legacy.output.f32",
+        "size": 1048576,
+        "sha256": "64c076175a14827175a140dbec62ea5a8e2108a2e4d4d1d66851a9c85f23b597"
+      },
+      {
+        "path": "metal-cumsum-1-legacy.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cumsum-1-legacy.source.txt",
+        "size": 169009,
+        "sha256": "c90adc8a494b95e571e131fe2cde7e0803cf39c39ff43f43130948c8a828813a"
+      },
+      {
+        "path": "metal-cumsum-1-modern.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cumsum-1-modern.expected.f64",
+        "size": 2097152,
+        "sha256": "54a6c4e7ff3746dcc062246e4f4319ec6248944f5de8f833c52490d224a74b64"
+      },
+      {
+        "path": "metal-cumsum-1-modern.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cumsum-1-modern.input0.f32",
+        "size": 1048576,
+        "sha256": "6b77c4dcfe034e0a38ffe68099fb24491bd306280b9e859891ecad78316ea5d4"
+      },
+      {
+        "path": "metal-cumsum-1-modern.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cumsum-1-modern.log",
+        "size": 2901,
+        "sha256": "b431438947e455cd8040421cc1b7902607bc26b2f790cea27ab70135046eac48"
+      },
+      {
+        "path": "metal-cumsum-1-modern.output.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cumsum-1-modern.output.f32",
+        "size": 1048576,
+        "sha256": "64c076175a14827175a140dbec62ea5a8e2108a2e4d4d1d66851a9c85f23b597"
+      },
+      {
+        "path": "metal-cumsum-1-modern.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-cumsum-1-modern.source.txt",
+        "size": 7177,
+        "sha256": "156bd231731b7f6f28a6995c3667cfda91ab7d61b33014f8daf85842d5c7eb3e"
+      },
+      {
+        "path": "metal-gemm_fp16-0-legacy.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-gemm_fp16-0-legacy.expected.f64",
+        "size": 2097152,
+        "sha256": "0a50594906580cf347f6b8d2b3833c3767eef573e3d29bcff6d57d8fd9b9bfd4"
+      },
+      {
+        "path": "metal-gemm_fp16-0-legacy.input0.f16",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-gemm_fp16-0-legacy.input0.f16",
+        "size": 524288,
+        "sha256": "c92ed2ad24e82ac2090e732fc55513088ac85acad9fb6d2ca3a54e9504bfa799"
+      },
+      {
+        "path": "metal-gemm_fp16-0-legacy.input1.f16",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-gemm_fp16-0-legacy.input1.f16",
+        "size": 524288,
+        "sha256": "c6e820eb23eb4fc949a8dd7dba5e4fed9a27fa15affb1a93ee2190fd6c8af64f"
+      },
+      {
+        "path": "metal-gemm_fp16-0-legacy.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-gemm_fp16-0-legacy.log",
+        "size": 2818,
+        "sha256": "ff5bc0f1229cc009c3d72882540712528fa08c30f60645c8621d6e054082f411"
+      },
+      {
+        "path": "metal-gemm_fp16-0-legacy.output.f16",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-gemm_fp16-0-legacy.output.f16",
+        "size": 524288,
+        "sha256": "23878b5ea54e9b6f4cfbfdddb87c38e174c7574f47657893257534c8a8c04b27"
+      },
+      {
+        "path": "metal-gemm_fp16-0-legacy.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-gemm_fp16-0-legacy.source.txt",
+        "size": 1971330,
+        "sha256": "f60c48d2701ed129e11a581fd629be3d8edfbb6afbbfabfbe9da15b26d6a58dd"
+      },
+      {
+        "path": "metal-gemm_fp16-0-modern.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-gemm_fp16-0-modern.expected.f64",
+        "size": 2097152,
+        "sha256": "0a50594906580cf347f6b8d2b3833c3767eef573e3d29bcff6d57d8fd9b9bfd4"
+      },
+      {
+        "path": "metal-gemm_fp16-0-modern.input0.f16",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-gemm_fp16-0-modern.input0.f16",
+        "size": 524288,
+        "sha256": "c92ed2ad24e82ac2090e732fc55513088ac85acad9fb6d2ca3a54e9504bfa799"
+      },
+      {
+        "path": "metal-gemm_fp16-0-modern.input1.f16",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-gemm_fp16-0-modern.input1.f16",
+        "size": 524288,
+        "sha256": "c6e820eb23eb4fc949a8dd7dba5e4fed9a27fa15affb1a93ee2190fd6c8af64f"
+      },
+      {
+        "path": "metal-gemm_fp16-0-modern.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-gemm_fp16-0-modern.log",
+        "size": 2888,
+        "sha256": "3c8bceaf2b79d9c238903f86f89df2eece23874f77e7e0e0f58468c47f9081a5"
+      },
+      {
+        "path": "metal-gemm_fp16-0-modern.output.f16",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-gemm_fp16-0-modern.output.f16",
+        "size": 524288,
+        "sha256": "23878b5ea54e9b6f4cfbfdddb87c38e174c7574f47657893257534c8a8c04b27"
+      },
+      {
+        "path": "metal-gemm_fp16-0-modern.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-gemm_fp16-0-modern.source.txt",
+        "size": 2383,
+        "sha256": "f4fa043cf667b0cdb0c0f462be9ba0d7491d56477bd35a8a96b9c3d9821402e0"
+      },
+      {
+        "path": "metal-gemm_fp16-1-legacy.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-gemm_fp16-1-legacy.expected.f64",
+        "size": 2097152,
+        "sha256": "0a50594906580cf347f6b8d2b3833c3767eef573e3d29bcff6d57d8fd9b9bfd4"
+      },
+      {
+        "path": "metal-gemm_fp16-1-legacy.input0.f16",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-gemm_fp16-1-legacy.input0.f16",
+        "size": 524288,
+        "sha256": "c92ed2ad24e82ac2090e732fc55513088ac85acad9fb6d2ca3a54e9504bfa799"
+      },
+      {
+        "path": "metal-gemm_fp16-1-legacy.input1.f16",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-gemm_fp16-1-legacy.input1.f16",
+        "size": 524288,
+        "sha256": "c6e820eb23eb4fc949a8dd7dba5e4fed9a27fa15affb1a93ee2190fd6c8af64f"
+      },
+      {
+        "path": "metal-gemm_fp16-1-legacy.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-gemm_fp16-1-legacy.log",
+        "size": 2836,
+        "sha256": "f9df557dda71e6ddf9ab2795e50c996da688aabd260e910b4527e18e62adcc7f"
+      },
+      {
+        "path": "metal-gemm_fp16-1-legacy.output.f16",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-gemm_fp16-1-legacy.output.f16",
+        "size": 524288,
+        "sha256": "23878b5ea54e9b6f4cfbfdddb87c38e174c7574f47657893257534c8a8c04b27"
+      },
+      {
+        "path": "metal-gemm_fp16-1-legacy.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-gemm_fp16-1-legacy.source.txt",
+        "size": 1971330,
+        "sha256": "f60c48d2701ed129e11a581fd629be3d8edfbb6afbbfabfbe9da15b26d6a58dd"
+      },
+      {
+        "path": "metal-gemm_fp16-1-modern.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-gemm_fp16-1-modern.expected.f64",
+        "size": 2097152,
+        "sha256": "0a50594906580cf347f6b8d2b3833c3767eef573e3d29bcff6d57d8fd9b9bfd4"
+      },
+      {
+        "path": "metal-gemm_fp16-1-modern.input0.f16",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-gemm_fp16-1-modern.input0.f16",
+        "size": 524288,
+        "sha256": "c92ed2ad24e82ac2090e732fc55513088ac85acad9fb6d2ca3a54e9504bfa799"
+      },
+      {
+        "path": "metal-gemm_fp16-1-modern.input1.f16",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-gemm_fp16-1-modern.input1.f16",
+        "size": 524288,
+        "sha256": "c6e820eb23eb4fc949a8dd7dba5e4fed9a27fa15affb1a93ee2190fd6c8af64f"
+      },
+      {
+        "path": "metal-gemm_fp16-1-modern.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-gemm_fp16-1-modern.log",
+        "size": 2883,
+        "sha256": "fe6bf12523ceee9ceac7fcdbb58dee5ba4689ff79058235e9dc5ae37fca61d08"
+      },
+      {
+        "path": "metal-gemm_fp16-1-modern.output.f16",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-gemm_fp16-1-modern.output.f16",
+        "size": 524288,
+        "sha256": "23878b5ea54e9b6f4cfbfdddb87c38e174c7574f47657893257534c8a8c04b27"
+      },
+      {
+        "path": "metal-gemm_fp16-1-modern.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/metal-gemm_fp16-1-modern.source.txt",
+        "size": 2383,
+        "sha256": "f4fa043cf667b0cdb0c0f462be9ba0d7491d56477bd35a8a96b9c3d9821402e0"
+      },
+      {
+        "path": "results.json",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/results.json",
+        "size": 107090,
+        "sha256": "1193ea8612c303963a3531e6fb6bf6c49daf497c6147128ffb60d5b9e289fd88"
+      },
+      {
+        "path": "simd-rmsnorm-0-legacy.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-rmsnorm-0-legacy.expected.f64",
+        "size": 4194304,
+        "sha256": "1fb7b785d60b3bdf7ae7b72d0f5b32b8dd47b91765189069338ef0c6a439b7fe"
+      },
+      {
+        "path": "simd-rmsnorm-0-legacy.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-rmsnorm-0-legacy.input0.f32",
+        "size": 2097152,
+        "sha256": "a866e8d13416e4f65b709f8f40699fa76ba4f154535ee475b84e9bde1b2230a9"
+      },
+      {
+        "path": "simd-rmsnorm-0-legacy.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-rmsnorm-0-legacy.log",
+        "size": 1043,
+        "sha256": "d1e924792ec2e0824738fecef84e111031acbacc61993d6f1d04b035122e4db9"
+      },
+      {
+        "path": "simd-rmsnorm-0-legacy.output.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-rmsnorm-0-legacy.output.f32",
+        "size": 2097152,
+        "sha256": "9fe6370568cf16de44d6105ba96967c26fd025e91505ae443eb172386d5c1f31"
+      },
+      {
+        "path": "simd-rmsnorm-0-legacy.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-rmsnorm-0-legacy.source.txt",
+        "size": 213081,
+        "sha256": "39cf82c8204f04d233c0289f9ceac01b879084f7a1d91eb1a989817dd01072a4"
+      },
+      {
+        "path": "simd-rmsnorm-0-modern.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-rmsnorm-0-modern.expected.f64",
+        "size": 4194304,
+        "sha256": "1fb7b785d60b3bdf7ae7b72d0f5b32b8dd47b91765189069338ef0c6a439b7fe"
+      },
+      {
+        "path": "simd-rmsnorm-0-modern.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-rmsnorm-0-modern.input0.f32",
+        "size": 2097152,
+        "sha256": "a866e8d13416e4f65b709f8f40699fa76ba4f154535ee475b84e9bde1b2230a9"
+      },
+      {
+        "path": "simd-rmsnorm-0-modern.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-rmsnorm-0-modern.log",
+        "size": 1986,
+        "sha256": "ec71f3328c1311a41d0da43c5b934cff5ed88332a23ebc2bc193f30bac789813"
+      },
+      {
+        "path": "simd-rmsnorm-0-modern.output.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-rmsnorm-0-modern.output.f32",
+        "size": 2097152,
+        "sha256": "9fe6370568cf16de44d6105ba96967c26fd025e91505ae443eb172386d5c1f31"
+      },
+      {
+        "path": "simd-rmsnorm-0-modern.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-rmsnorm-0-modern.source.txt",
+        "size": 96199,
+        "sha256": "dcf432a5f3b96c74c628dcc1f56c57a7aa27abaf3c936b2b619938ba63ed8871"
+      },
+      {
+        "path": "simd-rmsnorm-1-legacy.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-rmsnorm-1-legacy.expected.f64",
+        "size": 4194304,
+        "sha256": "1fb7b785d60b3bdf7ae7b72d0f5b32b8dd47b91765189069338ef0c6a439b7fe"
+      },
+      {
+        "path": "simd-rmsnorm-1-legacy.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-rmsnorm-1-legacy.input0.f32",
+        "size": 2097152,
+        "sha256": "a866e8d13416e4f65b709f8f40699fa76ba4f154535ee475b84e9bde1b2230a9"
+      },
+      {
+        "path": "simd-rmsnorm-1-legacy.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-rmsnorm-1-legacy.log",
+        "size": 1043,
+        "sha256": "248d9ea40ea319d2ed7c369f580b7346947adbf3a5426ede585ffef8d578d416"
+      },
+      {
+        "path": "simd-rmsnorm-1-legacy.output.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-rmsnorm-1-legacy.output.f32",
+        "size": 2097152,
+        "sha256": "9fe6370568cf16de44d6105ba96967c26fd025e91505ae443eb172386d5c1f31"
+      },
+      {
+        "path": "simd-rmsnorm-1-legacy.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-rmsnorm-1-legacy.source.txt",
+        "size": 213081,
+        "sha256": "39cf82c8204f04d233c0289f9ceac01b879084f7a1d91eb1a989817dd01072a4"
+      },
+      {
+        "path": "simd-rmsnorm-1-modern.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-rmsnorm-1-modern.expected.f64",
+        "size": 4194304,
+        "sha256": "1fb7b785d60b3bdf7ae7b72d0f5b32b8dd47b91765189069338ef0c6a439b7fe"
+      },
+      {
+        "path": "simd-rmsnorm-1-modern.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-rmsnorm-1-modern.input0.f32",
+        "size": 2097152,
+        "sha256": "a866e8d13416e4f65b709f8f40699fa76ba4f154535ee475b84e9bde1b2230a9"
+      },
+      {
+        "path": "simd-rmsnorm-1-modern.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-rmsnorm-1-modern.log",
+        "size": 1981,
+        "sha256": "9bc6a02b8da98669540f44d43d13af937dd833e2817e88de0005ebbd6fb43e74"
+      },
+      {
+        "path": "simd-rmsnorm-1-modern.output.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-rmsnorm-1-modern.output.f32",
+        "size": 2097152,
+        "sha256": "9fe6370568cf16de44d6105ba96967c26fd025e91505ae443eb172386d5c1f31"
+      },
+      {
+        "path": "simd-rmsnorm-1-modern.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-rmsnorm-1-modern.source.txt",
+        "size": 96199,
+        "sha256": "dcf432a5f3b96c74c628dcc1f56c57a7aa27abaf3c936b2b619938ba63ed8871"
+      },
+      {
+        "path": "simd-sum-0-legacy.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-sum-0-legacy.expected.f64",
+        "size": 65536,
+        "sha256": "0b8c60b83525e0fd4b25f1872f6213a427d3a59a09df4dacd57660546bebd6fb"
+      },
+      {
+        "path": "simd-sum-0-legacy.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-sum-0-legacy.input0.f32",
+        "size": 16777216,
+        "sha256": "8d2b5b76b4dc897b7d3d6690b384cce7282c7f90f350b6565bdef32e6af9461c"
+      },
+      {
+        "path": "simd-sum-0-legacy.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-sum-0-legacy.log",
+        "size": 1009,
+        "sha256": "968637bdf7365fedd8c8e2bf705886d1c951fd943b637b08a8fd7912110d7360"
+      },
+      {
+        "path": "simd-sum-0-legacy.output.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-sum-0-legacy.output.f32",
+        "size": 32768,
+        "sha256": "8518994711d5ddecc0fb15caa8eaa39e824ab614012112be7bf6608935c6f027"
+      },
+      {
+        "path": "simd-sum-0-legacy.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-sum-0-legacy.source.txt",
+        "size": 119580,
+        "sha256": "5be239c909e5ac15cda7903996d3326e41219a62d2d06890d42a65d892b21c8f"
+      },
+      {
+        "path": "simd-sum-0-modern.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-sum-0-modern.expected.f64",
+        "size": 65536,
+        "sha256": "0b8c60b83525e0fd4b25f1872f6213a427d3a59a09df4dacd57660546bebd6fb"
+      },
+      {
+        "path": "simd-sum-0-modern.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-sum-0-modern.input0.f32",
+        "size": 16777216,
+        "sha256": "8d2b5b76b4dc897b7d3d6690b384cce7282c7f90f350b6565bdef32e6af9461c"
+      },
+      {
+        "path": "simd-sum-0-modern.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-sum-0-modern.log",
+        "size": 1973,
+        "sha256": "d7ecf030ff13a9bc49570660517cbb8fbaf8448f7ee19d2a7e7750b21ebfc6c9"
+      },
+      {
+        "path": "simd-sum-0-modern.output.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-sum-0-modern.output.f32",
+        "size": 32768,
+        "sha256": "8518994711d5ddecc0fb15caa8eaa39e824ab614012112be7bf6608935c6f027"
+      },
+      {
+        "path": "simd-sum-0-modern.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-sum-0-modern.source.txt",
+        "size": 79159,
+        "sha256": "4e9a82af3496430d940e6b185a18f0e3e7b6534d1a2065c4a790dd1bca26300e"
+      },
+      {
+        "path": "simd-sum-1-legacy.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-sum-1-legacy.expected.f64",
+        "size": 65536,
+        "sha256": "0b8c60b83525e0fd4b25f1872f6213a427d3a59a09df4dacd57660546bebd6fb"
+      },
+      {
+        "path": "simd-sum-1-legacy.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-sum-1-legacy.input0.f32",
+        "size": 16777216,
+        "sha256": "8d2b5b76b4dc897b7d3d6690b384cce7282c7f90f350b6565bdef32e6af9461c"
+      },
+      {
+        "path": "simd-sum-1-legacy.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-sum-1-legacy.log",
+        "size": 1013,
+        "sha256": "6a04b2405682670979925f9fbfab2151178f8ff2e18d8c2fe755d8993afde525"
+      },
+      {
+        "path": "simd-sum-1-legacy.output.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-sum-1-legacy.output.f32",
+        "size": 32768,
+        "sha256": "8518994711d5ddecc0fb15caa8eaa39e824ab614012112be7bf6608935c6f027"
+      },
+      {
+        "path": "simd-sum-1-legacy.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-sum-1-legacy.source.txt",
+        "size": 119580,
+        "sha256": "5be239c909e5ac15cda7903996d3326e41219a62d2d06890d42a65d892b21c8f"
+      },
+      {
+        "path": "simd-sum-1-modern.expected.f64",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-sum-1-modern.expected.f64",
+        "size": 65536,
+        "sha256": "0b8c60b83525e0fd4b25f1872f6213a427d3a59a09df4dacd57660546bebd6fb"
+      },
+      {
+        "path": "simd-sum-1-modern.input0.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-sum-1-modern.input0.f32",
+        "size": 16777216,
+        "sha256": "8d2b5b76b4dc897b7d3d6690b384cce7282c7f90f350b6565bdef32e6af9461c"
+      },
+      {
+        "path": "simd-sum-1-modern.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-sum-1-modern.log",
+        "size": 1973,
+        "sha256": "324f7758e063e3e2fcee2ee74dfb76d30b4680b2fd09f1d24dbe4814a486f424"
+      },
+      {
+        "path": "simd-sum-1-modern.output.f32",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-sum-1-modern.output.f32",
+        "size": 32768,
+        "sha256": "8518994711d5ddecc0fb15caa8eaa39e824ab614012112be7bf6608935c6f027"
+      },
+      {
+        "path": "simd-sum-1-modern.source.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-pilot/simd-sum-1-modern.source.txt",
+        "size": 79159,
+        "sha256": "4e9a82af3496430d940e6b185a18f0e3e7b6534d1a2065c4a790dd1bca26300e"
+      }
+    ]
+  },
+  "initial-migration-source.tar.gz": {
+    "size": 900343,
+    "sha256": "575f917a1b50b40ed8e2d046f5cd05e74a5d5b9841407df89db692575adff52e",
+    "members": [
+      {
+        "path": "docs/source/performance/validation.md",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/migration-v5-frozen/docs/source/performance/validation.md",
+        "size": 1582,
+        "sha256": "08bb95b91daefa3fad43a6abad0668ab1cf95fd5ca854c0a0c710d37285c8863"
+      },
+      {
+        "path": "examples/compute/tile/kernels.h",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/migration-v5-frozen/examples/compute/tile/kernels.h",
+        "size": 8403,
+        "sha256": "4bc46cafa49697a5bb5f016c6b9735b012764a059ffa6bb8eae7e815626b2a0d"
+      },
+      {
+        "path": "migration-v5.json",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/migration-v5-frozen/migration-v5.json",
+        "size": 1737,
+        "sha256": "9d56e9b29088523b198933a9ba4931356da579f1203e9ab934f09c5febed6e4c"
+      },
+      {
+        "path": "pinned-repositories.json",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/migration-v5-frozen/pinned-repositories.json",
+        "size": 3309,
+        "sha256": "fbb7c7ed389ddbb2a3f686e2f37056fe837ed2fca402ac86651d6167fcc57869"
+      },
+      {
+        "path": "source-snapshot.json",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/migration-v5-frozen/source-snapshot.json",
+        "size": 2975229,
+        "sha256": "823f5e869204a773320e9d3196781622d83a508edc9dad20e011b6a1d2fc65ab"
+      },
+      {
+        "path": "src/tests/CMakeLists.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/migration-v5-frozen/src/tests/CMakeLists.txt",
+        "size": 89269,
+        "sha256": "f81c4d168dc7aaa72303f173fdb7dbb8d8356de602f0a3e70e790100bcdf24b4"
+      },
+      {
+        "path": "src/tests/benchmark/benchmark_tile_migrated.cpp",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/migration-v5-frozen/src/tests/benchmark/benchmark_tile_migrated.cpp",
+        "size": 13392,
+        "sha256": "6afa6a747e82630ba24e53d13f7964e07ddbf3edfce3691443dd56738ec50b50"
+      },
+      {
+        "path": "src/tests/common/tile_migrated_test_utils.h",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/migration-v5-frozen/src/tests/common/tile_migrated_test_utils.h",
+        "size": 7688,
+        "sha256": "7c9c2a762471ba217677fb1e7a7bac12d269a72f3e0c0656fcb6ae80e1fa89ad"
+      },
+      {
+        "path": "src/tests/unit/tile/test_tile_migrated.cpp",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/migration-v5-frozen/src/tests/unit/tile/test_tile_migrated.cpp",
+        "size": 5889,
+        "sha256": "ad6dda6ee5e501bac448cb47ef74648b19b9363e47e4179a863d131b45ec1711"
+      },
+      {
+        "path": "src/tests/xmake.lua",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/migration-v5-frozen/src/tests/xmake.lua",
+        "size": 33967,
+        "sha256": "d08e857831500406f4b154112ac4978e4ba52b63c2405478582865789ccb6d01"
+      }
+    ]
+  },
+  "precision-final-source.tar.gz": {
+    "size": 95033,
+    "sha256": "5911039aeffb5b5a0073d9d1ca33632368c63a42c61bd15b8cb1f262b20f4bd4",
+    "members": [
+      {
+        "path": "docs/source/performance/validation.md",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-final-frozen/docs/source/performance/validation.md",
+        "size": 1582,
+        "sha256": "08bb95b91daefa3fad43a6abad0668ab1cf95fd5ca854c0a0c710d37285c8863"
+      },
+      {
+        "path": "examples/compute/tile/kernels.h",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-final-frozen/examples/compute/tile/kernels.h",
+        "size": 9075,
+        "sha256": "c73a2f5e00d1800a918e6dab0fb88458fae889b928b495c831a5c4e6c869c894"
+      },
+      {
+        "path": "include/luisa/tile/dsl.h",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-final-frozen/include/luisa/tile/dsl.h",
+        "size": 37404,
+        "sha256": "7d8338a236a7ca36ab376f71a3d65bacd73ba8126f7d18f499c70e8d20a72aa3"
+      },
+      {
+        "path": "include/luisa/tile/ir.h",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-final-frozen/include/luisa/tile/ir.h",
+        "size": 26780,
+        "sha256": "b5a965ea9114b58bbdd4cd9ded3f114fea46297eba51d693dad042e36fc6291e"
+      },
+      {
+        "path": "include/luisa/tile/runtime.h",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-final-frozen/include/luisa/tile/runtime.h",
+        "size": 7041,
+        "sha256": "a073a98672de228a3d481d68dee744fee331536dd4e8528a743678a26e154e54"
+      },
+      {
+        "path": "include/luisa/tile/types.h",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-final-frozen/include/luisa/tile/types.h",
+        "size": 6718,
+        "sha256": "d4feafd391c80688db96c8789ce70220cfb8097edfa4ed9fd1e7a61e1b3ef424"
+      },
+      {
+        "path": "include/luisa/tile/value.h",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-final-frozen/include/luisa/tile/value.h",
+        "size": 22513,
+        "sha256": "0f410bac0bc9bb92202ffe5ac0b8928f3c709615b6a598f01123d358f37e510e"
+      },
+      {
+        "path": "receipt.json",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-final-frozen/receipt.json",
+        "size": 3556,
+        "sha256": "fcbb61714fc43be854a8008db7cc675e1eb8d78582d80be17e9cd7e56ccb4b16"
+      },
+      {
+        "path": "src/backends/metal/tile/metal_tile.cpp",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-final-frozen/src/backends/metal/tile/metal_tile.cpp",
+        "size": 12633,
+        "sha256": "84e0466728817b9e6148f2d36af9c1999607da89381c2acd7ac3a79f534d7198"
+      },
+      {
+        "path": "src/tests/CMakeLists.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-final-frozen/src/tests/CMakeLists.txt",
+        "size": 89964,
+        "sha256": "205ea73ea1dcd312a982bf173080c2d86e42b8aa55a2830820ac3ac80af4a8f1"
+      },
+      {
+        "path": "src/tests/benchmark/benchmark_tile_migrated.cpp",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-final-frozen/src/tests/benchmark/benchmark_tile_migrated.cpp",
+        "size": 15675,
+        "sha256": "c77135a5ac0e0dfabd92a07477d2cf7504088554e6f98a8fda4c399fd1cdb562"
+      },
+      {
+        "path": "src/tests/common/tile_migrated_test_utils.h",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-final-frozen/src/tests/common/tile_migrated_test_utils.h",
+        "size": 7726,
+        "sha256": "6539adb194c6750b1d55178bdba77285782b946484bbba59cf9a72126b96060d"
+      },
+      {
+        "path": "src/tests/unit/tile/test_tile_migrated.cpp",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-final-frozen/src/tests/unit/tile/test_tile_migrated.cpp",
+        "size": 5889,
+        "sha256": "ad6dda6ee5e501bac448cb47ef74648b19b9363e47e4179a863d131b45ec1711"
+      },
+      {
+        "path": "src/tests/unit/tile/test_tile_types.cpp",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-final-frozen/src/tests/unit/tile/test_tile_types.cpp",
+        "size": 13228,
+        "sha256": "7e193d29b8e72b100be36af9a8e55207bc6b3d7cbb3b42d5f7c8d85db6194d9a"
+      },
+      {
+        "path": "src/tests/xmake.lua",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-final-frozen/src/tests/xmake.lua",
+        "size": 34122,
+        "sha256": "520d5768cf7aa2e6310c7487798d02dbc209dbd5ceab24810f22c4357fbd40e0"
+      },
+      {
+        "path": "src/tile/bridge/tirx/execution.cpp",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-final-frozen/src/tile/bridge/tirx/execution.cpp",
+        "size": 43939,
+        "sha256": "89992d8f1cc964212ebbca00cdbce3d8e5c1650b0a9551d389642848411021a5"
+      },
+      {
+        "path": "src/tile/bridge/tirx/lower.cpp",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-final-frozen/src/tile/bridge/tirx/lower.cpp",
+        "size": 66931,
+        "sha256": "ad476cf0690e2b5f9a2ea45e53391eb85b6a3c74896ef034c0ed3d3d59c15c70"
+      },
+      {
+        "path": "src/tile/bridge/xir/lower.cpp",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-final-frozen/src/tile/bridge/xir/lower.cpp",
+        "size": 67492,
+        "sha256": "6c00e44544fb62149783266f5114674463b617f61fdc0c5fe3c5a20fb58b0b24"
+      }
+    ]
+  },
+  "legacy-sized-equivalence.tar.gz": {
+    "size": 288347,
+    "sha256": "07e2b2c347151a44b92166726cc9dcd76f5d633b58254163588845fa6075bb94",
+    "members": [
+      {
+        "path": "absmax-original.ast.json",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/absmax-original.ast.json",
+        "size": 121185,
+        "sha256": "38d84011d88a149f9e3004bcc9bac53d335b030a23e40365628fe7c8d166dc1d"
+      },
+      {
+        "path": "absmax-original.log",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/absmax-original.log",
+        "size": 169,
+        "sha256": "ef40c6e6d895862954d70af0e24b1a391530c5cc7e9e54e1f7f3f2e9922cb829"
+      },
+      {
+        "path": "absmax-sized.ast.json",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/absmax-sized.ast.json",
+        "size": 121185,
+        "sha256": "38d84011d88a149f9e3004bcc9bac53d335b030a23e40365628fe7c8d166dc1d"
+      },
+      {
+        "path": "absmax-sized.log",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/absmax-sized.log",
+        "size": 168,
+        "sha256": "b86b76135024e83afaf85ba2d3426f99b77ad7056918a950c73fcda02363dcdf"
+      },
+      {
+        "path": "abssum-original.ast.json",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/abssum-original.ast.json",
+        "size": 120505,
+        "sha256": "c026c311d7d1217977b1afe1adcbd122413751ad3e5e46befa49d862daa80eb7"
+      },
+      {
+        "path": "abssum-original.log",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/abssum-original.log",
+        "size": 169,
+        "sha256": "9a77528a7bb3fbfb052d8125bcd08dca7d21f6821a4a5567bd5c32e8082af3b8"
+      },
+      {
+        "path": "abssum-sized.ast.json",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/abssum-sized.ast.json",
+        "size": 120505,
+        "sha256": "c026c311d7d1217977b1afe1adcbd122413751ad3e5e46befa49d862daa80eb7"
+      },
+      {
+        "path": "abssum-sized.log",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/abssum-sized.log",
+        "size": 168,
+        "sha256": "83d8fc3747dfab55dd9e20a4700c6c59e6177ea5b8b44caaf355ff8fbc7fecfb"
+      },
+      {
+        "path": "add-original.ast.json",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/add-original.ast.json",
+        "size": 91264,
+        "sha256": "b8790a97786330d0609a208bff8994862550f346bf0f2b093a7d030cf2e9d9fa"
+      },
+      {
+        "path": "add-original.log",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/add-original.log",
+        "size": 167,
+        "sha256": "e07acdbf683fb409b5df455f4e37feb53f741731ac704bcf55bd159cefd52e21"
+      },
+      {
+        "path": "add-sized.ast.json",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/add-sized.ast.json",
+        "size": 91264,
+        "sha256": "b8790a97786330d0609a208bff8994862550f346bf0f2b093a7d030cf2e9d9fa"
+      },
+      {
+        "path": "add-sized.log",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/add-sized.log",
+        "size": 166,
+        "sha256": "106800bf93dcd6763da22c32cd8cf6a79dae72c09ff3636d5dbc0f78ad9e775e"
+      },
+      {
+        "path": "clamp-original.ast.json",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/clamp-original.ast.json",
+        "size": 77863,
+        "sha256": "6225fc2790f5dae2bafcbd197cff7bb4e1540338e2c0946a56ea97034e0ba537"
+      },
+      {
+        "path": "clamp-original.log",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/clamp-original.log",
+        "size": 168,
+        "sha256": "9b5f500459a0ba1259a773116f15834e592a9087927b8f9d6ae0acc3359a53f0"
+      },
+      {
+        "path": "clamp-sized.ast.json",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/clamp-sized.ast.json",
+        "size": 77863,
+        "sha256": "6225fc2790f5dae2bafcbd197cff7bb4e1540338e2c0946a56ea97034e0ba537"
+      },
+      {
+        "path": "clamp-sized.log",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/clamp-sized.log",
+        "size": 167,
+        "sha256": "db73344d3efce05bbaa7018d3e44d5fab9c6b567e0f5f00b0a10f05129265f10"
+      },
+      {
+        "path": "copy-original.ast.json",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/copy-original.ast.json",
+        "size": 56425,
+        "sha256": "24500eb67acb22e7166bed29d87e28ca68896f889d60e01d2d72afaac0a579ab"
+      },
+      {
+        "path": "copy-original.log",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/copy-original.log",
+        "size": 167,
+        "sha256": "f7ab0dd5752eb0c149363284e4489e86001d8da24b75f9534fc524ab9c8c2a94"
+      },
+      {
+        "path": "copy-sized.ast.json",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/copy-sized.ast.json",
+        "size": 56425,
+        "sha256": "24500eb67acb22e7166bed29d87e28ca68896f889d60e01d2d72afaac0a579ab"
+      },
+      {
+        "path": "copy-sized.log",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/copy-sized.log",
+        "size": 166,
+        "sha256": "92d026dd3749113b79ea440741c35d036bc3c825b975f674e0f70c77fa2b7015"
+      },
+      {
+        "path": "cummax-original.ast.json",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/cummax-original.ast.json",
+        "size": 169942,
+        "sha256": "a8dfd557c90799decec3731c117708b99d8eb5d9677f2132b7b46bb0394523b9"
+      },
+      {
+        "path": "cummax-original.log",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/cummax-original.log",
+        "size": 169,
+        "sha256": "92660090bf8a6d247e4725f059126aece37d4d6daa6f537dd0d40278e4ace0d5"
+      },
+      {
+        "path": "cummax-sized.ast.json",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/cummax-sized.ast.json",
+        "size": 169942,
+        "sha256": "a8dfd557c90799decec3731c117708b99d8eb5d9677f2132b7b46bb0394523b9"
+      },
+      {
+        "path": "cummax-sized.log",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/cummax-sized.log",
+        "size": 168,
+        "sha256": "f81a0cfd3ca45b5dc82d274b6f95111186b45880d479378aa439fe5098c36502"
+      },
+      {
+        "path": "cumsum-original.ast.json",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/cumsum-original.ast.json",
+        "size": 169009,
+        "sha256": "c90adc8a494b95e571e131fe2cde7e0803cf39c39ff43f43130948c8a828813a"
+      },
+      {
+        "path": "cumsum-original.log",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/cumsum-original.log",
+        "size": 168,
+        "sha256": "c80582bcc44b17f4d1203063fba99584d90ee3da232c904d64fad436bd8f8f60"
+      },
+      {
+        "path": "cumsum-sized.ast.json",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/cumsum-sized.ast.json",
+        "size": 169009,
+        "sha256": "c90adc8a494b95e571e131fe2cde7e0803cf39c39ff43f43130948c8a828813a"
+      },
+      {
+        "path": "cumsum-sized.log",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/cumsum-sized.log",
+        "size": 167,
+        "sha256": "e2eea74d2119f4c344264a9265eeb575a188d4b7dd98f001ad22a6c91a75261a"
+      },
+      {
+        "path": "exp-original.ast.json",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/exp-original.ast.json",
+        "size": 57446,
+        "sha256": "4ee02e84686594eea976402e25f761e124346f39357d9b9ecbfe697d977b358f"
+      },
+      {
+        "path": "exp-original.log",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/exp-original.log",
+        "size": 166,
+        "sha256": "20ad5effff62d8d62b59b50d68ab9ae6571bd471a5b37db76c2be6464635ee11"
+      },
+      {
+        "path": "exp-sized.ast.json",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/exp-sized.ast.json",
+        "size": 57446,
+        "sha256": "4ee02e84686594eea976402e25f761e124346f39357d9b9ecbfe697d977b358f"
+      },
+      {
+        "path": "exp-sized.log",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/exp-sized.log",
+        "size": 165,
+        "sha256": "9be222db1e63fb9c28740b12713c186bb6a65cf9872b617559d741951164fcaa"
+      },
+      {
+        "path": "gemm-original.ast.json",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/gemm-original.ast.json",
+        "size": 2624195,
+        "sha256": "5705092128c4d09ceed092626e9486369e53d677262fabfe8afb79b5bcf46b8c"
+      },
+      {
+        "path": "gemm-original.log",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/gemm-original.log",
+        "size": 167,
+        "sha256": "34881f82ba5393738e6b6d02b9c25d018a032df4f91821a44c7c199e6235ce01"
+      },
+      {
+        "path": "gemm-sized.ast.json",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/gemm-sized.ast.json",
+        "size": 2624195,
+        "sha256": "5705092128c4d09ceed092626e9486369e53d677262fabfe8afb79b5bcf46b8c"
+      },
+      {
+        "path": "gemm-sized.log",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/gemm-sized.log",
+        "size": 166,
+        "sha256": "ad86405bd17a5c58d22d09a30511548eba8ed2f4a4c8cd610e800d2369d24ae8"
+      },
+      {
+        "path": "gemm_fp16-original.ast.json",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/gemm_fp16-original.ast.json",
+        "size": 1971330,
+        "sha256": "f60c48d2701ed129e11a581fd629be3d8edfbb6afbbfabfbe9da15b26d6a58dd"
+      },
+      {
+        "path": "gemm_fp16-original.log",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/gemm_fp16-original.log",
+        "size": 171,
+        "sha256": "58ba7f1fce87b1819c01e561fc2c386d4ef4decb05c3a78eb75632bf8ac1e2fd"
+      },
+      {
+        "path": "gemm_fp16-sized.ast.json",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/gemm_fp16-sized.ast.json",
+        "size": 1971330,
+        "sha256": "f60c48d2701ed129e11a581fd629be3d8edfbb6afbbfabfbe9da15b26d6a58dd"
+      },
+      {
+        "path": "gemm_fp16-sized.log",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/gemm_fp16-sized.log",
+        "size": 170,
+        "sha256": "7d38a9363cbac3334ee589df1224159fb2b5a19e52e267bda8616cc3933a05ae"
+      },
+      {
+        "path": "max-original.ast.json",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/max-original.ast.json",
+        "size": 120260,
+        "sha256": "25e4749f6c00f9434d74c62e9ed9dc3bf3003c99eb1f0832029e38fa153b753b"
+      },
+      {
+        "path": "max-original.log",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/max-original.log",
+        "size": 166,
+        "sha256": "b02e9b6ff3dca2a6f72cd83ccc36bdc1d62b5ae8a81b6d5beef303b9b42f56ce"
+      },
+      {
+        "path": "max-sized.ast.json",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/max-sized.ast.json",
+        "size": 120260,
+        "sha256": "25e4749f6c00f9434d74c62e9ed9dc3bf3003c99eb1f0832029e38fa153b753b"
+      },
+      {
+        "path": "max-sized.log",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/max-sized.log",
+        "size": 165,
+        "sha256": "53bc41061fcb92dbe8e7bb7b9eebf42a31e643d7d21d15bbaf62edf04b417c7b"
+      },
+      {
+        "path": "min-original.ast.json",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/min-original.ast.json",
+        "size": 120260,
+        "sha256": "f57bf8960a14a919cfbc456659e8510c3302a0c1d5143de4b554a0027ae024e7"
+      },
+      {
+        "path": "min-original.log",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/min-original.log",
+        "size": 166,
+        "sha256": "a08af641d6ad48f8c8bbc5249ed4032a15807a50dc6cf5940d934a0ac79d7096"
+      },
+      {
+        "path": "min-sized.ast.json",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/min-sized.ast.json",
+        "size": 120260,
+        "sha256": "f57bf8960a14a919cfbc456659e8510c3302a0c1d5143de4b554a0027ae024e7"
+      },
+      {
+        "path": "min-sized.log",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/min-sized.log",
+        "size": 165,
+        "sha256": "0cb2cdcf648d17576c3ecd77b6cba2060b6bee98a3d67b0519f0e5ccc6ae71c5"
+      },
+      {
+        "path": "results.json",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/results.json",
+        "size": 39256,
+        "sha256": "b692a19514e111eebd1e7da848d3403876fc2d7865f0bae1d426a0ecfd3c91cf"
+      },
+      {
+        "path": "rmsnorm-original.ast.json",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/rmsnorm-original.ast.json",
+        "size": 213081,
+        "sha256": "39cf82c8204f04d233c0289f9ceac01b879084f7a1d91eb1a989817dd01072a4"
+      },
+      {
+        "path": "rmsnorm-original.log",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/rmsnorm-original.log",
+        "size": 169,
+        "sha256": "4d2868c2f7ee99374f93c05b146166a162e24cf0cacc3161acd9b252bc54c3e0"
+      },
+      {
+        "path": "rmsnorm-sized.ast.json",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/rmsnorm-sized.ast.json",
+        "size": 213081,
+        "sha256": "39cf82c8204f04d233c0289f9ceac01b879084f7a1d91eb1a989817dd01072a4"
+      },
+      {
+        "path": "rmsnorm-sized.log",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/rmsnorm-sized.log",
+        "size": 168,
+        "sha256": "92688e94f6f163170f6a99eee7d0f735ca0148c508a06b9c874745328227f8df"
+      },
+      {
+        "path": "saxpy-original.ast.json",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/saxpy-original.ast.json",
+        "size": 92632,
+        "sha256": "3af5906f16bc0ca73f330105af29a2cf62104f66e80d289d0ad5f2bddcf020be"
+      },
+      {
+        "path": "saxpy-original.log",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/saxpy-original.log",
+        "size": 168,
+        "sha256": "b6932cf7e5bc122340da6a21201323b1d6a92cd616396706f599dc16cef02499"
+      },
+      {
+        "path": "saxpy-sized.ast.json",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/saxpy-sized.ast.json",
+        "size": 92632,
+        "sha256": "3af5906f16bc0ca73f330105af29a2cf62104f66e80d289d0ad5f2bddcf020be"
+      },
+      {
+        "path": "saxpy-sized.log",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/saxpy-sized.log",
+        "size": 167,
+        "sha256": "25602f7baef692790f9c7b04525c7858d13a520bdc839804e888a84708b62e97"
+      },
+      {
+        "path": "sum-original.ast.json",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/sum-original.ast.json",
+        "size": 119580,
+        "sha256": "5be239c909e5ac15cda7903996d3326e41219a62d2d06890d42a65d892b21c8f"
+      },
+      {
+        "path": "sum-original.log",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/sum-original.log",
+        "size": 166,
+        "sha256": "540bf0a96313711a1a482ee49c6f67ea9826dd29b5e09ed1c26e48b843955167"
+      },
+      {
+        "path": "sum-sized.ast.json",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/sum-sized.ast.json",
+        "size": 119580,
+        "sha256": "5be239c909e5ac15cda7903996d3326e41219a62d2d06890d42a65d892b21c8f"
+      },
+      {
+        "path": "sum-sized.log",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/sum-sized.log",
+        "size": 165,
+        "sha256": "019a5b3f2b52a15f159596e549aeb092983267fd79fa9950cf3915a14888a3b2"
+      },
+      {
+        "path": "transpose-original.ast.json",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/transpose-original.ast.json",
+        "size": 71365,
+        "sha256": "177a95cf75cd49ea91f003dfb5d536e4ba7dc704fbb865f62c8b731816932f4c"
+      },
+      {
+        "path": "transpose-original.log",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/transpose-original.log",
+        "size": 169,
+        "sha256": "5829b722bca524161368af672511f06cb5ccd0bda3faa4fcc641535f255b086e"
+      },
+      {
+        "path": "transpose-sized.ast.json",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/transpose-sized.ast.json",
+        "size": 71365,
+        "sha256": "177a95cf75cd49ea91f003dfb5d536e4ba7dc704fbb865f62c8b731816932f4c"
+      },
+      {
+        "path": "transpose-sized.log",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/identity/transpose-sized.log",
+        "size": 168,
+        "sha256": "c5c054e859d0eee0e9fc05d76bdaec45c7059587d4052a2b8fafe171e95f8401"
+      }
+    ]
+  },
+  "build-test-and-failed-attempts.tar.gz": {
+    "size": 965059,
+    "sha256": "c000cd86e7268cda8c011549494130f2900d0a85b282efec54be42f0b9f14c3b",
+    "members": [
+      {
+        "path": "check_low_precision.py",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/check_low_precision.py",
+        "size": 2298,
+        "sha256": "f3432ed262c3c68dd2ac267f3422eebfc843fd4a3b6fe9ba8410c02525f0598c"
+      },
+      {
+        "path": "check_precision_syntax.py",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/check_precision_syntax.py",
+        "size": 1476,
+        "sha256": "70204d25ab1d71fe6ac8fd8e47f34156819dde16605578d20fc9ee264ff96d18"
+      },
+      {
+        "path": "configure-command.json",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/configure-command.json",
+        "size": 1383,
+        "sha256": "ce28f6c735a908e47e224b67abf963e2f6f139d445860faa012d950447448543"
+      },
+      {
+        "path": "full-build.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/full-build.log",
+        "size": 189059,
+        "sha256": "48cfd0b2dcd920f178f2d81f4b0c97c9093d9e25ce06a74c68fd53f8fdc8b323"
+      },
+      {
+        "path": "gemm-compile-sample.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/gemm-compile-sample.txt",
+        "size": 98745,
+        "sha256": "aae09730f8818168f7000d7b49fc59610e8e6df9ae5a37d5433023d74b7f9b83"
+      },
+      {
+        "path": "low-precision-final-build.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-final-build.log",
+        "size": 1093,
+        "sha256": "0a3b0fb8d6fd0fbac032c03fc715b952633d8829eec25bdfaa4642eb603e3800"
+      },
+      {
+        "path": "low-precision-final-migration.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-final-migration.log",
+        "size": 781,
+        "sha256": "1fdc64b5b508c42d7f2aa85d0891d7bc9b28fc78a44a0ff208ce8b40221c4587"
+      },
+      {
+        "path": "low-precision-final-types.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-final-types.log",
+        "size": 772,
+        "sha256": "8a1f02e32b620869deb4adfab04858942578419827e2402cd5c7d6d26e78bd4e"
+      },
+      {
+        "path": "low-precision-final.json",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-final.json",
+        "size": 3556,
+        "sha256": "fcbb61714fc43be854a8008db7cc675e1eb8d78582d80be17e9cd7e56ccb4b16"
+      },
+      {
+        "path": "low-precision-v1-build.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-v1-build.log",
+        "size": 9936,
+        "sha256": "0e637b6e8d5b3c16bf3ad7e160a9b0394616328c7d171bc7f72c0f2efcb77a46"
+      },
+      {
+        "path": "low-precision-v1.json",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-v1.json",
+        "size": 2277,
+        "sha256": "43997d2b8541c3acb94c1527c83674fa359ff73b00bcb306e4d93582a8601728"
+      },
+      {
+        "path": "low-precision-v2-build.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-v2-build.log",
+        "size": 3397,
+        "sha256": "496d68fe036aee8d0a6b7c52c388d7d1fc2a1e178481a645859e7d5f210d5481"
+      },
+      {
+        "path": "low-precision-v2-types.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-v2-types.log",
+        "size": 5216,
+        "sha256": "f9c0e7d29a7ebd4094fe4715a3a76fce3f12c88d0a4a637cb8a179a8df954532"
+      },
+      {
+        "path": "low-precision-v2.json",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-v2.json",
+        "size": 2796,
+        "sha256": "d47802f28e9ab051913b880180c4ba12a9d08543983ca2e760b550fbae427a4d"
+      },
+      {
+        "path": "low-precision-v3-build.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-v3-build.log",
+        "size": 1985,
+        "sha256": "8993834789b9658714f43d15bb9623eb9bc02dedc6210a10cc44b21da1957ad4"
+      },
+      {
+        "path": "low-precision-v3-types.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-v3-types.log",
+        "size": 353828,
+        "sha256": "f20f03b06f4fe5bd94c2d424408fd86f011ecaa9cea8693d356d12d790f8c843"
+      },
+      {
+        "path": "low-precision-v3.json",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-v3.json",
+        "size": 2797,
+        "sha256": "3c9fff1dac7e10d34ebeae784ebeab77547a265bd52b10305505f5d1af6c0dc2"
+      },
+      {
+        "path": "low-precision-v4-build.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-v4-build.log",
+        "size": 4775,
+        "sha256": "a2acaa663b25bc86e36b2eefa1c1778a920d2d0f2d393222655c1675d86c0372"
+      },
+      {
+        "path": "low-precision-v4.json",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-v4.json",
+        "size": 2383,
+        "sha256": "17cfc23dfd93ba938d800410c8f3f5da7227e287dea73bfbdf9c2c3dbbd97228"
+      },
+      {
+        "path": "low-precision-v5-build.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-v5-build.log",
+        "size": 1687,
+        "sha256": "675b74e4d1ad793a7102b792451dc24b99c2b77a46bce1aca1036705c913f3cb"
+      },
+      {
+        "path": "low-precision-v5-types.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-v5-types.log",
+        "size": 1843,
+        "sha256": "59e8af07833568977e7c7251413518a55888755f82ff5cf547442ae695404ea5"
+      },
+      {
+        "path": "low-precision-v5.json",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-v5.json",
+        "size": 2901,
+        "sha256": "f1ef46954e04dc8e1153f41cd04a57db4a144ad4643541580a521029dfc1eb01"
+      },
+      {
+        "path": "low-precision-v6-build.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-v6-build.log",
+        "size": 232,
+        "sha256": "993324bdbc0cc984ab28691b4142dde73dd7a3adf3870b6bbd29849eb8f2992a"
+      },
+      {
+        "path": "low-precision-v6-types.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-v6-types.log",
+        "size": 2244,
+        "sha256": "20559a3e064035d1ce4f42d16cafa8165fc3df3f9a63aa1eb41d608fedaee373"
+      },
+      {
+        "path": "low-precision-v6.json",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-v6.json",
+        "size": 2899,
+        "sha256": "338a4c780a582eb330749b45ee333dd3241b066dd4ef67e53bc3f4ceafabbfe6"
+      },
+      {
+        "path": "low-precision-v7-build.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-v7-build.log",
+        "size": 1971,
+        "sha256": "55235126236931a212e6c7fdc4cc2fa2dd434d6b3772ddc87ad96349c874c868"
+      },
+      {
+        "path": "low-precision-v7-migration.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-v7-migration.log",
+        "size": 781,
+        "sha256": "35528e3db81c4b496f5511eca40bc311f6654ec96cb24ef898657f3f124e139d"
+      },
+      {
+        "path": "low-precision-v7-types.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-v7-types.log",
+        "size": 772,
+        "sha256": "7d2037b1ea5b640496982f5cd687a9df37226fe5d133fb4a19f3ffa3543d57a3"
+      },
+      {
+        "path": "low-precision-v7.json",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-v7.json",
+        "size": 3541,
+        "sha256": "c829a545368f42dc317afedfad17b5365effe2ed21f51fe59a73ac9eca2557cb"
+      },
+      {
+        "path": "low-precision-v8-build.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-v8-build.log",
+        "size": 3030,
+        "sha256": "a27c8b84649648b71e5cdd7a7de411b816751dea199607cfe9890952222c55bc"
+      },
+      {
+        "path": "low-precision-v8-types.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-v8-types.log",
+        "size": 4732,
+        "sha256": "e5d8d427dcb6b493185306d9f9912bf752b7794deb8166fcbb5dd10215447cfc"
+      },
+      {
+        "path": "low-precision-v8.json",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-v8.json",
+        "size": 3012,
+        "sha256": "4b5627e5db616bd2665d7ce5b235be78b1ad737516306151592a1a02916d8db4"
+      },
+      {
+        "path": "low-precision-v9-build.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-v9-build.log",
+        "size": 1063,
+        "sha256": "ec92617293af951243bdf8a9c7e4bd53f3bf7ae6d74e0541f71cb55de5bfa56d"
+      },
+      {
+        "path": "low-precision-v9-migration.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-v9-migration.log",
+        "size": 781,
+        "sha256": "d116bf8db1f176466335a2d01f993293ad50d37fb5dd1cab2f8120971badb2fa"
+      },
+      {
+        "path": "low-precision-v9-types.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-v9-types.log",
+        "size": 772,
+        "sha256": "7abba99a019b4360fe3a86c8a90d3966e70102a7d01bbd789b5eb96b5d59cd48"
+      },
+      {
+        "path": "low-precision-v9.json",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low-precision-v9.json",
+        "size": 3544,
+        "sha256": "746d97398ff9fcf5f18ab2d206675a321a3a3c8d1612d2c857cad825fcd356b2"
+      },
+      {
+        "path": "low_precision_pilot.py",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low_precision_pilot.py",
+        "size": 3442,
+        "sha256": "04d05721e5663ea771c8829b2017648628679d8994a185d03d958a5c8edeaac0"
+      },
+      {
+        "path": "low_precision_pilot_v1.py",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low_precision_pilot_v1.py",
+        "size": 3131,
+        "sha256": "ebc708ff3dc6576687af4fe783d7a63c929f12d6f5ce1b881d7c2e660ef57662"
+      },
+      {
+        "path": "low_precision_pilot_v2.py",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/low_precision_pilot_v2.py",
+        "size": 3331,
+        "sha256": "d6cf0d6535f7f4b827ca521ec39681f79ee4ea5ced4e69a7f865e6c8c60ef056"
+      },
+      {
+        "path": "metal-codegen-v2.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/metal-codegen-v2.log",
+        "size": 353,
+        "sha256": "b0f2623d9582ab3ebd59384db545c043adb1d3555d0f39b2a0ceee5a1655000a"
+      },
+      {
+        "path": "migration-v2-build.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/migration-v2-build.log",
+        "size": 413,
+        "sha256": "bfba7cd1a3abfc3c82dc1eae5ee395e7e9ef17539e896829c285b569b5295928"
+      },
+      {
+        "path": "migration-v2-test.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/migration-v2-test.log",
+        "size": 917,
+        "sha256": "6bf885aa962db652fcc95da7a225882e613e925df31fcc84d8fb7cc11f23018e"
+      },
+      {
+        "path": "migration-v2.json",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/migration-v2.json",
+        "size": 1755,
+        "sha256": "e831e008db930b76ff2606a143ab2aa7c29096ad7ea2998f267c7f9a674a9860"
+      },
+      {
+        "path": "migration-v3-build.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/migration-v3-build.log",
+        "size": 83,
+        "sha256": "62787fccc98ad7bf29801a9439ddcfeec21bcc3619acefa63a76bfe707b73e91"
+      },
+      {
+        "path": "migration-v3-test.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/migration-v3-test.log",
+        "size": 371,
+        "sha256": "aa734757b442685f914cae2ebcaa35cf32cb50e4571bc4d18b50afc9cce2283b"
+      },
+      {
+        "path": "migration-v3.json",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/migration-v3.json",
+        "size": 1738,
+        "sha256": "54c7b28db0f56b5eb3940cf111943c7e2dbe0dba8212a763f272eb3c82908236"
+      },
+      {
+        "path": "migration-v4-build.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/migration-v4-build.log",
+        "size": 241,
+        "sha256": "ef4de2591a733ba2da87e98bd4a68b294ea9a45b74ca810c19a1dd96b8a52303"
+      },
+      {
+        "path": "migration-v4-test.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/migration-v4-test.log",
+        "size": 7272,
+        "sha256": "b8b6582df6d50c7651ad687199c40cdc5404272985ffad0de9f10fd9fcb87413"
+      },
+      {
+        "path": "migration-v4.json",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/migration-v4.json",
+        "size": 1761,
+        "sha256": "3efbf8057f15b5804a041cf72537a9569ff0b5dd75167eb16fb19961c4081301"
+      },
+      {
+        "path": "migration-v5-build.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/migration-v5-build.log",
+        "size": 413,
+        "sha256": "bfba7cd1a3abfc3c82dc1eae5ee395e7e9ef17539e896829c285b569b5295928"
+      },
+      {
+        "path": "migration-v5-test.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/migration-v5-test.log",
+        "size": 7566,
+        "sha256": "a80db321595b5116f90cb618ed97370f9b02975bd4069bd141f89dbaea219756"
+      },
+      {
+        "path": "migration-v5.json",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/migration-v5.json",
+        "size": 1737,
+        "sha256": "9d56e9b29088523b198933a9ba4931356da579f1203e9ab934f09c5febed6e4c"
+      },
+      {
+        "path": "migration-verification.json",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/migration-verification.json",
+        "size": 2852,
+        "sha256": "0390b05b26df38bce0fb772262a6c305372acb810aab16278d0d1d2e405a26ba"
+      },
+      {
+        "path": "packed-word-metal.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/packed-word-metal.log",
+        "size": 532,
+        "sha256": "af52d39a5108b6fb5477d34babf7e2643476349e8a82aabe1525bad70f6355c9"
+      },
+      {
+        "path": "pinned-repositories.json",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/pinned-repositories.json",
+        "size": 3309,
+        "sha256": "fbb7c7ed389ddbb2a3f686e2f37056fe837ed2fca402ac86651d6167fcc57869"
+      },
+      {
+        "path": "precision-matrix-regression-build.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-matrix-regression-build.log",
+        "size": 70270,
+        "sha256": "0d710fc5f49625a1c618d21b19ce232b0d46dc54c5b6568ac94b2aee30d070c1"
+      },
+      {
+        "path": "precision-matrix-regression-tile.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-matrix-regression-tile.log",
+        "size": 3058,
+        "sha256": "3eb88e49745d1c37ec169d68df0864e28b8ebe81334d9581a5ba37198693adf4"
+      },
+      {
+        "path": "precision-matrix-regression-xir-simd.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-matrix-regression-xir-simd.log",
+        "size": 11546,
+        "sha256": "845ec5dd957f5e931531829d30aec572a2ef65ba0dfe935424772426d67deffc"
+      },
+      {
+        "path": "precision-matrix-regression-xir-simd.xml",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-matrix-regression-xir-simd.xml",
+        "size": 41631,
+        "sha256": "3db63526747f095100c75411176b3ce30cc9a37a545667c8b9a3389d37ce5693"
+      },
+      {
+        "path": "precision-matrix-regression.json",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-matrix-regression.json",
+        "size": 4937,
+        "sha256": "63f68bd61e5c4f751bad000d3fdc3d4669db4e64b753c63c7c3570d413784239"
+      },
+      {
+        "path": "precision-matrix-v1-build.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-matrix-v1-build.log",
+        "size": 1399,
+        "sha256": "7d53c815941ebbc5fd542f4e9ad901f057d1aaf51a143dfd1266c9cf9c540886"
+      },
+      {
+        "path": "precision-matrix-v1-migration.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-matrix-v1-migration.log",
+        "size": 781,
+        "sha256": "9097eaf154fb78d8d9370f53c5e8e0ab29ae4e3422dbc30ff38f317d15026a6d"
+      },
+      {
+        "path": "precision-matrix-v1-types.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-matrix-v1-types.log",
+        "size": 772,
+        "sha256": "e06a8a8dd1582a30b2b69da58aa947ad1f7ef46ff08be4d074c694041269f5b2"
+      },
+      {
+        "path": "precision-matrix-v1.json",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-matrix-v1.json",
+        "size": 3554,
+        "sha256": "35ccfc073538fea06b6943e55cbf27408ab921eb8cd29d9fa48096c027f1c8da"
+      },
+      {
+        "path": "precision-syntax-0.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-syntax-0.log",
+        "size": 22,
+        "sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "path": "precision-syntax-1.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-syntax-1.log",
+        "size": 22,
+        "sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "path": "precision-syntax-2.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-syntax-2.log",
+        "size": 22,
+        "sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "path": "precision-syntax-3.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-syntax-3.log",
+        "size": 22,
+        "sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "path": "precision-syntax-4.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-syntax-4.log",
+        "size": 22,
+        "sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "path": "precision-syntax-5.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-syntax-5.log",
+        "size": 22,
+        "sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "path": "precision-syntax-6.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-syntax-6.log",
+        "size": 22,
+        "sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "path": "precision-syntax.json",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-syntax.json",
+        "size": 5835,
+        "sha256": "2a3505717e5fd5edceb3144c2c76e63ad0c74ebd5c4e6907cd646e6c657119ea"
+      },
+      {
+        "path": "source-snapshot.json",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/source-snapshot.json",
+        "size": 2975229,
+        "sha256": "823f5e869204a773320e9d3196781622d83a508edc9dad20e011b6a1d2fc65ab"
+      },
+      {
+        "path": "tile.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/tile.log",
+        "size": 5001,
+        "sha256": "b9922fdaa86b72f6f9d23b2438430bb35836e179ad5925b4b5b285f537b89811"
+      },
+      {
+        "path": "verification.json",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/verification.json",
+        "size": 6746,
+        "sha256": "78811c6878f3891e20ad5a330cb5813ef301277761d86de2fe785a647145960f"
+      },
+      {
+        "path": "verify_precision_matrix.py",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/verify_precision_matrix.py",
+        "size": 1962,
+        "sha256": "e56cc33683deb6a5412ea35b30c38cd37ffb8117758729ab5f6cbc7aa5a9aa56"
+      },
+      {
+        "path": "xir-simd.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/xir-simd.log",
+        "size": 11546,
+        "sha256": "ee6fb4384154613bd0089e39912e4ec3bb5e176ef2815e82d872fb7804c48451"
+      }
+    ]
+  },
+  "legacy-build-provenance.tar.gz": {
+    "size": 1846886,
+    "sha256": "b68c20c8ef9d1fba1d09baa8fff972ba1c054d28da88d46398a05ce7e35e6437",
+    "members": [
+      {
+        "path": "initial/build-receipt.json",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/build-receipt.json",
+        "size": 2087,
+        "sha256": "62d722f6c36e8d044aa19cc11329afd90cfb79e01218148a56e60a50d83017cf"
+      },
+      {
+        "path": "initial/source-snapshot.json",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/source-snapshot.json",
+        "size": 1608824,
+        "sha256": "c9f5c5b5b10987c820e71230242745c88c2152850a378119faf8f3c0b543b125"
+      },
+      {
+        "path": "initial/pinned-repositories.json",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/pinned-repositories.json",
+        "size": 3309,
+        "sha256": "882771c01b9a98d5f04304691cd086ba33cd375ecb84f5750f33c25434998394"
+      },
+      {
+        "path": "initial/configure.log",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/configure.log",
+        "size": 1253,
+        "sha256": "135fe95928f9260c5eab365a95d4c73f8c7ef5472178643db1c8261ac2bbc599"
+      },
+      {
+        "path": "initial/build.log",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/build.log",
+        "size": 59338,
+        "sha256": "0be2b3643d30d7082583ad6d7de3a27ef1393ba6ceb608d79cc53fc94e7fe370"
+      },
+      {
+        "path": "initial/exports.json",
+        "source": "/tmp/luisa-legacy-tile.5opuYg/exports.json",
+        "size": 9226,
+        "sha256": "caaef94fecddd6685cc6dce2abf4f028f895422d8b9a04ab34f4255a07f9d1bc"
+      },
+      {
+        "path": "fp16/provenance.json",
+        "source": "/tmp/luisa-legacy-exporter-v2.AoHQLS/export/provenance.json",
+        "size": 5810,
+        "sha256": "0ae6bd02b4ffd2ed9c6e36eeb07db98b6ba21521dd09438a2a6acddf6b3c65d9"
+      },
+      {
+        "path": "fp16/original-source.json",
+        "source": "/tmp/luisa-legacy-exporter-v2.AoHQLS/export/original-source.json",
+        "size": 1583334,
+        "sha256": "d7cd83a0f02d192e16974fdb88cb35ef08ca4c303c47c75f3bce834b801d2dc9"
+      },
+      {
+        "path": "fp16/configure.log",
+        "source": "/tmp/luisa-legacy-exporter-v2.AoHQLS/export/configure.log",
+        "size": 1267,
+        "sha256": "cebb8fae2c4a425226333bdf5b337f4c2d61206df077f8a28431de37d1a2fdf0"
+      },
+      {
+        "path": "fp16/build.log",
+        "source": "/tmp/luisa-legacy-exporter-v2.AoHQLS/export/build.log",
+        "size": 60724,
+        "sha256": "7603bb5f8059b1f13fe9b2c4987a40890eec68750b676abdbea21f952f79626e"
+      },
+      {
+        "path": "sized/provenance.json",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/export/provenance.json",
+        "size": 7540,
+        "sha256": "1b9b839f377d4401b65054a632fa33897415dc0d4c7ecf667e10223028b3f116"
+      },
+      {
+        "path": "sized/original-source.json",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/export/original-source.json",
+        "size": 1583334,
+        "sha256": "d7cd83a0f02d192e16974fdb88cb35ef08ca4c303c47c75f3bce834b801d2dc9"
+      },
+      {
+        "path": "sized/configure.log",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/export/configure.log",
+        "size": 1261,
+        "sha256": "54339bc4a6c7d8f17a3be386667d3d8f19d41ae7bff3ba682f2b971cf98e7957"
+      },
+      {
+        "path": "sized/build.log",
+        "source": "/tmp/luisa-legacy-sized.48L5xz/export/build.log",
+        "size": 60281,
+        "sha256": "05f59746712ed4e1fd2d37c3366a1220e3edfe832f7a27a7a0f33ade910309b7"
+      }
+    ]
+  },
+  "precision-matrix-v2-source-and-final-validation.tar.gz": {
+    "size": 110285,
+    "sha256": "f1f6a863e1356e8e7bd35d7ffa27f2b96f0195a385ca29493a564cd3ffad4754",
+    "members": [
+      {
+        "path": "examples/compute/tile/kernels.h",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/source/examples/compute/tile/kernels.h",
+        "size": 9075,
+        "sha256": "c73a2f5e00d1800a918e6dab0fb88458fae889b928b495c831a5c4e6c869c894"
+      },
+      {
+        "path": "src/tests/common/tile_migrated_test_utils.h",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/source/src/tests/common/tile_migrated_test_utils.h",
+        "size": 7726,
+        "sha256": "6539adb194c6750b1d55178bdba77285782b946484bbba59cf9a72126b96060d"
+      },
+      {
+        "path": "src/tests/benchmark/benchmark_tile_migrated.cpp",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/source/src/tests/benchmark/benchmark_tile_migrated.cpp",
+        "size": 17928,
+        "sha256": "36f44aa74018ec2d3e87a6541b3bd03f61b27c7ea643aa8ceffe32a0cf02f165"
+      },
+      {
+        "path": "src/tests/unit/tile/test_tile_migrated.cpp",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/source/src/tests/unit/tile/test_tile_migrated.cpp",
+        "size": 5889,
+        "sha256": "ad6dda6ee5e501bac448cb47ef74648b19b9363e47e4179a863d131b45ec1711"
+      },
+      {
+        "path": "src/tests/CMakeLists.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/source/src/tests/CMakeLists.txt",
+        "size": 90180,
+        "sha256": "32562413e1b8f46b66f6e1ee5b5bb32cce57841c92ec44d20b96a7ef646a889f"
+      },
+      {
+        "path": "src/tests/xmake.lua",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/source/src/tests/xmake.lua",
+        "size": 34122,
+        "sha256": "520d5768cf7aa2e6310c7487798d02dbc209dbd5ceab24810f22c4357fbd40e0"
+      },
+      {
+        "path": "docs/source/performance/validation.md",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/source/docs/source/performance/validation.md",
+        "size": 1582,
+        "sha256": "08bb95b91daefa3fad43a6abad0668ab1cf95fd5ca854c0a0c710d37285c8863"
+      },
+      {
+        "path": "include/luisa/tile/types.h",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/source/include/luisa/tile/types.h",
+        "size": 6718,
+        "sha256": "d4feafd391c80688db96c8789ce70220cfb8097edfa4ed9fd1e7a61e1b3ef424"
+      },
+      {
+        "path": "include/luisa/tile/ir.h",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/source/include/luisa/tile/ir.h",
+        "size": 26780,
+        "sha256": "b5a965ea9114b58bbdd4cd9ded3f114fea46297eba51d693dad042e36fc6291e"
+      },
+      {
+        "path": "include/luisa/tile/dsl.h",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/source/include/luisa/tile/dsl.h",
+        "size": 37404,
+        "sha256": "7d8338a236a7ca36ab376f71a3d65bacd73ba8126f7d18f499c70e8d20a72aa3"
+      },
+      {
+        "path": "include/luisa/tile/value.h",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/source/include/luisa/tile/value.h",
+        "size": 22513,
+        "sha256": "0f410bac0bc9bb92202ffe5ac0b8928f3c709615b6a598f01123d358f37e510e"
+      },
+      {
+        "path": "include/luisa/tile/runtime.h",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/source/include/luisa/tile/runtime.h",
+        "size": 7041,
+        "sha256": "a073a98672de228a3d481d68dee744fee331536dd4e8528a743678a26e154e54"
+      },
+      {
+        "path": "src/tile/bridge/xir/lower.cpp",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/source/src/tile/bridge/xir/lower.cpp",
+        "size": 67492,
+        "sha256": "6c00e44544fb62149783266f5114674463b617f61fdc0c5fe3c5a20fb58b0b24"
+      },
+      {
+        "path": "src/tile/bridge/tirx/lower.cpp",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/source/src/tile/bridge/tirx/lower.cpp",
+        "size": 66931,
+        "sha256": "ad476cf0690e2b5f9a2ea45e53391eb85b6a3c74896ef034c0ed3d3d59c15c70"
+      },
+      {
+        "path": "src/tile/bridge/tirx/execution.cpp",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/source/src/tile/bridge/tirx/execution.cpp",
+        "size": 43939,
+        "sha256": "89992d8f1cc964212ebbca00cdbce3d8e5c1650b0a9551d389642848411021a5"
+      },
+      {
+        "path": "src/backends/metal/tile/metal_tile.cpp",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/source/src/backends/metal/tile/metal_tile.cpp",
+        "size": 12633,
+        "sha256": "84e0466728817b9e6148f2d36af9c1999607da89381c2acd7ac3a79f534d7198"
+      },
+      {
+        "path": "src/tests/unit/tile/test_tile_types.cpp",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/source/src/tests/unit/tile/test_tile_types.cpp",
+        "size": 13228,
+        "sha256": "7e193d29b8e72b100be36af9a8e55207bc6b3d7cbb3b42d5f7c8d85db6194d9a"
+      },
+      {
+        "path": "validation/precision-matrix-regression-build.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-matrix-regression-build.log",
+        "size": 70270,
+        "sha256": "0d710fc5f49625a1c618d21b19ce232b0d46dc54c5b6568ac94b2aee30d070c1"
+      },
+      {
+        "path": "validation/precision-matrix-regression-metal-codegen.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-matrix-regression-metal-codegen.log",
+        "size": 353,
+        "sha256": "fe386466bd20bbce30dba5caf63cbaa85de0efa1c98521ef7557e43a72a73cf0"
+      },
+      {
+        "path": "validation/precision-matrix-regression-metal-codegen.xml",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-matrix-regression-metal-codegen.xml",
+        "size": 1101,
+        "sha256": "a4f3a188fa9169d76bdfc9444215c71c79ad7c8fa261cbdee3ab5a34ca1813c4"
+      },
+      {
+        "path": "validation/precision-matrix-regression-tile.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-matrix-regression-tile.log",
+        "size": 5741,
+        "sha256": "2221190600b76637b88c9fb9fccdf61e94366c15666db8a1cf08e70ccce52187"
+      },
+      {
+        "path": "validation/precision-matrix-regression-tile.xml",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-matrix-regression-tile.xml",
+        "size": 20565,
+        "sha256": "dcff13e56d68b3619ba9ca6861b20b26e2495a3acc8fa1b82055f512cb6793ff"
+      },
+      {
+        "path": "validation/precision-matrix-regression-xir-simd.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-matrix-regression-xir-simd.log",
+        "size": 11546,
+        "sha256": "845ec5dd957f5e931531829d30aec572a2ef65ba0dfe935424772426d67deffc"
+      },
+      {
+        "path": "validation/precision-matrix-regression-xir-simd.xml",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-matrix-regression-xir-simd.xml",
+        "size": 41631,
+        "sha256": "3db63526747f095100c75411176b3ce30cc9a37a545667c8b9a3389d37ce5693"
+      },
+      {
+        "path": "validation/precision-matrix-regression.json",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-matrix-regression.json",
+        "size": 6468,
+        "sha256": "fc920d6640eca1541f901bae59baf08e7f3de345a3d6507dd6ef6e3f68ead36f"
+      },
+      {
+        "path": "validation/precision-matrix-v2-build.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-matrix-v2-build.log",
+        "size": 915,
+        "sha256": "4593fe747a6569f17e6c55ce65a7de892dd43c5ef11974d5484c9d8f109fc0fd"
+      },
+      {
+        "path": "validation/precision-matrix-v2-migration.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-matrix-v2-migration.log",
+        "size": 781,
+        "sha256": "3515fd6fd70b17920491e9d6456900eb596befd266cca0628a40714ecb61910b"
+      },
+      {
+        "path": "validation/precision-matrix-v2-syntax.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-matrix-v2-syntax.log",
+        "size": 22,
+        "sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2"
+      },
+      {
+        "path": "validation/precision-matrix-v2-types.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-matrix-v2-types.log",
+        "size": 772,
+        "sha256": "caa81d7b1ab449a4d3d1d1b15afd439583e3aefad90b9994a204234f567c832d"
+      },
+      {
+        "path": "validation/precision-matrix-v2.json",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-matrix-v2.json",
+        "size": 3554,
+        "sha256": "40db386ac829359abd763d2eecf813a86cb609a3e68b70cf3b40bb3562a0627b"
+      }
+    ]
+  },
+  "precision-final-boundary-source-and-validation.tar.gz": {
+    "size": 93180,
+    "sha256": "62f82942c6b349de6507881bcfc84ff5e52c4409f1d59bfd1d574a5c76a44b3f",
+    "members": [
+      {
+        "path": "examples/compute/tile/kernels.h",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/source/examples/compute/tile/kernels.h",
+        "size": 9075,
+        "sha256": "c73a2f5e00d1800a918e6dab0fb88458fae889b928b495c831a5c4e6c869c894"
+      },
+      {
+        "path": "src/tests/common/tile_migrated_test_utils.h",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/source/src/tests/common/tile_migrated_test_utils.h",
+        "size": 7726,
+        "sha256": "6539adb194c6750b1d55178bdba77285782b946484bbba59cf9a72126b96060d"
+      },
+      {
+        "path": "src/tests/benchmark/benchmark_tile_migrated.cpp",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/source/src/tests/benchmark/benchmark_tile_migrated.cpp",
+        "size": 17928,
+        "sha256": "36f44aa74018ec2d3e87a6541b3bd03f61b27c7ea643aa8ceffe32a0cf02f165"
+      },
+      {
+        "path": "src/tests/unit/tile/test_tile_migrated.cpp",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/source/src/tests/unit/tile/test_tile_migrated.cpp",
+        "size": 5889,
+        "sha256": "ad6dda6ee5e501bac448cb47ef74648b19b9363e47e4179a863d131b45ec1711"
+      },
+      {
+        "path": "src/tests/CMakeLists.txt",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/source/src/tests/CMakeLists.txt",
+        "size": 90180,
+        "sha256": "32562413e1b8f46b66f6e1ee5b5bb32cce57841c92ec44d20b96a7ef646a889f"
+      },
+      {
+        "path": "src/tests/xmake.lua",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/source/src/tests/xmake.lua",
+        "size": 34122,
+        "sha256": "520d5768cf7aa2e6310c7487798d02dbc209dbd5ceab24810f22c4357fbd40e0"
+      },
+      {
+        "path": "docs/source/performance/validation.md",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/source/docs/source/performance/validation.md",
+        "size": 1582,
+        "sha256": "08bb95b91daefa3fad43a6abad0668ab1cf95fd5ca854c0a0c710d37285c8863"
+      },
+      {
+        "path": "include/luisa/tile/types.h",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/source/include/luisa/tile/types.h",
+        "size": 6718,
+        "sha256": "d4feafd391c80688db96c8789ce70220cfb8097edfa4ed9fd1e7a61e1b3ef424"
+      },
+      {
+        "path": "include/luisa/tile/ir.h",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/source/include/luisa/tile/ir.h",
+        "size": 26780,
+        "sha256": "b5a965ea9114b58bbdd4cd9ded3f114fea46297eba51d693dad042e36fc6291e"
+      },
+      {
+        "path": "include/luisa/tile/dsl.h",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/source/include/luisa/tile/dsl.h",
+        "size": 37404,
+        "sha256": "7d8338a236a7ca36ab376f71a3d65bacd73ba8126f7d18f499c70e8d20a72aa3"
+      },
+      {
+        "path": "include/luisa/tile/value.h",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/source/include/luisa/tile/value.h",
+        "size": 22513,
+        "sha256": "0f410bac0bc9bb92202ffe5ac0b8928f3c709615b6a598f01123d358f37e510e"
+      },
+      {
+        "path": "include/luisa/tile/runtime.h",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/source/include/luisa/tile/runtime.h",
+        "size": 7041,
+        "sha256": "a073a98672de228a3d481d68dee744fee331536dd4e8528a743678a26e154e54"
+      },
+      {
+        "path": "src/tile/bridge/xir/lower.cpp",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/source/src/tile/bridge/xir/lower.cpp",
+        "size": 67492,
+        "sha256": "6c00e44544fb62149783266f5114674463b617f61fdc0c5fe3c5a20fb58b0b24"
+      },
+      {
+        "path": "src/tile/bridge/tirx/lower.cpp",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/source/src/tile/bridge/tirx/lower.cpp",
+        "size": 67375,
+        "sha256": "af7eddcb2aea7404b460c6878a98421801b307079cc63ae60fd7d4434572bbd8"
+      },
+      {
+        "path": "src/tile/bridge/tirx/execution.cpp",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/source/src/tile/bridge/tirx/execution.cpp",
+        "size": 43939,
+        "sha256": "89992d8f1cc964212ebbca00cdbce3d8e5c1650b0a9551d389642848411021a5"
+      },
+      {
+        "path": "src/backends/metal/tile/metal_tile.cpp",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/source/src/backends/metal/tile/metal_tile.cpp",
+        "size": 12633,
+        "sha256": "84e0466728817b9e6148f2d36af9c1999607da89381c2acd7ac3a79f534d7198"
+      },
+      {
+        "path": "src/tests/unit/tile/test_tile_types.cpp",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/source/src/tests/unit/tile/test_tile_types.cpp",
+        "size": 13614,
+        "sha256": "7724e090f4247b26819fd1738b4e0505f1a721307a09ace4157aae2fe454afc3"
+      },
+      {
+        "path": "validation/precision-final-boundary.json",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-boundary.json",
+        "size": 3575,
+        "sha256": "5d57e79366735805aa146e3e65d3deb07e5b39f7dd9b5d795c2683b6032cf79e"
+      },
+      {
+        "path": "validation/precision-final-boundary-build.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-boundary-build.log",
+        "size": 2502,
+        "sha256": "e6bddea6da2a1bf6ba72e6fdcec4f2be47a5e5e00605733e79705a2270449baa"
+      },
+      {
+        "path": "validation/precision-final-boundary-types.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-boundary-types.log",
+        "size": 772,
+        "sha256": "97e9e6e15bf80abbb793afe7114e3320ddfe85c5ce96f9e524b1408896d3089e"
+      },
+      {
+        "path": "validation/precision-final-boundary-migration.log",
+        "source": "/private/tmp/luisa-next-integration.roZbN8/precision-final-boundary-migration.log",
+        "size": 781,
+        "sha256": "62a14e35953af63a6d46eea645df4169551ddec8784119fcef9427fed38165bb"
+      }
+    ]
+  }
+}

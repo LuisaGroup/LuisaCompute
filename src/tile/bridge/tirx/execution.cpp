@@ -464,7 +464,7 @@ void element_sequence(const tvm::tirx::Stmt &body, luisa::vector<tvm::tirx::Stmt
     }
 }
 
-using ElementScalars = luisa::unordered_map<const tvm::tirx::VarNode *, tvm::tirx::PrimVar>;
+using ElementScalars = luisa::unordered_map<const tvm::tirx::VarNode *, tvm::PrimExpr>;
 
 [[nodiscard]] bool pure_element_call(const tvm::CallNode *call) {
     static auto effects = tvm::Op::GetAttrMap<tvm::tirx::TCallEffectKind>("TCallEffectKind");
@@ -583,9 +583,19 @@ struct ElementProgram {
         }
         auto value = reads.value(store->value);
         if (!reads.valid) { return {}; }
-        auto scalar = tvm::tirx::PrimVar{store->buffer.name() + "_element", store->buffer->dtype};
-        points.push_back(tvm::tirx::Bind{scalar, std::move(value)});
-        scalars.emplace(store->buffer.get(), std::move(scalar));
+        auto dtype = store->buffer->dtype;
+        if (dtype == tvm::PrimType::BFloat(16)) {
+            // A fused scalar must retain the original BF16 rounding event.
+            // Keep its exact bits in the binding: the pinned TVMx BF16 pass
+            // promotes Bind values but does not consistently retype the Var.
+            auto scalar = tvm::tirx::PrimVar{store->buffer.name() + "_bits", tvm::PrimType::UInt(16)};
+            points.push_back(tvm::tirx::Bind{scalar, tvm::reinterpret(tvm::PrimType::UInt(16), std::move(value))});
+            scalars.emplace(store->buffer.get(), tvm::reinterpret(dtype, scalar));
+        } else {
+            auto scalar = tvm::tirx::PrimVar{store->buffer.name() + "_element", dtype};
+            points.push_back(tvm::tirx::Bind{scalar, std::move(value)});
+            scalars.emplace(store->buffer.get(), std::move(scalar));
+        }
     }
     if (scalars.size() != allocated.size()) { return {}; }
     consumer->point = tvm::tirx::SeqStmt::Flatten(points);

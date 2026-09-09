@@ -9,11 +9,12 @@ results
 reductions
 validation
 checkpoints
+migration
 ```
 
 ## Current conclusion
 
-As of September 9, 2026, on `codex/tile-programming-design`:
+As of September 9, 2026, development is on `next` (merged at `2d02721b8`):
 **the architecture runs, but the general MPS/Torch performance goal is not
 complete.** Several bounded FP32 cohorts on Apple M1 Max beat eager Torch;
 large GEMM and direct XIR/SIMD still have substantial gaps. These results do
@@ -25,6 +26,11 @@ planned rather than mechanically copied from logical hierarchy. Backend-owned
 cost policies are extensible; their legal candidates and calibration remain
 bounded. See [coverage](implementation.md) and
 [compiler architecture](../../internals/tile/index.md).
+
+The [legacy migration / low-precision checkpoint](migration.md) adds reusable
+examples and FP16/BF16 coverage. Its diagnostic comparisons retain unstable
+FP16 wins/regressions and large scan regressions; they do not replace the qualified
+Torch/MPS scoreboard below.
 
 ## How to read the performance evidence
 

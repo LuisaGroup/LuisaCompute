@@ -162,17 +162,7 @@ template<scalar_cpp_type T, typename F>
 
 template<scalar_cpp_type T>
 [[nodiscard]] Tile<T> full(const IndexSpace &space, T value) noexcept {
-    Attribute attribute;
-    if constexpr (std::same_as<T, bool>) {
-        attribute = Attribute{value};
-    } else if constexpr (std::floating_point<T>) {
-        attribute = Attribute{static_cast<double>(value)};
-    } else if constexpr (std::signed_integral<T>) {
-        attribute = Attribute{static_cast<int64_t>(value)};
-    } else {
-        attribute = Attribute{static_cast<uint64_t>(value)};
-    }
-    return Tile<T>{detail::make_tile_constant(scalar_type_v<T>, space, std::move(attribute))};
+    return Tile<T>{detail::make_tile_constant(scalar_type_v<T>, space, detail::scalar_attribute(value))};
 }
 
 template<scalar_cpp_type T>
@@ -437,7 +427,7 @@ struct AddReduction {
 struct MaxReduction {
     template<scalar_cpp_type T>
     [[nodiscard]] static constexpr T identity() noexcept {
-        if constexpr (std::floating_point<T>) {
+        if constexpr (floating_scalar_cpp_type<T> && std::numeric_limits<T>::has_infinity) {
             return -std::numeric_limits<T>::infinity();
         } else {
             return std::numeric_limits<T>::lowest();
@@ -449,7 +439,7 @@ struct MaxReduction {
 struct MinReduction {
     template<scalar_cpp_type T>
     [[nodiscard]] static constexpr T identity() noexcept {
-        if constexpr (std::floating_point<T>) {
+        if constexpr (floating_scalar_cpp_type<T> && std::numeric_limits<T>::has_infinity) {
             return std::numeric_limits<T>::infinity();
         } else {
             return std::numeric_limits<T>::max();

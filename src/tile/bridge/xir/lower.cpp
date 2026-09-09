@@ -6,6 +6,7 @@
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/tile/bridge/xir/lower.h>
 #include <luisa/tile/verifier.h>
+#include <luisa/tile/types.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/constant.h>
 #include <luisa/xir/verifier.h>
@@ -99,10 +100,21 @@ private:
         if (type.kind() == TypeKind::INDEX) { return XType::of<int64_t>(); }
         switch (type.scalar_type()) {
             case ScalarType::BOOL: return XType::of<bool>();
+            case ScalarType::INT8: return XType::of<int8_t>();
+            case ScalarType::UINT8: return XType::of<uint8_t>();
+            case ScalarType::INT16: return XType::of<int16_t>();
+            case ScalarType::UINT16: return XType::of<uint16_t>();
             case ScalarType::INT32: return XType::of<int32_t>();
             case ScalarType::UINT32: return XType::of<uint32_t>();
             case ScalarType::INT64: return XType::of<int64_t>();
             case ScalarType::UINT64: return XType::of<uint64_t>();
+            case ScalarType::FLOAT16: return XType::of<half>();
+            // BF16 is represented by its bits until an arithmetic consumer.
+            // This is not an integer numeric cast; see _cast/_elementwise.
+            case ScalarType::BFLOAT16: return XType::of<uint16_t>();
+            case ScalarType::FLOAT8_E4M3FN:
+            case ScalarType::FLOAT8_E5M2:
+                _fail("Tile to XIR: FP8 storage/conversion legalization is not implemented; use a capable bridge or explicitly unpack to FP16/FP32");
             case ScalarType::FLOAT32: return XType::of<float>();
             case ScalarType::FLOAT64: return XType::of<double>();
             default: _fail("unsupported scalar type in Tile to XIR bridge");
@@ -369,7 +381,7 @@ private:
         auto coordinates = _coordinates(domain, flat);
         Elements inputs;
         for (auto input : data->inputs) { inputs.emplace_back(_project(input, domain, coordinates)); }
-        return _elementwise(data->expression->elementwise_op(), _type(*data->type), inputs);
+        return _elementwise(*data->expression, inputs);
     }
     [[nodiscard]] x::Value *_read(const Representation *data, x::Value *flat) {
         if (auto found = _fused_elements.find(data); found != _fused_elements.end()) { return found->second; }
@@ -448,6 +460,53 @@ private:
             default: _fail("unsupported Tile elementwise opcode");
         }
     }
+    [[nodiscard]] x::Value *_unpack_bfloat16(x::Value *bits) {
+        auto word = _builder.static_cast_if_necessary(XType::of<uint32_t>(), bits);
+        return _builder.bit_cast_(XType::of<float>(), _binary(A::BINARY_SHIFT_LEFT, word, _constant(uint32_t{16u})));
+    }
+    [[nodiscard]] x::Value *_pack_bfloat16(x::Value *value) {
+        value = _builder.static_cast_if_necessary(XType::of<float>(), value);
+        auto bits = _builder.bit_cast_(XType::of<uint32_t>(), value);
+        auto high = _binary(A::BINARY_SHIFT_RIGHT, bits, _constant(uint32_t{16u}));
+        auto odd = _binary(A::BINARY_BIT_AND, high, _constant(uint32_t{1u}));
+        auto rounded = _binary(A::BINARY_SHIFT_RIGHT,
+                               _binary(A::BINARY_ADD, bits, _binary(A::BINARY_ADD, _constant(uint32_t{0x7fffu}), odd)),
+                               _constant(uint32_t{16u}));
+        auto nan = _compare(A::BINARY_GREATER, _binary(A::BINARY_BIT_AND, bits, _constant(uint32_t{0x7fffffffu})),
+                            _constant(uint32_t{0x7f800000u}));
+        auto quiet = _binary(A::BINARY_BIT_OR, high, _constant(uint32_t{0x40u}));
+        auto result = _alu(XType::of<uint32_t>(), A::SELECT, {rounded, quiet, nan});
+        return _builder.static_cast_if_necessary(XType::of<uint16_t>(), result);
+    }
+    [[nodiscard]] x::Value *_cast(const Type &to, const Type &from, x::Value *value) {
+        if (to.scalar_type() == from.scalar_type() && to.kind() != TypeKind::INDEX && from.kind() != TypeKind::INDEX) { return value; }
+        if (from.scalar_type() == ScalarType::BFLOAT16) { value = _unpack_bfloat16(value); }
+        if (to.scalar_type() == ScalarType::BFLOAT16) {
+            // Avoid silently double-rounding a wide source through FP32.
+            if (from.kind() == TypeKind::INDEX || from.scalar_type() == ScalarType::FLOAT64 ||
+                from.scalar_type() == ScalarType::INT64 || from.scalar_type() == ScalarType::UINT64 ||
+                from.scalar_type() == ScalarType::INT32 || from.scalar_type() == ScalarType::UINT32) {
+                _fail("Tile to XIR: wide-source BF16 conversion requires an explicit intermediate cast<float>");
+            }
+            return _pack_bfloat16(value);
+        }
+        return _builder.static_cast_if_necessary(_type(to), value);
+    }
+    [[nodiscard]] x::Value *_elementwise(const Operation &operation, const Elements &inputs) {
+        auto op = operation.elementwise_op();
+        auto &result = operation.result(0u)->type();
+        if (op == ElementwiseOp::CAST) { return _cast(result, operation.operand(0u)->type(), inputs[0u]); }
+        // Selection and identity moves operate on encoded values unchanged.
+        if (op == ElementwiseOp::SELECT) { return _elementwise(op, _type(result), inputs); }
+        Elements values = inputs;
+        for (size_t i = 0u; i < values.size(); i++) {
+            if (operation.operand(i)->type().scalar_type() == ScalarType::BFLOAT16) { values[i] = _unpack_bfloat16(values[i]); }
+        }
+        if (result.scalar_type() == ScalarType::BFLOAT16) {
+            return _pack_bfloat16(_elementwise(op, XType::of<float>(), values));
+        }
+        return _elementwise(op, _type(result), values);
+    }
     [[nodiscard]] x::Value *_literal(const Operation &op) {
         auto attribute = op.attribute("value");
         if (attribute == nullptr) { _fail("Tile constant is missing its value"); }
@@ -458,6 +517,11 @@ private:
         if (auto item = luisa::get_if<uint64_t>(&payload)) { value = _constant(*item); }
         if (auto item = luisa::get_if<double>(&payload)) { value = _constant(*item); }
         if (value == nullptr) { _fail("invalid Tile constant payload"); }
+        if (op.result(0u)->type().scalar_type() == ScalarType::BFLOAT16) {
+            // The frontend has already rounded its host BF16 literal.
+            if (auto item = luisa::get_if<double>(&payload)) { return _constant(bfloat16{static_cast<float>(*item)}.bits()); }
+            _fail("BF16 constant requires a floating payload");
+        }
         return _builder.static_cast_if_necessary(_type(op.result(0)->type()), value);
     }
     [[nodiscard]] x::Value *_guarded_load(x::Value *condition, x::Value *buffer, x::Value *address, x::Value *fallback) {
@@ -646,7 +710,7 @@ private:
                         Elements inputs;
                         inputs.reserve(op->operand_count());
                         for (size_t i = 0u; i < op->operand_count(); i++) { inputs.emplace_back(read(op->operand(i))); }
-                        elements.emplace(op->result(0u), _elementwise(op->elementwise_op(), _type(op->result(0u)->type()), inputs));
+                        elements.emplace(op->result(0u), _elementwise(*op, inputs));
                         break;
                     }
                     case OperationKind::VIEW_LOAD: elements.emplace(op->result(0u), _view_element(accesses.at(op), flat)); break;
@@ -706,7 +770,6 @@ private:
         auto update = closed->update;
         auto yield = closed->yield;
         auto left = closed->carry_left;
-        auto kind = update->elementwise_op();
         auto contribution = closed->contribution;
         auto lanes = distributed ? _options.local_lanes : 1u;
         auto count = total / lanes;
@@ -746,7 +809,7 @@ private:
             return result;
         };
         auto combine = [&](x::Value *a, x::Value *b) {
-            return _elementwise(kind, type, left ? Elements{a, b} : Elements{b, a});
+            return _elementwise(*update, left ? Elements{a, b} : Elements{b, a});
         };
         Elements seeds;
         for (uint64_t p = 0u; p < partitions; p++) { seeds.emplace_back(evaluate(_index(p))); }
@@ -941,15 +1004,17 @@ private:
                 static_cast<void>(domain.add(axis.dimension, axis.extent));
             }
         }
-        auto type = _type(result->type());
         _emit_tile(result, [&](x::Value *flat) {
             auto coordinates = _coordinates(space, flat);
             auto initial = _read(_get(op.operand(2u)), flat);
             return _fold(_volume(contraction), initial, [&](x::Value *k, x::Value *sum) {
                 auto full = coordinates;
                 for (auto coordinate : _coordinates(contraction, k)) { full.emplace_back(coordinate); }
-                auto a = _builder.static_cast_if_necessary(type, _project(_get(op.operand(0u)), domain, full));
-                auto b = _builder.static_cast_if_necessary(type, _project(_get(op.operand(1u)), domain, full));
+                auto a = _cast(result->type(), op.operand(0u)->type(), _project(_get(op.operand(0u)), domain, full));
+                auto b = _cast(result->type(), op.operand(1u)->type(), _project(_get(op.operand(1u)), domain, full));
+                if (result->type().scalar_type() == ScalarType::BFLOAT16) {
+                    _fail("Tile to XIR: BF16 MMA accumulation requires an explicit FP32 accumulator");
+                }
                 return _binary(A::BINARY_ADD, sum, _binary(A::BINARY_MUL, a, b));
             });
         });
@@ -1001,7 +1066,7 @@ private:
                     auto coordinates = _coordinates(domain, flat);
                     Elements inputs;
                     for (size_t j = 0u; j < op.operand_count(); j++) { inputs.emplace_back(_project(_get(op.operand(j)), domain, coordinates)); }
-                    return _elementwise(op.elementwise_op(), _type(result->type()), inputs);
+                    return _elementwise(op, inputs);
                 };
                 if (result->type().is_tile()) {
                     _emit_tile(result, evaluate);

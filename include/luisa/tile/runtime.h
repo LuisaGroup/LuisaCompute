@@ -6,6 +6,22 @@
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/shader.h>
 
+// Runtime buffer allocation only needs the host storage ABI. Keep these
+// wrappers distinct from integer data in Tile metadata and never teach the
+// ordinary SIMT DSL that integer arithmetic is BF16/FP8 arithmetic.
+namespace luisa::compute::detail {
+template<>
+struct TypeDesc<tile::bfloat16> {
+    // Runtime structures have a minimum alignment of four. A one-element
+    // storage array preserves the two-byte ABI without adding a SIMT type.
+    [[nodiscard]] static constexpr luisa::string_view description() noexcept { return "array<ushort,1>"; }
+};
+template<bool E4M3FN>
+struct TypeDesc<tile::detail::Float8Storage<E4M3FN>> {
+    [[nodiscard]] static constexpr luisa::string_view description() noexcept { return "array<ubyte,1>"; }
+};
+}// namespace luisa::compute::detail
+
 namespace luisa::compute::tile {
 
 namespace bridge::tirx {

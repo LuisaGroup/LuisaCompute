@@ -15,6 +15,7 @@
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/tile/ir.h>
+#include <luisa/tile/types.h>
 
 namespace luisa::compute::tile {
 
@@ -233,6 +234,10 @@ LUISA_TILE_DEFINE_SCALAR_TYPE(int32_t, INT32);
 LUISA_TILE_DEFINE_SCALAR_TYPE(uint32_t, UINT32);
 LUISA_TILE_DEFINE_SCALAR_TYPE(int64_t, INT64);
 LUISA_TILE_DEFINE_SCALAR_TYPE(uint64_t, UINT64);
+LUISA_TILE_DEFINE_SCALAR_TYPE(half, FLOAT16);
+LUISA_TILE_DEFINE_SCALAR_TYPE(bfloat16, BFLOAT16);
+LUISA_TILE_DEFINE_SCALAR_TYPE(float8_e4m3fn, FLOAT8_E4M3FN);
+LUISA_TILE_DEFINE_SCALAR_TYPE(float8_e5m2, FLOAT8_E5M2);
 LUISA_TILE_DEFINE_SCALAR_TYPE(float, FLOAT32);
 LUISA_TILE_DEFINE_SCALAR_TYPE(double, FLOAT64);
 
@@ -249,6 +254,30 @@ concept arithmetic_scalar_cpp_type = scalar_cpp_type<T> && !std::same_as<std::re
 
 template<typename T>
 concept integral_scalar_cpp_type = std::integral<T> && !std::same_as<std::remove_cv_t<T>, bool>;
+
+template<typename T>
+concept floating_scalar_cpp_type = scalar_cpp_type<T> &&
+    (luisa::is_floating_point_v<T> || std::same_as<std::remove_cv_t<T>, bfloat16> ||
+     std::same_as<std::remove_cv_t<T>, float8_e4m3fn> || std::same_as<std::remove_cv_t<T>, float8_e5m2>);
+
+namespace detail {
+
+template<scalar_cpp_type T>
+[[nodiscard]] Attribute scalar_attribute(T value) noexcept {
+    if constexpr (std::same_as<T, bool>) {
+        return Attribute{value};
+    } else if constexpr (std::floating_point<T>) {
+        return Attribute{static_cast<double>(value)};
+    } else if constexpr (floating_scalar_cpp_type<T>) {
+        return Attribute{static_cast<double>(static_cast<float>(value))};
+    } else if constexpr (std::signed_integral<T>) {
+        return Attribute{static_cast<int64_t>(value)};
+    } else {
+        return Attribute{static_cast<uint64_t>(value)};
+    }
+}
+
+}// namespace detail
 
 template<typename T>
 class Scalar final {
@@ -284,15 +313,7 @@ public:
 
     Scalar() noexcept = default;
     Scalar(T value) noexcept {// NOLINT(google-explicit-constructor)
-        if constexpr (std::is_same_v<T, bool>) {
-            _handle = detail::make_constant(scalar_type_v<T>, Attribute{value});
-        } else if constexpr (std::is_floating_point_v<T>) {
-            _handle = detail::make_constant(scalar_type_v<T>, Attribute{static_cast<double>(value)});
-        } else if constexpr (std::is_signed_v<T>) {
-            _handle = detail::make_constant(scalar_type_v<T>, Attribute{static_cast<int64_t>(value)});
-        } else {
-            _handle = detail::make_constant(scalar_type_v<T>, Attribute{static_cast<uint64_t>(value)});
-        }
+        _handle = detail::make_constant(scalar_type_v<T>, detail::scalar_attribute(value));
     }
 
     Scalar(const Scalar &) noexcept = default;
@@ -491,16 +512,16 @@ template<scalar_cpp_type T>
     return detail_make_unary(ElementwiseOp::LOGICAL_NOT, value);
 }
 
-template<std::floating_point T>
+template<floating_scalar_cpp_type T>
 [[nodiscard]] inline Scalar<T> exp(const Scalar<T> &value) noexcept { return detail_make_unary(ElementwiseOp::EXP, value); }
-template<std::floating_point T>
+template<floating_scalar_cpp_type T>
 [[nodiscard]] inline Scalar<T> log(const Scalar<T> &value) noexcept { return detail_make_unary(ElementwiseOp::LOG, value); }
-template<std::floating_point T>
+template<floating_scalar_cpp_type T>
 [[nodiscard]] inline Scalar<T> sqrt(const Scalar<T> &value) noexcept { return detail_make_unary(ElementwiseOp::SQRT, value); }
-template<std::floating_point T>
+template<floating_scalar_cpp_type T>
 [[nodiscard]] inline Scalar<T> tanh(const Scalar<T> &value) noexcept { return detail_make_unary(ElementwiseOp::TANH, value); }
 template<typename T>
-    requires(std::signed_integral<T> || std::floating_point<T>)
+    requires(std::signed_integral<T> || floating_scalar_cpp_type<T>)
 [[nodiscard]] inline Scalar<T> abs(const Scalar<T> &value) noexcept { return detail_make_unary(ElementwiseOp::ABS, value); }
 template<arithmetic_scalar_cpp_type T>
 [[nodiscard]] inline Scalar<T> min(const Scalar<T> &lhs, const Scalar<T> &rhs) noexcept {

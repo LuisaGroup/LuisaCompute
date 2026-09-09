@@ -45,9 +45,14 @@ ShaderCreationInfo MetalDevice::create_tile_kernel(const ShaderOption &requested
             auto root = kernel.body().block(0u);
             for (auto &arg : root->arguments()) {
                 auto volume = arg->type().index_space()->static_volume();
-                if (arg->type().scalar_type() != tile::ScalarType::FLOAT32 || !volume || *volume == 0u ||
-                    *volume > INT32_MAX || *volume > SIZE_MAX / sizeof(float)) {
-                    return fail("Metal TIRx Runtime currently requires nonempty, static, int32-addressable FP32 buffers");
+                auto element = arg->type().scalar_type();
+                if (element == tile::ScalarType::FLOAT8_E4M3FN || element == tile::ScalarType::FLOAT8_E5M2) {
+                    return fail("Metal TIRx Runtime: FP8 legalization is not qualified on the pinned TVMx/Metal path; encoded types remain available in TileIR");
+                }
+                auto element_size = tile::scalar_type_size(element);
+                if (!element_size || element == tile::ScalarType::FLOAT64 || !volume || *volume == 0u ||
+                    *volume > INT32_MAX || *volume > SIZE_MAX / element_size) {
+                    return fail("Metal TIRx Runtime requires nonempty, static, int32-addressable buffers with a supported scalar storage type (no FP64)");
                 }
                 auto usage = Usage::NONE;
                 for (auto use : arg->use_list()) {
@@ -58,7 +63,7 @@ ShaderCreationInfo MetalDevice::create_tile_kernel(const ShaderOption &requested
                         default: return fail("Unknown Tile view argument effect");
                     }
                 }
-                metadata.arguments.emplace_back(tile::KernelArgument{tile::ScalarType::FLOAT32, *volume * sizeof(float), usage});
+                metadata.arguments.emplace_back(tile::KernelArgument{element, *volume * element_size, usage});
             }
             auto max_threads = static_cast<uint32_t>(_handle->maxThreadsPerThreadgroup().width);
             auto shared = _handle->maxThreadgroupMemoryLength();

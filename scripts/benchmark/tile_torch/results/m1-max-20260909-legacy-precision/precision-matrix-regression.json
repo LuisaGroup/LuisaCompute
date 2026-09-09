@@ -1,0 +1,169 @@
+{
+  "source": {
+    "label": "precision-matrix-v1",
+    "base": "2d02721b89980cd9191976c64b05d00b2342a03d",
+    "overlay": {
+      "examples/compute/tile/kernels.h": "c73a2f5e00d1800a918e6dab0fb88458fae889b928b495c831a5c4e6c869c894",
+      "src/tests/common/tile_migrated_test_utils.h": "6539adb194c6750b1d55178bdba77285782b946484bbba59cf9a72126b96060d",
+      "src/tests/benchmark/benchmark_tile_migrated.cpp": "c918c39d8ffb7fcf9a3af45e7c7d16807c6cee6ed9cb0f80a9fdb0da45f202b4",
+      "src/tests/unit/tile/test_tile_migrated.cpp": "ad6dda6ee5e501bac448cb47ef74648b19b9363e47e4179a863d131b45ec1711",
+      "src/tests/CMakeLists.txt": "32562413e1b8f46b66f6e1ee5b5bb32cce57841c92ec44d20b96a7ef646a889f",
+      "src/tests/xmake.lua": "520d5768cf7aa2e6310c7487798d02dbc209dbd5ceab24810f22c4357fbd40e0",
+      "docs/source/performance/validation.md": "08bb95b91daefa3fad43a6abad0668ab1cf95fd5ca854c0a0c710d37285c8863",
+      "include/luisa/tile/types.h": "d4feafd391c80688db96c8789ce70220cfb8097edfa4ed9fd1e7a61e1b3ef424",
+      "include/luisa/tile/ir.h": "b5a965ea9114b58bbdd4cd9ded3f114fea46297eba51d693dad042e36fc6291e",
+      "include/luisa/tile/dsl.h": "7d8338a236a7ca36ab376f71a3d65bacd73ba8126f7d18f499c70e8d20a72aa3",
+      "include/luisa/tile/value.h": "0f410bac0bc9bb92202ffe5ac0b8928f3c709615b6a598f01123d358f37e510e",
+      "include/luisa/tile/runtime.h": "a073a98672de228a3d481d68dee744fee331536dd4e8528a743678a26e154e54",
+      "src/tile/bridge/xir/lower.cpp": "6c00e44544fb62149783266f5114674463b617f61fdc0c5fe3c5a20fb58b0b24",
+      "src/tile/bridge/tirx/lower.cpp": "ad476cf0690e2b5f9a2ea45e53391eb85b6a3c74896ef034c0ed3d3d59c15c70",
+      "src/tile/bridge/tirx/execution.cpp": "89992d8f1cc964212ebbca00cdbce3d8e5c1650b0a9551d389642848411021a5",
+      "src/backends/metal/tile/metal_tile.cpp": "84e0466728817b9e6148f2d36af9c1999607da89381c2acd7ac3a79f534d7198",
+      "src/tests/unit/tile/test_tile_types.cpp": "7e193d29b8e72b100be36af9a8e55207bc6b3d7cbb3b42d5f7c8d85db6194d9a"
+    },
+    "runs": [
+      {
+        "name": "build",
+        "argv": [
+          "cmake",
+          "--build",
+          "/private/tmp/luisa-next-integration.roZbN8/build",
+          "--target",
+          "test_tile_types",
+          "test_tile_migrated",
+          "benchmark_tile_migrated",
+          "--parallel",
+          "4"
+        ],
+        "started_unix": 1788944966.968092,
+        "log": "precision-matrix-v1-build.log",
+        "exit_code": 0,
+        "finished_unix": 1788944976.7863512,
+        "log_sha256": "7d53c815941ebbc5fd542f4e9ad901f057d1aaf51a143dfd1266c9cf9c540886"
+      },
+      {
+        "name": "types",
+        "argv": [
+          "ctest",
+          "--test-dir",
+          "/private/tmp/luisa-next-integration.roZbN8/build",
+          "-R",
+          "^test_tile_types(_simd|_metal)?$",
+          "--output-on-failure",
+          "--parallel",
+          "1"
+        ],
+        "started_unix": 1788944976.787151,
+        "log": "precision-matrix-v1-types.log",
+        "exit_code": 0,
+        "finished_unix": 1788944984.7081878,
+        "log_sha256": "e06a8a8dd1582a30b2b69da58aa947ad1f7ef46ff08be4d074c694041269f5b2"
+      },
+      {
+        "name": "migration",
+        "argv": [
+          "ctest",
+          "--test-dir",
+          "/private/tmp/luisa-next-integration.roZbN8/build",
+          "-R",
+          "^test_tile_migrated(_simd|_metal)?$",
+          "--output-on-failure",
+          "--parallel",
+          "1"
+        ],
+        "started_unix": 1788944984.709533,
+        "log": "precision-matrix-v1-migration.log",
+        "exit_code": 0,
+        "finished_unix": 1788945008.716217,
+        "log_sha256": "9097eaf154fb78d8d9370f53c5e8e0ab29ae4e3422dbc30ff38f317d15026a6d"
+      }
+    ]
+  },
+  "runs": [
+    {
+      "name": "build",
+      "argv": [
+        "cmake",
+        "--build",
+        "/private/tmp/luisa-next-integration.roZbN8/build",
+        "--parallel",
+        "4"
+      ],
+      "started_unix": 1788945214.9698071,
+      "log": "precision-matrix-regression-build.log",
+      "exit_code": 0,
+      "finished_unix": 1788945443.924484,
+      "log_sha256": "0d710fc5f49625a1c618d21b19ce232b0d46dc54c5b6568ac94b2aee30d070c1"
+    },
+    {
+      "name": "xir-simd",
+      "argv": [
+        "ctest",
+        "--test-dir",
+        "/private/tmp/luisa-next-integration.roZbN8/build",
+        "-L",
+        "unit_xir|unit_simd",
+        "--no-tests=error",
+        "--output-on-failure",
+        "--output-junit",
+        "/private/tmp/luisa-next-integration.roZbN8/precision-matrix-regression-xir-simd.xml"
+      ],
+      "started_unix": 1788945443.9252732,
+      "log": "precision-matrix-regression-xir-simd.log",
+      "exit_code": 0,
+      "finished_unix": 1788945527.783573,
+      "log_sha256": "845ec5dd957f5e931531829d30aec572a2ef65ba0dfe935424772426d67deffc",
+      "tests": 80,
+      "failures": 0,
+      "skipped": 0,
+      "junit": "precision-matrix-regression-xir-simd.xml"
+    },
+    {
+      "name": "tile",
+      "argv": [
+        "ctest",
+        "--test-dir",
+        "/private/tmp/luisa-next-integration.roZbN8/build",
+        "-R",
+        "^test_tile_",
+        "--no-tests=error",
+        "--output-on-failure",
+        "--output-junit",
+        "/private/tmp/luisa-next-integration.roZbN8/precision-matrix-regression-tile.xml"
+      ],
+      "started_unix": 1788945527.785281,
+      "log": "precision-matrix-regression-tile.log",
+      "exit_code": 0,
+      "finished_unix": 1788945875.3624132,
+      "log_sha256": "2221190600b76637b88c9fb9fccdf61e94366c15666db8a1cf08e70ccce52187",
+      "tests": 41,
+      "failures": 0,
+      "skipped": 0,
+      "junit": "precision-matrix-regression-tile.xml"
+    },
+    {
+      "name": "metal-codegen",
+      "argv": [
+        "ctest",
+        "--test-dir",
+        "/private/tmp/luisa-next-integration.roZbN8/build",
+        "-R",
+        "^test_metal_local_codegen$",
+        "--no-tests=error",
+        "--output-on-failure",
+        "--output-junit",
+        "/private/tmp/luisa-next-integration.roZbN8/precision-matrix-regression-metal-codegen.xml"
+      ],
+      "started_unix": 1788945875.363401,
+      "log": "precision-matrix-regression-metal-codegen.log",
+      "exit_code": 0,
+      "finished_unix": 1788945878.691184,
+      "log_sha256": "fe386466bd20bbce30dba5caf63cbaa85de0efa1c98521ef7557e43a72a73cf0",
+      "tests": 1,
+      "failures": 0,
+      "skipped": 0,
+      "junit": "precision-matrix-regression-metal-codegen.xml"
+    }
+  ],
+  "passed": true
+}
