@@ -1,0 +1,243 @@
+{
+  "source_commit": "bc7b1df1f4e8785d50736169a2a7bde3023b231e",
+  "next_commit": "03a0f5158b53768abefea555f480f87ee5bc5a1e",
+  "local_evidence": "/private/tmp/luisa-next-xir-checkpoint.pgfKld",
+  "payloads": [
+    {
+      "path": "checkpoint.py",
+      "source_name": "checkpoint.py",
+      "bytes": 6505,
+      "stored_bytes": 6505,
+      "sha256": "1b73ace42dc56863f5f8d8cd22d08ba12e8aa5c571d15aedf13ab54216735f01",
+      "stored_sha256": "1b73ace42dc56863f5f8d8cd22d08ba12e8aa5c571d15aedf13ab54216735f01"
+    },
+    {
+      "path": "configure-command.json",
+      "source_name": "configure-command.json",
+      "bytes": 1389,
+      "stored_bytes": 1389,
+      "sha256": "4ca5381a6653aae87fa3095afdd04332e8fb2cc249995d18ad59aedc424247fd",
+      "stored_sha256": "4ca5381a6653aae87fa3095afdd04332e8fb2cc249995d18ad59aedc424247fd"
+    },
+    {
+      "path": "configure.log.gz",
+      "source_name": "configure.log",
+      "bytes": 2422,
+      "stored_bytes": 770,
+      "sha256": "726cd0d44a2e3b8273f56202da29209a1e542336c0cf58020f9392c0b3d3f4eb",
+      "stored_sha256": "99c1cb98c6630c60a49320ed876ecede339b9e36d799078435eee68f43b723e2"
+    },
+    {
+      "path": "ctest-metal-codegen.log.gz",
+      "source_name": "ctest-metal-codegen.log",
+      "bytes": 115,
+      "stored_bytes": 122,
+      "sha256": "a416cd68e380763a0bc88440893faf8e9b5622db3cf1d40eb1f46bec6838812b",
+      "stored_sha256": "acdf307edf44a226a206d632c8e5360462e77689bc924958b0e101fc7e575e46"
+    },
+    {
+      "path": "ctest-metal-local-codegen.log.gz",
+      "source_name": "ctest-metal-local-codegen.log",
+      "bytes": 356,
+      "stored_bytes": 227,
+      "sha256": "83ad66027997c6c194e43f7156b4c01cb5e496576314269949cd67b7bf6f2561",
+      "stored_sha256": "b955a99b8017ccb35d138580784253f93e9f04e87c0300d784e43ec4bf1e2653"
+    },
+    {
+      "path": "ctest-tile.log.gz",
+      "source_name": "ctest-tile.log",
+      "bytes": 5004,
+      "stored_bytes": 984,
+      "sha256": "589e16e15ae2ef28d456633b44e45251cdb33ec9e25788390f7e9645ceafe65a",
+      "stored_sha256": "63bde94cc79c99f6efc4126b91c65f65693f6563590d9780a4d7d28403b17b39"
+    },
+    {
+      "path": "ctest-xir-simd.log.gz",
+      "source_name": "ctest-xir-simd.log",
+      "bytes": 11549,
+      "stored_bytes": 1979,
+      "sha256": "d5cd40fb6a9eb3b43d94a36dde7bd7aaa96e8b5cf7cafb9048935f5b076ef9a8",
+      "stored_sha256": "dad2f167e121ca7d28fd25cf6ab3cdeeb66a2fe4d3812c79d68f862fd70e07e2"
+    },
+    {
+      "path": "docs-links.log.gz",
+      "source_name": "docs-links.log",
+      "bytes": 116,
+      "stored_bytes": 122,
+      "sha256": "020da11bd2d95a12e68c9367f341062fc90c458534613637fde1eac1874bdf9e",
+      "stored_sha256": "c353543f0a7215e5f04acf718781ef92e3f2cfeeb8c2c2b4edb4d831fb2fa106"
+    },
+    {
+      "path": "documentation.json",
+      "source_name": "documentation.json",
+      "bytes": 2537,
+      "stored_bytes": 2537,
+      "sha256": "21a0b5d5a09c695c01fdefb29719b98ebfb049a58a63dd55f53705d9a0be175f",
+      "stored_sha256": "21a0b5d5a09c695c01fdefb29719b98ebfb049a58a63dd55f53705d9a0be175f"
+    },
+    {
+      "path": "documentation.py",
+      "source_name": "documentation.py",
+      "bytes": 2042,
+      "stored_bytes": 2042,
+      "sha256": "bf6ba900b53ecce3e1f0e0206bcd06cc248b8823a60ce3c11045460a46f95a15",
+      "stored_sha256": "bf6ba900b53ecce3e1f0e0206bcd06cc248b8823a60ce3c11045460a46f95a15"
+    },
+    {
+      "path": "doxygen.log.gz",
+      "source_name": "doxygen.log",
+      "bytes": 3923173,
+      "stored_bytes": 267090,
+      "sha256": "3fa8e02bef18774759ea57bf724d72def7fac7e2d38ce206ba87072834364abd",
+      "stored_sha256": "8e6d7bb0c397c85c4d7afb3932e0a959b62927efa9d125646d5ee32311814533"
+    },
+    {
+      "path": "format-merged-lines.log.gz",
+      "source_name": "format-merged-lines.log",
+      "bytes": 0,
+      "stored_bytes": 20,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stored_sha256": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64"
+    },
+    {
+      "path": "format-metal-fixture.log.gz",
+      "source_name": "format-metal-fixture.log",
+      "bytes": 2225,
+      "stored_bytes": 330,
+      "sha256": "de040a07043a9644c7ed390d0ec56ff1ac2ffa9ca6b7a28776a72e8af5b092df",
+      "stored_sha256": "3b51124f5ad2db29b2c4c038ba1f0f2df2a90b13b4e0d9a4ae2da42e744c06d8"
+    },
+    {
+      "path": "full-build-gate.log.gz",
+      "source_name": "full-build-gate.log",
+      "bytes": 83,
+      "stored_bytes": 96,
+      "sha256": "62787fccc98ad7bf29801a9439ddcfeec21bcc3619acefa63a76bfe707b73e91",
+      "stored_sha256": "20ae9cecca091e5f9ddcce9e45ea49173afd1bb322a91838663eda09a112238b"
+    },
+    {
+      "path": "full-build-recheck.log.gz",
+      "source_name": "full-build-recheck.log",
+      "bytes": 83,
+      "stored_bytes": 96,
+      "sha256": "62787fccc98ad7bf29801a9439ddcfeec21bcc3619acefa63a76bfe707b73e91",
+      "stored_sha256": "20ae9cecca091e5f9ddcce9e45ea49173afd1bb322a91838663eda09a112238b"
+    },
+    {
+      "path": "full-build.log.gz",
+      "source_name": "full-build.log",
+      "bytes": 189454,
+      "stored_bytes": 19178,
+      "sha256": "e9279d071ff2583cb65870209321e2a4c80fc42dcb59be62aac53210639a85f8",
+      "stored_sha256": "c9deb8047e564d8e8cd78557ed8977187aacfaa89fee9b70879beab6cc3ffff6"
+    },
+    {
+      "path": "metal-codegen.xml.gz",
+      "source_name": "metal-codegen.xml",
+      "bytes": 175,
+      "stored_bytes": 156,
+      "sha256": "0d3d091f63d8be9adde0fb3e6e1458483d4a7db27312576a193daeca0c7da5fc",
+      "stored_sha256": "7ce5fbde97a89464c6c11fb03ecb81216da83b11fdcf2a123521336314b293d0"
+    },
+    {
+      "path": "metal-local-codegen.xml.gz",
+      "source_name": "metal-local-codegen.xml",
+      "bytes": 1098,
+      "stored_bytes": 560,
+      "sha256": "2ff88e124477d769c5be6d261a71e649f280d8860923cbbd7e15fdf89074d7c3",
+      "stored_sha256": "41fdf18c308c9839c4d9821eebe61fe696359eecdb1187e09682667254d4da42"
+    },
+    {
+      "path": "package.py",
+      "source_name": "package.py",
+      "bytes": 3414,
+      "stored_bytes": 3414,
+      "sha256": "0c44c414ad11e345a5fc43bf042f78db9ac09d2e69c22ea4addbacfe63736300",
+      "stored_sha256": "0c44c414ad11e345a5fc43bf042f78db9ac09d2e69c22ea4addbacfe63736300"
+    },
+    {
+      "path": "pinned-repositories.json",
+      "source_name": "pinned-repositories.json",
+      "bytes": 3309,
+      "stored_bytes": 3309,
+      "sha256": "5323cb51f3b82a1073f1463b609c0789f68e68db1489910b404ee16b23130f5e",
+      "stored_sha256": "5323cb51f3b82a1073f1463b609c0789f68e68db1489910b404ee16b23130f5e"
+    },
+    {
+      "path": "preserved-worktree.log.gz",
+      "source_name": "preserved-worktree.log",
+      "bytes": 433,
+      "stored_bytes": 211,
+      "sha256": "15c006246c05396ba94be26b40bc334ba5a83a3bcd85e441fe723d3bd4452b2f",
+      "stored_sha256": "82f5e1e539f06965a53a05853e5d4ad6910ae00135f824fdbe3fb389f361381e"
+    },
+    {
+      "path": "recheck.py",
+      "source_name": "recheck.py",
+      "bytes": 5178,
+      "stored_bytes": 5178,
+      "sha256": "ac304c941bb5f42028b5bdece832680a93a820154ffb6ca19e67d63131b307c9",
+      "stored_sha256": "ac304c941bb5f42028b5bdece832680a93a820154ffb6ca19e67d63131b307c9"
+    },
+    {
+      "path": "source-snapshot.json.gz",
+      "source_name": "source-snapshot.json",
+      "bytes": 2867853,
+      "stored_bytes": 826224,
+      "sha256": "9b329cb9d1aff71d7d9456a76b30396005612d3378626d828bb5b2061d31d943",
+      "stored_sha256": "59008f4f3cc2e91dd0f7caf92e2bf1d4bfa9f72b86392081a21446b1d7b7628b"
+    },
+    {
+      "path": "sphinx.log.gz",
+      "source_name": "sphinx.log",
+      "bytes": 26388,
+      "stored_bytes": 3939,
+      "sha256": "8a895584a129de5071337562398b9bae07cce013ff73163b91e6579f58b79cea",
+      "stored_sha256": "3748675b99bd5f9f5628fb9c369795d044c4416fce040e0b2abc5ecff4df6d61"
+    },
+    {
+      "path": "syntax-metal-fixture.log.gz",
+      "source_name": "syntax-metal-fixture.log",
+      "bytes": 196,
+      "stored_bytes": 139,
+      "sha256": "f25a657fce2a81f2a242a2486f382adfeb801f821a4bca9de59a31c6b6e37bdd",
+      "stored_sha256": "83296a6a84f74d3dda34a995d19f1fe0fa8d6503ffd39ecf637a49c628afa70b"
+    },
+    {
+      "path": "tile.xml.gz",
+      "source_name": "tile.xml",
+      "bytes": 14975,
+      "stored_bytes": 1719,
+      "sha256": "a58e03a1b10938f58a180127a8a81b112fd442ced748ea985d0612d0c5ba6038",
+      "stored_sha256": "448380e009a5497ebe4c7b280ee7dab3e4c6db0191b2b5004da171a7c626d561"
+    },
+    {
+      "path": "verification-final.json",
+      "source_name": "verification-final.json",
+      "bytes": 9000,
+      "stored_bytes": 9000,
+      "sha256": "49d1016af6b4718897fd768cf40384e2bf91f4ed930b5512b7b0a505ad63d9bc",
+      "stored_sha256": "49d1016af6b4718897fd768cf40384e2bf91f4ed930b5512b7b0a505ad63d9bc"
+    },
+    {
+      "path": "verification.json",
+      "source_name": "verification.json",
+      "bytes": 5296,
+      "stored_bytes": 5296,
+      "sha256": "993694ab206241446662f86bae184321a2e34b159a1becfb78d744d3be6c98e4",
+      "stored_sha256": "993694ab206241446662f86bae184321a2e34b159a1becfb78d744d3be6c98e4"
+    },
+    {
+      "path": "xir-simd.xml.gz",
+      "source_name": "xir-simd.xml",
+      "bytes": 41614,
+      "stored_bytes": 5002,
+      "sha256": "1d028ff1cf734aac69dfcc3f72620b4363ad99af97787ff97c024b2c4bb4edf4",
+      "stored_sha256": "bb24ed878989a9b73755dbbfddcb651e26a432e8a69706496dced1a03b2e663d"
+    }
+  ],
+  "distinct_ctests": 116,
+  "performance_measurement": false,
+  "archived_binaries": false,
+  "notes_sha256": "1f8b4816ea36aedbbc31df1c3302250a9615385245e852932bbd06a987b51aa3"
+}

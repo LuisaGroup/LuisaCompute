@@ -32,6 +32,7 @@ The original report paths are retained so existing links remain valid.
 ../../validation/2026-09-08/owned-conditional-restructure/README
 ../../validation/2026-09-08/loop-scope-restructure/README
 ../../validation/2026-09-09/shared-switch-cases/README
+../../validation/2026-09-09/graph-cfg-epoch/README
 ```
 
 ## Backend code generation

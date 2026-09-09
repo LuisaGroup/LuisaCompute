@@ -39,7 +39,21 @@ records the scope, tradeoffs, exact source/binary lineage and remaining work.
 
 ## next integration keeps performance qualification separate
 
-The September 9 merge includes `origin/next` through `8911828eb`, with merge
+The later September 9 checkpoint includes `origin/next@03a0f5158`, with merge
+commit `bc7b1df1f`. A fresh, no-overlay export pins 19 repositories and passes
+a full configured build, **80 XIR/SIMD CTests**, **35 Tile CTests** and the
+complete **Metal codegen fixture**. The shared XIR fixes cover loop-epoch exit
+dispatches and ordered callable-swizzle copy-out. The only merge conflict is
+a test comment; the argument guard remains intact. Original unfinished
+worktree files and dependency checkouts are preserved. The
+{download}`Chinese follow-up record <../../../../scripts/benchmark/tile_torch/results/m1-max-20260909-next-integration/xir-followup/notes.md>`
+keeps the rejected empty CTest selection and successful registered-name rerun
+separate. No native performance objects are recaptured, and no speedup,
+default-policy change or cost calibration is claimed from this integration.
+The new upstream investigation is owned by the existing
+[validation archive](../validation.md), not a parallel documentation tree.
+
+The earlier September 9 merge includes `origin/next` through `8911828eb`, with merge
 commit `360d9791e`. A fresh source export includes the merge and recursively
 pinned submodule commits: 19 repositories and 18,830 fingerprinted base files.
 One subsequent, fingerprinted test-only overlay fixes the Metal fixture's
