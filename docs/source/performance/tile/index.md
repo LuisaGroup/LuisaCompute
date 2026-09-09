@@ -62,7 +62,9 @@ This new measurement uses the existing opt-in
 not a new compiler optimization or calibrated automatic policy. The separate
 440-visit E2E screen improves many large/local row programs but retains small
 task regressions and non-winning attention. Shared-input/multi-output DAG
-fusion and softmax phase planning are next candidates, not implemented wins.
+fusion now has a [guarded, opt-in implementation](../../internals/tile/xir.md#guarded-pointwise-dag-fusion-keeps-an-alias-safe-fallback)
+with alias and bounds regressions; it is **not yet a measured performance
+win**. Softmax phase planning remains a next candidate.
 [Independent task grain](results.md#cpu-task-grain-is-independent-of-the-native-packet-body)
 and realization-sensitive cost calibration remain necessary; native superiority
 alone does not establish dispatch latency or default-path parity.

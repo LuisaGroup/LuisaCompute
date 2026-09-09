@@ -15,6 +15,69 @@ using namespace luisa::compute;
 using namespace boost::ut;
 
 int main() {
+    "tile_xir_pointwise_effect_intervals_and_partitioned_outputs"_test = [] {
+        using namespace tile;
+        for (auto lanes : {1u, 2u, 4u, 8u, 16u}) {
+            for (auto variant = 0u; variant < 6u; variant++) {
+                // Split output, distinct outputs, overlapping output, same
+                // point output, escaping snapshot, read-after-write boundary.
+                auto kernel = tile_kernel("shared_dag", [=](TensorView<const float, 2> input,
+                                                            TensorView<float, 2> output, TensorView<float, 2> other) {
+                                  auto m = axis("m", 1), n = axis("n", 65);
+                                  for (auto &nest : parallel(shape(17))) {
+                                      auto x = input[coord(nest.index(), 0), shape(m, n)];
+                                      auto square = x * x;
+                                      output(coord(nest.index(), 0), shape(m, n)).store(square + x);
+                                      if (variant == 1u) {
+                                          other(coord(nest.index(), 0), shape(m, n)).store(square - x);
+                                      } else if (variant == 5u) {
+                                          auto later = output[coord(nest.index(), 0), shape(m, n)];
+                                          other(coord(nest.index(), 0), shape(m, n)).store(later * 2.0f);
+                                      } else {
+                                          auto offset = variant == 2u ? 1 : variant == 3u ? 0 :
+                                                                                            65;
+                                          output(coord(nest.index(), offset), shape(m, n)).store(square - x);
+                                      }
+                                      if (variant == 4u) {
+                                          other(coord(nest.index(), 0), shape(m, n)).store(x + reduce(x, n, add));
+                                      }
+                                  }
+                              }).capture(tensor_shape(17, 130), tensor_shape(17, 130), tensor_shape(17, 130));
+                auto off = bridge::xir::lower(kernel.function(), {.block_size = 32u, .local_lanes = lanes});
+                auto on = bridge::xir::lower(kernel.function(), {.block_size = 32u, .local_lanes = lanes, .enable_pointwise_fusion = true});
+                expect(off.ok() && on.ok()) << off.error << on.error;
+                if (!off || !on) { continue; }
+                expect(eq(off.fused_pointwise_regions, 0u));
+                expect(eq(on.fused_pointwise_loads, variant == 2u || variant == 4u ? 0u : variant == 5u ? 2u :
+                                                                                                          1u))
+                    << variant << lanes;
+                if (variant < 4u && variant != 2u) {
+                    expect(eq(on.fused_pointwise_regions, 1u));
+                    expect(eq(on.fused_pointwise_stores, 2u));
+                    expect(eq(on.pointwise_alias_checks, variant == 1u ? 3u : 1u));
+                }
+                expect(xir::xir_verify_module(on.module.get(), {.require_reachable_blocks = true}).succeeded());
+            }
+        }
+    };
+    "tile_xir_pointwise_does_not_cross_stages_or_reduction_state"_test = [] {
+        using namespace tile;
+        for (auto count : {0, 1, 3}) {
+            auto kernel = tile_kernel("pointwise_stages", [=](TensorView<const float, 2> input, TensorView<float, 2> output) {
+                              auto m = axis("m", 1), n = axis("n", 65);
+                              for (auto &nest : parallel(shape(1))) {
+                                  for (auto &step : nest.pipeline(shape(count))) {
+                                      auto x = input[coord(step.index(), 0), shape(m, n)];
+                                      step.stage("store");
+                                      output(coord(step.index(), 0), shape(m, n)).store(x * 2.0f);
+                                  }
+                              }
+                          }).capture(tensor_shape(3, 65), tensor_shape(3, 65));
+            auto on = bridge::xir::lower(kernel.function(), {.enable_pointwise_fusion = true});
+            expect(on.ok()) << on.error;
+            if (on) { expect(eq(on.fused_pointwise_loads, 0u)); }
+        }
+    };
     "tile_xir_task_distribution_matches_static_home_chunks"_test = [] {
         using namespace tile;
         namespace bx = bridge::xir;

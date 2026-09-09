@@ -48,6 +48,9 @@ struct PlannerOptions {
     bool search_task_grain{false};
     // Borrowed only during plan(). A policy may change costs, never legality.
     const ExecutionCostPolicy *cost_policy{nullptr};
+    // Fixed guarded streaming candidate. The current prior still estimates
+    // the original snapshot path, not an assumed noalias probability.
+    bool enable_pointwise_fusion{false};
 };
 
 struct ExecutionCost {

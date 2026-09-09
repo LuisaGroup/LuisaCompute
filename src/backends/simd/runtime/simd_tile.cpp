@@ -29,6 +29,8 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
         auto planner_options = tile_options.xir ? *tile_options.xir : tile::bridge::xir::PlannerOptions{};
         planner_options.enable_load_reduction_fusion |= detail::env_flag("LUISA_SIMD_ENABLE_LOAD_REDUCTION_FUSION");
         planner_options.enable_load_reduction_fusion &= !detail::env_flag("LUISA_SIMD_DISABLE_LOAD_REDUCTION_FUSION");
+        planner_options.enable_pointwise_fusion |= detail::env_flag("LUISA_SIMD_ENABLE_POINTWISE_FUSION");
+        planner_options.enable_pointwise_fusion &= !detail::env_flag("LUISA_SIMD_DISABLE_POINTWISE_FUSION");
         if (tile_options.threads_per_group != 0u) {
             if (planner_options.block_size != 0u && planner_options.block_size != tile_options.threads_per_group) {
                 metadata.error = "Conflicting XIR and Runtime block width constraints";
@@ -49,7 +51,8 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
                                                          .max_unrolled_tile_elements = planner_options.max_unrolled_tile_elements,
                                                          .reduction_partitions = planner_options.reduction_partitions,
                                                          .local_lanes = plan.local_lanes,
-                                                         .enable_load_reduction_fusion = planner_options.enable_load_reduction_fusion});
+                                                         .enable_load_reduction_fusion = planner_options.enable_load_reduction_fusion,
+                                                         .enable_pointwise_fusion = planner_options.enable_pointwise_fusion});
         if (!lowered) {
             metadata.error = std::move(lowered.error);
             return ShaderCreationInfo::make_invalid();
@@ -118,6 +121,9 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
         metadata.realization.append(luisa::format("; load_reduction_fusion={}; fused_reduction_loads={}; elided_load_snapshots={}",
                                                   planner_options.enable_load_reduction_fusion, lowered.fused_reduction_loads, lowered.elided_load_snapshots));
         metadata.realization.append(luisa::format("; interleaved_private_arrays={}", compiled.interleaved_private_arrays));
+        metadata.realization.append(luisa::format("; pointwise_fusion={}; fused_pointwise_regions={}; fused_pointwise_loads={}; fused_pointwise_stores={}; pointwise_alias_checks={}",
+                                                  planner_options.enable_pointwise_fusion, lowered.fused_pointwise_regions, lowered.fused_pointwise_loads,
+                                                  lowered.fused_pointwise_stores, lowered.pointwise_alias_checks));
         metadata.realization.append(luisa::format("; contiguous_private_reads={}; contiguous_private_writes={}",
                                                   compiled.contiguous_private_read_count, compiled.contiguous_private_write_count));
         metadata.realization.append(luisa::format("; private_workspace_bytes={}", compiled.private_workspace_size));

@@ -295,6 +295,74 @@ not justify enabling this rule by default. See the
 `fused_reduction_loads` and `elided_load_snapshots` are static construction
 counts in realization metadata, not dynamic memory-transaction counts.
 
+### Guarded pointwise DAG fusion keeps an alias-safe fallback
+
+The **opt-in**, default-disabled `enable_pointwise_fusion` adds a streaming
+realization for a closed, straight-line Tile expression DAG with one or more
+stores. Unlike single-use recipes, it evaluates a shared SSA expression once
+per coordinate and reuses the result across multiple outputs. Admission uses
+typed operations, domains and effects, not kernel or operator names.
+This is fusion *within* an execution scope, not sibling-scope fusion or a new
+execution primitive.
+
+```text
+closed load / DAG / store interval
+                |
+       runtime alias check
+          /           \
+        pass          fail
+         |              |
+  per coordinate     original
+    load inputs      snapshots +
+    shared DAG       store order
+    store outputs       |
+          \            /
+            next effect
+```
+
+The current admission boundary is deliberately explicit:
+
+- Every Tile operand/result has the same positive static IndexSpace,
+  including dimension identities and unit axes. The domain requires bounded
+  traversal or packet-local storage; already expanded small Tiles keep the
+  existing realization. An interval contains at most 256 operations.
+- Only constants, pure elementwise operations, and direct buffer view
+  loads/stores participate. There is no load after the first store inside
+  the interval. Regions, stages, explicit resources/layouts and execution
+  constraints are boundaries; reduction/carry semantics are unchanged.
+- No internally defined Tile escapes the interval. External Tile values
+  retain their existing immutable representations. Pure scalar definitions
+  are emitted before either branch, so escaping scalars dominate later uses.
+- On the same buffer argument, loads must be provably disjoint from stores.
+  Stores must be disjoint or have the identical pointwise coordinate map.
+  A constant-origin separation on one axis suffices; clipping cannot enlarge
+  the intersection. Overlapping shifted stores retain whole-store order.
+- Distinct arguments are **not** a noalias assertion. Actual buffer-view
+  addresses and complete logical byte extents are checked at invocation.
+  Unsigned address differences avoid overflowing an end-address addition.
+  Overlap, including identical or shifted views into one allocation, selects
+  the original snapshot path. Adjacent intervals may select streaming.
+
+The existing bounds/fill emitter and arithmetic operations are reused in the
+fast branch. No floating-point reassociation, reduction-tree change, unchecked
+reload across a stage, or user `owned_by`/`noalias` annotation is introduced.
+`parallel` still supplies independence between its iterations; these checks
+protect load/store ordering **inside** one logical program.
+
+`LUISA_SIMD_ENABLE_POINTWISE_FUSION=1` enables the candidate;
+`LUISA_SIMD_DISABLE_POINTWISE_FUSION=1` overrides it. Metadata exposes
+`fused_pointwise_regions`, `fused_pointwise_loads`, `fused_pointwise_stores`
+and `pointwise_alias_checks`. These count construction decisions, not dynamic
+transactions or observed guard outcomes. Both branches exist in the generated
+program, and fallback storage may still affect its physical resource budget.
+
+The current planner continues to estimate the original snapshot path. It
+does **not** price the guard, assume a noalias probability, or automatically
+choose fusion as a winner. A future profitability model must account for
+fast/fallback work, code size, live values, masked tails and guard frequency;
+fewer temporary arrays alone is insufficient evidence. Fixed-mapping native
+comparisons are required before changing defaults or solver selection.
+
 ### Full-packet specialization is separate from Tile fusion
 
 The SIMD backend has an opt-in, default-disabled codegen candidate. Its
@@ -779,8 +847,9 @@ matrix-extension lowering.
 
 Candidate TileIR still retains pure multi-consumer SSA definitions. The direct
 XIR bridge does not yet search recomputation versus a distributed physical
-materialization; bounded traversal, single-use recipes and the existing
-XIR/SIMD shared-SSA cleanup are a structural policy. A future XIR resource candidate must use
+materialization; bounded traversal, single-use recipes, opt-in guarded
+pointwise intervals and the existing XIR/SIMD shared-SSA cleanup are structural
+realizations. A future XIR resource candidate must use
 the same use/effect/ownership facts as TIRx, but may choose a different result
 for CPU SIMD. It must not infer a user `Memory` or mechanically copy Metal's
 worker-stripe policy.
@@ -807,7 +876,9 @@ dependencies. Thus a general distribution candidate must carry a dependence
 and effect analysis, a collective realization, or a checked invocation contract
 with a safe fallback. Shape alone is insufficient.
 The packet-local candidate above preserves complete definition-time loads
-before stores; it does not perform this naive per-element load/store fusion.
+before stores by default. Opt-in guarded pointwise fusion streams only after
+its resource checks succeed and otherwise retains those snapshots; it does
+not perform this unchecked per-element load/store transformation.
 
 ## 7. Extension plan: richer plans, not more DSL entities
 

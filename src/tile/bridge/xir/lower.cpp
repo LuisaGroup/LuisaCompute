@@ -10,6 +10,7 @@
 #include <luisa/xir/constant.h>
 #include <luisa/xir/verifier.h>
 #include "representation.h"
+#include "pointwise.h"
 
 namespace luisa::compute::tile::bridge::xir {
 namespace {
@@ -501,7 +502,7 @@ private:
         }
         return access;
     }
-    [[nodiscard]] x::Value *_view_element(const ViewAccess &access, x::Value *flat) {
+    [[nodiscard]] x::Value *_view_element(const ViewAccess &access, x::Value *flat, x::Value *store_value = nullptr) {
         auto &op = *access.operation;
         auto &space = *op.operand(0u)->type().index_space();
         _charge();
@@ -533,7 +534,7 @@ private:
             return needs_guard || access.mask ? _guarded_load(valid, access.buffer, address, access.fill) :
                                                 _builder.call(type, x::ResourceReadOp::BUFFER_READ, {access.buffer, address});
         } else {
-            auto value = _read(_get(op.operand(space.rank() + 1u)), flat);
+            auto value = store_value ? store_value : _read(_get(op.operand(space.rank() + 1u)), flat);
             if (needs_guard) {
                 _guarded_store(valid, access.buffer, address, value);
             } else {
@@ -597,8 +598,95 @@ private:
             if (extent != 0u) { _coordinate_ranges.insert_or_assign(body.argument(i), IndexRange{0, static_cast<int64_t>(extent - 1u)}); }
         }
     }
+    void _pointwise(const detail::PointwiseRegion &region) {
+        // Pure scalar/index definitions dominate both paths and any later
+        // users. No Tile effect, stage or region boundary is crossed.
+        for (auto op : region.operations) {
+            if (op->result_count() && !op->result(0u)->type().is_tile()) { _operation(*op); }
+        }
+        luisa::unordered_map<const Operation *, ViewAccess> accesses;
+        for (auto op : region.loads) { accesses.emplace(op, _capture_view_access(*op)); }
+        for (auto op : region.stores) { accesses.emplace(op, _capture_view_access(*op)); }
+        x::Value *disjoint = _constant(true);
+        for (auto pair : region.alias_pairs) {
+            auto address = [&](const Value *view) {
+                _charge();
+                return _builder.call(XType::of<uint64_t>(), x::ResourceQueryOp::BUFFER_DEVICE_ADDRESS, {_get(view)->elements.front()});
+            };
+            auto a = address(pair.a), b = address(pair.b);
+            auto size_a = _constant(static_cast<uint64_t>(_output.argument_sizes_bytes.at(_arguments.at(pair.a))));
+            auto size_b = _constant(static_cast<uint64_t>(_output.argument_sizes_bytes.at(_arguments.at(pair.b))));
+            auto after_b = _binary(A::BINARY_BIT_AND, _compare(A::BINARY_GREATER_EQUAL, a, b),
+                                   _compare(A::BINARY_GREATER_EQUAL, _binary(A::BINARY_SUB, a, b), size_b));
+            auto after_a = _binary(A::BINARY_BIT_AND, _compare(A::BINARY_GREATER_EQUAL, b, a),
+                                   _compare(A::BINARY_GREATER_EQUAL, _binary(A::BINARY_SUB, b, a), size_a));
+            disjoint = _binary(A::BINARY_BIT_AND, disjoint, _binary(A::BINARY_BIT_OR, after_b, after_a));
+        }
+        auto fast = _output.function->create_basic_block();
+        auto slow = _output.function->create_basic_block();
+        auto merge = _output.function->create_basic_block();
+        _builder.cond_br(disjoint, fast, slow);
+        _at(fast);
+        _for_each(_volume(*region.domain), [&](x::Value *flat) {
+            luisa::unordered_map<const Value *, x::Value *> elements;
+            auto coordinates = _coordinates(*region.domain, flat);
+            auto read = [&](const Value *value) {
+                if (auto found = elements.find(value); found != elements.end()) { return found->second; }
+                auto result = _project(_get(value), *region.domain, coordinates);
+                elements.emplace(value, result);
+                return result;
+            };
+            // Original DAG order, one evaluation per SSA value/coordinate.
+            // All external reads precede the first store by admission.
+            for (auto op : region.operations) {
+                if (op->result_count() && !op->result(0u)->type().is_tile()) { continue; }
+                switch (op->kind()) {
+                    case OperationKind::CONSTANT: elements.emplace(op->result(0u), _literal(*op)); break;
+                    case OperationKind::ELEMENTWISE: {
+                        Elements inputs;
+                        inputs.reserve(op->operand_count());
+                        for (size_t i = 0u; i < op->operand_count(); i++) { inputs.emplace_back(read(op->operand(i))); }
+                        elements.emplace(op->result(0u), _elementwise(op->elementwise_op(), _type(op->result(0u)->type()), inputs));
+                        break;
+                    }
+                    case OperationKind::VIEW_LOAD: elements.emplace(op->result(0u), _view_element(accesses.at(op), flat)); break;
+                    case OperationKind::VIEW_STORE: {
+                        auto value = op->operand(op->operand(0u)->type().index_space()->rank() + 1u);
+                        static_cast<void>(_view_element(accesses.at(op), flat, read(value)));
+                        break;
+                    }
+                    default: _fail("invalid pointwise region admission");
+                }
+            }
+        });
+        _builder.br(merge);
+        _at(slow);
+        for (auto op : region.operations) {
+            if (!op->result_count() || op->result(0u)->type().is_tile()) { _operation(*op); }
+        }
+        _builder.br(merge);
+        _at(merge);
+        _output.fused_pointwise_regions++;
+        _output.fused_pointwise_loads += region.loads.size();
+        _output.fused_pointwise_stores += region.stores.size();
+        _output.pointwise_alias_checks += region.alias_pairs.size();
+    }
     [[nodiscard]] luisa::vector<const Representation *> _region(const Block &body) {
+        auto regions = _options.enable_pointwise_fusion ? detail::pointwise_regions(body, _options.max_unrolled_tile_elements, _options.local_lanes) :
+                                                          luisa::vector<detail::PointwiseRegion>{};
+        size_t region_index = 0u;
+        const Operation *skip_until = nullptr;
         for (auto op : body.operations()) {
+            if (skip_until) {
+                if (op == skip_until) { skip_until = nullptr; }
+                continue;
+            }
+            if (region_index < regions.size() && op == regions[region_index].operations.front()) {
+                auto &region = regions[region_index++];
+                _pointwise(region);
+                if (region.operations.size() > 1u) { skip_until = region.operations.back(); }
+                continue;
+            }
             if (op->kind() == OperationKind::YIELD) {
                 luisa::vector<const Representation *> yielded;
                 for (size_t i = 0u; i < op->operand_count(); i++) { yielded.emplace_back(_get(op->operand(i))); }

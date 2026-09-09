@@ -22,6 +22,94 @@ namespace {
 
 [[nodiscard]] bool close(span<const float> actual, span<const double> expected);
 
+void shared_pointwise(Device &device, int64_t width, uint32_t lanes, uint32_t variant, int32_t alias_shift, bool shared_buffer = false) {
+    using namespace tile;
+    // One program for shifted aliases: this exercises intra-program snapshot
+    // semantics without introducing a cross-parallel-iteration data race.
+    shared_buffer |= alias_shift != 0;
+    auto rows = shared_buffer ? int64_t{1} : int64_t{17};
+    auto stride = width * 2;
+    auto kernel = tile_kernel("shared_pointwise", [=](TensorView<const float, 2> input,
+                                                      TensorView<float, 2> output, TensorView<float, 2> other) {
+                      auto m = axis("m", 1), n = axis("n", width);
+                      for (auto &nest : parallel(shape(rows))) {
+                          auto x = input[coord(nest.index(), 0), shape(m, n)];
+                          auto y = input[coord(nest.index(), width), shape(m, n)];
+                          auto shared = x * y + x;
+                          output(coord(nest.index(), 0), shape(m, n)).store(shared + y);
+                          if (variant == 0u) {
+                              output(coord(nest.index(), width), shape(m, n)).store(shared - y);
+                          } else if (variant == 1u) {
+                              other(coord(nest.index(), 0), shape(m, n)).store(shared - y);
+                          } else {
+                              // Overlapping writes must keep whole-store order.
+                              output(coord(nest.index(), 1), shape(m, n)).store(shared - y);
+                          }
+                      }
+                  }).capture(tensor_shape(rows, stride), tensor_shape(rows, stride), tensor_shape(rows, stride));
+    constexpr auto pad = size_t{19u};
+    constexpr auto guard = -731.25f;
+    auto count = static_cast<size_t>(rows * stride);
+    auto extra = static_cast<size_t>(std::abs(alias_shift));
+    vector<float> seed(count + extra + pad * 2u, guard);
+    for (size_t i = 0u; i < count + extra; i++) { seed[pad + i] = static_cast<float>(static_cast<int32_t>(i % 31u) - 15) * .125f; }
+    vector<float> baseline_a, baseline_b, baseline_c;
+    for (auto enabled : {false, true}) {
+        auto options = bridge::xir::PlannerOptions{.block_size = 32u, .local_lanes = lanes, .enable_pointwise_fusion = enabled};
+        auto shader = compile(device, kernel, {.xir = &options}, {.enable_fast_math = false});
+        expect(static_cast<bool>(shader)) << shader.metadata().error;
+        if (!shader) { return; }
+        auto admitted = enabled && variant != 2u;
+        expect(shader.metadata().realization.find(format("fused_pointwise_loads={};", admitted ? 2u : 0u)) != string::npos);
+        auto a = device.create_buffer<float>(seed.size());
+        auto b = device.create_buffer<float>(seed.size());
+        auto c = device.create_buffer<float>(seed.size());
+        auto x_offset = pad + static_cast<size_t>(std::max(-alias_shift, 0));
+        auto y_offset = pad + static_cast<size_t>(std::max(alias_shift, 0));
+        auto x_view = a.view(x_offset, count);
+        auto y_view = shared_buffer ? a.view(y_offset, count) : b.view(pad, count);
+        // In the separate-output case, also test output/output aliases.
+        auto z_view = variant == 1u && shared_buffer ? a.view(x_offset, count) : c.view(pad, count);
+        vector<float> expected_a = seed, expected_b = seed, expected_c = seed;
+        auto &dest = shared_buffer ? expected_a : expected_b;
+        auto dest_offset = shared_buffer ? y_offset : pad;
+        auto &second = variant == 1u && shared_buffer ? expected_a : expected_c;
+        auto second_offset = variant == 1u && shared_buffer ? x_offset : pad;
+        for (int64_t r = 0; r < rows; r++) {
+            vector<float> first(width), last(width);
+            for (int64_t col = 0; col < width; col++) {
+                auto x = seed[x_offset + r * stride + col], y = seed[x_offset + r * stride + width + col];
+                auto shared = x * y + x;
+                first[col] = shared + y;
+                last[col] = shared - y;
+            }
+            for (int64_t col = 0; col < width; col++) { dest[dest_offset + r * stride + col] = first[col]; }
+            for (int64_t col = 0; col < width; col++) {
+                if (variant == 1u) {
+                    second[second_offset + r * stride + col] = last[col];
+                } else {
+                    dest[dest_offset + r * stride + (variant == 0u ? width : 1) + col] = last[col];
+                }
+            }
+        }
+        auto stream = device.create_stream(StreamTag::COMPUTE);
+        auto actual_a = seed, actual_b = seed, actual_c = seed;
+        stream << a.copy_from(span{seed}) << b.copy_from(span{seed}) << c.copy_from(span{seed})
+               << shader(x_view, y_view, z_view).dispatch()
+               << a.copy_to(span{actual_a}) << b.copy_to(span{actual_b}) << c.copy_to(span{actual_c}) << synchronize();
+        // Dyadic finite inputs make this operation sequence exactly representable.
+        // Compare all three allocations, including unchanged regions and guards.
+        expect(actual_a == expected_a && actual_b == expected_b && actual_c == expected_c) << "width=" << width << " lanes=" << lanes << " alias shift=" << alias_shift;
+        if (!enabled) {
+            baseline_a = actual_a;
+            baseline_b = actual_b;
+            baseline_c = actual_c;
+        } else {
+            expect(actual_a == baseline_a && actual_b == baseline_b && actual_c == baseline_c);
+        }
+    }
+}
+
 void task_grain(Device &device, int64_t rows, uint32_t lanes) {
     using namespace tile;
     constexpr auto width = int64_t{65};
@@ -387,24 +475,41 @@ void recurrence(Device &device, int64_t iterations, bool pipelined) {
     expect(std::all_of(overwritten.begin(), overwritten.end(), [](float x) { return x == 17.0f; }));
 }
 
-void clipped_origin(Device &device, bool overflow) {
+void clipped_origin(Device &device, bool overflow, bool fused = false) {
     using namespace tile;
+    constexpr auto width = int64_t{65};
     auto definition = tile_kernel("clipped_origin", [=](TensorView<const float, 1> A, TensorView<float, 1> B) {
+        auto element = axis("element", width);
         for (auto &nest : parallel(shape(3))) {
             auto origin = overflow ? nest.index() * INT64_MAX : nest.index() - 1;
-            auto x = A.tile(coord(origin), shape(1), bounds::zero).load();
-            B(coord(nest.index()), shape(1)).store(x);
+            auto x = A.tile(coord(origin), shape(element), bounds::zero).load();
+            B(coord(nest.index() * width), shape(element)).store(x);
         }
     });
-    auto kernel = definition.capture(tensor_shape(2), tensor_shape(3));
-    auto shader = compile(device, kernel);
+    auto kernel = definition.capture(tensor_shape(2), tensor_shape(3 * width));
+    auto options = bridge::xir::PlannerOptions{.enable_pointwise_fusion = fused};
+    auto shader = compile(device, kernel, {.xir = &options});
     expect(static_cast<bool>(shader)) << shader.metadata().error;
     if (!shader) { return; }
-    vector<float> a{2.5f, -3.0f}, b(3, std::numeric_limits<float>::quiet_NaN());
-    auto ab = device.create_buffer<float>(2), bb = device.create_buffer<float>(3);
+    expect(shader.metadata().realization.find(format("fused_pointwise_loads={};", fused ? 1u : 0u)) != string::npos);
+    vector<float> a{2.5f, -3.0f}, b(3 * width, std::numeric_limits<float>::quiet_NaN());
+    vector<double> expected(3 * width, 0.0);
+    for (int64_t r = 0; r < 3; r++) {
+        // Tile Index arithmetic wraps; spell out the wrapped origin so the
+        // host oracle itself never evaluates an overflowing signed multiply.
+        auto origin = overflow ? (r == 0 ? int64_t{0} : r == 1 ? INT64_MAX :
+                                                                 int64_t{-2}) :
+                                 r - 1;
+        if (origin > 1) { continue; }
+        for (int64_t c = 0; c < width; c++) {
+            auto index = origin + c;
+            if (index >= 0 && index < 2) { expected[r * width + c] = a[index]; }
+        }
+    }
+    auto ab = device.create_buffer<float>(2), bb = device.create_buffer<float>(3 * width);
     auto stream = device.create_stream(StreamTag::COMPUTE);
     stream << ab.copy_from(a.data()) << bb.copy_from(b.data()) << shader(ab, bb).dispatch() << bb.copy_to(b.data()) << synchronize();
-    expect(close(b, overflow ? vector<double>{2.5, 0.0, 0.0} : vector<double>{0.0, 2.5, -3.0}));
+    expect(close(b, expected));
 }
 
 void indexed_snapshots(Device &device, int64_t width, int64_t iterations, bool pipelined) {
@@ -672,6 +777,19 @@ void packet_local_reductions(Device &device, int64_t count, int64_t width, uint3
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     auto [context, device] = test::create_device(argc, argv);
+    "tile_xir_runtime_shared_pointwise_alias_paths"_test = [&] {
+        for (auto lanes : {1u, device.compute_warp_size()}) {
+            for (auto width : {65, 128, 257}) {
+                for (auto variant : {0u, 1u, 2u}) {
+                    for (auto shift : {-1, 0, 1}) { shared_pointwise(device, width, lanes, variant, shift); }
+                    shared_pointwise(device, width, lanes, variant, 0, true);
+                }
+                // Equality at the interval boundary is disjoint, even when
+                // the two resource views share an underlying allocation.
+                for (auto shift : {-2 * width, 2 * width}) { shared_pointwise(device, width, lanes, 0u, shift); }
+            }
+        }
+    };
     "tile_xir_runtime_task_grain_preserves_kernel_and_guards"_test = [&] {
         for (auto rows : {17, 129}) {
             for (auto lanes : {1u, device.compute_warp_size()}) { task_grain(device, rows, lanes); }
@@ -738,8 +856,10 @@ int main(int argc, char *argv[]) {
         }
     };
     "tile_xir_bounds_proof_rejects_negative_and_overflowing_origins"_test = [&] {
-        clipped_origin(device, false);
-        clipped_origin(device, true);
+        for (auto fused : {false, true}) {
+            clipped_origin(device, false, fused);
+            clipped_origin(device, true, fused);
+        }
     };
     "tile_xir_runtime_indexable_snapshots_and_simultaneous_carries"_test = [&] {
         for (auto width : {1, 7, 65, 127}) {

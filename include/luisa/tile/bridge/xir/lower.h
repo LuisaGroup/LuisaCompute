@@ -30,6 +30,10 @@ struct LowerOptions {
     // snapshot for later consumers. Never moves reads across writes/stages.
     // Opt-in: fewer private reads can still increase masked-memory/CFG cost.
     bool enable_load_reduction_fusion{false};
+    // Version closed common-domain pointwise regions: stream shared SSA DAGs
+    // when resource intervals are disjoint, otherwise retain eager snapshots.
+    // Opt-in while native profitability and resource costs are evaluated.
+    bool enable_pointwise_fusion{false};
 };
 
 struct NativeFunction {
@@ -44,6 +48,10 @@ struct NativeFunction {
     // Static realization counts, not dynamic memory transactions.
     uint32_t fused_reduction_loads{0u};
     uint32_t elided_load_snapshots{0u};
+    uint32_t fused_pointwise_regions{0u};
+    uint32_t fused_pointwise_loads{0u};
+    uint32_t fused_pointwise_stores{0u};
+    uint32_t pointwise_alias_checks{0u};
     luisa::string error;
     [[nodiscard]] bool ok() const noexcept { return module != nullptr && function != nullptr && error.empty(); }
     [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
