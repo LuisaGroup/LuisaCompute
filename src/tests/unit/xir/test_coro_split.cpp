@@ -1918,6 +1918,21 @@ void reg_coro_split() {
                        CoroFrameDesc::reserved_field_count + 1u);
                 expect(members.back() == Type::of<uint>());
             }
+            if (subroutine.trigger_token == 0u) {
+                // Entry has no incoming payload. All six live bits are
+                // defined here, so encoding them must not read the old word:
+                // a frame instantiated with UNDEFINED has no valid seed for
+                // a read-modify-write (and poison contaminates even the bits
+                // overwritten by subsequent AND/OR operations).
+                size_t loads = 0u;
+                subroutine.callable->definition()->traverse_instructions(
+                    [&](Instruction *inst) noexcept {
+                        loads += inst->derived_instruction_tag() ==
+                                 DerivedInstructionTag::LOAD;
+                    });
+                expect(loads == 0u)
+                    << "a fully defined packed word must not read uninitialized frame payload";
+            }
         }
         auto materialized =
             coro_materialize_pass_run_on_module_with_cfg(
