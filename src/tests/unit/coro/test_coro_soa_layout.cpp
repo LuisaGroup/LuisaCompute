@@ -144,7 +144,11 @@ void reg_coro_soa_layout(luisa::test::coro_test::Options options) {
         desc.add_field("inactive_float", Type::of<float>());
         desc.add_field("selected_uint_2", Type::of<uint>());
         desc.add_field("inactive_float3", Type::of<float3>());
-        auto selected_fields = luisa::vector<size_t>{0u, 2u};
+        // Storage helpers and relocation plans use physical frame indices,
+        // including the seven reserved invocation/token fields. Payload-local
+        // index 3 would instead reinterpret dispatch_size_x as a float3.
+        constexpr auto field_base = CoroFrameDesc::reserved_field_count;
+        auto selected_fields = luisa::vector<size_t>{field_base, field_base + 2u};
 
         auto dc = luisa::test::coro_test::create_device(options);
         auto &device = dc.device;
@@ -164,29 +168,29 @@ void reg_coro_soa_layout(luisa::test::coro_test::Options options) {
                 auto frame_buf = Expr<ByteBuffer>{frames};
                 coro_frame_write_field(
                     frame_buf, source_index, frame_capacity,
-                    layout, soa, 0u, 101u);
+                    layout, soa, field_base, 101u);
                 coro_frame_write_field(
                     frame_buf, source_index, frame_capacity,
-                    layout, soa, 1u, 2.5f);
+                    layout, soa, field_base + 1u, 2.5f);
                 coro_frame_write_field(
                     frame_buf, source_index, frame_capacity,
-                    layout, soa, 2u, 303u);
+                    layout, soa, field_base + 2u, 303u);
                 coro_frame_write_field(
                     frame_buf, source_index, frame_capacity,
-                    layout, soa, 3u, make_float3(4.5f, 5.5f, 6.5f));
+                    layout, soa, field_base + 3u, make_float3(4.5f, 5.5f, 6.5f));
 
                 coro_frame_write_field(
                     frame_buf, destination_index, frame_capacity,
-                    layout, soa, 0u, 11u);
+                    layout, soa, field_base, 11u);
                 coro_frame_write_field(
                     frame_buf, destination_index, frame_capacity,
-                    layout, soa, 1u, -2.0f);
+                    layout, soa, field_base + 1u, -2.0f);
                 coro_frame_write_field(
                     frame_buf, destination_index, frame_capacity,
-                    layout, soa, 2u, 33u);
+                    layout, soa, field_base + 2u, 33u);
                 coro_frame_write_field(
                     frame_buf, destination_index, frame_capacity,
-                    layout, soa, 3u, make_float3(-4.0f, -5.0f, -6.0f));
+                    layout, soa, field_base + 3u, make_float3(-4.0f, -5.0f, -6.0f));
 
                 coro_frame_copy_fields(
                     frame_buf, source_index, destination_index,
@@ -195,17 +199,17 @@ void reg_coro_soa_layout(luisa::test::coro_test::Options options) {
 
                 output.write(0u, coro_frame_read_field<uint>(
                                      frame_buf, destination_index,
-                                     frame_capacity, layout, soa, 0u));
+                                     frame_capacity, layout, soa, field_base));
                 output.write(1u, coro_frame_read_field<float>(
                                      frame_buf, destination_index,
-                                     frame_capacity, layout, soa, 1u)
+                                     frame_capacity, layout, soa, field_base + 1u)
                                      .as<uint>());
                 output.write(2u, coro_frame_read_field<uint>(
                                      frame_buf, destination_index,
-                                     frame_capacity, layout, soa, 2u));
+                                     frame_capacity, layout, soa, field_base + 2u));
                 auto inactive = coro_frame_read_field<float3>(
                     frame_buf, destination_index, frame_capacity,
-                    layout, soa, 3u);
+                    layout, soa, field_base + 3u);
                 output.write(3u, inactive.x.as<uint>());
                 output.write(4u, inactive.y.as<uint>());
                 output.write(5u, inactive.z.as<uint>());
@@ -495,8 +499,8 @@ void reg_coro_soa_layout(luisa::test::coro_test::Options options) {
             WavefrontCoroScheduler<
                 Buffer<uint>, Buffer<float>, Buffer<uint>, Buffer<uint>>
                 scheduler{device, coro, config};
-            scheduler(uint_input, float_input, side_effect, output)
-                .dispatch(instance_count)(stream);
+            stream << scheduler(uint_input, float_input, side_effect, output)
+                .dispatch(instance_count);
             stream << synchronize();
         };
         run(true, soa_output);
@@ -645,7 +649,7 @@ void reg_coro_soa_layout(luisa::test::coro_test::Options options) {
         constexpr uint n = 257u;
         auto output = device.create_buffer<uint>(n);
         auto stream = device.create_stream();
-        narrow(output).dispatch(n)(stream);
+        stream << narrow(output).dispatch(n);
         luisa::vector<uint> host(n);
         stream << output.copy_to(luisa::span{host}) << synchronize();
         auto correct = true;
@@ -714,7 +718,7 @@ void reg_coro_soa_layout(luisa::test::coro_test::Options options) {
         constexpr uint n = 257u;
         auto output = device.create_buffer<uint>(n);
         auto stream = device.create_stream();
-        mixed(output).dispatch(n)(stream);
+        stream << mixed(output).dispatch(n);
         luisa::vector<uint> host(n);
         stream << output.copy_to(luisa::span{host}) << synchronize();
         auto correct = true;
@@ -761,7 +765,7 @@ void reg_coro_soa_layout(luisa::test::coro_test::Options options) {
             WavefrontCoroSchedulerConfig{.global_memory_soa = true}};
         LUISA_INFO("SoA Wavefront scheduler created, dispatching {} instances", N);
 
-        scheduler().dispatch(N)(stream);
+        stream << scheduler().dispatch(N);
         stream << synchronize();
         LUISA_INFO("SoA dispatch complete");
         expect(scheduler.config().global_memory_soa == true);
@@ -790,7 +794,7 @@ void reg_coro_soa_layout(luisa::test::coro_test::Options options) {
             WavefrontCoroSchedulerConfig{.global_memory_soa = true}};
         LUISA_INFO("SoA Wavefront scheduler created, dispatching {} instances", N);
 
-        scheduler(output).dispatch(N)(stream);
+        stream << scheduler(output).dispatch(N);
         luisa::vector<uint> host(N);
         stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("SoA dispatch complete");
@@ -826,7 +830,7 @@ void reg_coro_soa_layout(luisa::test::coro_test::Options options) {
             WavefrontCoroSchedulerConfig{.global_memory_soa = true}};
         LUISA_INFO("SoA Wavefront scheduler created, dispatching {} instances", N);
 
-        scheduler(42).dispatch(N)(stream);
+        stream << scheduler(42).dispatch(N);
         stream << synchronize();
         LUISA_INFO("SoA dispatch complete");
         expect(scheduler.config().global_memory_soa == true);

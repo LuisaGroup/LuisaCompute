@@ -1,4 +1,5 @@
 #include "ut/ut.hpp"
+#include <luisa/ast/statement.h>
 #include <luisa/coro/coro_graph.h>
 #include <luisa/dsl/coro_frame.h>
 #include <luisa/dsl/func.h>
@@ -409,6 +410,75 @@ void reg_coro_graph() {
         };
         expect(write_kernel.function() != nullptr);
         expect(write_kernel.function()->hash() != 0u);
+    };
+
+    "slot_access_read_uses_undefined_aggregate_seed"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *resume = kernel->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *source = b.alloca_local(Type::of<float3>());
+        auto *snapshot = b.load(Type::of<float3>(), source);
+        luisa::vector<CoroSuspendExtensionPtr> extensions;
+        extensions.emplace_back(make_coro_suspend_extension_data(
+            "com.example.aggregate-read", 1u,
+            CoroSuspendFallback::reject,
+            {{.name = "input",
+              .access = CoroSuspendBindingAccess::read,
+              .lifetime = CoroSuspendBindingLifetime::resumed,
+              .index = 0u}},
+            {}));
+        luisa::vector<Value *> binding_values{snapshot};
+        b.coro_suspend(
+            8u, "aggregate-read", nullptr, {}, {},
+            std::move(extensions), luisa::span{binding_values});
+        b.set_insertion_point(resume);
+        b.coro_resume(8u, nullptr);
+        b.return_void();
+
+        auto cfg = coro_cfg_distill_pass_run_on_function(kernel);
+        expect(cfg.succeeded());
+        auto split = coro_split_pass_run_on_module_with_cfg_and_frame_info(
+            &m, cfg, nullptr);
+        auto info = coro_materialize_pass_run_on_module_with_cfg(
+            &m, cfg, split);
+        auto graph = CoroGraph::from_module(m, info, cfg, split);
+        expect(graph.boundary_count() == 1u);
+        if (graph.boundary_count() != 1u ||
+            graph.boundary(0u).bindings.size() != 1u) {
+            return;
+        }
+        auto &access = graph.boundary(0u).bindings[0u];
+        expect(access.readable());
+        expect(access.pieces().size() == 3u);
+
+        CoroFrameDesc desc;
+        for (auto &slot : cfg.frame_slots) {
+            desc.add_field(slot.name, slot.type);
+        }
+        Kernel1D read_kernel = [&]() noexcept {
+            auto frame = CoroFrame::create(&desc);
+            auto value = access.read<float3>(frame);
+            static_cast<void>(value);
+        };
+        const AssignStmt *aggregate_seed = nullptr;
+        for (auto *statement :
+             read_kernel.function()->function().body()->statements()) {
+            if (statement->tag() != Statement::Tag::ASSIGN) { continue; }
+            auto *assignment = static_cast<const AssignStmt *>(statement);
+            if (assignment->lhs()->tag() == Expression::Tag::REF &&
+                assignment->lhs()->type() == Type::of<float3>()) {
+                expect(aggregate_seed == nullptr)
+                    << "one reconstructed aggregate must have one lifetime seed";
+                aggregate_seed = assignment;
+            }
+        }
+        expect(aggregate_seed != nullptr);
+        if (aggregate_seed == nullptr) { return; }
+        expect(is_local_undefined_lifetime_seed(aggregate_seed))
+            << "CoroSlotAccess reconstruction must not clear every aggregate lane";
     };
 
     "slot_access_preserves_packed_boolean_neighbors"_test = [] {

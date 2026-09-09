@@ -161,7 +161,11 @@ auto ast_cast_to(Arg *b) noexcept {
             return static_cast<T *>(nullptr);
         }
     }());
-    if (b->tag() != AstNodeTypeDecl<T>::value) {
+    auto matches = b->tag() == AstNodeTypeDecl<T>::value;
+    if constexpr (std::is_same_v<T, SwitchCaseStmt>) {
+        matches |= b->tag() == Statement::Tag::SWITCH_CASE_GROUP;
+    }
+    if (!matches) {
         return static_cast<ReturnPtrType>(nullptr);
     }
     return static_cast<ReturnPtrType>(b);

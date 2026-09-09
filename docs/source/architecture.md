@@ -423,6 +423,7 @@ LuisaCompute uses modern CMake (3.23+) with the following configuration options:
 | `LUISA_COMPUTE_ENABLE_METAL` | ON | Enable Metal backend |
 | `LUISA_COMPUTE_ENABLE_FALLBACK` | Developer builds | Enable native C++ LLVM/Embree fallback backend |
 | `LUISA_COMPUTE_ENABLE_VULKAN` | ON | Enable Vulkan backend |
+| `LUISA_COMPUTE_ENABLE_VK_CUDA_INTEROP` | Developer builds | Enable Vulkan-CUDA interop (external memory/timeline sync, and CUDA kernel dispatch in Vulkan command buffers via VK_NV_cuda_kernel_launch) when CUDAToolkit is available |
 | `LUISA_COMPUTE_ENABLE_HIP` | OFF | Enable HIP backend (WIP) |
 | `LUISA_COMPUTE_ENABLE_DSL` | ON | Enable C++ DSL |
 | `LUISA_COMPUTE_ENABLE_GUI` | ON | Enable GUI support |
@@ -503,7 +504,7 @@ LuisaCompute uses XMake (3.0.6+) as an alternative build system with a more stre
 | **Backend Extensions** |||
 | `lc_cuda_ext_lcub` | false | Enable NVIDIA CUB extension (long compile time) |
 | `lc_dx_cuda_interop` | false | Enable DirectX-CUDA interop |
-| `lc_vk_cuda_interop` | false | Enable Vulkan-CUDA interop |
+| `lc_vk_cuda_interop` | false | Enable Vulkan-CUDA interop (external memory/timeline sync, and CUDA kernel dispatch in Vulkan command buffers via VK_NV_cuda_kernel_launch) |
 | **Module Options** |||
 | `lc_enable_dsl` | true | Enable C++ DSL module |
 | `lc_enable_gui` | true | Enable GUI module |

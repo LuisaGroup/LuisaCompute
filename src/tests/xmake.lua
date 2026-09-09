@@ -23,6 +23,9 @@ local function test_proj(name, source, gui_dep, callable, kind, cxx_standard)
 end
 
 -- unit/core
+if is_plat("macosx") then
+    test_proj("test_metal_shared_ptr", "unit/ext/test_metal_shared_ptr.cpp")
+end
 test_proj("test_basic_traits", "unit/core/test_basic_traits.cpp")
 test_proj("test_basic_types", "unit/core/test_basic_types.cpp")
 test_proj("test_binary_file_stream", "unit/core/test_binary_file_stream.cpp")
@@ -69,6 +72,10 @@ end)
 test_proj("test_command_reorder_bindless", "unit/ext/test_command_reorder_bindless.cpp", false, function()
     add_includedirs("../backends/common")
 end)
+test_proj("test_vk_cuda_launch_command", "unit/ext/test_vk_cuda_launch_command.cpp")
+if has_config("lc_vk_cuda_interop") and has_config("lc_cuda_backend") then
+    test_proj("test_vk_cuda_kernel_launch", "integration/runtime/test_vk_cuda_kernel_launch.cpp")
+end
 if has_config("lc_vk_backend") or has_config("lc_dx_backend") then
     test_proj("test_hlsl_validation_codegen", "unit/ext/test_hlsl_validation_codegen.cpp", false, function()
         add_includedirs("../backends/common/hlsl")
@@ -287,6 +294,7 @@ test_proj("test_byte_buffer", "unit/runtime/test_byte_buffer.cpp")
 test_proj("test_context", "unit/runtime/test_context.cpp")
 test_proj("test_copy", "unit/runtime/test_copy.cpp")
 test_proj("test_cpu_callable", "unit/runtime/test_cpu_callable.cpp")
+test_proj("test_hip_packed_pointer_effects", "unit/runtime/test_hip_packed_pointer_effects.cpp")
 test_proj("test_decoupled_look_back", "unit/runtime/test_decoupled_look_back.cpp")
 test_proj("test_complex_kernel", "unit/runtime/test_complex_kernel.cpp")
 test_proj("test_bindless_mip", "unit/runtime/test_bindless_mip.cpp")
@@ -319,9 +327,18 @@ test_proj("test_out_of_range", "unit/runtime/test_out_of_range.cpp")
 test_proj("test_buffer_view", "unit/runtime/test_buffer_view.cpp")
 test_proj("test_device_test", "unit/runtime/test_device.cpp")
 test_proj("test_external_buffer", "unit/runtime/test_external_buffer.cpp")
-test_proj("test_gemm", "unit/runtime/test_gemm.cpp")
+    test_proj("test_gemm", "unit/runtime/test_gemm.cpp")
+    test_proj("test_block_size_bench", "unit/runtime/test_block_size_bench.cpp")
 test_proj("benchmark_simd_gemm", "unit/simd/benchmark_simd_gemm.cpp")
 test_proj("test_hip_codegen_arithmetic", "unit/runtime/test_hip_codegen_arithmetic.cpp")
+test_proj("test_hip_fmod", "unit/runtime/test_hip_fmod.cpp")
+test_proj("test_switch_case_group", "unit/dsl/test_switch_case_group.cpp")
+if has_config("lc_enable_xir") then
+    test_proj("test_switch_case_group_runtime", "unit/runtime/test_switch_case_group_runtime.cpp", false, function()
+        add_deps("lc-coro")
+    end)
+end
+test_proj("test_xir_restructure_shared_switch", "unit/xir/test_xir_restructure_shared_switch.cpp")
 test_proj("test_hip_curve_ray_query", "unit/runtime/test_hip_curve_ray_query.cpp")
 test_proj("test_hip_motion_instance_matrix", "unit/runtime/test_hip_motion_instance_matrix.cpp")
 test_proj("test_hip_motion_instance_device_ops", "unit/runtime/test_hip_motion_instance_device_ops.cpp")
@@ -412,6 +429,12 @@ if has_config("lc_enable_xir") then
     test_proj("test_xir_pass_restructure_cfg", "unit/xir/test_xir_pass_restructure_cfg.cpp", false, function()
         add_defines("LUISA_ENABLE_XIR")
     end)
+    test_proj("test_xir_pass_restructure_cfg_loop_scopes", "unit/xir/test_xir_pass_restructure_cfg_loop_scopes.cpp", false, function()
+        add_defines("LUISA_ENABLE_XIR")
+    end)
+    test_proj("test_xir_pass_restructure_cfg_owned_blocks", "unit/xir/test_xir_pass_restructure_cfg_owned_blocks.cpp", false, function()
+        add_defines("LUISA_ENABLE_XIR")
+    end)
     test_proj("test_xir_module", "unit/xir/test_xir_module.cpp", false, function()
         add_defines("LUISA_ENABLE_XIR")
     end)
@@ -477,6 +500,7 @@ if has_config("lc_enable_xir") then
     coro_xir_test_proj("test_xir_coro_cfg_distill", "unit/xir/test_coro_cfg_distill.cpp")
     coro_xir_test_proj("test_xir_coro_cfg_dataflow", "unit/xir/test_coro_cfg_dataflow.cpp")
     coro_xir_test_proj("test_xir_pass_coro_alloca_scope", "unit/xir/test_xir_pass_coro_alloca_scope.cpp")
+    coro_xir_test_proj("test_xir_pass_coro_discriminated_prefix", "unit/xir/test_xir_pass_coro_discriminated_prefix.cpp")
     coro_xir_test_proj("test_xir_coro_materialize", "unit/xir/test_coro_materialize.cpp")
     coro_xir_test_proj("test_coro_dead_field", "unit/xir/test_coro_dead_field.cpp")
     coro_xir_test_proj("test_coro_frame_size", "unit/xir/test_coro_frame_size.cpp")
@@ -493,6 +517,7 @@ if has_config("lc_enable_xir") then
 end
 
 -- integration/runtime
+test_proj("test_metal4_switch_lookup", "integration/runtime/test_metal4_switch_lookup.cpp")
 test_proj("test_aot", "integration/runtime/test_aot.cpp", true)
 test_proj("test_device_debugger", "integration/runtime/test_device_debugger.cpp")
 test_proj("test_dstorage_decompression", "integration/runtime/test_dstorage_decompression.cpp", true)

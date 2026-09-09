@@ -12,6 +12,7 @@
 #include <luisa/xir/function.h>
 #include <luisa/xir/value.h>
 #include <luisa/xir/metadata/signature_constraint.h>
+#include <luisa/xir/metadata/no_inline.h>
 
 #include <algorithm>
 #include <bit>
@@ -567,7 +568,8 @@ public:
         case DerivedMetadataTag::COMMENT: return true;
         case DerivedMetadataTag::CURVE_BASIS:
         case DerivedMetadataTag::SIGNATURE_CONSTRAINT:
-        case DerivedMetadataTag::REG2MEM_SPILL: return false;
+        case DerivedMetadataTag::REG2MEM_SPILL:
+        case DerivedMetadataTag::NO_INLINE: return false;
     }
     return false;
 }
@@ -1004,6 +1006,11 @@ public:
         }
         return false;
     }
+    if (!options.override_noinline &&
+        callee->find_metadata<NoInlineMD>() != nullptr) {
+        ++info.skipped_noinline_call_count;
+        return false;
+    }
     if (callee->find_metadata<SignatureConstraintMD>() != nullptr) {
         ++info.skipped_constrained_call_count;
         return false;
@@ -1259,6 +1266,10 @@ static void inline_run(Module *module, InlineInfo &info) noexcept {
         }
         auto edges = collect_call_sites(callee);
         if (edges.empty()) continue;
+        if (callee->find_metadata<NoInlineMD>() != nullptr) {
+            info.skipped_noinline_call_count += edges.size();
+            continue;
+        }
 
         // The summary counts the definition's owned instructions rather than
         // traversing its executable CFG. Besides matching the amount of IR an
@@ -1301,6 +1312,8 @@ void set_inline_report(const InlineInfo &info, PassReport *report) noexcept {
                 info.skipped_structured_call_count);
     report->set("skipped_constrained_call",
                 info.skipped_constrained_call_count);
+    report->set("skipped_noinline_call",
+                info.skipped_noinline_call_count);
     report->set("skipped_metadata_call",
                 info.skipped_metadata_call_count);
     report->set("consumed_call_site_diagnostic_metadata",
@@ -1526,6 +1539,11 @@ InlineInfo inline_call_sites_pass_run_on_module(
             }
             continue;
         }
+        if (!options.override_noinline &&
+            callee->find_metadata<NoInlineMD>() != nullptr) {
+            ++info.skipped_noinline_call_count;
+            continue;
+        }
         if (callee->find_metadata<SignatureConstraintMD>() != nullptr) {
             ++info.skipped_constrained_call_count;
             continue;
@@ -1555,6 +1573,7 @@ InlineInfo inline_call_sites_pass_run_on_module(
         info.skipped_recursive_callable_count != 0u ||
         info.skipped_structured_call_count != 0u ||
         info.skipped_constrained_call_count != 0u ||
+        info.skipped_noinline_call_count != 0u ||
         info.skipped_metadata_call_count != 0u ||
         info.skipped_declaration_call_count != 0u ||
         plan.size() != seen_calls.size()) {

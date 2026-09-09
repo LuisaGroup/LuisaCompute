@@ -398,6 +398,47 @@ A handler reports whether it consumed, transformed, promoted, or deliberately
 ignored a descriptor. This report drives final fallback validation and is
 available to diagnostics.
 
+### Wavefront runtime handlers
+
+The implemented host-wavefront interface is `register_extension_handler`:
+
+```cpp
+scheduler.register_extension_handler(stream,
+    [](WavefrontCoroExtensionPrepareContext &context,
+       const WavefrontCoroExtensionStage &stage)
+        -> unique_ptr<WavefrontCoroSchedulerExtensionHandler> {
+        // Return nullptr to decline a schema/version, or prepare one handler
+        // using stage.binding(name) and its partial-frame dataflow certificate.
+    });
+stream << scheduler(arguments...).dispatch(size);
+```
+
+Each handler claims one static boundary stage. The scheduler retains immutable
+frame/boundary descriptors, so the source `Coroutine` may be destroyed after
+scheduler construction, including before handler registration. This owns only
+compilation metadata, not a second frame pool. A handler's resource buffers
+must remain alive until its enqueued commands complete.
+
+The default `execution()` is `WavefrontCoroExtensionExecution::stage`:
+`dispatch(context)` enqueues a semantic operation and establishes its required
+frame writes. The scheduler then advances those frames to their next queue.
+A permutation made at this phase is not preserved through a later gather.
+
+A read-only annotation handler may instead return `before_resume`. These
+handlers must form a suffix of the handled stages at a boundary. Their
+`dispatch_queue(context)` returns an exact permutation of `frame_indices`,
+with the same membership and cardinality; the default implementation calls
+`dispatch` and returns the original view. A handler can therefore return its
+own sorting buffer without copying back. The next handler and the actual
+continuation receive this view without an intervening gather, refill, or
+relocation. Ordinary frame-writing stages cannot follow this suffix.
+
+The suffix is one scheduling unit with its target continuation, including
+producer capacity checks, refill eligibility, and logical tie priority.
+Accounting consumes the selected physical queue once. Different incoming
+boundaries keep distinct binding plans rather than incorrectly promoting
+incompatible colored operands to one continuation-wide field.
+
 ## Built-in scheduling annotations
 
 The first built-in schemas are scheduling annotations:

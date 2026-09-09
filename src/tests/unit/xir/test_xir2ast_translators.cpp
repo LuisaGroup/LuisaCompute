@@ -827,6 +827,52 @@ void reg_xir2ast_direct() {
                    .succeeded());
     };
 
+    "xir_to_ast_roundtrip_preserves_shared_switch_body"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *selector = kernel->create_value_argument(Type::of<uint>());
+        auto *output = kernel->create_resource_argument(Type::buffer(Type::of<uint>()));
+        XIRBuilder builder;
+        builder.set_insertion_point(kernel->create_body_block());
+        auto *sw = builder.switch_(selector);
+        auto *shared = sw->create_case_block(12u);
+        sw->add_case(21u, shared);
+        sw->add_case(25u, shared);
+        auto *fallback = sw->create_default_block();
+        auto *merge = sw->create_merge_block();
+        builder.set_insertion_point(shared);
+        builder.call(ResourceWriteOp::BUFFER_WRITE,
+                     {output, module.create_constant_zero(Type::of<uint>()), selector});
+        builder.br(merge);
+        builder.set_insertion_point(fallback);
+        builder.br(merge);
+        builder.set_insertion_point(merge);
+        builder.return_void();
+        expect(xir_verify_module(&module).succeeded());
+
+        auto ast = xir_to_ast_translate(*kernel, {});
+        auto rebuilt = ast_to_xir_translate(ast->function(), {});
+        expect(xir_verify_module(rebuilt.get()).succeeded());
+        auto *definition = first_kernel_definition(rebuilt.get());
+        auto switches = 0u;
+        auto writes = 0u;
+        definition->traverse_instructions([&](Instruction *instruction) noexcept {
+            if (instruction->isa<ResourceWriteInst>()) { writes++; }
+            if (!instruction->isa<SwitchInst>()) { return; }
+            switches++;
+            auto *result = static_cast<SwitchInst *>(instruction);
+            expect(result->case_count() == 3u);
+            expect(result->case_value(0u) == 12u);
+            expect(result->case_value(1u) == 21u);
+            expect(result->case_value(2u) == 25u);
+            expect(result->case_block(0u) == result->case_block(1u));
+            expect(result->case_block(0u) == result->case_block(2u));
+            expect(result->default_block() != result->case_block(0u));
+        });
+        expect(switches == 1u);
+        expect(writes == 1u) << "A shared case body must be materialized once";
+    };
+
     "xir_to_ast_roundtrip_preserves_u64_switch_case_bits"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();

@@ -1319,6 +1319,26 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
             enable_subgroup_extended_types = true;
         }
     }
+#ifdef LUISA_VULKAN_ENABLE_CUDA_INTEROP
+    // VK_NV_cuda_kernel_launch can only be requested on logical devices we
+    // create ourselves; an imported device cannot be re-created with the
+    // extension enabled, and its enabled features are not queryable.
+    if (external_device == VK_NULL_HANDLE &&
+        supports_device_extension(VK_NV_CUDA_KERNEL_LAUNCH_EXTENSION_NAME)) {
+        VkPhysicalDeviceCudaKernelLaunchFeaturesNV supported_cuda_kernel_launch{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUDA_KERNEL_LAUNCH_FEATURES_NV,
+            .pNext = nullptr};
+        VkPhysicalDeviceFeatures2 features2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &supported_cuda_kernel_launch};
+        vkGetPhysicalDeviceFeatures2(physical_device, &features2);
+        if (supported_cuda_kernel_launch.cudaKernelLaunchFeatures == VK_TRUE) {
+            enable_device_extension(VK_NV_CUDA_KERNEL_LAUNCH_EXTENSION_NAME);
+            cuda_kernel_launch_enabled = true;
+            LUISA_INFO("VK_NV_cuda_kernel_launch enabled on device.");
+        }
+    }
+#endif
     if (supported_ext.find(VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME) != supported_ext.end()) {
         VkPhysicalDeviceShaderAtomicFloatFeaturesEXT supported_float_atomics{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_FLOAT_FEATURES_EXT,
@@ -2094,6 +2114,16 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     if (shader_untyped_pointers_enabled) {
         feature_next = &untyped_pointers_features;
     }
+#ifdef LUISA_VULKAN_ENABLE_CUDA_INTEROP
+    VkPhysicalDeviceCudaKernelLaunchFeaturesNV cuda_kernel_launch_features{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUDA_KERNEL_LAUNCH_FEATURES_NV,
+        .pNext = feature_next,
+        .cudaKernelLaunchFeatures =
+            cuda_kernel_launch_enabled ? VK_TRUE : VK_FALSE};
+    if (cuda_kernel_launch_enabled) {
+        feature_next = &cuda_kernel_launch_features;
+    }
+#endif
 #if ENABLE_HIDDEN_FEATURES
     if (async_copy_enabled) {
         maintenance5_features.pNext = feature_next;
@@ -2802,6 +2832,9 @@ luisa::string Device::query(luisa::string_view property) noexcept {
     }
     if (property == "buffer_device_address") {
         return device_address_enabled ? "true" : "false";
+    }
+    if (property == "motion_blur") {
+        return enable_motion_blur() ? "true" : "false";
     }
     if (property == "shader_int64") {
         return _numeric_features.shader_int64 ? "true" : "false";

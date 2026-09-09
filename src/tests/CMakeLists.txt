@@ -99,6 +99,24 @@ add_test(NAME test_simd_thread_pool
 set_tests_properties(test_simd_thread_pool PROPERTIES
         LABELS "unit;unit_simd")
 
+# Exercise the portable worker-pool protocol without loading LLVM/Embree or
+# compiling a shader. Compile the same production queue implementation here.
+luisa_compute_add_test(test_fallback_command_queue
+        unit/fallback/test_fallback_command_queue.cpp
+        LABELS "unit;unit_fallback")
+target_sources(test_fallback_command_queue PRIVATE
+        ../backends/fallback/fallback_command_queue.cpp)
+target_include_directories(test_fallback_command_queue PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../backends/fallback)
+target_link_libraries(test_fallback_command_queue PRIVATE ${CMAKE_DL_LIBS})
+set_tests_properties(test_fallback_command_queue PROPERTIES TIMEOUT 60)
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_test(NAME test_fallback_command_queue_completion
+            COMMAND test_fallback_command_queue completion)
+    set_tests_properties(test_fallback_command_queue_completion PROPERTIES
+            LABELS "unit;unit_fallback" TIMEOUT 60)
+endif ()
+
 luisa_compute_add_test(test_simd_warp_uniformity
         unit/simd/test_warp_uniformity.cpp
         LABELS "unit;unit_simd;unit_xir")
@@ -119,6 +137,17 @@ target_include_directories(test_simd_xir_to_schedule PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd/schedule)
 
 if (TARGET luisa-compute-simd-llvm)
+    add_executable(test_fallback_llvm_abi_alignment
+            unit/fallback/test_fallback_llvm_abi_alignment.cpp
+            ../backends/fallback/fallback_codegen.cpp)
+    target_compile_features(test_fallback_llvm_abi_alignment PRIVATE cxx_std_20)
+    target_link_libraries(test_fallback_llvm_abi_alignment PRIVATE luisa-compute-simd-llvm)
+    target_include_directories(test_fallback_llvm_abi_alignment PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/../backends/fallback ${LLVM_INCLUDE_DIRS})
+    add_test(NAME test_fallback_llvm_abi_alignment COMMAND test_fallback_llvm_abi_alignment)
+    set_tests_properties(test_fallback_llvm_abi_alignment PROPERTIES
+            LABELS "unit;unit_fallback;unit_llvm")
+
     luisa_compute_add_test(test_simd_phi_parallel_copy unit/simd/test_phi_parallel_copy.cpp
             LABELS "unit;unit_simd;unit_llvm;integration_simd")
     target_link_libraries(test_simd_phi_parallel_copy PRIVATE luisa-compute-simd-compiler)
@@ -301,8 +330,21 @@ if (TARGET luisa-compute-backend-hip)
             LABELS "unit;unit_core;unit_hip")
 endif ()
 if (TARGET luisa-compute-backend-hip AND LLVM_FOUND)
+    luisa_compute_add_test(test_hip_floating_remainder unit/core/test_hip_floating_remainder.cpp LABELS "unit;unit_core;unit_hip")
+    target_sources(test_hip_floating_remainder PRIVATE
+            ../backends/hip/llvm_codegen/hip_floating_remainder.cpp)
+    target_include_directories(test_hip_floating_remainder PRIVATE
+            ../backends/hip/llvm_codegen ${LLVM_INCLUDE_DIRS})
+    if (TARGET LLVM)
+        target_link_libraries(test_hip_floating_remainder PRIVATE LLVM)
+    else ()
+        llvm_map_components_to_libnames(_hip_floating_remainder_llvm_libs core support)
+        target_link_libraries(test_hip_floating_remainder PRIVATE
+                ${_hip_floating_remainder_llvm_libs})
+    endif ()
     luisa_compute_add_test(test_hip_callable_abi unit/core/test_hip_callable_abi.cpp LABELS "unit;unit_core")
     target_sources(test_hip_callable_abi PRIVATE
+        unit/core/test_hip_late_inline.cpp
         ../backends/hip/llvm_codegen/hip_callable_abi.cpp
         ../backends/hip/llvm_codegen/hip_inlining_policy.cpp
         ../backends/hip/llvm_codegen/hip_private_memory.cpp)
@@ -321,6 +363,13 @@ luisa_compute_add_test(test_glslang_spirv      unit/ext/test_glslang_spirv.cpp  
 target_link_libraries(test_glslang_spirv PRIVATE glslang-default-resource-limits)
 luisa_compute_add_test(test_command_reorder_bindless unit/ext/test_command_reorder_bindless.cpp LABELS "unit;unit_ext")
 target_include_directories(test_command_reorder_bindless PRIVATE ../backends/common)
+luisa_compute_add_test(test_vk_cuda_launch_command unit/ext/test_vk_cuda_launch_command.cpp LABELS "unit;unit_ext")
+get_property(LUISA_COMPUTE_VK_CUDA_INTEROP_ENABLED GLOBAL PROPERTY LUISA_COMPUTE_VK_CUDA_INTEROP_ENABLED)
+# Kernels are compiled from the DSL on a paired cuda device and imported into
+# the VK extension, so the cuda backend is required.
+if (LUISA_COMPUTE_VK_CUDA_INTEROP_ENABLED AND LUISA_COMPUTE_ENABLE_CUDA)
+    luisa_compute_add_test(test_vk_cuda_kernel_launch integration/runtime/test_vk_cuda_kernel_launch.cpp)
+endif ()
 luisa_compute_add_test(test_spirv_motion_patch unit/ext/test_spirv_motion_patch.cpp  LABELS "unit;unit_ext")
 target_sources(test_spirv_motion_patch PRIVATE ../backends/vk/spirv_motion_patch.cpp)
 target_include_directories(test_spirv_motion_patch PRIVATE ../backends/vk)
@@ -379,6 +428,10 @@ if (TARGET luisa-compute-backend-vk)
 endif ()
 luisa_compute_add_test(test_argument_block_layout unit/ext/test_argument_block_layout.cpp LABELS "unit;unit_ext")
 target_include_directories(test_argument_block_layout PRIVATE ../backends/common)
+if (APPLE)
+    luisa_compute_add_test(test_metal_shared_ptr unit/ext/test_metal_shared_ptr.cpp
+            LABELS "unit;unit_ext;unit_metal")
+endif ()
 if (TARGET luisa-compute-backend-metal4)
     luisa_compute_add_test(benchmark_metal4
             benchmark/benchmark_metal4.cpp)
@@ -422,6 +475,7 @@ if (TARGET luisa-compute-backend-metal4)
 
     foreach (_metal4_test IN ITEMS
             test_metal_xir_air
+            test_metal4_switch_lookup
             test_metal_xir_air_accel
             test_metal4_air_extended_accel_limits
             test_metal4_motion_instance_render
@@ -728,6 +782,15 @@ luisa_compute_add_test(test_hip_rt_scratch_reuse unit/runtime/test_hip_rt_scratc
 luisa_compute_add_test(test_hip_large_accel_instances unit/runtime/test_hip_large_accel_instances.cpp)
 luisa_compute_add_test(test_hip_shader_cache    unit/runtime/test_hip_shader_cache.cpp)
 luisa_compute_add_test(test_hip_callable_boundary unit/runtime/test_hip_callable_boundary.cpp)
+luisa_compute_add_test(test_hip_packed_pointer_effects unit/runtime/test_hip_packed_pointer_effects.cpp)
+foreach (_packed_pointer_backend hip fallback)
+    if (TARGET luisa-compute-backend-${_packed_pointer_backend})
+        add_test(NAME test_hip_packed_pointer_effects_${_packed_pointer_backend}
+                COMMAND test_hip_packed_pointer_effects ${_packed_pointer_backend})
+        set_tests_properties(test_hip_packed_pointer_effects_${_packed_pointer_backend}
+                PROPERTIES LABELS "unit;unit_runtime;${_packed_pointer_backend}")
+    endif ()
+endforeach ()
 luisa_compute_add_test(test_hip_float_atomic_memory_model unit/runtime/test_hip_float_atomic_memory_model.cpp)
 luisa_compute_add_test(test_counted_local_array unit/runtime/test_counted_local_array.cpp)
 luisa_compute_add_test(test_atomic              unit/runtime/test_atomic.cpp)
@@ -744,10 +807,29 @@ if (TARGET luisa-compute-backend-fallback)
     # uniform arguments. Kept out of unattended CTest because it requires the
     # optional LLVM/Embree fallback backend at runtime.
     luisa_compute_add_test(test_fallback_shader_cache unit/runtime/test_fallback_shader_cache.cpp)
+    luisa_compute_add_test(test_fallback_coro_allocation
+            unit/runtime/test_fallback_coro_allocation.cpp
+            LABELS "unit;unit_runtime;integration_fallback")
+    add_dependencies(test_fallback_coro_allocation luisa-compute-backend-fallback)
+    luisa_compute_add_test(test_fallback_coro_arena
+            unit/fallback/test_fallback_coro_arena.cpp LABELS "unit;unit_fallback")
+    target_include_directories(test_fallback_coro_arena PRIVATE ../backends/fallback)
 endif ()
 luisa_compute_add_test(test_bindless_mip        unit/runtime/test_bindless_mip.cpp)
 luisa_compute_add_test(test_direct_texture_sampling unit/runtime/test_direct_texture_sampling.cpp)
 luisa_compute_add_test(test_metal_codegen_regressions unit/runtime/test_metal_codegen_regressions.cpp)
+if (TARGET luisa-compute-backend-metal)
+    add_test(NAME test_metal_local_codegen
+            COMMAND test_metal_codegen_regressions metal)
+    set_tests_properties(test_metal_local_codegen PROPERTIES
+            LABELS "integration;integration_metal" TIMEOUT 120)
+endif ()
+if (TARGET luisa-compute-backend-metal4)
+    add_test(NAME test_metal4_local_lifetimes
+            COMMAND test_metal_codegen_regressions metal4 --local-only)
+    set_tests_properties(test_metal4_local_lifetimes PROPERTIES
+            LABELS "integration;integration_metal4" TIMEOUT 120)
+endif ()
 luisa_compute_add_test(test_mipmap              unit/runtime/test_mipmap.cpp)
 luisa_compute_add_test(test_motion_instance_keyframes unit/runtime/test_motion_instance_keyframes.cpp LABELS "unit;unit_runtime")
 luisa_compute_add_test(test_pinned_mem          unit/runtime/test_pinned_mem.cpp)
@@ -780,6 +862,10 @@ luisa_compute_add_test(test_hip_wave_size       unit/runtime/test_hip_wave_size.
 luisa_compute_add_test(test_mha_warp_reduction  unit/runtime/test_mha_warp_reduction.cpp)
 luisa_compute_add_test(test_ast_json_serde      unit/ast/test_ast_json_serde.cpp
         LABELS "unit;unit_ast")
+luisa_compute_add_test(test_switch_case_group unit/dsl/test_switch_case_group.cpp
+        LABELS "unit;unit_ast;unit_xir;unit_dsl")
+luisa_compute_add_test(test_xir_restructure_shared_switch unit/xir/test_xir_restructure_shared_switch.cpp
+        LABELS "unit;unit_xir")
 if (LUISA_COMPUTE_ENABLE_REMOTE)
     luisa_compute_add_test(test_remote_blob_cache
             unit/runtime/test_remote_blob_cache.cpp
@@ -849,8 +935,27 @@ luisa_compute_add_test(test_buffer_view         unit/runtime/test_buffer_view.cp
 luisa_compute_add_test(test_device_test         unit/runtime/test_device.cpp)
 luisa_compute_add_test(test_external_buffer     unit/runtime/test_external_buffer.cpp)
 luisa_compute_add_test(test_gemm                unit/runtime/test_gemm.cpp)
+luisa_compute_add_test(test_block_size_bench    unit/runtime/test_block_size_bench.cpp)
 luisa_compute_add_test(benchmark_simd_gemm      unit/simd/benchmark_simd_gemm.cpp)
 luisa_compute_add_test(test_hip_codegen_arithmetic unit/runtime/test_hip_codegen_arithmetic.cpp)
+luisa_compute_add_test(test_hip_fmod unit/runtime/test_hip_fmod.cpp)
+luisa_compute_add_test(test_switch_case_group_runtime unit/runtime/test_switch_case_group_runtime.cpp)
+foreach(switch_backend IN ITEMS HIP FALLBACK VULKAN)
+    if (LUISA_COMPUTE_ENABLE_${switch_backend})
+        string(TOLOWER "${switch_backend}" switch_backend_name)
+        if (switch_backend STREQUAL "VULKAN")
+            set(switch_backend_name vk)
+        endif ()
+        add_test(NAME test_switch_case_group_${switch_backend_name}
+            COMMAND test_switch_case_group_runtime ${switch_backend_name})
+        set_tests_properties(test_switch_case_group_${switch_backend_name} PROPERTIES
+            LABELS "runtime;runtime_${switch_backend_name}" TIMEOUT 120)
+        if (switch_backend STREQUAL "VULKAN")
+            set_tests_properties(test_switch_case_group_vk PROPERTIES ENVIRONMENT
+                "LUISA_VULKAN_USE_XIR=1;LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV=1;LUISA_VULKAN_DISABLE_DXC=1")
+        endif ()
+    endif ()
+endforeach()
 luisa_compute_add_test(test_hip_curve_ray_query unit/runtime/test_hip_curve_ray_query.cpp)
 luisa_compute_add_test(test_hip_motion_instance_matrix unit/runtime/test_hip_motion_instance_matrix.cpp)
 luisa_compute_add_test(test_hip_motion_instance_device_ops unit/runtime/test_hip_motion_instance_device_ops.cpp)
@@ -883,12 +988,14 @@ luisa_compute_add_test(test_xir_translators unit/xir/test_xir_translators.cpp LA
 luisa_compute_add_test(test_xir_interchange unit/xir/test_xir_interchange.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir2ast_translators unit/xir/test_xir2ast_translators.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_passes      unit/xir/test_xir_passes.cpp      LABELS "unit;unit_xir")
+luisa_compute_add_test(test_xir_pass_promote_ref_forwarding unit/xir/test_xir_pass_promote_ref_forwarding.cpp LABELS "unit;unit_xir;unit_coro")
 luisa_compute_add_test(test_xir_aggregate_field_bitmask unit/xir/test_xir_aggregate_field_bitmask.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_alias_analysis unit/xir/test_xir_pass_alias_analysis.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_core_analyses unit/xir/test_xir_pass_core_analyses.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_defer_local_aggregate_load unit/xir/test_xir_pass_defer_local_aggregate_load.cpp LABELS "unit;unit_xir;unit_coro")
 luisa_compute_add_test(test_xir_pass_coro_rematerialize unit/xir/test_xir_pass_coro_rematerialize.cpp LABELS "unit;unit_xir;unit_coro")
 luisa_compute_add_test(test_xir_pass_coro_alloca_scope unit/xir/test_xir_pass_coro_alloca_scope.cpp LABELS "unit;unit_xir;unit_coro")
+luisa_compute_add_test(test_xir_pass_coro_discriminated_prefix unit/xir/test_xir_pass_coro_discriminated_prefix.cpp LABELS "unit;unit_xir;unit_coro")
 luisa_compute_add_test(test_xir_pass_pointer_usage unit/xir/test_xir_pass_pointer_usage.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_scalar_evolution unit/xir/test_xir_pass_scalar_evolution.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_integer_alignment unit/xir/test_xir_integer_alignment.cpp LABELS "unit;unit_xir")
@@ -909,6 +1016,24 @@ luisa_compute_add_test(test_coro_frame_desc unit/dsl/test_coro_frame_desc.cpp LA
 luisa_compute_add_test(test_coro_frame_runtime unit/dsl/test_coro_frame_runtime.cpp)
 luisa_compute_add_test(test_coro_compile_trigger unit/dsl/test_coro_compile_trigger.cpp LABELS "unit;unit_xir;unit_coro")
 luisa_compute_add_test(test_coro_func            unit/dsl/test_coro_func.cpp            LABELS "unit;unit_xir;unit_coro")
+luisa_compute_add_test(test_coro_readonly_forwarding unit/coro/test_coro_readonly_forwarding.cpp)
+foreach(_readonly_backend IN ITEMS hip fallback vk)
+    string(TOUPPER "${_readonly_backend}" _readonly_backend_option)
+    if(_readonly_backend STREQUAL "vk")
+        set(_readonly_backend_option VULKAN)
+    endif()
+    if(NOT LUISA_COMPUTE_ENABLE_${_readonly_backend_option})
+        continue()
+    endif()
+    add_test(NAME test_coro_readonly_forwarding_${_readonly_backend}
+        COMMAND test_coro_readonly_forwarding ${_readonly_backend})
+    set_tests_properties(test_coro_readonly_forwarding_${_readonly_backend}
+        PROPERTIES LABELS "unit_coro_runtime")
+endforeach()
+if(TEST test_coro_readonly_forwarding_vk)
+    set_tests_properties(test_coro_readonly_forwarding_vk PROPERTIES ENVIRONMENT
+        "LUISA_VULKAN_USE_XIR=1;LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV=1;LUISA_VULKAN_DISABLE_DXC=1")
+endif()
 luisa_compute_add_test(test_coro_suspend         unit/dsl/test_coro_suspend.cpp         LABELS "unit;unit_xir;unit_coro")
 luisa_compute_add_test(test_coro_graph unit/coro/test_coro_graph.cpp LABELS "unit;unit_coro")
 luisa_compute_add_test(test_coro_graph_wavefront_policy unit/coro/test_coro_graph_wavefront_policy.cpp LABELS "unit;unit_coro")
@@ -919,6 +1044,12 @@ luisa_compute_add_test(test_coro_persistent_opt unit/coro/test_coro_persistent_o
 luisa_compute_add_test(test_coro_persistent_integration unit/coro/test_coro_persistent_integration.cpp)
 luisa_compute_add_test(test_coro_soa_layout     unit/coro/test_coro_soa_layout.cpp)
 luisa_compute_add_test(test_coro_wavefront      unit/coro/test_coro_wavefront.cpp)
+luisa_compute_add_test(test_coro_wavefront_auxiliary_pipeline
+        unit/coro/test_coro_wavefront_auxiliary_pipeline.cpp)
+luisa_compute_add_test(test_coro_wavefront_resume_annotation
+        unit/coro/test_coro_wavefront_resume_annotation.cpp)
+luisa_compute_add_test(test_coro_wavefront_auxiliary_admission
+        unit/coro/test_coro_wavefront_auxiliary_admission.cpp)
 luisa_compute_add_test(test_coro_radix_sort     unit/coro/test_coro_radix_sort.cpp)
 luisa_compute_add_test(test_coro_all_schedulers unit/coro/test_coro_all_schedulers.cpp)
 foreach (_target test_coro_wavefront test_coro_all_schedulers)
@@ -939,6 +1070,9 @@ luisa_compute_add_test(test_xir_pass_lower_irreducible_cfg unit/xir/test_xir_pas
 luisa_compute_add_test(test_xir_pass_fuse_consecutive_buffer_reads unit/xir/test_xir_pass_fuse_consecutive_buffer_reads.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_restructure_cfg unit/xir/test_xir_pass_restructure_cfg.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_restructure_cfg_entry_boundaries unit/xir/test_xir_pass_restructure_cfg_entry_boundaries.cpp LABELS "unit;unit_xir;unit_coro")
+luisa_compute_add_test(test_xir_pass_restructure_cfg_owned_blocks unit/xir/test_xir_pass_restructure_cfg_owned_blocks.cpp LABELS "unit;unit_xir;unit_coro")
+luisa_compute_add_test(test_xir_pass_restructure_cfg_loop_scopes unit/xir/test_xir_pass_restructure_cfg_loop_scopes.cpp LABELS "unit;unit_xir;unit_coro")
+set_tests_properties(test_xir_pass_restructure_cfg_loop_scopes PROPERTIES TIMEOUT 30)
 luisa_compute_add_test(test_xir_pass_restructure_cfg_construct_exits unit/xir/test_xir_pass_restructure_cfg_construct_exits.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_restructure_cfg_selection_relations unit/xir/test_xir_pass_restructure_cfg_selection_relations.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_convergence_region unit/xir/test_xir_pass_convergence_region.cpp LABELS "unit;unit_xir")

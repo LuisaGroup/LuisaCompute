@@ -38,6 +38,9 @@ public:
         AUTO_DIFF,
         PRINT,
         DEBUG_BREAK,
+        // Appended to preserve the binary representation of existing tags.
+        // Uses SwitchCaseStmt/StmtVisitor, with several labels and one body.
+        SWITCH_CASE_GROUP,
     };
 
 private:
@@ -208,6 +211,27 @@ public:
     [[nodiscard]] auto rhs() const noexcept { return _rhs; }
     LUISA_STATEMENT_COMMON()
 };
+
+// `Local<T>` emits this exact assignment at its lexical declaration point so
+// XIR can recover the dynamic storage epoch even though physical allocas are
+// function-scoped. Direct AST backends must not materialize it: retaining the
+// pre-existing bits is a valid refinement of an arbitrary value and avoids a
+// synthetic aggregate zero fill. The strict shape prevents an ordinary
+// partial assignment from being mistaken for a lifetime boundary.
+[[nodiscard]] inline bool is_local_undefined_lifetime_seed(
+    const AssignStmt *statement) noexcept {
+    if (statement == nullptr ||
+        statement->lhs()->tag() != Expression::Tag::REF ||
+        statement->rhs()->tag() != Expression::Tag::CALL) {
+        return false;
+    }
+    auto *lhs = static_cast<const RefExpr *>(statement->lhs());
+    auto *rhs = static_cast<const CallExpr *>(statement->rhs());
+    return lhs->variable().is_local() &&
+           lhs->type() == rhs->type() &&
+           rhs->op() == CallOp::UNDEFINED &&
+           rhs->arguments().empty();
+}
 
 /// If statement
 class LUISA_AST_API IfStmt : public Statement {
@@ -387,6 +411,9 @@ class LUISA_AST_API SwitchCaseStmt : public Statement {
 
 private:
     const Expression *_expr{};
+    // Empty for the original single-label representation. Groups keep all
+    // labels here, including _expr, without sharing ownership of their body.
+    luisa::vector<const Expression *> _expressions;
     ScopeStmt _body;
     SwitchCaseStmt() noexcept = default;
 
@@ -403,7 +430,12 @@ public:
         : Statement{Tag::SWITCH_CASE}, _expr{expr} {
         _expr->mark(Usage::READ);
     }
+    explicit SwitchCaseStmt(luisa::span<const Expression *const> expressions) noexcept;
+    /// The first label (retained for single-label API compatibility).
     [[nodiscard]] auto expression() const noexcept { return _expr; }
+    [[nodiscard]] luisa::span<const Expression *const> expressions() const noexcept {
+        return _expressions.empty() ? luisa::span{&_expr, 1u} : luisa::span{_expressions};
+    }
     [[nodiscard]] auto body() noexcept { return &_body; }
     [[nodiscard]] auto body() const noexcept { return &_body; }
     LUISA_STATEMENT_COMMON()
@@ -687,7 +719,8 @@ void traverse_expressions(
                 switch_stmt->body(), visit, enter_stmt, exit_stmt);
             break;
         }
-        case Statement::Tag::SWITCH_CASE: {
+        case Statement::Tag::SWITCH_CASE:
+        case Statement::Tag::SWITCH_CASE_GROUP: {
             auto case_stmt = static_cast<const SwitchCaseStmt *>(stmt);
             traverse_expressions<recurse_subexpr>(
                 case_stmt->body(), visit, enter_stmt, exit_stmt);

@@ -55,6 +55,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         metadata/curve_basis.cpp
         metadata/signature_constraint.cpp
         metadata/reg2mem_spill.cpp
+        metadata/no_inline.cpp
 
         # translators
         translators/ast2xir.cpp
@@ -76,6 +77,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/coro_cfg_distill.cpp
         passes/coro_cfg_dataflow.cpp
         passes/coro_alloca_scope.cpp
+        passes/coro_discriminated_prefix.cpp
         passes/coro_guarded_scalar_relation.cpp
         passes/coro_initialized_prefix.cpp
         passes/coro_scalar_relation_liveness.cpp

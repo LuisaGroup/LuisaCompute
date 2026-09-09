@@ -391,7 +391,8 @@ void Stream::custom(DeviceInterface *dev, Command *cmd) {
                 c->request());
 
         } break;
-        case to_underlying(CustomCommandUUID::CUSTOM_DISPATCH): {
+        case to_underlying(CustomCommandUUID::CUSTOM_DISPATCH):
+        case to_underlying(CustomCommandUUID::VK_CUDA_LAUNCH_KERNEL): {
             auto c = static_cast<CustomDispatchCommand *>(cmd);
             CustomDispatchArgumentVisitor visitor{this};
             c->traverse_arguments(visitor);
@@ -546,6 +547,9 @@ void Stream::dispatch(DeviceInterface *dev, CommandList &cmd_list) {
                         break;
                     case to_underlying(CustomCommandUUID::DSTORAGE_READ):
                         Device::check_stream(handle(), StreamFunc::Custom, custom_cmd->custom_cmd_uuid());
+                        break;
+                    case to_underlying(CustomCommandUUID::VK_CUDA_LAUNCH_KERNEL):
+                        Device::check_stream(handle(), StreamFunc::Compute, custom_cmd->custom_cmd_uuid());
                         break;
                 }
                 custom(dev, cmd);

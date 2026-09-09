@@ -63,6 +63,7 @@
 #include <luisa/xir/passes/sroa.h>
 #include <luisa/xir/passes/unused_callable_removal.h>
 #include <luisa/xir/translators/xir2ast.h>
+#include <luisa/xir/metadata/no_inline.h>
 #include <luisa/xir/translators/coro_xir2ast.h>
 #include <luisa/xir/verifier.h>
 
@@ -1461,51 +1462,66 @@ private:
                     auto sw = static_cast<const SwitchInst *>(inst);
                     auto ast_switch = _current_builder()->switch_(_expr(sw->value()));
                     _current_builder()->with(ast_switch->body(), [&] {
+                        // Preserve the first-occurrence order without relying
+                        // on hash-table iteration, and group labels in O(N).
+                        luisa::unordered_map<const BasicBlock *, size_t> group_indices;
+                        luisa::vector<luisa::vector<uint>> groups;
                         for (auto i = 0u; i < sw->case_count(); i++) {
-                            auto selector_type = sw->value()->type();
-                            auto case_value = sw->case_value(i);
-                            auto case_expr = [&]() noexcept -> const LiteralExpr * {
-                                switch (selector_type->tag()) {
-                                    case Type::Tag::BOOL:
-                                        return _current_builder()->literal(
-                                            selector_type, static_cast<bool>(case_value));
-                                    case Type::Tag::INT8:
-                                        return _current_builder()->literal(
-                                            selector_type, luisa::bit_cast<int8_t>(
-                                                               static_cast<uint8_t>(case_value)));
-                                    case Type::Tag::UINT8:
-                                        return _current_builder()->literal(
-                                            selector_type, static_cast<uint8_t>(case_value));
-                                    case Type::Tag::INT16:
-                                        return _current_builder()->literal(
-                                            selector_type, luisa::bit_cast<int16_t>(
-                                                               static_cast<uint16_t>(case_value)));
-                                    case Type::Tag::UINT16:
-                                        return _current_builder()->literal(
-                                            selector_type, static_cast<uint16_t>(case_value));
-                                    case Type::Tag::INT32:
-                                        return _current_builder()->literal(
-                                            selector_type, luisa::bit_cast<int32_t>(
-                                                               static_cast<uint32_t>(case_value)));
-                                    case Type::Tag::UINT32:
-                                        return _current_builder()->literal(
-                                            selector_type, static_cast<uint32_t>(case_value));
-                                    case Type::Tag::INT64:
-                                        return _current_builder()->literal(
-                                            selector_type, luisa::bit_cast<int64_t>(case_value));
-                                    case Type::Tag::UINT64:
-                                        return _current_builder()->literal(selector_type, case_value);
-                                    default:
-                                        LUISA_ERROR_WITH_LOCATION(
-                                            "Invalid XIR switch selector type {}.",
-                                            selector_type->description());
-                                }
-                            }();
-                            auto ast_case = _current_builder()->case_(case_expr);
+                            auto [iter, inserted] = group_indices.try_emplace(sw->case_block(i), groups.size());
+                            if (inserted) { groups.emplace_back(); }
+                            groups[iter->second].emplace_back(i);
+                        }
+                        for (auto &&group : groups) {
+                            auto *case_block = sw->case_block(group.front());
+                            luisa::vector<const Expression *> case_expressions;
+                            case_expressions.reserve(group.size());
+                            for (auto j : group) {
+                                auto selector_type = sw->value()->type();
+                                auto case_value = sw->case_value(j);
+                                auto case_expr = [&]() noexcept -> const LiteralExpr * {
+                                    switch (selector_type->tag()) {
+                                        case Type::Tag::BOOL:
+                                            return _current_builder()->literal(
+                                                selector_type, static_cast<bool>(case_value));
+                                        case Type::Tag::INT8:
+                                            return _current_builder()->literal(
+                                                selector_type, luisa::bit_cast<int8_t>(
+                                                                   static_cast<uint8_t>(case_value)));
+                                        case Type::Tag::UINT8:
+                                            return _current_builder()->literal(
+                                                selector_type, static_cast<uint8_t>(case_value));
+                                        case Type::Tag::INT16:
+                                            return _current_builder()->literal(
+                                                selector_type, luisa::bit_cast<int16_t>(
+                                                                   static_cast<uint16_t>(case_value)));
+                                        case Type::Tag::UINT16:
+                                            return _current_builder()->literal(
+                                                selector_type, static_cast<uint16_t>(case_value));
+                                        case Type::Tag::INT32:
+                                            return _current_builder()->literal(
+                                                selector_type, luisa::bit_cast<int32_t>(
+                                                                   static_cast<uint32_t>(case_value)));
+                                        case Type::Tag::UINT32:
+                                            return _current_builder()->literal(
+                                                selector_type, static_cast<uint32_t>(case_value));
+                                        case Type::Tag::INT64:
+                                            return _current_builder()->literal(
+                                                selector_type, luisa::bit_cast<int64_t>(case_value));
+                                        case Type::Tag::UINT64:
+                                            return _current_builder()->literal(selector_type, case_value);
+                                        default:
+                                            LUISA_ERROR_WITH_LOCATION(
+                                                "Invalid XIR switch selector type {}.",
+                                                selector_type->description());
+                                    }
+                                }();
+                                case_expressions.emplace_back(case_expr);
+                            }
+                            auto ast_case = _current_builder()->case_(luisa::span{case_expressions});
                             _current_builder()->with(ast_case->body(), [&] {
                                 _with_value_map_checkpoint([&] {
                                     _emit_selection_path(
-                                        sw->case_block(i),
+                                        case_block,
                                         sw->merge_block());
                                 });
                             });
@@ -1572,21 +1588,35 @@ private:
 
     [[nodiscard]] luisa::shared_ptr<const ASTFunctionBuilder> _translate(const FunctionDefinition &f) noexcept {
         auto build = [&] {
+            if (f.find_metadata<NoInlineMD>() != nullptr) {
+                _current_builder()->mark_noinline();
+            }
             _declare_arguments(f);
             if (f.derived_function_tag() == DerivedFunctionTag::KERNEL) { _current_builder()->set_block_size(static_cast<const KernelFunction &>(f).block_size()); }
             _predeclare_allocas(f.body_block());
             _emit_block(f.body_block());
         };
+        luisa::shared_ptr<const ASTFunctionBuilder> builder;
         switch (f.derived_function_tag()) {
-            case DerivedFunctionTag::KERNEL: return ASTFunctionBuilder::define_kernel(build);
-            case DerivedFunctionTag::CALLABLE: return ASTFunctionBuilder::define_callable(build);
+            case DerivedFunctionTag::KERNEL:
+                builder = ASTFunctionBuilder::define_kernel(build);
+                break;
+            case DerivedFunctionTag::CALLABLE:
+                builder = ASTFunctionBuilder::define_callable(build);
+                break;
             case DerivedFunctionTag::RASTER_STAGE:
                 LUISA_ERROR_WITH_LOCATION(
                     "XIR-to-AST raster-stage lowering does not yet preserve "
                     "vertex/fragment stage identity.");
             case DerivedFunctionTag::EXTERNAL: break;
         }
-        LUISA_ERROR_WITH_LOCATION("Cannot translate external XIR function to AST.");
+        LUISA_ASSERT(
+            builder != nullptr,
+            "Cannot translate external XIR function to AST.");
+        if (auto name = f.name(); name.has_value()) {
+            builder->set_name(*name);
+        }
+        return builder;
     }
 
     [[nodiscard]] luisa::shared_ptr<const ASTFunctionBuilder> _translate_callable(const FunctionDefinition &f) noexcept {

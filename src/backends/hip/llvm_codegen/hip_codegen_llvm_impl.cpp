@@ -1092,12 +1092,7 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
             // on linked low-level wrapper definitions remain source-owned;
             // those are explicit implementation contracts, not a name-based
             // policy inferred here after the fact.
-            if (func.hasFnAttribute(
-                    llvm_generated_callable_attribute)) {
-                func.removeFnAttr(llvm::Attribute::AlwaysInline);
-                func.removeFnAttr(llvm::Attribute::NoInline);
-                func.removeFnAttr(llvm::Attribute::InlineHint);
-            }
+            prepare_hip_generated_callable_for_ipo(func);
         }
     }
 
@@ -1463,6 +1458,21 @@ luisa::string HIPCodegenLLVMImpl::generate(const xir::Module &xir_module) noexce
             "callable(s), removing {} bytes from their direct call ABIs.",
             callable_abi_stats.rewritten_function_count,
             callable_abi_stats.removed_aggregate_bytes);
+    }
+
+    // A retained callable with one direct user and an ABI wider than the
+    // hardware callable window would otherwise materialize a private suffix
+    // record for a boundary that cannot share its body. Inline only this
+    // zero-duplication case after IPO has optimized the body independently.
+    auto unique_oversized_inline_stats =
+        inline_unique_oversized_generated_callables(*_llvm_module);
+    if (unique_oversized_inline_stats.inlined_function_count != 0u) {
+        LUISA_VERBOSE(
+            "Late-inlined {} unique oversized generated HIP callable(s), "
+            "removing {} argument and {} return VGPR location(s).",
+            unique_oversized_inline_stats.inlined_function_count,
+            unique_oversized_inline_stats.removed_argument_locations,
+            unique_oversized_inline_stats.removed_return_locations);
     }
 
     // GlobalISel demotes a return wider than RetCC_AMDGPU_Func's 32 VGPRs to

@@ -177,6 +177,8 @@ public:
     [[nodiscard]] bool requires_autodiff() const noexcept;
     /// Return whether the function requires printing
     [[nodiscard]] bool requires_printing() const noexcept;
+    /// Return whether calls to the function must not be inlined.
+    [[nodiscard]] bool requires_noinline() const noexcept;
     /// Return required curve bases
     [[nodiscard]] CurveBasisSet required_curve_bases() const noexcept;
     // warp size

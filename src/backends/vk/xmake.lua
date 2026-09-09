@@ -148,7 +148,14 @@ on_load(function(target)
     end
     if has_config("lc_vk_cuda_interop") then
         target:add("defines", "LUISA_VULKAN_ENABLE_CUDA_INTEROP")
-        target:add("links", "nvrtc_static", "cudart_static", "cuda")
+        -- VK_NV_cuda_kernel_launch types live in vulkan_beta.h, only exposed
+        -- with VK_ENABLE_BETA_EXTENSIONS (must precede the volk include).
+        target:add("defines", "VK_ENABLE_BETA_EXTENSIONS")
+        -- Only the CUDA driver API is needed: the primary context and
+        -- external memory are managed here, while the module image (PTX or
+        -- linked cubin) is produced by the cuda backend; this backend no
+        -- longer compiles CUDA source at runtime.
+        target:add("links", "cuda")
         target:add('deps', '_lc_cuda_base')
     end
     if has_config('lc_vk_backend_use_ast_llvm_spirv')  or has_config('lc_vk_backend_use_xir_spirv') then

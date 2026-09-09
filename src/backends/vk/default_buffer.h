@@ -12,7 +12,10 @@ class DefaultBuffer : public Buffer {
 
 public:
     DefaultBuffer(Device *device, size_t size_bytes, bool used_as_accel = false, VkBufferUsageFlagBits extra_bit = (VkBufferUsageFlagBits)0);
-    DefaultBuffer(Device *device, VkBuffer vk_buffer, VkDeviceMemory memory, size_t size_bytes);
+    // `device_address_capable` must reflect whether the VkBuffer was created
+    // with VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT (interop buffers do so
+    // when the device enables buffer device addresses).
+    DefaultBuffer(Device *device, VkBuffer vk_buffer, VkDeviceMemory memory, size_t size_bytes, bool device_address_capable = false);
     DefaultBuffer(DefaultBuffer &&rhs) noexcept;
     ~DefaultBuffer();
     VkBuffer vk_buffer() const override { return _buffer; }

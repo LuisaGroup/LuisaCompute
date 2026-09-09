@@ -21,6 +21,10 @@
 #include "resource_barrier_contract.h"
 #include <luisa/runtime/swapchain.h>
 #include <luisa/backends/ext/vk_custom_cmd.h>
+#include <luisa/backends/ext/vk_cuda_interop.h>
+#ifdef LUISA_VULKAN_ENABLE_CUDA_INTEROP
+#include "vk_cuda_interop_ext.h"
+#endif
 #include "../common/argument_block_layout.h"
 #include "../common/shader_print_formatter.h"
 #include "raster_shader.h"
@@ -2797,6 +2801,35 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                                     resource_barrier, i);
                             }
                         } break;
+                        case to_underlying(CustomCommandUUID::VK_CUDA_LAUNCH_KERNEL): {
+                            auto cmd = static_cast<vk_cuda_interop::CudaKernelLaunchCommand const *>(c);
+                            cmd->traverse_arguments([&]<typename T>(T const &arg, Usage usage) noexcept {
+                                auto barrier_usage =
+                                    (luisa::to_underlying(usage) &
+                                     luisa::to_underlying(Usage::WRITE)) != 0u ?
+                                        ResourceBarrier::Usage::kComputeUAV :
+                                        ResourceBarrier::Usage::kComputeRead;
+                                if constexpr (std::is_same_v<T, Argument::Buffer>) {
+                                    LUISA_ASSERT(arg.handle != 0u,
+                                                 "Vulkan CUDA kernel launch contains a null buffer handle.");
+                                    auto buffer = reinterpret_cast<Buffer const *>(arg.handle);
+                                    resource_barrier->record(
+                                        BufferView(buffer, arg.offset, arg.size),
+                                        barrier_usage);
+                                } else if constexpr (std::is_same_v<T, Argument::Texture>) {
+                                    LUISA_ASSERT(arg.handle != 0u,
+                                                 "Vulkan CUDA kernel launch contains a null texture handle.");
+                                    auto tex = reinterpret_cast<Texture const *>(arg.handle);
+                                    resource_barrier->record(
+                                        TexView(tex, arg.level),
+                                        barrier_usage);
+                                } else {
+                                    LUISA_ERROR_WITH_LOCATION(
+                                        "Bindless-array and accel arguments are not "
+                                        "supported for CUDA kernel launch.");
+                                }
+                            });
+                        } break;
                         // NOTE: unimplemented command type — extend as new CustomCommandUUID
                         // values are added.
                         default: {
@@ -4094,6 +4127,18 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                                 _stream.queue(),
                                 _cmdbuffer,
                                 _state->desc_pool);
+                        } break;
+                        case to_underlying(CustomCommandUUID::VK_CUDA_LAUNCH_KERNEL): {
+#ifdef LUISA_VULKAN_ENABLE_CUDA_INTEROP
+                            cuda_launch_kernel(
+                                device(), _cmdbuffer,
+                                static_cast<vk_cuda_interop::CudaKernelLaunchCommand const *>(c));
+#else
+                              LUISA_ERROR(
+                                  "VK_CUDA_LAUNCH_KERNEL requires the vk backend "
+                                  "built with lc_vk_cuda_interop (xmake) / "
+                                  "LUISA_COMPUTE_ENABLE_VK_CUDA_INTEROP (cmake).");
+#endif
                         } break;
                         // NOTE: unimplemented command type — extend as new CustomCommandUUID
                         // values are added.

@@ -9,6 +9,7 @@
 #include <luisa/xir/special_register.h>
 #include <luisa/xir/metadata/comment.h>
 #include <luisa/xir/metadata/curve_basis.h>
+#include <luisa/xir/metadata/no_inline.h>
 #include <luisa/xir/translators/ast2xir.h>
 
 #include "ast2xir_inline_ray_query.h"
@@ -434,6 +435,12 @@ private:
             .typed = is_typed_bindless_resource_call(ast_op),
             .uniform = is_uniform_bindless_resource_call(ast_op)};
         auto canonical_op = canonical_bindless_resource_call(ast_op);
+        auto canonical_op_value = luisa::to_underlying(canonical_op);
+        auto is_bindless_call =
+            canonical_op_value >= luisa::to_underlying(
+                                      CallOp::BINDLESS_TEXTURE2D_SAMPLE) &&
+            canonical_op_value <= luisa::to_underlying(
+                                      CallOp::BINDLESS_BUFFER_ADDRESS);
         auto alu_call = [&](ArithmeticOp target_op) noexcept {
             luisa::fixed_vector<Value *, 16u> args;
             args.reserve(expr->arguments().size());
@@ -471,6 +478,10 @@ private:
             auto other = expr->arguments().subspan(1);
             for (auto ast_arg : other) {
                 auto arg = _translate_expression(b, ast_arg, true);
+                if (is_bindless_call && args.size() == 1u &&
+                    (arg->type()->is_int64() || arg->type()->is_uint64())) {
+                    arg = b.static_cast_(Type::of<uint32_t>(), arg);
+                }
                 args.emplace_back(arg);
             }
             if constexpr (std::is_same_v<ResourceOp, ResourceWriteOp>) {
@@ -1396,29 +1407,33 @@ private:
         };
         for (auto s : ast_switch->body()->statements()) {
             switch (s->tag()) {
-                case Statement::Tag::SWITCH_CASE: {
+                case Statement::Tag::SWITCH_CASE:
+                case Statement::Tag::SWITCH_CASE_GROUP: {
                     auto ast_case = static_cast<const SwitchCaseStmt *>(s);
-                    LUISA_ASSERT(ast_case->expression()->tag() == Expression::Tag::LITERAL,
-                                 "Unexpected switch case expression.");
-                    auto ast_literal = static_cast<const LiteralExpr *>(ast_case->expression());
-                    auto case_value = luisa::visit(
-                        []<typename T>(T x) noexcept -> SwitchInst::case_value_type {
-                            if constexpr (std::is_integral_v<T>) {
-                                if constexpr (std::is_same_v<T, bool>) {
-                                    return static_cast<SwitchInst::case_value_type>(x);
-                                } else if constexpr (std::is_signed_v<T>) {
-                                    using U = std::make_unsigned_t<T>;
-                                    return static_cast<SwitchInst::case_value_type>(
-                                        luisa::bit_cast<U>(x));
+                    auto case_block = _commented(inst->parent_function()->create_basic_block());
+                    for (auto expression : ast_case->expressions()) {
+                        LUISA_ASSERT(expression->tag() == Expression::Tag::LITERAL,
+                                     "Unexpected switch case expression.");
+                        auto ast_literal = static_cast<const LiteralExpr *>(expression);
+                        auto case_value = luisa::visit(
+                            []<typename T>(T x) noexcept -> SwitchInst::case_value_type {
+                                if constexpr (std::is_integral_v<T>) {
+                                    if constexpr (std::is_same_v<T, bool>) {
+                                        return static_cast<SwitchInst::case_value_type>(x);
+                                    } else if constexpr (std::is_signed_v<T>) {
+                                        using U = std::make_unsigned_t<T>;
+                                        return static_cast<SwitchInst::case_value_type>(
+                                            luisa::bit_cast<U>(x));
+                                    } else {
+                                        return static_cast<SwitchInst::case_value_type>(x);
+                                    }
                                 } else {
-                                    return static_cast<SwitchInst::case_value_type>(x);
+                                    LUISA_ERROR_WITH_LOCATION("Unexpected literal integer in switch case.");
                                 }
-                            } else {
-                                LUISA_ERROR_WITH_LOCATION("Unexpected literal integer in switch case.");
-                            }
-                        },
-                        ast_literal->value());
-                    auto case_block = _commented(inst->create_case_block(case_value));
+                            },
+                            ast_literal->value());
+                        inst->add_case(case_value, case_block);
+                    }
                     b.set_insertion_point(case_block);
                     auto case_stmts = case_break_removed(ast_case->body()->statements());
                     _translate_statements(b, case_stmts);
@@ -1666,7 +1681,8 @@ private:
                     auto ast_switch = static_cast<const SwitchStmt *>(car);
                     return _translate_switch_stmt(b, ast_switch, cdr);
                 }
-                case Statement::Tag::SWITCH_CASE: LUISA_ERROR_WITH_LOCATION("Unexpected switch case statement.");
+                case Statement::Tag::SWITCH_CASE:
+                case Statement::Tag::SWITCH_CASE_GROUP: LUISA_ERROR_WITH_LOCATION("Unexpected switch case statement.");
                 case Statement::Tag::SWITCH_DEFAULT: LUISA_ERROR_WITH_LOCATION("Unexpected switch default statement.");
                 case Statement::Tag::ASSIGN: {
                     auto assign = static_cast<const AssignStmt *>(car);
@@ -1901,6 +1917,9 @@ public:
         }();
         if (auto name = f.name(); !name.empty()) {
             def->set_name(name);
+        }
+        if (f.requires_noinline()) {
+            static_cast<void>(def->create_metadata<NoInlineMD>());
         }
         iter->second = def;
         if (f.tag() == ASTFunction::Tag::CALLABLE) {

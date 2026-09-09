@@ -129,7 +129,15 @@ void SpirvCodegenEntry::_emit_switch_inst(const xir::SwitchInst *inst) noexcept 
             literal == xir::SwitchInst::canonicalize_case_value(
                            inst->value()->type(), literal),
             "SPIR-V Switch case literal exceeds its selector bit width.");
-        switch_instruction->addImmediateOperand(static_cast<uint32_t>(literal));
+        auto low_word = static_cast<uint32_t>(literal);
+        if (selector_type->is_int() && selector_bit_width < 32u) {
+            // XIR keeps only the selector-width bits. SPIR-V stores at least
+            // one full word and requires signed narrow literals to extend
+            // through its unused high bits (OpSwitch literal encoding).
+            auto sign_bit = uint32_t{1u} << (selector_bit_width - 1u);
+            low_word = (low_word ^ sign_bit) - sign_bit;
+        }
+        switch_instruction->addImmediateOperand(low_word);
         if (selector_bit_width == 64u) {
             switch_instruction->addImmediateOperand(static_cast<uint32_t>(literal >> 32u));
         }

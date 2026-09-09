@@ -1044,6 +1044,9 @@ private:
                     s << "reg2mem_spill = "
                       << to_string(static_cast<const Reg2MemSpillMD *>(item)->kind());
                     break;
+                case DerivedMetadataTag::NO_INLINE:
+                    s << "no_inline";
+                    break;
             }
             s << ", ";
         }

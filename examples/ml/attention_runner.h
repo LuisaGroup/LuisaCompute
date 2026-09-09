@@ -58,6 +58,19 @@ void run_attention(luisa::compute::Device &device,
                    bool use_mla,
                    bool cooperative_vector);
 
+// vLLM-style paged attention path. Backs the KV cache with two
+// SparseBuffer<float> pools (one sparse tile per physical KV page) fed by
+// SparseBufferHeaps, scatters the dense K/V through a shuffled block table,
+// and runs the block-table-indirected online-softmax kernel. All sparse
+// resources are function-local: heaps are declared before the buffers they
+// back, and every tile is explicitly unmapped before teardown (Vulkan
+// requires no active mappings when destroying a sparse resource or heap).
+// Returns false if the backend lacks sparse-buffer support so the caller can
+// fall back to the dense MHA path.
+bool run_paged_attention(luisa::compute::Device &device,
+                         luisa::compute::Stream &stream,
+                         AttentionDeviceBuffers &buffers);
+
 // Download the attention output O into `output` (resized to qkv_size).
 void download_output(luisa::compute::Stream &stream,
                      AttentionDeviceBuffers &buffers,

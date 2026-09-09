@@ -96,35 +96,53 @@ CoroScalarRelationLiveness::CoroScalarRelationLiveness(
         }
     }
 
-    for (;;) {
-        auto changed = false;
-        for (size_t reverse_id = graph.block_count();
-             reverse_id != 0u; --reverse_id) {
-            auto block_id = reverse_id - 1u;
-            if (active_blocks[block_id] == 0u) { continue; }
-            auto next_out = Bits(word_count, 0u);
-            for (auto successor : graph.successors(block_id)) {
-                if (successor == lifetime_target ||
-                    active_blocks[successor] == 0u) {
-                    continue;
-                }
-                for (size_t word = 0u; word < word_count; ++word) {
-                    next_out[word] |= live_in_bits[successor][word];
-                }
+    // Chaotic iteration of the same backward data-flow equations as a full
+    // reverse scan:
+    //   OUT[b] = union IN[s], s in succ(b), s != lifetime_target
+    //   IN[b]  = USE[b] union (OUT[b] - DEF[b]).
+    // The bit-vector lattice is finite and transfer is monotone. A block can
+    // affect only its predecessors, and only when IN changes, so the sparse
+    // worklist reaches the identical least fixed point without rescanning
+    // unrelated blocks on every propagation step.
+    luisa::vector<size_t> worklist;
+    luisa::vector<uint8_t> queued(graph.block_count(), 0u);
+    for (size_t block_id = 0u;
+         block_id < graph.block_count(); ++block_id) {
+        if (active_blocks[block_id] != 0u) {
+            worklist.emplace_back(block_id);
+            queued[block_id] = 1u;
+        }
+    }
+    while (!worklist.empty()) {
+        auto block_id = worklist.back();
+        worklist.pop_back();
+        queued[block_id] = 0u;
+        auto next_out = Bits(word_count, 0u);
+        for (auto successor : graph.successors(block_id)) {
+            if (successor == lifetime_target ||
+                active_blocks[successor] == 0u) {
+                continue;
             }
-            auto next_in = uses[block_id];
             for (size_t word = 0u; word < word_count; ++word) {
-                next_in[word] |=
-                    next_out[word] & ~definitions[block_id][word];
-            }
-            if (next_in != live_in_bits[block_id] ||
-                next_out != live_out_bits[block_id]) {
-                live_in_bits[block_id] = std::move(next_in);
-                live_out_bits[block_id] = std::move(next_out);
-                changed = true;
+                next_out[word] |= live_in_bits[successor][word];
             }
         }
-        if (!changed) { break; }
+        auto next_in = uses[block_id];
+        for (size_t word = 0u; word < word_count; ++word) {
+            next_in[word] |=
+                next_out[word] & ~definitions[block_id][word];
+        }
+        auto in_changed = next_in != live_in_bits[block_id];
+        live_in_bits[block_id] = std::move(next_in);
+        live_out_bits[block_id] = std::move(next_out);
+        if (!in_changed || block_id == lifetime_target) { continue; }
+        for (auto predecessor : graph.predecessors(block_id)) {
+            if (active_blocks[predecessor] != 0u &&
+                queued[predecessor] == 0u) {
+                queued[predecessor] = 1u;
+                worklist.emplace_back(predecessor);
+            }
+        }
     }
 
     for (size_t block_id = 0u;
@@ -258,35 +276,45 @@ CoroBooleanPredicateLiveness::CoroBooleanPredicateLiveness(
         }
     }
 
-    for (;;) {
-        auto changed = false;
-        for (size_t reverse_id = graph.block_count();
-             reverse_id != 0u; --reverse_id) {
-            auto block_id = reverse_id - 1u;
-            if (active_blocks[block_id] == 0u) { continue; }
-            auto next_out = Bits(word_count, 0u);
-            for (auto successor : graph.successors(block_id)) {
-                if (successor == lifetime_target ||
-                    active_blocks[successor] == 0u) {
-                    continue;
-                }
-                for (size_t word = 0u; word < word_count; ++word) {
-                    next_out[word] |= live_in_bits[successor][word];
-                }
+    luisa::vector<size_t> worklist;
+    luisa::vector<uint8_t> queued(graph.block_count(), 0u);
+    for (size_t block_id = 0u;
+         block_id < graph.block_count(); ++block_id) {
+        if (active_blocks[block_id] != 0u) {
+            worklist.emplace_back(block_id);
+            queued[block_id] = 1u;
+        }
+    }
+    while (!worklist.empty()) {
+        auto block_id = worklist.back();
+        worklist.pop_back();
+        queued[block_id] = 0u;
+        auto next_out = Bits(word_count, 0u);
+        for (auto successor : graph.successors(block_id)) {
+            if (successor == lifetime_target ||
+                active_blocks[successor] == 0u) {
+                continue;
             }
-            auto next_in = uses[block_id];
             for (size_t word = 0u; word < word_count; ++word) {
-                next_in[word] |=
-                    next_out[word] & ~definitions[block_id][word];
-            }
-            if (next_in != live_in_bits[block_id] ||
-                next_out != live_out_bits[block_id]) {
-                live_in_bits[block_id] = std::move(next_in);
-                live_out_bits[block_id] = std::move(next_out);
-                changed = true;
+                next_out[word] |= live_in_bits[successor][word];
             }
         }
-        if (!changed) { break; }
+        auto next_in = uses[block_id];
+        for (size_t word = 0u; word < word_count; ++word) {
+            next_in[word] |=
+                next_out[word] & ~definitions[block_id][word];
+        }
+        auto in_changed = next_in != live_in_bits[block_id];
+        live_in_bits[block_id] = std::move(next_in);
+        live_out_bits[block_id] = std::move(next_out);
+        if (!in_changed || block_id == lifetime_target) { continue; }
+        for (auto predecessor : graph.predecessors(block_id)) {
+            if (active_blocks[predecessor] != 0u &&
+                queued[predecessor] == 0u) {
+                queued[predecessor] = 1u;
+                worklist.emplace_back(predecessor);
+            }
+        }
     }
 
     for (size_t block_id = 0u;

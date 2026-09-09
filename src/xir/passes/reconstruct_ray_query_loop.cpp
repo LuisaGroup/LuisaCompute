@@ -25,14 +25,14 @@ namespace luisa::compute::xir {
 
 namespace detail {
 
-static void clone_metadata(const MetadataListMixin &source,
-                           MetadataListMixin &target) noexcept {
+static void reconstruct_clone_metadata(const MetadataListMixin &source,
+                                       MetadataListMixin &target) noexcept {
     for (auto *metadata : source.metadata_list()) {
         target.metadata_list().push_front(metadata->clone());
     }
 }
 
-[[nodiscard]] static bool is_ray_query_object(
+[[nodiscard]] static bool reconstruct_is_ray_query_object(
     const Value *value) noexcept {
     if (value == nullptr || !value->is_lvalue()) { return false; }
     auto *type = value->type();
@@ -292,7 +292,7 @@ enum class ReconstructMatch {
         return reject("ray-query prepare block is not canonical");
     }
     auto *query = prepare_instructions[0u]->operand(0u);
-    if (!is_ray_query_object(query) ||
+    if (!reconstruct_is_ray_query_object(query) ||
         !is_ray_query_read(
             prepare_instructions[1u],
             RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED,
@@ -459,7 +459,7 @@ match_frontend_inline_ray_query_loop(
         return reject("frontend ray-query loop guard is not canonical");
     }
     auto *query = loop_body_instructions[0u]->operand(0u);
-    if (!is_ray_query_object(query) ||
+    if (!reconstruct_is_ray_query_object(query) ||
         !is_ray_query_read(
             loop_body_instructions[1u],
             RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED,
@@ -698,7 +698,7 @@ match_frontend_inline_ray_query_loop(
     return ReconstructMatch::accepted;
 }
 
-static void replace_phi_predecessor(
+static void replace_reconstructed_ray_query_phi_predecessor(
     BasicBlock *block, BasicBlock *old_predecessor,
     BasicBlock *new_predecessor) noexcept {
     for (auto *inst : block->instructions()) {
@@ -723,18 +723,18 @@ static void reconstruct_candidate(
         auto removed_loop = candidate.inline_loop->remove_self();
         builder.set_insertion_point(candidate.parent);
         ray_query_loop = builder.ray_query_loop();
-        clone_metadata(*removed_loop, *ray_query_loop);
+        reconstruct_clone_metadata(*removed_loop, *ray_query_loop);
     } else {
         auto removed_loop = candidate.loop->remove_self();
         builder.set_insertion_point(candidate.parent);
         ray_query_loop = builder.ray_query_loop();
-        clone_metadata(*removed_loop, *ray_query_loop);
+        reconstruct_clone_metadata(*removed_loop, *ray_query_loop);
     }
     ray_query_loop->set_merge_block(candidate.merge);
     auto *dispatch_block = ray_query_loop->create_dispatch_block();
     builder.set_insertion_point(dispatch_block);
     auto *dispatch = builder.ray_query_dispatch(candidate.query);
-    clone_metadata(*candidate.candidate_dispatch, *dispatch);
+    reconstruct_clone_metadata(*candidate.candidate_dispatch, *dispatch);
     dispatch->set_exit_block(candidate.merge);
 
     auto materialize_handler = [&](bool empty, BasicBlock *entry,
@@ -766,7 +766,7 @@ static void reconstruct_candidate(
     };
     retarget_exits(candidate.surface_region);
     retarget_exits(candidate.procedural_region);
-    replace_phi_predecessor(
+    replace_reconstructed_ray_query_phi_predecessor(
         candidate.merge,
         is_inline ?
             candidate.inline_break :

@@ -38,9 +38,9 @@ static void clone_metadata_impl(const MetadataListMixin &source,
     return false;
 }
 
-static void replace_phi_predecessor(BasicBlock *block,
-                                    BasicBlock *old_predecessor,
-                                    BasicBlock *new_predecessor) noexcept {
+static void replace_lowered_ray_query_phi_predecessor(BasicBlock *block,
+                                                      BasicBlock *old_predecessor,
+                                                      BasicBlock *new_predecessor) noexcept {
     if (block == nullptr || old_predecessor == new_predecessor) { return; }
     for (auto *inst : block->instructions()) {
         if (!inst->isa<PhiInst>()) { continue; }
@@ -288,7 +288,7 @@ static bool lower_one_ray_query_loop(RayQueryLoopInst *rq_loop, XIRBuilder &b,
     auto is_terminated = b.call(bool_type, RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED, {query_object});
     auto is_active = b.call(bool_type, ArithmeticOp::UNARY_BIT_NOT, {is_terminated});
     b.cond_br(is_active, body_block, merge_block);
-    replace_phi_predecessor(merge_block, dispatch_block, prepare_block);
+    replace_lowered_ray_query_phi_predecessor(merge_block, dispatch_block, prepare_block);
 
     b.set_insertion_point(update_block);
     b.br(prepare_block);

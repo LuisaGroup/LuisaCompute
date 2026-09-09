@@ -17,8 +17,22 @@ namespace luisa::compute::hip {
 
 inline constexpr auto llvm_generated_callable_attribute =
     "luisa-generated-callable";
+inline constexpr auto llvm_explicit_noinline_attribute =
+    "luisa-explicit-noinline";
 inline constexpr auto llvm_constant_argument_specialization_attribute =
     "luisa-specialize-constant-argument";
+
+// Marks a generated callable and applies its source-owned inlining policy.
+// The explicit marker survives IPO so final cleanup can distinguish a
+// semantic noinline request from incidental policy on an ordinary Callable.
+void mark_hip_generated_callable(
+    llvm::Function &function,
+    bool requires_noinline) noexcept;
+
+// Removes optimizer-owned inline policy before IPO while preserving an
+// explicit source noinline request on generated callables.
+void prepare_hip_generated_callable_for_ipo(
+    llvm::Function &function) noexcept;
 
 // RetCC_AMDGPU_Func assigns at most VGPR0--VGPR31 to returned legalized
 // values. A larger return is demoted by GlobalISel to a caller-owned stack
@@ -34,9 +48,10 @@ inline constexpr size_t amdgpu_callable_argument_vgpr_limit = 32u;
 
 // Finalizes the attributes of an IPO-optimized function without discarding
 // any semantic, ABI, or optimizer-proven facts. Luisa's temporary provenance
-// marker and any inlining directive attached to a generated Callable are
-// removed; source-owned low-level wrapper attributes are preserved. Target
-// controls are replaced by the final shader configuration for every definition.
+// marker and optimizer-owned inlining directives attached to an ordinary
+// generated Callable are removed; an explicit source noinline request and
+// source-owned low-level wrapper attributes are preserved. Target controls are
+// replaced by the final shader configuration for every definition.
 void finalize_hip_function_attributes(
     llvm::Function &function,
     llvm::StringRef target_cpu,
@@ -46,6 +61,12 @@ void finalize_hip_function_attributes(
 struct AggregateArgumentSpecializationStats {
     size_t rewritten_function_count{};
     size_t removed_aggregate_bytes{};
+};
+
+struct UniqueOversizedCallableInliningStats {
+    size_t inlined_function_count{};
+    size_t removed_argument_locations{};
+    size_t removed_return_locations{};
 };
 
 struct LargeReturnDemotionStats {
@@ -98,6 +119,29 @@ specialize_marked_constant_integer_arguments(
 // semantic preconditions.
 [[nodiscard]] AggregateArgumentSpecializationStats
 specialize_generated_callable_aggregate_arguments(
+    llvm::Module &module,
+    llvm::StringRef callable_attribute =
+        llvm_generated_callable_attribute) noexcept;
+
+// Mechanically inlines a retained generated callable when all of the
+// following are true after IPO and aggregate specialization:
+//
+// - it has exactly one direct call site outside its own body;
+// - its legalized argument or return values exceed AMDGPU's 32-VGPR callable
+//   window; and
+// - LLVM's inliner accepts the transformation as semantically legal.
+//
+// The unique-use condition makes this a zero-duplication CFG move: the private
+// callee body is deleted after it is spliced into its sole caller. Running it
+// after ordinary IPO preserves independent SSA optimization of the large body,
+// while running it before ABI demotion prevents a caller-owned private record
+// from being introduced solely to cross a boundary that has no other user.
+// A CFG-preserving SROA pass restores SSA for newly non-escaping private state
+// in surviving modified callers after the late inlining fixed point.
+// Multi-use, self-recursive, address-taken, or otherwise unsupported uses fail
+// closed and retain the ordinary callable ABI.
+[[nodiscard]] UniqueOversizedCallableInliningStats
+inline_unique_oversized_generated_callables(
     llvm::Module &module,
     llvm::StringRef callable_attribute =
         llvm_generated_callable_attribute) noexcept;

@@ -511,12 +511,27 @@ void CallableLibrary::deser_ptr(SwitchStmt *obj, std::byte const *&ptr, DeserPac
 }
 template<>
 void CallableLibrary::ser_value(SwitchCaseStmt const &t, luisa::vector<std::byte> &vec) noexcept {
-    ser_value(*t._expr, vec);
+    if (t.tag() == Statement::Tag::SWITCH_CASE_GROUP) {
+        ser_value(t._expressions.size(), vec);
+        for (auto expression : t._expressions) { ser_value(*expression, vec); }
+    } else {
+        ser_value(*t._expr, vec);
+    }
     ser_value<Statement>(t._body, vec);
 }
 template<>
 void CallableLibrary::deser_ptr(SwitchCaseStmt *obj, std::byte const *&ptr, DeserPackage &pack) noexcept {
-    obj->_expr = deser_value<Expression const *>(ptr, pack);
+    if (obj->tag() == Statement::Tag::SWITCH_CASE_GROUP) {
+        auto count = deser_value<size_t>(ptr, pack);
+        LUISA_ASSERT(count > 1u, "A serialized switch case group needs at least two labels.");
+        obj->_expressions.reserve(count);
+        for (auto i = 0u; i < count; i++) {
+            obj->_expressions.emplace_back(deser_value<Expression const *>(ptr, pack));
+        }
+        obj->_expr = obj->_expressions.front();
+    } else {
+        obj->_expr = deser_value<Expression const *>(ptr, pack);
+    }
     deser_ptr<Statement *>(&obj->_body, ptr, pack);
 }
 template<>
@@ -748,6 +763,7 @@ void CallableLibrary::ser_value(Statement const &t, luisa::vector<std::byte> &ve
             ser_value(*static_cast<SwitchStmt const *>(&t), vec);
             break;
         case Statement::Tag::SWITCH_CASE:
+        case Statement::Tag::SWITCH_CASE_GROUP:
             ser_value(*static_cast<SwitchCaseStmt const *>(&t), vec);
             break;
         case Statement::Tag::SWITCH_DEFAULT:
@@ -816,6 +832,7 @@ Statement *CallableLibrary::deser_value(std::byte const *&ptr, DeserPackage &pac
         case Statement::Tag::SWITCH:
             return create_stmt.template operator()<SwitchStmt>();
         case Statement::Tag::SWITCH_CASE:
+        case Statement::Tag::SWITCH_CASE_GROUP:
             return create_stmt.template operator()<SwitchCaseStmt>();
         case Statement::Tag::SWITCH_DEFAULT:
             return create_stmt.template operator()<SwitchDefaultStmt>();
@@ -876,6 +893,7 @@ void CallableLibrary::deser_ptr(Statement *obj, std::byte const *&ptr, DeserPack
             create_stmt.template operator()<SwitchStmt>();
             break;
         case Statement::Tag::SWITCH_CASE:
+        case Statement::Tag::SWITCH_CASE_GROUP:
             create_stmt.template operator()<SwitchCaseStmt>();
             break;
         case Statement::Tag::SWITCH_DEFAULT:
@@ -955,6 +973,7 @@ void CallableLibrary::deserialize_func_builder(detail::FunctionBuilder &builder,
     builder._tag = deser_value<Function::Tag>(ptr, pack);
     builder._requires_atomic_float = deser_value<bool>(ptr, pack);
     builder._requires_printing = deser_value<bool>(ptr, pack);
+    builder._requires_noinline = deser_value<bool>(ptr, pack);
     builder._block_size = deser_value<uint3>(ptr, pack);
     deser_ptr<Statement *>(&builder._body, ptr, pack);
     auto popped = callable_library_function_builder_deserialize_stack_pop();
@@ -1017,6 +1036,8 @@ void CallableLibrary::serialize_func_builder(detail::FunctionBuilder const &buil
     ser_value(builder._requires_atomic_float, vec);
     // requires printing
     ser_value(builder._requires_printing, vec);
+    // requires a retained call boundary
+    ser_value(builder._requires_noinline, vec);
     ser_value(builder._block_size, vec);
     // body
     ser_value(static_cast<Statement const &>(builder._body), vec);

@@ -197,6 +197,7 @@ private:
     void _dup_function(const FunctionBuilder &f) noexcept {
         auto fb = FunctionBuilder::current();
         fb->mark_required_curve_basis_set(f.required_curve_bases());
+        if (f.requires_noinline()) { fb->mark_noinline(); }
         fb->set_name(f.name());
         if (f.tag() == Function::Tag::KERNEL) {
             fb->set_block_size(f.block_size());
@@ -460,10 +461,12 @@ private:
                 _dup_scope(s->body(), sw->body());
                 break;
             }
-            case Statement::Tag::SWITCH_CASE: {
+            case Statement::Tag::SWITCH_CASE:
+            case Statement::Tag::SWITCH_CASE_GROUP: {
                 auto s = static_cast<const SwitchCaseStmt *>(stmt);
-                auto e = _dup_expr(s->expression());
-                auto sw = fb->case_(e);
+                luisa::vector<const Expression *> labels;
+                for (auto e : s->expressions()) { labels.emplace_back(_dup_expr(e)); }
+                auto sw = fb->case_(luisa::span{labels});
                 _dup_scope(s->body(), sw->body());
                 break;
             }

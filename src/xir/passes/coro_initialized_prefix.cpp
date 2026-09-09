@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <cstdint>
 #include <limits>
+#include <string>
 #include <utility>
 
 #include <luisa/ast/type_registry.h>
@@ -33,7 +34,7 @@
 
 namespace luisa::compute::xir::detail {
 
-namespace {
+namespace coro_initialized_prefix_detail {
 
 struct PrefixInstructionLocation {
     size_t block_id;
@@ -169,14 +170,19 @@ struct ScalarSlotInfo {
     luisa::unordered_map<LoadInst *, StoreInst *> local_reaching_stores;
 };
 
+struct ScalarSnapshotFlow {
+    bool built{false};
+    luisa::vector<uint8_t> block_inputs;
+    luisa::unordered_map<Instruction *, bool> query_results;
+};
+
 class ScalarCopyResolver {
 private:
     const PrefixInstructionLocationMap &_locations;
     const CoroSemanticGraph &_graph;
     mutable luisa::unordered_map<AllocaInst *, ScalarSlotInfo> _slots;
-    mutable luisa::unordered_map<
-        LoadInst *, luisa::unordered_map<Instruction *, bool>>
-        _unchanged_snapshot_cache;
+    mutable luisa::unordered_map<LoadInst *, ScalarSnapshotFlow>
+        _snapshot_flows;
 
 private:
     [[nodiscard]] bool _instruction_dominates(
@@ -307,12 +313,13 @@ private:
     [[nodiscard]] bool _snapshot_reaches_use_unchanged(
         LoadInst *load, AllocaInst *slot,
         Instruction *use) const noexcept {
-        auto &by_use = _unchanged_snapshot_cache[load];
-        if (auto iter = by_use.find(use); iter != by_use.end()) {
+        auto &flow = _snapshot_flows[load];
+        if (auto iter = flow.query_results.find(use);
+            iter != flow.query_results.end()) {
             return iter->second;
         }
         const auto cache_result = [&](bool result) noexcept {
-            by_use.emplace(use, result);
+            flow.query_results.emplace(use, result);
             return result;
         };
         if (load == nullptr || slot == nullptr || use == nullptr ||
@@ -327,60 +334,68 @@ private:
             return cache_result(false);
         }
 
-        struct WorkItem {
-            size_t block;
-            bool dirty;
-        };
-        luisa::vector<uint8_t> reached(_graph.block_count(), 0u);
-        luisa::vector<WorkItem> worklist;
-        auto reached_use = false;
-
-        const auto scan_block = [&](size_t block_id, bool dirty,
-                                    size_t first_ordinal,
-                                    auto &&enqueue) noexcept {
-            auto ordinal = size_t{0u};
-            for (auto *instruction :
-                 _graph.block(block_id)->instructions()) {
-                if (ordinal++ < first_ordinal) { continue; }
-                if (instruction == load) { dirty = false; }
-                if (instruction == use) {
-                    reached_use = true;
-                    if (dirty) { return false; }
-                }
+        constexpr auto clean = uint8_t{1u};
+        constexpr auto dirty = uint8_t{2u};
+        const auto transfer_instruction =
+            [load, slot](Instruction *instruction,
+                         uint8_t state) noexcept {
+                if (instruction == load) { return clean; }
                 if (instruction->isa<StoreInst>() &&
                     static_cast<StoreInst *>(instruction)->variable() ==
                         slot) {
-                    dirty = true;
+                    return state == 0u ? uint8_t{0u} : dirty;
+                }
+                return state;
+            };
+
+        if (!flow.built) {
+            // The two-bit forward automaton is the exact quotient of the old
+            // per-(load,use) search: bit 0 means a path whose latest dynamic
+            // execution of L has seen no store to S, bit 1 means such a store
+            // has occurred. Executing L maps either state to Clean; executing
+            // a store maps either state to Dirty; every other instruction is
+            // identity. Join is bitwise union. The lattice height is two, so
+            // the cached fixed point terminates and answers every later use
+            // of the same load without another whole-CFG traversal.
+            flow.block_inputs.assign(_graph.block_count(), 0u);
+            luisa::vector<size_t> worklist{
+                load_location->second.block_id};
+            luisa::vector<uint8_t> queued(
+                _graph.block_count(), 0u);
+            queued[load_location->second.block_id] = 1u;
+            for (size_t cursor = 0u; cursor < worklist.size(); ++cursor) {
+                auto block_id = worklist[cursor];
+                queued[block_id] = 0u;
+                auto state = flow.block_inputs[block_id];
+                for (auto *instruction :
+                     _graph.block(block_id)->instructions()) {
+                    state = transfer_instruction(instruction, state);
+                }
+                if (state == 0u) { continue; }
+                for (auto successor : _graph.successors(block_id)) {
+                    auto next = static_cast<uint8_t>(
+                        flow.block_inputs[successor] | state);
+                    if (next != flow.block_inputs[successor]) {
+                        flow.block_inputs[successor] = next;
+                        if (queued[successor] == 0u) {
+                            queued[successor] = 1u;
+                            worklist.emplace_back(successor);
+                        }
+                    }
                 }
             }
-            for (auto successor : _graph.successors(block_id)) {
-                enqueue(successor, dirty);
-            }
-            return true;
-        };
-        const auto enqueue = [&](size_t block, bool dirty) noexcept {
-            auto bit = static_cast<uint8_t>(dirty ? 2u : 1u);
-            if ((reached[block] & bit) == 0u) {
-                reached[block] |= bit;
-                worklist.emplace_back(WorkItem{block, dirty});
-            }
-        };
+            flow.built = true;
+        }
 
-        // The first dynamic state begins immediately after this load. A
-        // later re-entry scans the whole block and the same load resets the
-        // dirty bit, which precisely models a new snapshot instance.
-        if (!scan_block(
-                load_location->second.block_id, false,
-                load_location->second.ordinal + 1u, enqueue)) {
-            return cache_result(false);
+        auto state = flow.block_inputs[use_location->second.block_id];
+        for (auto *instruction : use->parent_block()->instructions()) {
+            if (instruction == use) { break; }
+            state = transfer_instruction(instruction, state);
         }
-        for (size_t cursor = 0u; cursor < worklist.size(); ++cursor) {
-            auto item = worklist[cursor];
-            if (!scan_block(item.block, item.dirty, 0u, enqueue)) {
-                return cache_result(false);
-            }
-        }
-        return cache_result(reached_use);
+        // Reached only through Clean is precisely the universal unchanged
+        // property. State 0 denotes no dynamic path from this load to use;
+        // Dirty or Clean|Dirty witnesses at least one invalidating path.
+        return cache_result(state == clean);
     }
 
 public:
@@ -3365,6 +3380,7 @@ prove_initialized_prefix_fresh_lifetime(
     Instruction *insertion_instruction,
     const CoroSemanticGraph &graph,
     const CoroFrameAtomDomain &domain) noexcept {
+    using namespace coro_initialized_prefix_detail;
     CoroInitializedPrefixProofResult result;
     if (array == nullptr || array->type() == nullptr ||
         array->type()->tag() != Type::Tag::ARRAY ||
@@ -3378,21 +3394,61 @@ prove_initialized_prefix_fresh_lifetime(
                            parent_function->definition();
     if (definition == nullptr) { return result; }
     auto locations = make_prefix_instruction_locations(definition, graph);
-    auto region = collect_array_use_region(array, definition, graph);
+    auto region = coro_initialized_prefix_detail::collect_array_use_region(array, definition, graph);
     ScalarCopyResolver resolver{locations, graph};
     auto boolean_guards = collect_boolean_guard_slots(
         graph, resolver, locations);
+    const auto dump_scope = []() noexcept {
+        if (auto *value = std::getenv(
+                "LUISA_CORO_DUMP_ALLOCA_SCOPE")) {
+            return luisa::string_view{value} == "1";
+        }
+        return false;
+    }();
 
     struct CounterCandidate {
         AllocaInst *counter;
         luisa::vector<StoreInst *> zero_stores;
     };
     luisa::vector<CounterCandidate> counters;
+    struct RawCounterCandidate {
+        AllocaInst *counter;
+        size_t store_count;
+        size_t zero_store_count;
+        size_t dominating_zero_store_count;
+    };
+    luisa::vector<RawCounterCandidate> raw_counters;
+    auto store_count = size_t{0u};
+    auto counted_store_count = size_t{0u};
     for (auto *instruction : region.users) {
         if (!instruction->isa<StoreInst>()) { continue; }
+        ++store_count;
         auto *counter = counter_from_full_element_store(
             static_cast<StoreInst *>(instruction), array,
             resolver, locations);
+        counted_store_count += counter != nullptr ? 1u : 0u;
+        if (counter != nullptr) {
+            auto raw = std::find_if(
+                raw_counters.begin(), raw_counters.end(),
+                [counter](auto &&candidate) noexcept {
+                    return candidate.counter == counter;
+                });
+            if (raw == raw_counters.end()) {
+                auto zero_stores = collect_zero_stores(counter, resolver);
+                auto dominating_zero_store_count = static_cast<size_t>(
+                    std::count_if(
+                        zero_stores.begin(), zero_stores.end(),
+                        [&](StoreInst *store) noexcept {
+                            return block_dominates_array_region(
+                                store->parent_block(), region, graph);
+                        }));
+                raw_counters.emplace_back(RawCounterCandidate{
+                    counter, 1u, zero_stores.size(),
+                    dominating_zero_store_count});
+            } else {
+                ++raw->store_count;
+            }
+        }
         if (counter != nullptr &&
             std::none_of(
                 counters.begin(), counters.end(),
@@ -3419,7 +3475,41 @@ prove_initialized_prefix_fresh_lifetime(
             }
         }
     }
-    auto slice = make_active_slice(target, region, graph);
+    if (dump_scope) {
+        luisa::string candidate_description;
+        for (auto &&candidate : counters) {
+            if (!candidate_description.empty()) {
+                candidate_description.append(", ");
+            }
+            candidate_description.append(
+                candidate.counter->name().value_or("<unnamed>"));
+            candidate_description.append(":");
+            candidate_description.append(
+                std::to_string(candidate.zero_stores.size()));
+        }
+        luisa::string raw_description;
+        for (auto &&candidate : raw_counters) {
+            if (!raw_description.empty()) {
+                raw_description.append(", ");
+            }
+            raw_description.append(
+                candidate.counter->name().value_or("<unnamed>"));
+            raw_description.append(":stores=");
+            raw_description.append(std::to_string(candidate.store_count));
+            raw_description.append(":zeros=");
+            raw_description.append(std::to_string(candidate.zero_store_count));
+            raw_description.append(":dominating_zeros=");
+            raw_description.append(
+                std::to_string(candidate.dominating_zero_store_count));
+        }
+        LUISA_INFO(
+            "Coroutine initialized-prefix candidates: array='{}' "
+            "stores={} counted_stores={} counters={} [{}] raw=[{}].",
+            array->name().value_or("<unnamed>"), store_count,
+            counted_store_count, counters.size(),
+            candidate_description, raw_description);
+    }
+    auto slice = coro_initialized_prefix_detail::make_active_slice(target, region, graph);
     if (!slice.valid) { return result; }
     for (auto &&counter : counters) {
         auto candidate = prove_candidate(
@@ -3468,7 +3558,7 @@ prove_initialized_prefix_fresh_lifetime(
              outer_insertion == insertion_instruction)) {
             continue;
         }
-        auto outer_slice = make_active_slice(
+        auto outer_slice = coro_initialized_prefix_detail::make_active_slice(
             outer_target, region, graph);
         if (!outer_slice.valid) { continue; }
         auto candidate = prove_candidate(

@@ -25,6 +25,8 @@
 
 namespace NS
 {
+// Luisa: guard nullable pointees explicitly. Objective-C nil messaging does
+// not make a C++ retain()/release() member call through nullptr defined.
 template <class _Class>
 class SharedPtr
 {
@@ -139,7 +141,7 @@ template <class _Class>
 _NS_INLINE NS::SharedPtr<_Class> RetainPtr(_Class* pObject)
 {
     NS::SharedPtr<_Class> ret;
-    ret.m_pObject = pObject->retain();
+    ret.m_pObject = pObject ? pObject->retain() : nullptr;
     return ret;
 }
 
@@ -167,7 +169,7 @@ _NS_INLINE NS::SharedPtr<_Class>::SharedPtr()
 template <class _Class>
 _NS_INLINE NS::SharedPtr<_Class>::~SharedPtr<_Class>() __attribute__((no_sanitize("undefined")))
 {
-    m_pObject->release();
+    if (m_pObject) { m_pObject->release(); }
 }
 
 template <class _Class>
@@ -178,14 +180,14 @@ _NS_INLINE NS::SharedPtr<_Class>::SharedPtr(std::nullptr_t) noexcept
 
 template <class _Class>
 _NS_INLINE NS::SharedPtr<_Class>::SharedPtr(const SharedPtr<_Class>& other) noexcept
-    : m_pObject(other.m_pObject->retain())
+    : m_pObject(other.m_pObject ? other.m_pObject->retain() : nullptr)
 {
 }
 
 template <class _Class>
 template <class _OtherClass>
 _NS_INLINE NS::SharedPtr<_Class>::SharedPtr(const SharedPtr<_OtherClass>& other, typename std::enable_if_t<std::is_convertible_v<_OtherClass *, _Class *>> *) noexcept
-    : m_pObject(reinterpret_cast<_Class*>(other.get()->retain()))
+    : m_pObject(other.get() ? reinterpret_cast<_Class*>(other.get()->retain()) : nullptr)
 {
 }
 
@@ -225,7 +227,7 @@ _NS_INLINE NS::SharedPtr<_Class>::operator bool() const
 template <class _Class>
 _NS_INLINE void NS::SharedPtr<_Class>::reset() __attribute__((no_sanitize("undefined")))
 {
-    m_pObject->release();
+    if (m_pObject) { m_pObject->release(); }
     m_pObject = nullptr;
 }
 
@@ -240,9 +242,9 @@ _NS_INLINE NS::SharedPtr<_Class>& NS::SharedPtr<_Class>::operator=(const SharedP
 {
     _Class* pOldObject = m_pObject;
 
-    m_pObject = other.m_pObject->retain();
+    m_pObject = other.m_pObject ? other.m_pObject->retain() : nullptr;
 
-    pOldObject->release();
+    if (pOldObject) { pOldObject->release(); }
 
     return *this;
 }
@@ -254,9 +256,9 @@ _NS_INLINE NS::SharedPtr<_Class>::operator=(const SharedPtr<_OtherClass>& other)
 {
     _Class* pOldObject = m_pObject;
 
-    m_pObject = reinterpret_cast<_Class*>(other.get()->retain());
+    m_pObject = other.get() ? reinterpret_cast<_Class*>(other.get()->retain()) : nullptr;
 
-    pOldObject->release();
+    if (pOldObject) { pOldObject->release(); }
 
     return *this;
 }
@@ -266,13 +268,13 @@ _NS_INLINE NS::SharedPtr<_Class>& NS::SharedPtr<_Class>::operator=(SharedPtr<_Cl
 {
     if (m_pObject != other.m_pObject)
     {
-        m_pObject->release();
+        if (m_pObject) { m_pObject->release(); }
         m_pObject = other.m_pObject;
     }
     else
     {
         m_pObject = other.m_pObject;
-        other.m_pObject->release();
+        if (other.m_pObject) { other.m_pObject->release(); }
     }
     other.m_pObject = nullptr;
     return *this;
@@ -285,7 +287,7 @@ _NS_INLINE NS::SharedPtr<_Class>::operator=(SharedPtr<_OtherClass>&& other) __at
 {
     if (m_pObject != other.get())
     {
-        m_pObject->release();
+        if (m_pObject) { m_pObject->release(); }
         m_pObject = reinterpret_cast<_Class*>(other.get());
         other.detach();
     }

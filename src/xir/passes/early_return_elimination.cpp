@@ -97,9 +97,9 @@ namespace detail {
     return static_cast<LoadInst *>(cond)->variable() == not_returned_flag;
 }
 
-static void replace_phi_predecessor(BasicBlock *successor,
-                                    BasicBlock *old_predecessor,
-                                    BasicBlock *new_predecessor) noexcept {
+static void replace_early_return_phi_predecessor(BasicBlock *successor,
+                                                 BasicBlock *old_predecessor,
+                                                 BasicBlock *new_predecessor) noexcept {
     if (successor == nullptr || old_predecessor == new_predecessor) { return; }
     for (auto *inst : successor->instructions()) {
         if (!inst->isa<PhiInst>()) { continue; }
@@ -178,7 +178,7 @@ static BasicBlock *conditionalize_block(BasicBlock *block, AllocaInst *not_retur
     if (next_merge != nullptr) {
         t_new->instructions().tail_sentinel()->insert_before_self(std::move(managed_term));
         for (auto *successor : old_successors) {
-            replace_phi_predecessor(successor, block, t_new);
+            replace_early_return_phi_predecessor(successor, block, t_new);
         }
 
         b.set_insertion_point(f_new);
@@ -197,7 +197,7 @@ static BasicBlock *conditionalize_block(BasicBlock *block, AllocaInst *not_retur
 
         merge_new->instructions().tail_sentinel()->insert_before_self(std::move(managed_term));
         for (auto *successor : old_successors) {
-            replace_phi_predecessor(successor, block, merge_new);
+            replace_early_return_phi_predecessor(successor, block, merge_new);
         }
     }
 

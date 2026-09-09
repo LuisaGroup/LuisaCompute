@@ -33,6 +33,7 @@
 #include <luisa/xir/passes/lower_ray_query_to_pipeline.h>
 #include <luisa/xir/passes/reconstruct_ray_query_loop.h>
 #include <luisa/xir/passes/pass_pipeline.h>
+#include <luisa/xir/passes/promote_ref_arg.h>
 #include <luisa/xir/passes/reg2mem.h>
 #include <luisa/xir/passes/restructure_cfg.h>
 #include <luisa/xir/passes/sccp.h>
@@ -576,6 +577,8 @@ void verify_coro_xir_or_error(
                     i.intra_block_contraction_count);
               r.set("delayed_first_definition",
                     i.delayed_first_definition_count);
+              r.set("removed_undefined_lifetime_seed",
+                    i.removed_undefined_lifetime_seed_count);
               r.set("cross_block_first_definition_delay",
                     i.cross_block_first_definition_delay_count);
               r.set("intra_block_first_definition_delay",
@@ -591,6 +594,8 @@ void verify_coro_xir_or_error(
                     i.guarded_initialization_proof_count);
               r.set("initialized_prefix_proof",
                     i.initialized_prefix_proof_count);
+              r.set("discriminated_prefix_proof",
+                    i.discriminated_prefix_proof_count);
               r.set("rejected_prior_lifetime_observation",
                     i.rejected_prior_lifetime_observation_count);
               r.set("definite_initialization_block_evaluation",
@@ -599,6 +604,12 @@ void verify_coro_xir_or_error(
                     i.guarded_initialization_state_evaluation_count);
               r.set("initialized_prefix_block_evaluation",
                     i.initialized_prefix_block_evaluation_count);
+              r.set("discriminated_prefix_candidate",
+                    i.discriminated_prefix_candidate_count);
+              r.set("discriminated_prefix_rejected_missing_publication",
+                    i.discriminated_prefix_rejected_missing_publication_count);
+              r.set("discriminated_prefix_block_evaluation",
+                    i.discriminated_prefix_block_evaluation_count);
               r.set("predicate_widening",
                     i.predicate_widening_count);
               r.set("instruction_order_query",
@@ -619,7 +630,10 @@ void verify_coro_xir_or_error(
                       "rejected_prior_lifetime={} "
                       "proof_block_evaluations={} "
                       "guarded_state_evaluations={} "
-                      "prefix_block_evaluations={} widenings={}.",
+                      "prefix_block_evaluations={} "
+                      "discriminated_candidates={} "
+                      "discriminated_missing_publication={} "
+                      "discriminated_block_evaluations={} widenings={}.",
                       i.scanned_local_alloca_count,
                       i.contracted_alloca_count,
                       i.cross_block_contraction_count,
@@ -632,6 +646,9 @@ void verify_coro_xir_or_error(
                       i.definite_initialization_block_evaluation_count,
                       i.guarded_initialization_state_evaluation_count,
                       i.initialized_prefix_block_evaluation_count,
+                      i.discriminated_prefix_candidate_count,
+                      i.discriminated_prefix_rejected_missing_publication_count,
+                      i.discriminated_prefix_block_evaluation_count,
                       i.predicate_widening_count);
               }
               return i.changed();
@@ -727,6 +744,18 @@ CoroutineCompileResult compile_coroutine_pipeline(
             report_value("handler_localization_block_evaluation"));
     }
     profiler.checkpoint("ray-query normalization");
+    // Ordinary outlined callables may capture both read-only and writable
+    // coroutine locals. Snapshot alias-safe read-only captures before the
+    // pass-domain boundary so they remain SSA values instead of address-
+    // escaping locals that coroutine rematerialization must spill.
+    auto promoted_ref_args =
+        xir::promote_ref_arg_pass_run_on_module(module.get());
+    if (environment_flag_enabled("LUISA_CORO_PROFILE_COMPILATION")) {
+        LUISA_INFO("Coroutine ordinary callable reference promotion: "
+                   "promoted_ref_args={}.",
+                   promoted_ref_args.promoted_ref_arg_count);
+    }
+    profiler.checkpoint("ordinary callable reference promotion");
     auto ordinary_callable_snapshots =
         verify_coro_pass_domain_enabled() ?
             snapshot_ordinary_callables(module.get(), coro_func) :
