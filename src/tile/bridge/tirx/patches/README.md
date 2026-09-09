@@ -380,6 +380,17 @@ standalone-NVRTC pipeline. A `target.build.nvptx` target is also accepted by
 `compile_device()` as `Format::PTX` (direct PTX text, no NVRTC). Standard TVM
 already ships these builders, so no source patch under this directory is
 required for the reference (no cooperative matrix/vector) realization. If a
-pinned TVMx build lacks `target.build.cuda`, `compile_device()` reports a
-missing-builder error instead of silently falling back; revisit this directory
-only if such a fork becomes the configured tree.
+  pinned TVMx build lacks `target.build.cuda`, `compile_device()` reports a
+  missing-builder error instead of silently falling back; revisit this directory
+  only if such a fork becomes the configured tree.
+
+  Reference-route invariants on CUDA/NVPTX:
+  - the mapper keeps every generated block warp aligned: partial
+    worker/elementwise domains are rounded up to the 32-thread warp and an
+    unaligned per-block cap is rounded down (Metal/LLVM mappings unchanged);
+  - the CUDA backend persists a successfully patched old-driver PTX back to the
+    tile cache and exposes a test-only `LUISA_CUDA_TILE_FORCE_UNSUPPORTED_PTX=1`
+    knob that simulates the first-probe unsupported-version path; and
+  - `Format::PTX` is final NVPTX text that the backend cannot recompile for
+    another architecture, so load failures name the `.target` request and
+    recommend the `cuda` (CUDA C source) target.

@@ -148,6 +148,17 @@ TileLoadResult probe_tile_ptx(luisa::string_view entry,
     return TileLoadResult::OK;
 }
 
+// Test-only seam (following the env-var pattern used elsewhere in the CUDA
+// backend, e.g. LUISA_XIR_NORMALIZE_CFG): when set to "1", the first probe of
+// a Tile module is reported as CUDA_ERROR_UNSUPPORTED_PTX_VERSION so the
+// patched-PTX retry and cache write-back paths execute on drivers that would
+// otherwise load the module directly. The subsequent (patched) probe always
+// runs for real.
+[[nodiscard]] bool force_first_tile_probe_unsupported() noexcept {
+    auto value = std::getenv("LUISA_CUDA_TILE_FORCE_UNSUPPORTED_PTX");
+    return value != nullptr && luisa::string_view{value} == "1";
+}
+
 }// namespace
 
 ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
@@ -155,6 +166,17 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
                                                   const tile::CompileOptions &tile_options,
                                                   tile::KernelMetadata &metadata) noexcept {
     metadata = {};
+    // CUDA Tile reference-realization invariants (see also the TIRx mapper):
+    //  * blocks are warp aligned: the GPU mapper rounds partial worker and
+    //    elementwise domains up to the 32-thread warp and rounds an unaligned
+    //    per-block cap down, so the post-codegen %32 check below is a
+    //    consistency assertion, not the first line of defence;
+    //  * a successful old-driver PTX patch is persisted back to the
+    //    user/disk cache so cold processes load the compatible bytes instead of
+    //    re-patching the stale cache entry on every launch;
+    //  * a Format::PTX (NVPTX) artifact that fails to load cannot be recompiled
+    //    by this backend; the final diagnostic names that constraint and
+    //    recommends the CUDA_SOURCE ("cuda") TIRx target for this device.
     if (tile_options.xir != nullptr) {
         metadata.error = "CUDA cannot use the CPU XIR execution planner";
         return ShaderCreationInfo::make_invalid();
@@ -235,6 +257,16 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
         options.noalias = true;
         metadata.disjoint_writes = true;
         if (tile_options.threads_per_group != 0u) {
+            // CUDA blocks must be warp aligned. Reject a user-supplied exact
+            // width before codegen so the mapper never receives an impossible
+            // constraint; the value forwarded to the planner is then already a
+            // multiple of 32.
+            if (tile_options.threads_per_group % 32u != 0u) {
+                return fail(luisa::format(
+                    "CUDA Tile kernels require threads_per_group to be a "
+                    "multiple of the 32-thread warp; got {}",
+                    tile_options.threads_per_group));
+            }
             if (options.planner.threads_per_group != 0u &&
                 options.planner.threads_per_group != tile_options.threads_per_group) {
                 return fail("Conflicting TIRx and Runtime thread constraints");
@@ -394,10 +426,27 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
         luisa::string load_failure;
         auto shader = with_handle([&]() noexcept -> CUDAShader * {
             CUresult load_error = CUDA_SUCCESS;
-            auto load_result = probe_tile_ptx(artifact.entry, ptx, &load_error);
+            auto load_result = TileLoadResult::OK;
+            if (force_first_tile_probe_unsupported()) {
+                load_error = CUDA_ERROR_UNSUPPORTED_PTX_VERSION;
+                load_result = TileLoadResult::UNSUPPORTED_PTX_VERSION;
+            } else {
+                load_result = probe_tile_ptx(artifact.entry, ptx, &load_error);
+            }
             if (load_result == TileLoadResult::UNSUPPORTED_PTX_VERSION) {
+                auto pre_patch = ptx;
                 CUDAShader::_patch_ptx_version(ptx);
                 load_result = probe_tile_ptx(artifact.entry, ptx, &load_error);
+                // Persist the successfully patched bytes (PTX and sidecar) back
+                // to the same cache/user path used above, but only when the
+                // patch actually changed the image. Without this a cold process
+                // keeps loading the stale version and re-patches every launch.
+                if (load_result == TileLoadResult::OK && ptx != pre_patch &&
+                    (option.enable_cache || use_user_path)) {
+                    write_tile_shader_ptx(
+                        _io, name, shader_metadata, ptx,
+                        use_user_path, option.enable_cache);
+                }
             }
             if (load_result != TileLoadResult::OK && can_compile_cuda_source &&
                 _handle.compute_capability() != 60u) {
@@ -425,10 +474,49 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
                 const char *error_string = nullptr;
                 cuGetErrorName(load_error, &error_name);
                 cuGetErrorString(load_error, &error_string);
-                load_failure = luisa::format(
-                    "Failed to load CUDA Tile PTX module ({}: {})",
+                auto driver_error = luisa::format(
+                    "{}: {}",
                     error_name ? error_name : "unknown",
                     error_string ? error_string : "unknown error");
+                if (can_compile_cuda_source) {
+                    load_failure = luisa::format(
+                        "Failed to load CUDA Tile PTX module ({})",
+                        driver_error);
+                } else {
+                    // Format::PTX artifacts are the NVPTX code generator's own
+                    // output. There is no CUDA C source in this artifact that
+                    // this backend could recompile for another architecture, so
+                    // surface that constraint and point at the CUDA_SOURCE
+                    // ("cuda") TIRx target instead of leaving only a raw error.
+                    luisa::string_view requested_target;
+                    constexpr luisa::string_view target_marker = ".target ";
+                    auto target_pos = luisa::string_view{metadata.source}.find(target_marker);
+                    if (target_pos != luisa::string_view::npos) {
+                        auto line_end = luisa::string_view{metadata.source}.find('\n', target_pos);
+                        auto directive = luisa::string_view{metadata.source}.substr(
+                            target_pos, line_end == luisa::string_view::npos ?
+                                            luisa::string_view::npos :
+                                            line_end - target_pos);
+                        if (!directive.empty() && directive.back() == '\r') {
+                            directive = directive.substr(0u, directive.size() - 1u);
+                        }
+                        requested_target = directive;
+                    }
+                    load_failure = luisa::format(
+                        "Failed to load CUDA Tile NVPTX PTX module ({})"
+                        "{}. The artifact is NVPTX-generated PTX and cannot be "
+                        "recompiled for a different CUDA architecture by the "
+                        "Luisa CUDA backend; select the \"cuda\" (CUDA C source) "
+                        "TIRx target for this device (compute capability sm_{}).",
+                        driver_error,
+                        requested_target.empty() ?
+                            luisa::string_view{} :
+                            luisa::string_view{"; the PTX requests "},
+                        requested_target.empty() ?
+                            luisa::string_view{} :
+                            requested_target,
+                        _handle.compute_capability());
+                }
                 return nullptr;
             }
             return new_with_allocator<CUDAShaderTile>(

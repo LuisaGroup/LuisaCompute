@@ -79,7 +79,9 @@ public:
         if (auto iter = _results.find(key); iter != _results.end()) {
             return &static_cast<ResultHolder<Result> *>(iter->second.get())->value;
         }
-        auto holder = luisa::unique_ptr<ResultBase>{new ResultHolder<Result>{Analysis::run(*_function)}};
+                  auto holder = luisa::unique_ptr<ResultBase>{
+              new (luisa::allocate_with_allocator<ResultHolder<Result>>())
+                  ResultHolder<Result>{Analysis::run(*_function)}};
         auto result = &static_cast<ResultHolder<Result> *>(holder.get())->value;
         _results.emplace(key, std::move(holder));
         return result;

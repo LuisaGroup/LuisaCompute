@@ -512,6 +512,12 @@ and {download}`September 9 handoff <../../../../src/tile/HANDOFF_2026-09-09.zh.m
 CUDA lowering is the overnight priority; SIMD optimization pauses at this
 checkpoint, without claiming the overall Torch/MPS/BLAS performance goal.
 
+At handoff, concurrent upstream commits `1a2c3ea92` (coroutine/XIR) and
+`f8dc5f308` (CUDA/TIRx) were merged without textual conflicts. The validation
+and diagnostic evidence above precede that merge and qualify `ee88a8834`,
+not the combined upstream implementation. Full post-merge validation remains
+for the next session; no CUDA execution result is claimed here.
+
 ## Failures retained and what they teach
 
 1. **Numerical boundaries matter under fusion.** The first BF16 round-trip

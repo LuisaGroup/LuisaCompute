@@ -93,6 +93,18 @@ static void hash_coro_suspend_extension(
         h.add(binding.lifetime);
         h.add(binding.index);
     }
+    h.add(extension->binding_projections().size());
+    for (auto &projection : extension->binding_projections()) {
+        h.add_string(projection.binding.name);
+        h.add(projection.binding.access);
+        h.add(projection.binding.lifetime);
+        h.add(projection.binding.index);
+        h.add(projection.alternatives.size());
+        for (auto alternative : projection.alternatives) {
+            h.add(alternative.value_index);
+            h.add(alternative.condition_index);
+        }
+    }
     h.add(extension->attributes().size());
     for (auto &&attribute : extension->attributes()) {
         h.add_string(attribute.name);
@@ -182,7 +194,7 @@ resolve_static_local_lvalue_access_chain(Value *value) noexcept {
     DistillCertificateHasher h;
     // Version the schema so adding a semantic field cannot silently retain a
     // certificate computed by an older layout.
-    h.add(uint64_t{7u});
+    h.add(uint64_t{8u});
     h.add_pointer(definition);
     if (definition != nullptr) {
         h.add_pointer(definition->body_block());
@@ -214,6 +226,9 @@ resolve_static_local_lvalue_access_chain(Value *value) noexcept {
                     h.add_pointer(operand->value());
                 }
                 switch (instruction->derived_instruction_tag()) {
+                    case DerivedInstructionTag::ALLOCA:
+                        h.add(static_cast<const AllocaInst *>(instruction)->coro_return_selector());
+                        break;
                     case DerivedInstructionTag::CORO_SUSPEND: {
                         auto *suspend =
                             static_cast<const CoroSuspendInst *>(instruction);
@@ -1182,16 +1197,24 @@ static void analyze_live_variables(
     // Starting at E and applying the monotone transfer to a worklist computes
     // the least fixed point, including cyclic sample/bounce schedules. The
     // domain and every edge relation share one value numbering.
+    auto call_contexts = detail::analyze_coro_call_contexts(def, result, value_domain, replayable);
+    if (stats != nullptr) { stats->call_context_state_count = call_contexts.state_count; }
+    if (call_contexts.state_count != 0u) { scope_external = call_contexts.scope_external; }
     luisa::vector<DenseValueSet> live_begin;
     live_begin.reserve(n);
     for (auto &external : scope_external) {
         live_begin.emplace_back(external);
     }
+    if (call_contexts.state_count != 0u) { live_begin = call_contexts.scope_live; }
+    auto target_live = [&](size_t edge_index) -> const DenseValueSet & {
+        return call_contexts.state_count == 0u ? live_begin[result.transition_edges[edge_index].to_scope] :
+                                                 call_contexts.edge_target_live[edge_index];
+    };
     luisa::deque<size_t> worklist;
     luisa::vector<uint8_t> queued(n, 1u);
     for (size_t i = 0u; i < n; ++i) { worklist.emplace_back(i); }
     auto inter_scope_evaluations = size_t{0u};
-    while (!worklist.empty()) {
+    while (call_contexts.state_count == 0u && !worklist.empty()) {
         auto scope = worklist.front();
         worklist.pop_front();
         queued[scope] = 0u;
@@ -1200,7 +1223,7 @@ static void analyze_live_variables(
         for (auto edge_index : outgoing_edges[scope]) {
             auto &edge = result.transition_edges[edge_index];
             auto propagated = transfer_extension_stages_backward(
-                edge_index, live_begin[edge.to_scope]);
+                edge_index, target_live(edge_index));
             propagated.subtract(
                 edge_data[edge_index].source_killed);
             next.union_with(propagated);
@@ -1231,7 +1254,7 @@ static void analyze_live_variables(
         auto &edge = result.transition_edges[edge_index];
         auto &dense = edge_data[edge_index];
         if (!edge.is_suspend) { continue; }
-        auto next = live_begin[edge.to_scope];
+        auto next = target_live(edge_index);
         for (size_t reverse = 0u;
              reverse < dense.extension_stages.size(); ++reverse) {
             auto index = dense.extension_stages.size() - 1u - reverse;
@@ -1253,7 +1276,7 @@ static void analyze_live_variables(
         for (auto edge_index : outgoing_edges[s]) {
             auto &edge = result.transition_edges[edge_index];
             auto edge_live_in = transfer_extension_stages_backward(
-                edge_index, live_begin[edge.to_scope]);
+                edge_index, target_live(edge_index));
             auto propagated = edge_live_in;
             propagated.subtract(
                 edge_data[edge_index].source_killed);
@@ -1271,7 +1294,7 @@ static void analyze_live_variables(
             auto extension_input = transfer_extension_stages_backward(
                 edge_index, DenseValueSet{value_count});
             store.union_with(extension_input);
-            edge_data[edge_index].live = live_begin[edge.to_scope];
+            edge_data[edge_index].live = target_live(edge_index);
             edge_data[edge_index].live.union_with(
                 edge_data[edge_index].designated);
             edge_data[edge_index].live.union_with(
@@ -1442,7 +1465,7 @@ static void analyze_live_variables(
             atom_to_frame_value_range);
         append_frame_value_indices(
             edge.target_live_frame_value_indices,
-            live_begin[edge.to_scope], atom_to_frame_value_range);
+            target_live(edge_index), atom_to_frame_value_range);
         auto normalize_frame_indices = [](auto &indices) noexcept {
             std::sort(indices.begin(), indices.end());
             indices.erase(
@@ -1538,8 +1561,10 @@ static void analyze_live_variables(
 
     color_frame_slots(result);
 
+    // Shared callables verify against the matched-state set oracle inside
+    // analyze_coro_call_contexts; this oracle describes context-free scopes.
     if (auto *flag = std::getenv("LUISA_CORO_VERIFY_DENSE_DATAFLOW");
-        flag != nullptr && luisa::string_view{flag} == "1") {
+        flag != nullptr && luisa::string_view{flag} == "1" && call_contexts.state_count == 0u) {
         auto to_pointer_set = [&](const DenseValueSet &dense) noexcept {
             luisa::unordered_set<size_t> indices;
             dense.for_each_set_bit([&](size_t index) noexcept {

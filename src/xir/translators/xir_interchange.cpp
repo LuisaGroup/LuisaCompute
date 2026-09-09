@@ -2033,6 +2033,69 @@ parse_u64_hex(luisa::string_view text) noexcept {
                                  std::move(attributes));
         data.extensions.emplace_back(std::move(extension));
     }
+    // Optional compiler-owned projection tail. Old records retain their exact
+    // encoding; unknown/truncated tails fail closed instead of losing aliases.
+    if (auxiliary_index < record.auxiliary.size() && record.auxiliary[auxiliary_index] == -1) {
+        ++auxiliary_index;
+        auto next = [&](size_t &value) {
+            return auxiliary_index < record.auxiliary.size() && read_count(record.auxiliary[auxiliary_index++], value);
+        };
+        for (auto &extension : data.extensions) {
+            size_t count = 0;
+            if (!next(count)) { return fail("Truncated coroutine projection count."); }
+            luisa::vector<CoroSuspendBindingProjection> projections;
+            luisa::vector<bool> support(binding_value_count, false);
+            for (size_t i = 0; i < count; ++i) {
+                size_t access, lifetime, index, alternatives;
+                if (!next(access) || access > 2 || !next(lifetime) || lifetime > 2 ||
+                    !next(index) || index >= binding_value_count || !next(alternatives) || alternatives == 0 ||
+                    payload_index >= record.payloads.size()) { return fail("Invalid coroutine projection header."); }
+                CoroSuspendBindingProjection projection;
+                projection.binding = {record.payloads[payload_index++], static_cast<CoroSuspendBindingAccess>(access),
+                                      static_cast<CoroSuspendBindingLifetime>(lifetime), static_cast<uint32_t>(index)};
+                if (projection.binding.name.empty()) { return fail("Unnamed coroutine projection."); }
+                for (size_t j = 0; j < alternatives; ++j) {
+                    size_t vi, ci;
+                    if (!next(vi) || !next(ci) || vi >= binding_value_count || ci >= binding_value_count ||
+                        vi == ci || support[vi] || support[ci] || (j == 0 && vi != index)) {
+                        return fail("Invalid coroutine projection alternative.");
+                    }
+                    auto has_binding = [&](size_t binding_index, CoroSuspendBindingAccess mode) {
+                        return std::any_of(extension->bindings().begin(), extension->bindings().end(), [&](auto &b) {
+                            return b.index == binding_index && b.access == mode && b.lifetime == projection.binding.lifetime;
+                        });
+                    };
+                    if (!has_binding(vi, CoroSuspendBindingAccess::read_write) || !has_binding(ci, CoroSuspendBindingAccess::read)) {
+                        return fail("Coroutine projection refers outside its normalized owner.");
+                    }
+                    support[vi] = support[ci] = true;
+                    projection.alternatives.push_back({static_cast<uint32_t>(vi), static_cast<uint32_t>(ci)});
+                }
+                projections.emplace_back(std::move(projection));
+            }
+            if (!projections.empty()) {
+                luisa::vector<CoroSuspendBinding> logical_bindings;
+                for (auto &binding : extension->bindings()) {
+                    auto p = std::find_if(projections.begin(), projections.end(), [&](auto &p) { return p.binding.index == binding.index; });
+                    if (p != projections.end()) {
+                        logical_bindings.emplace_back(p->binding);
+                    } else if (!support[binding.index]) {
+                        logical_bindings.emplace_back(binding);
+                    }
+                }
+                for (size_t i = 0; i < logical_bindings.size(); ++i) {
+                    for (size_t j = 0; j < i; ++j) {
+                        if (logical_bindings[i].name == logical_bindings[j].name) { return fail("Duplicate logical coroutine binding."); }
+                    }
+                }
+                auto make = extension->is_annotation() ? make_coro_suspend_annotation_data : make_coro_suspend_extension_data;
+                auto logical = make(luisa::string{extension->schema()}, extension->version(), extension->fallback(),
+                                    std::move(logical_bindings), {extension->attributes().begin(), extension->attributes().end()});
+                extension = make_coro_suspend_projected_extension(std::move(logical),
+                                                                  {extension->bindings().begin(), extension->bindings().end()}, std::move(projections));
+            }
+        }
+    }
     if (auxiliary_index != record.auxiliary.size() ||
         payload_index != record.payloads.size() ||
         std::find(bound.begin(), bound.end(), false) != bound.end()) {
@@ -2103,6 +2166,25 @@ void encode_coro_suspend_record(
             payloads.emplace_back(attribute.name);
             payloads.emplace_back(
                 encode_coro_suspend_attribute_value(attribute.value));
+        }
+    }
+    auto projected = std::any_of(suspend->extensions().begin(), suspend->extensions().end(),
+                                 [](auto &e) { return !e->binding_projections().empty(); });
+    if (projected) {
+        auxiliary.emplace_back(-1);
+        for (auto &extension : suspend->extensions()) {
+            auxiliary.emplace_back(extension->binding_projections().size());
+            for (auto &projection : extension->binding_projections()) {
+                auxiliary.emplace_back(static_cast<int64_t>(projection.binding.access));
+                auxiliary.emplace_back(static_cast<int64_t>(projection.binding.lifetime));
+                auxiliary.emplace_back(projection.binding.index);
+                auxiliary.emplace_back(projection.alternatives.size());
+                payloads.emplace_back(projection.binding.name);
+                for (auto alternative : projection.alternatives) {
+                    auxiliary.emplace_back(alternative.value_index);
+                    auxiliary.emplace_back(alternative.condition_index);
+                }
+            }
         }
     }
 }
@@ -2917,7 +2999,8 @@ public:
         case DerivedInstructionTag::CORO_TERMINATE: return operand_count == 0u && auxiliary_count == 0u && payload_count == 0u;
         case DerivedInstructionTag::RETURN: return operand_count == 1u && auxiliary_count == 0u && payload_count == 0u;
         case DerivedInstructionTag::PHI: return operand_count == auxiliary_count && payload_count == 0u;
-        case DerivedInstructionTag::ALLOCA: return operand_count == 0u && auxiliary_count == 0u && payload_count == 0u;
+        case DerivedInstructionTag::ALLOCA: return operand_count == 0u && payload_count == 0u &&
+                                                   auxiliary_count <= 1u;
         case DerivedInstructionTag::LOAD: return operand_count == 1u && auxiliary_count == 0u && payload_count == 0u;
         case DerivedInstructionTag::STORE: return operand_count == 2u && auxiliary_count == 0u && payload_count == 0u;
         case DerivedInstructionTag::GEP: return operand_count >= 2u && auxiliary_count == 0u && payload_count == 0u;
@@ -4545,6 +4628,10 @@ template<typename OperandSpan>
                            [](int64_t value) noexcept { return value >= 0; });
     };
     switch (record.tag) {
+        case DerivedInstructionTag::ALLOCA:
+            return record.auxiliary.empty() || (record.auxiliary.size() == 1u && record.auxiliary[0] > 0 &&
+                                                static_cast<uint64_t>(record.auxiliary[0]) <= std::numeric_limits<uint32_t>::max());
+
         case DerivedInstructionTag::IF:
             return !record.auxiliary.empty() && record.auxiliary.front() >= -1;
         case DerivedInstructionTag::LOOP:
@@ -4656,9 +4743,12 @@ template<typename OperandSpan>
             instruction = std::move(value);
             break;
         }
-        case DerivedInstructionTag::ALLOCA:
-            instruction = luisa::make_managed<AllocaInst>(block, type, static_cast<AllocaOp>(record.op));
+        case DerivedInstructionTag::ALLOCA: {
+            auto value = luisa::make_managed<AllocaInst>(block, type, static_cast<AllocaOp>(record.op));
+            if (!record.auxiliary.empty()) { value->set_coro_return_selector(static_cast<uint32_t>(record.auxiliary[0])); }
+            instruction = std::move(value);
             break;
+        }
         case DerivedInstructionTag::LOAD:
             instruction = luisa::make_managed<LoadInst>(block, type, nullptr);
             break;
@@ -5376,7 +5466,11 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
                 }
                 auto op = int64_t{-1};
                 switch (instruction->derived_instruction_tag()) {
-                    case DerivedInstructionTag::ALLOCA: op = static_cast<int64_t>(static_cast<const AllocaInst *>(instruction)->op()); break;
+                    case DerivedInstructionTag::ALLOCA: {
+                        auto *alloca = static_cast<const AllocaInst *>(instruction);
+                        op = static_cast<int64_t>(alloca->op());
+                        break;
+                    }
                     case DerivedInstructionTag::ATOMIC: op = static_cast<int64_t>(static_cast<const AtomicInst *>(instruction)->op()); break;
                     case DerivedInstructionTag::ARITHMETIC: op = static_cast<int64_t>(static_cast<const ArithmeticInst *>(instruction)->op()); break;
                     case DerivedInstructionTag::THREAD_GROUP: op = static_cast<int64_t>(static_cast<const ThreadGroupInst *>(instruction)->op()); break;
@@ -5399,6 +5493,9 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
                 }
                 luisa::vector<int64_t> auxiliary;
                 luisa::vector<luisa::string> payloads;
+                if (instruction->isa<AllocaInst>()) {
+                    if (auto selector = static_cast<const AllocaInst *>(instruction)->coro_return_selector()) { auxiliary.emplace_back(selector); }
+                }
                 switch (instruction->derived_instruction_tag()) {
                     case DerivedInstructionTag::RESOURCE_QUERY: {
                         auto access = static_cast<const ResourceQueryInst *>(instruction)

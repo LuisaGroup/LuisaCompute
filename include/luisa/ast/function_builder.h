@@ -242,6 +242,9 @@ public:
     /// Return tag(KERNEL, CALLABLE).
     [[nodiscard]] auto tag() const noexcept { return _tag; }
     /// Return pointer to body.
+    /// Inferred from this definition and its statically bound callees.
+    [[nodiscard]] bool may_suspend() const noexcept;
+
     [[nodiscard]] auto body() noexcept { return &_body; }
     /// Return const pointer to body.
     [[nodiscard]] auto body() const noexcept { return &_body; }

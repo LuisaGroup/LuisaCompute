@@ -314,3 +314,11 @@ if (TARGET luisa-compute-backend-simd)
         endif ()
     endforeach ()
 endif ()
+
+if (LUISA_COMPUTE_BUILD_TESTS AND TARGET luisa-compute-backend-metal4)
+    add_test(NAME metal4_example_coro_on_demand_texture
+            COMMAND $<TARGET_FILE:example_coro_on_demand_texture> metal4 --test)
+    set_tests_properties(metal4_example_coro_on_demand_texture PROPERTIES
+            LABELS "integration;integration_metal4;integration_coro"
+            WORKING_DIRECTORY $<TARGET_FILE_DIR:example_coro_on_demand_texture>)
+endif ()

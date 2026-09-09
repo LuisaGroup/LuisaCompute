@@ -106,9 +106,11 @@ struct ReadonlyViews {
 // definitions only after proving ownership and dominance of every access.
 // The input must have a checked noalias contract. Undefined retains
 // the original function, including its input snapshots and scope constraints.
+// warp_align_threads requests a CUDA/NVPTX-compatible width: partial domains
+// are padded up to the 32-thread warp and unaligned caps are rounded down.
 [[nodiscard]] tvm::tirx::Stmt try_map_gpu_elementwise(
     const tvm::tirx::Stmt &body, uint32_t max_threads, const PlannerOptions &options,
-    luisa::vector<GroupPlan> &plans);
+    luisa::vector<GroupPlan> &plans, bool warp_align_threads = false);
 
 // Preserve stage cuts until dependence and storage planning. The current
 // planner uses TVMx's native software-pipeline pass for safe two-phase

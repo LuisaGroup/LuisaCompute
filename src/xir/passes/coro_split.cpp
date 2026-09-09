@@ -337,6 +337,14 @@ public:
             return false;
         }
     }
+    if (lhs->binding_projections().size() != rhs->binding_projections().size()) { return false; }
+    for (size_t i = 0; i < lhs->binding_projections().size(); ++i) {
+        auto &a = lhs->binding_projections()[i];
+        auto &b = rhs->binding_projections()[i];
+        if (a.binding.name != b.binding.name || a.binding.index != b.binding.index ||
+            a.binding.access != b.binding.access || a.binding.lifetime != b.binding.lifetime ||
+            a.alternatives != b.alternatives) { return false; }
+    }
     for (size_t i = 0u; i < lhs->attributes().size(); ++i) {
         auto &a = lhs->attributes()[i];
         auto &b = rhs->attributes()[i];

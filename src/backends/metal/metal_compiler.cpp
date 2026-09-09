@@ -346,7 +346,9 @@ MetalShaderHandle MetalCompiler::compile(luisa::string_view src,
             luisa::filesystem::path src_dump_path;
             if (is_aot) {
                 src_dump_path = _device->io()->write_shader_bytecode(src_dump_name, src_dump);
-            } else if (option.enable_cache) {
+            } else {
+                // Explicit source dumps are useful precisely when debugging
+                // uncached compilation; cache policy must not suppress them.
                 src_dump_path = _device->io()->write_shader_source(src_dump_name, src_dump);
             }
             // TODO: attach shader source to Metal shader archive for debugging.

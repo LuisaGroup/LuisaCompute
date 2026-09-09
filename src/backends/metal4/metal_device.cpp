@@ -47,7 +47,7 @@ namespace {
 // Bump this whenever a Metal AIR lowering or ABI change can alter generated
 // code without changing the source AST, ShaderOption, or target tuple.
 constexpr auto metal_air_compute_cache_revision =
-    0x4c5549534141490aull;
+    0x4c5549534141490bull;
 
 [[nodiscard]] uint64_t pack_air_version(
     MetalAIRVersion version) noexcept {

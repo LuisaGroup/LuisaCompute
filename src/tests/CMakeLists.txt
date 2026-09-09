@@ -827,6 +827,14 @@ endforeach ()
 luisa_compute_add_test(test_hip_float_atomic_memory_model unit/runtime/test_hip_float_atomic_memory_model.cpp)
 luisa_compute_add_test(test_counted_local_array unit/runtime/test_counted_local_array.cpp)
 luisa_compute_add_test(test_atomic              unit/runtime/test_atomic.cpp)
+foreach (backend metal metal4)
+    if (TARGET luisa-compute-backend-${backend})
+        add_test(NAME test_atomic_divergent_address_${backend}
+                COMMAND test_atomic ${backend} shared_atomic_address_after_divergent_loop)
+        set_tests_properties(test_atomic_divergent_address_${backend} PROPERTIES
+                TIMEOUT 60 LABELS "unit;unit_runtime;integration_${backend}")
+    endif ()
+endforeach ()
 luisa_compute_add_test(test_atomic_queue        unit/runtime/test_atomic_queue.cpp)
 luisa_compute_add_test(test_byte_buffer         unit/runtime/test_byte_buffer.cpp)
 luisa_compute_add_test(test_context             unit/runtime/test_context.cpp)
@@ -848,7 +856,16 @@ if (TARGET luisa-compute-backend-fallback)
             unit/fallback/test_fallback_coro_arena.cpp LABELS "unit;unit_fallback")
     target_include_directories(test_fallback_coro_arena PRIVATE ../backends/fallback)
 endif ()
-luisa_compute_add_test(test_bindless_mip        unit/runtime/test_bindless_mip.cpp)
+# Host-only CUDA PTX `.version` patcher unit test: no driver/GPU, no backend
+# link; it includes the dependency-light header directly from the CUDA source
+# tree and runs as a normal host CTest (no backend argument).
+if (LUISA_COMPUTE_ENABLE_CUDA)
+    luisa_compute_add_test(test_cuda_ptx_version
+            unit/runtime/test_cuda_ptx_version.cpp
+            LABELS "unit;unit_runtime;unit_cuda")
+    target_include_directories(test_cuda_ptx_version PRIVATE ../backends/cuda)
+endif ()
+luisa_compute_add_test(test_bindless_mip unit/runtime/test_bindless_mip.cpp)
 luisa_compute_add_test(test_direct_texture_sampling unit/runtime/test_direct_texture_sampling.cpp)
 luisa_compute_add_test(test_metal_codegen_regressions unit/runtime/test_metal_codegen_regressions.cpp)
 if (TARGET luisa-compute-backend-metal)
@@ -1406,3 +1423,25 @@ if (TARGET luisa-compute-backend-simd)
     set_tests_properties(simd_test_bindless_mip PROPERTIES
             LABELS "integration_simd;runtime_simd")
 endif ()
+
+luisa_compute_add_test(test_coro_shared_callable unit/coro/test_coro_shared_callable.cpp)
+
+if (TARGET luisa-compute-backend-metal)
+    add_test(NAME test_coro_shared_callable_metal COMMAND test_coro_shared_callable metal)
+    set_tests_properties(test_coro_shared_callable_metal PROPERTIES TIMEOUT 600 LABELS "integration;integration_metal;integration_coro")
+endif ()
+if (TARGET luisa-compute-backend-metal4)
+    add_test(NAME test_coro_shared_callable_metal4 COMMAND test_coro_shared_callable metal4)
+    set_tests_properties(test_coro_shared_callable_metal4 PROPERTIES TIMEOUT 600 LABELS "integration;integration_metal4;integration_coro")
+endif ()
+
+luisa_compute_add_test(test_coro_callable_rendering integration/runtime/test_coro_callable_rendering.cpp)
+foreach (backend metal metal4)
+    if (TARGET luisa-compute-backend-${backend})
+        add_test(NAME test_coro_callable_rendering_${backend} COMMAND test_coro_callable_rendering ${backend})
+        set_tests_properties(test_coro_callable_rendering_${backend} PROPERTIES TIMEOUT 600 LABELS "integration;integration_${backend};integration_coro;integration_rendering")
+    endif ()
+endforeach ()
+
+luisa_compute_add_test(test_xir_pass_restructure_cfg_semantics unit/xir/test_xir_pass_restructure_cfg_semantics.cpp LABELS "unit;unit_xir;unit_coro")
+set_tests_properties(test_xir_pass_restructure_cfg_semantics PROPERTIES TIMEOUT 120)

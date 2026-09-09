@@ -209,8 +209,8 @@ void FunctionBuilder::suspend_(
     luisa::vector<CoroSuspendExtensionPtr> extensions,
     luisa::vector<const Expression *>
         extension_binding_values) noexcept {
-    LUISA_ASSERT(_tag == Tag::COROUTINE,
-                 "Coroutine suspension is only valid in a coroutine.");
+    LUISA_ASSERT(_tag == Tag::COROUTINE || _tag == Tag::CALLABLE,
+                 "Coroutine suspension requires a coroutine or callable.");
     LUISA_ASSERT(token != 0u, "Coroutine suspend token 0 is reserved for coroutine entry.");
     luisa::unordered_set<luisa::string> names;
     for (auto &&frame_export : frame_exports) {
@@ -985,6 +985,23 @@ void FunctionBuilder::call(luisa::shared_ptr<const ExternalFunction> func,
 
 // call custom functions
 
+bool FunctionBuilder::may_suspend() const noexcept {
+    luisa::vector<const FunctionBuilder *> pending{this};
+    luisa::unordered_set<const FunctionBuilder *> visited;
+    while (!pending.empty()) {
+        auto *function = pending.back();
+        pending.pop_back();
+        if (!visited.emplace(function).second) { continue; }
+        for (auto &&stmt : function->_all_statements) {
+            if (stmt->tag() == Statement::Tag::SUSPEND) { return true; }
+        }
+        for (auto &&callee : function->_used_custom_callables) {
+            pending.emplace_back(callee.get());
+        }
+    }
+    return false;
+}
+
 const FuncRefExpr *FunctionBuilder::func_ref(Function custom) noexcept {
     if (custom.tag() != Function::Tag::CALLABLE) {
         LUISA_ERROR_WITH_LOCATION(
@@ -992,6 +1009,8 @@ const FuncRefExpr *FunctionBuilder::func_ref(Function custom) noexcept {
     }
     auto iter = _used_custom_callables.emplace(custom.shared_builder());
     auto f = iter.first->get();
+    LUISA_ASSERT(_tag == Tag::COROUTINE || _tag == Tag::CALLABLE || !f->may_suspend(),
+                 "A synchronous entry cannot reference a suspending callable #{:016x}.", custom.hash());
     if (iter.second) {
         // propagate used builtin/custom callables and constants
         _propagated_builtin_callables.propagate(f->_propagated_builtin_callables);
@@ -1010,6 +1029,8 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::
             "Calling non-callable function in device code.");
     }
     auto f = custom.builder();
+    LUISA_ASSERT(_tag == Tag::COROUTINE || _tag == Tag::CALLABLE || !f->may_suspend(),
+                 "A synchronous entry cannot call a suspending callable #{:016x}.", custom.hash());
     auto iter = _used_custom_callables.emplace(custom.shared_builder());
     f = iter.first->get();
     CallExpr::ArgumentList call_args(f->_arguments.size(), nullptr);

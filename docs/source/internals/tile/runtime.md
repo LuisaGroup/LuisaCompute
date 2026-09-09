@@ -334,16 +334,33 @@ The block must be warp aligned and at most the device `MAX_THREADS_PER_BLOCK`;
 the factory also honors an exact `tile::CompileOptions::threads_per_group` by
 checking it against the generated artifact block.
 
-PTX caching mirrors the ordinary CUDA shader path: cache identity is
-`hash(source, entry, block, grid, fast-math, ABI-marker "cuda-tile-direct-buffers-v1")`,
-stored in-memory in `CUDACompiler`'s LRU and on disk as
-`kernel_<hash>.tile.ptx` plus a `// METADATA: ...` sidecar written through the
-same `write_shader_cache` / `write_shader_bytecode` conventions. A stable
-`ShaderOption::name` behaves as a persistent runtime cache key today
-(compile-only offline archives remain gated, matching Metal's direct-buffer
-limitation). Old-driver PTX versions are patched with
-`CUDAShader::_patch_ptx_version`; other module load failures retry once with a
-`compute_60` recompile, mirroring builtin kernels.
+  PTX caching mirrors the ordinary CUDA shader path: cache identity is
+  `hash(source, entry, block, grid, fast-math, ABI-marker "cuda-tile-direct-buffers-v1")`,
+  stored in-memory in `CUDACompiler`'s LRU and on disk as
+  `kernel_<hash>.tile.ptx` plus a `// METADATA: ...` sidecar written through the
+  same `write_shader_cache` / `write_shader_bytecode` conventions. A stable
+  `ShaderOption::name` behaves as a persistent runtime cache key today
+  (compile-only offline archives remain gated, matching Metal's direct-buffer
+  limitation). Old-driver PTX versions are patched with
+  `CUDAShader::_patch_ptx_version`; other module load failures retry once with a
+  `compute_60` recompile, mirroring builtin kernels.
+  The PTX version transform is a dependency-light pure string/byte edit in
+  `src/backends/cuda/cuda_ptx_version.h`
+  (`patch_cuda_ptx_version` / `patch_cuda_ptx_version_bytes`), host-unit-tested
+  without a CUDA driver. After a *successful* patch the factory persists the
+  patched PTX plus its sidecar back to the same user/disk cache path when the
+  bytes actually changed, so a cold process loads the compatible image instead
+  of re-patching the stale cache entry on every launch.
+  CUDA blocks must be warp aligned. The reference mapper therefore rounds a
+  partial worker/elementwise domain *up* to the 32-thread warp (padding lanes
+  are discarded by the existing `linear < extent` guard) and rounds an unaligned
+  per-block cap *down*; a user-supplied `tile::CompileOptions::threads_per_group`
+  must itself be a multiple of 32 and is rejected before codegen otherwise. The
+  NVPTX (`Format::PTX`) route emits final PTX text that this backend cannot
+  recompile for another architecture: when such an artifact fails to load for a
+  non-version reason, the error names the driver error, quotes the requested
+  `.target` directive when present, and recommends compiling through the
+  `"cuda"` (CUDA C source) TIRx target for the device instead.
 
 **Review scope.** CUDA tile kernels never use cooperative-vector /
 cooperative-matrix / tensor-core / `mma.sync` / WMMA atoms, and they never use
@@ -353,10 +370,14 @@ expansion (ordered multiply/add contraction, ordinary left folds and per-element
 SIMT loops) and compiled to PTX. Explicit cooperative-matrix, MPP, subgroup
 reduction, program-order planner and exact planner-thread requests on CUDA are
 hard errors with descriptive diagnostics, never silently downgraded options.
-Host and runtime tests cover elementwise, add/max/min reductions, softmax and
-GEMM kernels (including transposed operands and ordered `allow_reassociation`)
-against FP64 oracles, and assert the artifact/PTX contains no Metal cooperative
-scope.
+  Host and runtime tests cover elementwise, add/max/min reductions, softmax and
+  GEMM kernels (including ragged/batched edges, transposed operands and ordered
+  `allow_reassociation`), padded `BufferView`-offset guard checks, bounded
+  attention/row fixtures, cache round-trip and simulated old-driver retry
+  against FP64 oracles, and assert the artifact/PTX contains no Metal
+  cooperative scope. The cache and retry suites are TIRX/CUDA-gated; the
+  simulated old-driver path is enabled by the test-only
+  `LUISA_CUDA_TILE_FORCE_UNSUPPORTED_PTX=1` environment knob.
 
 ## First native realization, not a complete Machine TileIR
 

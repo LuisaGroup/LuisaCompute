@@ -1,3 +1,5 @@
+#include <new>
+
 #include <luisa/core/logging.h>
 #include <luisa/tile/ir.h>
 
@@ -241,7 +243,12 @@ void Operation::set_operand(size_t index, Value *value) noexcept {
 Value *Operation::add_result(Type type) noexcept {
     auto function = parent_function();
     if (function == nullptr) { return nullptr; }
-    auto value = luisa::unique_ptr<Value>{new Value{function->_allocate_value_id(), std::move(type), this, _results.size()}};
+    // eastl::unique_ptr's default deleter frees via the EASTL allocator, so the
+    // object must be allocated with luisa::allocate_with_allocator rather than
+    // plain `new` (mismatched free otherwise, e.g. mi_free on a CRT new block).
+    auto value = luisa::unique_ptr<Value>{
+        new (luisa::allocate_with_allocator<Value>()) Value{
+            function->_allocate_value_id(), std::move(type), this, _results.size()}};
     auto result = value.get();
     _results.emplace_back(std::move(value));
     return result;
@@ -250,7 +257,8 @@ Value *Operation::add_result(Type type) noexcept {
 Region *Operation::add_region(luisa::string_view label) noexcept {
     auto function = parent_function();
     if (function == nullptr) { return nullptr; }
-    auto region = luisa::unique_ptr<Region>{new Region{function, this, label}};
+    auto region = luisa::unique_ptr<Region>{
+        new (luisa::allocate_with_allocator<Region>()) Region{function, this, label}};
     auto result = region.get();
     _regions.emplace_back(std::move(region));
     return result;
@@ -310,7 +318,9 @@ const Function *Block::parent_function() const noexcept {
 Value *Block::add_argument(Type type, luisa::string_view name) noexcept {
     auto function = parent_function();
     if (function == nullptr) { return nullptr; }
-    auto argument = luisa::unique_ptr<Value>{new Value{function->_allocate_value_id(), std::move(type), this, _arguments.size()}};
+    auto argument = luisa::unique_ptr<Value>{
+        new (luisa::allocate_with_allocator<Value>()) Value{
+            function->_allocate_value_id(), std::move(type), this, _arguments.size()}};
     auto result = argument.get();
     result->set_name(name);
     _arguments.emplace_back(std::move(argument));

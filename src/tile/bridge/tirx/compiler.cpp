@@ -168,6 +168,27 @@ private:
         }
         auto extent = static_cast<uint64_t>(extent_constant->value);
         auto thread_count = std::min<uint64_t>(extent, _gpu_threads_per_block);
+        if (_target_name == "cuda" || _target_name == "nvptx") {
+            // CUDA hardware requires warp-aligned thread blocks. The reference
+            // mapper pads a partial domain up to the 32-thread warp (the
+            // existing `linear < extent` guard discards the padding lanes) and,
+            // when the per-block cap itself is not warp aligned, rounds it down
+            // to the warp. The Metal/LLVM worker mappings are unchanged.
+            constexpr auto cuda_warp_size = uint64_t{32u};
+            if (thread_count < _gpu_threads_per_block) {
+                thread_count = std::min<uint64_t>(
+                    _gpu_threads_per_block,
+                    ((thread_count + cuda_warp_size - 1u) / cuda_warp_size) *
+                        cuda_warp_size);
+            } else {
+                thread_count = thread_count / cuda_warp_size * cuda_warp_size;
+            }
+            if (thread_count == 0u) {
+                throw std::runtime_error{
+                    "CUDA/NVPTX execution binding cannot realize a warp-aligned block "
+                    "below the 32-thread warp capacity"};
+            }
+        }
         auto block_count = (extent + thread_count - 1u) / thread_count;
         auto type = loop->loop_var.ty();
         auto zero = tvm::IntImm{type, 0};
@@ -496,7 +517,8 @@ public:
             // Speculative forwarding is committed only with a proved fused
             // map. Other programs keep their original materialization policy.
             auto trial = forward_readonly_tile_loads(mapped, true, true);
-            auto fused = try_map_gpu_elementwise(trial.body, group_thread_limit, options.planner, plans);
+            auto warp_align_threads = target->kind->name == "cuda" || target->kind->name == "nvptx";
+            auto fused = try_map_gpu_elementwise(trial.body, group_thread_limit, options.planner, plans, warp_align_threads);
             if (fused.defined()) {
                 mapped.CopyOnWrite()->body = std::move(fused);
                 functions.Set(global, std::move(mapped));

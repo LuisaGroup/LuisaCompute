@@ -442,6 +442,9 @@ if has_config("lc_enable_xir") then
     test_proj("test_xir2ast_translators", "unit/xir/test_xir2ast_translators.cpp", false, function()
         add_defines("LUISA_ENABLE_XIR")
     end)
+    test_proj("test_xir_pass_restructure_cfg_semantics", "unit/xir/test_xir_pass_restructure_cfg_semantics.cpp", false, function()
+        add_defines("LUISA_ENABLE_XIR")
+    end)
     test_proj("test_xir_pass_restructure_cfg", "unit/xir/test_xir_pass_restructure_cfg.cpp", false, function()
         add_defines("LUISA_ENABLE_XIR")
     end)
@@ -512,6 +515,8 @@ if has_config("lc_enable_xir") then
     coro_xir_test_proj("test_coro_all_schedulers", "unit/coro/test_coro_all_schedulers.cpp", true)
     coro_xir_test_proj("test_coro_packed_word", "unit/coro/test_coro_packed_word.cpp", true)
     coro_xir_test_proj("test_coro_wavefront_integration", "unit/coro/test_coro_wavefront_integration.cpp")
+    coro_xir_test_proj("test_coro_callable_rendering", "integration/runtime/test_coro_callable_rendering.cpp")
+    coro_xir_test_proj("test_coro_shared_callable", "unit/coro/test_coro_shared_callable.cpp")
     coro_xir_test_proj("test_coro_pipeline_1suspend", "unit/coro/test_coro_pipeline_1suspend.cpp")
     coro_xir_test_proj("test_coro_pipeline_3suspend", "unit/coro/test_coro_pipeline_3suspend.cpp")
     coro_xir_test_proj("test_xir_coro_cfg_distill", "unit/xir/test_coro_cfg_distill.cpp")
@@ -579,16 +584,30 @@ test_proj("test_transient_resource", "integration/runtime/test_transient_resourc
     add_files("integration/runtime/transient_resource_device/*.cpp")
 end)
 
--- integration/runtime: CUDA-only tests
-if has_config("lc_cuda_backend") then
-    test_proj("test_cuda_graph", "integration/runtime/test_cuda_graph.cpp")
-    -- Without the optional TIRx bridge (no xmake target today) this verifies
-    -- the CUDA backend fails closed for tile TIRX requests. CMake builds that
-    -- enable the bridge define LUISA_TEST_TILE_CUDA_TIRX and run the oracle
-    -- suite instead.
+  -- integration/runtime: CUDA-only tests
+  if has_config("lc_cuda_backend") then
+      -- Host-only PTX `.version` patcher test; no CUDA device/backend link.
+      test_proj("test_cuda_ptx_version", "unit/runtime/test_cuda_ptx_version.cpp", false, function()
+          add_includedirs("../backends/cuda")
+      end)
+      test_proj("test_cuda_graph", "integration/runtime/test_cuda_graph.cpp")
+    -- The optional TIRx bridge is compiled into lc-tile when
+    -- lc_tile_tirx_bridge is enabled. Without it this executable verifies the
+    -- CUDA backend fails closed for tile TIRX requests; with it, the same
+    -- source is compiled with LUISA_TEST_TILE_CUDA_TIRX=1 and runs the full
+    -- oracle suite (mirrors the CMake LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE
+    -- wiring in src/tests/CMakeLists.txt).
     test_proj("test_tile_cuda_ptx", "unit/tile/test_tile_cuda_ptx.cpp", false, function()
         add_deps("lc-tile")
+        if has_config("lc_tile_tirx_bridge") then
+            add_defines("LUISA_TEST_TILE_CUDA_TIRX=1")
+        end
     end)
+    if has_config("lc_tile_tirx_bridge") then
+        test_proj("test_tirx_device_cuda", "unit/tile/bridge/test_tirx_device_cuda.cpp", false, function()
+            add_deps("lc-tile")
+        end)
+    end
 end
 
 -- integration/runtime: external device config extension tests
