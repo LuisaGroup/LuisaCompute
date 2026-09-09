@@ -856,7 +856,16 @@ if (TARGET luisa-compute-backend-fallback)
             unit/fallback/test_fallback_coro_arena.cpp LABELS "unit;unit_fallback")
     target_include_directories(test_fallback_coro_arena PRIVATE ../backends/fallback)
 endif ()
-luisa_compute_add_test(test_bindless_mip        unit/runtime/test_bindless_mip.cpp)
+# Host-only CUDA PTX `.version` patcher unit test: no driver/GPU, no backend
+# link; it includes the dependency-light header directly from the CUDA source
+# tree and runs as a normal host CTest (no backend argument).
+if (LUISA_COMPUTE_ENABLE_CUDA)
+    luisa_compute_add_test(test_cuda_ptx_version
+            unit/runtime/test_cuda_ptx_version.cpp
+            LABELS "unit;unit_runtime;unit_cuda")
+    target_include_directories(test_cuda_ptx_version PRIVATE ../backends/cuda)
+endif ()
+luisa_compute_add_test(test_bindless_mip unit/runtime/test_bindless_mip.cpp)
 luisa_compute_add_test(test_direct_texture_sampling unit/runtime/test_direct_texture_sampling.cpp)
 luisa_compute_add_test(test_metal_codegen_regressions unit/runtime/test_metal_codegen_regressions.cpp)
 if (TARGET luisa-compute-backend-metal)

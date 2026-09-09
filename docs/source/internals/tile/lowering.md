@@ -41,14 +41,19 @@ the new device artifact preserves a typed PrimFunc, argument binding map and
 static launch geometry, with unchanged generated Metal source. The CUDA backend
 adds the same direct-buffer reference route on `Lowering::TIRX`: `compile_device`
 emits a CUDA C source artifact (target kind `cuda`) that the standalone-NVRTC
-pipeline turns into PTX for a direct static launch; a `nvptx` target is accepted
-as direct PTX text. CUDA never requests cooperative-matrix/vector or indirect
-dispatch atoms — semantic Tile `MMA`, `REDUCE`, elementwise lift and tile
-map/extract keep the reference SIMT realization — and every Metal-only planning
-knob is rejected with an explicit diagnostic. All factory
-routes return ordinary Runtime shaders. Neither silently falls back to TVM,
-MPP or MPS when its selected realization rejects a kernel. Intra-kernel
-Tile/SIMT DSL mixing is deliberately out of scope.
+  pipeline turns into PTX for a direct static launch; a `nvptx` target is accepted
+  as direct PTX text. CUDA never requests cooperative-matrix/vector or indirect
+  dispatch atoms — semantic Tile `MMA`, `REDUCE`, elementwise lift and tile
+  map/extract keep the reference SIMT realization — and every Metal-only planning
+  knob is rejected with an explicit diagnostic. Reference worker/elementwise
+  domains on CUDA/NVPTX are warp aligned by the mapper: partial domains are
+  rounded up to the 32-thread warp and unaligned per-block caps down. NVPTX PTX
+  text is final output that the CUDA backend cannot recompile for another
+  architecture; load failures therefore recommend the CUDA C source
+  (`"cuda"`) TIRx target. All factory
+  routes return ordinary Runtime shaders. Neither silently falls back to TVM,
+  MPP or MPS when its selected realization rejects a kernel. Intra-kernel
+  Tile/SIMT DSL mixing is deliberately out of scope.
 
 ### Layout bridge
 

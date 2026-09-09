@@ -569,7 +569,9 @@ CaptureGuard::CaptureGuard(Kernel &kernel) noexcept
         kernel._storage->diagnostics.emplace_back("Tile kernel captures cannot be nested");
         return;
     }
-    current_capture = new CaptureContext{kernel._storage.get()};
+    // Allocate through the project allocator so destruction stays on the same
+    // heap (eastl default_delete / mi_free) regardless of CRT operator new.
+    current_capture = luisa::new_with_allocator<CaptureContext>(kernel._storage.get());
 }
 
 CaptureGuard::~CaptureGuard() noexcept {
@@ -584,7 +586,7 @@ CaptureGuard::~CaptureGuard() noexcept {
     for (auto &&weak : current_capture->slots) {
         if (auto slot = weak.lock()) { slot->context = nullptr; }
     }
-    delete current_capture;
+    luisa::delete_with_allocator(current_capture);
     current_capture = nullptr;
 }
 

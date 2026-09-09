@@ -222,8 +222,12 @@ The following preserves the revision-17 design rationale and bootstrap order. It
   the standalone-NVRTC pipeline and launches it directly (no cooperative
   matrix/vector, no indirect dispatch). On CUDA every Tile tensor operator
   (`MMA`/matmul, `REDUCE`, elementwise lift, tile map/extract) keeps the
-  reference SIMT realization, and explicit Metal-only planning knobs fail
-  closed instead of being silently downgraded.
+    reference SIMT realization, and explicit Metal-only planning knobs fail
+    closed instead of being silently downgraded. CUDA/NVPTX blocks are warp
+    aligned (partial mapper domains are rounded up to the 32-thread warp and
+    unaligned caps down), successfully patched old-driver PTX is written back to
+    the tile cache, and NVPTX PTX artifacts that cannot load are reported as
+    non-recompilable text with a recommendation to use the `cuda` TIRx target.
 
 The accompanying [GEMM sketch](../../tile/tile_programming_poc.cpp) and
 [kernel gallery](../../tile/kernels.md) exercise the proposed syntax.

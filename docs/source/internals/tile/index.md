@@ -13,6 +13,7 @@ decisions
 ir
 lowering
 runtime
+cuda-workflow-b
 ```
 
 ```{toctree}

@@ -726,7 +726,8 @@ public:
 }// namespace
 
 tvm::tirx::Stmt try_map_gpu_elementwise(const tvm::tirx::Stmt &body, uint32_t max_threads,
-                                        const PlannerOptions &options, luisa::vector<GroupPlan> &plans) {
+                                        const PlannerOptions &options, luisa::vector<GroupPlan> &plans,
+                                        bool warp_align_threads) {
     auto root_statement = sole_effect(body);
     auto root = root_statement.as<tvm::tirx::ForNode>();
     if (!static_unit_domain(root) || root->annotations.size() != 1u + root->annotations.count(logical_program_shape_annotation) || !root->annotations.count(logical_parallel_annotation) ||
@@ -740,6 +741,17 @@ tvm::tirx::Stmt try_map_gpu_elementwise(const tvm::tirx::Stmt &body, uint32_t ma
     if (programs > INT64_MAX / volume || !ElementGridAudit{root, axes}.run(elements)) { return {}; }
     auto count = programs * volume;
     auto threads = options.threads_per_group ? options.threads_per_group : std::min<uint64_t>(count, std::min(max_threads, 256u));
+    if (warp_align_threads) {
+        // CUDA/NVPTX blocks must be warp aligned. Round a below-cap width up to
+        // the 32-thread warp (padding lanes are guarded out below); if that
+        // would exceed the hardware cap, round the unaligned cap down instead.
+        constexpr auto cuda_warp_size = uint64_t{32u};
+        auto aligned_up = ((threads + cuda_warp_size - 1u) / cuda_warp_size) * cuda_warp_size;
+        threads = aligned_up <= max_threads ?
+                      aligned_up :
+                      threads / cuda_warp_size * cuda_warp_size;
+        if (threads == 0u) { return {}; }
+    }
     auto blocks = luisa::ceil_div(count, threads);
     if (blocks > INT64_MAX / threads) { return {}; }
     auto zero = tvm::IntImm::Int64(0);
