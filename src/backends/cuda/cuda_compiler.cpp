@@ -163,6 +163,9 @@ luisa::vector<std::byte> CUDACompiler::compile(const luisa::string &src, const l
     if (auto ptx = _cache->fetch(hash)) { return *ptx; }
     auto filename = src_filename.empty() ? "my_kernel.cu" : src_filename.c_str();
     auto ptx = compile_with_standalone_compiler(_nvrtc_path.c_str(), src, filename, options);
+    // Fill the in-memory LRU so repeated compile() calls for the same source
+    // and options (for example a recreated Tile shader) do not re-run NVRTC.
+    _cache->update(hash, ptx);
     LUISA_VERBOSE("CUDACompiler::compile() took {} ms (output PTX size = {}).", clk.toc(), ptx.size());
     return ptx;
 }

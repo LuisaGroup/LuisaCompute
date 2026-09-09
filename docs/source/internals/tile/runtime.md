@@ -307,6 +307,57 @@ warp role or new Runtime resource type is introduced. The exact mapping,
 finite cost model, staged/JIT controls and measured evidence are documented in
 [TIRx Metal reductions](reductions.md).
 
+### CUDA device artifact and PTX ABI
+
+The CUDA backend overrides the same optional `DeviceInterface::create_tile_kernel`
+factory with a reference-realization route: `tile::bridge::tirx::lower` ->
+`compile_device` -> CUDA C source artifact -> the existing standalone-NVRTC
+pipeline -> PTX -> a direct static `cuLaunchKernel`. CMake builds that enable
+the optional TIRx bridge define `LUISA_CUDA_TILE_TIRX` on the backend and link
+`luisa-compute-tile-bridge-tirx`; xmake builds (which have no TIRx target yet)
+return the explicit "without the optional TIRx bridge" diagnostic.
+
+The generated `DeviceArtifact` carries `Format::CUDA_SOURCE` (target kind
+`"cuda"`; the NVPTX target kind is accepted as `Format::PTX` and skips NVRTC).
+As on Metal, the typed launch is never parsed from source: `entry`, static
+`grid`/`block`, and `buffer_arguments` (device slot -> original host parameter)
+come from the typed TIRx launch nodes. The CUDA factory validates the same
+FP32, nonempty, static, int32-addressable buffer ABI, derives argument usages
+from `VIEW_LOAD`/`VIEW_STORE`, and records `dispatch_size = grid * block`.
+
+CUDA launches are direct and statically shaped. A dedicated `CUDAShaderTile`
+reorders `ShaderDispatchCommand` arguments into `buffer_arguments` order and
+encodes each `BufferView` as a raw `CUdeviceptr` (base + offset), matching the
+plain typed-pointer kernel parameters emitted by TVM. There is no trailing
+`uint4` launch-size parameter and no `kernel_launcher`/cudadevrt indirect path.
+The block must be warp aligned and at most the device `MAX_THREADS_PER_BLOCK`;
+the factory also honors an exact `tile::CompileOptions::threads_per_group` by
+checking it against the generated artifact block.
+
+PTX caching mirrors the ordinary CUDA shader path: cache identity is
+`hash(source, entry, block, grid, fast-math, ABI-marker "cuda-tile-direct-buffers-v1")`,
+stored in-memory in `CUDACompiler`'s LRU and on disk as
+`kernel_<hash>.tile.ptx` plus a `// METADATA: ...` sidecar written through the
+same `write_shader_cache` / `write_shader_bytecode` conventions. A stable
+`ShaderOption::name` behaves as a persistent runtime cache key today
+(compile-only offline archives remain gated, matching Metal's direct-buffer
+limitation). Old-driver PTX versions are patched with
+`CUDAShader::_patch_ptx_version`; other module load failures retry once with a
+`compute_60` recompile, mirroring builtin kernels.
+
+**Review scope.** CUDA tile kernels never use cooperative-vector /
+cooperative-matrix / tensor-core / `mma.sync` / WMMA atoms, and they never use
+indirect dispatch. Semantic Tile `MMA`/matmul, `REDUCE`, elementwise lift and
+tile map/extract are all realized through the target-neutral reference
+expansion (ordered multiply/add contraction, ordinary left folds and per-element
+SIMT loops) and compiled to PTX. Explicit cooperative-matrix, MPP, subgroup
+reduction, program-order planner and exact planner-thread requests on CUDA are
+hard errors with descriptive diagnostics, never silently downgraded options.
+Host and runtime tests cover elementwise, add/max/min reductions, softmax and
+GEMM kernels (including transposed operands and ordered `allow_reassociation`)
+against FP64 oracles, and assert the artifact/PTX contains no Metal cooperative
+scope.
+
 ## First native realization, not a complete Machine TileIR
 
 `src/backends/metal/tile/metal_tile_codegen.cpp` reads Candidate TileIR and

@@ -370,3 +370,16 @@ schedules and artifact fingerprints, including the remaining MPS gap.
 Keep native and TIRx schedules independently recorded. Do not infer a speedup
 from compilation success, compare GPU-event time with host-wall time, or call
 an analytic MPP cost a measured time.
+
+## CUDA device-artifact codegen decision (no patch required)
+
+The CUDA Tile route uses Apache TVM's ordinary CUDA C code generator
+(`target.build.cuda`, `InspectSource("cuda")`) to produce `DeviceArtifact`
+`Format::CUDA_SOURCE`, which the CUDA backend compiles to PTX with its existing
+standalone-NVRTC pipeline. A `target.build.nvptx` target is also accepted by
+`compile_device()` as `Format::PTX` (direct PTX text, no NVRTC). Standard TVM
+already ships these builders, so no source patch under this directory is
+required for the reference (no cooperative matrix/vector) realization. If a
+pinned TVMx build lacks `target.build.cuda`, `compile_device()` reports a
+missing-builder error instead of silently falling back; revisit this directory
+only if such a fork becomes the configured tree.

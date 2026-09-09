@@ -744,6 +744,12 @@ if (LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE)
     luisa_compute_add_test(test_tile_tirx_planner
             unit/tile/bridge/test_tirx_planner.cpp LABELS "unit;unit_tile;unit_tile_tirx")
     target_link_libraries(test_tile_tirx_planner PRIVATE luisa::tile-tirx)
+    # Host-only CUDA device-artifact coverage: compile_device() must emit a
+    # CUDA C / PTX artifact (or fail closed) without needing a CUDA GPU.
+    luisa_compute_add_test(test_tirx_device_cuda
+            unit/tile/bridge/test_tirx_device_cuda.cpp
+            LABELS "unit;unit_tile;unit_tile_tirx;unit_tile_cuda")
+    target_link_libraries(test_tirx_device_cuda PRIVATE luisa::tile-tirx)
     # Opt-in timing executable: never a noisy CTest performance threshold.
     luisa_compute_add_test(benchmark_tile_tirx benchmark/benchmark_tile_tirx.cpp)
     target_link_libraries(benchmark_tile_tirx PRIVATE luisa::tile-tirx)
@@ -1220,6 +1226,16 @@ endif ()
   # --- integration/runtime: CUDA-only tests ---
   if (LUISA_COMPUTE_ENABLE_CUDA)
       luisa_compute_add_test(test_cuda_graph integration/runtime/test_cuda_graph.cpp)
+      luisa_compute_add_test(test_tile_cuda_ptx
+              unit/tile/test_tile_cuda_ptx.cpp
+              LABELS "integration;integration_tile_cuda" ARGS cuda)
+      target_link_libraries(test_tile_cuda_ptx PRIVATE luisa-compute-tile)
+      if (LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE)
+          target_link_libraries(test_tile_cuda_ptx PRIVATE luisa::tile-tirx)
+          target_compile_definitions(test_tile_cuda_ptx PRIVATE LUISA_TEST_TILE_CUDA_TIRX=1)
+      endif ()
+      add_dependencies(test_tile_cuda_ptx luisa-compute-backend-cuda)
+      add_dependencies(test_tile_cuda_ptx luisa-cuda-nvrtc-standalone-compiler)
   endif ()
 
 # --- integration/runtime: external device config extension tests ---

@@ -582,6 +582,13 @@ end)
 -- integration/runtime: CUDA-only tests
 if has_config("lc_cuda_backend") then
     test_proj("test_cuda_graph", "integration/runtime/test_cuda_graph.cpp")
+    -- Without the optional TIRx bridge (no xmake target today) this verifies
+    -- the CUDA backend fails closed for tile TIRX requests. CMake builds that
+    -- enable the bridge define LUISA_TEST_TILE_CUDA_TIRX and run the oracle
+    -- suite instead.
+    test_proj("test_tile_cuda_ptx", "unit/tile/test_tile_cuda_ptx.cpp", false, function()
+        add_deps("lc-tile")
+    end)
 end
 
 -- integration/runtime: external device config extension tests
