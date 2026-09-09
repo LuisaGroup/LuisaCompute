@@ -1,0 +1,851 @@
+{
+  "started_unix": 1788930830.0357912,
+  "cohort": 1,
+  "quiet_seconds": 60,
+  "maximum_preflight_seconds": 180,
+  "sample_seconds": 2,
+  "qualification_caveat": "Read-only process samples cannot establish exclusive hardware use or catch every short task. No observed render/build/test activity is admitted.",
+  "heavy_patterns": [
+    "psycles_render",
+    "/ninja",
+    "/clang",
+    "/cc1",
+    "/test_",
+    "benchmark_tile",
+    "doxygen",
+    "sphinx-build",
+    "xcodebuild"
+  ],
+  "performance_qualified": false,
+  "power": {
+    "argv": [
+      "pmset",
+      "-g",
+      "batt"
+    ],
+    "exit_code": 0,
+    "stdout": "Now drawing from 'AC Power'\n -InternalBattery-0 (id=27197539)\t100%; charged; 0:00 remaining present: true\n",
+    "stderr": ""
+  },
+  "thermal": {
+    "argv": [
+      "pmset",
+      "-g",
+      "therm"
+    ],
+    "exit_code": 0,
+    "stdout": "Note: No thermal warning level has been recorded\nNote: No performance warning level has been recorded\nNote: No CPU power status has been recorded\n",
+    "stderr": ""
+  },
+  "command": [
+    "caffeinate",
+    "-i",
+    "uv",
+    "run",
+    "--offline",
+    "--no-project",
+    "--python",
+    "3.13",
+    "--with",
+    "numpy",
+    "--with",
+    "torch==2.14.0",
+    "python",
+    "/tmp/luisa-pointwise.0imY7I/pilot.py",
+    "replay",
+    "--prepared",
+    "/private/tmp/luisa-expression-fusion.qXgTbC/capture",
+    "--output",
+    "/private/tmp/luisa-expression-fusion.qXgTbC/replay-1"
+  ],
+  "replay_started_unix": 1788930951.034875,
+  "finished_unix": 1788931000.5702531,
+  "replay_exit_code": 143,
+  "exclusion": "Replay failure or observed concurrent render/build/test activity; do not update rankings.",
+  "original_sha256": "5375fe8ecb5eefeb7d351e024308302fa2bec0f3c50202aa2fecfd653e8e47c6",
+  "privacy": "Foreign process identifiers, application names and paths are omitted. Percentages include the benchmark process where active.",
+  "preflight": [
+    {
+      "unix": 1788930830.11552,
+      "heavy_count": 2,
+      "active_cpu_percent": [
+        60.1,
+        99.5,
+        23.5,
+        73.5
+      ]
+    },
+    {
+      "unix": 1788930832.17478,
+      "heavy_count": 2,
+      "active_cpu_percent": [
+        56.8,
+        80.2,
+        99.4,
+        14.7,
+        73.1
+      ]
+    },
+    {
+      "unix": 1788930834.227982,
+      "heavy_count": 2,
+      "active_cpu_percent": [
+        13.3,
+        11.7,
+        99.0,
+        25.2,
+        76.5
+      ]
+    },
+    {
+      "unix": 1788930836.3141918,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        16.0,
+        14.1,
+        27.4
+      ]
+    },
+    {
+      "unix": 1788930838.398162,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        26.7,
+        12.4,
+        50.8,
+        32.7
+      ]
+    },
+    {
+      "unix": 1788930840.482441,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        16.2,
+        21.3,
+        12.2,
+        11.1,
+        48.9,
+        22.7
+      ]
+    },
+    {
+      "unix": 1788930842.568767,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        15.7,
+        11.0,
+        11.0,
+        11.9,
+        28.7
+      ]
+    },
+    {
+      "unix": 1788930844.652578,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        25.9,
+        10.6,
+        24.1
+      ]
+    },
+    {
+      "unix": 1788930846.720929,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        26.8,
+        11.2,
+        31.1
+      ]
+    },
+    {
+      "unix": 1788930848.8041,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        27.5
+      ]
+    },
+    {
+      "unix": 1788930850.883546,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        11.8,
+        29.4
+      ]
+    },
+    {
+      "unix": 1788930852.980959,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        38.1
+      ]
+    },
+    {
+      "unix": 1788930855.0747578,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        11.2,
+        27.5
+      ]
+    },
+    {
+      "unix": 1788930857.16651,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        10.0,
+        30.7
+      ]
+    },
+    {
+      "unix": 1788930859.2604392,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        10.6,
+        30.2,
+        60.4
+      ]
+    },
+    {
+      "unix": 1788930861.351267,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        12.1,
+        32.2,
+        51.8
+      ]
+    },
+    {
+      "unix": 1788930863.4439292,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        63.8,
+        35.0,
+        55.3
+      ]
+    },
+    {
+      "unix": 1788930865.536809,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        11.6,
+        44.5,
+        27.5,
+        34.4
+      ]
+    },
+    {
+      "unix": 1788930867.629835,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        28.1
+      ]
+    },
+    {
+      "unix": 1788930869.7217312,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        10.6,
+        27.8
+      ]
+    },
+    {
+      "unix": 1788930871.814201,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        16.7,
+        11.0,
+        28.0
+      ]
+    },
+    {
+      "unix": 1788930873.905507,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        12.6,
+        28.7
+      ]
+    },
+    {
+      "unix": 1788930875.999725,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        10.5,
+        28.8
+      ]
+    },
+    {
+      "unix": 1788930878.092414,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        66.6,
+        10.5,
+        29.6
+      ]
+    },
+    {
+      "unix": 1788930880.182685,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        10.6,
+        27.0
+      ]
+    },
+    {
+      "unix": 1788930882.275176,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        10.6,
+        27.4
+      ]
+    },
+    {
+      "unix": 1788930884.330315,
+      "heavy_count": 2,
+      "active_cpu_percent": [
+        24.2,
+        99.8,
+        23.0
+      ]
+    },
+    {
+      "unix": 1788930886.392595,
+      "heavy_count": 2,
+      "active_cpu_percent": [
+        100.0,
+        21.7
+      ]
+    },
+    {
+      "unix": 1788930888.453606,
+      "heavy_count": 2,
+      "active_cpu_percent": [
+        72.0,
+        100.0,
+        18.2,
+        62.7
+      ]
+    },
+    {
+      "unix": 1788930890.5125499,
+      "heavy_count": 2,
+      "active_cpu_percent": [
+        99.0,
+        22.6,
+        78.9
+      ]
+    },
+    {
+      "unix": 1788930892.574752,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        10.2,
+        28.7,
+        30.1,
+        66.5
+      ]
+    },
+    {
+      "unix": 1788930894.665066,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        27.2,
+        61.7
+      ]
+    },
+    {
+      "unix": 1788930896.758822,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        10.1,
+        10.2,
+        25.8
+      ]
+    },
+    {
+      "unix": 1788930898.84948,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        10.3,
+        12.9,
+        69.0,
+        25.5
+      ]
+    },
+    {
+      "unix": 1788930900.944246,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        16.7,
+        10.8,
+        10.7,
+        10.0,
+        43.8,
+        10.4,
+        21.7
+      ]
+    },
+    {
+      "unix": 1788930903.039458,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        10.6,
+        27.8
+      ]
+    },
+    {
+      "unix": 1788930905.118264,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        16.6,
+        12.3,
+        10.3,
+        26.3
+      ]
+    },
+    {
+      "unix": 1788930907.201447,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        16.2,
+        14.6,
+        28.0
+      ]
+    },
+    {
+      "unix": 1788930909.285582,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        25.8,
+        10.3,
+        10.1,
+        32.5
+      ]
+    },
+    {
+      "unix": 1788930911.350086,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        25.9,
+        11.4,
+        26.2
+      ]
+    },
+    {
+      "unix": 1788930913.416768,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        44.2,
+        10.2,
+        10.3,
+        34.0
+      ]
+    },
+    {
+      "unix": 1788930915.488287,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        16.2,
+        25.3,
+        11.6,
+        94.3,
+        37.3
+      ]
+    },
+    {
+      "unix": 1788930917.5730538,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        25.8,
+        11.0,
+        27.5
+      ]
+    },
+    {
+      "unix": 1788930919.6801338,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        73.9,
+        10.1,
+        25.0,
+        31.6
+      ]
+    },
+    {
+      "unix": 1788930921.7465558,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        21.2,
+        69.3
+      ]
+    },
+    {
+      "unix": 1788930923.838988,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        10.2,
+        29.7,
+        65.3
+      ]
+    },
+    {
+      "unix": 1788930925.913036,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        14.4,
+        12.1,
+        28.2,
+        61.6
+      ]
+    },
+    {
+      "unix": 1788930928.0045388,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        29.8
+      ]
+    },
+    {
+      "unix": 1788930930.098204,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        11.4,
+        11.0,
+        30.5
+      ]
+    },
+    {
+      "unix": 1788930932.1912231,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        10.6,
+        28.9
+      ]
+    },
+    {
+      "unix": 1788930934.2864819,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        11.3,
+        30.6
+      ]
+    },
+    {
+      "unix": 1788930936.377258,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        11.4,
+        28.6
+      ]
+    },
+    {
+      "unix": 1788930938.47057,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        14.5,
+        27.4,
+        30.8
+      ]
+    },
+    {
+      "unix": 1788930940.5637078,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        11.2,
+        25.8
+      ]
+    },
+    {
+      "unix": 1788930942.661702,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        13.6,
+        25.9
+      ]
+    },
+    {
+      "unix": 1788930944.754616,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        10.8,
+        26.7
+      ]
+    },
+    {
+      "unix": 1788930946.84851,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        10.6,
+        26.8
+      ]
+    },
+    {
+      "unix": 1788930948.941515,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        15.9,
+        10.3,
+        27.0,
+        57.1
+      ]
+    },
+    {
+      "unix": 1788930951.034313,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        11.0,
+        11.2,
+        31.3,
+        61.7
+      ]
+    }
+  ],
+  "observations": [
+    {
+      "unix": 1788930951.0869272,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        11.0,
+        11.0,
+        31.3,
+        58.3
+      ]
+    },
+    {
+      "unix": 1788930953.149004,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        99.0,
+        24.2,
+        73.3
+      ]
+    },
+    {
+      "unix": 1788930955.2075121,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        100.0,
+        25.2,
+        73.1
+      ]
+    },
+    {
+      "unix": 1788930957.2744372,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        99.6,
+        14.7,
+        24.0
+      ]
+    },
+    {
+      "unix": 1788930959.3386629,
+      "heavy_count": 0,
+      "active_cpu_percent": [
+        99.9,
+        76.0,
+        26.8
+      ]
+    },
+    {
+      "unix": 1788930961.3954098,
+      "heavy_count": 1,
+      "active_cpu_percent": [
+        13.2,
+        64.2,
+        99.2,
+        99.2,
+        62.8,
+        20.6
+      ]
+    },
+    {
+      "unix": 1788930963.459489,
+      "heavy_count": 1,
+      "active_cpu_percent": [
+        27.0,
+        99.6,
+        92.0,
+        12.8,
+        29.4
+      ]
+    },
+    {
+      "unix": 1788930965.520986,
+      "heavy_count": 1,
+      "active_cpu_percent": [
+        99.0,
+        100.0,
+        22.0
+      ]
+    },
+    {
+      "unix": 1788930967.584316,
+      "heavy_count": 1,
+      "active_cpu_percent": [
+        100.0,
+        100.0,
+        23.1
+      ]
+    },
+    {
+      "unix": 1788930969.6475651,
+      "heavy_count": 1,
+      "active_cpu_percent": [
+        10.0,
+        100.0,
+        100.0,
+        23.4
+      ]
+    },
+    {
+      "unix": 1788930971.7035751,
+      "heavy_count": 1,
+      "active_cpu_percent": [
+        10.2,
+        11.0,
+        25.2,
+        37.9,
+        95.2,
+        96.5,
+        22.4
+      ]
+    },
+    {
+      "unix": 1788930973.761054,
+      "heavy_count": 1,
+      "active_cpu_percent": [
+        17.7,
+        15.8,
+        100.0,
+        99.6,
+        23.4
+      ]
+    },
+    {
+      "unix": 1788930975.822241,
+      "heavy_count": 1,
+      "active_cpu_percent": [
+        13.6,
+        21.0,
+        47.7,
+        98.5,
+        100.0,
+        24.9
+      ]
+    },
+    {
+      "unix": 1788930977.8837912,
+      "heavy_count": 1,
+      "active_cpu_percent": [
+        100.0,
+        100.0,
+        22.4
+      ]
+    },
+    {
+      "unix": 1788930979.95145,
+      "heavy_count": 1,
+      "active_cpu_percent": [
+        18.5,
+        21.4,
+        97.0,
+        97.9,
+        20.1,
+        77.1
+      ]
+    },
+    {
+      "unix": 1788930982.015449,
+      "heavy_count": 1,
+      "active_cpu_percent": [
+        100.0,
+        99.0,
+        24.2,
+        82.0
+      ]
+    },
+    {
+      "unix": 1788930984.0700521,
+      "heavy_count": 1,
+      "active_cpu_percent": [
+        15.1,
+        100.0,
+        100.0,
+        26.4,
+        75.8
+      ]
+    },
+    {
+      "unix": 1788930986.1360059,
+      "heavy_count": 1,
+      "active_cpu_percent": [
+        99.1,
+        100.0,
+        24.1
+      ]
+    },
+    {
+      "unix": 1788930988.2057128,
+      "heavy_count": 1,
+      "active_cpu_percent": [
+        70.7,
+        100.0,
+        100.0,
+        24.6
+      ]
+    },
+    {
+      "unix": 1788930990.2665322,
+      "heavy_count": 1,
+      "active_cpu_percent": [
+        99.7,
+        100.0,
+        22.0
+      ]
+    },
+    {
+      "unix": 1788930992.326947,
+      "heavy_count": 1,
+      "active_cpu_percent": [
+        80.6,
+        99.7,
+        100.0,
+        24.8
+      ]
+    },
+    {
+      "unix": 1788930994.388578,
+      "heavy_count": 1,
+      "active_cpu_percent": [
+        100.0,
+        100.0,
+        23.9
+      ]
+    },
+    {
+      "unix": 1788930996.45435,
+      "heavy_count": 1,
+      "active_cpu_percent": [
+        99.5,
+        99.7,
+        22.8
+      ]
+    },
+    {
+      "unix": 1788930998.516592,
+      "heavy_count": 1,
+      "active_cpu_percent": [
+        99.0,
+        100.0,
+        22.4
+      ]
+    },
+    {
+      "unix": 1788931000.569689,
+      "heavy_count": 1,
+      "active_cpu_percent": [
+        99.1,
+        21.4
+      ]
+    }
+  ]
+}

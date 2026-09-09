@@ -1,0 +1,121 @@
+ {
+    "schemaVersion": 1,
+    "deviceProperties": [],
+    
+      "trace_id": "9BF7BC31F0C248709306DF9B26625C31",
+      "record_shapes": 1,
+      "host_name": "MikedeMacBook-Pro.local",
+    "displayTimeUnit": "ms",
+    "baseTimeNanoseconds": 1782967788000000000,
+    "traceEvents": [
+    
+  {
+    "ph": "M",
+    "name": "thread_name",
+    "ts": 5865353916234.000,
+    "pid": 42228,
+    "tid": 11143494,
+    "args": {
+      "name": "thread 11143494 ()"
+    }
+  },
+  {
+    "ph": "M",
+    "name": "thread_sort_index",
+    "ts": 5865353916234.000,
+    "pid": 42228,
+    "tid": 11143494,
+    "args": {
+      "sort_index": 11143494
+    }
+  },
+  {
+    "ph": "M",
+    "name": "thread_name",
+    "ts": 5865353916234.000,
+    "pid": 42228,
+    "tid": 11143494,
+    "args": {
+      "name": "thread 11143494 ()"
+    }
+  },
+  {
+    "ph": "M",
+    "name": "thread_sort_index",
+    "ts": 5865353916234.000,
+    "pid": 42228,
+    "tid": 11143494,
+    "args": {
+      "sort_index": 11143494
+    }
+  },
+  {
+    "ph": "X",
+    "cat": "cpu_op",
+    "name": "aten::silu",
+    "pid": 42228,
+    "tid": 11143494,
+    "ts": 5865353916321.655,
+    "dur": 698.872
+    ,
+    "args": {
+      "External id": 1537,"Fwd thread id": 0, "Sequence number": 0, "Concrete Inputs": [""], "Record function id": 0, "Input type": ["float"], "Input Strides": [[4096, 1]], "Input Dims": [[1024, 4096]], "Ev Idx": 0
+    }
+  },
+  {
+    "ph": "X",
+    "cat": "cpu_op",
+    "name": "aten::mul",
+    "pid": 42228,
+    "tid": 11143494,
+    "ts": 5865353917033.026,
+    "dur": 391.933
+    ,
+    "args": {
+      "External id": 1538,"Fwd thread id": 0, "Sequence number": 0, "Concrete Inputs": ["", ""], "Record function id": 0, "Input type": ["float", "float"], "Input Strides": [[4096, 1], [4096, 1]], "Input Dims": [[1024, 4096], [1024, 4096]], "Ev Idx": 1
+    }
+  },
+  {
+    "ph": "X",
+    "cat": "Trace",
+    "name": "PyTorch Profiler (0)",
+    "pid": "Spans",
+    "tid": "PyTorch Profiler",
+    "ts": 5865353916154.000,
+    "dur": 1305.000
+    ,
+    "args": {
+      "Op count": 0
+    }
+  },
+  {
+    "ph": "M",
+    "name": "process_sort_index",
+    "ts": 5865353916154.000,
+    "pid": "Spans",
+    "tid": 0,
+    "args": {
+      "sort_index": 536870912
+    }
+  },
+  {
+    "ph": "i",
+    
+    "s": "g",
+    "name": "Iteration Start: PyTorch Profiler",
+    "pid": "Traces",
+    "tid": "Trace PyTorch Profiler",
+    "ts": 5865353916154.000
+    
+  },
+  {
+    "ph": "i",
+    
+    "s": "g",
+    "name": "Record Window End",
+    "pid": "",
+    "tid": "",
+    "ts": 5865353917528.000
+    
+  }
+  ],"traceName": "/tmp/luisa-torch-simd.IxI6kn/torch-run/swiglu.trace.json" }

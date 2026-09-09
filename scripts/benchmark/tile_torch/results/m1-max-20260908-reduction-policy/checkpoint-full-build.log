@@ -1,0 +1,1773 @@
+[0/2] Re-checking globbed directories...
+[1/1109] Building CXX object src/ext/CMakeFiles/luisa-compute-ext-marl.dir/marl/src/osfiber_windows.cpp.o
+[2/1109] Building CXX object src/ext/CMakeFiles/luisa-compute-ext-marl.dir/marl/src/memory.cpp.o
+[3/1109] Building CXX object src/ext/CMakeFiles/luisa-compute-ext-marl.dir/marl/src/debug.cpp.o
+[4/1109] Building C object src/ext/CMakeFiles/luisa-compute-ext-marl.dir/marl/src/osfiber_aarch64.c.o
+[5/1109] Building C object src/ext/CMakeFiles/luisa-compute-ext-marl.dir/marl/src/osfiber_arm.c.o
+[6/1109] Building C object src/ext/CMakeFiles/luisa-compute-ext-marl.dir/marl/src/osfiber_loongarch64.c.o
+[7/1109] Building C object src/ext/CMakeFiles/luisa-compute-ext-marl.dir/marl/src/osfiber_mips64.c.o
+[8/1109] Building C object src/ext/CMakeFiles/luisa-compute-ext-marl.dir/marl/src/osfiber_ppc64.c.o
+[9/1109] Building CXX object src/ext/CMakeFiles/luisa-compute-ext-marl.dir/marl/src/thread.cpp.o
+[10/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/cmake_pch.hxx.pch
+[11/1109] Building C object src/ext/CMakeFiles/luisa-compute-ext-marl.dir/marl/src/osfiber_rv64.c.o
+[12/1109] Building C object src/ext/CMakeFiles/luisa-compute-ext-marl.dir/marl/src/osfiber_x64.c.o
+[13/1109] Building CXX object src/ext/CMakeFiles/luisa-compute-ext-marl.dir/marl/src/trace.cpp.o
+[14/1109] Building CXX object src/ext/CMakeFiles/luisa-compute-ext-marl.dir/marl/src/scheduler.cpp.o
+[15/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/GenericCodeGen/CodeGen.cpp.o
+[16/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/GenericCodeGen/Link.cpp.o
+[17/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/OSDependent/Unix/ossource.cpp.o
+[18/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/CInterface/glslang_c_interface.cpp.o
+[19/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/MachineIndependent/attribute.cpp.o
+[20/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/MachineIndependent/InfoSink.cpp.o
+[21/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/MachineIndependent/Constant.cpp.o
+[22/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/MachineIndependent/IntermTraverse.cpp.o
+[23/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/MachineIndependent/glslang_tab.cpp.o
+[24/1109] Building C object src/ext/CMakeFiles/luisa-compute-ext-yyjson.dir/yyjson/src/yyjson.c.o
+[25/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/MachineIndependent/PoolAlloc.cpp.o
+[26/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/MachineIndependent/Intermediate.cpp.o
+[27/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/MachineIndependent/ParseContextBase.cpp.o
+[28/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/MachineIndependent/iomapper.cpp.o
+[29/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/MachineIndependent/RemoveTree.cpp.o
+[30/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/MachineIndependent/Scan.cpp.o
+[31/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/MachineIndependent/Initialize.cpp.o
+[32/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/MachineIndependent/SpirvIntrinsics.cpp.o
+[33/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/MachineIndependent/ShaderLang.cpp.o
+[34/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/MachineIndependent/SymbolTable.cpp.o
+[35/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/MachineIndependent/limits.cpp.o
+[36/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/MachineIndependent/intermOut.cpp.o
+[37/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/MachineIndependent/Versions.cpp.o
+[38/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/MachineIndependent/parseConst.cpp.o
+[39/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/MachineIndependent/preprocessor/PpAtom.cpp.o
+[40/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/MachineIndependent/ParseHelper.cpp.o
+[41/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/MachineIndependent/preprocessor/PpContext.cpp.o
+[42/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/MachineIndependent/preprocessor/Pp.cpp.o
+[43/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/MachineIndependent/reflection.cpp.o
+[44/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/MachineIndependent/preprocessor/PpScanner.cpp.o
+[45/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/MachineIndependent/preprocessor/PpTokens.cpp.o
+[46/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/MachineIndependent/linkValidate.cpp.o
+[47/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/__/SPIRV/InReadableOrder.cpp.o
+[48/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/MachineIndependent/propagateNoContraction.cpp.o
+[49/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/__/SPIRV/Logger.cpp.o
+[50/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/__/SPIRV/SpvTools.cpp.o
+[51/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/__/SPIRV/doc.cpp.o
+[52/1109] Building C object src/ext/CMakeFiles/luisa-compute-ext-marl.dir/marl/src/osfiber_x86.c.o
+[53/1109] Building ASM object src/ext/CMakeFiles/luisa-compute-ext-marl.dir/marl/src/osfiber_asm_aarch64.S.o
+[54/1109] Building ASM object src/ext/CMakeFiles/luisa-compute-ext-marl.dir/marl/src/osfiber_asm_arm.S.o
+[55/1109] Building ASM object src/ext/CMakeFiles/luisa-compute-ext-marl.dir/marl/src/osfiber_asm_loongarch64.S.o
+[56/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/__/SPIRV/disassemble.cpp.o
+[57/1109] Building ASM object src/ext/CMakeFiles/luisa-compute-ext-marl.dir/marl/src/osfiber_asm_mips64.S.o
+[58/1109] Building ASM object src/ext/CMakeFiles/luisa-compute-ext-marl.dir/marl/src/osfiber_asm_ppc64.S.o
+[59/1109] Building ASM object src/ext/CMakeFiles/luisa-compute-ext-marl.dir/marl/src/osfiber_asm_rv64.S.o
+[60/1109] Building ASM object src/ext/CMakeFiles/luisa-compute-ext-marl.dir/marl/src/osfiber_asm_x64.S.o
+[61/1109] Building ASM object src/ext/CMakeFiles/luisa-compute-ext-marl.dir/marl/src/osfiber_asm_x86.S.o
+[62/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/__/SPIRV/SpvPostProcess.cpp.o
+[63/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/__/SPIRV/CInterface/spirv_c_interface.cpp.o
+[64/1109] Building CXX object src/core/CMakeFiles/luisa-compute-core.dir/stl/filesystem.cpp.o
+[65/1109] Building CXX object src/core/CMakeFiles/luisa-compute-core.dir/stl/hash.cpp.o
+[66/1109] Building CXX object src/core/CMakeFiles/luisa-compute-core.dir/basic_types.cpp.o
+[67/1109] Building CXX object src/core/CMakeFiles/luisa-compute-core.dir/binary_io.cpp.o
+[68/1109] Building CXX object src/core/CMakeFiles/luisa-compute-core.dir/stl/memory.cpp.o
+[69/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/__/SPIRV/SpvBuilder.cpp.o
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/ext/glslang/SPIRV/SpvBuilder.cpp:4394:5: warning: field 'elseBlock' will be initialized after field 'thenBlock' [-Wreorder-ctor]
+ 4394 |     elseBlock(elseB),
+      |     ^~~~~~~~~~~~~~~~
+      |     thenBlock(thenB)
+ 4395 |     thenBlock(thenB),
+      |     ~~~~~~~~~~~~~~~~
+      |     elseBlock(elseB)
+1 warning generated.
+[70/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang.dir/__/SPIRV/GlslangToSpv.cpp.o
+[71/1109] Linking CXX shared library bin/libglslang.16.3.0.dylib
+[72/1109] Creating library symlink bin/libglslang.16.dylib bin/libglslang.dylib
+[73/1109] Building CXX object src/core/CMakeFiles/luisa-compute-core.dir/binary_file_stream.cpp.o
+[74/1109] Building CXX object src/core/CMakeFiles/luisa-compute-core.dir/dynamic_module.cpp.o
+[75/1109] Building CXX object src/core/CMakeFiles/luisa-compute-core.dir/first_fit.cpp.o
+[76/1109] Building CXX object src/core/CMakeFiles/luisa-compute-core.dir/platform.cpp.o
+[77/1109] Building CXX object src/core/CMakeFiles/luisa-compute-core.dir/logging.cpp.o
+[78/1109] Building CXX object src/core/CMakeFiles/luisa-compute-core.dir/pool.cpp.o
+[79/1109] Building CXX object src/core/CMakeFiles/luisa-compute-core.dir/string_scratch.cpp.o
+[80/1109] Linking CXX shared library bin/libluisa-core.dylib
+[81/1109] Building CXX object src/ast/CMakeFiles/luisa-compute-ast.dir/atomic_ref_node.cpp.o
+[82/1109] Building CXX object src/ast/CMakeFiles/luisa-compute-ast.dir/constant_data.cpp.o
+[83/1109] Building CXX object src/ast/CMakeFiles/luisa-compute-ast.dir/ast2json.cpp.o
+[84/1109] Building CXX object src/ast/CMakeFiles/luisa-compute-ast.dir/coro_suspend.cpp.o
+[85/1109] Building CXX object src/ast/CMakeFiles/luisa-compute-ast.dir/function.cpp.o
+[86/1109] Building CXX object src/ast/CMakeFiles/luisa-compute-ast.dir/json2ast.cpp.o
+[87/1109] Building CXX object src/ast/CMakeFiles/luisa-compute-ast.dir/external_function.cpp.o
+[88/1109] Building CXX object src/ast/CMakeFiles/luisa-compute-ast.dir/callable_library.cpp.o
+[89/1109] Building CXX object src/ast/CMakeFiles/luisa-compute-ast.dir/expression.cpp.o
+[90/1109] Building CXX object src/ast/CMakeFiles/luisa-compute-ast.dir/variable.cpp.o
+[91/1109] Building CXX object src/ast/CMakeFiles/luisa-compute-ast.dir/op.cpp.o
+[92/1109] Building CXX object src/ast/CMakeFiles/luisa-compute-ast.dir/function_duplicator.cpp.o
+[93/1109] Building CXX object src/ast/CMakeFiles/luisa-compute-ast.dir/statement.cpp.o
+[94/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/argument.cpp.o
+[95/1109] Building CXX object src/ast/CMakeFiles/luisa-compute-ast.dir/type.cpp.o
+[96/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/basic_block.cpp.o
+[97/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/constant.cpp.o
+[98/1109] Building CXX object src/ast/CMakeFiles/luisa-compute-ast.dir/function_builder.cpp.o
+[99/1109] Linking CXX shared library bin/libluisa-ast.dylib
+[100/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/builder.cpp.o
+[101/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/debug_printer.cpp.o
+[102/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/function.cpp.o
+[103/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/instruction.cpp.o
+[104/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/use.cpp.o
+[105/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/metadata.cpp.o
+[106/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/module.cpp.o
+[107/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/op.cpp.o
+[108/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/special_register.cpp.o
+[109/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/user.cpp.o
+[110/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/value.cpp.o
+[111/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/instructions/alloca.cpp.o
+[112/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/instructions/arithmetic.cpp.o
+[113/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/instructions/assert.cpp.o
+[114/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/instructions/assume.cpp.o
+[115/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/verifier.cpp.o
+[116/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/verifier_dom_tree.cpp.o
+[117/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/instructions/atomic.cpp.o
+[118/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/instructions/branch.cpp.o
+[119/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/instructions/break.cpp.o
+[120/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/instructions/clock.cpp.o
+[121/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/instructions/autodiff.cpp.o
+[122/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/instructions/call.cpp.o
+[123/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/instructions/cast.cpp.o
+[124/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/instructions/continue.cpp.o
+[125/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/instructions/gep.cpp.o
+[126/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/instructions/debug_break.cpp.o
+[127/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/instructions/coro.cpp.o
+[128/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/instructions/load.cpp.o
+[129/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/instructions/if.cpp.o
+[130/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/instructions/print.cpp.o
+[131/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/instructions/raster_discard.cpp.o
+[132/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/instructions/outline.cpp.o
+[133/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/instructions/indexed_branch.cpp.o
+[134/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/instructions/phi.cpp.o
+[135/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/instructions/loop.cpp.o
+[136/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/instructions/resource.cpp.o
+[137/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/instructions/return.cpp.o
+[138/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/instructions/ray_query.cpp.o
+[139/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/instructions/store.cpp.o
+[140/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/instructions/unreachable.cpp.o
+[141/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/instructions/thread_group.cpp.o
+[142/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/metadata/location.cpp.o
+[143/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/instructions/switch.cpp.o
+[144/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/metadata/comment.cpp.o
+[145/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/metadata/curve_basis.cpp.o
+[146/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/translators/json2xir.cpp.o
+[147/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/metadata/signature_constraint.cpp.o
+[148/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/metadata/reg2mem_spill.cpp.o
+[149/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/translators/ast2xir_inline_ray_query.cpp.o
+[150/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/translators/xir2json.cpp.o
+[151/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/metadata/name.cpp.o
+[152/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/early_cse.cpp.o
+[153/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/translators/xir2text.cpp.o
+[154/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/helpers.cpp.o
+[155/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/uniformity_analysis.cpp.o
+[156/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/dce.cpp.o
+[157/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/translators/ast2xir.cpp.o
+[158/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/translators/xir2ast.cpp.o
+[159/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/translators/xir_interchange.cpp.o
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/xir/translators/xir_interchange.cpp:3119:13: warning: 43 enumeration values not handled in switch: 'COOPERATIVE_VECTOR_DOT', 'COOPERATIVE_VECTOR_ABS', 'COOPERATIVE_VECTOR_SIGN'... [-Wswitch]
+ 3119 |     switch (op) {
+      |             ^~
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/xir/translators/xir_interchange.cpp:3119:13: note: add missing switch cases
+ 3119 |     switch (op) {
+      |             ^
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/xir/translators/xir_interchange.cpp:3889:13: warning: 43 enumeration values not handled in switch: 'COOPERATIVE_VECTOR_DOT', 'COOPERATIVE_VECTOR_ABS', 'COOPERATIVE_VECTOR_SIGN'... [-Wswitch]
+ 3889 |     switch (op) {
+      |             ^~
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/xir/translators/xir_interchange.cpp:3889:13: note: add missing switch cases
+ 3889 |     switch (op) {
+      |             ^
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/xir/translators/xir_interchange.cpp:4063:13: warning: 43 enumeration values not handled in switch: 'COOPERATIVE_VECTOR_DOT', 'COOPERATIVE_VECTOR_ABS', 'COOPERATIVE_VECTOR_SIGN'... [-Wswitch]
+ 4063 |     switch (op) {
+      |             ^~
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/xir/translators/xir_interchange.cpp:4063:13: note: add missing switch cases
+ 4063 |     switch (op) {
+      |             ^
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/xir/translators/xir_interchange.cpp:4063:13: warning: 43 enumeration values not handled in switch: 'COOPERATIVE_VECTOR_DOT', 'COOPERATIVE_VECTOR_ABS', 'COOPERATIVE_VECTOR_SIGN'... [-Wswitch]
+ 4063 |     switch (op) {
+      |             ^~
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/xir/translators/xir_interchange.cpp:4248:18: note: in instantiation of function template specialization 'luisa::compute::xir::(anonymous namespace)::resource_read_operand_types_valid<std::span<luisa::compute::xir::Value *>>' requested here
+ 4248 |                 !resource_read_operand_types_valid(read, operands)) {
+      |                  ^
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/xir/translators/xir_interchange.cpp:4996:18: note: in instantiation of function template specialization 'luisa::compute::xir::(anonymous namespace)::instruction_semantics_valid<std::span<luisa::compute::xir::Value *>>' requested here
+ 4996 |                 !instruction_semantics_valid(
+      |                  ^
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/xir/translators/xir_interchange.cpp:4063:13: note: add missing switch cases
+ 4063 |     switch (op) {
+      |             ^
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/xir/translators/xir_interchange.cpp:4063:13: warning: 43 enumeration values not handled in switch: 'COOPERATIVE_VECTOR_DOT', 'COOPERATIVE_VECTOR_ABS', 'COOPERATIVE_VECTOR_SIGN'... [-Wswitch]
+ 4063 |     switch (op) {
+      |             ^~
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/xir/translators/xir_interchange.cpp:4248:18: note: in instantiation of function template specialization 'luisa::compute::xir::(anonymous namespace)::resource_read_operand_types_valid<std::span<const luisa::compute::xir::Value *const>>' requested here
+ 4248 |                 !resource_read_operand_types_valid(read, operands)) {
+      |                  ^
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/xir/translators/xir_interchange.cpp:5160:12: note: in instantiation of function template specialization 'luisa::compute::xir::(anonymous namespace)::instruction_semantics_valid<std::span<const luisa::compute::xir::Value *const>>' requested here
+ 5160 |     return instruction_semantics_valid(
+      |            ^
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/xir/translators/xir_interchange.cpp:4063:13: note: add missing switch cases
+ 4063 |     switch (op) {
+      |             ^
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/xir/translators/xir_interchange.cpp:4063:13: warning: 43 enumeration values not handled in switch: 'COOPERATIVE_VECTOR_DOT', 'COOPERATIVE_VECTOR_ABS', 'COOPERATIVE_VECTOR_SIGN'... [-Wswitch]
+ 4063 |     switch (op) {
+      |             ^~
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/xir/translators/xir_interchange.cpp:4248:18: note: in instantiation of function template specialization 'luisa::compute::xir::(anonymous namespace)::resource_read_operand_types_valid<std::span<const luisa::compute::xir::Value *>>' requested here
+ 4248 |                 !resource_read_operand_types_valid(read, operands)) {
+      |                  ^
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/xir/translators/xir_interchange.cpp:5581:22: note: in instantiation of function template specialization 'luisa::compute::xir::(anonymous namespace)::instruction_semantics_valid<std::span<const luisa::compute::xir::Value *>>' requested here
+ 5581 |                     !instruction_semantics_valid(
+      |                      ^
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/xir/translators/xir_interchange.cpp:4063:13: note: add missing switch cases
+ 4063 |     switch (op) {
+      |             ^
+6 warnings generated.
+[160/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/call_graph.cpp.o
+[161/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/dom_tree.cpp.o
+[162/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/coro_guarded_scalar_relation.cpp.o
+[163/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/convergence_region.cpp.o
+[164/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/coro_frame_abi.cpp.o
+[165/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/coro_scalar_relation_liveness.cpp.o
+[166/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/coro_cfg_dataflow.cpp.o
+[167/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/coro_alloca_scope.cpp.o
+[168/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/coro_predicate_analysis.cpp.o
+[169/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/coro_semantic_graph.cpp.o
+[170/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/coro_cfg_distill.cpp.o
+[171/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/coro_frame_access.cpp.o
+[172/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/coro_initialized_prefix.cpp.o
+[173/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/coro_replayable.cpp.o
+[174/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/coro_rematerialize.cpp.o
+[175/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/coro_reg2mem.cpp.o
+[176/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/defer_local_aggregate_load.cpp.o
+[177/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/dead_store_elimination.cpp.o
+[178/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/outline.cpp.o
+[179/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/trace_gep.cpp.o
+[180/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/dead_field_elimination.cpp.o
+[181/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/coro_materialize.cpp.o
+[182/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/sroa.cpp.o
+[183/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/fix_self_referential.cpp.o
+[184/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/coro_split.cpp.o
+[185/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/aggregate_field_bitmask.cpp.o
+[186/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/early_return_elimination.cpp.o
+[187/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/licm.cpp.o
+[188/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/pointer_usage.cpp.o
+[189/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/post_dom_tree.cpp.o
+[190/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/lex_scope_analysis.cpp.o
+[191/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/lower_ray_query_handler_graph.cpp.o
+[192/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/local_store_forward.cpp.o
+[193/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/lower_irreducible_cfg.cpp.o
+[194/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/local_load_elimination.cpp.o
+[195/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/lower_ray_query_to_loop.cpp.o
+[196/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/unused_callable_removal.cpp.o
+[197/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/lower_ray_query_to_pipeline.cpp.o
+[198/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/transpose_gep.cpp.o
+[199/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/reconstruct_ray_query_loop.cpp.o
+[200/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/mem2reg.cpp.o
+[201/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/reassociate.cpp.o
+[202/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/promote_ref_arg.cpp.o
+[203/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/fast_math_simplify.cpp.o
+[204/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/reg2mem.cpp.o
+[205/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/algebraic_simplify.cpp.o
+[206/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/alias_analysis.cpp.o
+[207/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/autodiff.cpp.o
+[208/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/dead_arg_elim.cpp.o
+[209/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/const_fold.cpp.o
+[210/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/cvp.cpp.o
+[211/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/sccp.cpp.o
+[212/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/natural_loop.cpp.o
+[213/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/loop_rotation.cpp.o
+[214/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/scalarizer.cpp.o
+[215/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/loop_fusion.cpp.o
+[216/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/slp_vectorization.cpp.o
+[217/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/inline.cpp.o
+[218/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/loop_unswitch.cpp.o
+[219/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/lower_break_continue.cpp.o
+[220/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/div_rem_pairs.cpp.o
+[221/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/loop_vectorization.cpp.o
+[222/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/simplify_libcalls.cpp.o
+[223/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/restructure_cfg_construct_boundary.cpp.o
+[224/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/simplify_cfg.cpp.o
+[225/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/destructure_cfg.cpp.o
+[226/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/restructure_cfg_loop_boundary.cpp.o
+[227/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/integer_alignment.cpp.o
+[228/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/restructure_cfg_selection_merge.cpp.o
+[229/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/gvn.cpp.o
+[230/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/scalar_evolution.cpp.o
+[231/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/restructure_cfg_post_dom.cpp.o
+[232/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/phi_cleanup.cpp.o
+[233/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/select_factor.cpp.o
+[234/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/if_conversion.cpp.o
+[235/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/pass_verification.cpp.o
+[236/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/indvar_simplify.cpp.o
+[237/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/irreducible_cfg_analysis.cpp.o
+[238/1109] Building CXX object utils/CMakeFiles/luisa_embed_device_lib.dir/embed_device_lib.cpp.o
+[239/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-schedule.dir/schedule/block_barrier.cpp.o
+[240/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/fuse_consecutive_buffer_reads.cpp.o
+[241/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-schedule.dir/schedule/buffer_read_latency_hiding.cpp.o
+[242/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/pass_pipeline.cpp.o
+[243/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-schedule.dir/schedule/loop_unswitch.cpp.o
+[244/1109] Linking CXX executable bin/luisa_embed_device_lib
+[245/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-schedule.dir/schedule/predicated_if_conversion.cpp.o
+[246/1109] Building C object src/ext/CMakeFiles/luisa-compute-ext-lmdb.dir/liblmdb/midl.c.o
+[247/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-schedule.dir/schedule/warp_uniformity.cpp.o
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/backends/simd/schedule/warp_uniformity.cpp:244:39: warning: enumeration values 'RASTER_SET_Z_DEPTH', 'RASTER_SET_Z_DEPTH_GREATER_EQUAL', and 'RASTER_SET_Z_DEPTH_LESS_EQUAL' not handled in switch [-Wswitch]
+  244 |                 switch (thread_group->op()) {
+      |                         ~~~~~~~~~~~~~~^~~~
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/backends/simd/schedule/warp_uniformity.cpp:244:39: note: add missing switch cases
+  244 |                 switch (thread_group->op()) {
+      |                                       ^
+1 warning generated.
+[248/1109] Building C object src/ext/CMakeFiles/luisa-compute-ext-lmdb.dir/liblmdb/mdb.c.o
+[249/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-schedule.dir/schedule/schedule_ir.cpp.o
+[250/1109] Building CXX object src/vstl/CMakeFiles/luisa-compute-vstl.dir/md5.cpp.o
+[251/1109] Building CXX object src/xir/CMakeFiles/luisa-compute-xir.dir/passes/restructure_cfg.cpp.o
+[252/1109] Linking CXX shared library bin/libluisa-xir.dylib
+[253/1109] Building CXX object src/vstl/CMakeFiles/luisa-compute-vstl.dir/stack_allocator.cpp.o
+[254/1109] Building CXX object src/vstl/CMakeFiles/luisa-compute-vstl.dir/string_utility.cpp.o
+[255/1109] Building C object src/ext/stb/CMakeFiles/luisa-compute-ext-stb.dir/stb.c.o
+[256/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-schedule.dir/schedule/xir_to_schedule.cpp.o
+[257/1109] Building CXX object src/vstl/CMakeFiles/luisa-compute-vstl.dir/log.cpp.o
+[258/1109] Building CXX object src/vstl/CMakeFiles/luisa-compute-vstl.dir/string_builder.cpp.o
+[259/1109] Building CXX object src/vstl/CMakeFiles/luisa-compute-vstl.dir/lmdb.cpp.o
+[260/1109] Building CXX object src/tile/CMakeFiles/luisa-compute-tile.dir/dimension.cpp.o
+[261/1109] Building CXX object src/vstl/CMakeFiles/luisa-compute-vstl.dir/v_guid.cpp.o
+[262/1109] Building CXX object src/tile/CMakeFiles/luisa-compute-tile.dir/target.cpp.o
+[263/1109] Building CXX object src/tile/CMakeFiles/luisa-compute-tile.dir/layout.cpp.o
+[264/1109] Building CXX object src/vstl/CMakeFiles/luisa-compute-vstl.dir/vstl.cpp.o
+[265/1109] Building CXX object src/tile/CMakeFiles/luisa-compute-tile.dir/ir.cpp.o
+[266/1109] Building CXX object src/tile/CMakeFiles/luisa-compute-tile.dir/dsl.cpp.o
+[267/1109] Building CXX object src/tile/CMakeFiles/luisa-compute-tile.dir/verifier.cpp.o
+[268/1109] Building CXX object src/runtime/CMakeFiles/luisa-compute-runtime.dir/buffer.cpp.o
+[269/1109] Building CXX object src/runtime/CMakeFiles/luisa-compute-runtime.dir/builtin_kernel.cpp.o
+[270/1109] Building CXX object src/runtime/CMakeFiles/luisa-compute-runtime.dir/bindless_array.cpp.o
+[271/1109] Building CXX object src/runtime/CMakeFiles/luisa-compute-runtime.dir/byte_buffer.cpp.o
+[272/1109] Building CXX object src/runtime/CMakeFiles/luisa-compute-runtime.dir/command_list.cpp.o
+[273/1109] Building CXX object src/runtime/CMakeFiles/luisa-compute-runtime.dir/device.cpp.o
+[274/1109] Building CXX object src/runtime/CMakeFiles/luisa-compute-runtime.dir/event.cpp.o
+[275/1109] Building CXX object src/runtime/CMakeFiles/luisa-compute-runtime.dir/dispatch_buffer.cpp.o
+[276/1109] Building CXX object src/runtime/CMakeFiles/luisa-compute-runtime.dir/context.cpp.o
+[277/1109] Building CXX object src/runtime/CMakeFiles/luisa-compute-runtime.dir/image.cpp.o
+[278/1109] Building CXX object src/runtime/CMakeFiles/luisa-compute-runtime.dir/mipmap.cpp.o
+[279/1109] Building CXX object src/runtime/CMakeFiles/luisa-compute-runtime.dir/sparse_buffer.cpp.o
+[280/1109] Building CXX object src/runtime/CMakeFiles/luisa-compute-runtime.dir/sparse_texture.cpp.o
+[281/1109] Building CXX object src/runtime/CMakeFiles/luisa-compute-runtime.dir/sparse_heap.cpp.o
+[282/1109] Building CXX object src/runtime/CMakeFiles/luisa-compute-runtime.dir/sparse_command_list.cpp.o
+[283/1109] Building CXX object src/runtime/CMakeFiles/luisa-compute-runtime.dir/stream.cpp.o
+[284/1109] Building CXX object src/runtime/CMakeFiles/luisa-compute-runtime.dir/swapchain.cpp.o
+[285/1109] Building CXX object src/runtime/CMakeFiles/luisa-compute-runtime.dir/volume.cpp.o
+[286/1109] Building CXX object src/runtime/CMakeFiles/luisa-compute-runtime.dir/rhi/command.cpp.o
+[287/1109] Building CXX object src/runtime/CMakeFiles/luisa-compute-runtime.dir/rhi/pixel.cpp.o
+[288/1109] Building CXX object src/runtime/CMakeFiles/luisa-compute-runtime.dir/rhi/device_interface.cpp.o
+[289/1109] Building CXX object src/runtime/CMakeFiles/luisa-compute-runtime.dir/rhi/command_encoder.cpp.o
+[290/1109] Building CXX object src/runtime/CMakeFiles/luisa-compute-runtime.dir/rhi/resource.cpp.o
+[291/1109] Building CXX object src/runtime/CMakeFiles/luisa-compute-runtime.dir/rtx/mesh.cpp.o
+[292/1109] Building CXX object src/runtime/CMakeFiles/luisa-compute-runtime.dir/rtx/accel.cpp.o
+[293/1109] Linking CXX static library lib/libluisa-compute-simd-schedule.a
+[294/1109] Building CXX object src/runtime/CMakeFiles/luisa-compute-runtime.dir/rtx/procedural_primitive.cpp.o
+[295/1109] Building CXX object src/runtime/CMakeFiles/luisa-compute-runtime.dir/rtx/motion_instance.cpp.o
+[296/1109] Building CXX object src/runtime/CMakeFiles/luisa-compute-runtime.dir/rtx/curve.cpp.o
+[297/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/__/common/llvm_native_math_atan2.cpp.o
+[298/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/__/common/llvm_native_math.cpp.o
+[299/1109] Building CXX object src/runtime/CMakeFiles/luisa-compute-runtime.dir/raster/raster.cpp.o
+[300/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/__/common/llvm_native_math_fast_exp_log.cpp.o
+[301/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/__/common/llvm_native_math_fast_inverse_trig.cpp.o
+[302/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/__/common/llvm_native_math_fast_trig.cpp.o
+[303/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/__/common/llvm_native_math_hyperbolic.cpp.o
+[304/1109] Building CXX object src/runtime/CMakeFiles/luisa-compute-runtime.dir/raster/depth_buffer.cpp.o
+[305/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/__/common/llvm_native_math_precise_inverse_trig.cpp.o
+[306/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/__/common/llvm_native_math_precise_exp_log.cpp.o
+[307/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/__/common/llvm_native_math_pow.cpp.o
+[308/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/__/common/llvm_native_math_range_reduction.cpp.o
+[309/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/__/common/llvm_native_math_precise_trig.cpp.o
+[310/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/llvm/llvm_schedule_codegen_cooperative.cpp.o
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/backends/simd/llvm/llvm_schedule_codegen_cooperative.cpp:458:47: warning: 'getDeclaration' is deprecated: Use getOrInsertDeclaration instead [-Wdeprecated-declarations]
+  458 |     auto *trap_intrinsic = ::llvm::Intrinsic::getDeclaration(
+      |                                               ^~~~~~~~~~~~~~
+      |                                               getOrInsertDeclaration
+/opt/homebrew/Cellar/llvm@21/21.1.8/include/llvm/IR/Intrinsics.h:107:3: note: 'getDeclaration' has been explicitly marked deprecated here
+  107 |   LLVM_DEPRECATED("Use getOrInsertDeclaration instead",
+      |   ^
+/opt/homebrew/Cellar/llvm@21/21.1.8/include/llvm/Support/Compiler.h:250:50: note: expanded from macro 'LLVM_DEPRECATED'
+  250 | #define LLVM_DEPRECATED(MSG, FIX) __attribute__((deprecated(MSG, FIX)))
+      |                                                  ^
+1 warning generated.
+[311/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/llvm/llvm_schedule_emitter_bindless.cpp.o
+[312/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/llvm/llvm_schedule_emitter.cpp.o
+[313/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/llvm/llvm_schedule_emitter_accel.cpp.o
+[314/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/llvm/llvm_schedule_emitter_arithmetic.cpp.o
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/backends/simd/llvm/llvm_schedule_emitter_arithmetic.cpp:354:45: warning: 'getDeclaration' is deprecated: Use getOrInsertDeclaration instead [-Wdeprecated-declarations]
+  354 |         auto *function = ::llvm::Intrinsic::getDeclaration(
+      |                                             ^~~~~~~~~~~~~~
+      |                                             getOrInsertDeclaration
+/opt/homebrew/Cellar/llvm@21/21.1.8/include/llvm/IR/Intrinsics.h:107:3: note: 'getDeclaration' has been explicitly marked deprecated here
+  107 |   LLVM_DEPRECATED("Use getOrInsertDeclaration instead",
+      |   ^
+/opt/homebrew/Cellar/llvm@21/21.1.8/include/llvm/Support/Compiler.h:250:50: note: expanded from macro 'LLVM_DEPRECATED'
+  250 | #define LLVM_DEPRECATED(MSG, FIX) __attribute__((deprecated(MSG, FIX)))
+      |                                                  ^
+1 warning generated.
+[315/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/llvm/llvm_schedule_emitter_collectives.cpp.o
+[316/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/llvm/llvm_schedule_codegen.cpp.o
+[317/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/llvm/llvm_schedule_emitter_cooperative.cpp.o
+[318/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/llvm/llvm_schedule_emitter_debug.cpp.o
+[319/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/llvm/llvm_jit.cpp.o
+[320/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/llvm/llvm_schedule_emitter_control.cpp.o
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/backends/simd/llvm/llvm_schedule_emitter_control.cpp:279:42: warning: 'getDeclaration' is deprecated: Use getOrInsertDeclaration instead [-Wdeprecated-declarations]
+  279 |     auto *intrinsic = ::llvm::Intrinsic::getDeclaration(
+      |                                          ^~~~~~~~~~~~~~
+      |                                          getOrInsertDeclaration
+/opt/homebrew/Cellar/llvm@21/21.1.8/include/llvm/IR/Intrinsics.h:107:3: note: 'getDeclaration' has been explicitly marked deprecated here
+  107 |   LLVM_DEPRECATED("Use getOrInsertDeclaration instead",
+      |   ^
+/opt/homebrew/Cellar/llvm@21/21.1.8/include/llvm/Support/Compiler.h:250:50: note: expanded from macro 'LLVM_DEPRECATED'
+  250 | #define LLVM_DEPRECATED(MSG, FIX) __attribute__((deprecated(MSG, FIX)))
+      |                                                  ^
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/backends/simd/llvm/llvm_schedule_emitter_control.cpp:1552:28: warning: 'getDeclaration' is deprecated: Use getOrInsertDeclaration instead [-Wdeprecated-declarations]
+ 1552 |         ::llvm::Intrinsic::getDeclaration(
+      |                            ^~~~~~~~~~~~~~
+      |                            getOrInsertDeclaration
+/opt/homebrew/Cellar/llvm@21/21.1.8/include/llvm/IR/Intrinsics.h:107:3: note: 'getDeclaration' has been explicitly marked deprecated here
+  107 |   LLVM_DEPRECATED("Use getOrInsertDeclaration instead",
+      |   ^
+/opt/homebrew/Cellar/llvm@21/21.1.8/include/llvm/Support/Compiler.h:250:50: note: expanded from macro 'LLVM_DEPRECATED'
+  250 | #define LLVM_DEPRECATED(MSG, FIX) __attribute__((deprecated(MSG, FIX)))
+      |                                                  ^
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/backends/simd/llvm/llvm_schedule_emitter_control.cpp:1569:28: warning: 'getDeclaration' is deprecated: Use getOrInsertDeclaration instead [-Wdeprecated-declarations]
+ 1569 |         ::llvm::Intrinsic::getDeclaration(
+      |                            ^~~~~~~~~~~~~~
+      |                            getOrInsertDeclaration
+/opt/homebrew/Cellar/llvm@21/21.1.8/include/llvm/IR/Intrinsics.h:107:3: note: 'getDeclaration' has been explicitly marked deprecated here
+  107 |   LLVM_DEPRECATED("Use getOrInsertDeclaration instead",
+      |   ^
+/opt/homebrew/Cellar/llvm@21/21.1.8/include/llvm/Support/Compiler.h:250:50: note: expanded from macro 'LLVM_DEPRECATED'
+  250 | #define LLVM_DEPRECATED(MSG, FIX) __attribute__((deprecated(MSG, FIX)))
+      |                                                  ^
+3 warnings generated.
+[321/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/llvm/llvm_schedule_emitter_memory.cpp.o
+[322/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/llvm/llvm_schedule_emitter_direct.cpp.o
+[323/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/llvm/llvm_schedule_emitter_texture.cpp.o
+[324/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/llvm/llvm_schedule_emitter_terminators.cpp.o
+[325/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/llvm/llvm_schedule_emitter_local_regions.cpp.o
+[326/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/llvm/llvm_schedule_emitter_state.cpp.o
+[327/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/llvm/llvm_schedule_emitter_structured_loop.cpp.o
+[328/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/llvm/llvm_schedule_emitter_predication.cpp.o
+[329/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/llvm/llvm_schedule_emitter_ray_query_analysis.cpp.o
+[330/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/llvm/llvm_schedule_emitter_ray_query_filter.cpp.o
+[331/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/llvm/llvm_value_layout.cpp.o
+[332/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/llvm/llvm_schedule_emitter_ray_query.cpp.o
+[333/1109] Linking CXX shared library bin/libluisa-tile.dylib
+[334/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang-default-resource-limits.dir/ResourceLimits/resource_limits_c.cpp.o
+[335/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/glslang-default-resource-limits.dir/ResourceLimits/ResourceLimits.cpp.o
+[336/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/llvm/llvm_schedule_emitter_ray_query_pipeline.cpp.o
+[337/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/llvm/llvm_schedule_emitter_ray_query_packet.cpp.o
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/backends/simd/llvm/llvm_schedule_emitter_ray_query_packet.cpp:246:28: warning: 'getDeclaration' is deprecated: Use getOrInsertDeclaration instead [-Wdeprecated-declarations]
+  246 |         ::llvm::Intrinsic::getDeclaration(
+      |                            ^~~~~~~~~~~~~~
+      |                            getOrInsertDeclaration
+/opt/homebrew/Cellar/llvm@21/21.1.8/include/llvm/IR/Intrinsics.h:107:3: note: 'getDeclaration' has been explicitly marked deprecated here
+  107 |   LLVM_DEPRECATED("Use getOrInsertDeclaration instead",
+      |   ^
+/opt/homebrew/Cellar/llvm@21/21.1.8/include/llvm/Support/Compiler.h:250:50: note: expanded from macro 'LLVM_DEPRECATED'
+  250 | #define LLVM_DEPRECATED(MSG, FIX) __attribute__((deprecated(MSG, FIX)))
+      |                                                  ^
+1 warning generated.
+[338/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-llvm.dir/llvm/llvm_warp_collectives.cpp.o
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/backends/simd/llvm/llvm_warp_collectives.cpp:107:28: warning: 'getDeclaration' is deprecated: Use getOrInsertDeclaration instead [-Wdeprecated-declarations]
+  107 |         ::llvm::Intrinsic::getDeclaration(
+      |                            ^~~~~~~~~~~~~~
+      |                            getOrInsertDeclaration
+/opt/homebrew/Cellar/llvm@21/21.1.8/include/llvm/IR/Intrinsics.h:107:3: note: 'getDeclaration' has been explicitly marked deprecated here
+  107 |   LLVM_DEPRECATED("Use getOrInsertDeclaration instead",
+      |   ^
+/opt/homebrew/Cellar/llvm@21/21.1.8/include/llvm/Support/Compiler.h:250:50: note: expanded from macro 'LLVM_DEPRECATED'
+  250 | #define LLVM_DEPRECATED(MSG, FIX) __attribute__((deprecated(MSG, FIX)))
+      |                                                  ^
+1 warning generated.
+[339/1109] Building CXX object src/tile/bridge/xir/CMakeFiles/luisa-compute-tile-bridge-xir.dir/planner.cpp.o
+[340/1109] Building CXX object src/tile/bridge/xir/CMakeFiles/luisa-compute-tile-bridge-xir.dir/lower.cpp.o
+[341/1109] Building CXX object src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/layout.cpp.o
+[342/1109] Building CXX object src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/cpu.cpp.o
+[343/1109] Building CXX object src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/compiler.cpp.o
+[344/1109] Building CXX object src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/planner.cpp.o
+[345/1109] Building CXX object src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/execution.cpp.o
+[346/1109] Building CXX object src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/cooperative.cpp.o
+[347/1109] Building CXX object src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/mapping.cpp.o
+[348/1109] Building CXX object src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/lower.cpp.o
+[349/1109] Linking CXX shared library bin/libluisa-runtime.dylib
+[350/1109] Building CXX object src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/synchronization.cpp.o
+[351/1109] Building CXX object src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/pipeline.cpp.o
+[352/1109] Building CXX object src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/views.cpp.o
+[353/1109] Building CXX object src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/matrix.cpp.o
+[354/1109] Building CXX object src/dsl/CMakeFiles/luisa-compute-dsl.dir/dispatch_indirect.cpp.o
+[355/1109] Building CXX object src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/reduction.cpp.o
+[356/1109] Building CXX object src/dsl/CMakeFiles/luisa-compute-dsl.dir/builtin.cpp.o
+[357/1109] Building CXX object src/dsl/CMakeFiles/luisa-compute-dsl.dir/func.cpp.o
+[358/1109] Building CXX object src/dsl/CMakeFiles/luisa-compute-dsl.dir/local.cpp.o
+[359/1109] Building CXX object src/dsl/CMakeFiles/luisa-compute-dsl.dir/resource.cpp.o
+[360/1109] Building CXX object src/dsl/CMakeFiles/luisa-compute-dsl.dir/polymorphic.cpp.o
+[361/1109] Building CXX object src/dsl/CMakeFiles/luisa-compute-dsl.dir/soa.cpp.o
+[362/1109] Building CXX object src/dsl/CMakeFiles/luisa-compute-dsl.dir/rtx/accel.cpp.o
+[363/1109] Building CXX object src/dsl/CMakeFiles/luisa-compute-dsl.dir/sugar.cpp.o
+[364/1109] Building CXX object src/dsl/CMakeFiles/luisa-compute-dsl.dir/rtx/hit.cpp.o
+[365/1109] Building CXX object src/dsl/CMakeFiles/luisa-compute-dsl.dir/rtx/ray.cpp.o
+[366/1109] Linking CXX static library lib/libluisa-compute-simd-llvm.a
+[367/1109] Building CXX object src/dsl/CMakeFiles/luisa-compute-dsl.dir/rtx/curve.cpp.o
+[368/1109] Building CXX object src/ext/glslang/SPIRV/CMakeFiles/SPIRV.dir/__/glslang/stub.cpp.o
+[369/1109] Linking CXX shared library bin/libglslang-default-resource-limits.16.3.0.dylib
+[370/1109] Linking CXX shared library bin/libluisa-tile-bridge-xir.dylib
+[371/1109] Linking CXX shared library bin/libluisa-tile-bridge-tirx.dylib
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[372/1109] Embedding metal built-in sources...
+[373/1109] Building CXX object src/coro/CMakeFiles/luisa-compute-coro.dir/coro_stub.cpp.o
+[374/1109] Building CXX object src/dsl/CMakeFiles/luisa-compute-dsl.dir/raster/raster_kernel.cpp.o
+[375/1109] Building CXX object src/dsl/CMakeFiles/luisa-compute-dsl.dir/rtx/ray_query.cpp.o
+[376/1109] Linking CXX shared library bin/libluisa-dsl.dylib
+[377/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-simd-compiler.dir/simd_compiler.cpp.o
+[378/1109] Building CXX object src/coro/CMakeFiles/luisa-compute-coro.dir/coro_graph.cpp.o
+[379/1109] Building CXX object src/coro/CMakeFiles/luisa-compute-coro.dir/schedulers/graph_wavefront_policy.cpp.o
+[380/1109] Building CXX object src/coro/CMakeFiles/luisa-compute-coro.dir/coro_compile.cpp.o
+[381/1109] Building CXX object src/osl/CMakeFiles/luisa-compute-osl.dir/hint.cpp.o
+[382/1109] Building CXX object src/coro/CMakeFiles/luisa-compute-coro.dir/schedulers/state_machine.cpp.o
+[383/1109] Building CXX object src/osl/CMakeFiles/luisa-compute-osl.dir/instruction.cpp.o
+[384/1109] Building CXX object src/osl/CMakeFiles/luisa-compute-osl.dir/literal.cpp.o
+[385/1109] Building CXX object src/osl/CMakeFiles/luisa-compute-osl.dir/shader.cpp.o
+[386/1109] Building CXX object src/osl/CMakeFiles/luisa-compute-osl.dir/symbol.cpp.o
+[387/1109] Building CXX object src/osl/CMakeFiles/luisa-compute-osl.dir/type.cpp.o
+[388/1109] Building CXX object src/osl/CMakeFiles/luisa-compute-osl.dir/oso_parser.cpp.o
+[389/1109] Building CXX object src/coro/CMakeFiles/luisa-compute-coro.dir/schedulers/persistent.cpp.o
+[390/1109] Building CXX object src/backends/validation/CMakeFiles/luisa-compute-validation-layer.dir/dstorage_ext_impl.cpp.o
+[391/1109] Building CXX object src/backends/validation/CMakeFiles/luisa-compute-validation-layer.dir/accel.cpp.o
+[392/1109] Building CXX object src/backends/validation/CMakeFiles/luisa-compute-validation-layer.dir/dx_hdr_ext_impl.cpp.o
+[393/1109] Building CXX object src/backends/validation/CMakeFiles/luisa-compute-validation-layer.dir/device.cpp.o
+[394/1109] Building CXX object src/backends/validation/CMakeFiles/luisa-compute-validation-layer.dir/curve.cpp.o
+[395/1109] Building CXX object src/backends/validation/CMakeFiles/luisa-compute-validation-layer.dir/native_res_ext_impl.cpp.o
+[396/1109] Building CXX object src/backends/validation/CMakeFiles/luisa-compute-validation-layer.dir/motion_instance.cpp.o
+[397/1109] Building CXX object src/backends/validation/CMakeFiles/luisa-compute-validation-layer.dir/pinned_mem_impl.cpp.o
+[398/1109] Building CXX object src/backends/validation/CMakeFiles/luisa-compute-validation-layer.dir/sparse_heap.cpp.o
+[399/1109] Building CXX object src/backends/validation/CMakeFiles/luisa-compute-validation-layer.dir/raster_ext_impl.cpp.o
+[400/1109] Building CXX object src/backends/validation/CMakeFiles/luisa-compute-validation-layer.dir/resource.cpp.o
+[401/1109] Building CXX object src/coro/CMakeFiles/luisa-compute-coro.dir/schedulers/wavefront.cpp.o
+[402/1109] Building CXX object src/backends/validation/CMakeFiles/luisa-compute-validation-layer.dir/rw_resource.cpp.o
+[403/1109] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_builtin_embedded.cpp.o
+[404/1109] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_tex_compress_embedded.cpp.o
+[405/1109] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_api.cpp.o
+[406/1109] Building CXX object src/backends/validation/CMakeFiles/luisa-compute-validation-layer.dir/stream.cpp.o
+[407/1109] Building CXX object src/backends/validation/CMakeFiles/luisa-compute-validation-layer.dir/vk_cuda_interop_impl.cpp.o
+[408/1109] Building CXX object src/backends/validation/CMakeFiles/luisa-compute-validation-layer.dir/stats.cpp.o
+[409/1109] Building CXX object src/backends/validation/CMakeFiles/luisa-compute-validation-layer.dir/dx_cuda_interop_impl.cpp.o
+[410/1109] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/__/common/default_binary_io.cpp.o
+[411/1109] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_compiler.cpp.o
+[412/1109] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_texture.cpp.o
+[413/1109] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_device.cpp.o
+[414/1109] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/tile/metal_tile_codegen.cpp.o
+[415/1109] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_event.cpp.o
+[416/1109] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/tile/metal_tile.cpp.o
+[417/1109] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_codegen_ast.cpp.o
+[418/1109] Building OBJCXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_stream.mm.o
+[419/1109] Building OBJCXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_swapchain.mm.o
+[420/1109] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_stream.cpp.o
+[421/1109] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_bindless_array.cpp.o
+[422/1109] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_stage_buffer_pool.cpp.o
+[423/1109] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_swapchain.cpp.o
+[424/1109] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_callback_context.cpp.o
+[425/1109] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_command_encoder.cpp.o
+[426/1109] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_shader_metadata.cpp.o
+[427/1109] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_shader.cpp.o
+[428/1109] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_shader_printer.cpp.o
+[429/1109] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_primitive.cpp.o
+[430/1109] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_denoiser.cpp.o
+[431/1109] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_procedural_primitive.cpp.o
+[432/1109] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_curve.cpp.o
+[433/1109] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_mesh.cpp.o
+[434/1109] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_accel.cpp.o
+[435/1109] Linking CXX static library lib/libluisa-compute-simd-compiler.a
+[436/1109] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_buffer.cpp.o
+[437/1109] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_debug_capture.cpp.o
+[438/1109] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_dstorage.cpp.o
+[439/1109] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_tex_compress.cpp.o
+[440/1109] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_pinned_memory.cpp.o
+[441/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/__/fallback/fallback_texture.cpp.o
+[442/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_accel.cpp.o
+[443/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_buffer.cpp.o
+[444/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_event.cpp.o
+[445/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_accel_motion.cpp.o
+[446/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_curve.cpp.o
+[447/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_bindless_array.cpp.o
+[448/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_device.cpp.o
+[449/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_mesh.cpp.o
+[450/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_motion_instance.cpp.o
+[451/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_procedural_primitive.cpp.o
+[452/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_thread_pool.cpp.o
+[453/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_accel_ray_query.cpp.o
+[454/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_tile.cpp.o
+[455/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_stream.cpp.o
+[456/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_shader.cpp.o
+[457/1109] Linking CXX shared library bin/libSPIRV.16.3.0.dylib
+[458/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/GenericCodeGen.dir/stub.cpp.o
+[459/1109] Building CXX object src/ext/glslang/glslang/CMakeFiles/MachineIndependent.dir/stub.cpp.o
+[460/1109] Creating library symlink bin/libglslang-default-resource-limits.16.dylib bin/libglslang-default-resource-limits.dylib
+[461/1109] Building CXX object src/ext/glslang/glslang/OSDependent/Unix/CMakeFiles/OSDependent.dir/__/__/stub.cpp.o
+[462/1109] Linking CXX shared library bin/libluisa-coro.dylib
+[463/1109] Linking CXX shared library bin/libluisa-osl.dylib
+[464/1109] Linking CXX shared module bin/libluisa-validation-layer.so
+[465/1109] Building OBJCXX object src/tests/CMakeFiles/luisa-benchmark-metal-timing.dir/common/metal_benchmark_timing.mm.o
+[466/1109] Linking CXX shared module bin/libluisa-backend-metal.so
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[467/1109] Building CXX object src/tests/CMakeFiles/test_simd_scheduler_model.dir/unit/simd/test_scheduler_model.cpp.o
+[468/1109] Building CXX object src/tests/CMakeFiles/test_simd_cohort_scheduler.dir/unit/simd/test_cohort_scheduler.cpp.o
+[469/1109] Building CXX object src/tests/CMakeFiles/test_simd_embree_packet_support.dir/unit/simd/test_simd_embree_packet_support.cpp.o
+[470/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_accel_ray_query_status.cpp.o
+[471/1109] Building CXX object src/tests/CMakeFiles/test_simd_reference_warp_collectives.dir/unit/simd/test_reference_warp_collectives.cpp.o
+[472/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_accel_ray_query_triangle.cpp.o
+[473/1109] Building CXX object src/tests/CMakeFiles/test_simd_schedule_ir.dir/unit/simd/test_schedule_ir.cpp.o
+[474/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_accel_ray_query_filter_pipeline.cpp.o
+[475/1109] Building CXX object src/tests/CMakeFiles/test_simd_thread_pool.dir/__/backends/simd/runtime/simd_thread_pool.cpp.o
+[476/1109] Building CXX object src/tests/CMakeFiles/test_simd_schedule_ir.dir/__/backends/simd/schedule/schedule_ir.cpp.o
+[477/1109] Building CXX object src/tests/CMakeFiles/test_simd_thread_pool.dir/unit/simd/test_simd_thread_pool.cpp.o
+[478/1109] Building CXX object src/tests/CMakeFiles/test_simd_warp_uniformity.dir/__/backends/simd/schedule/warp_uniformity.cpp.o
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/backends/simd/schedule/warp_uniformity.cpp:244:39: warning: enumeration values 'RASTER_SET_Z_DEPTH', 'RASTER_SET_Z_DEPTH_GREATER_EQUAL', and 'RASTER_SET_Z_DEPTH_LESS_EQUAL' not handled in switch [-Wswitch]
+  244 |                 switch (thread_group->op()) {
+      |                         ~~~~~~~~~~~~~~^~~~
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/backends/simd/schedule/warp_uniformity.cpp:244:39: note: add missing switch cases
+  244 |                 switch (thread_group->op()) {
+      |                                       ^
+1 warning generated.
+[479/1109] Building CXX object src/tests/CMakeFiles/test_simd_xir_to_schedule.dir/__/backends/simd/schedule/block_barrier.cpp.o
+[480/1109] Building CXX object src/tests/CMakeFiles/test_simd_warp_uniformity.dir/unit/simd/test_warp_uniformity.cpp.o
+[481/1109] Building CXX object src/tests/CMakeFiles/test_simd_xir_to_schedule.dir/__/backends/simd/schedule/schedule_ir.cpp.o
+[482/1109] Building CXX object src/tests/CMakeFiles/test_simd_xir_to_schedule.dir/__/backends/simd/schedule/warp_uniformity.cpp.o
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/backends/simd/schedule/warp_uniformity.cpp:244:39: warning: enumeration values 'RASTER_SET_Z_DEPTH', 'RASTER_SET_Z_DEPTH_GREATER_EQUAL', and 'RASTER_SET_Z_DEPTH_LESS_EQUAL' not handled in switch [-Wswitch]
+  244 |                 switch (thread_group->op()) {
+      |                         ~~~~~~~~~~~~~~^~~~
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/backends/simd/schedule/warp_uniformity.cpp:244:39: note: add missing switch cases
+  244 |                 switch (thread_group->op()) {
+      |                                       ^
+1 warning generated.
+[483/1109] Building CXX object src/tests/CMakeFiles/test_simd_phi_parallel_copy.dir/unit/simd/test_phi_parallel_copy.cpp.o
+[484/1109] Building CXX object src/tests/CMakeFiles/test_simd_xir_to_schedule.dir/unit/simd/test_xir_to_schedule.cpp.o
+[485/1109] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_texture.cpp.o
+[486/1109] Building CXX object src/tests/CMakeFiles/test_fallback_llvm_native_math.dir/unit/fallback/test_fallback_llvm_native_math.cpp.o
+[487/1109] Linking CXX shared module bin/libluisa-backend-simd.so
+ld: warning: building for macOS-13.0, but linking with dylib '/opt/homebrew/opt/tbb/lib/libtbb.12.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '/opt/homebrew/opt/llvm@21/lib/libLLVM.dylib' which was built for newer version 26.0
+[488/1109] Building CXX object src/tests/CMakeFiles/test_simd_xir_to_schedule.dir/__/backends/simd/schedule/xir_to_schedule.cpp.o
+[489/1109] Building CXX object src/tests/CMakeFiles/test_simd_llvm_native_math.dir/unit/simd/test_llvm_native_math_fast.cpp.o
+[490/1109] Building CXX object src/tests/CMakeFiles/benchmark_llvm_native_math.dir/unit/simd/benchmark_llvm_native_math.cpp.o
+[491/1109] Building CXX object src/tests/CMakeFiles/benchmark_simd_predicated_if.dir/unit/simd/benchmark_predicated_if_conversion.cpp.o
+[492/1109] Building CXX object src/tests/CMakeFiles/test_simd_llvm_native_math.dir/unit/simd/test_llvm_native_math.cpp.o
+[493/1109] Building CXX object src/tests/CMakeFiles/benchmark_simd_loop_unswitch.dir/unit/simd/benchmark_loop_unswitch.cpp.o
+[494/1109] Building CXX object src/tests/CMakeFiles/test_simd_llvm_value_layout.dir/unit/simd/test_llvm_value_layout.cpp.o
+[495/1109] Building CXX object src/tests/CMakeFiles/benchmark_simd_gemm_assembly.dir/unit/simd/benchmark_simd_gemm_assembly.cpp.o
+[496/1109] Building CXX object src/tests/CMakeFiles/benchmark_simd_ray_query.dir/unit/simd/benchmark_simd_ray_query.cpp.o
+[497/1109] Building CXX object src/tests/CMakeFiles/benchmark_ast2xir_inline_ray_query.dir/unit/xir/benchmark_ast2xir_inline_ray_query.cpp.o
+[498/1109] Building CXX object src/tests/CMakeFiles/test_fallback_llvm_native_math.dir/__/backends/fallback/fallback_codegen.cpp.o
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/backends/fallback/fallback_codegen.cpp:92:47: warning: enumeration values 'RASTER_FRONT_FACING' and 'RASTER_BASE_INSTANCE' not handled in switch [-Wswitch]
+   92 |                                 switch (sreg->derived_special_register_tag()) {
+      |                                         ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/backends/fallback/fallback_codegen.cpp:92:47: note: add missing switch cases
+   92 |                                 switch (sreg->derived_special_register_tag()) {
+      |                                               ^
+   93 |                                     case xir::DerivedSpecialRegisterTag::THREAD_ID: usage |= (1u << CurrentFunction::builtin_variable_index_thread_id); break;
+   94 |                                     case xir::DerivedSpecialRegisterTag::BLOCK_ID: usage |= (1u << CurrentFunction::builtin_variable_index_block_id); break;
+   95 |                                     case xir::DerivedSpecialRegisterTag::WARP_LANE_ID: break;
+   96 |                                     case xir::DerivedSpecialRegisterTag::DISPATCH_ID: usage |= (1u << CurrentFunction::builtin_variable_index_dispatch_id); break;
+   97 |                                     case xir::DerivedSpecialRegisterTag::KERNEL_ID:
+   98 |                                     case xir::DerivedSpecialRegisterTag::RASTER_BARYCENTRICS:
+   99 |                                     case xir::DerivedSpecialRegisterTag::RASTER_OBJECT_ID:
+  100 |                                         LUISA_NOT_IMPLEMENTED();
+  101 |                                     case xir::DerivedSpecialRegisterTag::BLOCK_SIZE: usage |= (1u << CurrentFunction::builtin_variable_index_block_size); break;
+  102 |                                     case xir::DerivedSpecialRegisterTag::WARP_SIZE: break;
+  103 |                                     case xir::DerivedSpecialRegisterTag::DISPATCH_SIZE: usage |= (1u << CurrentFunction::builtin_variable_index_dispatch_size); break;
+  104 |                                 }
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/backends/fallback/fallback_codegen.cpp:425:23: warning: enumeration values 'RASTER_FRONT_FACING' and 'RASTER_BASE_INSTANCE' not handled in switch [-Wswitch]
+  425 |         switch (sreg->derived_special_register_tag()) {
+      |                 ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/backends/fallback/fallback_codegen.cpp:425:23: note: add missing switch cases
+  425 |         switch (sreg->derived_special_register_tag()) {
+      |                       ^
+  426 |             case xir::DerivedSpecialRegisterTag::THREAD_ID: return current.builtin_variables[CurrentFunction::builtin_variable_index_thread_id];
+  427 |             case xir::DerivedSpecialRegisterTag::BLOCK_ID: return current.builtin_variables[CurrentFunction::builtin_variable_index_block_id];
+  428 |             case xir::DerivedSpecialRegisterTag::WARP_LANE_ID: return llvm::ConstantInt::get(b.getInt32Ty(), 0);// CPU only has one lane
+  429 |             case xir::DerivedSpecialRegisterTag::DISPATCH_ID: return current.builtin_variables[CurrentFunction::builtin_variable_index_dispatch_id];
+  430 |             case xir::DerivedSpecialRegisterTag::KERNEL_ID:
+  431 |             case xir::DerivedSpecialRegisterTag::RASTER_BARYCENTRICS:
+  432 |             case xir::DerivedSpecialRegisterTag::RASTER_OBJECT_ID:
+  433 |                 LUISA_NOT_IMPLEMENTED();
+  434 |             case xir::DerivedSpecialRegisterTag::BLOCK_SIZE: return current.builtin_variables[CurrentFunction::builtin_variable_index_block_size];
+  435 |             case xir::DerivedSpecialRegisterTag::WARP_SIZE: return llvm::ConstantInt::get(b.getInt32Ty(), 1);// CPU only has one lane
+  436 |             case xir::DerivedSpecialRegisterTag::DISPATCH_SIZE: return current.builtin_variables[CurrentFunction::builtin_variable_index_dispatch_size];
+  437 |         }
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/backends/fallback/fallback_codegen.cpp:3459:23: warning: enumeration values 'CORO_SUSPEND', 'CORO_RESUME', and 'CORO_TERMINATE' not handled in switch [-Wswitch]
+ 3459 |         switch (inst->derived_instruction_tag()) {
+      |                 ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/backends/fallback/fallback_codegen.cpp:3459:23: note: add missing switch cases
+ 3459 |         switch (inst->derived_instruction_tag()) {
+      |                       ^
+3 warnings generated.
+[499/1109] Building CXX object src/tests/CMakeFiles/benchmark_simd_procedural_ray_query.dir/unit/simd/benchmark_simd_procedural_ray_query.cpp.o
+[500/1109] Building CXX object src/tests/CMakeFiles/test_simd_llvm_warp_collectives.dir/unit/simd/test_llvm_warp_collectives.cpp.o
+[501/1109] Building CXX object src/tests/CMakeFiles/test_basic_traits.dir/unit/core/test_basic_traits.cpp.o
+[502/1109] Building CXX object src/tests/CMakeFiles/test_basic_types.dir/unit/core/test_basic_types.cpp.o
+[503/1109] Building CXX object src/tests/CMakeFiles/test_binary_io.dir/unit/core/test_binary_io.cpp.o
+[504/1109] Building CXX object src/tests/CMakeFiles/test_binary_file_stream.dir/unit/core/test_binary_file_stream.cpp.o
+[505/1109] Building CXX object src/tests/CMakeFiles/test_clock.dir/unit/core/test_clock.cpp.o
+[506/1109] Building CXX object src/tests/CMakeFiles/test_dynamic_module.dir/unit/core/test_dynamic_module.cpp.o
+[507/1109] Building CXX object src/tests/CMakeFiles/test_first_fit.dir/unit/core/test_first_fit.cpp.o
+[508/1109] Building CXX object src/tests/CMakeFiles/test_mathematics.dir/unit/core/test_mathematics.cpp.o
+[509/1109] Building CXX object src/tests/CMakeFiles/test_logging.dir/unit/core/test_logging.cpp.o
+[510/1109] Building CXX object src/tests/CMakeFiles/test_pool.dir/unit/core/test_pool.cpp.o
+[511/1109] Building CXX object src/tests/CMakeFiles/test_matrix.dir/unit/core/test_matrix.cpp.o
+[512/1109] Building CXX object src/tests/CMakeFiles/test_hash.dir/unit/core/test_hash.cpp.o
+[513/1109] Building CXX object src/tests/CMakeFiles/test_spin_mutex.dir/unit/core/test_spin_mutex.cpp.o
+[514/1109] Building CXX object src/tests/CMakeFiles/test_fiber.dir/unit/core/test_fiber.cpp.o
+[515/1109] Building CXX object src/tests/CMakeFiles/test_stl_containers.dir/unit/core/test_stl_containers.cpp.o
+[516/1109] Building CXX object src/tests/CMakeFiles/test_type.dir/unit/core/test_type.cpp.o
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/unit/core/test_type.cpp:24:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/luisa-compute.h:5:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/ast/ast2json.h:9:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/ast/function.h:4:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/stl/unordered_map.h:16:
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/unordered_set:733:31: warning: the specified comparator type does not provide a viable const call operator [-Wuser-defined-warnings]
+  733 |     static_assert(sizeof(std::__diagnose_unordered_container_requirements<_Value, _Hash, _Pred>(0)), "");
+      |                               ^
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/unit/core/test_type.cpp:296:60: note: in instantiation of member function 'std::unordered_set<luisa::ManagedPtr<Something>, luisa::hash<luisa::ManagedPtr<Something>>, std::equal_to<void>>::~unordered_set' requested here
+  296 |         luisa::unordered_set<luisa::ManagedPtr<Something>> set;
+      |                                                            ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__hash_table:669:1: note: from 'diagnose_if' attribute on '__diagnose_unordered_container_requirements<luisa::ManagedPtr<Something>, luisa::hash<luisa::ManagedPtr<Something>>, std::equal_to<void>>':
+  669 | _LIBCPP_DIAGNOSE_WARNING(!__is_invocable_v<_Equal const&, _Key const&, _Key const&>,
+      | ^                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:995:58: note: expanded from macro '_LIBCPP_DIAGNOSE_WARNING'
+  995 | #    define _LIBCPP_DIAGNOSE_WARNING(...) __attribute__((__diagnose_if__(__VA_ARGS__, "warning")))
+      |                                                          ^               ~~~~~~~~~~~
+1 warning generated.
+[517/1109] Building CXX object src/tests/CMakeFiles/test_foreground_moments.dir/unit/core/test_foreground_moments.cpp.o
+[518/1109] Building CXX object src/tests/CMakeFiles/test_simd_llvm_schedule_codegen.dir/unit/simd/test_llvm_schedule_codegen.cpp.o
+[519/1109] Building CXX object src/tests/CMakeFiles/test_platform_utils.dir/unit/core/test_platform.cpp.o
+[520/1109] Building CXX object src/tests/CMakeFiles/test_example_options.dir/unit/core/test_example_options.cpp.o
+[521/1109] Building CXX object src/tests/CMakeFiles/test_path_tracing_sample_plan.dir/unit/core/test_path_tracing_sample_plan.cpp.o
+[522/1109] Building CXX object src/tests/CMakeFiles/test_nbody_render_plan.dir/unit/core/test_nbody_render_plan.cpp.o
+[523/1109] Building CXX object src/tests/CMakeFiles/test_photon_mapping_plan.dir/unit/core/test_photon_mapping_plan.cpp.o
+[524/1109] Building CXX object src/tests/CMakeFiles/test_hip_curve_bounds.dir/unit/core/test_hip_curve_bounds.cpp.o
+[525/1109] Building CXX object src/tests/CMakeFiles/test_sparse_buffer_tile_plan.dir/unit/core/test_sparse_buffer_tile_plan.cpp.o
+[526/1109] Building CXX object src/tests/CMakeFiles/test_hip_geometry_memory_policy.dir/unit/core/test_hip_geometry_memory_policy.cpp.o
+[527/1109] Building CXX object src/tests/CMakeFiles/test_hip_llvm_pipeline.dir/__/backends/hip/llvm_codegen/hip_llvm_pipeline.cpp.o
+[528/1109] Building CXX object src/tests/CMakeFiles/test_glslang_spirv.dir/unit/ext/test_glslang_spirv.cpp.o
+[529/1109] Building CXX object src/tests/CMakeFiles/test_sparse_texture_tile_plan.dir/unit/core/test_sparse_texture_tile_plan.cpp.o
+[530/1109] Building CXX object src/tests/CMakeFiles/test_hip_llvm_pipeline.dir/unit/core/test_hip_llvm_pipeline.cpp.o
+[531/1109] Building CXX object src/tests/CMakeFiles/test_hip_curve_bounds.dir/__/backends/hip/hip_curve_bounds.cpp.o
+[532/1109] Building CXX object src/tests/CMakeFiles/test_spirv_motion_patch.dir/unit/ext/test_spirv_motion_patch.cpp.o
+[533/1109] Building CXX object src/tests/CMakeFiles/test_argument_block_layout.dir/unit/ext/test_argument_block_layout.cpp.o
+[534/1109] Building CXX object src/tests/CMakeFiles/test_pixel_storage.dir/unit/core/test_pixel_storage.cpp.o
+[535/1109] Building CXX object src/tests/CMakeFiles/test_spirv_motion_patch.dir/__/backends/vk/spirv_motion_patch.cpp.o
+[536/1109] Building CXX object src/tests/CMakeFiles/test_function_builder_dag.dir/unit/ast/test_function_builder_dag.cpp.o
+[537/1109] Building CXX object src/tests/CMakeFiles/test_async_copy_ast.dir/unit/ast/test_async_copy_ast.cpp.o
+[538/1109] Building CXX object src/tests/CMakeFiles/test_bindless_write_usage.dir/unit/ast/test_bindless_write_usage.cpp.o
+[539/1109] Building CXX object src/tests/CMakeFiles/test_command_reorder_bindless.dir/unit/ext/test_command_reorder_bindless.cpp.o
+[540/1109] Building CXX object src/tests/CMakeFiles/test_ast.dir/unit/ast/test_ast.cpp.o
+[541/1109] Building CXX object src/tests/CMakeFiles/test_ast_basic.dir/unit/ast/test_ast_basic.cpp.o
+[542/1109] Building CXX object src/tests/CMakeFiles/test_tile_layout.dir/unit/tile/test_tile_layout.cpp.o
+[543/1109] Building CXX object src/tests/CMakeFiles/test_tile_ir.dir/unit/tile/test_tile_ir.cpp.o
+[544/1109] Building CXX object src/tests/CMakeFiles/test_manual_ast.dir/unit/ast/test_manual_ast.cpp.o
+[545/1109] Building CXX object src/tests/CMakeFiles/test_tile_dsl.dir/unit/tile/test_tile_dsl.cpp.o
+[546/1109] Building CXX object src/tests/CMakeFiles/test_builtin_kernel.dir/unit/ast/test_builtin_kernel.cpp.o
+[547/1109] Building CXX object src/tests/CMakeFiles/test_tile_xir.dir/unit/tile/bridge/test_xir.cpp.o
+[548/1109] Building CXX object src/tests/CMakeFiles/test_tile_memory.dir/unit/tile/test_tile_memory.cpp.o
+[549/1109] Building CXX object src/tests/CMakeFiles/test_cooperative_vector.dir/unit/ast/test_cooperative_vector.cpp.o
+[550/1109] Building CXX object src/tests/CMakeFiles/benchmark_tile_xir.dir/benchmark/benchmark_tile_xir.cpp.o
+[551/1109] Building CXX object src/tests/CMakeFiles/test_tile_values_cpp20.dir/unit/tile/test_tile_values.cpp.o
+[552/1109] Building CXX object src/tests/CMakeFiles/test_tile_values_cpp23.dir/unit/tile/test_tile_values.cpp.o
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/unit/tile/test_tile_values.cpp:5:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/mathematics.h:8:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/basic_types.h:7:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/basic_traits.h:9:
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/ext/half/include/half.hpp:2391:65: warning: 'denorm_present' is deprecated [-Wdeprecated-declarations]
+ 2391 |     static HALF_CONSTEXPR_CONST float_denorm_style has_denorm = denorm_present;
+      |                                                                 ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/limits:130:6: note: 'float_denorm_style' has been explicitly marked deprecated here
+  130 | enum _LIBCPP_DEPRECATED_IN_CXX23 float_denorm_style {
+      |      ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:593:41: note: expanded from macro '_LIBCPP_DEPRECATED_IN_CXX23'
+  593 | #    define _LIBCPP_DEPRECATED_IN_CXX23 _LIBCPP_DEPRECATED
+      |                                         ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:554:49: note: expanded from macro '_LIBCPP_DEPRECATED'
+  554 | #      define _LIBCPP_DEPRECATED __attribute__((__deprecated__))
+      |                                                 ^
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/unit/tile/test_tile_values.cpp:5:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/mathematics.h:8:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/basic_types.h:7:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/basic_traits.h:9:
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/ext/half/include/half.hpp:2391:33: warning: 'float_denorm_style' is deprecated [-Wdeprecated-declarations]
+ 2391 |     static HALF_CONSTEXPR_CONST float_denorm_style has_denorm = denorm_present;
+      |                                 ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/limits:130:6: note: 'float_denorm_style' has been explicitly marked deprecated here
+  130 | enum _LIBCPP_DEPRECATED_IN_CXX23 float_denorm_style {
+      |      ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:593:41: note: expanded from macro '_LIBCPP_DEPRECATED_IN_CXX23'
+  593 | #    define _LIBCPP_DEPRECATED_IN_CXX23 _LIBCPP_DEPRECATED
+      |                                         ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:554:49: note: expanded from macro '_LIBCPP_DEPRECATED'
+  554 | #      define _LIBCPP_DEPRECATED __attribute__((__deprecated__))
+      |                                                 ^
+2 warnings generated.
+[553/1109] Building CXX object src/tests/CMakeFiles/test_tile_native_codegen.dir/unit/tile/test_tile_native_codegen.cpp.o
+[554/1109] Linking OBJCXX shared library bin/libluisa-benchmark-metal-timing.dylib
+[555/1109] Building CXX object src/tests/CMakeFiles/test_tile_native_codegen.dir/__/backends/metal/tile/metal_tile_codegen.cpp.o
+[556/1109] Building CXX object src/tests/CMakeFiles/test_tile_xir_runtime.dir/unit/tile/bridge/test_xir_runtime.cpp.o
+[557/1109] Building OBJCXX object src/tests/CMakeFiles/test_tile_metal_timing.dir/unit/tile/test_metal_timing.mm.o
+[558/1109] Building CXX object src/tests/CMakeFiles/test_tile_xir_llm.dir/unit/tile/bridge/test_xir_llm.cpp.o
+[559/1109] Building OBJCXX object src/tests/CMakeFiles/benchmark_tile_manual.dir/benchmark/benchmark_tile_manual.mm.o
+[560/1109] Building OBJCXX object src/tests/CMakeFiles/benchmark_tile_mpp.dir/benchmark/benchmark_tile_mpp.mm.o
+[561/1109] Building OBJCXX object src/tests/CMakeFiles/benchmark_tile_system.dir/benchmark/benchmark_tile_system.mm.o
+[562/1109] Building CXX object src/tests/CMakeFiles/benchmark_tile_native.dir/benchmark/benchmark_tile_native.cpp.o
+[563/1109] Building CXX object src/tests/CMakeFiles/test_tile_native_runtime.dir/unit/tile/test_tile_native_runtime.cpp.o
+[564/1109] Building CXX object src/tests/CMakeFiles/test_tile_tirx.dir/unit/tile/bridge/test_tirx_layout.cpp.o
+[565/1109] Building CXX object src/tests/CMakeFiles/test_tile_tirx_values.dir/unit/tile/bridge/test_tirx_values.cpp.o
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/unit/tile/bridge/test_tirx_values.cpp:2:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/./common/tile_tirx_test_utils.h:21:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/tile/bridge/tirx/lower.h:10:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/tile/ir.h:8:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/managed_ilist.h:4:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/concepts.h:7:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/basic_types.h:7:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/basic_traits.h:9:
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/ext/half/include/half.hpp:2391:65: warning: 'denorm_present' is deprecated [-Wdeprecated-declarations]
+ 2391 |     static HALF_CONSTEXPR_CONST float_denorm_style has_denorm = denorm_present;
+      |                                                                 ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/limits:130:6: note: 'float_denorm_style' has been explicitly marked deprecated here
+  130 | enum _LIBCPP_DEPRECATED_IN_CXX23 float_denorm_style {
+      |      ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:593:41: note: expanded from macro '_LIBCPP_DEPRECATED_IN_CXX23'
+  593 | #    define _LIBCPP_DEPRECATED_IN_CXX23 _LIBCPP_DEPRECATED
+      |                                         ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:554:49: note: expanded from macro '_LIBCPP_DEPRECATED'
+  554 | #      define _LIBCPP_DEPRECATED __attribute__((__deprecated__))
+      |                                                 ^
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/unit/tile/bridge/test_tirx_values.cpp:2:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/./common/tile_tirx_test_utils.h:21:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/tile/bridge/tirx/lower.h:10:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/tile/ir.h:8:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/managed_ilist.h:4:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/concepts.h:7:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/basic_types.h:7:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/basic_traits.h:9:
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/ext/half/include/half.hpp:2391:33: warning: 'float_denorm_style' is deprecated [-Wdeprecated-declarations]
+ 2391 |     static HALF_CONSTEXPR_CONST float_denorm_style has_denorm = denorm_present;
+      |                                 ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/limits:130:6: note: 'float_denorm_style' has been explicitly marked deprecated here
+  130 | enum _LIBCPP_DEPRECATED_IN_CXX23 float_denorm_style {
+      |      ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:593:41: note: expanded from macro '_LIBCPP_DEPRECATED_IN_CXX23'
+  593 | #    define _LIBCPP_DEPRECATED_IN_CXX23 _LIBCPP_DEPRECATED
+      |                                         ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:554:49: note: expanded from macro '_LIBCPP_DEPRECATED'
+  554 | #      define _LIBCPP_DEPRECATED __attribute__((__deprecated__))
+      |                                                 ^
+2 warnings generated.
+[566/1109] Building CXX object src/tests/CMakeFiles/test_tile_tirx_memory.dir/unit/tile/bridge/test_tirx_memory.cpp.o
+[567/1109] Building CXX object src/tests/CMakeFiles/test_tile_tirx_cooperative.dir/unit/tile/bridge/test_tirx_cooperative.cpp.o
+[568/1109] Building CXX object src/tests/CMakeFiles/test_tile_tirx_pipeline.dir/unit/tile/bridge/test_tirx_pipeline.cpp.o
+[569/1109] Building CXX object src/tests/CMakeFiles/test_tile_tirx_planner.dir/unit/tile/bridge/test_tirx_planner.cpp.o
+[570/1109] Building CXX object src/tests/CMakeFiles/test_tile_tirx_poc.dir/unit/tile/bridge/test_tirx_poc.cpp.o
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/unit/tile/bridge/test_tirx_poc.cpp:10:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/./common/tile_tirx_test_utils.h:21:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/tile/bridge/tirx/lower.h:10:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/tile/ir.h:8:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/managed_ilist.h:4:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/concepts.h:7:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/basic_types.h:7:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/basic_traits.h:9:
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/ext/half/include/half.hpp:2391:65: warning: 'denorm_present' is deprecated [-Wdeprecated-declarations]
+ 2391 |     static HALF_CONSTEXPR_CONST float_denorm_style has_denorm = denorm_present;
+      |                                                                 ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/limits:130:6: note: 'float_denorm_style' has been explicitly marked deprecated here
+  130 | enum _LIBCPP_DEPRECATED_IN_CXX23 float_denorm_style {
+      |      ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:593:41: note: expanded from macro '_LIBCPP_DEPRECATED_IN_CXX23'
+  593 | #    define _LIBCPP_DEPRECATED_IN_CXX23 _LIBCPP_DEPRECATED
+      |                                         ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:554:49: note: expanded from macro '_LIBCPP_DEPRECATED'
+  554 | #      define _LIBCPP_DEPRECATED __attribute__((__deprecated__))
+      |                                                 ^
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/unit/tile/bridge/test_tirx_poc.cpp:10:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/./common/tile_tirx_test_utils.h:21:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/tile/bridge/tirx/lower.h:10:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/tile/ir.h:8:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/managed_ilist.h:4:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/concepts.h:7:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/basic_types.h:7:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/basic_traits.h:9:
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/ext/half/include/half.hpp:2391:33: warning: 'float_denorm_style' is deprecated [-Wdeprecated-declarations]
+ 2391 |     static HALF_CONSTEXPR_CONST float_denorm_style has_denorm = denorm_present;
+      |                                 ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/limits:130:6: note: 'float_denorm_style' has been explicitly marked deprecated here
+  130 | enum _LIBCPP_DEPRECATED_IN_CXX23 float_denorm_style {
+      |      ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:593:41: note: expanded from macro '_LIBCPP_DEPRECATED_IN_CXX23'
+  593 | #    define _LIBCPP_DEPRECATED_IN_CXX23 _LIBCPP_DEPRECATED
+      |                                         ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:554:49: note: expanded from macro '_LIBCPP_DEPRECATED'
+  554 | #      define _LIBCPP_DEPRECATED __attribute__((__deprecated__))
+      |                                                 ^
+2 warnings generated.
+[571/1109] Building CXX object src/tests/CMakeFiles/test_tile_tirx_poc_neural.dir/unit/tile/bridge/test_tirx_poc_neural.cpp.o
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/unit/tile/bridge/test_tirx_poc_neural.cpp:5:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/./common/tile_tirx_test_utils.h:21:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/tile/bridge/tirx/lower.h:10:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/tile/ir.h:8:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/managed_ilist.h:4:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/concepts.h:7:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/basic_types.h:7:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/basic_traits.h:9:
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/ext/half/include/half.hpp:2391:65: warning: 'denorm_present' is deprecated [-Wdeprecated-declarations]
+ 2391 |     static HALF_CONSTEXPR_CONST float_denorm_style has_denorm = denorm_present;
+      |                                                                 ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/limits:130:6: note: 'float_denorm_style' has been explicitly marked deprecated here
+  130 | enum _LIBCPP_DEPRECATED_IN_CXX23 float_denorm_style {
+      |      ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:593:41: note: expanded from macro '_LIBCPP_DEPRECATED_IN_CXX23'
+  593 | #    define _LIBCPP_DEPRECATED_IN_CXX23 _LIBCPP_DEPRECATED
+      |                                         ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:554:49: note: expanded from macro '_LIBCPP_DEPRECATED'
+  554 | #      define _LIBCPP_DEPRECATED __attribute__((__deprecated__))
+      |                                                 ^
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/unit/tile/bridge/test_tirx_poc_neural.cpp:5:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/./common/tile_tirx_test_utils.h:21:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/tile/bridge/tirx/lower.h:10:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/tile/ir.h:8:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/managed_ilist.h:4:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/concepts.h:7:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/basic_types.h:7:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/basic_traits.h:9:
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/ext/half/include/half.hpp:2391:33: warning: 'float_denorm_style' is deprecated [-Wdeprecated-declarations]
+ 2391 |     static HALF_CONSTEXPR_CONST float_denorm_style has_denorm = denorm_present;
+      |                                 ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/limits:130:6: note: 'float_denorm_style' has been explicitly marked deprecated here
+  130 | enum _LIBCPP_DEPRECATED_IN_CXX23 float_denorm_style {
+      |      ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:593:41: note: expanded from macro '_LIBCPP_DEPRECATED_IN_CXX23'
+  593 | #    define _LIBCPP_DEPRECATED_IN_CXX23 _LIBCPP_DEPRECATED
+      |                                         ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:554:49: note: expanded from macro '_LIBCPP_DEPRECATED'
+  554 | #      define _LIBCPP_DEPRECATED __attribute__((__deprecated__))
+      |                                                 ^
+2 warnings generated.
+[572/1109] Building CXX object src/tests/CMakeFiles/benchmark_tile_tirx.dir/benchmark/benchmark_tile_tirx.cpp.o
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/benchmark/benchmark_tile_tirx.cpp:4:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/./common/tile_tirx_test_utils.h:21:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/tile/bridge/tirx/lower.h:10:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/tile/ir.h:8:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/managed_ilist.h:4:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/concepts.h:7:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/basic_types.h:7:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/basic_traits.h:9:
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/ext/half/include/half.hpp:2391:65: warning: 'denorm_present' is deprecated [-Wdeprecated-declarations]
+ 2391 |     static HALF_CONSTEXPR_CONST float_denorm_style has_denorm = denorm_present;
+      |                                                                 ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/limits:130:6: note: 'float_denorm_style' has been explicitly marked deprecated here
+  130 | enum _LIBCPP_DEPRECATED_IN_CXX23 float_denorm_style {
+      |      ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:593:41: note: expanded from macro '_LIBCPP_DEPRECATED_IN_CXX23'
+  593 | #    define _LIBCPP_DEPRECATED_IN_CXX23 _LIBCPP_DEPRECATED
+      |                                         ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:554:49: note: expanded from macro '_LIBCPP_DEPRECATED'
+  554 | #      define _LIBCPP_DEPRECATED __attribute__((__deprecated__))
+      |                                                 ^
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/benchmark/benchmark_tile_tirx.cpp:4:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/./common/tile_tirx_test_utils.h:21:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/tile/bridge/tirx/lower.h:10:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/tile/ir.h:8:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/managed_ilist.h:4:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/concepts.h:7:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/basic_types.h:7:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/basic_traits.h:9:
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/ext/half/include/half.hpp:2391:33: warning: 'float_denorm_style' is deprecated [-Wdeprecated-declarations]
+ 2391 |     static HALF_CONSTEXPR_CONST float_denorm_style has_denorm = denorm_present;
+      |                                 ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/limits:130:6: note: 'float_denorm_style' has been explicitly marked deprecated here
+  130 | enum _LIBCPP_DEPRECATED_IN_CXX23 float_denorm_style {
+      |      ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:593:41: note: expanded from macro '_LIBCPP_DEPRECATED_IN_CXX23'
+  593 | #    define _LIBCPP_DEPRECATED_IN_CXX23 _LIBCPP_DEPRECATED
+      |                                         ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:554:49: note: expanded from macro '_LIBCPP_DEPRECATED'
+  554 | #      define _LIBCPP_DEPRECATED __attribute__((__deprecated__))
+      |                                                 ^
+2 warnings generated.
+[573/1109] Building CXX object src/tests/CMakeFiles/test_tile_tirx_poc_algorithms.dir/unit/tile/bridge/test_tirx_poc_algorithms.cpp.o
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/unit/tile/bridge/test_tirx_poc_algorithms.cpp:4:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/./common/tile_tirx_test_utils.h:21:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/tile/bridge/tirx/lower.h:10:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/tile/ir.h:8:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/managed_ilist.h:4:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/concepts.h:7:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/basic_types.h:7:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/basic_traits.h:9:
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/ext/half/include/half.hpp:2391:65: warning: 'denorm_present' is deprecated [-Wdeprecated-declarations]
+ 2391 |     static HALF_CONSTEXPR_CONST float_denorm_style has_denorm = denorm_present;
+      |                                                                 ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/limits:130:6: note: 'float_denorm_style' has been explicitly marked deprecated here
+  130 | enum _LIBCPP_DEPRECATED_IN_CXX23 float_denorm_style {
+      |      ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:593:41: note: expanded from macro '_LIBCPP_DEPRECATED_IN_CXX23'
+  593 | #    define _LIBCPP_DEPRECATED_IN_CXX23 _LIBCPP_DEPRECATED
+      |                                         ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:554:49: note: expanded from macro '_LIBCPP_DEPRECATED'
+  554 | #      define _LIBCPP_DEPRECATED __attribute__((__deprecated__))
+      |                                                 ^
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/unit/tile/bridge/test_tirx_poc_algorithms.cpp:4:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/./common/tile_tirx_test_utils.h:21:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/tile/bridge/tirx/lower.h:10:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/tile/ir.h:8:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/managed_ilist.h:4:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/concepts.h:7:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/basic_types.h:7:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/core/basic_traits.h:9:
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/ext/half/include/half.hpp:2391:33: warning: 'float_denorm_style' is deprecated [-Wdeprecated-declarations]
+ 2391 |     static HALF_CONSTEXPR_CONST float_denorm_style has_denorm = denorm_present;
+      |                                 ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/limits:130:6: note: 'float_denorm_style' has been explicitly marked deprecated here
+  130 | enum _LIBCPP_DEPRECATED_IN_CXX23 float_denorm_style {
+      |      ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:593:41: note: expanded from macro '_LIBCPP_DEPRECATED_IN_CXX23'
+  593 | #    define _LIBCPP_DEPRECATED_IN_CXX23 _LIBCPP_DEPRECATED
+      |                                         ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:554:49: note: expanded from macro '_LIBCPP_DEPRECATED'
+  554 | #      define _LIBCPP_DEPRECATED __attribute__((__deprecated__))
+      |                                                 ^
+2 warnings generated.
+[574/1109] Building CXX object src/tests/CMakeFiles/test_tile_tirx_execution.dir/unit/tile/bridge/test_tirx_execution.cpp.o
+[575/1109] Building CXX object src/tests/CMakeFiles/test_tile_tirx_targets.dir/unit/tile/bridge/test_tirx_targets.cpp.o
+[576/1109] Building CXX object src/tests/CMakeFiles/test_binding_group.dir/unit/dsl/test_binding_group.cpp.o
+[577/1109] Building CXX object src/tests/CMakeFiles/test_constant.dir/unit/dsl/test_constant.cpp.o
+[578/1109] Building CXX object src/tests/CMakeFiles/test_binding_group_template.dir/unit/dsl/test_binding_group_template.cpp.o
+[579/1109] Building CXX object src/tests/CMakeFiles/test_callable.dir/unit/dsl/test_callable.cpp.o
+[580/1109] Building CXX object src/tests/CMakeFiles/test_dsl_sugar.dir/unit/dsl/test_dsl_sugar.cpp.o
+[581/1109] Building CXX object src/tests/CMakeFiles/test_tile_tirx_matrix.dir/unit/tile/bridge/test_tirx_matrix.cpp.o
+[582/1109] Building CXX object src/tests/CMakeFiles/test_dsl.dir/unit/dsl/test_dsl.cpp.o
+[583/1109] Building CXX object src/tests/CMakeFiles/test_dsl_multithread.dir/unit/dsl/test_dsl_multithread.cpp.o
+[584/1109] Building CXX object src/tests/CMakeFiles/test_soa_subview.dir/unit/dsl/test_soa_subview.cpp.o
+[585/1109] Building CXX object src/tests/CMakeFiles/test_soa.dir/unit/dsl/test_soa.cpp.o
+[586/1109] Building CXX object src/tests/CMakeFiles/test_soa_simple.dir/unit/dsl/test_soa_simple.cpp.o
+[587/1109] Building CXX object src/tests/CMakeFiles/test_nested_callable.dir/unit/dsl/test_nested_callable.cpp.o
+[588/1109] Building CXX object src/tests/CMakeFiles/test_normal_encoding.dir/unit/dsl/test_normal_encoding.cpp.o
+[589/1109] Building CXX object src/tests/CMakeFiles/test_device_math.dir/unit/dsl/test_device_math.cpp.o
+[590/1109] Building CXX object src/tests/CMakeFiles/test_calc.dir/unit/dsl/test_calc.cpp.o
+[591/1109] Building CXX object src/tests/CMakeFiles/test_dsl_matrix.dir/unit/dsl/test_matrix.cpp.o
+[592/1109] Building CXX object src/tests/CMakeFiles/test_var.dir/unit/dsl/test_var.cpp.o
+[593/1109] Building CXX object src/tests/CMakeFiles/test_8bit.dir/unit/dsl/test_8bit.cpp.o
+[594/1109] Building CXX object src/tests/CMakeFiles/test_dsl_autodiff.dir/unit/dsl/test_autodiff.cpp.o
+[595/1109] Building CXX object src/tests/CMakeFiles/test_async_copy.dir/unit/dsl/test_async_copy.cpp.o
+[596/1109] Building CXX object src/tests/CMakeFiles/test_polymorphic.dir/unit/dsl/test_polymorphic.cpp.o
+[597/1109] Building CXX object src/tests/CMakeFiles/test_async_copy_cuda.dir/unit/runtime/test_async_copy_cuda.cpp.o
+[598/1109] Building CXX object src/tests/CMakeFiles/test_cluster_launch_control.dir/unit/runtime/test_cluster_launch_control.cpp.o
+[599/1109] Building CXX object src/tests/CMakeFiles/test_accel_build_modes.dir/unit/runtime/test_accel_build_modes.cpp.o
+[600/1109] Building CXX object src/tests/CMakeFiles/test_hip_rt_scratch_reuse.dir/unit/runtime/test_hip_rt_scratch_reuse.cpp.o
+[601/1109] Building CXX object src/tests/CMakeFiles/test_accel_blas_lifetime.dir/unit/runtime/test_accel_blas_lifetime.cpp.o
+[602/1109] Building CXX object src/tests/CMakeFiles/test_accel_visibility.dir/unit/runtime/test_accel_visibility.cpp.o
+[603/1109] Building CXX object src/tests/CMakeFiles/test_hip_large_accel_instances.dir/unit/runtime/test_hip_large_accel_instances.cpp.o
+[604/1109] Building CXX object src/tests/CMakeFiles/test_hip_shader_cache.dir/unit/runtime/test_hip_shader_cache.cpp.o
+[605/1109] Building CXX object src/tests/CMakeFiles/test_hip_float_atomic_memory_model.dir/unit/runtime/test_hip_float_atomic_memory_model.cpp.o
+[606/1109] Building CXX object src/tests/CMakeFiles/test_counted_local_array.dir/unit/runtime/test_counted_local_array.cpp.o
+[607/1109] Building CXX object src/tests/CMakeFiles/test_atomic.dir/unit/runtime/test_atomic.cpp.o
+[608/1109] Building CXX object src/tests/CMakeFiles/test_hip_callable_boundary.dir/unit/runtime/test_hip_callable_boundary.cpp.o
+[609/1109] Building CXX object src/tests/CMakeFiles/test_atomic_queue.dir/unit/runtime/test_atomic_queue.cpp.o
+[610/1109] Building CXX object src/tests/CMakeFiles/test_context.dir/unit/runtime/test_context.cpp.o
+[611/1109] Building CXX object src/tests/CMakeFiles/test_byte_buffer.dir/unit/runtime/test_byte_buffer.cpp.o
+[612/1109] Building CXX object src/tests/CMakeFiles/test_copy.dir/unit/runtime/test_copy.cpp.o
+[613/1109] Building CXX object src/tests/CMakeFiles/test_cpu_callable.dir/unit/runtime/test_cpu_callable.cpp.o
+[614/1109] Building CXX object src/tests/CMakeFiles/test_decoupled_look_back.dir/unit/runtime/test_decoupled_look_back.cpp.o
+[615/1109] Building CXX object src/tests/CMakeFiles/test_direct_texture_sampling.dir/unit/runtime/test_direct_texture_sampling.cpp.o
+[616/1109] Building CXX object src/tests/CMakeFiles/test_bindless_mip.dir/unit/runtime/test_bindless_mip.cpp.o
+[617/1109] Building CXX object src/tests/CMakeFiles/test_motion_instance_keyframes.dir/unit/runtime/test_motion_instance_keyframes.cpp.o
+[618/1109] Building CXX object src/tests/CMakeFiles/test_metal_codegen_regressions.dir/unit/runtime/test_metal_codegen_regressions.cpp.o
+[619/1109] Building CXX object src/tests/CMakeFiles/test_mipmap.dir/unit/runtime/test_mipmap.cpp.o
+[620/1109] Building CXX object src/tests/CMakeFiles/test_complex_kernel.dir/unit/runtime/test_complex_kernel.cpp.o
+[621/1109] Building CXX object src/tests/CMakeFiles/test_pinned_mem.dir/unit/runtime/test_pinned_mem.cpp.o
+[622/1109] Building CXX object src/tests/CMakeFiles/test_printer.dir/unit/runtime/test_printer.cpp.o
+[623/1109] Building CXX object src/tests/CMakeFiles/test_printer_custom_callback.dir/unit/runtime/test_printer_custom_callback.cpp.o
+[624/1109] Building CXX object src/tests/CMakeFiles/test_sampler.dir/unit/runtime/test_sampler.cpp.o
+[625/1109] Building CXX object src/tests/CMakeFiles/test_texture_compress.dir/unit/runtime/test_texture_compress.cpp.o
+[626/1109] Building CXX object src/tests/CMakeFiles/test_shared_memory.dir/unit/runtime/test_shared_memory.cpp.o
+[627/1109] Building CXX object src/tests/CMakeFiles/test_softmax.dir/unit/runtime/test_softmax.cpp.o
+[628/1109] Building CXX object src/tests/CMakeFiles/test_pbrt_curve_parser.dir/unit/runtime/test_pbrt_curve_parser.cpp.o
+[629/1109] Building CXX object src/tests/CMakeFiles/test_texture_io.dir/unit/runtime/test_texture_io.cpp.o
+[630/1109] Building CXX object src/tests/CMakeFiles/test_warp.dir/unit/runtime/test_warp.cpp.o
+[631/1109] Building CXX object src/tests/CMakeFiles/test_timeline_event.dir/unit/runtime/test_timeline_event.cpp.o
+[632/1109] Building CXX object src/tests/CMakeFiles/test_hip_wave_size.dir/unit/runtime/test_hip_wave_size.cpp.o
+[633/1109] Building CXX object src/tests/CMakeFiles/test_warp_prefix_scan.dir/unit/runtime/test_warp_prefix_scan.cpp.o
+[634/1109] Building CXX object src/tests/CMakeFiles/test_warp_sparse_collectives.dir/unit/runtime/test_warp_sparse_collectives.cpp.o
+[635/1109] Building CXX object src/tests/CMakeFiles/test_ast_json_serde.dir/unit/ast/test_ast_json_serde.cpp.o
+[636/1109] Building CXX object src/tests/CMakeFiles/test_mha_warp_reduction.dir/unit/runtime/test_mha_warp_reduction.cpp.o
+[637/1109] Building CXX object src/tests/CMakeFiles/test_buffer.dir/unit/runtime/test_buffer.cpp.o
+[638/1109] Building CXX object src/tests/CMakeFiles/test_buffer_io.dir/unit/runtime/test_buffer_io.cpp.o
+[639/1109] Building CXX object src/tests/CMakeFiles/test_out_of_range.dir/unit/runtime/test_out_of_range.cpp.o
+[640/1109] Building CXX object src/tests/CMakeFiles/test_ray_query_world_ray.dir/unit/runtime/test_ray_query_world_ray.cpp.o
+[641/1109] Building CXX object src/tests/CMakeFiles/test_buffer_view.dir/unit/runtime/test_buffer_view.cpp.o
+[642/1109] Building CXX object src/tests/CMakeFiles/test_device_test.dir/unit/runtime/test_device.cpp.o
+[643/1109] Building CXX object src/tests/CMakeFiles/benchmark_simd_gemm.dir/unit/simd/benchmark_simd_gemm.cpp.o
+[644/1109] Building CXX object src/tests/CMakeFiles/test_external_buffer.dir/unit/runtime/test_external_buffer.cpp.o
+[645/1109] Building CXX object src/tests/CMakeFiles/test_gemm.dir/unit/runtime/test_gemm.cpp.o
+[646/1109] Building CXX object src/tests/CMakeFiles/test_hip_codegen_arithmetic.dir/unit/runtime/test_hip_codegen_arithmetic.cpp.o
+[647/1109] Building CXX object src/tests/CMakeFiles/test_hip_curve_ray_query.dir/unit/runtime/test_hip_curve_ray_query.cpp.o
+[648/1109] Building CXX object src/tests/CMakeFiles/test_hip_motion_instance_matrix.dir/unit/runtime/test_hip_motion_instance_matrix.cpp.o
+[649/1109] Building CXX object src/tests/CMakeFiles/test_hip_motion_instance_device_ops.dir/unit/runtime/test_hip_motion_instance_device_ops.cpp.o
+[650/1109] Building CXX object src/tests/CMakeFiles/test_hip_motion_instance_srt.dir/unit/runtime/test_hip_motion_instance_srt.cpp.o
+[651/1109] Building CXX object src/tests/CMakeFiles/test_hip_motion_mesh.dir/unit/runtime/test_hip_motion_mesh.cpp.o
+[652/1109] Building CXX object src/tests/CMakeFiles/test_hip_motion_ray_query.dir/unit/runtime/test_hip_motion_ray_query.cpp.o
+[653/1109] Building CXX object src/tests/CMakeFiles/test_hip_static_motion_instance.dir/unit/runtime/test_hip_static_motion_instance.cpp.o
+[654/1109] Building CXX object src/tests/CMakeFiles/test_hip_motion_workgroup_rows.dir/unit/runtime/test_hip_motion_workgroup_rows.cpp.o
+[655/1109] Building CXX object src/tests/CMakeFiles/test_shared_mem.dir/unit/runtime/test_shared_mem.cpp.o
+[656/1109] Building CXX object src/tests/CMakeFiles/test_hip_signed_texture_io.dir/unit/runtime/test_hip_signed_texture_io.cpp.o
+[657/1109] Building CXX object src/tests/CMakeFiles/test_dsl_fuse_buffer_reads.dir/unit/runtime/test_dsl_fuse_buffer_reads.cpp.o
+[658/1109] Building CXX object src/tests/CMakeFiles/test_dsl_indvar_strength_reduce.dir/unit/runtime/test_dsl_indvar_strength_reduce.cpp.o
+[659/1109] Building CXX object src/tests/CMakeFiles/test_hip_ray_query_pipeline.dir/unit/runtime/test_hip_ray_query_pipeline.cpp.o
+[660/1109] Building CXX object src/tests/CMakeFiles/test_dsl_slp_vectorization.dir/unit/runtime/test_dsl_slp_vectorization.cpp.o
+[661/1109] Building CXX object src/tests/CMakeFiles/test_dsl_xir_optimize_vk.dir/unit/runtime/test_dsl_xir_optimize_vk.cpp.o
+[662/1109] Building CXX object src/tests/CMakeFiles/test_ast_pack_usage.dir/unit/xir/test_ast_pack_usage.cpp.o
+[663/1109] Building CXX object src/tests/CMakeFiles/test_ast_to_xir.dir/unit/xir/test_ast_to_xir.cpp.o
+[664/1109] Building CXX object src/tests/CMakeFiles/test_xir_module.dir/unit/xir/test_xir_module.cpp.o
+[665/1109] Building CXX object src/tests/CMakeFiles/test_xir_builder.dir/unit/xir/test_xir_builder.cpp.o
+[666/1109] Building CXX object src/tests/CMakeFiles/test_ast_external_lowering.dir/unit/xir/test_ast_external_lowering.cpp.o
+[667/1109] Building CXX object src/tests/CMakeFiles/test_xir_verifier.dir/unit/xir/test_xir_verifier.cpp.o
+[668/1109] Building CXX object src/tests/CMakeFiles/test_xir_aggregate_field_bitmask.dir/unit/xir/test_xir_aggregate_field_bitmask.cpp.o
+[669/1109] Building CXX object src/tests/CMakeFiles/test_xir_pass_alias_analysis.dir/unit/xir/test_xir_pass_alias_analysis.cpp.o
+[670/1109] Building CXX object src/tests/CMakeFiles/test_xir_interchange.dir/unit/xir/test_xir_interchange.cpp.o
+[671/1109] Building CXX object src/tests/CMakeFiles/test_xir_pass_core_analyses.dir/unit/xir/test_xir_pass_core_analyses.cpp.o
+[672/1109] Building CXX object src/tests/CMakeFiles/test_xir_pass_defer_local_aggregate_load.dir/unit/xir/test_xir_pass_defer_local_aggregate_load.cpp.o
+[673/1109] Building CXX object src/tests/CMakeFiles/test_xir2ast_translators.dir/unit/xir/test_xir2ast_translators.cpp.o
+[674/1109] Building CXX object src/tests/CMakeFiles/test_xir_translators.dir/unit/xir/test_xir_translators.cpp.o
+[675/1109] Building CXX object src/tests/CMakeFiles/test_xir_pass_coro_rematerialize.dir/unit/xir/test_xir_pass_coro_rematerialize.cpp.o
+[676/1109] Building CXX object src/tests/CMakeFiles/test_xir_pass_pointer_usage.dir/unit/xir/test_xir_pass_pointer_usage.cpp.o
+[677/1109] Building CXX object src/tests/CMakeFiles/test_xir_pass_coro_alloca_scope.dir/unit/xir/test_xir_pass_coro_alloca_scope.cpp.o
+[678/1109] Building CXX object src/tests/CMakeFiles/test_xir_pass_scalar_evolution.dir/unit/xir/test_xir_pass_scalar_evolution.cpp.o
+[679/1109] Building CXX object src/tests/CMakeFiles/test_xir_integer_alignment.dir/unit/xir/test_xir_integer_alignment.cpp.o
+[680/1109] Building CXX object src/tests/CMakeFiles/test_xir_pass_unused_callable_removal.dir/unit/xir/test_xir_pass_unused_callable_removal.cpp.o
+[681/1109] Building CXX object src/tests/CMakeFiles/test_xir_pass_licm.dir/unit/xir/test_xir_pass_licm.cpp.o
+[682/1109] Building CXX object src/tests/CMakeFiles/test_xir_pass_lower_break_continue.dir/unit/xir/test_xir_pass_lower_break_continue.cpp.o
+[683/1109] Building CXX object src/tests/CMakeFiles/test_xir_passes.dir/unit/xir/test_xir_passes.cpp.o
+[684/1109] Building CXX object src/tests/CMakeFiles/test_xir_coro_cfg_dataflow.dir/unit/xir/test_coro_cfg_dataflow.cpp.o
+[685/1109] Building CXX object src/tests/CMakeFiles/test_xir_coro_reg2mem.dir/unit/xir/test_coro_reg2mem.cpp.o
+[686/1109] Building CXX object src/tests/CMakeFiles/test_xir_coro_materialize.dir/unit/xir/test_coro_materialize.cpp.o
+[687/1109] Building CXX object src/tests/CMakeFiles/test_xir_coro_cfg_distill.dir/unit/xir/test_coro_cfg_distill.cpp.o
+[688/1109] Building CXX object src/tests/CMakeFiles/test_coro_dead_field.dir/unit/xir/test_coro_dead_field.cpp.o
+[689/1109] Building CXX object src/tests/CMakeFiles/test_coro_frame_size.dir/unit/xir/test_coro_frame_size.cpp.o
+[690/1109] Building CXX object src/tests/CMakeFiles/test_coro_restructure_validation.dir/unit/xir/test_coro_restructure_validation.cpp.o
+[691/1109] Building CXX object src/tests/CMakeFiles/test_xir_coro_xir2ast.dir/unit/xir/test_coro_xir2ast.cpp.o
+[692/1109] Building CXX object src/tests/CMakeFiles/test_xir_coro_pipeline.dir/unit/xir/test_coro_pipeline.cpp.o
+[693/1109] Building CXX object src/tests/CMakeFiles/test_xir_coro_split.dir/unit/xir/test_coro_split.cpp.o
+[694/1109] Building CXX object src/tests/CMakeFiles/test_coro_frame_desc.dir/unit/dsl/test_coro_frame_desc.cpp.o
+[695/1109] Building CXX object src/tests/CMakeFiles/test_coro_compile_trigger.dir/unit/dsl/test_coro_compile_trigger.cpp.o
+[696/1109] Building CXX object src/tests/CMakeFiles/test_coro_func.dir/unit/dsl/test_coro_func.cpp.o
+[697/1109] Building CXX object src/tests/CMakeFiles/test_coro_graph_wavefront_policy.dir/unit/coro/test_coro_graph_wavefront_policy.cpp.o
+[698/1109] Building CXX object src/tests/CMakeFiles/test_coro_frame_runtime.dir/unit/dsl/test_coro_frame_runtime.cpp.o
+[699/1109] Building CXX object src/tests/CMakeFiles/test_coro_graph.dir/unit/coro/test_coro_graph.cpp.o
+[700/1109] Building CXX object src/tests/CMakeFiles/test_coro_suspend.dir/unit/dsl/test_coro_suspend.cpp.o
+[701/1109] Building CXX object src/tests/CMakeFiles/test_coro_scheduler_base.dir/unit/coro/test_coro_scheduler_base.cpp.o
+[702/1109] Building CXX object src/tests/CMakeFiles/test_coro_persistent_integration.dir/unit/coro/test_coro_persistent_integration.cpp.o
+[703/1109] Building CXX object src/tests/CMakeFiles/test_coro_persistent.dir/unit/coro/test_coro_persistent.cpp.o
+[704/1109] Building CXX object src/tests/CMakeFiles/test_coro_state_machine.dir/unit/coro/test_coro_state_machine.cpp.o
+[705/1109] Building CXX object src/tests/CMakeFiles/test_coro_multisplit.dir/unit/coro/test_coro_multisplit.cpp.o
+[706/1109] Building CXX object src/tests/CMakeFiles/test_coro_persistent_opt.dir/unit/coro/test_coro_persistent_opt.cpp.o
+[707/1109] Building CXX object src/tests/CMakeFiles/test_coro_radix_sort.dir/unit/coro/test_coro_radix_sort.cpp.o
+[708/1109] Building CXX object src/tests/CMakeFiles/test_coro_compaction.dir/unit/coro/test_coro_compaction.cpp.o
+[709/1109] Building CXX object src/tests/CMakeFiles/test_coro_soa_layout.dir/unit/coro/test_coro_soa_layout.cpp.o
+[710/1109] Building CXX object src/tests/CMakeFiles/test_xir_pass_destructure_cfg.dir/unit/xir/test_xir_pass_destructure_cfg.cpp.o
+[711/1109] Building CXX object src/tests/CMakeFiles/test_xir_pass_simplify_cfg.dir/unit/xir/test_xir_pass_simplify_cfg.cpp.o
+[712/1109] Building CXX object src/tests/CMakeFiles/test_xir_pass_early_cse.dir/unit/xir/test_xir_pass_early_cse.cpp.o
+[713/1109] Building CXX object src/tests/CMakeFiles/test_coro_pipeline_1suspend.dir/unit/coro/test_coro_pipeline_1suspend.cpp.o
+[714/1109] Building CXX object src/tests/CMakeFiles/test_coro_wavefront_integration.dir/unit/coro/test_coro_wavefront_integration.cpp.o
+[715/1109] Building CXX object src/tests/CMakeFiles/test_coro_pipeline_3suspend.dir/unit/coro/test_coro_pipeline_3suspend.cpp.o
+[716/1109] Building CXX object src/tests/CMakeFiles/test_coro_wavefront.dir/unit/coro/test_coro_wavefront.cpp.o
+[717/1109] Building CXX object src/tests/CMakeFiles/test_xir_pass_lower_irreducible_cfg.dir/unit/xir/test_xir_pass_lower_irreducible_cfg.cpp.o
+[718/1109] Building CXX object src/tests/CMakeFiles/test_xir_pass_fuse_consecutive_buffer_reads.dir/unit/xir/test_xir_pass_fuse_consecutive_buffer_reads.cpp.o
+[719/1109] Building CXX object src/tests/CMakeFiles/test_xir_pass_lower_ray_query_to_pipeline.dir/unit/xir/test_xir_pass_lower_ray_query_to_pipeline.cpp.o
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/unit/xir/test_xir_pass_lower_ray_query_to_pipeline.cpp:456:21: warning: 'lower_ray_query_loop_pass_run_on_function' is deprecated: Use lower_ray_query_to_pipeline_pass_run_on_function instead. [-Wdeprecated-declarations]
+  456 |         auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
+      |                     ^
+/tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/xir/passes/lower_ray_query_loop.h:21:14: note: 'lower_ray_query_loop_pass_run_on_function' has been explicitly marked deprecated here
+   21 | [[nodiscard, deprecated(
+      |              ^
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/unit/xir/test_xir_pass_lower_ray_query_to_pipeline.cpp:588:21: warning: 'lower_ray_query_loop_pass_run_on_function' is deprecated: Use lower_ray_query_to_pipeline_pass_run_on_function instead. [-Wdeprecated-declarations]
+  588 |         auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
+      |                     ^
+/tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/xir/passes/lower_ray_query_loop.h:21:14: note: 'lower_ray_query_loop_pass_run_on_function' has been explicitly marked deprecated here
+   21 | [[nodiscard, deprecated(
+      |              ^
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/unit/xir/test_xir_pass_lower_ray_query_to_pipeline.cpp:643:21: warning: 'lower_ray_query_loop_pass_run_on_function' is deprecated: Use lower_ray_query_to_pipeline_pass_run_on_function instead. [-Wdeprecated-declarations]
+  643 |         auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
+      |                     ^
+/tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/xir/passes/lower_ray_query_loop.h:21:14: note: 'lower_ray_query_loop_pass_run_on_function' has been explicitly marked deprecated here
+   21 | [[nodiscard, deprecated(
+      |              ^
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/unit/xir/test_xir_pass_lower_ray_query_to_pipeline.cpp:689:21: warning: 'lower_ray_query_loop_pass_run_on_function' is deprecated: Use lower_ray_query_to_pipeline_pass_run_on_function instead. [-Wdeprecated-declarations]
+  689 |         auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
+      |                     ^
+/tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/xir/passes/lower_ray_query_loop.h:21:14: note: 'lower_ray_query_loop_pass_run_on_function' has been explicitly marked deprecated here
+   21 | [[nodiscard, deprecated(
+      |              ^
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/unit/xir/test_xir_pass_lower_ray_query_to_pipeline.cpp:760:21: warning: 'lower_ray_query_loop_pass_run_on_function' is deprecated: Use lower_ray_query_to_pipeline_pass_run_on_function instead. [-Wdeprecated-declarations]
+  760 |         auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
+      |                     ^
+/tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/xir/passes/lower_ray_query_loop.h:21:14: note: 'lower_ray_query_loop_pass_run_on_function' has been explicitly marked deprecated here
+   21 | [[nodiscard, deprecated(
+      |              ^
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/unit/xir/test_xir_pass_lower_ray_query_to_pipeline.cpp:817:21: warning: 'lower_ray_query_loop_pass_run_on_function' is deprecated: Use lower_ray_query_to_pipeline_pass_run_on_function instead. [-Wdeprecated-declarations]
+  817 |         auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
+      |                     ^
+/tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/xir/passes/lower_ray_query_loop.h:21:14: note: 'lower_ray_query_loop_pass_run_on_function' has been explicitly marked deprecated here
+   21 | [[nodiscard, deprecated(
+      |              ^
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/unit/xir/test_xir_pass_lower_ray_query_to_pipeline.cpp:887:21: warning: 'lower_ray_query_loop_pass_run_on_function' is deprecated: Use lower_ray_query_to_pipeline_pass_run_on_function instead. [-Wdeprecated-declarations]
+  887 |         auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
+      |                     ^
+/tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/xir/passes/lower_ray_query_loop.h:21:14: note: 'lower_ray_query_loop_pass_run_on_function' has been explicitly marked deprecated here
+   21 | [[nodiscard, deprecated(
+      |              ^
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/unit/xir/test_xir_pass_lower_ray_query_to_pipeline.cpp:920:21: warning: 'lower_ray_query_loop_pass_run_on_function' is deprecated: Use lower_ray_query_to_pipeline_pass_run_on_function instead. [-Wdeprecated-declarations]
+  920 |         auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
+      |                     ^
+/tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/xir/passes/lower_ray_query_loop.h:21:14: note: 'lower_ray_query_loop_pass_run_on_function' has been explicitly marked deprecated here
+   21 | [[nodiscard, deprecated(
+      |              ^
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/unit/xir/test_xir_pass_lower_ray_query_to_pipeline.cpp:964:21: warning: 'lower_ray_query_loop_pass_run_on_function' is deprecated: Use lower_ray_query_to_pipeline_pass_run_on_function instead. [-Wdeprecated-declarations]
+  964 |         auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
+      |                     ^
+/tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/xir/passes/lower_ray_query_loop.h:21:14: note: 'lower_ray_query_loop_pass_run_on_function' has been explicitly marked deprecated here
+   21 | [[nodiscard, deprecated(
+      |              ^
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/unit/xir/test_xir_pass_lower_ray_query_to_pipeline.cpp:1013:21: warning: 'lower_ray_query_loop_pass_run_on_function' is deprecated: Use lower_ray_query_to_pipeline_pass_run_on_function instead. [-Wdeprecated-declarations]
+ 1013 |         auto info = lower_ray_query_loop_pass_run_on_function(f.kernel);
+      |                     ^
+/tmp/luisa-reduction-checkpoint.gQUERp/source/include/luisa/xir/passes/lower_ray_query_loop.h:21:14: note: 'lower_ray_query_loop_pass_run_on_function' has been explicitly marked deprecated here
+   21 | [[nodiscard, deprecated(
+      |              ^
+10 warnings generated.
+[720/1109] Building CXX object src/tests/CMakeFiles/test_xir_pass_restructure_cfg_entry_boundaries.dir/unit/xir/test_xir_pass_restructure_cfg_entry_boundaries.cpp.o
+[721/1109] Building CXX object src/tests/CMakeFiles/test_xir_pass_restructure_cfg_construct_exits.dir/unit/xir/test_xir_pass_restructure_cfg_construct_exits.cpp.o
+[722/1109] Building CXX object src/tests/CMakeFiles/test_xir_pass_reconstruct_ray_query_loop.dir/unit/xir/test_xir_pass_reconstruct_ray_query_loop.cpp.o
+[723/1109] Building CXX object src/tests/CMakeFiles/test_xir_pass_restructure_cfg_selection_relations.dir/unit/xir/test_xir_pass_restructure_cfg_selection_relations.cpp.o
+[724/1109] Building CXX object src/tests/CMakeFiles/test_xir_pass_convergence_region.dir/unit/xir/test_xir_pass_convergence_region.cpp.o
+[725/1109] Building CXX object src/tests/CMakeFiles/test_xir_pass_post_dom_tree.dir/unit/xir/test_xir_pass_post_dom_tree.cpp.o
+[726/1109] Building CXX object src/tests/CMakeFiles/test_xir_pass_autodiff_cfg.dir/unit/xir/test_xir_pass_autodiff_cfg.cpp.o
+[727/1109] Building CXX object src/tests/CMakeFiles/test_xir_pass_early_return_elimination.dir/unit/xir/test_xir_pass_early_return_elimination.cpp.o
+[728/1109] Building CXX object src/tests/CMakeFiles/test_xir_pass_restructure_cfg.dir/unit/xir/test_xir_pass_restructure_cfg.cpp.o
+[729/1109] Building CXX object src/tests/CMakeFiles/test_coro_all_schedulers.dir/unit/coro/test_coro_all_schedulers.cpp.o
+[730/1109] Building CXX object src/tests/CMakeFiles/test_xir_pass_indvar_simplify.dir/unit/xir/test_xir_pass_indvar_simplify.cpp.o
+[731/1109] Building CXX object src/tests/CMakeFiles/test_xir_pass_loop_fusion.dir/unit/xir/test_xir_pass_loop_fusion.cpp.o
+[732/1109] Building CXX object src/tests/CMakeFiles/test_xir_pass_loop_vectorization.dir/unit/xir/test_xir_pass_loop_vectorization.cpp.o
+[733/1109] Building CXX object src/tests/CMakeFiles/test_xir_pass_sccp.dir/unit/xir/test_xir_pass_sccp.cpp.o
+[734/1109] Building CXX object src/tests/CMakeFiles/test_xir_pass_loop_rotation.dir/unit/xir/test_xir_pass_loop_rotation.cpp.o
+[735/1109] Building CXX object src/tests/CMakeFiles/test_xir_pass_slp_vectorization.dir/unit/xir/test_xir_pass_slp_vectorization.cpp.o
+[736/1109] Building CXX object src/tests/CMakeFiles/test_xir_pass_pipeline.dir/unit/xir/test_xir_pass_pipeline.cpp.o
+[737/1109] Building CXX object src/tests/CMakeFiles/test_xir_pass_mutation_safety.dir/unit/xir/test_xir_pass_mutation_safety.cpp.o
+[738/1109] Building CXX object src/tests/CMakeFiles/test_device_debugger.dir/integration/runtime/test_device_debugger.cpp.o
+[739/1109] Building CXX object src/tests/CMakeFiles/test_oso_parser.dir/integration/runtime/test_oso_parser.cpp.o
+[740/1109] Building CXX object src/tests/CMakeFiles/test_dstorage_decompression.dir/integration/runtime/test_dstorage_decompression.cpp.o
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/integration/runtime/test_dstorage_decompression.cpp:17:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/./common/reference_image.h:17:
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/ext/stb/stb/stb_image_write.h:776:13: warning: 'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+  776 |       len = sprintf(buffer, "EXPOSURE=          1.0000000000000\n\n-Y %d +X %d\n", y, x);
+      |             ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/_stdio.h:278:1: note: 'sprintf' has been explicitly marked deprecated here
+  278 | __deprecated_msg("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead.")
+      | ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h:227:48: note: expanded from macro '__deprecated_msg'
+  227 |         #define __deprecated_msg(_msg) __attribute__((__deprecated__(_msg)))
+      |                                                       ^
+1 warning generated.
+[741/1109] Building CXX object src/tests/CMakeFiles/test_aot.dir/integration/runtime/test_aot.cpp.o
+[742/1109] Building CXX object src/tests/CMakeFiles/test_procedural_callable.dir/integration/runtime/test_procedural_callable.cpp.o
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/integration/runtime/test_procedural_callable.cpp:5:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/./common/reference_image.h:17:
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/ext/stb/stb/stb_image_write.h:776:13: warning: 'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+  776 |       len = sprintf(buffer, "EXPOSURE=          1.0000000000000\n\n-Y %d +X %d\n", y, x);
+      |             ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/_stdio.h:278:1: note: 'sprintf' has been explicitly marked deprecated here
+  278 | __deprecated_msg("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead.")
+      | ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h:227:48: note: expanded from macro '__deprecated_msg'
+  227 |         #define __deprecated_msg(_msg) __attribute__((__deprecated__(_msg)))
+      |                                                       ^
+1 warning generated.
+[743/1109] Building CXX object src/tests/CMakeFiles/test_rtx.dir/integration/runtime/test_rtx.cpp.o
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/integration/runtime/test_rtx.cpp:13:
+In file included from /tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/./common/reference_image.h:17:
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/ext/stb/stb/stb_image_write.h:776:13: warning: 'sprintf' is deprecated: This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead. [-Wdeprecated-declarations]
+  776 |       len = sprintf(buffer, "EXPOSURE=          1.0000000000000\n\n-Y %d +X %d\n", y, x);
+      |             ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/_stdio.h:278:1: note: 'sprintf' has been explicitly marked deprecated here
+  278 | __deprecated_msg("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead.")
+      | ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/sys/cdefs.h:227:48: note: expanded from macro '__deprecated_msg'
+  227 |         #define __deprecated_msg(_msg) __attribute__((__deprecated__(_msg)))
+      |                                                       ^
+1 warning generated.
+[744/1109] Building CXX object src/tests/CMakeFiles/test_fp4.dir/unit/runtime/test_fp4.cpp.o
+[745/1109] Building CXX object src/tests/CMakeFiles/test_xir2ast_roundtrip.dir/integration/xir/test_xir2ast_roundtrip.cpp.o
+[746/1109] Building CXX object src/tests/CMakeFiles/test_fp4_quantization.dir/unit/runtime/test_fp4_quantization.cpp.o
+[747/1109] Building CXX object src/tests/CMakeFiles/test_dsl_mathematic.dir/unit/dsl/test_dsl_mathematic.cpp.o
+[748/1109] Building CXX object src/tests/CMakeFiles/test_fp8.dir/unit/runtime/test_fp8.cpp.o
+[749/1109] Building CXX object src/tests/CMakeFiles/test_fp8_quantization.dir/unit/runtime/test_fp8_quantization.cpp.o
+[750/1109] Building CXX object src/tests/CMakeFiles/test_simd_local_memory.dir/unit/simd/test_simd_local_memory.cpp.o
+[751/1109] Building CXX object src/tests/CMakeFiles/test_simd_runtime_widths.dir/unit/simd/test_simd_runtime_widths.cpp.o
+[752/1109] Building CXX object src/tests/CMakeFiles/test_simd_atomics.dir/unit/simd/test_simd_atomics.cpp.o
+[753/1109] Building CXX object src/tests/CMakeFiles/test_simd_bindless_buffers.dir/unit/simd/test_simd_bindless_buffers.cpp.o
+[754/1109] Building CXX object src/tests/CMakeFiles/test_simd_bindless_textures.dir/unit/simd/test_simd_bindless_textures.cpp.o
+[755/1109] Building CXX object src/tests/CMakeFiles/test_simd_arithmetic.dir/unit/simd/test_simd_arithmetic.cpp.o
+[756/1109] Building CXX object examples/CMakeFiles/example_bindless_mip.dir/compute/bindless_mip.cpp.o
+[757/1109] Building CXX object src/tests/CMakeFiles/test_simd_curves.dir/unit/simd/test_simd_curves.cpp.o
+[758/1109] Building CXX object src/tests/CMakeFiles/test_simd_procedural.dir/unit/simd/test_simd_procedural.cpp.o
+[759/1109] Building CXX object src/tests/CMakeFiles/test_simd_accel.dir/unit/simd/test_simd_accel.cpp.o
+[760/1109] Building CXX object examples/CMakeFiles/example_helloworld.dir/compute/helloworld.cpp.o
+[761/1109] Building CXX object examples/CMakeFiles/test_helloworld.dir/compute/helloworld.cpp.o
+[762/1109] Building CXX object examples/CMakeFiles/example_gdeflate.dir/compute/compact/main.cpp.o
+[763/1109] Building CXX object examples/CMakeFiles/test_gdeflate.dir/compute/compact/main.cpp.o
+[764/1109] Building CXX object examples/CMakeFiles/example_gdeflate.dir/compute/compact/gdeflate.cpp.o
+[765/1109] Building CXX object examples/CMakeFiles/example_coro_sdf_renderer.dir/rendering/coro_sdf_renderer.cpp.o
+[766/1109] Building CXX object examples/CMakeFiles/test_gdeflate.dir/compute/compact/gdeflate.cpp.o
+[767/1109] Building CXX object examples/CMakeFiles/example_shader_toy.dir/rendering/shader_toy.cpp.o
+[768/1109] Building CXX object examples/CMakeFiles/test_shader_toy.dir/rendering/shader_toy.cpp.o
+[769/1109] Building CXX object examples/CMakeFiles/example_image_processing.dir/compute/image_processing.cpp.o
+[770/1109] Building CXX object examples/CMakeFiles/test_image_processing.dir/compute/image_processing.cpp.o
+[771/1109] Building CXX object examples/CMakeFiles/example_game_of_life.dir/simulation/game_of_life.cpp.o
+[772/1109] Building CXX object examples/CMakeFiles/test_game_of_life.dir/simulation/game_of_life.cpp.o
+[773/1109] Building CXX object examples/CMakeFiles/example_cluster_launch_control.dir/compute/cluster_launch_control.cpp.o
+[774/1109] Building CXX object examples/CMakeFiles/example_multi_head_attention.dir/ml/multi_head_attention.cpp.o
+[775/1109] Building CXX object examples/CMakeFiles/example_multi_head_attention.dir/ml/attention_host_data.cpp.o
+[776/1109] Building CXX object examples/CMakeFiles/example_async_copy_prefetch.dir/compute/async_copy_prefetch.cpp.o
+[777/1109] Building CXX object examples/CMakeFiles/test_async_copy_prefetch.dir/compute/async_copy_prefetch.cpp.o
+[778/1109] Building CXX object examples/CMakeFiles/example_multi_head_attention.dir/ml/attention_cpu_reference.cpp.o
+[779/1109] Building CXX object examples/CMakeFiles/example_multi_head_attention.dir/ml/attention_kernels.cpp.o
+[780/1109] Building CXX object examples/CMakeFiles/test_multi_head_attention.dir/ml/attention_host_data.cpp.o
+[781/1109] Building CXX object examples/CMakeFiles/test_multi_head_attention.dir/ml/multi_head_attention.cpp.o
+[782/1109] Building CXX object examples/CMakeFiles/test_multi_head_attention.dir/ml/attention_cpu_reference.cpp.o
+[783/1109] Building CXX object examples/CMakeFiles/example_multi_head_attention.dir/ml/attention_runner.cpp.o
+[784/1109] Building CXX object examples/CMakeFiles/test_multi_head_attention.dir/ml/attention_kernels.cpp.o
+[785/1109] Building CXX object examples/CMakeFiles/test_multi_head_attention.dir/ml/attention_runner.cpp.o
+[786/1109] Building CXX object tutorials/CMakeFiles/tutorial_01_mandelbrot.dir/01_mandelbrot/main.cpp.o
+[787/1109] Building CXX object examples/CMakeFiles/example_coro_external_stage_debug.dir/coro/external_stage_debug.cpp.o
+[788/1109] Building C object src/ext/reproc/reproc/CMakeFiles/reproc.dir/src/clock.posix.c.o
+[789/1109] Building C object src/ext/reproc/reproc/CMakeFiles/reproc.dir/src/drain.c.o
+[790/1109] Building C object src/ext/reproc/reproc/CMakeFiles/reproc.dir/src/error.posix.c.o
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/ext/reproc/reproc/src/error.posix.c:27:5: warning: '__auto_type' is a GNU extension [-Wgnu-auto-type]
+   27 |     __auto_type r = strerror_r(abs(error), string, ARRAY_SIZE(string));
+      |     ^
+/tmp/luisa-reduction-checkpoint.gQUERp/source/src/ext/reproc/reproc/src/error.posix.c:30:9: warning: '_Generic' is a C11 extension [-Wc11-extensions]
+   30 |         _Generic((r),
+      |         ^
+2 warnings generated.
+[791/1109] Building C object src/ext/reproc/reproc/CMakeFiles/reproc.dir/src/handle.posix.c.o
+[792/1109] Building C object src/ext/reproc/reproc/CMakeFiles/reproc.dir/src/init.posix.c.o
+[793/1109] Building C object src/ext/reproc/reproc/CMakeFiles/reproc.dir/src/options.c.o
+[794/1109] Building C object src/ext/reproc/reproc/CMakeFiles/reproc.dir/src/pipe.posix.c.o
+[795/1109] Building C object src/ext/reproc/reproc/CMakeFiles/reproc.dir/src/process.posix.c.o
+[796/1109] Building C object src/ext/reproc/reproc/CMakeFiles/reproc.dir/src/redirect.posix.c.o
+[797/1109] Building C object src/ext/reproc/reproc/CMakeFiles/reproc.dir/src/redirect.c.o
+[798/1109] Building C object src/ext/reproc/reproc/CMakeFiles/reproc.dir/src/reproc.c.o
+[799/1109] Building C object src/ext/reproc/reproc/CMakeFiles/reproc.dir/src/run.c.o
+[800/1109] Building C object src/ext/reproc/reproc/CMakeFiles/reproc.dir/src/strv.c.o
+[801/1109] Building C object src/ext/reproc/reproc/CMakeFiles/reproc.dir/src/utf.posix.c.o
+[802/1109] Building CXX object src/ext/reproc/reproc++/CMakeFiles/reproc++.dir/src/reproc.cpp.o
+[803/1109] Creating library symlink bin/libSPIRV.16.dylib bin/libSPIRV.dylib
+[804/1109] Linking CXX static library lib/libGenericCodeGen.a
+[805/1109] Linking CXX static library lib/libMachineIndependent.a
+[806/1109] Linking CXX static library lib/libOSDependent.a
+[807/1109] Building CXX object examples/CMakeFiles/example_coro_on_demand_texture.dir/coro/on_demand_texture.cpp.o
+[808/1109] Linking CXX executable bin/test_simd_cohort_scheduler
+[809/1109] Linking CXX executable bin/test_simd_scheduler_model
+[810/1109] Linking CXX executable bin/test_simd_reference_warp_collectives
+[811/1109] Linking CXX executable bin/test_simd_embree_packet_support
+[812/1109] Linking CXX executable bin/test_simd_schedule_ir
+[813/1109] Linking CXX executable bin/test_simd_thread_pool
+[814/1109] Linking CXX executable bin/test_simd_xir_to_schedule
+[815/1109] Linking CXX executable bin/test_simd_warp_uniformity
+[816/1109] Linking CXX executable bin/test_fallback_llvm_native_math
+ld: warning: building for macOS-13.0, but linking with dylib '/opt/homebrew/opt/llvm@21/lib/libLLVM.dylib' which was built for newer version 26.0
+[817/1109] Linking CXX executable bin/test_simd_phi_parallel_copy
+ld: warning: building for macOS-13.0, but linking with dylib '/opt/homebrew/opt/llvm@21/lib/libLLVM.dylib' which was built for newer version 26.0
+[818/1109] Linking CXX executable bin/test_simd_llvm_native_math
+ld: warning: building for macOS-13.0, but linking with dylib '/opt/homebrew/opt/llvm@21/lib/libLLVM.dylib' which was built for newer version 26.0
+[819/1109] Linking CXX executable bin/benchmark_llvm_native_math
+ld: warning: building for macOS-13.0, but linking with dylib '/opt/homebrew/opt/llvm@21/lib/libLLVM.dylib' which was built for newer version 26.0
+[820/1109] Building CXX object examples/CMakeFiles/example_coro_external_stage_neural_sdf.dir/coro/external_stage_neural_sdf.cpp.o
+[821/1109] Linking CXX executable bin/benchmark_simd_loop_unswitch
+ld: warning: building for macOS-13.0, but linking with dylib '/opt/homebrew/opt/llvm@21/lib/libLLVM.dylib' which was built for newer version 26.0
+[822/1109] Linking CXX executable bin/benchmark_simd_predicated_if
+ld: warning: building for macOS-13.0, but linking with dylib '/opt/homebrew/opt/llvm@21/lib/libLLVM.dylib' which was built for newer version 26.0
+[823/1109] Linking CXX executable bin/benchmark_simd_gemm_assembly
+ld: warning: building for macOS-13.0, but linking with dylib '/opt/homebrew/opt/llvm@21/lib/libLLVM.dylib' which was built for newer version 26.0
+[824/1109] Linking CXX executable bin/benchmark_simd_ray_query
+[825/1109] Linking CXX executable bin/benchmark_simd_procedural_ray_query
+[826/1109] Linking CXX executable bin/benchmark_ast2xir_inline_ray_query
+[827/1109] Linking CXX executable bin/test_simd_llvm_warp_collectives
+ld: warning: building for macOS-13.0, but linking with dylib '/opt/homebrew/opt/llvm@21/lib/libLLVM.dylib' which was built for newer version 26.0
+[828/1109] Linking CXX executable bin/test_simd_llvm_value_layout
+ld: warning: building for macOS-13.0, but linking with dylib '/opt/homebrew/opt/llvm@21/lib/libLLVM.dylib' which was built for newer version 26.0
+[829/1109] Linking CXX executable bin/test_basic_traits
+[830/1109] Linking CXX executable bin/test_basic_types
+[831/1109] Linking CXX executable bin/test_simd_llvm_schedule_codegen
+ld: warning: building for macOS-13.0, but linking with dylib '/opt/homebrew/opt/llvm@21/lib/libLLVM.dylib' which was built for newer version 26.0
+[832/1109] Linking CXX executable bin/test_binary_io
+[833/1109] Linking CXX executable bin/test_binary_file_stream
+[834/1109] Linking CXX executable bin/test_clock
+[835/1109] Linking CXX executable bin/test_first_fit
+[836/1109] Linking CXX executable bin/test_logging
+[837/1109] Linking CXX executable bin/test_dynamic_module
+[838/1109] Linking CXX executable bin/test_mathematics
+[839/1109] Linking CXX executable bin/test_matrix
+[840/1109] Linking CXX executable bin/test_pool
+[841/1109] Linking CXX executable bin/test_stl_containers
+[842/1109] Linking CXX executable bin/test_hash
+[843/1109] Linking CXX executable bin/test_type
+[844/1109] Linking CXX executable bin/test_fiber
+[845/1109] Linking CXX executable bin/test_platform_utils
+[846/1109] Linking CXX executable bin/test_spin_mutex
+[847/1109] Linking CXX executable bin/test_foreground_moments
+[848/1109] Linking CXX executable bin/test_example_options
+[849/1109] Linking CXX executable bin/test_path_tracing_sample_plan
+[850/1109] Linking CXX executable bin/test_photon_mapping_plan
+[851/1109] Linking CXX executable bin/test_nbody_render_plan
+[852/1109] Linking CXX executable bin/test_sparse_buffer_tile_plan
+[853/1109] Linking CXX executable bin/test_hip_geometry_memory_policy
+[854/1109] Linking CXX executable bin/test_hip_curve_bounds
+[855/1109] Linking CXX executable bin/test_sparse_texture_tile_plan
+[856/1109] Linking CXX executable bin/test_hip_llvm_pipeline
+[857/1109] Linking CXX executable bin/test_glslang_spirv
+[858/1109] Linking CXX executable bin/test_command_reorder_bindless
+[859/1109] Linking CXX executable bin/test_pixel_storage
+[860/1109] Linking CXX executable bin/test_argument_block_layout
+[861/1109] Linking CXX executable bin/test_spirv_motion_patch
+[862/1109] Linking CXX executable bin/test_ast
+[863/1109] Linking CXX executable bin/test_function_builder_dag
+[864/1109] Linking CXX executable bin/test_ast_basic
+[865/1109] Linking CXX executable bin/test_async_copy_ast
+[866/1109] Linking CXX executable bin/test_bindless_write_usage
+[867/1109] Linking CXX executable bin/test_builtin_kernel
+[868/1109] Linking CXX executable bin/test_tile_layout
+[869/1109] Linking CXX executable bin/test_cooperative_vector
+[870/1109] Linking CXX executable bin/test_manual_ast
+[871/1109] Linking CXX executable bin/test_tile_ir
+[872/1109] Linking CXX executable bin/test_tile_memory
+[873/1109] Linking CXX executable bin/test_tile_dsl
+[874/1109] Linking CXX executable bin/benchmark_tile_xir
+[875/1109] Linking CXX executable bin/test_tile_xir
+[876/1109] Linking CXX executable bin/test_tile_xir_runtime
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[877/1109] Linking CXX executable bin/test_tile_values_cpp20
+[878/1109] Linking CXX executable bin/test_tile_xir_llm
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[879/1109] Linking CXX executable bin/test_tile_values_cpp23
+[880/1109] Linking CXX executable bin/test_tile_native_codegen
+[881/1109] Linking CXX executable bin/benchmark_tile_native
+[882/1109] Linking CXX executable bin/test_tile_native_runtime
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[883/1109] Linking OBJCXX executable bin/test_tile_metal_timing
+[884/1109] Linking OBJCXX executable bin/benchmark_tile_manual
+[885/1109] Linking OBJCXX executable bin/benchmark_tile_system
+[886/1109] Linking CXX executable bin/test_tile_tirx
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[887/1109] Linking OBJCXX executable bin/benchmark_tile_mpp
+[888/1109] Linking CXX executable bin/test_tile_tirx_values
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[889/1109] Linking CXX executable bin/test_tile_tirx_execution
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[890/1109] Linking CXX executable bin/test_tile_tirx_memory
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[891/1109] Linking CXX executable bin/test_tile_tirx_cooperative
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[892/1109] Linking CXX executable bin/test_tile_tirx_planner
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[893/1109] Linking CXX executable bin/test_tile_tirx_pipeline
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[894/1109] Linking CXX executable bin/test_tile_tirx_matrix
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[895/1109] Linking CXX executable bin/benchmark_tile_tirx
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[896/1109] Linking CXX executable bin/test_tile_tirx_poc
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[897/1109] Linking CXX executable bin/test_tile_tirx_poc_neural
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[898/1109] Linking CXX executable bin/test_binding_group
+[899/1109] Linking CXX executable bin/test_tile_tirx_poc_algorithms
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[900/1109] Linking CXX executable bin/test_tile_tirx_targets
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[901/1109] Linking CXX executable bin/test_constant
+[902/1109] Linking CXX executable bin/test_binding_group_template
+[903/1109] Linking CXX executable bin/test_callable
+[904/1109] Linking CXX executable bin/test_dsl
+[905/1109] Linking CXX executable bin/test_dsl_multithread
+[906/1109] Linking CXX executable bin/test_dsl_sugar
+[907/1109] Linking CXX executable bin/test_soa_subview
+[908/1109] Linking CXX executable bin/test_soa_simple
+[909/1109] Linking CXX executable bin/test_soa
+[910/1109] Linking CXX executable bin/test_nested_callable
+[911/1109] Linking CXX executable bin/test_normal_encoding
+[912/1109] Linking CXX executable bin/test_device_math
+[913/1109] Linking CXX executable bin/test_calc
+[914/1109] Linking CXX executable bin/test_dsl_matrix
+[915/1109] Linking CXX executable bin/test_var
+[916/1109] Linking CXX executable bin/test_8bit
+[917/1109] Linking CXX executable bin/test_polymorphic
+[918/1109] Linking CXX executable bin/test_dsl_autodiff
+[919/1109] Linking CXX executable bin/test_async_copy_cuda
+[920/1109] Linking CXX executable bin/test_async_copy
+[921/1109] Linking CXX executable bin/test_cluster_launch_control
+[922/1109] Linking CXX executable bin/test_accel_blas_lifetime
+[923/1109] Linking CXX executable bin/test_accel_visibility
+[924/1109] Linking CXX executable bin/test_accel_build_modes
+[925/1109] Linking CXX executable bin/test_hip_large_accel_instances
+[926/1109] Linking CXX executable bin/test_hip_rt_scratch_reuse
+[927/1109] Linking CXX executable bin/test_hip_shader_cache
+[928/1109] Linking CXX executable bin/test_counted_local_array
+[929/1109] Linking CXX executable bin/test_hip_callable_boundary
+[930/1109] Linking CXX executable bin/test_hip_float_atomic_memory_model
+[931/1109] Linking CXX executable bin/test_atomic
+[932/1109] Linking CXX executable bin/test_byte_buffer
+[933/1109] Linking CXX executable bin/test_atomic_queue
+[934/1109] Linking CXX executable bin/test_cpu_callable
+[935/1109] Linking CXX executable bin/test_context
+[936/1109] Linking CXX executable bin/test_copy
+[937/1109] Linking CXX executable bin/test_decoupled_look_back
+[938/1109] Linking CXX executable bin/test_bindless_mip
+[939/1109] Linking CXX executable bin/test_complex_kernel
+[940/1109] Linking CXX executable bin/test_mipmap
+[941/1109] Linking CXX executable bin/test_direct_texture_sampling
+[942/1109] Linking CXX executable bin/test_metal_codegen_regressions
+[943/1109] Linking CXX executable bin/test_printer
+[944/1109] Linking CXX executable bin/test_pinned_mem
+[945/1109] Linking CXX executable bin/test_motion_instance_keyframes
+[946/1109] Linking CXX executable bin/test_shared_memory
+[947/1109] Linking CXX executable bin/test_sampler
+[948/1109] Linking CXX executable bin/test_printer_custom_callback
+[949/1109] Linking CXX executable bin/test_pbrt_curve_parser
+[950/1109] Linking CXX executable bin/test_softmax
+[951/1109] Linking CXX executable bin/test_texture_compress
+[952/1109] Linking CXX executable bin/test_warp
+[953/1109] Linking CXX executable bin/test_timeline_event
+[954/1109] Linking CXX executable bin/test_texture_io
+[955/1109] Linking CXX executable bin/test_warp_prefix_scan
+[956/1109] Linking CXX executable bin/test_hip_wave_size
+[957/1109] Linking CXX executable bin/test_warp_sparse_collectives
+[958/1109] Linking CXX executable bin/test_ast_json_serde
+[959/1109] Linking CXX executable bin/test_mha_warp_reduction
+[960/1109] Linking CXX executable bin/test_ray_query_world_ray
+[961/1109] Linking CXX executable bin/test_buffer_io
+[962/1109] Linking CXX executable bin/test_buffer
+[963/1109] Linking CXX executable bin/test_out_of_range
+[964/1109] Linking CXX executable bin/test_buffer_view
+[965/1109] Linking CXX executable bin/test_device_test
+[966/1109] Linking CXX executable bin/test_external_buffer
+[967/1109] Linking CXX executable bin/benchmark_simd_gemm
+[968/1109] Linking CXX executable bin/test_gemm
+[969/1109] Linking CXX executable bin/test_hip_codegen_arithmetic
+[970/1109] Linking CXX executable bin/test_hip_motion_instance_device_ops
+[971/1109] Linking CXX executable bin/test_hip_motion_instance_matrix
+[972/1109] Linking CXX executable bin/test_hip_curve_ray_query
+[973/1109] Linking CXX executable bin/test_hip_motion_instance_srt
+[974/1109] Linking CXX executable bin/test_hip_motion_ray_query
+[975/1109] Linking CXX executable bin/test_hip_motion_mesh
+[976/1109] Linking CXX executable bin/test_hip_motion_workgroup_rows
+[977/1109] Linking CXX executable bin/test_hip_static_motion_instance
+[978/1109] Linking CXX executable bin/test_hip_ray_query_pipeline
+[979/1109] Linking CXX executable bin/test_dsl_fuse_buffer_reads
+[980/1109] Linking CXX executable bin/test_shared_mem
+[981/1109] Linking CXX executable bin/test_hip_signed_texture_io
+[982/1109] Linking CXX executable bin/test_dsl_indvar_strength_reduce
+[983/1109] Linking CXX executable bin/test_dsl_slp_vectorization
+[984/1109] Linking CXX executable bin/test_dsl_xir_optimize_vk
+[985/1109] Linking CXX executable bin/test_ast_external_lowering
+[986/1109] Linking CXX executable bin/test_ast_to_xir
+[987/1109] Linking CXX executable bin/test_ast_pack_usage
+[988/1109] Linking CXX executable bin/test_xir_module
+[989/1109] Linking CXX executable bin/test_xir_builder
+[990/1109] Linking CXX executable bin/test_xir_verifier
+[991/1109] Linking CXX executable bin/test_xir2ast_translators
+[992/1109] Linking CXX executable bin/test_xir_interchange
+[993/1109] Linking CXX executable bin/test_xir_translators
+[994/1109] Linking CXX executable bin/test_xir_pass_alias_analysis
+[995/1109] Linking CXX executable bin/test_xir_aggregate_field_bitmask
+[996/1109] Linking CXX executable bin/test_xir_passes
+[997/1109] Linking CXX executable bin/test_xir_pass_defer_local_aggregate_load
+[998/1109] Linking CXX executable bin/test_xir_pass_coro_rematerialize
+[999/1109] Linking CXX executable bin/test_xir_pass_core_analyses
+[1000/1109] Linking CXX executable bin/test_xir_pass_scalar_evolution
+[1001/1109] Linking CXX executable bin/test_xir_pass_coro_alloca_scope
+[1002/1109] Linking CXX executable bin/test_xir_pass_pointer_usage
+[1003/1109] Linking CXX executable bin/test_xir_integer_alignment
+[1004/1109] Linking CXX executable bin/test_xir_pass_licm
+[1005/1109] Linking CXX executable bin/test_xir_pass_unused_callable_removal
+[1006/1109] Linking CXX executable bin/test_xir_coro_cfg_distill
+[1007/1109] Linking CXX executable bin/test_xir_pass_lower_break_continue
+[1008/1109] Linking CXX executable bin/test_xir_coro_cfg_dataflow
+[1009/1109] Linking CXX executable bin/test_xir_coro_materialize
+[1010/1109] Linking CXX executable bin/test_coro_dead_field
+[1011/1109] Linking CXX executable bin/test_coro_frame_size
+[1012/1109] Building CXX object examples/CMakeFiles/example_coro_path_tracing.dir/rendering/coro_path_tracing.cpp.o
+[1013/1109] Linking CXX executable bin/test_xir_coro_reg2mem
+[1014/1109] Linking CXX executable bin/test_xir_coro_split
+[1015/1109] Linking CXX executable bin/test_coro_restructure_validation
+[1016/1109] Building CXX object examples/CMakeFiles/example_coro_path_tracing_wavefront.dir/rendering/coro_path_tracing.cpp.o
+[1017/1109] Linking CXX executable bin/test_xir_coro_xir2ast
+[1018/1109] Linking CXX executable bin/test_xir_coro_pipeline
+[1019/1109] Linking CXX executable bin/test_coro_frame_desc
+[1020/1109] Linking CXX executable bin/test_coro_frame_runtime
+[1021/1109] Linking CXX executable bin/test_coro_func
+[1022/1109] Linking CXX executable bin/test_coro_compile_trigger
+[1023/1109] Linking CXX executable bin/test_coro_graph_wavefront_policy
+[1024/1109] Linking CXX executable bin/test_coro_graph
+[1025/1109] Linking CXX executable bin/test_coro_suspend
+[1026/1109] Linking CXX executable bin/test_coro_persistent_integration
+[1027/1109] Linking CXX executable bin/test_coro_scheduler_base
+[1028/1109] Linking CXX executable bin/test_coro_state_machine
+[1029/1109] Linking CXX executable bin/test_coro_persistent
+[1030/1109] Linking CXX executable bin/test_coro_persistent_opt
+[1031/1109] Linking CXX executable bin/test_coro_soa_layout
+[1032/1109] Linking CXX executable bin/test_coro_radix_sort
+[1033/1109] Linking CXX executable bin/test_coro_wavefront
+[1034/1109] Linking CXX executable bin/test_coro_multisplit
+[1035/1109] Linking CXX executable bin/test_coro_all_schedulers
+[1036/1109] Linking CXX executable bin/test_xir_pass_destructure_cfg
+[1037/1109] Linking CXX executable bin/test_coro_compaction
+[1038/1109] Linking CXX executable bin/test_coro_pipeline_3suspend
+[1039/1109] Linking CXX executable bin/test_coro_wavefront_integration
+[1040/1109] Linking CXX executable bin/test_coro_pipeline_1suspend
+[1041/1109] Linking CXX executable bin/test_xir_pass_reconstruct_ray_query_loop
+[1042/1109] Linking CXX executable bin/test_xir_pass_lower_irreducible_cfg
+[1043/1109] Linking CXX executable bin/test_xir_pass_early_cse
+[1044/1109] Linking CXX executable bin/test_xir_pass_simplify_cfg
+[1045/1109] Linking CXX executable bin/test_xir_pass_lower_ray_query_to_pipeline
+[1046/1109] Linking CXX executable bin/test_xir_pass_restructure_cfg_selection_relations
+[1047/1109] Linking CXX executable bin/test_xir_pass_restructure_cfg
+[1048/1109] Linking CXX executable bin/test_xir_pass_restructure_cfg_construct_exits
+[1049/1109] Linking CXX executable bin/test_xir_pass_fuse_consecutive_buffer_reads
+[1050/1109] Linking CXX executable bin/test_xir_pass_restructure_cfg_entry_boundaries
+[1051/1109] Linking CXX executable bin/test_xir_pass_indvar_simplify
+[1052/1109] Linking CXX executable bin/test_xir_pass_post_dom_tree
+[1053/1109] Linking CXX executable bin/test_xir_pass_convergence_region
+[1054/1109] Linking CXX executable bin/test_xir_pass_autodiff_cfg
+[1055/1109] Linking CXX executable bin/test_xir_pass_early_return_elimination
+[1056/1109] Linking CXX executable bin/test_xir_pass_loop_fusion
+[1057/1109] Linking CXX executable bin/test_xir_pass_loop_rotation
+[1058/1109] Linking CXX executable bin/test_xir_pass_loop_vectorization
+[1059/1109] Linking CXX executable bin/test_xir_pass_sccp
+[1060/1109] Linking CXX executable bin/test_xir_pass_slp_vectorization
+[1061/1109] Linking CXX executable bin/test_xir_pass_mutation_safety
+[1062/1109] Linking CXX executable bin/test_xir_pass_pipeline
+[1063/1109] Linking CXX executable bin/test_device_debugger
+[1064/1109] Linking CXX executable bin/test_dstorage_decompression
+[1065/1109] Linking CXX executable bin/test_procedural_callable
+[1066/1109] Linking CXX executable bin/test_xir2ast_roundtrip
+[1067/1109] Linking CXX executable bin/test_aot
+[1068/1109] Linking CXX executable bin/test_oso_parser
+[1069/1109] Linking CXX executable bin/test_rtx
+[1070/1109] Linking CXX executable bin/test_dsl_mathematic
+[1071/1109] Linking CXX executable bin/test_simd_runtime_widths
+[1072/1109] Linking CXX executable bin/test_fp8
+[1073/1109] Linking CXX executable bin/test_fp4
+[1074/1109] Linking CXX executable bin/test_fp4_quantization
+[1075/1109] Linking CXX executable bin/test_fp8_quantization
+[1076/1109] Linking CXX executable bin/test_simd_bindless_buffers
+[1077/1109] Linking CXX executable bin/test_simd_atomics
+[1078/1109] Linking CXX executable bin/test_simd_bindless_textures
+[1079/1109] Linking CXX executable bin/test_simd_arithmetic
+[1080/1109] Linking CXX executable bin/test_simd_local_memory
+[1081/1109] Linking CXX executable bin/test_simd_curves
+[1082/1109] Linking CXX executable bin/test_simd_procedural
+[1083/1109] Linking CXX executable bin/test_simd_accel
+[1084/1109] Linking CXX executable bin/example_coro_sdf_renderer
+[1085/1109] Linking CXX executable bin/example_bindless_mip
+[1086/1109] Linking CXX executable bin/example_gdeflate
+[1087/1109] Linking CXX executable bin/example_helloworld
+[1088/1109] Linking CXX executable bin/test_helloworld
+[1089/1109] Linking CXX executable bin/test_gdeflate
+[1090/1109] Linking CXX executable bin/example_shader_toy
+[1091/1109] Linking CXX executable bin/example_game_of_life
+[1092/1109] Linking CXX executable bin/example_image_processing
+[1093/1109] Linking CXX executable bin/test_shader_toy
+[1094/1109] Linking CXX executable bin/test_game_of_life
+[1095/1109] Linking CXX executable bin/test_image_processing
+[1096/1109] Linking CXX executable bin/example_cluster_launch_control
+[1097/1109] Linking CXX executable bin/test_async_copy_prefetch
+[1098/1109] Linking CXX executable bin/example_async_copy_prefetch
+[1099/1109] Linking CXX executable bin/example_multi_head_attention
+[1100/1109] Linking CXX executable bin/test_multi_head_attention
+[1101/1109] Linking CXX executable bin/example_coro_on_demand_texture
+[1102/1109] Linking CXX executable bin/example_coro_external_stage_neural_sdf
+[1103/1109] Linking CXX executable bin/example_coro_path_tracing
+[1104/1109] Linking CXX executable bin/example_coro_external_stage_debug
+[1105/1109] Linking CXX executable bin/example_coro_path_tracing_wavefront
+[1106/1109] Linking CXX executable bin/tutorial_01_mandelbrot
+[1107/1109] Building CXX object tutorials/CMakeFiles/tutorial_02_path_tracing.dir/02_path_tracing/main.cpp.o
+[1108/1109] Linking CXX executable bin/tutorial_02_path_tracing

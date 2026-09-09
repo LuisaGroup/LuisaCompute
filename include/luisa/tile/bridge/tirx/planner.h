@@ -100,10 +100,11 @@ struct PlannerOptions {
     // search every whole-SIMD-group width within the target limit and the
     // two-level collective's capacity (at most 32 subgroups). Element domains
     // are striped over workers and reducers use native collectives plus proved
-    // shared partials when necessary. Floating-point addition therefore uses
-    // a tree order rather than the reference left fold. This policy is both
-    // the numerical permission and the planner candidate switch; it is never
-    // inferred from a target name or a coincidental loop annotation.
+    // shared partials when necessary. This only enables the candidate family;
+    // each reduction must independently grant unordered-tree permission and
+    // pass the compatible-merge matcher. An ordered tree or explicit fold is
+    // never widened by this switch. The language default is unordered_tree;
+    // target availability/noalias contracts are still explicit here.
     bool metal_subgroup_reductions{false};
     // Zero retains the automatic family's incumbent (packing only single-
     // subgroup programs). Nonzero fixes independent logical programs per
@@ -315,6 +316,10 @@ struct GroupWorkload {
     uint64_t max_independent_elements{1u};
     uint64_t shared_memory_bytes{0u};
     luisa::vector<MatrixWorkload> matrices;
+    // Largest independently owned output domain of an admitted one-subgroup
+    // collective. This is a realization width requirement, not a prediction
+    // that collective execution is faster than a serial fold.
+    uint64_t max_collective_outputs{0u};
 };
 
 struct MatrixDistribution {

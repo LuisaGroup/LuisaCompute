@@ -1,0 +1,56 @@
+{
+  "started_unix": 1788936652.038087,
+  "experimental_projection_forced": true,
+  "runs": [
+    {
+      "name": "xir-simd",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "/private/tmp/luisa-packet-inline.UY1lIE/build",
+        "--output-on-failure",
+        "--no-tests=error",
+        "--timeout",
+        "240",
+        "-j",
+        "1",
+        "-L",
+        "unit_xir|unit_simd",
+        "--output-junit",
+        "/private/tmp/luisa-packet-inline.UY1lIE/projection-xir-simd.xml"
+      ],
+      "started_unix": 1788936652.0381,
+      "finished_unix": 1788936733.649187,
+      "exit_code": 0,
+      "tests": 80,
+      "failures": 0,
+      "skipped": 0
+    },
+    {
+      "name": "tile",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "/private/tmp/luisa-packet-inline.UY1lIE/build",
+        "--output-on-failure",
+        "--no-tests=error",
+        "--timeout",
+        "240",
+        "-j",
+        "1",
+        "-R",
+        "^test_tile_",
+        "--output-junit",
+        "/private/tmp/luisa-packet-inline.UY1lIE/projection-tile.xml"
+      ],
+      "started_unix": 1788936733.64962,
+      "finished_unix": 1788936993.2669709,
+      "exit_code": 0,
+      "tests": 35,
+      "failures": 0,
+      "skipped": 0
+    }
+  ],
+  "finished_unix": 1788936993.2672262,
+  "passed": true
+}

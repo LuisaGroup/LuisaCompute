@@ -120,6 +120,15 @@ instruction shapes, and resource protocol.
 
 ## Reduction is a structured algebraic region
 
+**Current surface versus proposed contract.** `Nest::reduce(IndexSpace, policy)`
+and ordinary carried assignment are implemented. The default is
+`reduction::unordered_tree`; each REDUCE operation stores a typed
+`ReductionPolicy`. TIRx and XIR preserve explicit order restrictions, and backend
+switches control candidate availability only. Custom lift/merge contracts,
+their general validation and the richer domain conveniences below remain design
+extensions. Unrecognized bodies currently retain a serial realization; they
+are not silently granted an invented parallel merge.
+
 A reduction uses the same invariant as every other range-for construct: the
 loop variable is the current region scope, never a data value or accumulator
 proxy:
@@ -135,20 +144,22 @@ for (auto &column : nest.reduce(x.domain(columns))) {
 use(sum); // the outer Tile identity now denotes the reduced result
 ~~~
 
-`column` is a non-copyable `ReduceScope`. `column.index()` is its staged
-reduction coordinate and `column.coord()` is the full lexical coordinate.
+`column` is a non-copyable Nest handle, just like the other range-for bindings.
+Its index identifies a contribution coordinate, not a memory element or worker.
+The `domain`/`coord` conveniences in this schematic surface do not prescribe
+hardware binding.
 `x.domain(columns)` is a typed `IndexSet`; `x.at(column)` is a pure Tile
 projection implemented by reindexing. Neither operation chooses participants,
 memory, or a collective.
 
-The primitive region signature is deliberately source-free and state-free:
+The proposed region signature is deliberately source-free and state-free:
 
 ~~~text
 nest.reduce(domain, contract?, policy?)
 
 domain      typed semantic contribution coordinates
-contract    optional identity/merge/type/reassociation contract
-policy      optional accuracy/order constraints, never a warp count
+contract    optional lift/merge/type/law contract for tree realization
+policy      reference fold and permitted regrouping, never a warp count
 ~~~
 
 The body is captured once. On region close, the frontend finds every `Tile`
@@ -157,14 +168,15 @@ region's incoming block arguments and outgoing results. Locals remain locals;
 stores and atomics remain effects; neither can accidentally become a reduction
 state. There is no public `result()`, `yield`, accumulator proxy, or state list.
 
-The update graph supplies information that the old spelling duplicated. A
+In the proposed analysis, the update graph supplies information that an
+explicit accumulator list would duplicate. A
 canonical `state += contribution`, `state = maximum(state, contribution)`, or
-corresponding minimum/logical form selects its registered reducer contract.
-`state = mma(a, b, state)` is likewise recognized as an additive contribution
-whose lift is the policy-governed product reduction; this is what makes a tap
-or block domain around MMA a valid algebraic region.
-Several independently recognized states form the product reducer, so one region
-may compute sum and maximum together. Recognition of floating-point addition
+corresponding minimum/logical form identifies a possible reducer contract.
+`state = mma(a, b, state)` still has its own inner contraction policy; recognizing
+this update does not authorize reordering the outer block/tap fold. A tree
+candidate needs a compatible lift/merge and numerical contract for that fold.
+Independent states may form a product reducer with permissions checked for each
+component; coupled updates need a joint contract. Recognition of floating-point addition
 does not by itself permit arbitrary reassociation; the math policy still decides
 that. A custom contract can be supplied after the domain:
 
@@ -177,10 +189,11 @@ for (auto &feature :
 }
 ~~~
 
-If an update is not recognized and no compatible contract is present, capture
-rejects the region and recommends `serial`; it never silently removes the
-algebraic promise. If several custom states are needed, they should be one
-explicit product/aggregate state with one typed product contract.
+An unrecognized pure update can use an explicitly selected strict fold.
+The default tree policy still needs a compatible merge contract; if none is
+available, diagnose the missing contract and suggest a fold policy rather than
+silently inventing a merge. Programs with observable intermediate states or
+general ordered effects use `serial` or a suitable scan/effect contract.
 
 An external view may use the scope as an input to its ordinary view map, which
 supports the spelling proposed for tiled streaming reductions:
@@ -230,24 +243,97 @@ and body are independently inspectable and rewritable. A pass can fuse a
 producer, split the reduction domain, change its placement, or replace the body
 with a target atom without losing the original reducer contract.
 
+### Reference fold and permitted regrouping
+
+The following presets are implemented C++ API. They extend the existing
+`reduce` primitive rather than introducing four kinds of nest.
+For the source contribution sequence `x0, x1, x2` and incoming state `z`:
+
+```{table} Reduction policies: default freedom and explicit restrictions
+:class: design-table
+:name: reduction-policies
+
+| Policy | Reference / permission | Required contract |
+|---|---|---|
+| `reduction::unordered_tree` (default) | Regroup and permute contributions; seed exactly once | Compatible lift/merge |
+| `reduction::ordered_tree` | Regroup; preserve leaf order and the seed's reference position | Compatible lift/merge |
+| `reduction::fold_left` | `op(op(op(z, x0), x1), x2)` | No merge law required; preserve this update chain |
+| `reduction::fold_right` | `op(x0, op(x1, op(x2, z)))` | No merge law required; preserve this update chain and operand orientation |
+```
+
+**The source default is `unordered_tree`.** Ordinary `nest.reduce(domain)`
+authorizes a compatible reducer's tree regrouping and contribution permutation,
+including changed FP32-add rounding; users need not add a fast-math switch to
+obtain that permission. `ordered_tree`, `fold_left` and `fold_right` are explicit
+restrictions. A tree policy permits a serial realization too: it describes a
+set of allowed computations, not a mandatory hardware algorithm.
+
+This default does not authorize a different accumulation dtype, approximate
+transcendentals, FMA contraction or ignoring NaNs; those remain independent
+arithmetic contracts. A strict floating-point operation mode does not retract
+the reduction's regrouping permission. Conversely, an explicit fold restriction
+must survive every backend and tuning configuration. Current striped Metal
+collectives and CPU array reductions require `unordered_tree`; ordered trees
+conservatively retain a source-ordered recurrence. XIR/SIMD currently retains
+serial reductions for all four policies. The Metal and SIMD Runtime factories
+disable kernel-wide fast-math when any reduction requires order, because their
+current final compiler interfaces cannot express a local arithmetic override.
+This does not turn unrelated unordered reductions into explicit folds.
+The TIRx LLVM target likewise cannot override order with global fast-math
+flags. TVM's own Metal runtime requires the optional precise-math extension;
+without it, ordered reductions fail compilation explicitly. Luisa's Metal
+Runtime uses its own compiler options and needs no such TVM extension.
+
+For order-sensitive policies, multidimensional source order is lexicographic
+in the `IndexSpace` axis order over active coordinates; physical layout, lane
+number and storage replication cannot redefine it. A policy is not an
+optimization-strength integer: left and right folds generally compute different
+functions. Mathematical laws and policy-granted relaxation are distinct
+evidence. FP32 addition does not have exact associativity.
+
+The ordinary assignment spelling remains visible in both directions:
+
+~~~cpp
+// x is an existing Tile over the axis k.
+auto left = Scalar<float>{0.0f};
+for (auto &r : nest.reduce(shape(k), reduction::fold_left)) {
+    left = left - x.at(r);
+}
+auto right = Scalar<float>{0.0f};
+for (auto &r : nest.reduce(shape(k), reduction::fold_right)) {
+    right = x.at(r) - right;
+}
+~~~
+
+Right fold visits contributions in reverse source order and uses the stated
+element/state operand orientation. The policy does **not** silently change
+`state - element` into `element - state`; doing only a reversed left-fold
+traversal is not the same contract. For `x = [1, 2, 3]` these examples yield
+`left = -6`, `right = 2`. Heterogeneous folds must type-check the appropriate
+`State x Elem -> State` or `Elem x State -> State` update.
+
+### Grouping, merge legality and edge cases
+
 Formally the region declares a reduction coordinate space `R`. Each inferred
 state has a result coordinate space `G` and a set of semantic contribution
 occurrences `Omega`, with `iteration : Omega -> R` and
 `group : Omega -> G`. For `x.domain(axes)`, `group` is the familiar projection
 that removes those axes. For a general map-reduce body it is inferred from the
-shape/index map of the state update. Given reducer monoid
-`(S, identity, merge)` and contribution `lift(omega)`:
+shape/index map of the state update. Each grouping fiber has an ordered list
+`omega0, ..., omegaN-1`. A strict fold only requires a typed update and seed;
+it does not require an identity or a parallel merge. For a tree-enabled
+left-reference reducer with a lawful monoid `(S, identity, merge)` and
+contribution `lift(omega)`, one admitted realization is:
 
 ~~~text
 result[g] = merge(incoming[g],
-                  merge_all(identity,
-                            { lift(omega) | group(omega) = g }))
+                  ordered_merge(identity,
+                                [lift(omega0), ..., lift(omegaN-1)]))
 ~~~
 
 For a domain occurrence `omega`, the captured body computes
 `update(state, omega)` using arbitrary pure contribution-producing operations.
-Parallel reassociation is legal only when the reducer contract proves or
-explicitly promises the homomorphism:
+For an exact ordered-tree rewrite, sufficient laws are:
 
 ~~~text
 update(s, omega) = merge(s, lift(omega))
@@ -255,22 +341,49 @@ merge(merge(a, b), c) = merge(a, merge(b, c))
 merge(identity, a) = a = merge(a, identity)
 ~~~
 
+Without exact laws, the tree policy must admit the changed results for that
+compatible reducer. This is how the default FP32 sum allows tree rounding
+without falsely asserting exact associativity. A law declaration and numerical
+permission remain separate evidence, even when they enable the same candidate.
+
+For a right-reference update, the lift/merge relation instead has the element
+on the left: `update(omega, s) = merge(lift(omega), s)`, with the seed at the
+right boundary. A generic `State x Elem -> State` update does not automatically
+provide `State x State -> State` merge.
+
 The fiber is an ordered contribution sequence unless the contract also grants
-commutativity. Associativity permits different parentheses, not an arbitrary
-permutation: a noncommutative reducer needs contiguous partial sequences and
-an order-preserving merge. Striped worker assignment generally changes order
-and needs the stronger permission. The multiset notation above applies only
-when permutation is permitted. An independent output-group direction and a
-reduction direction are separate factors of one domain, as formalized in the
+permutation. Associativity permits different parentheses, not an arbitrary
+permutation: preserving a noncommutative reducer's source sequence requires
+contiguous partial sequences and an order-preserving merge. Striped worker
+assignment generally changes order
+and needs the stronger permission. For example, combining `[a,c]` and `[b,d]`
+as `(a op c) op (b op d)` reorders leaves. An independent output-group direction
+and a reduction direction are separate factors of one domain, as formalized in the
 [execution calculus](../internals/tile/calculus.md#strength-is-a-product-order-not-an-enum-order).
 
-Built-in add, maximum, minimum, logical reducers, and deterministic argmax are
-recognized update shapes with registered contracts. Welford and other custom
-states supply the same typed contract explicitly or through a registered
-library update. If the laws are unavailable, `reduce` is ill-formed; the honest
-ordered spelling is `serial`. Floating-point reassociation and deterministic
-tree shape remain explicit math/policy choices rather than accidental backend
-behavior.
+The intended library catalog supplies conditional contracts for built-in
+updates and custom states such as Welford. The current implementation is
+narrower; body recognition is not a proof of arbitrary custom laws. Strict
+folds remain valid without merge laws. Floating-point reassociation, precision,
+FMA behavior and determinism are separate policy dimensions. A fixed tree can
+be reproducible within one configuration without being bit-identical across
+different JIT configurations or devices.
+
+The contract must also define:
+
+- **Seed versus identity:** incoming state is included once, in its specified
+  position; it is not copied into every worker's partial. Empty fibers return
+  that seed. Masked-out occurrences are skipped; padded physical lanes may use
+  an identity only when it is valid under the selected arithmetic semantics,
+  otherwise partials carry validity.
+- **Exceptional values:** overflow, NaNs, signed zero, ties and argmax ordering
+  are part of the operation contract, not guessed from an intrinsic name.
+- **Local permissions:** the language/kernel default resolves at capture; a stricter
+  local policy is never widened by a backend or tuner. Independent state
+  components may need separate trees or a common stricter realization.
+- **Proof boundary:** builtin facts, derived conditions and trusted custom
+  law declarations retain their provenance. Random testing can falsify a law,
+  not prove it for an arbitrary function.
 
 Storage replicas are not semantic contributions. A domain generated by the
 expression-reduce library contains each logical Tile element once even if its
@@ -287,25 +400,30 @@ ReductionPlacement : R -> ParticipantFiber x LocalSerialStep
 MergePlan          : PartialStateOccurrences -> ResultStateOccurrences
 ~~~
 
-It may therefore become a lane shuffle tree, a shared-memory tree, a SIMD
-horizontal operation, a serial loop, or a spatial/temporal hybrid without
-changing the source. The remaining logical axes determine the result shape;
+With the corresponding permission and merge contract, it may become a lane
+shuffle tree, a shared-memory tree, a SIMD horizontal operation or a hybrid.
+A strict fold preserves its chain while independent output fibers may still
+execute in parallel. The remaining logical axes determine the result shape;
 their distribution may stay sharded or acquire explicit replica fibers.
 
 ```{figure} ../../_static/tile/reduction-model.svg
 :alt: A reduction region groups semantic contributions while its schedule independently maps the reduction domain to participants and serial steps.
 :width: 100%
 
-The reduction domain and monoid define meaning. Distribution and the target
-catalog decide the physical collective.
+Grouping and the selected fold/tree contract define meaning. A compatible merge
+and the permitted transformations open distribution and collective choices;
+missing merge laws do not invalidate an explicitly selected strict fold.
 ```
 
 The first proof-driven realization of this factoring is now implemented for
 Metal FP32 add/max/min row programs. It maps a logical reduction to one or more
 SIMD groups and derives worker-private/shared storage from the selected owner
 map; see [the generated SIMD-group intrinsic path](../internals/tile/reductions.md#warp-and-simd-group-intrinsics-in-the-generated-code). In that bounded
-implementation, the explicit `metal_subgroup_reductions` compile option is the
-floating-point tree-order permission. A richer per-reducer accuracy,
+implementation, `metal_subgroup_reductions` only enables the candidate family;
+the per-operation policy supplies tree-order permission. The Metal Runtime
+enables this family automatically when it owns capability/noalias validation
+and the caller has not supplied an explicit TIRx configuration. Standalone
+TIRx compilation still requires those target contracts. A richer per-reducer accuracy,
 determinism, NaN and signed-zero policy remains part of this language design,
 not a feature already exposed by the current C++ surface.
 

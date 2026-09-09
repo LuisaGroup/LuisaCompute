@@ -1,0 +1,77 @@
+{
+  "implementation": "tile_xir_simd",
+  "backend": "cpu",
+  "precision": "fp32",
+  "fast_math": false,
+  "relaxed_precision": false,
+  "runtime": "luisa",
+  "timing": "synchronized_host_wall",
+  "batch_policy": "one_runtime_command_list_per_batch",
+  "operation": "rope",
+  "dimensions": [
+    17,
+    66
+  ],
+  "reduction_tree": false,
+  "requested_input_views": false,
+  "attention_qk": "not_applicable",
+  "source_reduction_policy": "unordered_tree",
+  "reduction_candidate_setting": "not_applicable",
+  "requested_group_threads": 0,
+  "attention_block": [
+    1,
+    1
+  ],
+  "input_shapes": [
+    [
+      17,
+      66
+    ],
+    [
+      17,
+      33
+    ],
+    [
+      17,
+      33
+    ]
+  ],
+  "output_shape": [
+    17,
+    66
+  ],
+  "fixture_ms": 0.072291,
+  "runtime_init_ms": 11.36625,
+  "compile_ms": 226.774709,
+  "allocation_upload_ms": 0.00575,
+  "cold_call_ms": 0.123375,
+  "warmup_ms": 75.028916,
+  "repetitions": 535,
+  "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=13, direct CFG=false, contiguous reads=20, broadcasts=0; exact search 6 candidates, uncalibrated cost 4328.000 (arithmetic 102.000, memory 3468.000, dispatch 128.000, imbalance 630.000), root order [0]; local_lanes=8; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; load_reduction_fusion=false; fused_reduction_loads=0; elided_load_snapshots=0; interleaved_private_arrays=4; contiguous_private_reads=40; contiguous_private_writes=20; private_workspace_bytes=0; fast_math=false; ordered_reduction=false",
+  "correctness": {
+    "checks": 2,
+    "elements_per_check": 1122,
+    "guard_elements_per_check": 34,
+    "atol": 5e-05,
+    "rtol": 5e-05,
+    "max_abs_error": 1.75924355972e-07
+  },
+  "throughput_us": [
+    36.0495327103,
+    38.0475850467,
+    35.9774915888,
+    36.8828654206,
+    35.4623831776,
+    37.3068542056,
+    37.267446729
+  ],
+  "latency_us": [
+    23.875,
+    24.125,
+    30.375,
+    23.125,
+    24.458,
+    40.541,
+    47.584
+  ]
+}

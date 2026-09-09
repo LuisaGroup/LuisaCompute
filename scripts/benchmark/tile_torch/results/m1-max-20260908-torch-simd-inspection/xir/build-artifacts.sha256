@@ -1,0 +1,3 @@
+79e517adfc84707ea3987341a84782388c001fef775e973e4de6f2ab2b4f4b7a  /tmp/luisa-reduction-checkpoint.gQUERp/build/bin/benchmark_tile_xir
+0631c149e01ea6a6f74f8825447db7ade3e97f60fe1e5646ac2bca1304db3874  /tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-tile-bridge-xir.dylib
+87111d1581dfcdc92685cf775964c70928cb3bdcd07d1a23eab7ab6b6929058f  /tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-backend-simd.so

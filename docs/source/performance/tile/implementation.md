@@ -6,6 +6,7 @@
 |---|---|---|
 | C++ surface | Signature parameters; range-for Nests; direct carried assignment; explicit stores; Tile-level operations | Not arbitrary C++ capture or intra-kernel SIMT/Tile mixing |
 | Execution | `parallel`, `serial`, `pipeline`, `reduce`; scope constraints | The backend must realize the requested binding; unsupported bindings are errors |
+| Reduction policy | Typed per-operation unordered-tree default, explicit ordered tree and left/right folds; TIRx/XIR preserve order restrictions | Generic lift/merge contracts remain future work; ordered trees currently use serial realizations; XIR has no tree emitter |
 | Data/layout | Typed layout representation and proof mechanisms; Tensor as storage plus layout/view | Not every represented layout has an emitter on every bridge |
 | TileIR | Mutable typed SSA, regions and intrusive ownership/use structure | General Machine TileIR and its pass suite are not implemented |
 | TIRx | Native C++ export preserving pure multi-consumer SSA; target-selectable recomputation; CPU/Metal realizations; typed MPP modes and optional proved K/M/N-tail views/bounded output; Metal FP32 subgroup reductions; bounded target-specific cost/solvers; opt-in rectangular group-program traversal | MPP bounds require optional capabilities and canonical proved guards; arbitrary masks retain fallback storage; traversal is explicit and Metal-group-only; materialization/reuse lacks traffic/spill calibration; broader atoms/operators remain necessary |
@@ -13,7 +14,7 @@
 | XIR/SIMD | Direct verified XIR; local Tile expansion; loop PHIs; ordinary CPU Runtime | No matrix-extension atom, packed GEMM microkernel or general Tile distribution |
 | CPU planner / realizations | Root-axis permutations × legal worker-block widths; bounded storage/SIMD/launch choices; proved CBLAS and Accelerate atoms | Provider selection is explicit; no fitted break-even model, whole-program optimum, general Tile partitioning or physical pipeline solver |
 | Autotuning | Recapture/JIT variants, Cartesian execution/resource/materialization candidates, exact Metal reduction-width sweeps and frozen-plan benchmarking | Broader search requires legal emitters and measured ranking; one capture is not mandatory |
-| Composed Metal programs | Automatic cooperative admission for supported MMA-containing programs, singleton-axis projection and pipeline capacity reservation | No general reduction redistribution, sibling-scope fusion or calibrated whole-region resource/time solver |
+| Composed Metal programs | Automatic cooperative admission for supported MMA-containing programs, singleton-axis projection, pipeline capacity reservation and closed per-Tile subgroup reductions; reference binding accounts for complete subgroups | One subgroup per reduction output, not general redistribution; no sibling-scope fusion or calibrated whole-region resource/time solver |
 | Execution calculus | Documented contracts and finite reference tests | Proposed refinement rules and relative-completeness scope, not machine-checked production correctness or a novelty result |
 
 The existing CuTe-derived mixed-radix/composition design is not a claim of a

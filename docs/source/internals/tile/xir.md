@@ -1,7 +1,8 @@
 # TileIR → XIR: execution planning and SIMD realization
 
-Status: executable CPU realization with bounded packet-index proofs,
-September 6, 2026. The finite root-mapping solver below is implemented. General Tile distribution, packed
+Status: executable CPU realization with bounded packet-index proofs and
+compiler-owned snapshots, bounded Tile traversal, closed unordered partials and
+an opt-in packet-local mapping, September 9, 2026. The finite solver below is implemented. General Tile distribution, packed
 matrix atoms, software pipelining and measured cost calibration are not.
 
 This document complements the [language/layout design](../../tile/design.md),
@@ -131,6 +132,552 @@ floating-point address-slope estimate. It neither asserts noalias nor moves a
 load across an effect. LLVM simplification alone is too late to prevent
 unnecessary per-element branches from inflating the earlier SIMD Schedule.
 
+### Indexable snapshots preserve Tile value semantics
+
+A Tile is still an immutable SSA value, not a deferred buffer view. The XIR
+lowerer distinguishes access forms without changing the DSL:
+
+- A constant coordinate, including an expanded Tile-map coordinate and
+  supported checked integer expressions, directly selects the scalar SSA
+  element. It does not build a full SELECT chain for LLVM to simplify later.
+- A Tile with runtime-indexed extract users receives a compiler-owned local
+  array at its definition. The lowerer stores its elements once, then emits
+  a guarded GEP/load at each dynamic extract. Singleton/empty values and
+  unproved statically expanded expressions retain the SSA fallback.
+
+```text
+buffer.load at definition
+          │
+          ▼
+       Tile SSA
+          │ save once
+          ▼
+   private snapshot[D]
+          │ guarded indexed read
+          ▼
+    extract(index(r))
+
+Later buffer.store changes the
+buffer, not this snapshot.
+```
+
+For D input elements and R runtime extracts, the selected representation
+replaces D×R selection work with D definition-time stores plus R indexed
+reads. The eager baseline stores at definition; the admitted first-consumer
+fusion below may instead initialize the snapshot during its first traversal.
+Small loop carries use simultaneous PHIs; the bounded large-carry representation
+below uses a staged parallel copy and preserves zero-trip initial state.
+Distinct SSA definitions have distinct storage, preserving multi-Tile swaps.
+An input parameter being `const` is not a noalias assertion: an overlapping
+writable argument may overwrite the buffer without changing the snapshot.
+
+This is a physical representation repair, **not contribution-axis vectorization**.
+The SIMD emitter allocates each worker's local array separately within a
+packet and uses its existing gather/scatter machinery. It may still spill.
+`max_local_bytes` bounds
+the sum of snapshot allocations per logical worker (default 256 KiB), not
+peak liveness or the complete target stack; the packet multiplies this storage
+by W. The existing SSA expansion budget also charges allocation/GEP/store
+construction. Exceeding either bound rejects lowering rather than truncating
+values or silently changing semantics. This does not introduce manual Memory
+requirements or a new execution scope.
+
+The guarded load retains this bridge's existing flat-index zero fallback;
+it is not a new language-wide promise about invalid multidimensional
+coordinates. Neither extraction representation changes fold L/R order,
+reducer operand order, floating-point policy or the root execution mapping.
+
+### Bounded traversal, partial reductions and private resources
+
+The representation layer now has three forms. This is compiler state, not
+three new user-visible Tile or Memory types:
+
+| Value | Physical form | Evaluated at |
+|---|---|---|
+| Small Tile | SSA / indexed snapshot | Definition |
+| Large shared value | Array + loop | Definition |
+| Constant / single-use math | Splat / pure recipe | Consumer |
+
+Large loads, maps and multi-consumer expressions normally use the array form.
+External reads remain eager unless the first-consumer fusion below proves
+that delaying them crosses no mutation or stage boundary. A deferred recipe
+captures immutable physical operand definitions, not mutable entries in the
+lowerer's value lookup table.
+
+`max_unrolled_tile_elements` defaults to 64; zero explicitly selects the old
+fully expanded diagnostic form without removing IR/storage budgets. Loop
+instructions no longer grow with a large Tile's element count. This does not
+bound total code size independently of the number of operations or nested
+small expansions. Multi-consumer expressions normally remain materialized; there is
+no calibrated recomputation/materialization search yet.
+
+```text
+source .load() ── bounded loop ──> immutable snapshot
+                                       │
+                             pure expression recipe
+                                       │
+                              bounded consumer loop
+
+large carried state:
+  init → current ── body ──> yielded values
+            ▲                   │
+            └── copy all ── next buffers
+                           ▲
+               stage every incoming value first
+```
+
+Large loop carries have current/next storage. All yielded values are staged
+before any current value is overwritten, including cross-carry swaps.
+Small scalar/Tile carries remain PHIs. MMA's contraction uses an ordered
+runtime fold for a large contraction domain; this is not a packed matrix atom.
+
+For a closed scalar `unordered_tree` reduction, the lowerer recognizes a
+single ADD/MUL/MIN/MAX update whose carry has no other users and whose
+contributions contain only constants, elementwise math and Tile extraction.
+It splits contributions over `reduction_partitions` independent accumulators
+(default 4, legal range 1–16). Each nonempty partition starts from an actual
+contribution; the source initial value enters the final merge **once**, with
+no invented zero/one identity. Tails are exact. Strict fold L/R, non-closed
+state recurrence, multiple carries, nested regions and effectful bodies retain
+their ordered fallback. This uses the unordered numerical contract, not a
+claim that floating-point addition is exactly associative. These partials
+remain inside one logical worker in the default complete-program mapping.
+The opt-in mapping below also merges them across packet lanes.
+
+### First-consumer fusion preserves the snapshot contract
+
+The **opt-in**, default-disabled `enable_load_reduction_fusion` selects a
+shared realization rule in the planner and lowerer. A materialized view load can join the first actual
+consumer reached through single-use pure Tile expressions when that consumer
+is a closed, scalar unordered reduction using bounded partials or packet
+distribution. Unit-size map wrappers, including library `reduce()`, execute
+once and are transparent. Other enclosing execution scopes are not.
+
+The admission rule requires a bijection of matching nonunit dimensions and
+extents and direct reduction coordinates in each extract. Unit axes may be
+inserted/projected; a complete multidimensional reduction may permute axes.
+It rejects reordered element indices, strict folds, unknown effects, every
+intervening write (even through a different buffer argument), and `stage`
+boundaries. This does not re-prove the independence promised by `parallel`:
+it verifies the narrower legality of moving one resource read in time.
+
+```text
+view load definition ── capture buffer, origin, fill and bounds facts
+             │ no intervening writes or stage boundary
+             ▼
+first reduction loop ── load element once ── contribution ── partial
+                              │
+                later users?  ├── yes: save snapshot element
+                              └── no: omit snapshot allocation
+```
+
+The loaded scalar is reused by repeated pointwise operands such as `x*x`.
+When later consumers exist, they still read the original snapshot, including
+after an aliasing store. Captured XIR SSA definitions are immutable; the
+host-side pending plan is consumed at the reduction rather than reused across
+repeated lowering of a loop body. Bounds guards/fill share the ordinary view
+access emitter. No reciprocal rewrite, invented reduction identity or tree
+change is introduced.
+
+The work prior charges the external read once, removes private reads in the
+fused first consumer, and removes snapshot writes only when no later consumer
+needs storage. It uses the **same admission helper** as lowering. This is
+realization-derived work accounting, not measured cycle calibration or a
+general phase-fusion solver. Nonunit wrapper maps, arbitrary gather consumers
+and cross-effect reloads remain unoptimized here.
+
+The SIMD diagnostic switch `LUISA_SIMD_ENABLE_LOAD_REDUCTION_FUSION=1`
+enables both planning and lowering of this rule for fixed-mapping A/B tests;
+`LUISA_SIMD_DISABLE_LOAD_REDUCTION_FUSION=1` takes precedence and disables it.
+Measured RMSNorm regressions show why fewer counted private reads alone do
+not justify enabling this rule by default. See the
+[performance evidence](../../performance/tile/results.md#simd-local-distribution-and-private-layout-are-separate-decisions).
+`fused_reduction_loads` and `elided_load_snapshots` are static construction
+counts in realization metadata, not dynamic memory-transaction counts.
+
+The independent `enable_expression_reduction_fusion` option extends this same
+admission rule to **materialized pure elementwise producers**. For example,
+softmax's shared `e = exp(x - peak)` can compute `e[i]`, save it and accumulate
+the sum during the same traversal. The later division still reads the saved
+`e`, rather than recomputing `exp`. An expression used repeatedly only inside
+the first reduction can omit its snapshot entirely.
+
+```text
+captured immutable inputs
+           |
+first reduction traversal
+  expression[i] → cached scalar
+                    ├─> reduction
+                    └─> snapshot[i]*
+  *only for later consumers
+```
+
+This is producer/consumer loop fusion, not general rematerialization. The
+producer's operands are captured at its definition; every point is evaluated
+once, and repeated extracts share that scalar. The same no-write/no-stage,
+coordinate-bijection and unordered-reduction restrictions apply. Single-use
+recipes already deferred to a consumer do not count as newly fused producers.
+The planner charges production once, removes the first consumer's private
+reads, and removes snapshot writes only if no later consumer needs them.
+The chosen reduction tree, source initial value, math policy and resource
+alias contract do not change.
+
+`LUISA_SIMD_ENABLE_EXPRESSION_REDUCTION_FUSION=1` enables the option;
+`LUISA_SIMD_DISABLE_EXPRESSION_REDUCTION_FUSION=1` takes precedence.
+`fused_reduction_expressions` and `elided_expression_snapshots` are static
+realization counts. This candidate remains default-disabled: relative work
+savings are not evidence of native profitability, and the finite solver does
+not yet search this choice. General map producers and cross-scope fusion are
+not implemented by this option.
+
+### Guarded pointwise DAG fusion keeps an alias-safe fallback
+
+The **opt-in**, default-disabled `enable_pointwise_fusion` adds a streaming
+realization for a closed, straight-line Tile expression DAG with one or more
+stores. Unlike single-use recipes, it evaluates a shared SSA expression once
+per coordinate and reuses the result across multiple outputs. Admission uses
+typed operations, domains and effects, not kernel or operator names.
+This is fusion *within* an execution scope, not sibling-scope fusion or a new
+execution primitive.
+
+```text
+closed load / DAG / store interval
+                |
+       runtime alias check
+          /           \
+        pass          fail
+         |              |
+  per coordinate     original
+    load inputs      snapshots +
+    shared DAG       store order
+    store outputs       |
+          \            /
+            next effect
+```
+
+The current admission boundary is deliberately explicit:
+
+- Every Tile operand/result has the same positive static IndexSpace,
+  including dimension identities and unit axes. The domain requires bounded
+  traversal or packet-local storage; already expanded small Tiles keep the
+  existing realization. An interval contains at most 256 operations.
+- Only constants, pure elementwise operations, and direct buffer view
+  loads/stores participate. There is no load after the first store inside
+  the interval. Regions, stages, explicit resources/layouts and execution
+  constraints are boundaries; reduction/carry semantics are unchanged.
+- No internally defined Tile escapes the interval. External Tile values
+  retain their existing immutable representations. Pure scalar definitions
+  are emitted before either branch, so escaping scalars dominate later uses.
+- On the same buffer argument, loads must be provably disjoint from stores.
+  Stores must be disjoint or have the identical pointwise coordinate map.
+  A constant-origin separation on one axis suffices; clipping cannot enlarge
+  the intersection. Overlapping shifted stores retain whole-store order.
+- Distinct arguments are **not** a noalias assertion. Actual buffer-view
+  addresses and complete logical byte extents are checked at invocation.
+  Unsigned address differences avoid overflowing an end-address addition.
+  Overlap, including identical or shifted views into one allocation, selects
+  the original snapshot path. Adjacent intervals may select streaming.
+
+The existing bounds/fill emitter and arithmetic operations are reused in the
+fast branch. No floating-point reassociation, reduction-tree change, unchecked
+reload across a stage, or user `owned_by`/`noalias` annotation is introduced.
+`parallel` still supplies independence between its iterations; these checks
+protect load/store ordering **inside** one logical program.
+
+`LUISA_SIMD_ENABLE_POINTWISE_FUSION=1` enables the candidate;
+`LUISA_SIMD_DISABLE_POINTWISE_FUSION=1` overrides it. Metadata exposes
+`fused_pointwise_regions`, `fused_pointwise_loads`, `fused_pointwise_stores`
+and `pointwise_alias_checks`. These count construction decisions, not dynamic
+transactions or observed guard outcomes. Both branches exist in the generated
+program, and fallback storage may still affect its physical resource budget.
+
+The current planner continues to estimate the original snapshot path. It
+does **not** price the guard, assume a noalias probability, or automatically
+choose fusion as a winner. A future profitability model must account for
+fast/fallback work, code size, live values, masked tails and guard frequency;
+fewer temporary arrays alone is insufficient evidence. Fixed-mapping native
+comparisons are required before changing defaults or solver selection.
+
+### Full-packet specialization is separate from Tile fusion
+
+The SIMD backend has an opt-in, default-disabled codegen candidate. Its
+diagnostic controls are:
+
+```sh
+LUISA_SIMD_ENABLE_FULL_PACKET_SPECIALIZATION=1
+LUISA_SIMD_DISABLE_FULL_PACKET_SPECIALIZATION=1
+```
+
+The disable switch takes precedence.
+It does not alter the Tile program, execution distribution, memory layout,
+partial-reduction tree or numerical policy.
+
+```text
+exact 1D runtime range
+         ├── complete packets ── one shared body with active_lanes = W
+         │                       (three internal pointer arguments)
+         └── at most one tail ── original body with dynamic active_lanes
+                                 (unchanged four-argument packet ABI)
+```
+
+The wrapper already computes the full/tail split. This candidate additionally
+clones the emitted body once, replacing its active-lane parameter with the
+constant W using LLVM's
+[function-cloning API](https://llvm.org/doxygen/Cloning_8h.html).
+Every complete-packet call, including complete packets in a partial block,
+uses that clone. Only the genuinely narrow tail uses the original body.
+The ordinary LLVM inliner still decides whether to inline these bodies;
+constant-width specialization is not forced inlining or a claim that inner
+divergent masks disappear. Wrapper launch-config mutation and packet-private
+workspace lifetimes remain unchanged.
+
+Admission requires direct control flow, a static nonempty 1D packet range,
+the existing exact tail-narrowing contract, W2/W4/W8/W16, and at most 4096
+pre-optimization LLVM instructions in the original body. The bound limits
+clone construction cost; it is **not** a calibrated profitability threshold.
+Cooperative/coroutine entries, state-machine entries, standalone packet
+calls and unsupported range shapes retain their original paths.
+
+`full_packet_specializations` and `full_packet_cloned_instructions` report
+construction counts, not native instruction counts or dynamic work. This
+candidate must be evaluated independently of load/reduction fusion, at fixed
+execution mapping, before adding a joint profitability policy. Fewer source
+loads or fewer mask expressions alone do not imply faster native code.
+
+### Ragged memory regions and cohort-equal counted headers
+
+The experimental SIMD control
+`LUISA_SIMD_ENABLE_PREDICATED_MEMORY_EFFECTS=1` extends bounded memory
+if-conversion. `LUISA_SIMD_DISABLE_PREDICATED_MEMORY_EFFECTS=1` takes
+precedence. It is off by default and does not change the Tile primitives,
+distribution, resource ownership or reduction order.
+
+```text
+logical tile with a partial local interval
+    │
+    ├─ tail if ── exact arm mask on reads, private state and writes
+    │             empty arm keeps its own masked PHI assignments
+    │
+    └─ later counted loop ── equal start + constant stride + equal bound
+                            use-site cohort-equal condition, not scalar state
+                                      │
+                       direct CFG if every region is admitted
+                                      │
+                       eligible for separate full-packet specialization
+```
+
+Previously the memory recognizer accepted only small two-arm diamonds.
+Ragged programs commonly contain one-arm triangles, including a direct
+split-to-merge edge carrying PHI assignments. The extension admits either
+empty arm and bounded private GEP/load/store and nonvolatile buffer writes,
+using the existing masked memory emitters. It preserves the outer mask and
+active-lane seed at the merge. Empty masks must not access a null buffer or
+an invalid tail address; private and output guards are part of the tests.
+Shared memory, atomics, volatile operations, participant-mask collectives,
+opaque effects, integer division and float-to-integer conversion remain
+outside this rule. Eligible floating-point math retains non-trapping XIR
+semantics; no fast-math permission is added. The 32-instruction cap bounds
+construction, **not measured profitability**.
+
+A second issue is independent of memory legality: conservative control
+uniformity can mark a later fixed-count loop as varying after a preceding
+tail branch. Existing canonical-loop analysis now supplies a **use-site**
+cohort-equal header predicate for equal start/bound and constant stride.
+It does not globally scalarize induction values or loop-carried state.
+Direct CFG can consume this fact and reads the condition from the active
+seed lane, not unconditionally lane zero. A genuinely lane-varying bound
+still needs the scheduled fallback. Existing proven cohort header facts are
+also accepted by direct CFG with the new memory extension disabled.
+
+This is a generic compiler realization, not an operator-name dispatch or
+a new cost coefficient. It demonstrates why the planner must distinguish
+semantic work from *realized* scheduled/direct control flow, tail masks and
+full-packet eligibility. That realization-sensitive profitability model is
+still pending. See the
+[fixed-mapping evidence](../../performance/tile/results.md#ragged-control-flow-is-a-realization-cost-not-extra-tile-work).
+
+### Private index equality belongs to a use and an epoch
+
+An induction value can require varying backing storage while its active
+lanes have the same value at a particular loop-body access. For a canonical
+counted loop with lane-equal start `s` and constant step `d`, active lanes in
+body epoch `q` use `s + q*d`. The upper bound may differ by lane: lanes that
+exit early retain different final values after reconvergence. Consequently,
+this is not permission to globally scalarize the induction value.
+
+```text
+canonical loop / equal integer expressions
+  → GEP index is equal at this use
+  → cohort_uniform_operand_index = 1 (backing ValueClass unchanged)
+  → closed interleaved private array + load/store in the same Schedule block
+  → saved GEP address snapshot → contiguous slot vector
+
+varying start / cross-block pointer use / divergent loop exit
+  → no new contiguous-access permission → existing gather/scatter fallback
+```
+
+`LUISA_SIMD_ENABLE_COHORT_PRIVATE_ACCESS=1` enables this experimental
+XIR-to-Schedule fact propagation; the corresponding `DISABLE` flag wins.
+It is default-off and independent of predicated memory effects. The existing
+integer access analysis supplies the fact; the memory realization consumes
+it only for a direct single-index GEP into a closed private scalar array.
+No operator-name recognition or reduction reassociation is involved.
+
+Consumers must preserve the GEP address snapshot and dynamic epoch. The
+current implementation accepts only same-block accesses for this new fact;
+it does not infer that a pointer transported through another block, PHI,
+suspension or escape still names an equal slot. Existing globally
+warp-uniform indices retain their stronger permission. Shared and opaque
+storage do not enter the closed-private-array realization.
+
+This extends the existing immutable-base contiguous access implementation:
+inactive lanes are masked from reads and preserved by stores, including an
+empty cohort. Tests compare every byte of 32/64-bit private storage and
+guards at W2/4/8/16, with divergent bounds, non-prefix masks, differing
+starts and cross-block counterexamples. The transformation changes an
+access realization, not the execution mapping, memory ownership or
+floating-point contract. Realization-sensitive cost calibration remains
+separate from this legality improvement.
+
+### Packet-private storage budgets
+
+The SIMD adapter separately budgets **physical packet storage**:
+`bytes = Σ align_and_place(W × sizeof(local_array))`. It keeps small private
+arrays on the stack; above 64 KiB it moves their distinct intervals into a
+64-byte-aligned, Runtime-owned CPU-thread workspace, capped at 16 MiB.
+The allocation grows on first use and is reused after each packet completes;
+separate CPU threads never share it. It does not escape through kernel
+parameters or change user Buffer layouts. Standalone SIMD compilation retains
+the old stack ABI unless this policy is explicitly enabled. Cooperative
+packets and nested handlers cannot use this reuse policy.
+
+This is a physical-allocation constraint, **not a measured complete stack
+bound**, peak-liveness solver or guarantee against arbitrary register-spill
+growth. Standalone lowering defaults to a 256 KiB logical-worker budget; the
+Runtime adapter derives that budget from `16 MiB / W` and codegen checks the
+final aligned placement against the physical capacity again.
+Both counts and the chosen representation controls appear in realization
+metadata. Root order and block width participate in default exact search;
+local-axis distribution can be included explicitly. Small-loop regressions and remaining resource rejections
+must be assessed separately from successful large-kernel compilation.
+
+### Packet-local distribution preserves the split coordinate
+
+For an admitted common local axis of extent `N >= W`, the bridge can assign
+one root program to a complete packet:
+
+```text
+source: root program c, element e             0 <= e < N
+                   │
+        u = flatten_pi(c)
+        e = W*q + lane                      0 <= lane < W
+                   │
+                   ▼
+physical worker = W*u + lane
+private element = q                         tail: W*q + lane < N
+```
+
+This is a realization of the existing program, not a new DSL scope or an
+extra independence assertion about `parallel`. The lowerer retains `(q, lane)`
+as a split coordinate: projecting an owner-preserving Tile reads slot `q`
+directly. Reconstructing `q` with varying-i64 division after flattening loses
+valuable structure before Schedule/LLVM even sees the program.
+
+The current sufficient admission contract requires one shared **dimension
+identity** and extent across all nonunit Tile/map/reduce axes. Unit axes may
+be inserted or projected. Extracts preserve that axis coordinate; arbitrary
+permutations, cross-lane indexing, nested varying axes, strict folds, complex
+carry, explicit execution binding and manual Memory keep the whole-program
+fallback. Forced unsupported distribution fails closed. These limits describe
+missing realizations, not dependencies supposedly absent from the language.
+
+Loads normally snapshot at their definitions; the opt-in fusion above may
+move initialization to the first reduction. Each lane owns `ceil(N/W)` private
+slots, with only valid tail slots accessed. A closed unordered reduction starts
+each lane's partials from real contributions, merges them with a fixed
+`WARP_READ_LANE` butterfly, broadcasts lane zero's tree root, and combines the
+source initial value exactly once. Every lane reconverges before a shuffle;
+unit output stores execute only on the packet leader. No new zero/one identity
+or global fast-math permission is introduced.
+
+The output metadata carries `required_packet_width`: zero for whole-program
+lanes, exactly `W` for packet-local programs. The SIMD adapter checks this
+contract before compilation. Dispatch has `P*W` physical workers, so a logical
+program is never launched as a partial packet; the final Runtime block may
+still contain fewer complete packets.
+
+### Private array layout is independent of execution distribution
+
+The SIMD backend can independently interleave a nonescaping scalar array:
+
+```text
+                         whole-program or packet-local execution
+                                           │
+logical private access (lane, q)            │
+                  ├── lane-major:    lane * array_length + q
+                  └── interleaved:   q * W + lane
+                                           │
+                            stack or CPU-thread workspace
+```
+
+This backend transformation is not keyed on a Tile operator name. It admits
+only the closed address tree `alloca -> typed scalar-element GEP -> load/store`
+for 4/8-byte scalar elements. Aggregate access, reference escape, address PHIs
+and shared memory retain the original layout. The bijection preserves every
+lane's distinct storage, snapshots and capacity; it does not merge lifetimes
+or reorder effects. Interleaving alone does **not** guarantee that the emitter
+recognizes a contiguous masked access or that LLVM removes address overhead.
+
+The Tile adapter enables this representation and reports
+`interleaved_private_arrays`; standalone SIMD compilation keeps it opt-in.
+`LUISA_SIMD_DISABLE_INTERLEAVED_PRIVATE_ARRAYS=1` is a diagnostic A/B control.
+Execution mapping and private layout must be measured separately: a favorable
+layout does not make all packet-local executions profitable.
+
+### Common-slot private accesses preserve the scalar allocation base
+
+For an admitted interleaved allocation, a common slot has the address family
+`base + sizeof(T) * (q * W + lane)`. The backend now retains the allocation
+identity alongside each eligible access. The allocation base is immutable
+and dominates its uses; the offset comes from the **saved GEP handle**, not
+from re-evaluating an index after a loop or a scheduler transition.
+
+```text
+closed private allocation ─── immutable scalar base
+saved GEP + active cohort ─── common q * W * sizeof(T)
+                                          │
+                               one complete private slot
+                                  [lane 0 ... lane W-1]
+                                          │
+                     read vector / preserve inactive store bits
+```
+
+A warp-uniform index qualifies across Schedule blocks. A cohort-uniform
+index qualifies only when its GEP and access are in the same Schedule block;
+cohort equality is not a claim that values stay equal across reconvergence
+or suspension. Varying indices and non-admitted address trees retain the
+gather/scatter path. The existing seed of the current cohort is reused; an
+empty cohort selects allocated slot zero rather than an invalid inactive
+handle.
+
+Unlike external or shared memory, every complete slot of this closed
+packet-private allocation has storage for all W lanes. A vector load may
+therefore read that slot and select inactive lanes to zero. A partial store
+loads the previous slot, selects new values for active lanes, and writes the
+vector back, preserving every inactive bit. This is safe only because the
+allocation has no escaping aliases or concurrent observers. It does not
+authorize external-buffer overreads, wider shared-memory writes, snapshot
+reordering or lifetime coalescing.
+
+`contiguous_private_reads` and `contiguous_private_writes` count statically
+emitted eligible accesses, not executed memory operations or calibrated
+cost. Region versioning may emit more than one realization of an access.
+`LUISA_SIMD_DISABLE_CONTIGUOUS_PRIVATE_ACCESS=1` holds execution mapping and
+private layout fixed while restoring the gather/scatter control. Actual
+target code still decides profitability: a masked-vector intrinsic alone
+does not guarantee native vector instructions on a target without predicated
+loads and stores.
+
 ### Proven packet accesses, not estimated slopes
 
 The SIMD Schedule projection separately recognizes a bounded nonnegative
@@ -171,6 +718,17 @@ The first solver searches the Cartesian product of:
 
 - All permutations of root parallel axes, unless an exact order is supplied.
 - Block worker counts `{32, 64, 128, 256, 512, 1024}`, unless fixed explicitly.
+- With `local_lanes=0`, whole-program lanes and an admitted full-packet local
+  axis; `local_lanes=W` fixes the latter. The default remains `local_lanes=1`
+  until tail-control and CPU worker-activation costs are modeled adequately.
+- With `search_task_grain=true`, power-of-two blocks-per-CPU-task, the legacy
+  grain and the whole launch. `blocks_per_task` fixes a grain independently
+  of the block width; zero without search retains the Runtime heuristic.
+
+Task grain changes only how consecutive blocks are assigned to CPU callbacks.
+It does not change the program hierarchy, native packet body, reduction tree,
+memory layout or logical block coordinates. A single task executes on the
+calling thread; it is not a one-worker GPU execution binding.
 
 The target packet width is an existing Device property, not a compiler guess.
 Block counts must satisfy XIR's block-size contract and be divisible by that
@@ -191,10 +749,22 @@ remain authoritative; a low score never makes unsupported code legal.
 `ExecutionCostModel` is an **uncalibrated relative-work prior**, not nanoseconds,
 hardware instruction counts or measured cache behavior. Default weights:
 arithmetic 1, broadcast load 1, contiguous memory 2, gathered lane 2, block
-dispatch 128. All coefficients must be finite and nonnegative.
+dispatch 128, task dispatch 0 and worker activation 0. All coefficients must
+be finite and nonnegative. The latter two are separate because an actual
+block-range callback can issue multiple blocks. The historical block weight
+is still an abstract per-block term, not a count of native calls.
 
-For each candidate, the estimator counts static Tile work, local-loop
-repetition, ordered MMA multiply/add work, and Tile-extract selection work.
+For each candidate, the estimator counts Tile work, local-loop
+repetition, ordered MMA multiply/add work, definition-time snapshot stores
+and runtime indexed reads. The planner and lowerer share the structural
+classification of expanded versus runtime Tile-extract coordinates. The
+indexed-read prior includes flat-index/guard arithmetic and gathered local
+memory; it no longer charges an entire Tile selection for every iteration.
+The representation classifier also accounts for bounded-array reads/stores,
+deferred recipes at the consumer, and staged copies of large carries. Partial
+accumulator counts and the representation threshold are configurable fixed
+constraints, not newly searched or empirically calibrated dimensions.
+These are still relative-work estimates, not exact machine instruction counts.
 It estimates a buffer's flat address slope relative to the innermost root
 axis, using operand identity and supported constant/linear expressions.
 Slope zero on a load has a broadcast prior; absolute slope one has a
@@ -203,21 +773,72 @@ An innermost extent not divisible by W conservatively doubles memory work.
 These classifications are **not passed to codegen as proven facts**.
 
 Let `a,m` be estimated arithmetic/memory work per packet, `H` available CPU
-workers, `P` root programs, `Q=ceil(P/W)`, `L=ceil(P/B)`,
-`h=min(H,L)`, `waves=ceil(L/h)`, and `d` the dispatch weight:
+workers, `P` physical workers (`root programs * local_lanes`), `Q=ceil(P/W)`,
+`L=ceil(P/B)` and `G` blocks per task. The default grain is
+`ceil(L/(H*32))`; an explicit grain is clamped to L for estimation. There
+are `C=ceil(L/G)` chunks and `h=min(H,C)` active workers. If h=1, the Runtime
+collapses the entire range to one caller callback, regardless of G.
+
+For h>1, the static round-robin home assignment has C-1 full chunks and one
+possibly shorter final chunk. Let `F=C-1`, `R=G*B/W` and `last=Q-F*R`:
+
+```text
+critical_packets = max(ceil(F/h)*R, floor(F/h)*R + last)
+critical_blocks  = the same formula with Q=L and R=G
+critical_tasks   = ceil(C/h)
+```
+
+For h=1 these quantities are Q, L and 1. This exact count fixes the previous
+homogeneous-wave overestimate when only one worker receives a short last
+chunk. It is not an exact prediction of work stealing or heterogeneous-core
+time. With block, task and activation weights d, t and u:
 
 ```text
 arithmetic = a × Q / h
 memory     = m × Q / h
-dispatch   = d × waves
-imbalance  = max(0, waves × ceil(min(P,B)/W) − Q/h) × (a+m)
-score      = arithmetic + memory + dispatch + imbalance
+dispatch   = d × critical_blocks
+imbalance  = max(0, critical_packets − Q/h) × (a+m)
+task       = t × critical_tasks
+activation = h > 1 ? u : 0
+score      = arithmetic + memory + dispatch + imbalance + task + activation
 ```
 
-All four terms are retained in the plan and reported in shader realization
-metadata, along with the selected order and candidate count. This homogeneous
-wave model intentionally does not pretend to model the M1's heterogeneous
+All terms are retained in the plan and reported in shader realization
+metadata, along with order, candidate count and task grain. This static
+home-assignment model intentionally does not pretend to model the M1's heterogeneous
 cores, cache sharing, variable mask density, spills or actual thread timing.
+The experimental distribution estimator counts local iterations, external
+access slopes and a fixed shuffle prior. Its private-array estimate remains
+conservative and uncalibrated; it does not yet price the interleaved emitter's
+actual accesses. Joint search is therefore opt-in, not a promised speedup.
+
+### Backend cost policy, without changing the legal candidate space
+
+`ExecutionCostPolicy::coefficients()` replaces target coefficients before work
+extraction; `evaluate()` receives the candidate and `ExecutionWork`, and returns
+the complete objective. The solver does not divide that objective by workers
+again. `AnalyticExecutionCostPolicy` supplies the formula above; a backend can
+inherit either hook. The policy is borrowed only during synchronous planning.
+Invalid coefficients and nonfinite/negative returned cost components are
+rejected. Neither a policy nor a low score can waive IR, domain, binding,
+redistribution or candidate-budget checks.
+
+```text
+TileIR + hard realization constraints
+               │
+        legal (order, local lanes, block, task grain)
+               │
+        work extraction + home-chunk topology
+               │
+     backend coefficients / complete cost objective
+               │
+        exact finite minimum → native body + Runtime task grain
+```
+
+The [task-grain experiment](../../performance/tile/results.md#cpu-task-grain-is-independent-of-the-native-packet-body)
+shows why this hook must include actual realization costs before automatic
+rollout: a provisional activation-only extension helps small dispatches, but
+still underprices state-machine fallbacks and overly coarse parallel chunks.
 
 ### Reproducible fixed-plan controls
 
@@ -241,14 +862,15 @@ measurement gates. There is no capture-once restriction.
 
 | Tile semantics | XIR realization |
 |---|---|
-| Tile value | One scalar SSA value per local element, packed across independent workers later |
+| Tile value | Small SSA, bounded indexed array or single-use pure recipe; whole-program or admitted packet-local distribution |
 | Named dimensions | Identity-based projection/broadcast; names are diagnostics |
 | Load snapshot | Load at the source operation before subsequent effects |
 | Bounds/fill | Per-axis guards; actual load executes only in the valid branch |
 | Store | Explicit guarded buffer effect, including BufferView offsets |
-| Loop-carried assignment | Header PHIs; zero-trip initial state and simultaneous edge updates |
+| Loop-carried assignment | Small header PHIs or large staged parallel copy; zero-trip initial state preserved |
 | Pipeline/stage | Ordered CPU loop and source-order phase cuts; no claimed physical overlap |
-| MMA | Ordered multiply/add expansion with initial accumulator and dimension contraction |
+| Reduction | Closed unordered single-carry partials, optionally packet shuffles; strict/non-closed fallback retains order |
+| MMA | Ordered multiply/add traversal with initial accumulator and dimension contraction |
 | `ite(c,t,f)` | Correctly reordered to XIR's `SELECT(f,t,c)` |
 
 The checked expansion budget defaults to 262144 values. Supported scalar
@@ -260,8 +882,9 @@ matrix-extension lowering.
 
 Candidate TileIR still retains pure multi-consumer SSA definitions. The direct
 XIR bridge does not yet search recomputation versus a distributed physical
-materialization; its scalar expansion and the existing XIR/SIMD shared-SSA
-cleanup are one fixed realization. A future XIR resource candidate must use
+materialization; bounded traversal, single-use recipes, opt-in guarded
+pointwise intervals and the existing XIR/SIMD shared-SSA cleanup are structural
+realizations. A future XIR resource candidate must use
 the same use/effect/ownership facts as TIRx, but may choose a different result
 for CPU SIMD. It must not infer a user `Memory` or mechanically copy Metal's
 worker-stripe policy.
@@ -285,8 +908,12 @@ The second program can violate the first program's semantics even if output
 coordinates are distinct. Const input views are not noalias promises.
 Reductions, dynamic extraction and shared loop-carried state introduce further
 dependencies. Thus a general distribution candidate must carry a dependence
-and alias proof, a collective realization, or a checked invocation contract
+and effect analysis, a collective realization, or a checked invocation contract
 with a safe fallback. Shape alone is insufficient.
+The packet-local candidate above preserves complete definition-time loads
+before stores by default. Opt-in guarded pointwise fusion streams only after
+its resource checks succeed and otherwise retains those snapshots; it does
+not perform this unchecked per-element load/store transformation.
 
 ## 7. Extension plan: richer plans, not more DSL entities
 
@@ -321,17 +948,55 @@ serialized backend instruction list. The current `ExecutionPlan` and XIR
 Module are concrete, smaller stepping stones, not a claim that this full
 intermediate representation already exists.
 
+### Bounded local-vector candidates
+
+**Local-vector distributions remain proposed; snapshots, bounded traversal
+and closed unordered partials are implemented.** The
+[Torch CPU code inspection](../../performance/tile/results.md#torch-cpu-code-inspection-exposes-missing-local-vector-candidates)
+identified static expansion and dynamic selection chains in the previous
+bridge's machine code. The indexable snapshot repair above addresses the
+selection representation, and bounded traversal removes whole-row static
+expansion. Neither solves the whole distribution problem: the next candidate
+family needs independent output/contribution partition factors.
+
+For logical packet width W and p lanes per independent output, p dividing W,
+a local candidate maps lane l to `(o0 + floor(l/p), r0 + l%p)` and advances
+`r0 = t*p` over time. It covers vectorizing across outputs (p=1), across
+contributions (p=W), and mixed packing. Physical vector width, output grain,
+unroll and scratch choices remain target policy decisions. A phase may use a
+different partition from its successor and must account for the transition.
+
+Closed unordered reductions may use partial accumulators and horizontal
+combination. Strict folds retain their required contribution order but can
+still vectorize independent outputs. Replacing a load snapshot with a view
+requires actual alias/effect conditions; `parallel` supplies independence
+between its instances, not permission to change the effect order inside one.
+Compiler storage is not a new user Memory obligation.
+
+Cost calibration follows implementation: distinguish gather/contiguous work,
+vector math, horizontal combine, masks, peak live state and spills, phase
+transitions and CPU grain. Use separate IR/code-size and JIT budgets to prevent
+static expansion from overwhelming compilation. Reuse the SIMD backend's
+existing fixed-vector math provider. Neither arbitrary lane widening nor a
+new solver algorithm can substitute for a realizable local-vector family.
+
 ## 8. Validation entry points
 
 - `test_tile_xir`: typed ABI, output verification, repeat lowering, bounds on
   expansion, unsupported bindings, permutation legality, exact minimum and
-  fixed-plan/budget failure cases.
+  fixed-plan/budget failure cases; linear snapshot construction, zero SELECTs
+  for proved static projections, exact local-storage boundaries and constant
+  XIR size from width 65 through 16384 for the bounded sumsquares fixture.
 - `test_tile_xir_runtime`: ragged/transposed GEMM, nonzero initial values,
   changed non-dyadic inputs, reductions/softmax, offset views, guards, shader
-  moves, zero-trip loops and read/write snapshot recurrences.
+  moves, zero-trip loops and read/write snapshot recurrences, including
+  dynamically indexed multi-element carry swaps and aliased const/writable
+  buffer arguments; large in-place transpose across Runtime workers and
+  partial-reduction seed/tail/signed-zero/non-closed-fallback checks.
 - `test_tile_xir_llm`: normalization, activations, RoPE, masked softmax and
   online prefill/decode/GQA; same capture through XIR and native-target TIRx,
-  each checked independently against an FP64 oracle.
+  each checked independently against an FP64 oracle. Separate large Runtime
+  workspace fixtures bypass the TIRx cross-check but retain full FP64/guards.
 - `test_simd_phi_parallel_copy`: pure PHI cycles, uniform/varying loops,
   packet widths 1/2/4/8/16 and every active-lane count, independent of TileIR.
 - `benchmark_tile_xir`: isolated warm host-wall timing, full output export,

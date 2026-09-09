@@ -11,6 +11,7 @@
 #include <llvm/IR/Function.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Module.h>
+#include <llvm/Transforms/Utils/Cloning.h>
 
 #include <luisa/core/logging.h>
 #include <luisa/xir/op.h>
@@ -125,6 +126,7 @@ void apply_packet_wrapper_abi_attributes(
 
 [[nodiscard]] ::llvm::Function *build_packet_batch_entry(
     ::llvm::Module &module, ::llvm::Function *packet_entry,
+    ::llvm::Function *full_packet_entry,
     uint32_t specialization_width, uint32_t static_packet_count,
     uint32_t static_block_size_x, PacketBatchLowering lowering,
     bool enable_linear_1d_packet_tail_narrowing,
@@ -164,6 +166,11 @@ void apply_packet_wrapper_abi_attributes(
     auto *prologue = ::llvm::BasicBlock::Create(
         context, "packet.batch.prologue", batch_entry);
     ::llvm::IRBuilder<> builder{prologue};
+    auto call_full_packet = [&] {
+        return full_packet_entry == nullptr ?
+                   builder.CreateCall(packet_entry, {argument_buffer, return_lanes, launch_config, width}) :
+                   builder.CreateCall(full_packet_entry, {argument_buffer, return_lanes, launch_config});
+    };
     auto *thread_index_address = builder.CreateConstInBoundsGEP1_64(
         ::llvm::Type::getInt8Ty(context), launch_config,
         offsetof(SIMDPacketLaunchConfig, thread_index),
@@ -183,9 +190,7 @@ void apply_packet_wrapper_abi_attributes(
                                                  packet * specialization_width),
                                              "packet.thread.index");
                 builder.CreateStore(thread_index, thread_index_address);
-                builder.CreateCall(
-                    packet_entry,
-                    {argument_buffer, return_lanes, launch_config, width});
+                call_full_packet();
             }
             builder.CreateRetVoid();
             return batch_entry;
@@ -208,9 +213,7 @@ void apply_packet_wrapper_abi_attributes(
         auto *thread_index = builder.CreateAdd(
             base_thread_index, thread_offset, "packet.thread.index");
         builder.CreateStore(thread_index, thread_index_address);
-        auto *packet_call = builder.CreateCall(
-            packet_entry,
-            {argument_buffer, return_lanes, launch_config, width});
+        auto *packet_call = call_full_packet();
         if (lowering == PacketBatchLowering::inlined_loop) {
             packet_call->addFnAttr(::llvm::Attribute::AlwaysInline);
         }
@@ -340,9 +343,7 @@ void apply_packet_wrapper_abi_attributes(
                                              packet * specialization_width),
                                          "packet.thread.index");
             builder.CreateStore(thread_index, thread_index_address);
-            builder.CreateCall(
-                packet_entry,
-                {argument_buffer, return_lanes, launch_config, width});
+            call_full_packet();
         }
         builder.CreateBr(exit);
     } else {
@@ -358,9 +359,7 @@ void apply_packet_wrapper_abi_attributes(
         auto *thread_index = builder.CreateAdd(
             base_thread_index, thread_offset, "packet.thread.index");
         builder.CreateStore(thread_index, thread_index_address);
-        auto *packet_call = builder.CreateCall(
-            packet_entry,
-            {argument_buffer, return_lanes, launch_config, width});
+        auto *packet_call = call_full_packet();
         if (lowering == PacketBatchLowering::inlined_loop) {
             packet_call->addFnAttr(::llvm::Attribute::AlwaysInline);
         }
@@ -406,9 +405,7 @@ void apply_packet_wrapper_abi_attributes(
         "partial.packet.thread.index");
     builder.CreateStore(
         partial_thread_index, thread_index_address);
-    builder.CreateCall(
-        packet_entry,
-        {argument_buffer, return_lanes, launch_config, width});
+    call_full_packet();
     auto *next_partial_packet = builder.CreateAdd(
         partial_packet_index, one,
         "partial.packet.index.next");
@@ -689,7 +686,9 @@ LLVMScheduleCodegenResult lower_schedule_to_llvm(
     bool enable_native_vector_compress,
     bool enable_biased_narrow_buffer_gather,
     bool enable_gathered_native_texture_read,
-    bool enable_native_half4_texture_packet) {
+    bool enable_native_half4_texture_packet,
+    size_t private_stack_budget_bytes, bool enable_interleaved_private_arrays,
+    bool enable_contiguous_private_access) {
     auto enable_linear_1d_packet_tail_narrowing =
         enable_packet_batch_entry &&
         specialization_width != 0u &&
@@ -758,7 +757,8 @@ LLVMScheduleCodegenResult lower_schedule_to_llvm(
         true,
         enable_biased_narrow_buffer_gather,
         enable_gathered_native_texture_read,
-        enable_native_half4_texture_packet}
+        enable_native_half4_texture_packet,
+        private_stack_budget_bytes, enable_interleaved_private_arrays, enable_contiguous_private_access}
                       .run();
     if (result.succeeded() && result.cooperative_block) {
         auto block_thread_count = uint64_t{1u};
@@ -836,8 +836,40 @@ LLVMScheduleCodegenResult lower_schedule_to_llvm(
                 static_cast<uint32_t>(lowering),
                 static_packet_count);
         }
+        ::llvm::Function *full_packet_entry = nullptr;
+        // Keep a single constant-width body shared by all full-packet call
+        // sites. This exposes the all-on entry mask without requiring the
+        // target inliner to duplicate a large kernel into every call site.
+        // The original body remains authoritative for a genuinely narrow
+        // tail. Do not apply this to cooperative/coroutine or state-machine
+        // entries, or when the wrapper cannot establish the exact 1D range.
+        // This is an opt-in codegen candidate, not a calibrated cost model.
+        constexpr auto max_full_packet_clone_instructions = size_t{4096u};
+        if (enable_linear_1d_packet_tail_narrowing &&
+            result.direct_control_flow && static_packet_count != 0u &&
+            (specialization_width == 2u || specialization_width == 4u ||
+             specialization_width == 8u || specialization_width == 16u) &&
+            luisa::compute::detail::env_flag("LUISA_SIMD_ENABLE_FULL_PACKET_SPECIALIZATION") &&
+            !luisa::compute::detail::env_flag("LUISA_SIMD_DISABLE_FULL_PACKET_SPECIALIZATION")) {
+            auto instruction_count = size_t{0u};
+            for (auto &&block : *result.entry) {
+                instruction_count += block.size();
+                if (instruction_count > max_full_packet_clone_instructions) { break; }
+            }
+            if (instruction_count <= max_full_packet_clone_instructions) {
+                ::llvm::ValueToValueMapTy values;
+                values[result.entry->getArg(3u)] = ::llvm::ConstantInt::get(
+                    ::llvm::Type::getInt32Ty(module.getContext()), specialization_width);
+                full_packet_entry = ::llvm::CloneFunction(result.entry, values);
+                full_packet_entry->setName(result.entry->getName() + ".full_packet");
+                full_packet_entry->setLinkage(::llvm::GlobalValue::InternalLinkage);
+                full_packet_entry->setDSOLocal(true);
+                result.full_packet_specialization_count = 1u;
+                result.full_packet_cloned_instruction_count = instruction_count;
+            }
+        }
         result.packet_batch_entry = build_packet_batch_entry(
-            module, result.entry, specialization_width,
+            module, result.entry, full_packet_entry, specialization_width,
             static_packet_count, static_block_size[0u], lowering,
             enable_linear_1d_packet_tail_narrowing,
             enable_linear_1d_block_coalescing,

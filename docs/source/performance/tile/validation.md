@@ -3,6 +3,154 @@
 This record distinguishes executed correctness checks from performance claims.
 See [current status](index.md) for the latest bounded conclusion.
 
+## Expression producers join their first reduction traversal
+
+The September 9 expression-fusion checkpoint uses `2634be45d` (including
+`next@8911828eb`) plus an explicit eight-file C++ overlay in an isolated,
+recursively pinned source export. It passes a full configured build,
+**35 Tile CTests** and **79 XIR/SIMD CTests**. Additional exact-name tests at
+W1/W2/W4/W8/W16 execute nonzero assertions and pass with expression fusion
+alone and combined with the existing load/pointwise options. Snapshot
+retention/elision, alias writes, strict folds, stage boundaries, zero-trip
+and repeated scopes, fill, tails and permuted dimensions are covered.
+
+The first width-test wildcard selected no cases; those empty successes are
+excluded. An initial exact-name audit also incorrectly required a per-case
+PASSED banner from a reporter that prints only the aggregate. The final
+receipts require exactly one executed case and nonzero assertions; both
+earlier invocation/audit mistakes remain in the evidence.
+
+The [shared planner/lowering rule](../../internals/tile/xir.md#first-consumer-fusion-preserves-the-snapshot-contract)
+fuses two producers in each of four masked-softmax cases and one in each of
+four LayerNorm cases. The other 16 cases have byte-identical LLVM and ORC
+objects. All 48 capture outputs and 72 native smoke outputs pass complete
+FP64 checks; all 24 off/on pairs are bitwise equal. An independent audit
+rereads 138 snapshots, including 18 from an excluded partial timing run,
+and rejects eight in-memory corruptions of output or evidence records.
+
+**No new performance claim is accepted.** Schedule blocks fall, but static
+clone instruction counts rise and retained workspace sizes do not fall.
+Background CPU activity survives the named-process preflight; foreign
+rendering subsequently resumes. The owned benchmark is stopped, and all
+96 visits from that partial timing cohort are excluded. No second cohort,
+default change, cost calibration or automatic fusion selection is claimed.
+The {download}`Chinese checkpoint report <../../../../scripts/benchmark/tile_torch/results/m1-max-20260909-expression-reduction/notes.md>`
+records the scope, tradeoffs, exact source/binary lineage and remaining work.
+
+## next integration keeps performance qualification separate
+
+The later September 9 checkpoint includes `origin/next@03a0f5158`, with merge
+commit `bc7b1df1f`. A fresh, no-overlay export pins 19 repositories and passes
+a full configured build, **80 XIR/SIMD CTests**, **35 Tile CTests** and the
+complete **Metal codegen fixture**. The shared XIR fixes cover loop-epoch exit
+dispatches and ordered callable-swizzle copy-out. The only merge conflict is
+a test comment; the argument guard remains intact. Original unfinished
+worktree files and dependency checkouts are preserved. The
+{download}`Chinese follow-up record <../../../../scripts/benchmark/tile_torch/results/m1-max-20260909-next-integration/xir-followup/notes.md>`
+keeps the rejected empty CTest selection and successful registered-name rerun
+separate. No native performance objects are recaptured, and no speedup,
+default-policy change or cost calibration is claimed from this integration.
+The new upstream investigation is owned by the existing
+[validation archive](../validation.md), not a parallel documentation tree.
+
+The earlier September 9 merge includes `origin/next` through `8911828eb`, with merge
+commit `360d9791e`. A fresh source export includes the merge and recursively
+pinned submodule commits: 19 repositories and 18,830 fingerprinted base files.
+One subsequent, fingerprinted test-only overlay fixes the Metal fixture's
+argument guard; no compiler, library or Tile source is changed by that fix.
+The original worktree's 11 modified files and all dependency checkouts remain
+unchanged; the isolated build excludes the unfinished matrix experiment.
+The selected SIMD + Metal + TIRx configuration, with LLVM 21.1.8 and Metal4
+disabled, passes a full build, **all 35 Tile CTests**, **79 XIR/SIMD CTests**
+and both selected Metal regressions. The Runtime fusion A/B suite and the LLM
+suite also pass with the recorded packet/pointwise configurations.
+External TVM libraries are reused and fingerprinted, not rebuilt.
+
+The upstream Metal test constructed `string_view(argv[2])` without a third
+argument: Boost.UT's overloaded logical operator defeated the intended
+short-circuit. Splitting the argument guard fixes the test entry; both the
+complete and local-only fixture pass. Earlier Runtime metadata failures came
+from the test supervisor forcing fusion on/off while fixtures explicitly
+test both policies, not from a numerical failure. The corrected invocation
+leaves those policy switches to the fixtures. All failed invocations remain
+in the record. Changed C++ lines pass formatting and the translation unit
+passes syntax checks; seven inherited full-file formatting diagnostics and
+one unused-include warning remain, so this is not a warning-free claim.
+The first strict documentation build also rejects 13 newly merged, unowned
+validation pages. They now have one owner under the existing
+[performance and validation archive](../validation.md), retaining their
+original paths and content rather than weakening the ownership check.
+
+The separate, premerge pointwise experiment completes two fixed 24-case
+native replays. Their 864 timed visits check complete outputs, input
+immutability and guards; an independent audit rereads 144 output snapshots
+and rejects eight in-memory evidence/output mutations. Both attempts observe
+concurrent foreign rendering, including the retry after a quiet preflight.
+**Both complete timing cohorts are excluded** from performance rankings,
+default selection and model calibration. No apparently quiet subset is
+promoted. Five-second process observations do not prove exclusive hardware
+use or a stable clock frequency.
+
+The {download}`integration and exclusion record <../../../../scripts/benchmark/tile_torch/results/m1-max-20260909-next-integration/notes.md>`
+separates the new source/build from the premerge native objects, retains failed
+preparation and raw runs, and explains privacy-minimized coactivity records.
+Correctness and source integration do not establish a new speedup or parity
+result. Pointwise fusion remains opt-in, and its cost prior is not recalibrated.
+
+## Native codegen prototypes remain separate from production promotion
+
+Two later September 9 diagnostic experiments use recursive pinned exports of
+`2cfc80493`, with separate packet-inlining and integer-projection overlays.
+Both pass their full configured-build gates. The projection-enabled build
+passes **80 XIR/SIMD CTests and 35 Tile CTests**, with no failure or skip.
+These are existing regressions, not new exhaustive projection-semantic tests.
+
+Each phase completes 48 capture outputs, 72 native smoke visits and 432 timed
+native visits at the same 24 finite-input FP32 cases. All complete FP64 checks
+pass, and all 24 off/on pairs per phase are bitwise equal. An independent
+audit rereads **384 retained output snapshots** and rejects eight evidence
+mutations; freed guard arrays are represented by replay receipts, not reread.
+The 24 control objects are identical across phases, as are the projection
+phase's off/on pre-O2 LLVM files. Phase A source and binary closure are frozen
+before phase B reuses the build directory.
+
+The {download}`Chinese report and evidence index <../../../../scripts/benchmark/tile_torch/results/m1-max-20260909-native-codegen-probes/notes.md>`
+retain negative inlining results, an unadopted cross-target roundeven probe,
+and the corrected generated-Metal-source snapshot gate. Draft roundeven
+tests were **not** compiled or executed. Both complete timing cohorts were
+prospectively diagnostic-only under coactivity; no new performance ranking,
+default, production compiler edit or cost calibration follows. Original
+unfinished worktree files and dependency checkouts remain untouched.
+
+## Per-operation reduction policy checkpoint
+
+The September 8 checkpoint passes a **full selected build and all 35 Tile
+CTests** (225.83 s), plus all 110 Python benchmark tests. The selected
+configuration enables SIMD, Metal and TIRx, with Metal4 disabled. To avoid
+mixing another unfinished matrix experiment into this result, the staged
+source was exported to a separate source/build tree. Dependency submodules
+retain their local checkout state; this is not an assertion that every
+dependency or the original worktree is clean.
+
+Coverage includes the default unordered tree, explicit ordered tree and both
+fold directions, multidimensional/empty domains, non-identity and signed-zero
+seeds, cancellation-sensitive FP32 data, mixed strict/relaxed reductions,
+analysis invalidation and target capability rejection. TIRx CPU/Metal and
+XIR/SIMD execute the fold fixtures. Tests also check the final LLVM/Metal
+fast-math boundary and precise TVM Metal module serialization/reload. Closed
+FP32 add/max/min Tiles use subgroup collectives inside composed programs;
+ordered policies still retain their serial implementation.
+
+The original worktree's separate full run passes **34/35**: the unfinished
+matrix-initializer experiment changes four structural matrix-count
+assertions in `test_tile_tirx_matrix_metal`. Those edits are excluded from
+this checkpoint, not deleted or hidden by weakening tests. The earlier
+memory/cooperative fence failures are repaired: without an applicable effect
+proof, phase publication must cover device as well as threadgroup memory.
+The {download}`raw build and regression logs <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-reduction-policy/notes.md>`
+distinguish the two source states. No new performance claim follows from
+these correctness results.
+
 ## Closed matrix epilogues: positive and fail-closed coverage
 
 The September 7 extension exercises ordinary clamp, polynomial and tanh-GELU

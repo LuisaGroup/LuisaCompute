@@ -1,0 +1,258 @@
+{
+  "source_commit": "bc7b1df1f4e8785d50736169a2a7bde3023b231e",
+  "next_commit": "03a0f5158b53768abefea555f480f87ee5bc5a1e",
+  "source_snapshot_sha256": "9b329cb9d1aff71d7d9456a76b30396005612d3378626d828bb5b2061d31d943",
+  "started_unix": 1788933542.718011,
+  "runs": [
+    {
+      "name": "configure",
+      "command": [
+        "cmake",
+        "-S",
+        "/private/tmp/luisa-next-xir-checkpoint.pgfKld/source",
+        "-B",
+        "/private/tmp/luisa-next-xir-checkpoint.pgfKld/build",
+        "-G",
+        "Ninja",
+        "-DCMAKE_BUILD_TYPE=RelWithDebInfo",
+        "-DCMAKE_C_COMPILER=/usr/bin/cc",
+        "-DCMAKE_CXX_COMPILER=/usr/bin/c++",
+        "-DLLVM_DIR=/opt/homebrew/opt/llvm@21/lib/cmake/llvm",
+        "-DLUISA_COMPUTE_BUILD_TESTS=ON",
+        "-DLUISA_COMPUTE_ENABLE_DSL=ON",
+        "-DLUISA_COMPUTE_ENABLE_SIMD=ON",
+        "-DLUISA_COMPUTE_ENABLE_METAL=ON",
+        "-DLUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE=ON",
+        "-DLUISA_COMPUTE_ENABLE_METAL4=OFF",
+        "-DLUISA_COMPUTE_ENABLE_GUI=OFF",
+        "-DLUISA_COMPUTE_ENABLE_CUDA=OFF",
+        "-DLUISA_COMPUTE_ENABLE_HIP=OFF",
+        "-DLUISA_COMPUTE_ENABLE_DX=OFF",
+        "-DLUISA_COMPUTE_ENABLE_VULKAN=OFF",
+        "-DLUISA_COMPUTE_ENABLE_FALLBACK=OFF",
+        "-DLUISA_COMPUTE_ENABLE_REMOTE=OFF",
+        "-DLUISA_COMPUTE_DOWNLOAD_OIDN=OFF",
+        "-DLUISA_COMPUTE_TVM_INCLUDE_DIR=/Users/mike/.cache/luisa-tile/tvm-pinned.9TMqn1/include",
+        "-DLUISA_COMPUTE_TVM_FFI_INCLUDE_DIR=/Users/mike/.cache/luisa-tile/tvm-pinned.9TMqn1/3rdparty/tvm-ffi/include",
+        "-DLUISA_COMPUTE_TVM_LIBRARY_DIR=/Users/mike/.cache/luisa-tile/tvm-fragment-build.0ToXYr/lib",
+        "-DLUISA_COMPUTE_TVM_FFI_LIBRARY_DIR=/Users/mike/.cache/luisa-tile/tvm-fragment-build.0ToXYr/lib",
+        "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+      ],
+      "started_unix": 1788932691.197402,
+      "log": "configure.log",
+      "exit_code": 0,
+      "finished_unix": 1788932694.009459,
+      "log_sha256": "726cd0d44a2e3b8273f56202da29209a1e542336c0cf58020f9392c0b3d3f4eb"
+    },
+    {
+      "name": "full-build",
+      "command": [
+        "cmake",
+        "--build",
+        "/private/tmp/luisa-next-xir-checkpoint.pgfKld/build",
+        "--parallel",
+        "8"
+      ],
+      "started_unix": 1788932694.009847,
+      "log": "full-build.log",
+      "exit_code": 0,
+      "finished_unix": 1788933076.112503,
+      "log_sha256": "e9279d071ff2583cb65870209321e2a4c80fc42dcb59be62aac53210639a85f8"
+    },
+    {
+      "name": "full-build-gate",
+      "command": [
+        "cmake",
+        "--build",
+        "/private/tmp/luisa-next-xir-checkpoint.pgfKld/build",
+        "--parallel",
+        "8"
+      ],
+      "started_unix": 1788933076.986548,
+      "log": "full-build-gate.log",
+      "exit_code": 0,
+      "finished_unix": 1788933077.100466,
+      "log_sha256": "62787fccc98ad7bf29801a9439ddcfeec21bcc3619acefa63a76bfe707b73e91"
+    },
+    {
+      "name": "ctest-xir-simd",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "/private/tmp/luisa-next-xir-checkpoint.pgfKld/build",
+        "--output-on-failure",
+        "--no-tests=error",
+        "--timeout",
+        "240",
+        "-j",
+        "1",
+        "-L",
+        "unit_xir|unit_simd",
+        "--output-junit",
+        "/private/tmp/luisa-next-xir-checkpoint.pgfKld/xir-simd.xml"
+      ],
+      "started_unix": 1788933077.100953,
+      "log": "ctest-xir-simd.log",
+      "exit_code": 0,
+      "finished_unix": 1788933162.306738,
+      "log_sha256": "d5cd40fb6a9eb3b43d94a36dde7bd7aaa96e8b5cf7cafb9048935f5b076ef9a8",
+      "tests": 80,
+      "failures": 0,
+      "skipped": 0,
+      "junit": "xir-simd.xml",
+      "junit_sha256": "1d028ff1cf734aac69dfcc3f72620b4363ad99af97787ff97c024b2c4bb4edf4"
+    },
+    {
+      "name": "ctest-tile",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "/private/tmp/luisa-next-xir-checkpoint.pgfKld/build",
+        "--output-on-failure",
+        "--no-tests=error",
+        "--timeout",
+        "240",
+        "-j",
+        "1",
+        "-R",
+        "^test_tile_",
+        "--output-junit",
+        "/private/tmp/luisa-next-xir-checkpoint.pgfKld/tile.xml"
+      ],
+      "started_unix": 1788933162.3078132,
+      "log": "ctest-tile.log",
+      "exit_code": 0,
+      "finished_unix": 1788933471.826571,
+      "log_sha256": "589e16e15ae2ef28d456633b44e45251cdb33ec9e25788390f7e9645ceafe65a",
+      "tests": 35,
+      "failures": 0,
+      "skipped": 0,
+      "junit": "tile.xml",
+      "junit_sha256": "a58e03a1b10938f58a180127a8a81b112fd442ced748ea985d0612d0c5ba6038"
+    },
+    {
+      "name": "full-build-recheck",
+      "command": [
+        "cmake",
+        "--build",
+        "/private/tmp/luisa-next-xir-checkpoint.pgfKld/build",
+        "--parallel",
+        "8"
+      ],
+      "started_unix": 1788933542.718059,
+      "log": "full-build-recheck.log",
+      "exit_code": 0,
+      "finished_unix": 1788933542.8345118,
+      "log_sha256": "62787fccc98ad7bf29801a9439ddcfeec21bcc3619acefa63a76bfe707b73e91"
+    },
+    {
+      "name": "ctest-metal-local-codegen",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "/private/tmp/luisa-next-xir-checkpoint.pgfKld/build",
+        "--output-on-failure",
+        "--no-tests=error",
+        "-R",
+        "^test_metal_local_codegen$",
+        "--output-junit",
+        "/private/tmp/luisa-next-xir-checkpoint.pgfKld/metal-local-codegen.xml"
+      ],
+      "started_unix": 1788933542.834921,
+      "log": "ctest-metal-local-codegen.log",
+      "exit_code": 0,
+      "finished_unix": 1788933546.750915,
+      "log_sha256": "83ad66027997c6c194e43f7156b4c01cb5e496576314269949cd67b7bf6f2561",
+      "tests": 1,
+      "failures": 0,
+      "skipped": 0,
+      "junit": "metal-local-codegen.xml",
+      "junit_sha256": "2ff88e124477d769c5be6d261a71e649f280d8860923cbbd7e15fdf89074d7c3"
+    },
+    {
+      "name": "syntax-metal-fixture",
+      "command": [
+        "uv",
+        "run",
+        "--offline",
+        "--no-project",
+        "--python",
+        "3.13",
+        "--with",
+        "orjson",
+        "python",
+        "scripts/check_cpp_syntax.py",
+        "--project-root",
+        "/private/tmp/luisa-next-xir-checkpoint.pgfKld/source",
+        "--compile-commands-dir",
+        "/private/tmp/luisa-next-xir-checkpoint.pgfKld/build",
+        "--clangd",
+        "/opt/homebrew/opt/llvm@21/bin/clangd",
+        "--clang-tidy",
+        "/private/tmp/luisa-next-xir-checkpoint.pgfKld/source/src/tests/unit/runtime/test_metal_codegen_regressions.cpp"
+      ],
+      "started_unix": 1788933546.751499,
+      "log": "syntax-metal-fixture.log",
+      "exit_code": 0,
+      "finished_unix": 1788933552.0866828,
+      "log_sha256": "f25a657fce2a81f2a242a2486f382adfeb801f821a4bca9de59a31c6b6e37bdd"
+    },
+    {
+      "name": "format-metal-fixture",
+      "command": [
+        "/opt/homebrew/opt/llvm@21/bin/clang-format",
+        "--dry-run",
+        "--Werror",
+        "/private/tmp/luisa-next-xir-checkpoint.pgfKld/source/src/tests/unit/runtime/test_metal_codegen_regressions.cpp"
+      ],
+      "started_unix": 1788933552.087455,
+      "log": "format-metal-fixture.log",
+      "exit_code": 1,
+      "finished_unix": 1788933552.122612,
+      "log_sha256": "de040a07043a9644c7ed390d0ec56ff1ac2ffa9ca6b7a28776a72e8af5b092df"
+    },
+    {
+      "name": "format-merged-lines",
+      "command": [
+        "/opt/homebrew/opt/llvm@21/bin/clang-format",
+        "--dry-run",
+        "--Werror",
+        "--lines=370:375",
+        "/private/tmp/luisa-next-xir-checkpoint.pgfKld/source/src/tests/unit/runtime/test_metal_codegen_regressions.cpp"
+      ],
+      "started_unix": 1788933552.1416268,
+      "log": "format-merged-lines.log",
+      "exit_code": 0,
+      "finished_unix": 1788933552.1764412,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "preserved-worktree",
+      "command": [
+        "shasum",
+        "-a",
+        "256",
+        "--check",
+        "/tmp/luisa-pointwise-native.1P87uU/premerge-user-sha256.txt"
+      ],
+      "started_unix": 1788933552.176981,
+      "log": "preserved-worktree.log",
+      "exit_code": 0,
+      "finished_unix": 1788933552.199754,
+      "log_sha256": "15c006246c05396ba94be26b40bc334ba5a83a3bcd85e441fe723d3bd4452b2f"
+    }
+  ],
+  "performance_measurement": false,
+  "excluded_invocation": {
+    "record": "verification.json",
+    "record_sha256": "993694ab206241446662f86bae184321a2e34b159a1becfb78d744d3be6c98e4",
+    "log": "ctest-metal-codegen.log",
+    "log_sha256": "a416cd68e380763a0bc88440893faf8e9b5622db3cf1d40eb1f46bec6838812b",
+    "reason": "The executable name was used as the CTest name; --no-tests=error rejects this empty selection."
+  },
+  "source_unchanged": true,
+  "dependency_checkouts_unchanged": true,
+  "passed": true,
+  "finished_unix": 1788933553.3088598,
+  "quality_caveat": "No syntax errors; one inherited unused-include warning and seven inherited full-file format diagnostics. Changed lines pass."
+}

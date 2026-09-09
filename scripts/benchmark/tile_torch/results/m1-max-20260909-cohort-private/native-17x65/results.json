@@ -1,0 +1,593 @@
+{
+  "dimensions": [
+    17,
+    65
+  ],
+  "metric": "single_thread_native_entry_host_wall_us",
+  "runtime_excluded": true,
+  "hardware_cycles": false,
+  "cpu_threads": 1,
+  "packet_width": 8,
+  "warmup_ms": 100,
+  "sample_target_ms": 30,
+  "samples": 7,
+  "boundary": "C++ loop, native call including compiler-emitted libc memcpy; Luisa also resets mutable launch block/thread indices and, for packet-only entries, traverses blocks as in SIMDShader; no Runtime dispatch/Python/allocations in timed region",
+  "input_sha256": [
+    "a6e048a8e0295a7c4252b3d419aaf58873fae4b20624e96bf190070d5db6a4c6",
+    "b3b422b2c0918454fb2812ff906a6c9e3321ffeb6437308c9cca5a3080aa4855",
+    "d7533cb0907d1f952944ded8bfa55ba06c10f1435b99f70bcbc86b12934c88ce"
+  ],
+  "artifacts": {
+    "baseline": {
+      "exported_symbol": "llm_rows.packet_batch.blocks",
+      "replay_abi": 0,
+      "object_sha256": "d3e91633f747fe015c604317071036ca9f1ed68c642c85a9c4d9939723e8f132",
+      "library_sha256": "4b15e2cc03a0193c477914ed69ec4fa21fd208a32045684f225dde5de73db98f",
+      "llvm_sha256": "89498965f61a11570d6dc74201801cbcd722f16779841ad57a2d4259ee171aad",
+      "source_capture": "/private/tmp/luisa-cohort-private.qfZvpM/capture/rmsnorm-17x65-r0-l8-p0",
+      "undefined_system_symbols": [],
+      "linked_libraries": "/private/tmp/luisa-cohort-private.qfZvpM/native-17x65/baseline.dylib:\n\t/private/tmp/luisa-cohort-private.qfZvpM/native-17x65/baseline.dylib (compatibility version 0.0.0, current version 0.0.0)\n\t/usr/lib/libc++.1.dylib (compatibility version 1.0.0, current version 2100.43.0)\n\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1356.0.0)\n"
+    },
+    "candidate": {
+      "exported_symbol": "llm_rows.packet_batch.blocks",
+      "replay_abi": 0,
+      "object_sha256": "f31a76e8b371e0a050eff334000ffad44d6ac5dab5ed9000e7848c51715a310a",
+      "library_sha256": "14c8fe1864f9f28d83cfd7307ad942f577d52b68315e2154e21b7c6cc558f705",
+      "llvm_sha256": "bca2c0e6d37e512be18637c6fb5ec726edb864463edb8b33330282ba9a43c53a",
+      "source_capture": "/private/tmp/luisa-cohort-private.qfZvpM/capture/rmsnorm-17x65-r0-l8-p1",
+      "undefined_system_symbols": [],
+      "linked_libraries": "/private/tmp/luisa-cohort-private.qfZvpM/native-17x65/candidate.dylib:\n\t/private/tmp/luisa-cohort-private.qfZvpM/native-17x65/candidate.dylib (compatibility version 0.0.0, current version 0.0.0)\n\t/usr/lib/libc++.1.dylib (compatibility version 1.0.0, current version 2100.43.0)\n\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1356.0.0)\n"
+    },
+    "inductor": {
+      "source": "/private/tmp/luisa-cohort-private.qfZvpM/native-17x65/inductor/yh/cyhuzwrm6vgeemgughw44mwhwghv755kvprb3qqx3mixdpovrpuk.main.cpp",
+      "source_sha256": "67b18352290857925c13d6daaf815d49250c1f9c99d22b68b2bb3323a921474d",
+      "library_sha256": "1c68e127165729aa160406fd694b3174d2904ef340dd6004563ae61e866285db",
+      "torch_version": "2.14.0",
+      "torch_git_version": "08187d9e0fba026dc8217405802ab5381dc88d90",
+      "config": "PyTorch built with:\n  - GCC 4.2\n  - C++ Version: 202002\n  - clang 21.0.0\n  - OpenMP 202011\n  - LAPACK is enabled (usually provided by MKL)\n  - NNPACK is enabled\n  - CPU capability usage: DEFAULT\n  - Build settings: BLAS_INFO=accelerate, BUILD_TYPE=Release, COMMIT_SHA=08187d9e0fba026dc8217405802ab5381dc88d90, CUDA_FLAGS= -DLIBCUDACXX_ENABLE_SIMPLIFIED_COMPLEX_OPERATIONS -Xfatbin -compress-all  -Wno-deprecated-gpu-targets --expt-extended-lambda -DCUB_WRAPPED_NAMESPACE=at_cuda_detail -DDISABLE_CUSPARSE_DEPRECATED -DCUDA_HAS_FP16=1 -D__CUDA_NO_HALF_OPERATORS__ -D__CUDA_NO_HALF_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__ -D__CUDA_NO_BFLOAT16_CONVERSIONS__ -DC10_NODEPRECATED, CXX_COMPILER=/usr/bin/c++, CXX_FLAGS= -fvisibility-inlines-hidden -DUSE_PTHREADPOOL -DNDEBUG -DUSE_KINETO -DUSE_PYTORCH_QNNPACK -DAT_BUILD_ARM_VEC256_WITH_SLEEF -DUSE_PYTORCH_METAL_EXPORT -DSYMBOLICATE_MOBILE_DEBUG_HANDLE -DUSE_COREML_DELEGATE -O2 -fPIC -DC10_NODEPRECATED -Wall -Wextra -Werror=return-type -Werror=non-virtual-dtor -Werror=braced-scalar-init -Werror=range-loop-construct -Werror=bool-operation -Wnarrowing -Wno-missing-field-initializers -Wno-unknown-pragmas -Wno-unused-parameter -Wno-strict-overflow -Wno-strict-aliasing -Wvla-extension -Wsuggest-override -Wnewline-eof -Winconsistent-missing-override -Winconsistent-missing-destructor-override -Wno-pass-failed -Wno-error=old-style-cast -Wconstant-conversion -Qunused-arguments -faligned-new -fno-math-errno -fno-trapping-math -Werror=format -fclang-abi-compat=17 -DUSE_MPS -Wno-missing-braces, LAPACK_INFO=accelerate, TORCH_VERSION=2.14.0, USE_CUDA=OFF, USE_CUDNN=OFF, USE_CUSPARSELT=OFF, USE_EIGEN_FOR_BLAS=ON, USE_GFLAGS=OFF, USE_GLOG=OFF, USE_GLOO=ON, USE_HIPSPARSELT=OFF, USE_MKL=OFF, USE_MKLDNN=OFF, USE_MPI=OFF, USE_NCCL=OFF, USE_NNPACK=ON, USE_OPENMP=ON, USE_ROCM=OFF, USE_ROCM_KERNEL_ASSERT=OFF, USE_XCCL=OFF, USE_XPU=OFF, \n"
+    }
+  },
+  "commands": [
+    [
+      "clang++",
+      "-std=c++20",
+      "-O3",
+      "-dynamiclib",
+      "-I/Users/mike/CLionProjects/luisa/src",
+      "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260909-cohort-private/replay_native.cpp",
+      "-o",
+      "/private/tmp/luisa-cohort-private.qfZvpM/native-17x65/replay.dylib"
+    ],
+    [
+      "/opt/homebrew/opt/llvm@21/bin/llvm-nm",
+      "--undefined-only",
+      "--just-symbol-name",
+      "/private/tmp/luisa-cohort-private.qfZvpM/capture/rmsnorm-17x65-r0-l8-p0/object/tile_xir_w8_77306_1788916367403824_0.o"
+    ],
+    [
+      "clang++",
+      "-dynamiclib",
+      "/private/tmp/luisa-cohort-private.qfZvpM/capture/rmsnorm-17x65-r0-l8-p0/object/tile_xir_w8_77306_1788916367403824_0.o",
+      "-o",
+      "/private/tmp/luisa-cohort-private.qfZvpM/native-17x65/baseline.dylib"
+    ],
+    [
+      "otool",
+      "-L",
+      "/private/tmp/luisa-cohort-private.qfZvpM/native-17x65/baseline.dylib"
+    ],
+    [
+      "/opt/homebrew/opt/llvm@21/bin/llvm-nm",
+      "--undefined-only",
+      "--just-symbol-name",
+      "/private/tmp/luisa-cohort-private.qfZvpM/capture/rmsnorm-17x65-r0-l8-p1/object/tile_xir_w8_77307_1788916367766833_0.o"
+    ],
+    [
+      "clang++",
+      "-dynamiclib",
+      "/private/tmp/luisa-cohort-private.qfZvpM/capture/rmsnorm-17x65-r0-l8-p1/object/tile_xir_w8_77307_1788916367766833_0.o",
+      "-o",
+      "/private/tmp/luisa-cohort-private.qfZvpM/native-17x65/candidate.dylib"
+    ],
+    [
+      "otool",
+      "-L",
+      "/private/tmp/luisa-cohort-private.qfZvpM/native-17x65/candidate.dylib"
+    ]
+  ],
+  "helper_source_sha256": "57225d2c1c188d8e3eeed0df48547012bef02bf5940a3cf5247b83dc7e3379a8",
+  "helper_sha256": "b72722031181d46a75bad8cde27805deb4c1336fd083af0db9f0e05d3c11b160",
+  "results": [
+    {
+      "variant": "baseline",
+      "round": 0,
+      "order": [
+        "baseline",
+        "candidate",
+        "inductor"
+      ],
+      "samples_us": [
+        1.367516845703125,
+        1.3694903259277345,
+        1.3580551147460938,
+        1.3640823364257812,
+        1.3571866455078125,
+        1.3597335815429688,
+        1.3630930786132813
+      ],
+      "median_us": 1.3630930786132813,
+      "repetitions": 32768,
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 2.3720950825811826e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "candidate",
+      "round": 0,
+      "order": [
+        "baseline",
+        "candidate",
+        "inductor"
+      ],
+      "samples_us": [
+        0.24679438018798827,
+        0.24854341888427733,
+        0.24697113037109375,
+        0.24756876373291015,
+        0.24789556121826173,
+        0.2465025634765625,
+        0.2467670440673828
+      ],
+      "median_us": 0.24697113037109375,
+      "repetitions": 131072,
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 2.3720950825811826e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "inductor",
+      "round": 0,
+      "order": [
+        "baseline",
+        "candidate",
+        "inductor"
+      ],
+      "samples_us": [
+        0.7300218048095704,
+        0.7271734924316406,
+        0.7233873901367187,
+        0.7310746459960937,
+        0.727429702758789,
+        0.7251141815185547,
+        0.7278385162353516
+      ],
+      "median_us": 0.727429702758789,
+      "repetitions": 65536,
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 2.851864606689958e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "baseline",
+      "round": 1,
+      "order": [
+        "baseline",
+        "inductor",
+        "candidate"
+      ],
+      "samples_us": [
+        1.3744443359375,
+        1.3638725280761719,
+        1.393896728515625,
+        1.3772938842773437,
+        1.3626734313964843,
+        1.3597590026855468,
+        1.3554789123535156
+      ],
+      "median_us": 1.3638725280761719,
+      "repetitions": 32768,
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 2.3720950825811826e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "inductor",
+      "round": 1,
+      "order": [
+        "baseline",
+        "inductor",
+        "candidate"
+      ],
+      "samples_us": [
+        0.7260996398925781,
+        0.726668685913086,
+        0.7320683898925782,
+        0.7238699645996094,
+        0.7297223510742188,
+        0.7310810089111328,
+        0.7263978271484375
+      ],
+      "median_us": 0.726668685913086,
+      "repetitions": 65536,
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 2.851864606689958e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "candidate",
+      "round": 1,
+      "order": [
+        "baseline",
+        "inductor",
+        "candidate"
+      ],
+      "samples_us": [
+        0.24749343109130859,
+        0.24946466827392577,
+        0.24518902587890626,
+        0.24831771850585938,
+        0.24870523071289063,
+        0.2505159378051758,
+        0.2514047622680664
+      ],
+      "median_us": 0.24870523071289063,
+      "repetitions": 131072,
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 2.3720950825811826e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "candidate",
+      "round": 2,
+      "order": [
+        "candidate",
+        "baseline",
+        "inductor"
+      ],
+      "samples_us": [
+        0.24891344451904296,
+        0.24715709686279297,
+        0.25029659271240234,
+        0.2501497268676758,
+        0.24641895294189453,
+        0.24910005187988282,
+        0.24807357788085938
+      ],
+      "median_us": 0.24891344451904296,
+      "repetitions": 131072,
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 2.3720950825811826e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "baseline",
+      "round": 2,
+      "order": [
+        "candidate",
+        "baseline",
+        "inductor"
+      ],
+      "samples_us": [
+        1.3587646484375,
+        1.3574740295410157,
+        1.37458544921875,
+        1.3775253295898438,
+        1.373071044921875,
+        1.3638750610351562,
+        1.3705965576171875
+      ],
+      "median_us": 1.3705965576171875,
+      "repetitions": 32768,
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 2.3720950825811826e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "inductor",
+      "round": 2,
+      "order": [
+        "candidate",
+        "baseline",
+        "inductor"
+      ],
+      "samples_us": [
+        0.7305469512939453,
+        0.7315489349365234,
+        0.7275994567871094,
+        0.7318267822265625,
+        0.7396768035888672,
+        0.737572998046875,
+        0.7272281646728516
+      ],
+      "median_us": 0.7315489349365234,
+      "repetitions": 65536,
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 2.851864606689958e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "candidate",
+      "round": 3,
+      "order": [
+        "candidate",
+        "inductor",
+        "baseline"
+      ],
+      "samples_us": [
+        0.24533748626708984,
+        0.24862194061279297,
+        0.24811776733398438,
+        0.24871985626220702,
+        0.2497539520263672,
+        0.25004418182373045,
+        0.24641641235351563
+      ],
+      "median_us": 0.24862194061279297,
+      "repetitions": 131072,
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 2.3720950825811826e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "inductor",
+      "round": 3,
+      "order": [
+        "candidate",
+        "inductor",
+        "baseline"
+      ],
+      "samples_us": [
+        0.7347049713134766,
+        0.7401313781738281,
+        0.7289651184082031,
+        0.7220293731689453,
+        0.7311890869140625,
+        0.7288214416503906,
+        0.7279065399169922
+      ],
+      "median_us": 0.7289651184082031,
+      "repetitions": 65536,
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 2.851864606689958e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "baseline",
+      "round": 3,
+      "order": [
+        "candidate",
+        "inductor",
+        "baseline"
+      ],
+      "samples_us": [
+        1.3808987731933593,
+        1.3641217651367188,
+        1.3705940246582031,
+        1.3584607543945313,
+        1.3571688232421875,
+        1.3641815185546875,
+        1.367094696044922
+      ],
+      "median_us": 1.3641815185546875,
+      "repetitions": 32768,
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 2.3720950825811826e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "inductor",
+      "round": 4,
+      "order": [
+        "inductor",
+        "baseline",
+        "candidate"
+      ],
+      "samples_us": [
+        0.7349262237548828,
+        0.7429224548339843,
+        0.7356643676757812,
+        0.7412274627685547,
+        0.7298138885498047,
+        0.7241058349609375,
+        0.7298329772949219
+      ],
+      "median_us": 0.7349262237548828,
+      "repetitions": 65536,
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 2.851864606689958e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "baseline",
+      "round": 4,
+      "order": [
+        "inductor",
+        "baseline",
+        "candidate"
+      ],
+      "samples_us": [
+        1.3636093139648438,
+        1.3768450622558595,
+        1.3661511840820313,
+        1.3679415283203125,
+        1.3650016784667969,
+        1.3586642150878907,
+        1.3670171203613282
+      ],
+      "median_us": 1.3661511840820313,
+      "repetitions": 32768,
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 2.3720950825811826e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "candidate",
+      "round": 4,
+      "order": [
+        "inductor",
+        "baseline",
+        "candidate"
+      ],
+      "samples_us": [
+        0.24732685089111328,
+        0.24919191741943358,
+        0.24860223388671876,
+        0.2521511688232422,
+        0.2562316207885742,
+        0.25425879669189455,
+        0.24894142150878906
+      ],
+      "median_us": 0.24919191741943358,
+      "repetitions": 131072,
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 2.3720950825811826e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "inductor",
+      "round": 5,
+      "order": [
+        "inductor",
+        "candidate",
+        "baseline"
+      ],
+      "samples_us": [
+        0.7315572052001953,
+        0.7273483276367188,
+        0.7327187805175781,
+        0.7246506958007812,
+        0.7280343475341797,
+        0.7289657592773438,
+        0.7327041625976562
+      ],
+      "median_us": 0.7289657592773438,
+      "repetitions": 65536,
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 2.851864606689958e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "candidate",
+      "round": 5,
+      "order": [
+        "inductor",
+        "candidate",
+        "baseline"
+      ],
+      "samples_us": [
+        0.24724451446533202,
+        0.24912071228027344,
+        0.24858157348632812,
+        0.2488880157470703,
+        0.246273681640625,
+        0.24714724731445312,
+        0.24814414978027344
+      ],
+      "median_us": 0.24814414978027344,
+      "repetitions": 131072,
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 2.3720950825811826e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "baseline",
+      "round": 5,
+      "order": [
+        "inductor",
+        "candidate",
+        "baseline"
+      ],
+      "samples_us": [
+        1.3675066528320312,
+        1.369450897216797,
+        1.36297607421875,
+        1.3625755310058594,
+        1.3578338623046875,
+        1.3657124633789062,
+        1.358240753173828
+      ],
+      "median_us": 1.36297607421875,
+      "repetitions": 32768,
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 2.3720950825811826e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    }
+  ],
+  "summary_us": {
+    "baseline": 1.3640270233154297,
+    "candidate": 0.2486635856628418,
+    "inductor": 0.7289654388427734
+  }
+}

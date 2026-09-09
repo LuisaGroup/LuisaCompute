@@ -8,6 +8,7 @@
 #include <tvm/tirx/function.h>
 
 #include <luisa/tile/bridge/tirx/planner.h>
+#include <luisa/tile/ir.h>
 #include <luisa/core/stl/memory.h>
 
 namespace luisa::compute::tile::bridge::tirx::detail {
@@ -55,9 +56,21 @@ inline constexpr auto cpu_matrix_realization_annotation = "luisa.tile.realizatio
 inline constexpr auto materialized_pure_tile_annotation =
     "luisa.tile.contract.materialized_pure_tile";
 inline constexpr auto reduction_contract_annotation = "luisa.tile.contract.reduction";
+// Resolved per-operation numerical/order permission, separate from the body
+// contract and from target candidate switches. Missing provenance is not
+// permission: externally supplied TIRx must provide both and pass matching.
+inline constexpr auto reduction_policy_annotation = "luisa.tile.reduction_policy";
+[[nodiscard]] inline bool permits_unordered_reduction(const tvm::tirx::ForNode *loop) noexcept {
+    auto annotation = loop->annotations.Get(reduction_policy_annotation);
+    auto policy = annotation ? annotation.value().as<tvm::IntImmNode>() : nullptr;
+    return policy != nullptr && policy->value == static_cast<int64_t>(ReductionPolicy::UNORDERED_TREE);
+}
 inline constexpr int64_t reduction_add_contract = 1;
 inline constexpr int64_t reduction_max_contract = 2;
 inline constexpr int64_t reduction_min_contract = 3;
+// Uses exactly the same body/policy matcher as the per-Tile emitter. A count
+// does not license arbitrary reductions or change their numerical policy.
+[[nodiscard]] std::optional<uint64_t> metal_reduction_tile_output_count(const tvm::tirx::For &loop);
 inline constexpr auto cpu_math_realization_annotation = "luisa.tile.realization.cpu_math";
 // Hard resource constraints survive structural export until target binding.
 inline constexpr auto memory_resource_annotation = "luisa.tile.memory_resource";
@@ -158,6 +171,13 @@ struct ReadonlyViews {
     const tvm::tirx::For &loop, uint32_t max_threads,
     uint64_t shared_memory_limit,
     const PlannerOptions &options, luisa::vector<GroupPlan> &plans);
+
+// A closed reduction Tile inside an already bound cooperative group. Each
+// output is owned by one whole subgroup; only its leader publishes the result.
+// The matcher checks the local reduction policy; the caller supplies the fence.
+[[nodiscard]] tvm::tirx::Stmt try_metal_reduction_tile(
+    const tvm::tirx::For &loop, const tvm::tirx::PrimVar &thread, uint64_t threads,
+    const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer);
 
 // The planner and emitter use the same semantic contract matcher. A diagnostic
 // annotation or coincidentally named buffer alone cannot authorize an MMA.

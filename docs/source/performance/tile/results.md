@@ -1,6 +1,6 @@
 # Tile performance by compiler route
 
-Saved comparisons through September 7, 2026. These are separate experiments,
+Saved comparisons through September 9, 2026. These are separate experiments,
 not a cross-route leaderboard with one matched timing and math policy.
 See [current status](index.md) for the conclusion and remaining goal.
 
@@ -17,6 +17,572 @@ Report tables use medians of within-round p50s. A paired ratio is the median
 of same-round numerator/denominator ratios, **not** a ratio of the displayed
 medians. Ranges and counts of slower rounds are descriptive, not confidence
 intervals. No slow or failed row is discarded to improve the headline.
+
+### Native row entries expose both broader wins and remaining gaps
+
+The September 9 {download}`six-operator native report <../../../../scripts/benchmark/tile_torch/results/m1-max-20260909-native-rows/notes.md>`
+extends the existing private-index checkpoint to **24 fixed FP32 cases**,
+without changing the compiler or fitting a new cost policy. Actual SIMD ORC
+entries and TorchInductor 2.14.0 entries run through a common single-thread
+C++ callback timer, in all six orders. The first three operator families win
+all 72 paired comparisons; the other three lose all 72.
+
+Each range below spans the four shapes' paired median **Tile/Inductor time
+ratios**, not a confidence interval. Lower is better. Shapes are 17×65,
+129×768, 257×1538 and 1024×4097; RoPE rounds the odd widths up to even.
+Local=8, packet W8 and block=32 are fixed; full-packet, predicated effects and
+cohort-private access are on, load/reduction fusion and fast math are off.
+
+| Operator | Time ratio | Wins |
+|---|---:|---:|
+| RMSNorm | 0.337–0.469 | 24/24 |
+| LayerNorm | 0.374–0.735 | 24/24 |
+| GELU + residual | 0.568–0.645 | 24/24 |
+| Masked softmax | 1.350–1.607 | 0/24 |
+| SwiGLU | 1.166–1.244 | 0/24 |
+| RoPE | 1.247–1.944 | 0/24 |
+
+All 24 whole/local/Inductor times, six-order ranges and mapping comparisons
+remain in the {download}`complete tables <../../../../scripts/benchmark/tile_torch/results/m1-max-20260909-native-rows/tables.md>`.
+These are **native-entry host-wall times**, not Runtime latency or hardware
+cycles. Runtime/Python/JIT and caller allocations are excluded; actual entry,
+callback, necessary traversal/launch resets and compiler-emitted libc or
+internal allocations remain. In particular, Inductor allocates a width-sized
+scratch inside each masked-softmax entry; it is not moved outside timing.
+Alignment is fixed at 64 bytes. Do not splice these timings into older cohorts
+with different replay helpers or alignment.
+
+The wrapper parser recovers real FX input order, pointer constness, reused
+scratch and partitioned output aliases. It rejects unknown effects or ABIs;
+the C++ helper contains no operator implementation. Every one of 432 native
+visits checks full FP64 output tolerance, input immutability and guards. The
+{download}`independent audit <../../../../scripts/benchmark/tile_torch/results/m1-max-20260909-native-rows/audit.json>`
+rereads all 48 capture outputs and 72 unique native snapshots, recomputes
+statistics, and rejects nine evidence mutations. Guard arrays were checked
+during replay, not retained for later rereading.
+
+Numerical differences remain explicit: Tile LayerNorm uses centered-square
+reduction while large-width Inductor uses Welford; wide-row Inductor retains
+cascade reductions. Both GELU graphs use the tanh approximation but different
+math implementations. FP64 checks use `atol=rtol=5e-5` on the same deterministic
+finite inputs, not cross-framework bitwise equality or an all-domain accuracy
+guarantee.
+
+Actual RoPE C++ shares four input vectors across two stores in one loop.
+The XIR bridge still materializes loads and multi-consumer values, deferring
+only pure single-use arithmetic. This motivates an effect-aware shared-DAG
+fusion candidate, followed by softmax phase/materialization search. It is
+static code evidence, not measured hardware bottleneck attribution. GELU's
+win also rules out a blanket claim that every transcendental path is slow.
+Realization-sensitive cost calibration and independent CPU task grain remain
+open. This fixed opt-in cohort establishes neither automatic/default-path
+parity nor new Metal/MPS/BLAS/GEMM/attention performance.
+
+### Late native codegen probes separate address demand from inlining
+
+The later September 9 {download}`Chinese codegen investigation <../../../../scripts/benchmark/tile_torch/results/m1-max-20260909-native-codegen-probes/notes.md>`
+captures two independent 24-case experiments from `2cfc80493`: forced
+packet-loop inlining, and a separate late integer-lane projection prototype.
+Both use actual ORC objects and the same frozen Inductor entries, with fixed
+W8/local=8/block=32, precise math and existing opt-in pointwise realization.
+**Both complete timing cohorts are diagnostic-only under desktop coactivity**;
+they do not replace the accepted native ratios above or calibrate a policy.
+
+Actual RoPE objects expose vector integer work and register transfers for an
+address needing only one scalar lane. The projection prototype removes that
+work without rewriting FP arithmetic, duplicating loads or matching operator
+names. Packet-loop inlining instead removes helper calls and hoists guards
+to once per block; its diagnostic small-RoPE benefit coexists with large
+LayerNorm regressions. These are different decisions, not a blanket argument
+for inlining or evidence that the execution solver is now calibrated.
+
+All 864 timed native visits pass the recorded full-output checks; an
+independent audit rereads 384 output snapshots across captures, smoke and
+timed cohorts. The two experiments retain {download}`all diagnostic tables
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260909-native-codegen-probes/tables.md>`.
+The temporary C++ overlays remain outside the working compiler: demanded-lane
+profitability, poison/undef and code-growth tests, joint decisions and unseen
+program holdouts still precede production promotion. See the
+[validation boundary](validation.md#native-codegen-prototypes-remain-separate-from-production-promotion).
+
+### Use-site private indices unlock contiguous SIMD memory
+
+The September 9 {download}`private-index report <../../../../scripts/benchmark/tile_torch/results/m1-max-20260909-cohort-private/notes.md>`
+closes the previously measured ragged RMSNorm gap at **fixed local mapping**.
+It carries an existing use-site equality fact into private-memory realization,
+without globally scalarizing varying state or adding an operator-specific rule.
+The feature remains **opt-in**, and the automatic cost model is not recalibrated.
+
+The **single-thread native-entry** experiment compares the actual ORC and
+TorchInductor 2.14.0 entries, with six balanced orders and seven samples per
+visit. Runtime/Python/JIT/allocation are excluded; required native traversal,
+launch-record resets and emitted libc calls remain. W8/local=8/block=32 are
+fixed, predicated effects and full-packet specialization are on, fusion and
+fast math are off. Only the new private-index feature changes on/off.
+
+| RMSNorm | Off µs | On µs | Inductor µs | On/off | On/Inductor |
+|---|---:|---:|---:|---:|---:|
+| 17×65 | 1.364 | 0.249 | 0.729 | 0.182 | 0.340 |
+| 257×1538 | 544.018 | 116.720 | 247.348 | 0.213 | 0.469 |
+| 1024×4097 | 5784.021 | 1148.873 | 2593.370 | 0.198 | 0.442 |
+| 129×768, aligned control | 26.311 | 26.238 | 63.246 | 0.998 | 0.416 |
+| 137×1023, new shape | 193.905 | 40.881 | 86.733 | 0.211 | 0.471 |
+| 513×2051, new shape | 1456.840 | 283.972 | 655.054 | 0.197 | 0.436 |
+
+All 36 paired rounds beat Inductor. Five ragged cohorts improve another
+4.7–5.5× over the preceding implementation. The aligned control has identical
+LLVM/object bytes; its existing win and tiny timing movement are not a new
+optimization benefit. Inductor still uses reciprocal-multiply and a cascade
+reduction at width 4097; Tile keeps division. Both pass a complete FP64
+tolerance check, not a cross-implementation bitwise-equivalence contract.
+
+The separate **440-visit Runtime E2E** experiment covers six row operators
+at nine dimensions and two attention shapes. These examples fix local=8 and
+1024 rows, with width 4097 (4098 for even-width RoPE), at eight requested CPU
+workers. They show cross-operator lowering benefits, not native Torch parity.
+
+| Operator | Off µs | On µs | On/off |
+|---|---:|---:|---:|
+| RMSNorm | 889.739 | 307.457 | 0.346 |
+| LayerNorm | 1739.144 | 413.998 | 0.238 |
+| Masked softmax | 3661.417 | 1913.912 | 0.531 |
+| SwiGLU | 1566.149 | 934.094 | 0.597 |
+| GELU + residual | 2513.825 | 1566.668 | 0.624 |
+| RoPE | 1179.285 | 450.866 | 0.383 |
+
+Negative results remain: 17×65 RMSNorm local E2E grows 30.472→32.095 µs
+(paired 1.053), despite the native win; whole-program on is 1.335 µs.
+Aligned 64×256 LayerNorm local and new 137×1024 RoPE local measure paired
+1.046/1.048. Their object identities were not captured, so neither a code
+regression nor a pure-noise explanation is established. Attention has no
+consistent improvement. Two E2E orders and their ranges are descriptive,
+especially for the noisier softmax/whole-program cases. See all 110 fixed
+mapping comparisons in the {download}`complete tables <../../../../scripts/benchmark/tile_torch/results/m1-max-20260909-cohort-private/tables.md>`.
+
+The {download}`audit <../../../../scripts/benchmark/tile_torch/results/m1-max-20260909-cohort-private/audit.json>`
+rechecks all 452 Runtime/capture outputs; 116 fixed-mapping groups preserve
+exact output bits. All 108 native visits check complete outputs and guards.
+Initial broad CTest is 205/209, including 64/64 SIMD/Tile XIR tests; the two
+Metal timeout cases pass unchanged on recheck, while two tutorials require
+the absent fallback backend. Feature-on W2/W8/W16 Runtime checks pass.
+
+Actual full-range assembly replaces per-lane private loads with `ldp q` and
+`stp q`. This is static code evidence plus a controlled timing comparison,
+not sampled hardware bottleneck attribution. Mapping and the estimated
+`62030848` relative work stay unchanged for 1024×4097 despite the native
+improvement. [Epoch-scoped access facts](../../internals/tile/xir.md#private-index-equality-belongs-to-a-use-and-an-epoch)
+need to inform realization-sensitive cost policy and task-grain search.
+This does not establish automatic/default-path, all-operator or Metal/MPS/BLAS parity.
+
+### Ragged control flow is a realization cost, not extra Tile work
+
+The September 8 {download}`ragged-CFG report <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-ragged-cfg/notes.md>`
+adds generic masked memory triangles and use-site cohort-equal counted-loop
+headers. At fixed mapping this turns eligible state-machine programs into
+direct CFG, enabling the separate full-packet clone. It changes neither
+reduction order nor Tile semantics and remains **off by default**.
+
+The new **single-thread native-entry** comparison uses actual ORC objects and
+TorchInductor 2.14.0 generated C++ entries. All six orders, seven samples per
+visit, no Runtime dispatch/Python/JIT/allocation inside timing. Packet-only
+baselines retain the required block traversal in the C++ replay; block-batch
+candidates use their actual emitted entry. Native call, launch-record reset
+and emitted libc work stay inside the timer. This is not a hardware-cycle
+counter or a claim that entry overhead has been removed.
+
+| RMSNorm | Off µs | On µs | Inductor µs | On/off | On/Inductor |
+|---|---:|---:|---:|---:|---:|
+| 17×65 | 9.508 | 1.334 | 0.714 | 0.140 | 1.869 |
+| 257×1538 | 1818.533 | 526.531 | 236.831 | 0.290 | 2.224 |
+| 1024×4097 | 18361.792 | 5645.630 | 2531.710 | 0.308 | 2.230 |
+| 129×768, aligned control | 25.616 | 25.579 | 59.315 | 0.998 | 0.431 |
+
+All 18 ragged paired rounds improve, and **all 18 still lose to Inductor**.
+The aligned control's LLVM/object bytes are unchanged; its existing win is
+not a new optimization benefit. Torch retains reciprocal-multiply and its
+wide-row cascade reduction, while this Tile program keeps division; both
+pass the same complete FP64 tolerance check, not a bitwise-equivalence test.
+
+The separate **344-visit Runtime E2E** screen covers all six row operators
+and two attention shapes at eight requested workers. These fixed-local=8,
+1024-row examples use width 4097, or 4098 for even-width RoPE. Ratios are
+same-round paired medians; two orders do not establish confidence intervals.
+
+| Operator | Off µs | On µs | On/off |
+|---|---:|---:|---:|
+| RMSNorm | 2623.024 | 859.845 | 0.329 |
+| LayerNorm | 4652.261 | 1610.669 | 0.346 |
+| Masked softmax | 6290.556 | 3025.538 | 0.481 |
+| SwiGLU | 3223.042 | 1407.687 | 0.437 |
+| GELU + residual | 4078.573 | 2268.784 | 0.556 |
+| RoPE | 3055.139 | 1003.560 | 0.328 |
+
+This generalizes the lowering mechanism, not automatic mapping profitability:
+17×65 RMSNorm still costs 28.119 µs E2E locally versus 1.276 µs whole-program.
+Aligned 64×256 GELU local measures 55.312→59.552 µs (paired 1.082);
+attention has no new local path or consistent improvement. Full shapes,
+negative results and descriptive ranges remain in the
+{download}`complete tables <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-ragged-cfg/tables.md>`.
+
+The {download}`audit <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-ragged-cfg/audit.json>`
+independently rechecks all 352 Runtime/capture outputs; 72 native visits each
+check complete outputs and guards during replay. Ninety fixed-mapping groups
+preserve exact output bits. All 66 Tile/SIMD CTests and opt-in Runtime checks
+at W2/W8/W16 pass. ABI preflight failures are retained separately and the
+complete native experiment was rerun after correcting the replay helper.
+
+Actual Torch sources split the contiguous vector interval from the masked
+tail. Luisa's emitted assembly still contains per-lane private loads in
+full-range loops: header equality does not yet establish common-slot
+equality at each memory use. This motivates epoch-scoped access facts and
+full/tail partitioning, not global scalarization. The fixed mapping's
+uncalibrated cost is identical on/off despite the large native difference;
+realization-sensitive model calibration remains pending. No new Metal, MPS,
+BLAS or non-RMSNorm native Torch result, default win or all-kernel parity is
+claimed.
+
+### CPU task grain is independent of the native packet body
+
+The September 8 {download}`task-grain report <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-task-grain/notes.md>`
+adds an independent blocks-per-CPU-task search and replaceable XIR cost policy.
+This is a Runtime scheduling change, **not a new native kernel speedup**:
+18 fixed-mapping cohorts have byte-identical LLVM, ORC objects and outputs
+across four task grains. All 592 comparative visits pass complete FP64
+output checks; a separate final-binary pilot is retained without merging its
+timings into these cohorts.
+
+At fixed FP32/W8/local=8/block=32, the same 129×768 shape needs different
+task policies for different primitive mixes. Times are Runtime E2E µs, with
+eight requested CPU workers, full-packet specialization on and fusion off.
+Caller executes the entire range on the submitting thread. Ratios are paired
+medians from two orders; they are descriptive, not confidence intervals.
+
+| 129×768 | Legacy grain | Caller | Caller/legacy |
+|---|---:|---:|---:|
+| RMSNorm | 52.909 | 25.662 | 0.486 |
+| LayerNorm | 62.951 | 42.272 | 0.672 |
+| RoPE | 56.531 | 27.680 | 0.490 |
+| Masked softmax | 85.638 | 227.854 | 2.661 |
+| SwiGLU | 73.753 | 132.546 | 1.797 |
+| GELU + residual | 86.084 | 239.004 | 2.776 |
+
+A provisional activation-cost extension improves pilot RMSNorm 64×256 from
+34.100 to 5.544 µs and small attention B,Hq,Hkv,Q,K,D,Dv=1,4,2,16,32,16,16
+from 35.189 to 14.872 µs. Attention still uses whole-program mapping, not a
+new local attention realization. The extension is **not a validated default**:
+LayerNorm 4096×1024 regresses from 359.189 to 389.362 µs under a coarser
+parallel grain, and ragged 257×1538 norm/softmax still select slow local
+state-machine paths. On RMSNorm 17×65, selected local takes 9.637 µs while
+whole-program takes 1.299 µs. A semantic work count does not capture this
+realization difference.
+
+The coefficients are prespecified relative-work priors, not fitted time or
+hardware facts. The {download}`full tables <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-task-grain/tables.md>`
+and {download}`audit <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-task-grain/audit.json>`
+retain all seven operators, 26 extended shapes and negative results. Future
+policy work must combine actual CFG/mask/math realization with task overhead
+and load-balancing risk. No new Torch/MPS/BLAS measurement, automatic default
+win or all-kernel parity is claimed.
+
+### Full-packet specialization changes the profitable local mapping
+
+The September 8 {download}`full-packet report <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-full-packet/notes.md>`
+separates a backend codegen decision from Tile fusion and execution mapping.
+One bounded internal clone receives constant active-lane count W; the
+original packet body still handles genuine tails. No operator-name rule,
+reduction-tree change or reciprocal rewrite is used. Both this candidate and
+local mapping search remain opt-in; this is not yet a calibrated default
+solver.
+
+**Packet-local RMSNorm now beats one-thread TorchInductor in two native-entry
+cohorts.** This table holds fusion off and mapping fixed within each row.
+P=0 uses the ordinary packet body; P=1 adds the full-packet clone.
+Times are µs, from six balanced orders and seven samples per visit; Torch is
+remeasured independently for each row. Ratios are medians of paired rounds.
+
+| RMSNorm | Mapping | P=0 | P=1 | Inductor | P1/P0 | P1/Inductor |
+|---|---|---:|---:|---:|---:|---:|
+| 64×256 | Whole program | 11.404 | 11.406 | 9.123 | 1.000 | 1.250 |
+| 64×256 | Packet-local | 14.593 | 5.334 | 8.840 | 0.366 | 0.603 |
+| 1024×4096 | Whole program | 3251.837 | 3251.474 | 2185.154 | 1.000 | 1.489 |
+| 1024×4096 | Packet-local | 3293.971 | 1117.151 | 2184.957 | 0.339 | 0.511 |
+
+All 12 paired no-fusion packet-local comparisons beat Inductor. The replay
+links the actual ORC objects, excludes Runtime/Python/allocations/thread-pool
+dispatch, and retains the native call, launch-record reset and LLVM-emitted
+system `memcpy`. It is native-entry wall time, not a cycle counter. The first
+no-import replay stopped at `memcpy`; all eight factorial cells were rerun
+with an explicit libc-only allowlist. That preflight is retained separately.
+
+The complete native factorial has **144 correct visits**. With fusion on,
+specialization also helps, but local 1024×4096 is 2091.677 µs versus
+1117.151 µs without fusion; its paired Inductor ratio is 0.957 with one of
+six rounds losing. Removing the snapshot is still not the best measured
+realization. Whole-program paths still lose to Inductor. Math differences
+remain explicit: Torch uses reciprocal-then-multiply where this Tile program
+uses division.
+
+The separate **240-visit Runtime E2E** screen covers six operators and 15
+shapes at eight requested CPU workers. With fusion off and local mapping
+fixed, RMSNorm 1024×4096 improves 706.820→307.779 µs, LayerNorm
+1024×4096 1093.969→449.250 µs, softmax 64×4096 191.515→168.982 µs,
+and GELU 1024×4096 2984.755→2137.794 µs. These are not new Torch comparisons
+for the other operators. SwiGLU has no consistent improvement, and narrow
+17×65 RMSNorm remains far slower under local mapping: 37.690 µs versus
+1.314 µs whole-program. This is evidence that CPU task grain still matters.
+Two E2E orders do not establish a confidence interval; complete ranges,
+negative controls and failures are retained in the
+{download}`audit <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-full-packet/audit.json>`.
+
+The compiler change leaves all eight disabled-candidate RMSNorm LLVM/object
+captures byte-identical to the previous checkpoint. Native assembly confirms
+a distinct constant-width body and contiguous copy realization; static
+instruction counts are not measurements of branch stalls or spilling.
+The cost model needs separate full/tail realization costs jointly with
+distribution, fusion and task grain. No new Metal/MPS/BLAS result, automatic
+default victory or all-kernel parity is implied.
+
+### SIMD local distribution and private layout are separate decisions
+
+The earlier September 8 {download}`load/reduction fusion report <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-load-reduction/notes.md>`
+adds a legal first-consumer realization and matching work accounting, but
+**leaves it opt-in and default-disabled after measured regressions**.
+It follows the {download}`private-vector improvement <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-private-vector/notes.md>`
+and {download}`mapping/layout experiment <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-xir-packet-local/notes.md>`.
+The previous contiguous private-access optimization remains enabled.
+
+The rule moves a load into its first closed unordered reduction only across
+read-only operations and unit map wrappers, with pointwise dimension
+correspondence. It retains the snapshot for later users and rejects every
+intervening write or stage boundary, without parameter-name/noalias
+assumptions. This is a generic realization, not a new DSL or a calibrated
+automatic fusion solver.
+
+**Fewer counted private reads did not improve native RMSNorm.** Each row is
+a fixed-mapping no-fusion/fusion/Inductor experiment with the same private
+layout and vector-access policy: one CPU thread, all six orders, seven
+samples per visit. Times are µs; separate rows remeasure Torch independently.
+
+| RMSNorm | Mapping | No fusion | Opt-in fusion | Inductor | Paired fusion/default |
+|---|---|---:|---:|---:|---:|
+| 64×256 | Whole program | 11.087 | 13.521 | 8.869 | 1.219 |
+| 64×256 | Packet-local | 14.323 | 17.164 | 8.847 | 1.198 |
+| 1024×4096 | Whole program | 3205.413 | 3749.899 | 2147.740 | 1.170 |
+| 1024×4096 | Packet-local | 3233.376 | 3967.917 | 2146.697 | 1.227 |
+
+All 24 paired fusion/default comparisons are slower. Actual-object C++ replay
+excludes Runtime, Python, allocation and thread-pool dispatch, retaining the
+native call and launch-record reset; it is not a cycle counter. All 72 native
+visits pass complete output and guard checks. Default SIMD still loses to
+Inductor; no new MPS/BLAS/Metal result is implied.
+
+The separate **120-visit Runtime E2E** experiment covers 15 shapes/operators,
+eight requested CPU workers and two orders. Whole-program one-row RMSNorm
+and LayerNorm improve to paired ratios 0.828/0.936, but multirow norm cases
+generally regress; 1024×4096 RMSNorm is 1.198/1.211 for whole/local mapping.
+Softmax, SwiGLU, GELU and RoPE do not trigger this fusion rule; their recorded
+variation must not be presented as fusion speedups. Full times, ranges and
+negative controls are in the {download}`audit <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-load-reduction/audit.json>`.
+
+The counterexample identifies a missing interaction in the model: the
+64×256 whole-program work score falls 297112→231576, but LLVM changes from
+an inlined body to an outlined packet call. The actual native text has more
+conditional-branch sites; static sites do not establish branch stalls or
+spilling as the sole cause. Full-packet specialization/inlining, partial
+count, fusion and task grain need joint evaluation, not an unconditional
+memory-work discount.
+
+Whole-program mapping and private vectors remain default; joint mapping
+search and this fusion remain opt-in. The shipping policy change is recorded
+separately from the frozen experimental binary and verified against shipping
+captures. Numerical policy is unchanged: Torch uses reciprocal-then-multiply
+where this Tile expression uses division. General phase fusion, masked-memory
+cost calibration and independent CPU task grain remain open.
+
+### Bounded XIR traversal improves compilation, not yet Torch parity
+
+The next September 8 {download}`bounded-representation report <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-xir-bounded/notes.md>`
+implements runtime loops for large Tiles, single-use pure expression recipes,
+closed unordered partial accumulators and CPU-thread-owned private workspace.
+Load snapshots, simultaneous loop carries and strict folds remain intact.
+The planner counts the new representation's work, but still searches only
+root order/block width; this is not a calibrated local-distribution solver.
+
+**Native-entry timing now isolates Runtime/Python.** For the same 64×256
+RMSNorm inputs, a single-thread C++ replay of actual generated objects gives:
+
+| Native entry | Median µs |
+|---|---:|
+| Previous indexable XIR | 98.570 |
+| Bounded XIR | 28.836 |
+| One-thread TorchInductor | 8.995 |
+
+All six orders, seven samples per visit, full FP64 outputs and guards pass.
+This excludes Runtime, Python, allocation and thread-pool dispatch, but retains
+native-call/loop overhead and Luisa's small mutable launch-record reset. It is
+**single-thread native-entry wall time**, not hardware cycles or an eight-thread
+E2E comparison. The approximately 3.42× improvement still leaves XIR at
+**3.21× Inductor's time**. Actual object text shrinks 262772→11564 bytes;
+the 64×256 native frame shrinks 37376→17056 bytes.
+
+Separate AB/BA Runtime batches improve RMSNorm 17×127, 64×256, 1024×256 and
+64×513 by 1.50–2.43× over the previous XIR, and LayerNorm 64×256 by 1.59×.
+However, **masked softmax 17×65 regresses 3.878→8.390 µs and SwiGLU
+4.373→5.644 µs**. The fixed 64-element cutoff is a code-size policy, not an
+optimal performance choice. All 32 visits pass; two orders are descriptive,
+not confidence intervals. Ordinary RMSNorm 64×256 JIT falls 5806.4→80.7 ms,
+kept separate from execution time.
+
+The expanded large-shape matrix now completes all 44 native/Torch visits,
+including widths 1537/4096/16384 and seven operator families. **Every one of
+the 11 matched cases still loses to eager Torch**: XIR/Torch E2E ratios range
+1.49–23.32×; the worst is LayerNorm 17×16384. Three failing pre-workspace cases
+remain in the raw evidence, alongside the successful resource repair. No
+Metal, MPS or BLAS improvement is claimed by this CPU change.
+
+There are two distinct remaining mapping gaps: lane packing still spans rows
+instead of continuous features; and 17/64 row programs with 32 workers/block
+expose only 1/2 CPU block tasks despite requesting eight workers. Independent
+packet task grain, local-vector distribution and phase materialization need
+real candidates before their costs can be fitted. The full isolated build and
+38 selected Tile/SIMD CTests pass. See the {download}`audit <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-xir-bounded/audit.json>`
+for separate timing boundaries, full tables, checks and retained failures.
+
+### Indexable XIR snapshots remove quadratic extraction work
+
+The September 8 {download}`snapshot implementation report <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-xir-indexable/notes.md>`
+turns the Torch inspection below into a generic Tile-to-XIR representation
+repair: compile-time coordinates project scalar SSA directly; runtime-indexed
+Tiles receive definition-time local snapshots and guarded indexed reads.
+The planner's work prior now accounts for stores and reads instead of charging
+a full SELECT chain for each reduction iteration. No operator-name dispatch
+or new DSL Memory annotation is involved; the root candidate family is unchanged.
+
+Two balanced orders, seven samples per visit, fixed W8/requested eight CPU
+workers, and unchanged per-case block/order plans give these **old-XIR/new-XIR**
+warm synchronized Runtime batch results. All 32 visits pass native full
+FP64/guard checks and independent Python FP64 comparisons. This is neither
+pure CPU kernel timing nor a new Torch/MPS comparison.
+
+| Operation / shape | Old XIR (µs) | New XIR (µs) | Paired old/new |
+|---|---:|---:|---:|
+| RMSNorm 17×7 | 0.392 | 0.335 | 1.170× |
+| RMSNorm 17×127 | 29.492 | 8.140 | 3.623× |
+| RMSNorm 64×256 | 225.980 | 87.514 | 2.582× |
+| RMSNorm 1024×256 | 874.441 | 268.943 | 3.252× |
+| RMSNorm 64×513 | 768.288 | 144.550 | 5.315× |
+| LayerNorm 64×256 | 390.033 | 117.339 | 3.338× |
+| Masked softmax 17×65 | 11.688 | 3.875 | 3.017× |
+| SwiGLU 17×65, no dynamic extraction | 4.356 | 4.293 | 1.015× |
+
+The reduction improvement repeats across both orders. The approximately 1.5%
+SwiGLU difference is a control observation, not attributed to this transform.
+Two orders are descriptive evidence, not confidence intervals or broad
+generalization. This patch combines constant projection and dynamic snapshots;
+it does not separately attribute their gains. Source, binary and input
+fingerprints are retained with the {download}`raw A/B <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-xir-indexable/ab/report.json>`.
+
+**Compilation and resource costs regress.** At 64×256 RMSNorm, ordinary JIT
+medians rise from 3.645 to 5.684 seconds. Actual ORC machine code replaces the
+256-choice-per-iteration chain with an indexed load loop, but object text grows
+from 214252 to 262772 bytes and the kernel frame from 33104 to 37376 bytes.
+Local arrays still use per-worker gather/scatter and whole-row expansion.
+At 64×513, JIT rises from 14.851 to 24.113 seconds despite the throughput win.
+
+Separate probes at 17×1537 and 1024×4096 time out at 60 seconds for both
+versions; 64×16384 hits the SSA expansion budget. None has a completed output
+or throughput result. Samples identify normal ORC compilation in MachineSinking
+and MachineCSE, not the prior extra assembly-copy path. Failed probes remain
+in the {download}`large-shape record <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-xir-indexable/large/report.json>`.
+
+The full isolated Tile suite passes 35/35; additional complete Runtime tests
+pass at W1/2/4/16 with 728 assertions each. Coverage includes strict folds,
+aliased const/writable inputs, dynamically indexed multi-element carries,
+zero-trip loops and tails. The {download}`independent audit <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-xir-indexable/audit.py>`
+recomputes timing summaries and verifies the actual code loop separately.
+Next work is [bounded local-vector distribution](../../internals/tile/xir.md#bounded-local-vector-candidates),
+phase liveness and explicit JIT/runtime objectives—not merely cost-weight tuning.
+
+### Torch CPU code inspection exposes missing local-vector candidates
+
+The September 8 {download}`CPU SIMD inspection <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-torch-simd-inspection/notes.md>`
+examines the installed Torch 2.14.0 binary, sampled ATen/Accelerate call paths,
+and actual Inductor-generated C++/ARM64 code. At 1024×4096 and 64×256,
+Softmax/RMSNorm/SwiGLU compiled outputs pass complete eager comparisons.
+Torch's `DEFAULT` capability still emits 4-wide NEON; eager Softmax calls
+vector SLEEF, while eager RMSNorm is composite despite its internal name.
+Sampled GEMM calls Accelerate SGEMM; this does not identify its hidden ISA.
+
+In the pre-repair 64×256 capture, direct XIR RMSNorm retains a **256-choice SELECT chain inside a
+256-iteration reduction** in the actual machine code. Its object has 214252
+bytes of text and the kernel frame reserves 33104 bytes. SwiGLU already uses
+the native v8 exp provider, but statically duplicates 256 call sites; its
+object text is 345696 bytes. These are code-shape diagnostics, not speedup
+ratios. Both XIR cases pass full FP64/guard checks. The larger RMSNorm
+assembly-copy diagnostic was terminated after more than six minutes in LLVM
+MachineSinking; it is retained as incomplete, not labeled kernel time.
+
+The missing family is [bounded local-vector distribution](../../internals/tile/xir.md#bounded-local-vector-candidates),
+with indexable compiler-owned values, contribution/output partition factors,
+and phase-specific materialization. Root-order/block-width weights cannot
+create that family. Existing vector math should be reused; no production
+planner change or new performance ranking was part of the inspection itself.
+The subsequent snapshot repair and its measured tradeoffs are recorded above.
+The {download}`evidence checker <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-torch-simd-inspection/audit.py>`
+keeps provider identity, successful comparisons and the incomplete diagnostic
+separate from timing claims.
+
+### Composed reductions need phase-specific contraction distributions
+
+The September 8 decode study separates a previously coupled control: enabling
+subgroup candidates also attempts immutable input-view forwarding and changes
+automatic group width. Its initial seven-configuration pilot is retained, but
+is **not an isolated collective speedup**. With views and exact group widths
+fixed, generated Metal differs only in the two closed sum/max phases. Across
+three decode shapes and 64/1024-thread controls, descriptive GPU batch changes
+are only about 2.5–8.5%; the remaining native/Torch ratios are 6.95–17.34×.
+
+A benchmark-only probe expresses QK using existing
+`reduce(query * key, d, add)` and keeps PV as `mma`. It changes the QK
+contribution-axis distribution without introducing a DSL primitive or
+production operator-name rule. The compiler and cost model are unchanged.
+
+```{table} Decode probe, FP32 M1 Max; no-counter command-buffer GPU µs/invocation
+:class: benchmark-table
+
+| B,Hq,Hkv,Q,K,D,Dv | QK mma / 1024 | QK reduce / 64 | QK reduce / 1024 | Reduce-1024 / Torch |
+|---|---:|---:|---:|---:|
+| 1,8,2,1,2048,64,64 | 492.850 | 718.674 | 363.985 | 9.245× |
+| 1,8,2,1,2053,80,96 | 958.355 | 1535.067* | 519.987 | 3.798× |
+| 1,16,4,1,4096,128,128 | 1328.624 | 1924.518 | 730.416 | 9.640× |
+```
+
+Both forms use explicit input views and enabled closed collectives. Four
+rounds balance native/Torch order **within each configuration**, not between
+configurations; cross-column differences are descriptive, not paired A/B.
+`*` All four native rounds pass, but one Torch counter sample fails its timing
+validation; no complete native/Torch ratio is published for that case.
+The final column is a median of same-round ratios for the complete 1024-thread
+cohort, not a ratio of cross-cohort medians. Timings include command-buffer
+gaps; separately retained compute-pass probes are instrumented, not pure
+hardware kernel events. Torch uses functional SDPA with output/internal
+allocation inside timing and an explicit precomputed bottom-right causal mask.
+
+At 64 threads, one full subgroup per QK output requires 16 batches for the
+32-output tile; at 1024 it needs one. The probe therefore regresses at 64 and
+improves at 1024. This supports searching output/contribution partition
+factors and phase transitions together; it does **not** justify mechanically
+turning every contraction into a full-subgroup reduction. Small-M contractions
+still miss the 8×8 matrix atom, and composed reference planning does not yet
+account for their serial contribution work. A general typed-contraction
+candidate, interleaved replay and held-out cost validation are next steps.
+
+The {download}`Chinese study and limitations <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-composed-reduction/notes.md>`
+and {download}`independent raw-sample audit <../../../../scripts/benchmark/tile_torch/results/m1-max-20260908-composed-reduction/audit.py>`
+retain **172 rows: 171 valid and one timing failure**, all 86 native full-output
+FP64/guard checks, generated sources, six timing views and six rejected
+adversarial audit mutations. No MPS/Torch parity claim follows from this probe;
+direct XIR/SIMD performance is unchanged.
 
 ### Multi-output pointwise fusion removes a mapping boundary
 

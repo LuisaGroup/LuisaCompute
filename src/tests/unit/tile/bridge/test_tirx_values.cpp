@@ -1,5 +1,8 @@
 #include "ut/ut.hpp"
 #include "tile_tirx_test_utils.h"
+#include "tile_reduction_policy_test_utils.h"
+
+#include <bit>
 
 #include <luisa/tile/algorithms.h>
 
@@ -9,6 +12,82 @@ using namespace boost::ut::literals;
 using luisa::test::tile_tirx::Runtime;
 
 namespace {
+
+void test_reduction_fold_policies(Runtime &runtime) {
+    namespace cases = luisa::test::tile_reduction;
+    constexpr auto rows = int64_t{3};
+    for (auto dimensions : {std::pair{0, 3}, std::pair{2, 0}, std::pair{1, 1},
+                            std::pair{1, 3}, std::pair{2, 3}, std::pair{3, 5}}) {
+        auto [outer, inner] = dimensions;
+        auto width = outer * inner;
+        auto stride = std::max(width, 1);
+        for (auto seed : {0.0f, -0.0f, 3.0f}) {
+            auto kernel = cases::folds(rows, outer, inner, seed);
+            bridge::tirx::PlannerOptions planner;
+            planner.metal_subgroup_reductions = runtime.target() == "metal";
+            // Even explicitly enabled provider/collective candidates cannot
+            // replace a strict fold. CPU's array provider is checked below.
+            auto executable = runtime.build(kernel, true, false, true, true, planner, false, true);
+            if (!runtime.supports_ordered_reductions()) {
+                expect(!executable.ok());
+                expect(executable.error.find("metal-precise-math-v1.patch") != luisa::string::npos) << executable.error;
+                continue;
+            }
+            expect(executable.ok()) << executable.error;
+            if (!executable.ok()) { continue; }
+            luisa::vector<float> values(rows * stride);
+            for (auto r = int64_t{0}; r < rows; r++) {
+                for (auto i = 0; i < width; i++) {
+                    constexpr float cancellation[]{16777216.0f, 1.0f, -16777216.0f, 3.0f, -2.0f};
+                    values[r * stride + i] = r == 0 ? cancellation[i % 5] : static_cast<float>((i + 1) * (r + 1));
+                }
+            }
+            auto input = runtime.upload<float>({rows, stride}, values);
+            auto output = runtime.allocate<float>({rows, cases::outputs});
+            (*executable.entry)(input, output);
+            auto actual = runtime.download<float>(output, rows * cases::outputs);
+            for (auto r = int64_t{0}; r < rows; r++) {
+                auto expected = cases::reference(luisa::span<const float>{values}.subspan(r * stride, width), seed);
+                for (auto mode = int64_t{0}; mode < cases::outputs; mode++) {
+                    expect(eq(std::bit_cast<uint32_t>(actual[r * cases::outputs + mode]), std::bit_cast<uint32_t>(expected[mode])))
+                        << "shape=" << outer << "," << inner << " row=" << r << " mode=" << mode << " seed=" << seed;
+                }
+            }
+        }
+    }
+}
+
+void test_fold_overrides_llvm_fast_math(Runtime &runtime) {
+    if (runtime.target() != "llvm") { return; }
+    namespace cases = luisa::test::tile_reduction;
+    auto kernel = cases::folds(1, 3, 5, 3.0f);
+    luisa::vector<float> values{16777216.0f, 1.0f, -16777216.0f, 3.0f, -2.0f,
+                                16777216.0f, 1.0f, -16777216.0f, 3.0f, -2.0f,
+                                16777216.0f, 1.0f, -16777216.0f, 3.0f, -2.0f};
+    auto expected = cases::reference(values, 3.0f);
+    auto input = runtime.upload<float>({1, 15}, values);
+    auto output = runtime.allocate<float>({1, cases::outputs});
+    for (auto target : {R"({"kind":"llvm","fast-math":true})",
+                        R"({"kind":"llvm","fast-math-reassoc":true,"fast-math-contract":true,"fast-math-nsz":true})"}) {
+        auto native = bridge::tirx::lower(kernel.function());
+        expect(native.ok()) << native.error;
+        if (!native) { continue; }
+        bridge::tirx::CompileOptions options;
+        options.target = target;
+        auto compiled = bridge::tirx::compile(native.value, kernel.function().name(), options);
+        expect(compiled.ok()) << compiled.error();
+        if (!compiled) { continue; }
+        auto name = kernel.function().name();
+        auto entry = compiled.module().value()->GetFunction(tvm::ffi::String{name.data(), name.size()}, true);
+        expect(entry.has_value());
+        if (!entry) { continue; }
+        (*entry)(input, output);
+        auto actual = runtime.download<float>(output, cases::outputs);
+        for (auto mode = size_t{0}; mode < cases::outputs; mode++) {
+            expect(eq(std::bit_cast<uint32_t>(actual[mode]), std::bit_cast<uint32_t>(expected[mode]))) << "mode=" << mode;
+        }
+    }
+}
 
 template<bool tiled>
 void test_ite_argument_order(Runtime &runtime) {
@@ -307,6 +386,8 @@ int main(int argc, char *argv[]) {
                                                     const_cast<const char **>(argc > 1 ? argv + 1 : argv));
     "tile_ite_argument_order"_test = [&] { test_ite_argument_order<true>(runtime); };
     "scalar_ite_argument_order"_test = [&] { test_ite_argument_order<false>(runtime); };
+    "tile_reduction_fold_policies"_test = [&] { test_reduction_fold_policies(runtime); };
+    "tile_reduction_fold_overrides_llvm_fast_math"_test = [&] { test_fold_overrides_llvm_fast_math(runtime); };
     "tile_subtile_bounds_and_snapshot"_test = [&] { test_bounds_and_snapshot(runtime); };
     "tile_singleton_execution_coordinates"_test = [&] { test_singleton_execution_coordinates(runtime); };
     "tile_simultaneous_value_yield"_test = [&] { test_tile_yield_is_simultaneous(runtime); };

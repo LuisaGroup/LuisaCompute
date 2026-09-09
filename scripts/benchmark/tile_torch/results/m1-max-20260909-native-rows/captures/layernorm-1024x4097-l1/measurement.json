@@ -1,0 +1,73 @@
+{
+  "implementation": "tile_xir_simd",
+  "backend": "cpu",
+  "precision": "fp32",
+  "fast_math": false,
+  "relaxed_precision": false,
+  "runtime": "luisa",
+  "timing": "synchronized_host_wall",
+  "batch_policy": "one_runtime_command_list_per_batch",
+  "operation": "layernorm",
+  "dimensions": [
+    1024,
+    4097
+  ],
+  "reduction_tree": false,
+  "requested_input_views": false,
+  "attention_qk": "not_applicable",
+  "source_reduction_policy": "unordered_tree",
+  "reduction_candidate_setting": "not_applicable",
+  "requested_group_threads": 0,
+  "attention_block": [
+    1,
+    1
+  ],
+  "input_shapes": [
+    [
+      1024,
+      4097
+    ],
+    [
+      1,
+      4097
+    ],
+    [
+      1,
+      4097
+    ]
+  ],
+  "output_shape": [
+    1024,
+    4097
+  ],
+  "fixture_ms": 33.235334,
+  "runtime_init_ms": 11.698166,
+  "compile_ms": 71.916167,
+  "allocation_upload_ms": 5.091709,
+  "cold_call_ms": 4.596334,
+  "warmup_ms": 34.19725,
+  "repetitions": 1,
+  "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 1 CPU workers; ordered CPU pipeline; Schedule blocks=22, direct CFG=true, contiguous reads=0, broadcasts=2; exact search 1 candidates, uncalibrated cost 126388864.000 (arithmetic 16257408.000, memory 110127360.000, dispatch 4096.000, imbalance 0.000), root order [0]; local_lanes=1; blocks_per_task=0; task_dispatch_cost=0.000; worker_activation_cost=0.000; custom_cost_policy=false; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; load_reduction_fusion=false; fused_reduction_loads=0; elided_load_snapshots=0; interleaved_private_arrays=4; contiguous_private_reads=22; contiguous_private_writes=4; private_workspace_bytes=524416; full_packet_specializations=1; full_packet_cloned_instructions=1022; fast_math=false; ordered_reduction=false",
+  "correctness": {
+    "checks": 2,
+    "elements_per_check": 4195328,
+    "guard_elements_per_check": 34,
+    "atol": 5e-05,
+    "rtol": 5e-05,
+    "max_abs_error": 9.99202498075e-07
+  },
+  "throughput_us": [
+    4239.25,
+    4362.709,
+    4463
+  ],
+  "latency_us": [
+    4314.625,
+    4584.541,
+    4395.916
+  ],
+  "throughput_us_p50": 4362.709,
+  "throughput_us_p90": 4442.9418,
+  "latency_us_p50": 4395.916,
+  "latency_us_p90": 4546.816
+}

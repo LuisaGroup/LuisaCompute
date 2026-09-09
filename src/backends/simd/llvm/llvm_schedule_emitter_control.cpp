@@ -664,8 +664,8 @@ void ScheduleEmitter::_find_instruction_spills() {
         for (auto &&block : _source.blocks()) {
             if (auto diamond =
                     _find_predicated_memory_diamond(block)) {
-                emission_blocks[diamond->true_block->id.value] = block.id;
-                emission_blocks[diamond->false_block->id.value] = block.id;
+                if (diamond->true_block) { emission_blocks[diamond->true_block->id.value] = block.id; }
+                if (diamond->false_block) { emission_blocks[diamond->false_block->id.value] = block.id; }
             }
         }
     }
@@ -881,7 +881,47 @@ void ScheduleEmitter::_allocate_state() {
     }
     _find_instruction_spills();
     _local_allocations.resize(_source.values().size(), nullptr);
+    _find_interleaved_private_arrays();
     _shared_memory_size = 0u;
+    // A private Tile is replicated per packet lane. Bound this physical
+    // allocation before choosing stack versus Runtime-owned workspace, not
+    // merely the size of one logical worker's array. No lifetime coalescing
+    // is assumed: every allocation receives a distinct aligned interval.
+    auto private_bytes = size_t{0u};
+    if (_private_stack_budget_bytes != 0u) {
+        for (auto &&block : _source.blocks()) {
+            for (auto &&instruction : block.instructions) {
+                if (instruction.opcode != schedule::Opcode::alloca ||
+                    !instruction.result || _is_shared_lvalue(*instruction.result)) { continue; }
+                auto *value = _source.value(*instruction.result);
+                if (value == nullptr || value->type == nullptr) {
+                    _fail("private workspace allocation has an invalid type");
+                    return;
+                }
+                auto size = _abi_size(value->type);
+                auto alignment = _abi_alignment(value->type);
+                if (alignment > 64u || size > simd_max_private_workspace_bytes / _width) {
+                    _fail("SIMD private workspace exceeds the runtime capacity/alignment limit");
+                    return;
+                }
+                auto offset = _align_up(private_bytes, alignment);
+                auto bytes = size * _width;
+                if (offset > simd_max_private_workspace_bytes || bytes > simd_max_private_workspace_bytes - offset) {
+                    _fail("SIMD private workspace exceeds the runtime capacity limit");
+                    return;
+                }
+                private_bytes = offset + bytes;
+            }
+        }
+        if (private_bytes > _private_stack_budget_bytes) {
+            if (_cooperative_block || _is_handler_entry() || !_ray_query_pipeline_handlers.empty()) {
+                _fail("private workspace reuse requires independent non-cooperative packets without nested handlers");
+                return;
+            }
+            _result.private_workspace_size = private_bytes;
+        }
+    }
+    auto private_offset = size_t{0u};
     for (auto &&block : _source.blocks()) {
         for (auto &&instruction : block.instructions) {
             if (instruction.opcode != schedule::Opcode::alloca ||
@@ -933,14 +973,21 @@ void ScheduleEmitter::_allocate_state() {
             } else {
                 auto byte_count = static_cast<uint64_t>(_width) *
                                   value_size;
-                auto *storage_type = ::llvm::ArrayType::get(
-                    _builder.getInt8Ty(), byte_count);
-                auto *storage = _builder.CreateAlloca(
-                    storage_type, nullptr, value->name + ".local");
-                storage->setAlignment(
-                    ::llvm::Align{value_alignment});
+                ::llvm::Value *storage = nullptr;
+                if (_result.private_workspace_size != 0u) {
+                    private_offset = _align_up(private_offset, value_alignment);
+                    auto *address = _byte_pointer(_launch_config, offsetof(SIMDPacketLaunchConfig, private_workspace));
+                    auto *workspace = _builder.CreateLoad(::llvm::PointerType::getUnqual(_module.getContext()), address, "private.workspace");
+                    storage = _builder.CreateInBoundsPtrAdd(workspace, _builder.getInt64(private_offset), value->name + ".private");
+                    private_offset += byte_count;
+                } else {
+                    auto *storage_type = ::llvm::ArrayType::get(_builder.getInt8Ty(), byte_count);
+                    auto *local = _builder.CreateAlloca(storage_type, nullptr, value->name + ".local");
+                    local->setAlignment(::llvm::Align{value_alignment});
+                    storage = local;
+                }
                 auto *offsets = _lane_offsets(
-                    _lane_ids(), value_size);
+                    _lane_ids(), _interleaved_local_values[instruction.result->value] ? value->type->element()->size() : value_size);
                 _local_allocations[instruction.result->value] =
                     _local_handle(
                         _builder.CreateVectorSplat(_width, storage),

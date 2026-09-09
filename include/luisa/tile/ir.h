@@ -124,7 +124,7 @@ enum class OperationKind : uint8_t {
     SERIAL,  // Ordered iterations; yielded states update simultaneously.
     PIPELINE,// Ordered effects/carries with permitted stage overlap, not independence.
     STAGE,
-    REDUCE,// Algebraic fold; reordering requires the reducer's numerical permission.
+    REDUCE,// Reduction region; its local policy constrains contribution order.
     YIELD
 };
 
@@ -302,6 +302,23 @@ struct MmaPolicy {
     bool allow_reassociation{true};
 };
 
+// Permissions over a reducer's contribution sequence, not a hardware mapping
+// or a proof of its merge laws. Tree policies still require a compatible merge
+// before parallel realization. They do not relax precision, NaNs, or FMA rules.
+enum class ReductionPolicy : uint8_t {
+    UNORDERED_TREE,
+    ORDERED_TREE,
+    FOLD_LEFT,
+    FOLD_RIGHT
+};
+
+namespace reduction {
+inline constexpr auto unordered_tree = ReductionPolicy::UNORDERED_TREE;
+inline constexpr auto ordered_tree = ReductionPolicy::ORDERED_TREE;
+inline constexpr auto fold_left = ReductionPolicy::FOLD_LEFT;
+inline constexpr auto fold_right = ReductionPolicy::FOLD_RIGHT;
+}// namespace reduction
+
 class LUISA_TILE_API Operation : public luisa::ManagedIntrusiveNode<Operation> {
 
 private:
@@ -314,6 +331,7 @@ private:
     ElementwiseOp _elementwise_op{ElementwiseOp::INVALID};
     BoundsMode _bounds_mode{BoundsMode::ASSUME};
     MmaPolicy _mma_policy;
+    ReductionPolicy _reduction_policy{ReductionPolicy::UNORDERED_TREE};
     luisa::string _custom_name;
     luisa::vector<luisa::ManagedPtr<Use>> _operands;
     luisa::vector<luisa::unique_ptr<Value>> _results;
@@ -344,6 +362,8 @@ public:
     [[nodiscard]] auto bounds_mode() const noexcept { return _bounds_mode; }
     [[nodiscard]] auto mma_policy() const noexcept { return _mma_policy; }
     void set_mma_policy(MmaPolicy policy) noexcept { _mma_policy = policy; }
+    [[nodiscard]] auto reduction_policy() const noexcept { return _reduction_policy; }
+    void set_reduction_policy(ReductionPolicy policy) noexcept { _reduction_policy = policy; }
     [[nodiscard]] luisa::string_view name() const noexcept;
     [[nodiscard]] auto parent_block() noexcept { return _parent; }
     [[nodiscard]] const auto *parent_block() const noexcept { return _parent; }

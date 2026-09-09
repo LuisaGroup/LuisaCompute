@@ -1,0 +1,3 @@
+dyld[43551]: Library not loaded: /opt/homebrew/opt/uvwasi/lib/libuvwasi.dylib
+  Referenced from: <069B80C6-5823-3406-91F4-8C762A169E6B> /opt/homebrew/Cellar/node/26.7.0/bin/node
+  Reason: tried: '/opt/homebrew/opt/uvwasi/lib/libuvwasi.dylib' (no such file), '/System/Volumes/Preboot/Cryptexes/OS/opt/homebrew/opt/uvwasi/lib/libuvwasi.dylib' (no such file), '/opt/homebrew/opt/uvwasi/lib/libuvwasi.dylib' (no such file)

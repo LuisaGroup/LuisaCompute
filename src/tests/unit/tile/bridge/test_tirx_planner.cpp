@@ -691,12 +691,39 @@ void test_reduction_machine_cost() {
     }
 }
 
+void test_collective_reference_width() {
+    ExecutionLimits limits{256u, 32u, 32768u};
+    GroupWorkload work;
+    work.programs = 3u;
+    work.max_independent_elements = 1u;
+    auto scalar = plan_group(work, limits);
+    expect(scalar.ok());
+    expect(eq(scalar.plan.threads, 1u));
+    for (auto outputs : {uint64_t{1}, uint64_t{3}, uint64_t{100}, UINT64_MAX}) {
+        work.max_collective_outputs = outputs;
+        auto collective = plan_group(work, limits);
+        expect(collective.ok());
+        expect(eq(collective.plan.threads, static_cast<uint32_t>(std::min(outputs, uint64_t{8}) * 32u)));
+        // Width admission is not a newly calibrated profitability model.
+        expect(!collective.plan.optimized);
+    }
+    PlannerOptions exact;
+    exact.threads_per_group = 1u;
+    auto fallback = plan_group(work, limits, exact);
+    expect(fallback.ok());
+    expect(eq(fallback.plan.threads, 1u));
+    auto narrow = plan_group(work, ExecutionLimits{16u, 32u, 32768u});
+    expect(narrow.ok());
+    expect(eq(narrow.plan.threads, 1u));
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     "tile_planner_exact_thread_search_and_atom_coverage"_test = [] { test_exact_solver_and_coverage(); };
     "tile_planner_constraints_and_reference"_test = [] { test_constraints_and_reference(); };
+    "tile_planner_collective_reference_width"_test = [] { test_collective_reference_width(); };
     "tile_planner_multiple_contracts_and_model_separation"_test = [] { test_multiple_contracts_and_model_separation(); };
     "tile_planner_pareto_capacity_beats_local_greedy_choice"_test = [] { test_capacity_requires_slower_resident_choice(); };
     "tile_planner_direct_output_proof_and_storage_accounting"_test = [] { test_direct_output_requires_proof_and_releases_both_buffers(); };

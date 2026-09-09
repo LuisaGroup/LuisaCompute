@@ -213,7 +213,7 @@ match_striped_materialization(const tvm::tirx::ForNode *outer) {
     auto kind = contract ? contract.value().as<tvm::IntImmNode>() : nullptr;
     auto minimum = loop->min.as<tvm::IntImmNode>();
     auto elements = static_extent(loop->extent, true);
-    if (loop->annotations.size() != 1u || kind == nullptr ||
+    if (loop->annotations.size() != 2u || !permits_unordered_reduction(loop) || kind == nullptr ||
         (kind->value != reduction_add_contract &&
          kind->value != reduction_max_contract &&
          kind->value != reduction_min_contract) ||
@@ -1176,6 +1176,7 @@ protected:
         auto node = result.CopyOnWrite();
         node->annotations.erase(deferred_pipeline_annotation);
         node->annotations.erase(reduction_contract_annotation);
+        node->annotations.erase(reduction_policy_annotation);
         node->annotations.erase(materialized_pure_tile_annotation);
         return result;
     }
@@ -1254,7 +1255,121 @@ public:
           _striped_buffers{striped_buffers} {}
 };
 
+struct ReductionTileMatch {
+    ElementDomain domain;
+    ReductionMatch reduction;
+    const tvm::tirx::ForNode *loop;
+    const tvm::tirx::BufferStoreNode *output;
+};
+
+[[nodiscard]] std::optional<ReductionTileMatch> match_reduction_tile(const tvm::tirx::For &loop) {
+    auto domain = element_domain(loop.get());
+    if (!domain || domain->count == 0u || domain->count > INT64_MAX ||
+        loop->annotations.size() != 1u) { return {}; }
+    tvm::ffi::Array<tvm::tirx::Stmt> statements;
+    flatten_sequence(domain->body, statements);
+    if (statements.size() != 4u) { return {}; }
+    auto allocation = statements[0u].as<tvm::tirx::AllocBufferNode>();
+    auto initializer = statements[1u].as<tvm::tirx::BufferStoreNode>();
+    auto reduction = statements[2u].as<tvm::tirx::ForNode>();
+    auto output = statements[3u].as<tvm::tirx::BufferStoreNode>();
+    if (!allocation || !initializer || !reduction || !output || output->predicate || !allocation->annotations.empty()) { return {}; }
+    auto match = match_reduction(reduction);
+    auto result = output->value.as<tvm::tirx::BufferLoadNode>();
+    if (!match || !allocation->buffer.same_as(match->carry) || !identity_initializer(initializer, *match) ||
+        !result || result->predicate || !result->buffer.same_as(match->carry) || !zero_index(result->indices) ||
+        output->buffer.same_as(match->carry)) { return {}; }
+    return ReductionTileMatch{std::move(*domain), std::move(*match), reduction, output};
+}
+
 }// namespace
+
+std::optional<uint64_t> metal_reduction_tile_output_count(const tvm::tirx::For &loop) {
+    auto match = match_reduction_tile(loop);
+    return match ? std::optional{match->domain.count} : std::nullopt;
+}
+
+tvm::tirx::Stmt try_metal_reduction_tile(
+    const tvm::tirx::For &loop, const tvm::tirx::PrimVar &thread, uint64_t threads,
+    const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer) {
+    if (threads < subgroup_size || threads % subgroup_size != 0u) { return {}; }
+    auto tile = match_reduction_tile(loop);
+    if (!tile) { return {}; }
+    auto domain = &tile->domain;
+    auto match = &tile->reduction;
+    auto reduction = tile->loop;
+    auto output = tile->output;
+
+    // Reuse the semantic reduction matcher, but do not run the whole-program
+    // mapper: surrounding phases may contain matrices and shared resources.
+    // Independence of distinct outputs is the enclosing element contract.
+    class AccessMapper final : public tvm::tirx::StmtExprMutator {
+    private:
+        const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &_map;
+    protected:
+        tvm::Expr VisitExpr_(const tvm::tirx::BufferLoadNode *load) final {
+            return tvm::tirx::BufferLoad{_map(load->buffer),
+                                         load->indices.Map([this](auto &&index) { return VisitPrimExpr(index); }),
+                                         load->predicate ? tvm::ffi::Optional<tvm::PrimExpr>{VisitPrimExpr(load->predicate.value())} : std::nullopt,
+                                         load->span};
+        }
+    public:
+        explicit AccessMapper(const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map) noexcept : _map{map} {}
+        tvm::PrimExpr expression(const tvm::PrimExpr &value) { return VisitPrimExpr(value); }
+    } mapper{map_buffer};
+
+    auto zero = tvm::IntImm::Int64(0);
+    auto width = tvm::IntImm::Int64(static_cast<int64_t>(subgroup_size));
+    auto lane = tvm::floormod(thread, width);
+    auto subgroup = tvm::floordiv(thread, width);
+    auto subgroups = threads / subgroup_size;
+    auto batch = tvm::tirx::PrimVar{loop->loop_var->name + "_reduction_batch", tvm::PrimType::Int(64)};
+    auto row = batch * tvm::IntImm::Int64(static_cast<int64_t>(subgroups)) + subgroup;
+    tvm::ffi::Map<tvm::tirx::Var, tvm::Expr> coordinates;
+    auto trailing = domain->count;
+    for (auto axis : domain->axes) {
+        auto extent = *static_extent(axis->extent, true);
+        trailing /= extent;
+        auto coordinate = tvm::floormod(tvm::floordiv(row, tvm::IntImm::Int64(static_cast<int64_t>(trailing))), axis->extent);
+        coordinates.Set(axis->loop_var, axis->min + coordinate);
+    }
+    auto chunk = tvm::tirx::PrimVar{reduction->loop_var->name + "_reduction_chunk", tvm::PrimType::Int(64)};
+    auto index = chunk * width + lane;
+    coordinates.Set(reduction->loop_var, index);
+    auto contribution = tvm::tirx::Substitute(mapper.expression(match->contribution), coordinates);
+    auto carry = tvm::tirx::decl_buffer({tvm::IntImm::Int64(1)}, tvm::PrimType::Float(32),
+                                        reduction->loop_var->name + "_lane_carry", "local");
+    auto current = tvm::tirx::BufferLoad{carry, {zero}};
+    auto combine = [&](tvm::PrimExpr value) -> tvm::PrimExpr {
+        if (match->kind == reduction_add_contract) { return current + value; }
+        if (match->kind == reduction_max_contract) { return tvm::max(current, value); }
+        return tvm::min(current, value);
+    };
+    auto chunks = luisa::ceil_div(match->elements, subgroup_size);
+    tvm::tirx::Stmt update = tvm::tirx::BufferStore{carry, combine(std::move(contribution)), {zero}};
+    if (match->elements % subgroup_size != 0u) {
+        update = tvm::tirx::IfThenElse{index < reduction->extent, std::move(update)};
+    }
+    auto intrinsic = match->kind == reduction_add_contract ? "simd_sum" :
+                     match->kind == reduction_max_contract ? "simd_max" :
+                                                             "simd_min";
+    auto collective = tvm::Call{tvm::PrimType::Float(32), tvm::tirx::builtin::call_pure_extern(), {tvm::tirx::StringImm{intrinsic}, current}};
+    auto reduced = tvm::tirx::PrimVar{reduction->loop_var->name + "_subgroup_value", tvm::PrimType::Float(32)};
+    auto indices = output->indices.Map([&](auto &&value) { return tvm::tirx::Substitute(mapper.expression(value), coordinates); });
+    tvm::tirx::Stmt body = tvm::tirx::SeqStmt::Flatten(tvm::ffi::Array<tvm::tirx::Stmt>{
+        tvm::tirx::AllocBuffer{carry},
+        tvm::tirx::BufferStore{carry, reduction_identity(match->kind), {zero}},
+        tvm::tirx::For{chunk, zero, tvm::IntImm::Int64(static_cast<int64_t>(chunks)), tvm::tirx::ForKind::kSerial, std::move(update)},
+        // All lanes enter the collective, including identity-padded tails.
+        // The leader predicate controls only publication, never participation.
+        tvm::tirx::Bind{reduced, std::move(collective)},
+        tvm::tirx::IfThenElse{tvm::equal(lane, zero), tvm::tirx::BufferStore{map_buffer(output->buffer), reduced, std::move(indices)}}});
+    if (domain->count % subgroups != 0u) {
+        body = tvm::tirx::IfThenElse{row < tvm::IntImm::Int64(static_cast<int64_t>(domain->count)), std::move(body)};
+    }
+    return tvm::tirx::For{batch, zero, tvm::IntImm::Int64(static_cast<int64_t>(luisa::ceil_div(domain->count, subgroups))),
+                          tvm::tirx::ForKind::kSerial, std::move(body)};
+}
 
 tvm::tirx::Stmt try_map_metal_subgroup_reduction(
     const tvm::tirx::For &loop, uint32_t max_threads,

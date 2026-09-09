@@ -118,6 +118,14 @@ public:
 
     [[nodiscard]] tvm::Device device() const noexcept { return _device; }
     [[nodiscard]] luisa::string_view target() const noexcept { return _target; }
+    [[nodiscard]] bool supports_ordered_reductions() const {
+        if (_target != "metal") { return true; }
+        for (auto name : {"target.metal.precise_math_contract_version", "runtime.metal.precise_math_contract_version"}) {
+            auto capability = tvm::ffi::Function::GetGlobal(name);
+            if (!capability || (*capability)().cast<int64_t>() != 1) { return false; }
+        }
+        return true;
+    }
     [[nodiscard]] luisa::string_view cpu_model() const noexcept { return _cpu_model; }
     [[nodiscard]] uint32_t metal_max_threads() const noexcept { return _metal_max_threads; }
 

@@ -22,7 +22,7 @@ void check(span<const float> actual, span<const double> expected) {
     }
 }
 
-void run(Device &device, const test::tile_llm::Case &fixture) {
+void run(Device &device, const test::tile_llm::Case &fixture, bool compare_tirx = true) {
     LUISA_INFO("Checking {} with {} output elements", fixture.kernel.function().name(), fixture.expected.size());
     expect(fixture.kernel.valid());
     auto shader = tile::compile(device, fixture.kernel);
@@ -44,6 +44,7 @@ void run(Device &device, const test::tile_llm::Case &fixture) {
     expect(std::all_of(output.begin(), output.begin() + pad, [](float x) { return x == guard; }));
     expect(std::all_of(output.end() - pad, output.end(), [](float x) { return x == guard; }));
 #ifdef LUISA_TEST_TILE_XIR_TIRX
+    if (!compare_tirx) { return; }
     test::tile_tirx::Runtime runtime{"cpu", true};
     auto executable = runtime.build(fixture.kernel);
     expect(executable.ok()) << executable.error;
@@ -57,6 +58,8 @@ void run(Device &device, const test::tile_llm::Case &fixture) {
     auto td = s.size() == 2u ? runtime.allocate<float>({s[0], s[1]}) : runtime.allocate<float>({s[0], s[1], s[2], s[3]});
     (*executable.entry)(ta, tb, tc, td);
     check(runtime.download<float>(td, fixture.expected.size()), fixture.expected);
+#else
+    static_cast<void>(compare_tirx);
 #endif
 }
 
@@ -66,6 +69,13 @@ int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     auto [context, device] = test::create_device(argc, argv);
     using test::tile_llm::RowOp;
+    "tile_xir_llm_large_private_workspace"_test = [&] {
+        // More than one block forces execution on the persistent worker pool,
+        // whose native stack is smaller than the caller's stack on macOS.
+        run(device, test::tile_llm::rows(RowOp::RMS_NORM, 64, 16384), false);
+        run(device, test::tile_llm::rows(RowOp::MASKED_SOFTMAX, 64, 4096), false);
+        run(device, test::tile_llm::rows(RowOp::MASKED_SOFTMAX, 64, 16384), false);
+    };
     "tile_xir_llm_normalization_activation_masked_softmax"_test = [&] {
         for (auto op : {RowOp::RMS_NORM, RowOp::LAYER_NORM, RowOp::SWIGLU, RowOp::GELU_RESIDUAL, RowOp::MASKED_SOFTMAX}) {
             for (auto width : {7, 32, 65}) { run(device, test::tile_llm::rows(op, 17, width)); }
@@ -87,5 +97,10 @@ int main(int argc, char *argv[]) {
         }
         expect(throws([] { static_cast<void>(test::tile_llm::attention(1, 0, 1, 1, 1, 1, 1)); }));
         expect(throws([] { static_cast<void>(test::tile_llm::attention(1, 1, 1, 1, 1, 1, 1, 0, 3)); }));
+    };
+    "tile_xir_llm_attention_qk_reduction_probe"_test = [&] {
+        // Independent FP64 oracle, including reduction and output tails.
+        run(device, test::tile_llm::attention(1, 2, 1, 4, 5, 7, 3, 2, 3, true));
+        run(device, test::tile_llm::attention(1, 2, 1, 1, 17, 33, 7, 1, 4, true));
     };
 }

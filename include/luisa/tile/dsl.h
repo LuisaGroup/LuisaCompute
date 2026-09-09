@@ -210,7 +210,8 @@ public:
     OperationKind kind,
     IndexSpace domain,
     exec::Scope scope,
-    PipelinePolicy policy) noexcept;
+    PipelinePolicy policy,
+    ReductionPolicy reduction_policy = reduction::unordered_tree) noexcept;
 
 }// namespace detail
 
@@ -625,7 +626,7 @@ public:
 
     [[nodiscard]] NestRange parallel(IndexSpace domain, exec::Scope scope = exec::Scope::AUTOMATIC) const noexcept;
     [[nodiscard]] NestRange serial(IndexSpace domain) const noexcept;
-    [[nodiscard]] NestRange reduce(IndexSpace domain) const noexcept;
+    [[nodiscard]] NestRange reduce(IndexSpace domain, ReductionPolicy policy = reduction::unordered_tree) const noexcept;
     [[nodiscard]] NestRange pipeline(IndexSpace domain, PipelinePolicy policy = {}) const noexcept;
 
     void stage(luisa::string_view name = {}) const noexcept;
@@ -656,7 +657,7 @@ private:
     void _enter() noexcept;
     void _exit() noexcept;
     [[nodiscard]] Nest &_nest() noexcept;
-    friend NestRange detail::make_range(const Nest *, OperationKind, IndexSpace, exec::Scope, PipelinePolicy) noexcept;
+    friend NestRange detail::make_range(const Nest *, OperationKind, IndexSpace, exec::Scope, PipelinePolicy, ReductionPolicy) noexcept;
     friend class NestIterator;
 
 public:
@@ -681,8 +682,8 @@ public:
     return detail::make_range(nullptr, OperationKind::SERIAL, std::move(domain), exec::Scope::AUTOMATIC, {});
 }
 
-[[nodiscard]] inline NestRange reduce(IndexSpace domain) noexcept {
-    return detail::make_range(nullptr, OperationKind::REDUCE, std::move(domain), exec::Scope::AUTOMATIC, {});
+[[nodiscard]] inline NestRange reduce(IndexSpace domain, ReductionPolicy policy = reduction::unordered_tree) noexcept {
+    return detail::make_range(nullptr, OperationKind::REDUCE, std::move(domain), exec::Scope::AUTOMATIC, {}, policy);
 }
 
 [[nodiscard]] inline NestRange pipeline(IndexSpace domain, PipelinePolicy policy = {}) noexcept {

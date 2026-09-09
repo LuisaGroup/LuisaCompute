@@ -19,7 +19,8 @@ bool ScheduleEmitter::_can_emit_direct_control_flow() const noexcept {
                                   T, schedule::SplitTerminator>) {
                     auto *condition = _source.value(control.condition);
                     if (condition != nullptr &&
-                        schedule::is_uniform(condition->value_class)) {
+                        (schedule::is_uniform(condition->value_class) || control.cohort_uniform_condition)) {
+                        if (control.convergence) { covered_convergences[control.convergence->value] = true; }
                         return true;
                     }
                     auto diamond =
@@ -724,8 +725,8 @@ void ScheduleEmitter::_build_direct(::llvm::Value *initial_mask) {
         _source.blocks().size(), false);
     for (auto &&block : _source.blocks()) {
         if (auto diamond = _find_predicated_memory_diamond(block)) {
-            inlined_blocks[diamond->true_block->id.value] = true;
-            inlined_blocks[diamond->false_block->id.value] = true;
+            if (diamond->true_block) { inlined_blocks[diamond->true_block->id.value] = true; }
+            if (diamond->false_block) { inlined_blocks[diamond->false_block->id.value] = true; }
         }
     }
     std::vector<::llvm::BasicBlock *> blocks(

@@ -1,0 +1,13 @@
+[0/2] Re-checking globbed directories...
+[1/12] Embedding metal built-in sources...
+[2/6] Building CXX object src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_tile.cpp.o
+[3/6] Linking CXX shared module bin/libluisa-backend-simd.so
+ld: warning: building for macOS-13.0, but linking with dylib '/opt/homebrew/opt/tbb/lib/libtbb.12.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '/opt/homebrew/opt/llvm@21/lib/libLLVM.dylib' which was built for newer version 26.0
+[4/6] Building CXX object src/tests/CMakeFiles/test_tile_xir_llm.dir/unit/tile/bridge/test_xir_llm.cpp.o
+[5/6] Linking CXX executable bin/test_tile_xir_llm
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0

@@ -1,0 +1,277 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="(empty)"
+	tests="35"
+	failures="0"
+	disabled="0"
+	skipped="0"
+	hostname=""
+	time="297"
+	timestamp="2026-09-09T12:03:39"
+	>
+	<testcase name="test_tile_layout" classname="test_tile_layout" time="4.40792" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (327 asserts in 15 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_ir" classname="test_tile_ir" time="0.417984" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (92 asserts in 7 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_dsl" classname="test_tile_dsl" time="0.425618" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (125 asserts in 7 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_memory" classname="test_tile_memory" time="0.4018" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (103 asserts in 7 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_xir" classname="test_tile_xir" time="0.814585" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (11009 asserts in 14 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_xir_runtime" classname="test_tile_xir_runtime" time="51.1302" status="run">
+		<properties>
+			<property name="cmake_labels" value="integration;integration_simd;integration_tile_xir"/>
+		</properties>
+		<system-out>[2026-09-09 12:03:46.911] [console] [info] Created context for program 'test_tile_xir_runtime'.
+[2026-09-09 12:03:46.911] [console] [info] Runtime directory: /private/tmp/luisa-next-checkpoint.J7yODi/build/bin.
+[2026-09-09 12:03:47.351] [console] [info] Loaded dynamic module '/private/tmp/luisa-next-checkpoint.J7yODi/build/bin/libluisa-backend-simd.so' in 439.27 ms.
+[2026-09-09 12:03:47.352] [console] [info] Test device backend: simd.
+[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (903649 asserts in 13 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_xir_llm" classname="test_tile_xir_llm" time="23.9208" status="run">
+		<properties>
+			<property name="cmake_labels" value="integration;integration_simd;integration_tile_xir"/>
+		</properties>
+		<system-out>[2026-09-09 12:04:37.589] [console] [info] Created context for program 'test_tile_xir_llm'.
+[2026-09-09 12:04:37.590] [console] [info] Runtime directory: /private/tmp/luisa-next-checkpoint.J7yODi/build/bin.
+[2026-09-09 12:04:37.593] [console] [info] Loaded dynamic module '/private/tmp/luisa-next-checkpoint.J7yODi/build/bin/libluisa-backend-simd.so' in 3.208875 ms.
+[2026-09-09 12:04:37.593] [console] [info] Test device backend: simd.
+[2026-09-09 12:04:37.601] [console] [info] Checking llm_rows with 1048576 output elements
+[2026-09-09 12:04:37.651] [console] [info] Checking llm_rows with 262144 output elements
+[2026-09-09 12:04:37.694] [console] [info] Checking llm_rows with 1048576 output elements
+[2026-09-09 12:04:37.728] [console] [info] Checking llm_rows with 119 output elements
+[2026-09-09 12:04:37.885] [console] [info] Checking llm_rows with 544 output elements
+[2026-09-09 12:04:38.046] [console] [info] Checking llm_rows with 1105 output elements
+[2026-09-09 12:04:38.141] [console] [info] Checking llm_row...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="test_tile_values_cpp20" classname="test_tile_values_cpp20" time="0.396932" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (91 asserts in 13 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_values_cpp23" classname="test_tile_values_cpp23" time="0.404504" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (91 asserts in 13 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_native_codegen" classname="test_tile_native_codegen" time="0.393164" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_native"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (62 asserts in 2 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_native_runtime" classname="test_tile_native_runtime" time="3.55641" status="run">
+		<properties>
+			<property name="cmake_labels" value="integration;integration_tile_native"/>
+		</properties>
+		<system-out>[2026-09-09 12:05:02.595] [console] [info] Created context for program 'test_tile_native_runtime'.
+[2026-09-09 12:05:02.596] [console] [info] Runtime directory: /private/tmp/luisa-next-checkpoint.J7yODi/build/bin.
+[2026-09-09 12:05:03.008] [console] [info] Loaded dynamic module '/private/tmp/luisa-next-checkpoint.J7yODi/build/bin/libluisa-backend-metal.so' in 412.30395799999997 ms.
+[2026-09-09 12:05:03.131] [console] [info] Created Metal device 'Apple M1 Max' at index 0.
+[2026-09-09 12:05:03.131] [console] [info] Test device backend: metal.
+[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (397 asserts in 10 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_metal_timing" classname="test_tile_metal_timing" time="0.855068" status="run">
+		<properties>
+			<property name="cmake_labels" value="integration;integration_tile_timing"/>
+		</properties>
+		<system-out>GPU compute 66.499 us, command buffers 86.125 us
+[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (41 asserts in 5 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_system_cpu" classname="test_tile_system_cpu" time="0.392159" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_system"/>
+		</properties>
+		<system-out>Four shapes passed full FP64 validation, including repeated beta=0 calls.
+</system-out>
+	</testcase>
+	<testcase name="test_tile_system_metal" classname="test_tile_system_metal" time="0.0857538" status="run">
+		<properties>
+			<property name="cmake_labels" value="integration;integration_tile_system;unit_tile_system"/>
+		</properties>
+		<system-out>Four shapes passed full FP64 validation, including repeated beta=0 calls.
+</system-out>
+	</testcase>
+	<testcase name="test_tile_tirx" classname="test_tile_tirx" time="0.796225" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_tirx"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (130709 asserts in 10 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_tirx_values" classname="test_tile_tirx_values" time="2.18616" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_tirx"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (931 asserts in 11 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_tirx_execution" classname="test_tile_tirx_execution" time="7.16703" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_tirx"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (92627 asserts in 40 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_tirx_cooperative" classname="test_tile_tirx_cooperative" time="7.7843" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_tirx"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (602 asserts in 13 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_tirx_memory" classname="test_tile_tirx_memory" time="5.76639" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_tirx"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (445 asserts in 14 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_tirx_pipeline" classname="test_tile_tirx_pipeline" time="3.84216" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_tirx"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (345 asserts in 6 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_tirx_matrix" classname="test_tile_tirx_matrix" time="42.631" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_tirx"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (3159 asserts in 39 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_tirx_planner" classname="test_tile_tirx_planner" time="0.504409" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_tirx"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (14429 asserts in 14 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_tirx_poc" classname="test_tile_tirx_poc" time="1.59291" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_poc;unit_tile_tirx"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (3293 asserts in 4 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_tirx_poc_neural" classname="test_tile_tirx_poc_neural" time="0.860666" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_poc;unit_tile_tirx"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (84 asserts in 4 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_tirx_poc_algorithms" classname="test_tile_tirx_poc_algorithms" time="0.814277" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_poc;unit_tile_tirx"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (391 asserts in 5 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_tirx_targets" classname="test_tile_tirx_targets" time="0.681143" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_targets;unit_tile_tirx"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (3251 asserts in 3 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_tirx_poc_metal" classname="test_tile_tirx_poc_metal" time="0.598842" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_poc;unit_tile_targets;unit_tile_tirx"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (3293 asserts in 4 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_tirx_poc_neural_metal" classname="test_tile_tirx_poc_neural_metal" time="0.286565" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_poc;unit_tile_targets;unit_tile_tirx"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (84 asserts in 4 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_tirx_poc_algorithms_metal" classname="test_tile_tirx_poc_algorithms_metal" time="0.334595" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_poc;unit_tile_targets;unit_tile_tirx"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (391 asserts in 5 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_tirx_values_metal" classname="test_tile_tirx_values_metal" time="1.31854" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_poc;unit_tile_targets;unit_tile_tirx"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (909 asserts in 11 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_tirx_execution_metal" classname="test_tile_tirx_execution_metal" time="9.48189" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_poc;unit_tile_targets;unit_tile_tirx"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (819022 asserts in 40 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_tirx_cooperative_metal" classname="test_tile_tirx_cooperative_metal" time="5.31202" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_poc;unit_tile_targets;unit_tile_tirx"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (1297 asserts in 13 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_tirx_memory_metal" classname="test_tile_tirx_memory_metal" time="1.8594" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_poc;unit_tile_targets;unit_tile_tirx"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (448 asserts in 14 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_tirx_pipeline_metal" classname="test_tile_tirx_pipeline_metal" time="2.30202" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_poc;unit_tile_targets;unit_tile_tirx"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (568 asserts in 6 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_tirx_matrix_metal" classname="test_tile_tirx_matrix_metal" time="114.219" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_poc;unit_tile_targets;unit_tile_tirx"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (22754 asserts in 39 tests)
+</system-out>
+	</testcase>
+</testsuite>

@@ -17,6 +17,15 @@ The proposed [calculus](calculus.md) and [optimization problem](planner.md#forma
 have separate owners. This page records intellectual overlap and the evidence
 needed to establish a contribution, not another language specification.
 
+The {download}`detailed Chinese review <../../../../src/tile/RELATED_WORK.md>`
+contains the per-paper analysis and the September 7 implementation audit.
+It is maintained as research notes under `src/tile/`, not as a second docs
+toctree. Adopted decisions live in the [decision ledger](decisions.md),
+[reduction contract](../../tile/values.md#reference-fold-and-permitted-regrouping)
+and [compositional planner interface](planner.md#compositional-search-contract).
+The review distinguishes source observations, frozen measurements and future
+claims; its proposed mechanisms are not all implemented.
+
 ```{contents} On this page
 :local:
 :depth: 2

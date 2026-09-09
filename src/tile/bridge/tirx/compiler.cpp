@@ -250,6 +250,7 @@ protected:
             auto mapped = result.as_or_throw<tvm::tirx::For>();
             mapped.CopyOnWrite()->annotations.erase(deferred_pipeline_annotation);
             mapped.CopyOnWrite()->annotations.erase(reduction_contract_annotation);
+            mapped.CopyOnWrite()->annotations.erase(reduction_policy_annotation);
             mapped.CopyOnWrite()->annotations.erase(
                 materialized_pure_tile_annotation);
             return mapped;
@@ -266,6 +267,7 @@ protected:
         if (_logical_parallel_depth == 0u && (_planner.program_order_rows != 1u || _planner.program_order_columns != 1u)) {
             _scope_error(loop, "group", "program traversal requires an explicit Metal group program");
         }
+        auto pending_reduction_threads = false;
         if (_target_name == "metal" && _planner.enabled && _planner.metal_subgroup_reductions &&
             _logical_parallel_depth == 0u) {
             auto constraint = loop->annotations.Get(execution_scope_annotation);
@@ -276,12 +278,17 @@ protected:
                     tvm::ffi::GetRef<tvm::tirx::For>(loop), _gpu_group_thread_limit,
                     _shared_memory_limit, _planner, _plans);
                 if (mapped.defined()) { return mapped; }
-                if (_planner.reduction_programs_per_group != 0u || _planner.threads_per_group != 0u || _planner.reduction_unroll_factor != 1u || _planner.reduction_lane_elements != 1u || _planner.cache_reduction_inputs) {
+                if (_planner.reduction_programs_per_group != 0u || _planner.reduction_unroll_factor != 1u || _planner.reduction_lane_elements != 1u || _planner.cache_reduction_inputs) {
                     _scope_error(loop, "subgroup", "cannot realize the exact reduction mapping (threads, packing, unrolling, lane elements or input caching)");
                 }
                 if (constraint) {
                     _scope_error(loop, "subgroup", "does not contain a realizable uniform reduction program");
                 }
+                // Group width constrains every group realization, not just
+                // the first (whole-row reduction) candidate family. An
+                // automatic composed program may satisfy it below. Do not
+                // silently fall through to a worker mapping if both fail.
+                pending_reduction_threads = _planner.threads_per_group != 0u;
             } else if (_planner.reduction_programs_per_group != 0u || _planner.threads_per_group != 0u || _planner.reduction_unroll_factor != 1u || _planner.reduction_lane_elements != 1u || _planner.cache_reduction_inputs) {
                 _scope_error(loop, "subgroup", "explicit execution scope conflicts with the exact reduction mapping");
             }
@@ -293,6 +300,9 @@ protected:
                 tvm::ffi::GetRef<tvm::tirx::For>(loop), _gpu_group_thread_limit,
                 _shared_memory_limit, _cooperative_matrix, _metal_mpp, _planner, _plans, _readonly_inputs);
             if (mapped.defined()) { return mapped; }
+        }
+        if (pending_reduction_threads) {
+            _scope_error(loop, "group", "cannot realize the exact reduction mapping: no reduction or composed program satisfies the thread count");
         }
         // Resolve before mutating the body, including through unbound or
         // serial intermediate levels. Unsupported constraints are hard errors,
@@ -681,7 +691,39 @@ void finalize_device(tvm::IRModule &module) {
     return name == "llvm" || name == "c";
 }
 
-[[nodiscard]] tvm::ffi::Module codegen(tvm::IRModule module, const tvm::Target &target) {
+[[nodiscard]] bool requires_precise_reduction(const tvm::tirx::PrimFunc &function) {
+    auto precise = false;
+    tvm::tirx::PostOrderVisit(function->body, [&](const tvm::ffi::ObjectRef &node) {
+        if (auto loop = node.as<tvm::tirx::ForNode>(); loop && loop->annotations.count(reduction_policy_annotation)) {
+            precise |= !permits_unordered_reduction(loop);
+        }
+    });
+    return precise;
+}
+
+[[nodiscard]] tvm::Target preserve_reduction_arithmetic(tvm::Target target, bool precise_reduction) {
+    if (!precise_reduction || target->kind->name != "llvm") { return target; }
+    auto configuration = target->ToConfig();
+    for (auto flag : {"fast-math", "fast-math-nnan", "fast-math-ninf", "fast-math-nsz",
+                      "fast-math-arcp", "fast-math-contract", "fast-math-reassoc"}) {
+        configuration.Set(flag, false);
+    }
+    return tvm::Target{configuration};
+}
+
+[[nodiscard]] tvm::ffi::Module codegen(tvm::IRModule module, const tvm::Target &target, bool precise_reduction = false) {
+    if (precise_reduction && target->kind->name == "metal") {
+        // The stock TVM runtime hardcodes fast math. Require both halves of
+        // the native extension; a patched compiler with an old runtime is
+        // insufficient. No source rewrite or global callback replacement.
+        for (auto name : {"target.metal.precise_math_contract_version", "runtime.metal.precise_math_contract_version"}) {
+            auto capability = tvm::ffi::Function::GetGlobal(name);
+            if (!capability || (*capability)().cast<int64_t>() != 1) {
+                throw std::runtime_error{"ordered reductions on TVM's Metal runtime require metal-precise-math-v1.patch; Luisa Runtime compile_device does not require this extension"};
+            }
+        }
+        module = tvm::WithAttr(std::move(module), "tirx.metal.precise_math", true);
+    }
     auto builder_name = std::string{"target.build."} + target->kind->name.operator std::string();
     auto builder = tvm::ffi::Function::GetGlobalRequired(builder_name);
     return builder(std::move(module), target).cast<tvm::ffi::Module>();
@@ -784,6 +826,7 @@ DeviceCompilationResult compile_device(tvm::tirx::PrimFunc function, luisa::stri
         // There is no LLVM code generation or packed-function JIT here.
         tvm::Target bound{target, tvm::Target{tvm::ffi::String{"llvm"}}};
         auto symbol = tvm::ffi::String{std::string{name}};
+        auto precise_reduction = detail::requires_precise_reduction(function);
         function = tvm::WithAttr(std::move(function), tvm::attr::kGlobalSymbol, symbol);
         if (options.noalias) { function = tvm::WithAttr(std::move(function), "tirx.noalias", true); }
         auto global = tvm::GlobalVar{symbol};
@@ -796,6 +839,7 @@ DeviceCompilationResult compile_device(tvm::tirx::PrimFunc function, luisa::stri
             if (device_global.same_as(global)) { continue; }
             auto device = base.as_or_throw<tvm::tirx::PrimFunc>();
             result.artifact = detail::extract_device_artifact(host, device);
+            result.artifact.requires_precise_math = precise_reduction;
             auto device_module = detail::make_module({{device_global, device}}, module->attrs, module->global_infos);
             // Storage ABI legalization cannot consume the still-typed host
             // Buffer parameters. Run it on the pointer-ABI device partition.
@@ -831,11 +875,19 @@ CompilationResult compile(tvm::IRModule module, const CompileOptions &options) n
     if (options.host.empty()) { return CompilationResult{luisa::string{"TIRx host target must not be empty"}}; }
     if (options.auto_vectorize && !options.vectorize) { return CompilationResult{luisa::string{"automatic vectorization requires vectorization to be enabled"}}; }
     try {
-        tvm::Target device_target{tvm::ffi::String{options.target}};
+        auto precise_reduction = false;
+        for (auto &&[global, base] : module->functions) {
+            if (auto function = base.as<tvm::tirx::PrimFunc>()) {
+                precise_reduction |= detail::requires_precise_reduction(function.value());
+            }
+        }
+        auto device_target = detail::preserve_reduction_arithmetic(tvm::Target{tvm::ffi::String{options.target}}, precise_reduction);
         // MakePackedAPI replaces a CPU entry's target with its host target,
         // and LLVM codegen uses the module target for every function. Keep
-        // both stages on the requested CPU ISA; GPU wrappers still use host.
-        auto host_target = detail::is_host_target(device_target) ? tvm::Target{device_target, tvm::Target{}} : tvm::Target{tvm::ffi::String{options.host}};
+        // both stages on the requested CPU ISA and effective arithmetic mode;
+        // GPU wrappers still use the requested host.
+        auto host_target = detail::is_host_target(device_target) ? tvm::Target{device_target, tvm::Target{}} :
+                                                                   detail::preserve_reduction_arithmetic(tvm::Target{tvm::ffi::String{options.host}}, precise_reduction);
         tvm::Target bound_target{device_target, host_target};
         luisa::vector<GroupPlan> plans;
         module = detail::map_execution(std::move(module), device_target, options, plans);
@@ -877,7 +929,7 @@ CompilationResult compile(tvm::IRModule module, const CompileOptions &options) n
             auto device_module = detail::make_module(
                 std::move(partition.functions), module->attrs, module->global_infos);
             detail::finalize_device(device_module);
-            runtime_module->ImportModule(detail::codegen(std::move(device_module), partition.target));
+            runtime_module->ImportModule(detail::codegen(std::move(device_module), partition.target, precise_reduction));
         }
         return CompilationResult{std::move(runtime_module), std::move(plans)};
     } catch (const tvm::ffi::Error &error) {

@@ -35,8 +35,9 @@ enum class CpuMathBackend : uint8_t {
     // Keep target LLVM/libm scalar semantics after ordinary vectorization.
     REFERENCE,
     // Realize proved, compiler-materialized FP32 exp maps with Apple's
-    // synchronous array provider and exact add/max/min reduction contracts
-    // with vDSP. This explicit policy permits provider reduction order and
+    // synchronous array provider and compatible add/max/min reductions with
+    // vDSP, only when their local policy permits unordered trees. Selecting
+    // this backend never widens explicit folds or ordered trees. It permits
     // vForce's documented denormal/exception differences. It is a target
     // choice, never a Tile DSL operation or execution-hierarchy change.
     ACCELERATE
@@ -120,6 +121,9 @@ struct DeviceArtifact {
     std::array<uint32_t, 3u> block{1u, 1u, 1u};
     luisa::vector<uint32_t> buffer_arguments;
     bool requires_metal4{false};
+    // A consumer compiling this source must disable global reassociation.
+    // Exported source alone cannot carry MTLCompileOptions.
+    bool requires_precise_math{false};
 };
 
 struct DeviceCompilationResult {

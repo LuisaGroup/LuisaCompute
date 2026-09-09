@@ -17,7 +17,9 @@
 
 namespace luisa::test::tile_llm {
 
-[[nodiscard]] inline int benchmark(int argc, char *argv[], string_view backend) {
+[[nodiscard]] inline int benchmark(int argc, char *argv[], string_view backend,
+                                   const compute::tile::CompileOptions &compile_options = {}, bool reduction_tree = false,
+                                   bool forward_input_views = false, bool attention_qk_reduction = false) {
     using namespace compute;
     using Clock = std::chrono::steady_clock;
     try {
@@ -72,7 +74,7 @@ namespace luisa::test::tile_llm {
         log_level_error();
         auto start = Clock::now();
         auto fixture = [&] {
-            if (op == "attention") { return attention(dimensions[0], dimensions[1], dimensions[2], dimensions[3], dimensions[4], dimensions[5], dimensions[6], bq, bk); }
+            if (op == "attention") { return attention(dimensions[0], dimensions[1], dimensions[2], dimensions[3], dimensions[4], dimensions[5], dimensions[6], bq, bk, attention_qk_reduction); }
             auto kind = op == "swiglu" ? RowOp::SWIGLU : op == "rope"      ? RowOp::ROPE :
                                                      op == "rmsnorm"       ? RowOp::RMS_NORM :
                                                      op == "layernorm"     ? RowOp::LAYER_NORM :
@@ -98,7 +100,9 @@ namespace luisa::test::tile_llm {
         auto stream = device.create_stream(StreamTag::COMPUTE);
         auto runtime_ms = elapsed(start);
         start = Clock::now();
-        auto shader = tile::compile(device, fixture.kernel, {.lowering = backend == "metal" ? tile::Lowering::TIRX : tile::Lowering::NATIVE});
+        auto options = compile_options;
+        options.lowering = backend == "metal" ? tile::Lowering::TIRX : tile::Lowering::NATIVE;
+        auto shader = tile::compile(device, fixture.kernel, options);
         auto compile_ms = elapsed(start);
         if (!shader) { throw std::runtime_error{shader.metadata().error.c_str()}; }
         if (auto path = std::getenv("LUISA_TILE_BENCH_DUMP_SOURCE")) {
@@ -181,7 +185,18 @@ namespace luisa::test::tile_llm {
                   << std::quoted(op)
                   << ",\"dimensions\":";
         array(dimensions);
-        std::cout << ",\"attention_block\":[" << bq << ',' << bk << "],\"input_shapes\":[";
+        // These fixtures use the source default on every reduce. Keep the
+        // legacy requested candidate flag distinct from numerical permission
+        // and from the capability-resolved automatic Runtime choice.
+        std::cout << ",\"reduction_tree\":" << (reduction_tree ? "true" : "false")
+                  << ",\"requested_input_views\":" << (forward_input_views ? "true" : "false")
+                  << ",\"attention_qk\":" << std::quoted(op != "attention" ? "not_applicable" : attention_qk_reduction ? "reduce" : "mma")
+                  << ",\"source_reduction_policy\":\"unordered_tree\""
+                  << ",\"reduction_candidate_setting\":" << std::quoted(backend != "metal" ? "not_applicable" :
+                                                                               compile_options.tirx == nullptr ? "automatic" :
+                                                                               reduction_tree ? "enabled" : "disabled")
+                  << ",\"requested_group_threads\":" << options.threads_per_group
+                  << ",\"attention_block\":[" << bq << ',' << bk << "],\"input_shapes\":[";
         for (auto i = 0u; i < 3u; i++) {
             if (i != 0u) { std::cout << ','; }
             array(fixture.shapes[i]);

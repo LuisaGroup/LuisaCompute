@@ -1,0 +1,159 @@
+{
+  "metric": "static_instruction_sites",
+  "scope": "complete native text section",
+  "dynamic_profile": false,
+  "caveat": "Static counts do not measure executed branches, stalls or spilling.",
+  "records": [
+    {
+      "case": "rmsnorm-1024x4096-r0-l1-f0-p0",
+      "symbols": [
+        "_llm_rows.packet_batch.blocks"
+      ],
+      "object_sha256": "d10a49ae0b9f0e98d5607aa9173b31d05f423ae9370a0e571d9a30805d585058",
+      "instructions": 612,
+      "conditional_branches": 49
+    },
+    {
+      "case": "rmsnorm-1024x4096-r0-l1-f0-p1",
+      "symbols": [
+        "_llm_rows.packet_batch.blocks"
+      ],
+      "object_sha256": "bf08bc1cffacc6c507f1525a7e21a0f89bf31c47330335b3ba1357e4c0642ad5",
+      "instructions": 612,
+      "conditional_branches": 49
+    },
+    {
+      "case": "rmsnorm-1024x4096-r0-l1-f1-p0",
+      "symbols": [
+        "_llm_rows",
+        "_llm_rows.packet_batch.blocks"
+      ],
+      "object_sha256": "bbb36a5c89ef5cfe69ead1484aec7a6bfd630e94b38f63d19dbd85ac4e7c1367",
+      "instructions": 747,
+      "conditional_branches": 144
+    },
+    {
+      "case": "rmsnorm-1024x4096-r0-l1-f1-p1",
+      "symbols": [
+        "_llm_rows.packet_batch.blocks"
+      ],
+      "object_sha256": "b4b1e44c9f99b3dc3b9327a9add564791ed211536fe2f73d3406cd786523471f",
+      "instructions": 1382,
+      "conditional_branches": 151
+    },
+    {
+      "case": "rmsnorm-1024x4096-r0-l8-f0-p0",
+      "symbols": [
+        "_llm_rows",
+        "_llm_rows.packet_batch.blocks"
+      ],
+      "object_sha256": "b023d9e2ed11ddf65129d66c64e9477752415ac411bc9873560b2b19eaed62e1",
+      "instructions": 515,
+      "conditional_branches": 56
+    },
+    {
+      "case": "rmsnorm-1024x4096-r0-l8-f0-p1",
+      "symbols": [
+        "_llm_rows.packet_batch.blocks"
+      ],
+      "object_sha256": "76381daa712eca278b12371f1f29657c5a7e7543db20d9c6e522b9cb9680bba0",
+      "instructions": 726,
+      "conditional_branches": 61
+    },
+    {
+      "case": "rmsnorm-1024x4096-r0-l8-f1-p0",
+      "symbols": [
+        "_llm_rows",
+        "_llm_rows.packet_batch.blocks"
+      ],
+      "object_sha256": "f5c75ff5eeeb5bb8bf592b490bfeadead48d605dc4f30e74df71cfc7243c32af",
+      "instructions": 1106,
+      "conditional_branches": 155
+    },
+    {
+      "case": "rmsnorm-1024x4096-r0-l8-f1-p1",
+      "symbols": [
+        "_llm_rows.packet_batch.blocks"
+      ],
+      "object_sha256": "d1938bc7d8168a80a9099b48459a892405f9cb45cbe329e8821684d3564b7e6e",
+      "instructions": 1653,
+      "conditional_branches": 109
+    },
+    {
+      "case": "rmsnorm-64x256-r0-l1-f0-p0",
+      "symbols": [
+        "_llm_rows.packet_batch.blocks"
+      ],
+      "object_sha256": "661d138917955f87065696914900060d94a63cfe07aa9b88c3b9fd344ffb9e6f",
+      "instructions": 1567,
+      "conditional_branches": 76
+    },
+    {
+      "case": "rmsnorm-64x256-r0-l1-f0-p1",
+      "symbols": [
+        "_llm_rows.packet_batch.blocks"
+      ],
+      "object_sha256": "661d138917955f87065696914900060d94a63cfe07aa9b88c3b9fd344ffb9e6f",
+      "instructions": 1567,
+      "conditional_branches": 76
+    },
+    {
+      "case": "rmsnorm-64x256-r0-l1-f1-p0",
+      "symbols": [
+        "_llm_rows",
+        "_llm_rows.packet_batch.blocks"
+      ],
+      "object_sha256": "e8a8c086e2c83c5f5d6e47108e37a484fa92f1947cdee4699da99db91d4ff70d",
+      "instructions": 826,
+      "conditional_branches": 148
+    },
+    {
+      "case": "rmsnorm-64x256-r0-l1-f1-p1",
+      "symbols": [
+        "_llm_rows.packet_batch.blocks"
+      ],
+      "object_sha256": "68730cb63ef3eb129805ec65aef6d717da698254ed840f0df195f207661481f7",
+      "instructions": 3565,
+      "conditional_branches": 171
+    },
+    {
+      "case": "rmsnorm-64x256-r0-l8-f0-p0",
+      "symbols": [
+        "_llm_rows",
+        "_llm_rows.packet_batch.blocks"
+      ],
+      "object_sha256": "fec0e6c4b41942f4ce646a7c95c55ee847416d51ebbc677832586b684393426d",
+      "instructions": 510,
+      "conditional_branches": 56
+    },
+    {
+      "case": "rmsnorm-64x256-r0-l8-f0-p1",
+      "symbols": [
+        "_llm_rows.full_packet",
+        "_llm_rows.packet_batch.blocks"
+      ],
+      "object_sha256": "4a763ef936e681f76bd15ea795f799482440e5b470bf7ca4d56f9c84ed35a4ab",
+      "instructions": 874,
+      "conditional_branches": 58
+    },
+    {
+      "case": "rmsnorm-64x256-r0-l8-f1-p0",
+      "symbols": [
+        "_llm_rows",
+        "_llm_rows.packet_batch.blocks"
+      ],
+      "object_sha256": "5f45d889c295cf0965b863a5a9db84430505cd3e50f0d3a8a08d3bc8998d4094",
+      "instructions": 1102,
+      "conditional_branches": 155
+    },
+    {
+      "case": "rmsnorm-64x256-r0-l8-f1-p1",
+      "symbols": [
+        "_llm_rows.packet_batch.blocks"
+      ],
+      "object_sha256": "6fe7f0a48bd2a27f7a7fa4c384711fbd2c48478c88fe28f7aa12d4b6bf4b7369",
+      "instructions": 1650,
+      "conditional_branches": 109
+    }
+  ]
+}

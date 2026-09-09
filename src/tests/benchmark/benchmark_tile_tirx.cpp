@@ -3,6 +3,7 @@
 // run in a separate phase; every input/output allocation precedes warm timing.
 #include "tile_tirx_test_utils.h"
 #include "metal_benchmark.h"
+#include "tile_llm_benchmark.h"
 
 #include <luisa/core/mathematics.h>
 #include <luisa/tile/algorithms.h>
@@ -689,6 +690,39 @@ void run_luisa(const char *program, const char *output_path, std::string_view op
 }// namespace
 
 int main(int argc, char *argv[]) {
+    if (argc > 1 && std::string_view{argv[1]} == "llm") {
+        try {
+            bridge::tirx::CompileOptions options;
+            options.cooperative_matrix = true;
+            if (auto value = std::getenv("LUISA_TILE_BENCH_REDUCTION_TREE")) {
+                auto text = std::string_view{value};
+                if (text != "0" && text != "1") { throw std::invalid_argument{"reduction-tree policy must be 0 or 1"}; }
+                options.planner.metal_subgroup_reductions = text == "1";
+            }
+            if (auto value = std::getenv("LUISA_TILE_BENCH_GROUP_THREADS")) {
+                auto threads = positive_integer(value);
+                if (threads > 1024) { throw std::invalid_argument{"group threads exceed benchmark limit"}; }
+                options.planner.threads_per_group = static_cast<uint32_t>(threads);
+            }
+            if (auto value = std::getenv("LUISA_TILE_BENCH_INPUT_VIEWS")) {
+                auto text = std::string_view{value};
+                if (text != "0" && text != "1") { throw std::invalid_argument{"input views must be 0 or 1"}; }
+                options.forward_readonly_tile_loads = text == "1";
+            }
+            auto attention_qk_reduction = false;
+            if (auto value = std::getenv("LUISA_TILE_BENCH_ATTENTION_QK")) {
+                auto text = std::string_view{value};
+                if (text != "mma" && text != "reduce") { throw std::invalid_argument{"attention QK must be mma or reduce"}; }
+                attention_qk_reduction = text == "reduce";
+            }
+            return luisa::test::tile_llm::benchmark(argc, argv, "metal",
+                                                    {.threads_per_group = options.planner.threads_per_group, .lowering = Lowering::TIRX, .tirx = &options},
+                                                    options.planner.metal_subgroup_reductions, options.forward_readonly_tile_loads, attention_qk_reduction);
+        } catch (const std::exception &error) {
+            std::cerr << error.what() << '\n';
+            return 2;
+        }
+    }
     if (argc < 13 || argc > 37) {
         std::cerr << "Usage: benchmark_tile_tirx <cpu|metal> <gemm|gemm_relu|gemm_gelu|add|gelu_add|sigmoid_pair|gelu_pair|sum|softmax|rmsnorm|layernorm|residual_layernorm|cross_entropy> M N K BM BN BK samples sample-ms warmup-ms output.f32 [auto|worker|group] [pipeline-window:1|2] [scalar|subgroup-reduce|matrix|mpp|mpp-views] [vectorize|no-vectorize|auto-vectorize] [group-threads:auto|N] [copy-batch:1..16] [tvm|luisa|luisa-fast] [retain-subgroup-fences|elide-subgroup-fences] [cpu-stack-bytes:0..65536] [cpu-vector-lanes:16|32|64|128] [retain-input-snapshots|forward-input-views] [cpu-model:generic|native] [cpu-matrix:reference|cblas] [cpu-math:reference|accelerate] [shared-tiles:preserve|expensive-only]\n";
         std::cerr << "Additional mapping options: [reduction-programs:auto|1..8] [element-grid:auto|reference] [reduction-unroll:1..16] [reduction-lane-elements:1|2|4|8] [reduction-inputs:reload|cache] [reduction-cost:analytic|service-v1,...] [program-order-rows:N] [program-order-columns:N] [retain-fragment-epilogues|fuse-fragment-epilogues]\n";

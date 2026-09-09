@@ -9,6 +9,28 @@
 
 namespace luisa::compute::tile {
 
+// Backends with only a kernel-wide fast-math switch must not let it widen a
+// local order restriction. This is a scheduling requirement, not a claim of
+// cross-device bitwise reproducibility or of arbitrary reducer merge laws.
+struct OrderedReductionAnalysis {
+    using Result = bool;
+    [[nodiscard]] static Result run(const Function &function) noexcept {
+        auto visit = [](auto &&self, const Region &region) -> bool {
+            for (auto block : region.blocks()) {
+                for (auto operation : block->operations()) {
+                    if (operation->kind() == OperationKind::REDUCE &&
+                        operation->reduction_policy() != reduction::unordered_tree) { return true; }
+                    for (auto &&child : operation->regions()) {
+                        if (self(self, *child)) { return true; }
+                    }
+                }
+            }
+            return false;
+        };
+        return visit(visit, function.body());
+    }
+};
+
 class AnalysisManager final {
 
 private:
@@ -83,6 +105,13 @@ private:
 public:
     explicit IRRewriter(AnalysisManager *analyses = nullptr) noexcept
         : _analyses{analyses} {}
+
+    [[nodiscard]] bool set_reduction_policy(Operation *operation, ReductionPolicy policy) noexcept {
+        if (operation == nullptr || operation->kind() != OperationKind::REDUCE) { return false; }
+        operation->set_reduction_policy(policy);
+        _invalidate();
+        return true;
+    }
 
     [[nodiscard]] bool replace_all_uses(Value *value, Value *replacement) noexcept {
         if (value == nullptr || !value->replace_all_uses_with(replacement)) { return false; }

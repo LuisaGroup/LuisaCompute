@@ -270,7 +270,9 @@ SIMDCompiledKernel compile_simd_kernel(
     bool enable_lane_affine_buffer, bool capture_assembly,
     uint32_t dispatch_worker_count,
     bool enable_packet_batch_entry,
-    bool enable_block_batch_entry, bool capture_ir) {
+    bool enable_block_batch_entry, bool capture_ir,
+    size_t private_stack_budget_bytes, bool enable_interleaved_private_arrays,
+    bool enable_contiguous_private_access) {
     SIMDCompiledKernel result{
         .warp_width = warp_width,
     };
@@ -283,7 +285,13 @@ SIMDCompiledKernel compile_simd_kernel(
             detail::env_flag(
                 "LUISA_SIMD_FORCE_STRUCTURED_EARLY_EXIT_LOOP") ?
                 4u :
-                25u};
+                25u,
+        .enable_counted_loop_uniformity =
+            detail::env_flag("LUISA_SIMD_ENABLE_PREDICATED_MEMORY_EFFECTS") &&
+            !detail::env_flag("LUISA_SIMD_DISABLE_PREDICATED_MEMORY_EFFECTS"),
+        .enable_cohort_private_access =
+            detail::env_flag("LUISA_SIMD_ENABLE_COHORT_PRIVATE_ACCESS") &&
+            !detail::env_flag("LUISA_SIMD_DISABLE_COHORT_PRIVATE_ACCESS")};
     auto schedule_result = schedule::lower_xir_to_schedule(
         function, schedule_options);
     if (!schedule_result.succeeded()) {
@@ -721,12 +729,17 @@ SIMDCompiledKernel compile_simd_kernel(
         use_native_vector_compress,
         use_biased_narrow_buffer_gather,
         use_gathered_native_texture_read,
-        use_native_half4_texture_packet);
+        use_native_half4_texture_packet,
+        private_stack_budget_bytes, enable_interleaved_private_arrays, enable_contiguous_private_access);
     if (!llvm_result.succeeded()) {
         result.diagnostics.emplace_back(llvm_result.error);
         return result;
     }
     result.argument_buffer_size = llvm_result.argument_buffer_size;
+    result.private_workspace_size = llvm_result.private_workspace_size;
+    result.interleaved_private_arrays = llvm_result.interleaved_private_arrays;
+    result.contiguous_private_read_count = llvm_result.contiguous_private_read_count;
+    result.contiguous_private_write_count = llvm_result.contiguous_private_write_count;
     result.print_formats = std::move(pipeline_print_formats);
     result.print_formats.insert(
         result.print_formats.end(),
@@ -871,6 +884,8 @@ SIMDCompiledKernel compile_simd_kernel(
         llvm_result.linear_1d_packet_tail_narrowing_count;
     result.linear_1d_block_coalescing_count =
         llvm_result.linear_1d_block_coalescing_count;
+    result.full_packet_specialization_count = llvm_result.full_packet_specialization_count;
+    result.full_packet_cloned_instruction_count = llvm_result.full_packet_cloned_instruction_count;
     result.shared_memory_size = llvm_result.shared_memory_size;
     result.block_barrier_count = llvm_result.block_barrier_count;
     result.block_barrier_loop_epoch_count =

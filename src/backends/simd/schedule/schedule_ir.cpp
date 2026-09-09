@@ -440,10 +440,11 @@ VerificationResult verify(const Function &function) {
                           block.id);
             }
             if (instruction.cohort_uniform_operand_index) {
-                if (instruction.opcode != Opcode::resource_read) {
+                if (instruction.opcode != Opcode::resource_read &&
+                    instruction.opcode != Opcode::gep) {
                     add_error(
                         result,
-                        "non-resource-read instruction has a cohort-uniform operand annotation",
+                        "instruction does not support a cohort-uniform operand annotation",
                         block.id);
                 } else if (*instruction.cohort_uniform_operand_index >=
                            instruction.operands.size()) {
@@ -451,6 +452,9 @@ VerificationResult verify(const Function &function) {
                         result,
                         "cohort-uniform operand annotation is out of range",
                         block.id);
+                } else if (instruction.opcode == Opcode::gep &&
+                           *instruction.cohort_uniform_operand_index == 0u) {
+                    add_error(result, "GEP cohort-uniform annotation must identify an index, not its base", block.id);
                 }
             }
             if (instruction.lane_consecutive_operand_index) {
@@ -623,7 +627,7 @@ VerificationResult verify(const Function &function) {
                         terminator.assignments,
                         valid_convergence(terminator.convergence) ?
                             std::optional{function.convergence(
-                                              terminator.convergence)
+                                                      terminator.convergence)
                                               ->target} :
                             std::nullopt);
                 } else if constexpr (std::is_same_v<T, LoopBackTerminator>) {
