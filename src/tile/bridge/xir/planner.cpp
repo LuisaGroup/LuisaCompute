@@ -103,8 +103,30 @@ struct Work {
 
 void read_work(const Value *value, double repetitions, bool dynamic,
                ExecutionTarget target, const ExecutionCostModel &cost, uint32_t limit, uint32_t lanes, Work &work,
-               const PlannerOptions &options, const Operation *consumer) {
+               const PlannerOptions &options, const Operation *consumer, uint32_t depth = 0u) {
     if (!value->type().is_tile()) { return; }
+    auto producer = value->defining_operation();
+    if (detail::deferred_map(value, options.enable_map_fusion, lanes)) {
+        if (depth >= 64u) { fail("XIR deferred recipe exceeds the depth budget"); }
+        // Charge the scalar recipe at every actual consumer read. Broadcasting
+        // and indirect reads may recompute it; do not price them as a free view.
+        for (auto child : producer->region(0u)->block(0u)->operations()) {
+            if (child->kind() == OperationKind::ELEMENTWISE) {
+                work.arithmetic += repetitions * cost.arithmetic;
+            } else if (child->kind() == OperationKind::TILE_EXTRACT) {
+                read_work(child->operand(0u), repetitions, dynamic || !detail::expanded_extract(*child, limit),
+                          target, cost, limit, lanes, work, options, child, depth + 1u);
+                work.arithmetic += repetitions * (4u + 3u * child->operand(0u)->type().index_space()->rank()) * cost.arithmetic;
+            }
+        }
+        return;
+    }
+    if (detail::deferred_expression(value, limit, lanes, options.enable_map_fusion)) {
+        if (depth >= 64u) { fail("XIR deferred recipe exceeds the depth budget"); }
+        work.arithmetic += repetitions * cost.arithmetic;
+        for (size_t i = 0u; i < producer->operand_count(); i++) { read_work(producer->operand(i), repetitions, dynamic, target, cost, limit, lanes, work, options, consumer, depth + 1u); }
+        return;
+    }
     if (auto fusion = detail::reduction_producer_fusion(value, limit, lanes, options.reduction_partitions,
                                                         options.enable_load_reduction_fusion, options.enable_expression_reduction_fusion);
         fusion && consumer->parent_block() == fusion->reduction->region(0u)->block(0u)) {
@@ -115,11 +137,6 @@ void read_work(const Value *value, double repetitions, bool dynamic,
     if (materialized(value, limit, lanes)) {
         auto op = value->defining_operation();
         if (op && op->kind() == OperationKind::CONSTANT) { return; }
-        if (detail::deferred_elementwise(value, limit, lanes)) {
-            work.arithmetic += repetitions * cost.arithmetic;
-            for (size_t i = 0u; i < op->operand_count(); i++) { read_work(op->operand(i), repetitions, dynamic, target, cost, limit, lanes, work, options, consumer); }
-            return;
-        }
         work.memory += repetitions * cost.gathered_lane * target.packet_width;
     } else if (dynamic) {
         auto count = volume(*value->type().index_space());
@@ -135,6 +152,8 @@ void measure(const Block &block, const Value *axis, double repetitions,
              ExecutionTarget target, const ExecutionCostModel &cost,
              luisa::vector<const Value *> indices, uint32_t limit, uint32_t lanes, Work &work, const PlannerOptions &options) {
     auto snapshot = [&](const Value *value) {
+        if (detail::deferred_map(value, options.enable_map_fusion, lanes) ||
+            detail::deferred_expression(value, limit, lanes, options.enable_map_fusion)) { return; }
         if (auto fusion = detail::reduction_producer_fusion(value, limit, lanes, options.reduction_partitions,
                                                             options.enable_load_reduction_fusion, options.enable_expression_reduction_fusion);
             fusion && !fusion->retain_snapshot) { return; }
@@ -181,7 +200,9 @@ void measure(const Block &block, const Value *axis, double repetitions,
                 work.arithmetic += repetitions * (2.0 * std::log2(lanes) + 2.0) * cost.arithmetic;
             }
         } else if (kind == OperationKind::TILE_MAP) {
-            measure(*op->region(0u)->block(0u), axis, repetitions * local_iterations(volume(*op->domain()), lanes), target, cost, indices, limit, lanes, work, options);
+            if (!detail::deferred_map(op->result(0u), options.enable_map_fusion, lanes)) {
+                measure(*op->region(0u)->block(0u), axis, repetitions * local_iterations(volume(*op->domain()), lanes), target, cost, indices, limit, lanes, work, options);
+            }
         } else if (kind == OperationKind::VIEW_LOAD || kind == OperationKind::VIEW_STORE) {
             auto &space = *op->operand(0u)->type().index_space();
             luisa::optional<double> stride{0.0};
@@ -225,7 +246,7 @@ void measure(const Block &block, const Value *axis, double repetitions,
         } else if (kind == OperationKind::ELEMENTWISE) {
             auto &type = op->result(0u)->type();
             auto count = type.is_tile() ? local_iterations(volume(*type.index_space()), lanes) : 1.0;
-            if (!detail::deferred_elementwise(op->result(0u), limit, lanes)) {
+            if (!detail::deferred_expression(op->result(0u), limit, lanes, options.enable_map_fusion)) {
                 work.arithmetic += repetitions * count * cost.arithmetic;
                 for (size_t i = 0u; i < op->operand_count(); i++) {
                     read_work(op->operand(i), repetitions * count, materialized(op->result(0u), limit, lanes), target, cost, limit, lanes, work, options, op);

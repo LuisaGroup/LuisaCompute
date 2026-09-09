@@ -6,6 +6,7 @@
 #include <luisa/runtime/stream.h>
 #include <luisa/tile/runtime.h>
 #include <luisa/tile/bridge/xir/planner.h>
+#include <luisa/tile/algorithms.h>
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -21,6 +22,82 @@ using namespace boost::ut;
 namespace {
 
 [[nodiscard]] bool close(span<const float> actual, span<const double> expected);
+
+void map_chain(Device &device, int64_t width, uint32_t variant) {
+    using namespace tile;
+    constexpr int64_t rows = 17;
+    auto kernel = tile_kernel("map_chain", [=](TensorView<float, 2> data, TensorView<float, 2> output) {
+                      auto m = axis("m", 1), n = axis("n", width);
+                      for (auto &nest : parallel(shape(rows))) {
+                          auto x = data[coord(nest.index(), 0), shape(m, n)];
+                          for (auto &step : nest.serial(shape(3))) {
+                              auto reversed = reindex(x, shape(m, n), [&](const Nest &element) {
+                                  return coord(element.index(m), width - 1 - element.index(n));
+                              });
+                              auto selected = variant == 3u ? map<float>(shape(m, n), [&](const Nest &element) {
+                                  auto offset = element.index(n);
+                                  auto rotated = reindex(x, shape(m, n), [&](const Nest &inner) {
+                                      return coord(0, (inner.index(n) + offset) % width);
+                                  });
+                                  return rotated.at(coord(0, 0));
+                              }) :
+                                              variant == 0u ? reindex(reversed, shape(m, n), [&](const Nest &element) {
+                                                  return coord(element.index(m), width - 1 - element.index(n));
+                                              }) :
+                                                              gather(reversed, variant == 1u ? iota(n) - 1 : (iota(n) * 7 + step.index()) % width, n, -4.0f);
+                              // Deferred extraction must still read x's original
+                              // SSA snapshot after overwriting its source buffer.
+                              data(coord(nest.index(), 0), shape(m, n)).store(full<float>(shape(m, n), 99.0f));
+                              x = selected + cast<float>(step.index());
+                              output(coord(nest.index(), 0), shape(m, n)).store(x);
+                          }
+                      }
+                  }).capture(tensor_shape(rows, width), tensor_shape(rows, width));
+    constexpr size_t pad = 19u;
+    constexpr float guard = -731.25f;
+    auto count = static_cast<size_t>(rows * width);
+    vector<float> seed(count + 2u * pad, guard);
+    vector<double> expected(count);
+    for (size_t i = 0u; i < count; i++) { expected[i] = seed[pad + i] = static_cast<float>(static_cast<int32_t>(i % 31u) - 15) * .125f; }
+    for (int64_t step = 0; step < 3; step++) {
+        auto previous = expected;
+        for (int64_t r = 0; r < rows; r++) {
+            for (int64_t c = 0; c < width; c++) {
+                auto index = variant == 0u || variant == 3u ? c : variant == 1u ? width - c :
+                                                                                  width - 1 - (c * 7 + step) % width;
+                expected[r * width + c] = (index >= width ? -4.0 : previous[r * width + index]) + step;
+            }
+        }
+    }
+    vector<float> baseline;
+    for (auto mode : {0u, 1u, 2u}) {
+        auto enabled = mode != 0u;
+        auto options = bridge::xir::PlannerOptions{.block_size = 32u, .enable_load_reduction_fusion = mode == 2u, .enable_pointwise_fusion = mode == 2u, .enable_expression_reduction_fusion = mode == 2u, .enable_map_fusion = enabled};
+        auto shader = compile(device, kernel, {.xir = &options}, {.enable_fast_math = false});
+        expect(static_cast<bool>(shader)) << shader.metadata().error;
+        if (!shader) { return; }
+        if (enabled) { expect(shader.metadata().realization.find("deferred_maps=0;") == string::npos); }
+        auto a = device.create_buffer<float>(seed.size()), b = device.create_buffer<float>(seed.size());
+        auto actual = vector<float>(seed.size(), guard), input = seed;
+        auto stream = device.create_stream(StreamTag::COMPUTE);
+        stream << a.copy_from(span{seed}) << b.copy_from(span{actual})
+               << shader(a.view(pad, count), b.view(pad, count)).dispatch()
+               << a.copy_to(span{input}) << b.copy_to(span{actual}) << synchronize();
+        expect(close(span{actual}.subspan(pad, count), expected)) << width << variant << enabled;
+        for (size_t i = 0u; i < count; i++) { expect(eq(input[pad + i], 99.0f)); }
+        for (auto &values : {input, actual}) {
+            expect(std::all_of(values.begin(), values.begin() + pad, [](float v) { return v == guard; }));
+            expect(std::all_of(values.end() - pad, values.end(), [](float v) { return v == guard; }));
+        }
+        if (enabled) {
+            expect(std::equal(actual.begin(), actual.end(), baseline.begin(), baseline.end(), [](float a, float b) {
+                return std::bit_cast<uint32_t>(a) == std::bit_cast<uint32_t>(b);
+            }));
+        } else {
+            baseline = actual;
+        }
+    }
+}
 
 void shared_pointwise(Device &device, int64_t width, uint32_t lanes, uint32_t variant, int32_t alias_shift, bool shared_buffer = false) {
     using namespace tile;
@@ -856,6 +933,11 @@ void packet_local_reductions(Device &device, int64_t count, int64_t width, uint3
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     auto [context, device] = test::create_device(argc, argv);
+    "tile_xir_runtime_map_fusion_snapshots_and_carries"_test = [&] {
+        for (auto width : {1, 7, 32, 65, 129}) {
+            for (auto variant : {0u, 1u, 2u, 3u}) { map_chain(device, width, variant); }
+        }
+    };
     "tile_xir_runtime_fused_expressions_preserve_tree_and_snapshots"_test = [&] {
         for (auto lanes : {1u, device.compute_warp_size()}) {
             for (auto width : {65, 256, 4097}) {

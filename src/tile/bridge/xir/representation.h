@@ -31,6 +31,71 @@ namespace luisa::compute::tile::bridge::xir::detail {
            (bounded_tile(value, limit) || (local_lanes > 1u && bounded_tile(value, local_lanes - 1u)));
 }
 
+// A recipe cannot escape into a different temporal or spatial execution
+// region. Pure element maps are transparent; loops/reductions/stages are not
+// an invitation to repeatedly evaluate an old carried-state definition.
+[[nodiscard]] inline bool map_local_use(const Value *value) noexcept {
+    auto producer = value->defining_operation();
+    if (!producer || value->use_count() != 1u) { return false; }
+    for (auto use : value->use_list()) {
+        auto consumer = use->user();
+        auto anchor = consumer;
+        auto block = consumer->parent_block();
+        for (auto depth = 0u; block != producer->parent_block(); depth++) {
+            if (!block || depth > 32u) { return false; }
+            auto owner = block->parent_region()->parent_operation();
+            if (!owner || owner->kind() != OperationKind::TILE_MAP) { return false; }
+            anchor = owner;
+            block = owner->parent_block();
+        }
+        auto active = false;
+        for (auto operation : block->operations()) {
+            if (operation == anchor) { break; }
+            if (operation == producer) {
+                active = true;
+                continue;
+            }
+            if (active && operation->kind() != OperationKind::CONSTANT && operation->kind() != OperationKind::ELEMENTWISE &&
+                operation->kind() != OperationKind::TILE_MAP && operation->kind() != OperationKind::VIEW_LOAD &&
+                operation->kind() != OperationKind::VIEW_STORE) { return false; }
+        }
+        return consumer->kind() == OperationKind::ELEMENTWISE || consumer->kind() == OperationKind::TILE_EXTRACT ||
+               consumer->kind() == OperationKind::VIEW_STORE;
+    }
+    return false;
+}
+
+[[nodiscard]] inline bool deferred_map(const Value *value, bool enabled, uint32_t lanes) noexcept {
+    if (!enabled || lanes != 1u || !map_local_use(value)) { return false; }
+    auto op = value->defining_operation();
+    if (op->kind() != OperationKind::TILE_MAP) { return false; }
+    auto count = 0u;
+    for (auto child : op->region(0u)->block(0u)->operations()) {
+        if (++count > 64u) { return false; }
+        auto kind = child->kind();
+        if (kind == OperationKind::YIELD) { continue; }
+        if (kind != OperationKind::CONSTANT && kind != OperationKind::ELEMENTWISE && kind != OperationKind::TILE_EXTRACT) { return false; }
+        if (child->result_count() != 1u || child->result(0u)->type().is_tile()) { return false; }
+    }
+    return true;
+}
+
+[[nodiscard]] inline bool deferred_expression(const Value *value, uint32_t limit, uint32_t lanes, bool maps) noexcept {
+    if (deferred_elementwise(value, limit, lanes)) { return true; }
+    if (!maps || lanes != 1u || !map_local_use(value)) { return false; }
+    auto op = value->defining_operation();
+    if (op->kind() != OperationKind::ELEMENTWISE || !value->type().is_tile()) { return false; }
+    // Small index/expression Tiles otherwise become arrays solely because a
+    // scalar map extracts them with a runtime coordinate (e.g. iota - offset).
+    for (auto use : value->use_list()) {
+        auto user = use->user();
+        auto owner = user->parent_block()->parent_region()->parent_operation();
+        return use->index() == 0u && user->kind() == OperationKind::TILE_EXTRACT &&
+               owner && owner->kind() == OperationKind::TILE_MAP;
+    }
+    return false;
+}
+
 struct ClosedReduction {
     const Operation *update;
     const Operation *yield;

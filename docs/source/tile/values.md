@@ -660,11 +660,34 @@ the first priority; an added opcode would not itself implement that mapping.
 ## Logical exchange versus physical shuffle
 
 Keep the public portable vocabulary small: `reindex` for coordinate maps and
-`gather` for data-dependent selection from an SSA Tile. Today both are library
+`gather` for single-axis index-Tile selection with fallback from an SSA Tile. Today both are library
 compositions over `map` and Tile extraction, not dedicated exchange primitives.
 They are expressive enough to describe logical permutation and selection, but
 their current scalarized representation does not guarantee efficient
 cross-worker communication.
+
+These are overlapping interfaces, not a static/dynamic partition. Current
+`reindex(x, output_space, f)` accepts runtime Scalar coordinates and means
+`y[j] = x[f(j)]`; `f` need not be affine, injective or surjective. It can express
+permutation, repetition/broadcast and sub-selection. `gather` supplies one axis
+of `f` from an index Tile, combines the source's remaining dimensions with the
+index Tile's dimensions by identity, and defines fallback for invalid indices
+on that axis. A general masked/filling pullback can cover both, but the current
+bare `reindex` API has no portable out-of-bounds fill contract.
+
+For valid domains and the same SSA snapshot, pure chains compose as
+`R_g(R_f(x)) = R_(f composed with g)(x)`. Masks and fallback values must be
+composed too; intervening arithmetic is not another coordinate rename.
+
+Scatter is the opposite relation: each source `i` targets `g(i)`. A unique
+destination write may use explicit `MemoryRef`/`ElementRef.store`; collisions
+need an explicit reducer or execution order. Independence is already the
+source `parallel` contract, not permission to reinterpret conflicting stores
+as addition or last-writer-wins. There is currently no public scatter helper
+or Tile atomic opcode. A future value-producing scatter can be a library
+composition of target-fiber grouping and reduction; an effectful scatter must
+retain its store effects. Only under bijective coverage and matching bounds
+and effect conditions is it simply inverse reindexing.
 
 | Logical operation | Coordinate relation along one axis | Possible library spelling |
 |---|---|---|

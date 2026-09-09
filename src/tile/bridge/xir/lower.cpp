@@ -50,21 +50,27 @@ private:
     NativeFunction _output;
     x::XIRBuilder _builder;
     x::BasicBlock *_block{nullptr};
+    struct IndexRange {
+        int64_t lo, hi;
+    };
     struct Representation {
+        struct Capture {
+            const Value *value;
+            const Representation *definition;
+            luisa::optional<IndexRange> range;
+        };
         const Type *type{nullptr};
         Elements elements;
         x::Value *storage{nullptr};
         const Operation *expression{nullptr};
         luisa::vector<const Representation *> inputs;
+        luisa::vector<Capture> captures;
         bool splat{false};
         bool pending_producer{false};
     };
     luisa::vector<luisa::unique_ptr<Representation>> _definitions;
     luisa::unordered_map<const Value *, const Representation *> _values;
     luisa::unordered_map<const Value *, uint32_t> _arguments;
-    struct IndexRange {
-        int64_t lo, hi;
-    };
     struct ViewAccess {
         const Operation *operation;
         x::Value *buffer;
@@ -82,6 +88,7 @@ private:
     luisa::unordered_map<const Value *, IndexRange> _coordinate_ranges;
     uint64_t _expanded_values{0u};
     uint64_t _local_bytes{0u};
+    uint32_t _recipe_depth{0u};
     bool _inside_parallel{false};
     bool _saw_parallel{false};
     x::Value *_lane{nullptr};
@@ -383,10 +390,57 @@ private:
         for (auto input : data->inputs) { inputs.emplace_back(_project(input, domain, coordinates)); }
         return _elementwise(*data->expression, inputs);
     }
+    [[nodiscard]] x::Value *_map_element(const Representation *data, x::Value *flat) {
+        // A recipe owns the original physical definitions. Rebinding an IR
+        // argument during another map/loop emission must not retarget it.
+        luisa::vector<Representation::Capture> saved;
+        auto cached_range = [&](const Value *value) -> luisa::optional<IndexRange> {
+            auto found = _coordinate_ranges.find(value);
+            return found == _coordinate_ranges.end() ? luisa::nullopt : luisa::optional{found->second};
+        };
+        auto bind_range = [&](const Value *value, luisa::optional<IndexRange> range) {
+            if (range) {
+                _coordinate_ranges.insert_or_assign(value, *range);
+            } else {
+                _coordinate_ranges.erase(value);
+            }
+        };
+        for (auto &capture : data->captures) {
+            saved.emplace_back(Representation::Capture{capture.value, _get(capture.value), cached_range(capture.value)});
+            _values.insert_or_assign(capture.value, capture.definition);
+            bind_range(capture.value, capture.range);
+        }
+        auto body = data->expression->region(0u)->block(0u);
+        auto coordinates = _coordinates(*data->expression->domain(), flat);
+        luisa::vector<luisa::optional<IndexRange>> argument_ranges;
+        for (size_t j = 0u; j < coordinates.size(); j++) {
+            argument_ranges.emplace_back(cached_range(body->argument(j)));
+            _define(body->argument(j), Elements{coordinates[j]});
+            uint64_t c = 0u;
+            auto fixed = x::try_decode_constant_nonnegative_integer(coordinates[j], c);
+            _coordinate_ranges.insert_or_assign(body->argument(j), fixed ? IndexRange{static_cast<int64_t>(c), static_cast<int64_t>(c)} :
+                                                                           IndexRange{0, static_cast<int64_t>(_extent(*data->expression->domain(), j)) - 1});
+        }
+        auto yielded = _region(*body);
+        if (yielded.size() != 1u || yielded[0]->elements.size() != 1u) { _fail("deferred Tile map must yield exactly one scalar"); }
+        auto result = yielded[0]->elements[0];
+        for (auto &capture : saved) {
+            _values.insert_or_assign(capture.value, capture.definition);
+            bind_range(capture.value, capture.range);
+        }
+        for (size_t j = 0u; j < argument_ranges.size(); j++) { bind_range(body->argument(j), argument_ranges[j]); }
+        return result;
+    }
     [[nodiscard]] x::Value *_read(const Representation *data, x::Value *flat) {
         if (auto found = _fused_elements.find(data); found != _fused_elements.end()) { return found->second; }
         if (data->splat) { return data->elements.front(); }
-        if (data->expression && !data->pending_producer) { return _expression_element(data, flat); }
+        if (data->expression && !data->pending_producer) {
+            if (_recipe_depth >= 64u) { _fail("XIR deferred recipe exceeds the depth budget"); }
+            _recipe_depth++;
+            auto value = data->expression->kind() == OperationKind::TILE_MAP ? _map_element(data, flat) : _expression_element(data, flat);
+            _recipe_depth--;
+            return value;
+        }
         uint64_t constant = 0u;
         if (!data->elements.empty() && x::try_decode_constant_nonnegative_integer(flat, constant)) {
             return data->elements.at(constant);
@@ -1038,7 +1092,7 @@ private:
             case OperationKind::ELEMENTWISE: {
                 auto result = op.result(0u);
                 auto domain = result->type().is_tile() ? *result->type().index_space() : IndexSpace{};
-                if (detail::deferred_elementwise(result, _options.max_unrolled_tile_elements, _options.local_lanes)) {
+                if (detail::deferred_expression(result, _options.max_unrolled_tile_elements, _options.local_lanes, _options.enable_map_fusion)) {
                     // Capture immutable physical operands now, not mutable
                     // TileIR-to-XIR bindings that another map/carry may replace.
                     // Single-use arithmetic is evaluated at its consumer.
@@ -1085,6 +1139,22 @@ private:
             case OperationKind::MMA: _mma(op); break;
             case OperationKind::TILE_MAP: {
                 auto body = op.region(0u)->block(0u);
+                if (detail::deferred_map(op.result(0u), _options.enable_map_fusion, _options.local_lanes)) {
+                    auto data = _representation(op.result(0u));
+                    data->expression = &op;
+                    for (auto child : body->operations()) {
+                        for (size_t j = 0u; j < child->operand_count(); j++) {
+                            auto value = child->operand(j);
+                            auto definition = value->defining_operation();
+                            if (value->argument_block() == body || (definition && definition->parent_block() == body)) { continue; }
+                            if (std::none_of(data->captures.begin(), data->captures.end(), [&](auto &&capture) { return capture.value == value; })) {
+                                data->captures.emplace_back(Representation::Capture{value, _get(value), _range(value)});
+                            }
+                        }
+                    }
+                    _output.deferred_maps++;
+                    break;
+                }
                 _emit_tile(op.result(0u), [&](x::Value *flat) {
                     auto coordinates = _coordinates(*op.domain(), flat);
                     for (size_t j = 0u; j < coordinates.size(); j++) {

@@ -221,12 +221,13 @@ The initial reference library has explicit desugarings:
 | `matmul(a, b)` | infer conventional trailing matrix dimensions, create a zero result, then `mma(a, b, zero)` |
 | general `einsum` | reindex/broadcast, elementwise multiply, reduce; a schedule may retile it into `mma` |
 | convolution / pooling / normalization | views plus elementwise and reduce regions |
-| `gather` | value-computed view index plus load |
-| `scatter` | value-computed index plus store or atomic effect |
+| `reindex` / `gather` | pure SSA Tile extraction in a scalar map; gather adds single-axis index-Tile selection and fallback |
+| `scatter` (design/library direction) | indexed explicit stores with an independence contract, or an explicit combine/order contract; no public scatter/atomic API yet |
 | `copy` | load/store edge, optionally recognized as a transfer atom |
 | `topk<K>` | indexed Tile plus bounded merge-and-truncate reducer |
 | `sort` / `merge_sorted` | compare/ite/reindex networks or structured radix/merge library |
-| `scan` / histogram | parallel/serial/reduce regions plus indexed effects |
+| `scan` | reindex/gather plus elementwise combine; blocked library versions use serial carry |
+| histogram (design/library direction) | indexed contribution grouping and explicit reduction/effects |
 
 This table is a test obligation: the target-independent expansion must run in
 the TileIR interpreter, and every atom replacement is checked against it.

@@ -54,6 +54,9 @@ struct PlannerOptions {
     // Same first-consumer admission as lowering. Prices saved snapshot
     // accesses, not an assumed native speedup or automatically selected winner.
     bool enable_expression_reduction_fusion{false};
+    // Shares pure map admission with lower(); work is charged at reads,
+    // including repeated/broadcast reads, rather than at an elided snapshot.
+    bool enable_map_fusion{false};
 };
 
 struct ExecutionCost {

@@ -3,6 +3,7 @@
 #include <luisa/tile/bridge/xir/lower.h>
 #include <luisa/tile/bridge/xir/planner.h>
 #include <luisa/tile/verifier.h>
+#include <luisa/tile/algorithms.h>
 #include <luisa/xir/verifier.h>
 #include <luisa/xir/instructions/alloca.h>
 #include <luisa/xir/instructions/arithmetic.h>
@@ -15,6 +16,74 @@ using namespace luisa::compute;
 using namespace boost::ut;
 
 int main() {
+    "tile_xir_deferred_map_depth_budget"_test = [] {
+        using namespace tile;
+        for (auto depth_limit : {63u, 64u, 65u, 70u}) {
+            auto kernel = tile_kernel("map_depth", [=](TensorView<const float, 1> input, TensorView<float, 1> output) {
+                              auto n = axis("n", 65);
+                              for (auto &nest : parallel(shape(1))) {
+                                  auto x = input[coord(0), shape(n)];
+                                  for (auto depth = 0u; depth < depth_limit; depth++) {
+                                      x = reindex(x, shape(n), [&](const Nest &element) { return coord(64 - element.index()); });
+                                  }
+                                  output(coord(0), shape(n)).store(x);
+                              }
+                          }).capture(tensor_shape(65), tensor_shape(65));
+            auto baseline = bridge::xir::lower(kernel.function());
+            auto candidate = bridge::xir::lower(kernel.function(), {.enable_map_fusion = true});
+            auto planning = bridge::xir::plan(kernel.function(), {8u, 1u}, {.enable_map_fusion = true});
+            expect(baseline.ok()) << baseline.error;
+            if (depth_limit <= 64u) {
+                expect(candidate.ok()) << candidate.error;
+                expect(planning.ok()) << planning.error;
+                if (candidate) { expect(xir::xir_verify_module(candidate.module.get(), {.require_reachable_blocks = true}).succeeded()); }
+            } else {
+                expect(!candidate.ok() && candidate.error.find("depth budget") != string::npos);
+                expect(!planning.ok() && planning.error.find("depth budget") != string::npos);
+            }
+        }
+    };
+    "tile_xir_pure_map_fusion_admission_and_cost"_test = [] {
+        using namespace tile;
+        for (auto variant = 0u; variant < 3u; variant++) {
+            auto kernel = tile_kernel("map_contract", [=](TensorView<const float, 2> input, TensorView<float, 2> output) {
+                              auto m = axis("m", 1), n = axis("n", 65);
+                              for (auto &nest : parallel(shape(17))) {
+                                  auto x = input[coord(nest.index(), 0), shape(m, n)];
+                                  auto y = reindex(x, shape(m, n), [&](const Nest &element) {
+                                      return coord(element.index(m), 64 - element.index(n));
+                                  });
+                                  if (variant == 1u) { output(coord(nest.index(), 0), shape(m, n)).store(y); }
+                                  if (variant == 2u) {
+                                      for (auto &step : nest.serial(shape(2))) {
+                                          output(coord(nest.index(), step.index()), shape(1, 1)).store(full<float>(shape(1, 1), 2.0f));
+                                      }
+                                  }
+                                  output(coord(nest.index(), 0), shape(m, n)).store(y);
+                              }
+                          }).capture(tensor_shape(17, 65), tensor_shape(17, 65));
+            auto off = bridge::xir::lower(kernel.function());
+            auto on = bridge::xir::lower(kernel.function(), {.enable_map_fusion = true});
+            expect(off.ok() && on.ok()) << off.error << on.error;
+            if (!off || !on) { continue; }
+            expect(eq(off.deferred_maps, 0u));
+            expect(eq(on.deferred_maps, variant == 0u ? 1u : 0u));
+            expect(xir::xir_verify_module(on.module.get(), {.require_reachable_blocks = true}).succeeded());
+            auto allocations = [](const auto &lowered) {
+                size_t count = 0u;
+                lowered.function->traverse_instructions([&](xir::Instruction *inst) noexcept { count += inst->isa<xir::AllocaInst>(); });
+                return count;
+            };
+            expect(eq(allocations(off) - allocations(on), static_cast<size_t>(on.deferred_maps)));
+            auto a = bridge::xir::plan(kernel.function(), {8u, 1u}, {.block_size = 32u});
+            auto b = bridge::xir::plan(kernel.function(), {8u, 1u}, {.block_size = 32u, .enable_map_fusion = true});
+            expect(a.ok() && b.ok());
+            if (a && b) {
+                expect(variant == 0u ? b.selected.cost.memory_work < a.selected.cost.memory_work :
+                                       b.selected.cost.memory_work == a.selected.cost.memory_work);
+            }
+        }
+    };
     "tile_xir_expression_reduction_fusion_contract_and_cost"_test = [] {
         using namespace tile;
         for (auto lanes : {1u, 2u, 4u, 8u, 16u}) {

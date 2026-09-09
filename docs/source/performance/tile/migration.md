@@ -3,8 +3,11 @@
 **September 9, 2026: the new design is merged into `next`, and development
 continues there. FP16/BF16 now execute through XIR/SIMD and Metal/TIRx.
 The expanded legacy comparison retains 38 shapes/operator cases across 191
-requested route combinations, including every Error. Scan remains a major
-regression; the MPS/Torch performance goal is not complete.**
+requested route combinations, including every Error. The default-path matrix
+still has a major scan regression. A later opt-in XIR map-fusion experiment
+improves aligned CPU scans by 18–21× against the same compiler with fusion off;
+it is not a remeasurement against legacy E2E or Torch/MPS. The overall
+performance goal is not complete.**
 
 The exact merge `2d02721b89980cd9191976c64b05d00b2342a03d` combines upstream
 `6e58928d8` and design checkpoint `cd58daa6f`. A clean, recursively pinned
@@ -334,6 +337,124 @@ pinned TVMx process has no `tirx.intrinsics.cuda.header_generator` or
 passes, but its three artifact-generation cases do not. The failure is retained,
 not skipped or counted as CUDA validation. No NVIDIA execution was attempted.
 This integration check is separate from all matrix timings above.
+
+## Pure-entry follow-up: generic map fusion
+
+The follow-up improves **aligned CPU cumsum/cummax by approximately 18–21×**
+without changing the library scan algorithm or reassociating its arithmetic.
+Ragged cumsum improves only about 15%, transpose about 11%, and the unchanged
+copy/absolute-sum controls show measurement noise. This is an opt-in generic
+Tile-to-XIR realization, not a new scan opcode, a tuned default, or a claim of
+legacy/Torch/MPS parity.
+
+### Measurement boundary and results
+
+The comparison is **map fusion off versus on in the same current compiler**.
+Both use strict FP32, W8, one CPU thread and the same captured inputs, complete
+FP64 oracle and source schedule. The timer calls the actual captured ORC object;
+it does not rebuild the kernel from exported LLVM. Runtime dispatch, Python,
+JIT, caller allocation, copies and validation are outside the common C++ timer.
+Launch-record resets, block traversal and any compiler-emitted libc/allocation
+remain inside. This is **single-thread complete native-launch host wall time**,
+not CPU cycles, an inner-loop-only metric or multithread Runtime throughput.
+
+Each case uses two ABBA cycles: four visits per variant, seven samples per
+visit, 100 ms warmup and 30 ms target samples. The first two time columns are
+medians of the four visit medians in microseconds. The ratio column is the
+median of four matched on/off ratios, followed by their range; it is not the
+ratio of the two displayed aggregate medians, nor a confidence interval.
+
+| Operation / rows×columns | Fusion off µs | Fusion on µs | Paired on/off: median [range] |
+|---|---:|---:|---:|
+| cumsum 8×32 | 32.540 | 1.531 | 0.0471 [0.0466–0.0473] |
+| cumsum 128×1024 | 5,050.552 | 256.593 | 0.0508 [0.0506–0.0512] |
+| cummax 128×1024 | 5,030.826 | 268.644 | 0.0535 [0.0531–0.0537] |
+| cumsum 17×65 | 131.444 | 111.591 | 0.8490 [0.8420–0.8582] |
+| cumsum 1024×4096 | 161,096.042 | 8,841.563 | 0.0549 [0.0542–0.0555] |
+| transpose 65×129 | 213.558 | 190.655 | 0.8926 [0.8902–0.8958] |
+| abssum 17×65, unchanged control | 17.774 | 17.814 | 0.9986 [0.9924–1.0096] |
+| copy 512×4096, unchanged control | 2,031.892 | 2,020.952 | 1.0216 [0.9690–1.0278] |
+
+All 64 visits check every output and guards; outputs are byte-identical between
+variants. An independent audit also recomputes all 6,563,363 unique case-output
+elements from the structured inputs. Copy and absolute-sum have byte-identical
+LLVM and objects across variants and `deferred_maps=0`: their apparent movement
+is a control for noise, not an optimization result. These finite, structured
+inputs do not qualify NaN, signed-zero or arbitrary production distributions.
+
+Four aligned scan pairs change the compiler-generated entry from
+`packet_batch` to `packet_batch.blocks`. The common adapter correctly executes
+both, but the result includes this entry/traversal improvement. It must not be
+described as a same-ABI, single-inner-body-call comparison. The desktop was not
+thermally controlled or affinity-pinned; no other benchmark/build/profile was
+run concurrently by this task during the timed replay.
+
+### Why it helps, and what the planner still misses
+
+Single-use, pure scalar maps and their index expressions become deferred
+recipes evaluated at their consumer. Each recipe captures existing SSA
+representations and coordinate ranges; it never delays an external memory load
+past a write. Multi-use scan arithmetic stages retain their snapshots, so a
+chain does not turn into exponential recomputation. Region/stage boundaries,
+effectful maps and unsupported distributions keep the existing realization.
+The current admission is limited to `local_lanes=1` and bounded recipe depth.
+
+For the aligned scans, worker-private arrays fall from 17 to 7 and Schedule
+blocks from 50 to 35; direct CFG becomes available. The ragged scan falls from
+54 to 39 blocks but still uses the general scheduler. This explains why merely
+counting removed arrays is insufficient to predict the observed speedup.
+
+The planner shares the lowering admission and charges deferred work at actual
+consumer reads, including repeated/broadcast reads. Its relative work prior
+does **not** yet price the direct-CFG transition accurately or automatically
+choose fusion on/off. The gain is a general compiler representation improvement
+with matching work accounting, **not a calibrated cost-model victory**.
+Enable the experimental realization with `PlannerOptions::enable_map_fusion`
+or `LUISA_SIMD_ENABLE_MAP_FUSION=1`; the explicit disable environment option
+overrides it. The default remains off.
+
+The evidence is archived separately under
+`scripts/benchmark/tile_torch/results/m1-max-20260909-map-fusion/`.
+The v2 objects supplied the timed replay. The v3 defensive range/depth changes
+were recaptured for all 16 variants: LLVM, ORC objects and all input/oracle/output
+files are byte-identical to v2. v3 also retains the complete compiler-source
+overlay and hashes all 24 relevant binary/plugin files before and after capture.
+The original v2 binary inventory omitted `.so` plugins; its unchanged-binary
+flag proves only the listed files, not a retrospectively complete inventory.
+The exact measured ORC objects and replay libraries are independently frozen.
+
+The final v4 patch aligns the planner/lowering recipe-depth boundary: 63 and
+64 deferred levels succeed, while 65 and 70 fail closed with fusion enabled.
+A complete configured build and six XIR/Runtime/LLM/type/migration CTests pass.
+All 16 variants were recaptured again: the 16 LLVM files, 16 ORC objects and
+50 input/oracle/output files remain byte-identical to v2. The v4 source overlay
+and 24-file binary inventory are retained separately; this finite equivalence
+check is not a fresh timing cohort or proof for untested kernels.
+
+The next questions are whether ragged CFG can use a similarly efficient
+realization, how ownership and communication planning can recover Metal scan
+performance, and when recipe materialization should be selected automatically.
+The legacy CPU route and Torch still need same-boundary native-entry replays;
+the new scan times must not replace the old matrix's E2E column.
+
+To replay an inspected migrated FP32 capture, use new output directories:
+
+~~~sh
+python3 scripts/benchmark/tile_torch/native_tile.py prepare \
+  --prefix /path/to/off --log /path/to/off.log --objects /path/to/off-objects \
+  --output /path/to/prepared-off --name off
+python3 scripts/benchmark/tile_torch/native_tile.py prepare \
+  --prefix /path/to/on --log /path/to/on.log --objects /path/to/on-objects \
+  --output /path/to/prepared-on --name on
+python3 scripts/benchmark/tile_torch/native_tile.py replay \
+  --prepared /path/to/prepared-off/prepared.json \
+  --prepared /path/to/prepared-on/prepared.json --output /path/to/replay
+~~~
+
+Preparation currently supports inspected Darwin arm64 buffer-only packet
+entries, not cooperative kernels, aliased buffers or arbitrary scalar/resource
+arguments. The helper's validation-only tests cover both entry ABIs, XYZ tails,
+multiple buffers, complete-output errors, immutable inputs and guards.
 
 ## Failures retained and what they teach
 

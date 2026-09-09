@@ -38,6 +38,10 @@ struct LowerOptions {
     // Compute each point once, retaining its snapshot for later consumers.
     // Independent opt-in; preserves the chosen reduction tree and math policy.
     bool enable_expression_reduction_fusion{false};
+    // Defer single-use pure scalar maps and their indexed expressions within
+    // one execution region. Captures immutable SSA representations, never
+    // delayed memory loads. Experimental complete-program-lane realization.
+    bool enable_map_fusion{false};
 };
 
 struct NativeFunction {
@@ -58,6 +62,7 @@ struct NativeFunction {
     uint32_t pointwise_alias_checks{0u};
     uint32_t fused_reduction_expressions{0u};
     uint32_t elided_expression_snapshots{0u};
+    uint32_t deferred_maps{0u};
     luisa::string error;
     [[nodiscard]] bool ok() const noexcept { return module != nullptr && function != nullptr && error.empty(); }
     [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
