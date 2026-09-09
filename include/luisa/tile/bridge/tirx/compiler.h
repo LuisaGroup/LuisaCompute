@@ -111,7 +111,13 @@ public:
 // from typed TIRx, never from parsing the generated source. The original host
 // parameter order is preserved by buffer_arguments[device_binding_index].
 struct DeviceArtifact {
-    enum class Format : uint8_t { METAL_SOURCE };
+    // METAL_SOURCE holds MSL returned by InspectSource("metal").
+    // CUDA_SOURCE holds CUDA C returned by InspectSource("cuda"); the CUDA
+    // backend compiles that source to PTX with its standalone-NVRTC pipeline.
+    // PTX holds the NVPTX target's InspectSource("ptx") text and skips NVRTC.
+    enum class Format : uint8_t { METAL_SOURCE,
+                                  CUDA_SOURCE,
+                                  PTX };
     Format format{Format::METAL_SOURCE};
     tvm::tirx::PrimFunc function;
     luisa::string entry;
@@ -119,6 +125,8 @@ struct DeviceArtifact {
     std::array<uint32_t, 3u> grid{1u, 1u, 1u};
     std::array<uint32_t, 3u> block{1u, 1u, 1u};
     luisa::vector<uint32_t> buffer_arguments;
+    // Metal 4 / MPP language requirement. Never set for CUDA/PTX artifacts;
+    // Metal-only scopes that leak into those targets are hard errors.
     bool requires_metal4{false};
 };
 
@@ -133,9 +141,10 @@ struct DeviceCompilationResult {
 
 // Shares execution mapping and device passes with compile(), but does not
 // generate a packed host wrapper or execute through TVM's device runtime.
-// Initially accepts Metal, buffer-only ABI, one unconditional static launch.
-// Host loops/effects, multiple launches, scalar arguments, and dynamic launch
-// resources are rejected; silently dropping host work is never permitted.
+// Accepts Metal (MSL), CUDA (CUDA C source for the backend's NVRTC pipeline)
+// and NVPTX (direct PTX text) buffer-only ABIs with one unconditional static
+// launch. Host loops/effects, multiple launches, scalar arguments, and dynamic
+// launch resources are rejected; silently dropping host work is never permitted.
 [[nodiscard]] LUISA_TILE_TIRX_BRIDGE_API DeviceCompilationResult compile_device(
     tvm::tirx::PrimFunc function, luisa::string_view name,
     const CompileOptions &options) noexcept;

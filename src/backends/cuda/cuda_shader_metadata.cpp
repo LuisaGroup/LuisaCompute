@@ -14,6 +14,8 @@ luisa::string serialize_cuda_shader_metadata(const CUDAShaderMetadata &metadata)
                                                 "UNKNOWN" :
                                             metadata.kind == CUDAShaderMetadata::Kind::COMPUTE ?
                                                 "COMPUTE" :
+                                            metadata.kind == CUDAShaderMetadata::Kind::TILE ?
+                                                "TILE" :
                                                 "RAY_TRACING"));
     result.append(metadata.enable_debug ? "DEBUG TRUE " : "DEBUG FALSE ");
     result.append(metadata.requires_trace_closest ? "TRACE_CLOSEST TRUE " : "TRACE_CLOSEST FALSE ");
@@ -114,6 +116,8 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
                 kind = CUDAShaderMetadata::Kind::COMPUTE;
             } else if (x == "RAY_TRACING") {
                 kind = CUDAShaderMetadata::Kind::RAY_TRACING;
+            } else if (x == "TILE") {
+                kind = CUDAShaderMetadata::Kind::TILE;
             } else {
                 LUISA_WARNING_WITH_LOCATION("Invalid kind '{}' in shader metadata.", x);
                 return luisa::nullopt;

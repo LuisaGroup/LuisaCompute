@@ -152,6 +152,13 @@ The following preserves the revision-17 design rationale and bootstrap order. It
   rewriters, analyses, and verification.
 - TVM is a replaceable lowering backend, not the semantic owner.
 - MLIR is not required.
+- Backend-owned `create_tile_kernel` routes: Metal lowers MPP natively or through
+  the TIRx device artifact; CUDA compiles the TIRx `cuda`/`nvptx` artifact with
+  the standalone-NVRTC pipeline and launches it directly (no cooperative
+  matrix/vector, no indirect dispatch). On CUDA every Tile tensor operator
+  (`MMA`/matmul, `REDUCE`, elementwise lift, tile map/extract) keeps the
+  reference SIMT realization, and explicit Metal-only planning knobs fail
+  closed instead of being silently downgraded.
 
 The accompanying [GEMM sketch](../../tile/tile_programming_poc.cpp) and
 [kernel gallery](../../tile/kernels.md) exercise the proposed syntax.

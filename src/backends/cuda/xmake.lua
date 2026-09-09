@@ -30,11 +30,12 @@ _config_project({
     project_kind = "shared",
     batch_size = 4
 })
-add_deps("lc-runtime", "lc-cuda-backend-base", 'lc-cuda-backend-builtin')
+add_deps("lc-runtime", "lc-cuda-backend-base", 'lc-cuda-backend-builtin', "lc-tile")
 
 add_rules('lc_llvm')
 lc_set_pcxxheader("lc_cuda_pch.h")
 add_headerfiles("*.h")
+add_headerfiles("tile/*.h")
 add_defines('LUISA_BIN_2_OBJ')
 on_load(function(target)
     if has_config("lc_reproc_use_xrepo") then
@@ -52,7 +53,7 @@ on_load(function(target)
     exclude_files["cuda_builtin_embedded.cpp"] = true
     exclude_files["cuda_devrt_embedded.cpp"] = true
     exclude_files["cuda_texture_compression.cpp"] = true
-    local file_paths = {'*.cpp', 'extensions/*.cpp'}
+    local file_paths = {'*.cpp', 'extensions/*.cpp', 'tile/*.cpp'}
     for _, f in ipairs(file_paths) do
         for _, filepath in ipairs(os.files(path.join(src_path, f))) do
             local file_name = path.filename(filepath)

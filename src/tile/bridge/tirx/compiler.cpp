@@ -419,6 +419,14 @@ public:
         }
     }
     auto cooperative_matrix = options.cooperative_matrix && target->kind->name == "metal" && target->GetAttr<int64_t>("thread_warp_size").value_or(0) == 32;
+    // The CUDA device-artifact route deliberately realizes semantic Tile MMA
+    // through the target-neutral ordered multiply/add reference expansion. A
+    // cooperative-matrix request on CUDA/NVPTX is out of scope and must never
+    // be silently downgraded to the reference path.
+    if (options.cooperative_matrix &&
+        (target->kind->name == "cuda" || target->kind->name == "nvptx")) {
+        throw std::runtime_error{"CUDA device artifacts do not support cooperative matrices; Tile MMA uses the reference multiply/add realization"};
+    }
     auto subgroup_reductions = options.planner.metal_subgroup_reductions;
     if (options.planner.cache_reduction_inputs && !subgroup_reductions) {
         throw std::runtime_error{"input stripe caching requires Metal SIMD-group reductions"};
@@ -681,6 +689,34 @@ void finalize_device(tvm::IRModule &module) {
     return name == "llvm" || name == "c";
 }
 
+// Maps a code-generator target kind to the shared DeviceArtifact language and
+// the InspectSource name that returns it. Everything after the target-specific
+// code generation stays target neutral: typed launch extraction, pointer-only
+// buffer ABI, static grid/block tags and entry symbol come from TIRx, never
+// from parsing source text.
+[[nodiscard]] DeviceArtifact::Format device_artifact_format(
+    const tvm::Target &target, luisa::string_view &inspect_source) noexcept {
+    auto name = target->kind->name;
+    if (name == "metal") {
+        inspect_source = "metal";
+        return DeviceArtifact::Format::METAL_SOURCE;
+    }
+    if (name == "cuda") {
+        inspect_source = "cuda";
+        return DeviceArtifact::Format::CUDA_SOURCE;
+    }
+    if (name == "nvptx") {
+        inspect_source = "ptx";
+        return DeviceArtifact::Format::PTX;
+    }
+    return DeviceArtifact::Format::METAL_SOURCE;
+}
+
+[[nodiscard]] bool is_cuda_device_target(const tvm::Target &target) noexcept {
+    auto name = target->kind->name;
+    return name == "cuda" || name == "nvptx";
+}
+
 [[nodiscard]] tvm::ffi::Module codegen(tvm::IRModule module, const tvm::Target &target) {
     auto builder_name = std::string{"target.build."} + target->kind->name.operator std::string();
     auto builder = tvm::ffi::Function::GetGlobalRequired(builder_name);
@@ -779,7 +815,27 @@ DeviceCompilationResult compile_device(tvm::tirx::PrimFunc function, luisa::stri
         if (!function.defined() || name.empty()) { throw std::runtime_error{"device artifact requires a defined, named PrimFunc"}; }
         if (options.auto_vectorize && !options.vectorize) { throw std::runtime_error{"automatic vectorization requires vectorization"}; }
         tvm::Target target{tvm::ffi::String{options.target}};
-        if (target->kind->name != "metal") { throw std::runtime_error{"device artifact currently supports only Metal"}; }
+        luisa::string_view inspect_source;
+        auto format = detail::device_artifact_format(target, inspect_source);
+        if (inspect_source.empty()) { throw std::runtime_error{"device artifact currently supports Metal, CUDA and NVPTX targets"}; }
+        if (detail::is_cuda_device_target(target)) {
+            // The CUDA device-artifact route is a first-class capability gate.
+            // Reference-realized tensor operators are always allowed; Metal-only
+            // planning knobs are hard errors here so they cannot be mistaken for
+            // optional hints that silently disappear during CUDA lowering.
+            if (options.cooperative_matrix) { throw std::runtime_error{"CUDA device artifacts do not support cooperative matrices; Tile MMA uses the reference multiply/add realization"}; }
+            if (options.metal_mpp) { throw std::runtime_error{"Metal MPP memory atoms are not available on the CUDA device-artifact route"}; }
+            if (options.planner.metal_subgroup_reductions ||
+                options.planner.reduction_programs_per_group != 0u ||
+                options.planner.reduction_unroll_factor != 1u ||
+                options.planner.reduction_lane_elements != 1u ||
+                options.planner.cache_reduction_inputs) {
+                throw std::runtime_error{"Metal SIMD-group reduction policies are not available on the CUDA device-artifact route; REDUCE keeps the reference realization"};
+            }
+            if (options.planner.program_order_rows != 1u || options.planner.program_order_columns != 1u) {
+                throw std::runtime_error{"program-order traversal is a Metal group-program option and is not available on the CUDA device-artifact route"};
+            }
+        }
         // Use a host target only for TVMx's typed host/device partition pass.
         // There is no LLVM code generation or packed-function JIT here.
         tvm::Target bound{target, tvm::Target{tvm::ffi::String{"llvm"}}};
@@ -796,6 +852,7 @@ DeviceCompilationResult compile_device(tvm::tirx::PrimFunc function, luisa::stri
             if (device_global.same_as(global)) { continue; }
             auto device = base.as_or_throw<tvm::tirx::PrimFunc>();
             result.artifact = detail::extract_device_artifact(host, device);
+            result.artifact.format = format;
             auto device_module = detail::make_module({{device_global, device}}, module->attrs, module->global_infos);
             // Storage ABI legalization cannot consume the still-typed host
             // Buffer parameters. Run it on the pointer-ABI device partition.
@@ -803,17 +860,27 @@ DeviceCompilationResult compile_device(tvm::tirx::PrimFunc function, luisa::stri
             device_module = detail::run_pass(tvm::tirx::transform::BF16StorageLegalize(), std::move(device_module));
             detail::finalize_device(device_module);
             result.artifact.function = device_module->functions.at(device_global).as_or_throw<tvm::tirx::PrimFunc>();
+            auto allocation_scope_message = luisa::string{};
             tvm::tirx::PostOrderVisit(result.artifact.function->body, [&](const tvm::ffi::ObjectRef &node) {
                 if (auto allocation = node.as<tvm::tirx::AllocBufferNode>()) {
-                    result.artifact.requires_metal4 |= allocation->buffer.scope() == "metal.cooperative_tensor";
+                    auto scope_name = std::string{allocation->buffer.scope()};
+                    if (scope_name == "metal.cooperative_tensor") {
+                        result.artifact.requires_metal4 = true;
+                    }
+                    if (detail::is_cuda_device_target(target) && scope_name.rfind("metal.", 0u) == 0u) {
+                        if (allocation_scope_message.empty()) { allocation_scope_message = scope_name; }
+                    }
                 }
             });
+            if (detail::is_cuda_device_target(target) && !allocation_scope_message.empty()) {
+                throw std::runtime_error{"CUDA device artifact contains Metal-only allocation scope '" + allocation_scope_message + "'"};
+            }
             // InspectSource returns the code generator's own output unchanged.
             // ABI metadata was already extracted from the typed launch above.
             auto compiled = detail::codegen(std::move(device_module), target);
-            auto source = compiled->InspectSource("metal");
+            auto source = compiled->InspectSource(inspect_source);
             result.artifact.source.assign(source.data(), source.size());
-            if (source.empty()) { throw std::runtime_error{"Metal code generator returned no source artifact"}; }
+            if (source.empty()) { throw std::runtime_error{std::string{target->kind->name} + " code generator returned no source artifact"}; }
         }
     } catch (const tvm::ffi::Error &error) {
         result.error = error.what();
