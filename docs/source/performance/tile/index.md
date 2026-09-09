@@ -65,6 +65,8 @@ task regressions and non-winning attention. Shared-input/multi-output DAG
 fusion now has a [guarded, opt-in implementation](../../internals/tile/xir.md#guarded-pointwise-dag-fusion-keeps-an-alias-safe-fallback)
 with alias and bounds regressions; it is **not yet a measured performance
 win**. Softmax phase planning remains a next candidate.
+The subsequent [next integration check](validation.md#next-integration-keeps-performance-qualification-separate)
+keeps two contended native replay attempts out of the performance evidence.
 [Independent task grain](results.md#cpu-task-grain-is-independent-of-the-native-packet-body)
 and realization-sensitive cost calibration remain necessary; native superiority
 alone does not establish dispatch latency or default-path parity.

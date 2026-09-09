@@ -1,0 +1,698 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="(empty)"
+	tests="79"
+	failures="0"
+	disabled="0"
+	skipped="0"
+	hostname=""
+	time="83"
+	timestamp="2026-09-09T12:08:37"
+	>
+	<testcase name="test_simd_cohort_scheduler" classname="test_simd_cohort_scheduler" time="0.500791" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_simd"/>
+		</properties>
+		<system-out>[pass] lane mask
+[pass] width 1
+[pass] width 4
+[pass] width 8
+[pass] collective epochs 4
+[pass] collective epochs 8
+[pass] scheduler invariants
+</system-out>
+	</testcase>
+	<testcase name="test_simd_scheduler_model" classname="test_simd_scheduler_model" time="0.433914" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_simd"/>
+		</properties>
+		<system-out>checked 342 initial states, 4782 complete scheduler interleavings, and 47764 transitions
+[pass] bounded scheduler model
+</system-out>
+	</testcase>
+	<testcase name="test_simd_reference_warp_collectives" classname="test_simd_reference_warp_collectives" time="0.405836" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_simd"/>
+		</properties>
+		<system-out>[pass] full warp1
+[pass] full warp4
+[pass] full warp8
+[pass] full warp16
+[pass] sparse warp8
+[pass] sparse warp128
+</system-out>
+	</testcase>
+	<testcase name="test_simd_embree_packet_support" classname="test_simd_embree_packet_support" time="0.421078" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_simd"/>
+		</properties>
+		<system-out></system-out>
+	</testcase>
+	<testcase name="test_simd_schedule_ir" classname="test_simd_schedule_ir" time="0.420273" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_simd"/>
+		</properties>
+		<system-out>[pass] cohort GEP annotation
+[pass] valid diamond
+[pass] symbolic width
+[pass] valid loop
+[pass] missing state assignment
+[pass] control edge join order
+[pass] missing terminator
+[pass] invalid target
+[pass] duplicate definition
+[pass] collective instance
+[pass] invalid hierarchies
+[pass] invalid width
+[pass] large indexed verification
+</system-out>
+	</testcase>
+	<testcase name="test_simd_thread_pool" classname="test_simd_thread_pool" time="0.446358" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_simd"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (661 asserts in 5 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_simd_warp_uniformity" classname="test_simd_warp_uniformity" time="0.426147" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_simd;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (41 asserts in 7 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_simd_xir_to_schedule" classname="test_simd_xir_to_schedule" time="0.450145" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_simd;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (889 asserts in 20 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_simd_phi_parallel_copy" classname="test_simd_phi_parallel_copy" time="0.650629" status="run">
+		<properties>
+			<property name="cmake_labels" value="integration_simd;unit;unit_llvm;unit_simd"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (112 asserts in 1 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_simd_llvm_native_math" classname="test_simd_llvm_native_math" time="3.66173" status="run">
+		<properties>
+			<property name="cmake_labels" value="integration_simd;unit;unit_llvm;unit_simd"/>
+		</properties>
+		<system-out></system-out>
+	</testcase>
+	<testcase name="test_simd_llvm_value_layout" classname="test_simd_llvm_value_layout" time="0.446218" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_llvm;unit_simd"/>
+		</properties>
+		<system-out>[pass] layout warp1
+[pass] layout warp4
+[pass] layout warp8
+[pass] layout warp16
+[pass] invalid width
+</system-out>
+	</testcase>
+	<testcase name="test_simd_llvm_warp_collectives" classname="test_simd_llvm_warp_collectives" time="0.521561" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_llvm;unit_simd"/>
+		</properties>
+		<system-out>[pass] LLVM vector warp1
+[pass] LLVM vector warp2
+[pass] LLVM vector warp4
+[pass] LLVM vector warp8
+[pass] LLVM vector warp16
+</system-out>
+	</testcase>
+	<testcase name="test_simd_llvm_schedule_codegen" classname="test_simd_llvm_schedule_codegen" time="44.9051" status="run">
+		<properties>
+			<property name="cmake_labels" value="integration_simd;unit;unit_llvm;unit_simd"/>
+		</properties>
+		<system-out>[pass] cohort private 32-bit loop indices and exit epochs
+[pass] cohort private 64-bit loop indices and exit epochs
+[pass] predicated private memory triangles and counted loops
+[pass] contiguous private 32-bit masks and slots
+[pass] contiguous private 64-bit masks and slots
+[pass] private workspace capacity and lane intervals
+[pass] Schedule IR vector warp1
+[pass] Schedule IR vector warp2
+[pass] Schedule IR vector warp4
+[pass] Schedule IR vector warp8
+[pass] Schedule IR vector warp16
+[pass] varying shape-changing bitwise cast
+[pass] direct divergent child
+[pass] static power-of-two block size
+[pass] Schedule IR loop warp1
+[pass] Schedule IR loop warp2
+[pass] Schedule IR loop warp4
+[pass] Schedule IR loop warp8
+[pass] innermost-loop local predicated regions
+[pass] innermost-loop local predicated terminal bridge
+[pass] innermost-loop two-sided local predication
+[pass] nested innermost-loop local predicated regions
+[pass] W16 structured tiny nested predication
+[pass] varying loop exit collective
+[pass] multiple-...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="test_switch_case_group" classname="test_switch_case_group" time="0.526491" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_ast;unit_dsl;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (135 asserts in 3 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_restructure_shared_switch" classname="test_xir_restructure_shared_switch" time="0.448112" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (552 asserts in 1 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_ast_to_xir" classname="test_ast_to_xir" time="0.466217" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out></system-out>
+	</testcase>
+	<testcase name="test_ast_pack_usage" classname="test_ast_pack_usage" time="0.443052" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (14 asserts in 3 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_ast_external_lowering" classname="test_ast_external_lowering" time="0.43649" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (20 asserts in 1 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_module" classname="test_xir_module" time="0.436286" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (146 asserts in 55 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_builder" classname="test_xir_builder" time="0.429807" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (254 asserts in 54 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_verifier" classname="test_xir_verifier" time="0.540505" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (227 asserts in 47 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_translators" classname="test_xir_translators" time="0.433813" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (180 asserts in 31 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_interchange" classname="test_xir_interchange" time="0.43726" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (1218 asserts in 52 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir2ast_translators" classname="test_xir2ast_translators" time="0.613161" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[2026-09-09 12:09:36.164] [console] [error] XIR bindless byte-buffer writes cannot be represented in AST: the AST has no byte-addressed bindless write operation. [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/translators/xir2ast.cpp:291]
+     0 [0x00010182252c]: libluisa-xir.dylib :: luisa::compute::xir::detail::xir2ast_resource_write_op(luisa::compute::xir::ResourceWriteOp, luisa::compute::xir::BindlessResourceAccess) + 268
+     1 [0x000101819cdc]: libluisa-xir.dylib :: luisa::compute::xir::XIR2ASTContext::_emit_block(luisa::compute::xir::BasicBlock const*, luisa::compute::xir::BasicBlock const*) + 340
+     2 [0x0001018195e8]: libluisa-xir.dylib :: auto luisa::compute::detail::FunctionBuilder::_define&lt;luisa::compute::xir::XIR2ASTContext::_translate(luisa::compute::xir::FunctionDefinition const&amp;)::'lambda'()&amp;&gt;(luisa::compute::Function::Tag, luisa::compute::xir::XIR2ASTContext::_translate(luisa::compute::xir::FunctionDefinition const&amp;)::'lambda'()&amp;) + 228
+     3 [0x000101818f5c]: libluisa-xir.dylib :: luisa...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="test_xir_passes" classname="test_xir_passes" time="0.510833" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[2026-09-09 12:09:36.795] [console] [warning] destructure_cfg: rejecting function with 1 malformed or unsupported construct(s) and 0 unterminated owned block(s). [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/destructure_cfg.cpp:437]
+[2026-09-09 12:09:36.799] [console] [warning] Loop unswitching rejected a module containing structured CFG; run destructure_cfg first. The entire module was left unchanged. [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/loop_unswitch.cpp:691]
+[2026-09-09 12:09:36.800] [console] [warning] Loop rotation rejected structured CFG; run destructure_cfg first. IR was left unchanged. [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/loop_rotation.cpp:279]
+[2026-09-09 12:09:36.800] [console] [warning] Loop rotation rejected a module containing structured CFG; run destructure_cfg first. The entire module was left unchanged. [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/loop_rotation.cpp:317]
+[2026-09-09 12:09:36.800] [console] [warning] If conversion re...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_promote_ref_forwarding" classname="test_xir_pass_promote_ref_forwarding" time="0.438577" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_coro;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (51 asserts in 9 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_aggregate_field_bitmask" classname="test_xir_aggregate_field_bitmask" time="0.442439" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (42 asserts in 8 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_alias_analysis" classname="test_xir_pass_alias_analysis" time="0.434557" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (43 asserts in 16 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_core_analyses" classname="test_xir_pass_core_analyses" time="0.445795" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (105 asserts in 15 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_defer_local_aggregate_load" classname="test_xir_pass_defer_local_aggregate_load" time="0.408316" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_coro;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (61 asserts in 9 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_coro_rematerialize" classname="test_xir_pass_coro_rematerialize" time="0.444788" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_coro;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (163 asserts in 24 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_coro_alloca_scope" classname="test_xir_pass_coro_alloca_scope" time="0.459978" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_coro;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (636 asserts in 68 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_coro_discriminated_prefix" classname="test_xir_pass_coro_discriminated_prefix" time="0.460601" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_coro;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (361 asserts in 26 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_pointer_usage" classname="test_xir_pass_pointer_usage" time="0.445962" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (221 asserts in 12 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_scalar_evolution" classname="test_xir_pass_scalar_evolution" time="0.431724" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (90 asserts in 7 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_integer_alignment" classname="test_xir_integer_alignment" time="0.4402" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (12 asserts in 4 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_unused_callable_removal" classname="test_xir_pass_unused_callable_removal" time="0.42893" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (18 asserts in 6 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_licm" classname="test_xir_pass_licm" time="0.439203" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (51 asserts in 20 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_lower_break_continue" classname="test_xir_pass_lower_break_continue" time="0.441936" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (86 asserts in 16 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_coro_cfg_distill" classname="test_xir_coro_cfg_distill" time="0.457166" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_coro;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (493 asserts in 56 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_coro_cfg_dataflow" classname="test_xir_coro_cfg_dataflow" time="0.432607" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_coro;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (17 asserts in 2 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_coro_materialize" classname="test_xir_coro_materialize" time="0.4174" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_coro;unit_xir"/>
+		</properties>
+		<system-out>[2026-09-09 12:09:44.324] [console] [warning] Coro materialize rejected invalid coro-split metadata. The module was left unchanged. [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/coro_materialize.cpp:776]
+[2026-09-09 12:09:44.324] [console] [warning] Coro materialize rejected 1 function definition(s) with structured or ambiguous CFG; run destructure_cfg first. The module was left unchanged. [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/coro_materialize.cpp:617]
+[2026-09-09 12:09:44.324] [console] [warning] Coro materialize rejected 1 function definition(s) with structured or ambiguous CFG; run destructure_cfg first. The module was left unchanged. [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/coro_materialize.cpp:617]
+[2026-09-09 12:09:44.324] [console] [warning] Coro materialize rejected invalid coro-split metadata. The module was left unchanged. [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/coro_materialize.cpp:776]
+[2026-09-09 12:09:44.325] [console] [warning] Coro...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="test_coro_dead_field" classname="test_coro_dead_field" time="0.497776" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_coro;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (122 asserts in 12 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_coro_frame_size" classname="test_coro_frame_size" time="0.430813" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_coro;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (44 asserts in 4 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_coro_reg2mem" classname="test_xir_coro_reg2mem" time="0.427678" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_coro;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (21 asserts in 6 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_coro_split" classname="test_xir_coro_split" time="0.430542" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_coro;unit_xir"/>
+		</properties>
+		<system-out>[2026-09-09 12:09:46.110] [console] [warning] Coro split rejected an invalid or cross-function distilled CFG. IR was left unchanged. [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/coro_split.cpp:1573]
+[2026-09-09 12:09:46.111] [console] [warning] Coro split rejected invalid coroutine tokens or distilled CFG metadata. IR was left unchanged. [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/coro_split.cpp:1380]
+[2026-09-09 12:09:46.111] [console] [warning] Coro split rejected invalid coroutine tokens or distilled CFG metadata. IR was left unchanged. [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/coro_split.cpp:1380]
+[2026-09-09 12:09:46.111] [console] [warning] Coro split rejected invalid coroutine tokens or distilled CFG metadata. IR was left unchanged. [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/coro_split.cpp:1380]
+[2026-09-09 12:09:46.111] [console] [warning] Coro split rejected invalid coroutine tokens or distilled CFG metadata. IR was left unchanged. [/tmp/luisa-nex...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="test_coro_restructure_validation" classname="test_coro_restructure_validation" time="0.435659" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_coro;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (62 asserts in 10 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_coro_xir2ast" classname="test_xir_coro_xir2ast" time="0.437109" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_coro;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (31 asserts in 6 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_coro_pipeline" classname="test_xir_coro_pipeline" time="0.426013" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_coro;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (180 asserts in 7 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_coro_frame_desc" classname="test_coro_frame_desc" time="0.433908" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_coro;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (61 asserts in 12 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_coro_compile_trigger" classname="test_coro_compile_trigger" time="0.463892" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_coro;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (25 asserts in 10 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_coro_func" classname="test_coro_func" time="0.445912" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_coro;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (27 asserts in 16 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_coro_suspend" classname="test_coro_suspend" time="0.442769" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_coro;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (88 asserts in 11 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_destructure_cfg" classname="test_xir_pass_destructure_cfg" time="0.439308" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[2026-09-09 12:09:49.640] [console] [warning] lower_ray_query_to_loop: rejecting loop: RayQueryDispatchInst requires an lvalue LC_RayQueryAll/LC_RayQueryAny object and non-null handler operands [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/lower_ray_query_to_loop.cpp:174]
+[2026-09-09 12:09:49.641] [console] [warning] lower_ray_query_to_loop: rejecting loop: dispatch or handler-entry PHI requires SSA migration [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/lower_ray_query_to_loop.cpp:174]
+[2026-09-09 12:09:49.641] [console] [warning] lower_ray_query_to_loop: rejecting loop: dispatch or handler-entry PHI requires SSA migration [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/lower_ray_query_to_loop.cpp:174]
+[2026-09-09 12:09:49.641] [console] [warning] lower_ray_query_to_loop: rejecting loop: surface and procedural handler regions overlap [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/lower_ray_query_to_loop.cpp:174]
+[2026-09-09 12:09:49.641] [console] [warning] lower_ray_...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_simplify_cfg" classname="test_xir_pass_simplify_cfg" time="0.424312" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (91 asserts in 22 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_early_cse" classname="test_xir_pass_early_cse" time="0.435053" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (34 asserts in 10 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_lower_ray_query_to_pipeline" classname="test_xir_pass_lower_ray_query_to_pipeline" time="0.464379" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[2026-09-09 12:09:50.932] [console] [warning] lower_ray_query_to_pipeline: rejecting loop: dispatch requires an lvalue LC_RayQueryAll/LC_RayQueryAny object and an exit matching the loop [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/lower_ray_query_to_pipeline.cpp:396]
+[2026-09-09 12:09:50.933] [console] [warning] lower_ray_query_to_pipeline: rejecting loop: candidate handler contains an unterminated block [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/lower_ray_query_to_pipeline.cpp:396]
+[2026-09-09 12:09:50.966] [console] [warning] lower_ray_query_to_pipeline: rejecting loop: surface and procedural candidate handler regions overlap [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/lower_ray_query_to_pipeline.cpp:396]
+[2026-09-09 12:09:50.966] [console] [warning] lower_ray_query_to_pipeline: rejecting loop: ray-query loop merge has a predecessor outside the loop [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/lower_ray_query_to_pipeline.cpp:396]
+[2026-09-09 12:09:50.966] [...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_reconstruct_ray_query_loop" classname="test_xir_pass_reconstruct_ray_query_loop" time="0.436003" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[2026-09-09 12:09:51.398] [console] [warning] reconstruct_ray_query_loop: rejecting ray-like loop: ray-query PROCEED is outside the canonical prepare block [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/reconstruct_ray_query_loop.cpp:832]
+[2026-09-09 12:09:51.398] [console] [warning] reconstruct_ray_query_loop: rejecting ray-like loop: ray-query prepare block is not canonical [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/reconstruct_ray_query_loop.cpp:832]
+[2026-09-09 12:09:51.398] [console] [warning] reconstruct_ray_query_loop: rejecting ray-like loop: ray-query prepare block is not canonical [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/reconstruct_ray_query_loop.cpp:832]
+[2026-09-09 12:09:51.398] [console] [warning] reconstruct_ray_query_loop: rejecting ray-like loop: ray-query prepare branch is not active-body/terminated-merge [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/reconstruct_ray_query_loop.cpp:832]
+[2026-09-09 12:09:51.402] [console] [warning] reconstruc...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_lower_irreducible_cfg" classname="test_xir_pass_lower_irreducible_cfg" time="0.433657" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_coro;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (28 asserts in 2 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_fuse_consecutive_buffer_reads" classname="test_xir_pass_fuse_consecutive_buffer_reads" time="0.427885" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (130 asserts in 22 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_restructure_cfg" classname="test_xir_pass_restructure_cfg" time="0.779651" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[2026-09-09 12:09:52.712] [console] [warning] restructure_cfg incomplete: 0 unstructured branch(es) (0 conditional, 0 indexed), 0 invalid construct(s), 1 exhausted iteration budget(s), 0 irreducible region(s). [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/restructure_cfg.cpp:9471]
+[2026-09-09 12:09:52.713] [console] [warning] restructure_cfg incomplete: 0 unstructured branch(es) (0 conditional, 0 indexed), 0 invalid construct(s), 1 exhausted iteration budget(s), 0 irreducible region(s). [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/restructure_cfg.cpp:9471]
+[2026-09-09 12:09:52.747] [console] [warning] restructure_cfg incomplete: 0 unstructured branch(es) (0 conditional, 0 indexed), 0 invalid construct(s), 1 exhausted iteration budget(s), 0 irreducible region(s). [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/restructure_cfg.cpp:9471]
+[2026-09-09 12:09:53.042] [console] [warning] restructure_cfg input verifier rejected the function: Instruction operands or result type are inval...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_restructure_cfg_entry_boundaries" classname="test_xir_pass_restructure_cfg_entry_boundaries" time="0.432532" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_coro;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (5 asserts in 1 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_restructure_cfg_owned_blocks" classname="test_xir_pass_restructure_cfg_owned_blocks" time="0.429809" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_coro;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (310 asserts in 2 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_restructure_cfg_loop_scopes" classname="test_xir_pass_restructure_cfg_loop_scopes" time="0.476027" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_coro;unit_xir"/>
+		</properties>
+		<system-out>[2026-09-09 12:09:54.382] [console] [warning] restructure_cfg construct-exit progress failed: header 35 again crosses parent 12 after its exit was normalized. Construct ownership is crossing or unstable. [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/restructure_cfg.cpp:8327]
+[2026-09-09 12:09:54.385] [console] [warning] restructure_cfg construct-exit progress failed: header 35 again crosses parent 12 after its exit was normalized. Construct ownership is crossing or unstable. [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/restructure_cfg.cpp:8327]
+[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (409 asserts in 2 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_restructure_cfg_construct_exits" classname="test_xir_pass_restructure_cfg_construct_exits" time="0.450801" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (7 asserts in 1 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_restructure_cfg_selection_relations" classname="test_xir_pass_restructure_cfg_selection_relations" time="0.51127" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (206 asserts in 1 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_convergence_region" classname="test_xir_pass_convergence_region" time="0.430595" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (31 asserts in 8 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_post_dom_tree" classname="test_xir_pass_post_dom_tree" time="0.45051" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (58 asserts in 9 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_autodiff_cfg" classname="test_xir_pass_autodiff_cfg" time="0.432871" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (18 asserts in 3 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_early_return_elimination" classname="test_xir_pass_early_return_elimination" time="0.435625" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (63 asserts in 12 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_indvar_simplify" classname="test_xir_pass_indvar_simplify" time="0.441519" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (82 asserts in 21 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_loop_rotation" classname="test_xir_pass_loop_rotation" time="0.43712" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[2026-09-09 12:09:57.977] [console] [info] restructure: loops=1 ifs=1 irreducible=0 unstructured=0
+[2026-09-09 12:09:57.978] [console] [info] restructured module:
+module;
+
+const %0: u32 = 00000000;// users: %10
+
+const %1: u32 = 01000000;// users: %22
+
+const %2: u32 = 10000000;// users: %23
+
+const %3: bool = 00;// users: %11
+
+kernel %4 () = define %5: {// preds:
+    [name = _phi_1, comment = "alloca to lower phi node", reg2mem_spill = phi]
+    %6: u32 = alloca local;// users: %19 %24 %10 %7
+    %7: void = store %6, %32.undefined;
+    %8: void = br %9;
+}
+%9: {// users: %8, preds: %5
+    %10: void = store %6, %0;
+    %11: void = if %3, then %12: {// users: %11 %29, preds: %9 %28
+        %13: void = br %14;
+    }, else %16: {// users: %11, preds: %9
+        %17: void = simple_loop body %18: {// users: %31 %17, preds: %30 %16
+            %19: u32 = load %6;// users: %22
+            %20: void = br %21;
+        }, merge %28: {// users: %27 %33, preds: %26 %34
+            %29: void = br %12;
+        };
+    }, merge %...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_loop_fusion" classname="test_xir_pass_loop_fusion" time="0.438211" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[2026-09-09 12:09:58.414] [console] [warning] Loop fusion rejected structured CFG; run destructure_cfg first. IR was left unchanged. [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/loop_fusion.cpp:451]
+[2026-09-09 12:09:58.415] [console] [warning] Loop fusion rejected structured CFG; run destructure_cfg first. IR was left unchanged. [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/loop_fusion.cpp:451]
+[2026-09-09 12:09:58.417] [console] [warning] Loop fusion rejected a module containing structured CFG; run destructure_cfg first. The entire module was left unchanged. [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/loop_fusion.cpp:484]
+[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (79 asserts in 19 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_loop_vectorization" classname="test_xir_pass_loop_vectorization" time="0.443612" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[2026-09-09 12:09:58.857] [console] [warning] Loop vectorization rejected structured CFG; run destructure_cfg first. IR was left unchanged. [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/loop_vectorization.cpp:1010]
+[2026-09-09 12:09:58.858] [console] [warning] Loop vectorization rejected structured CFG; run destructure_cfg first. IR was left unchanged. [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/loop_vectorization.cpp:1010]
+[2026-09-09 12:09:58.858] [console] [warning] Loop vectorization rejected structured CFG; run destructure_cfg first. IR was left unchanged. [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/loop_vectorization.cpp:1010]
+[2026-09-09 12:09:58.861] [console] [warning] Loop vectorization rejected a module containing structured CFG; run destructure_cfg first. The entire module was left unchanged. [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/loop_vectorization.cpp:1042]
+[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (148 asserts in 32 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_sccp" classname="test_xir_pass_sccp" time="0.42934" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (41 asserts in 10 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_slp_vectorization" classname="test_xir_pass_slp_vectorization" time="0.446825" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (115 asserts in 8 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_pipeline" classname="test_xir_pass_pipeline" time="0.423723" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (134 asserts in 18 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir_pass_mutation_safety" classname="test_xir_pass_mutation_safety" time="0.436519" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[2026-09-09 12:10:00.597] [console] [warning] restructure_cfg incomplete: 0 unstructured branch(es) (0 conditional, 0 indexed), 0 invalid construct(s), 1 exhausted iteration budget(s), 0 irreducible region(s). [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/restructure_cfg.cpp:9471]
+[2026-09-09 12:10:00.598] [console] [warning] restructure_cfg incomplete: 0 unstructured branch(es) (0 conditional, 0 indexed), 0 invalid construct(s), 1 exhausted iteration budget(s), 0 irreducible region(s). [/tmp/luisa-next-checkpoint.J7yODi/source/src/xir/passes/restructure_cfg.cpp:9471]
+[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (185 asserts in 28 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_xir2ast_roundtrip" classname="test_xir2ast_roundtrip" time="0.453988" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (76 asserts in 8 tests)
+</system-out>
+	</testcase>
+</testsuite>

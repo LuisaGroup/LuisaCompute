@@ -3,6 +3,52 @@
 This record distinguishes executed correctness checks from performance claims.
 See [current status](index.md) for the latest bounded conclusion.
 
+## next integration keeps performance qualification separate
+
+The September 9 merge includes `origin/next` through `8911828eb`, with merge
+commit `360d9791e`. A fresh source export includes the merge and recursively
+pinned submodule commits: 19 repositories and 18,830 fingerprinted base files.
+One subsequent, fingerprinted test-only overlay fixes the Metal fixture's
+argument guard; no compiler, library or Tile source is changed by that fix.
+The original worktree's 11 modified files and all dependency checkouts remain
+unchanged; the isolated build excludes the unfinished matrix experiment.
+The selected SIMD + Metal + TIRx configuration, with LLVM 21.1.8 and Metal4
+disabled, passes a full build, **all 35 Tile CTests**, **79 XIR/SIMD CTests**
+and both selected Metal regressions. The Runtime fusion A/B suite and the LLM
+suite also pass with the recorded packet/pointwise configurations.
+External TVM libraries are reused and fingerprinted, not rebuilt.
+
+The upstream Metal test constructed `string_view(argv[2])` without a third
+argument: Boost.UT's overloaded logical operator defeated the intended
+short-circuit. Splitting the argument guard fixes the test entry; both the
+complete and local-only fixture pass. Earlier Runtime metadata failures came
+from the test supervisor forcing fusion on/off while fixtures explicitly
+test both policies, not from a numerical failure. The corrected invocation
+leaves those policy switches to the fixtures. All failed invocations remain
+in the record. Changed C++ lines pass formatting and the translation unit
+passes syntax checks; seven inherited full-file formatting diagnostics and
+one unused-include warning remain, so this is not a warning-free claim.
+The first strict documentation build also rejects 13 newly merged, unowned
+validation pages. They now have one owner under the existing
+[performance and validation archive](../validation.md), retaining their
+original paths and content rather than weakening the ownership check.
+
+The separate, premerge pointwise experiment completes two fixed 24-case
+native replays. Their 864 timed visits check complete outputs, input
+immutability and guards; an independent audit rereads 144 output snapshots
+and rejects eight in-memory evidence/output mutations. Both attempts observe
+concurrent foreign rendering, including the retry after a quiet preflight.
+**Both complete timing cohorts are excluded** from performance rankings,
+default selection and model calibration. No apparently quiet subset is
+promoted. Five-second process observations do not prove exclusive hardware
+use or a stable clock frequency.
+
+The {download}`integration and exclusion record <../../../../scripts/benchmark/tile_torch/results/m1-max-20260909-next-integration/notes.md>`
+separates the new source/build from the premerge native objects, retains failed
+preparation and raw runs, and explains privacy-minimized coactivity records.
+Correctness and source integration do not establish a new speedup or parity
+result. Pointwise fusion remains opt-in, and its cost prior is not recalibrated.
+
 ## Per-operation reduction policy checkpoint
 
 The September 8 checkpoint passes a **full selected build and all 35 Tile
