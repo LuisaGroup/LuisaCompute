@@ -243,12 +243,16 @@ void Operation::set_operand(size_t index, Value *value) noexcept {
 Value *Operation::add_result(Type type) noexcept {
     auto function = parent_function();
     if (function == nullptr) { return nullptr; }
-    // eastl::unique_ptr's default deleter frees via the EASTL allocator, so the
-    // object must be allocated with luisa::allocate_with_allocator rather than
-    // plain `new` (mismatched free otherwise, e.g. mi_free on a CRT new block).
+    // Match unique_ptr's default deleter: std uses delete; EASTL uses the
+    // project allocator. Keep construction here for private constructor access.
+#ifdef LUISA_USE_SYSTEM_STL
+    auto value = luisa::unique_ptr<Value>{
+        new Value{function->_allocate_value_id(), std::move(type), this, _results.size()}};
+#else
     auto value = luisa::unique_ptr<Value>{
         new (luisa::allocate_with_allocator<Value>()) Value{
             function->_allocate_value_id(), std::move(type), this, _results.size()}};
+#endif
     auto result = value.get();
     _results.emplace_back(std::move(value));
     return result;
@@ -257,8 +261,12 @@ Value *Operation::add_result(Type type) noexcept {
 Region *Operation::add_region(luisa::string_view label) noexcept {
     auto function = parent_function();
     if (function == nullptr) { return nullptr; }
+#ifdef LUISA_USE_SYSTEM_STL
+    auto region = luisa::unique_ptr<Region>{new Region{function, this, label}};
+#else
     auto region = luisa::unique_ptr<Region>{
         new (luisa::allocate_with_allocator<Region>()) Region{function, this, label}};
+#endif
     auto result = region.get();
     _regions.emplace_back(std::move(region));
     return result;
@@ -318,9 +326,14 @@ const Function *Block::parent_function() const noexcept {
 Value *Block::add_argument(Type type, luisa::string_view name) noexcept {
     auto function = parent_function();
     if (function == nullptr) { return nullptr; }
+#ifdef LUISA_USE_SYSTEM_STL
+    auto argument = luisa::unique_ptr<Value>{
+        new Value{function->_allocate_value_id(), std::move(type), this, _arguments.size()}};
+#else
     auto argument = luisa::unique_ptr<Value>{
         new (luisa::allocate_with_allocator<Value>()) Value{
             function->_allocate_value_id(), std::move(type), this, _arguments.size()}};
+#endif
     auto result = argument.get();
     result->set_name(name);
     _arguments.emplace_back(std::move(argument));

@@ -79,9 +79,15 @@ public:
         if (auto iter = _results.find(key); iter != _results.end()) {
             return &static_cast<ResultHolder<Result> *>(iter->second.get())->value;
         }
-                  auto holder = luisa::unique_ptr<ResultBase>{
-              new (luisa::allocate_with_allocator<ResultHolder<Result>>())
-                  ResultHolder<Result>{Analysis::run(*_function)}};
+        // SYSTEM_STL uses std::default_delete, while EASTL frees through the
+        // project allocator. Preserve the concrete holder's alignment in both.
+#ifdef LUISA_USE_SYSTEM_STL
+        auto holder = luisa::unique_ptr<ResultBase>{
+            new ResultHolder<Result>{Analysis::run(*_function)}};
+#else
+        auto holder = luisa::unique_ptr<ResultBase>{
+            luisa::new_with_allocator<ResultHolder<Result>>(Analysis::run(*_function))};
+#endif
         auto result = &static_cast<ResultHolder<Result> *>(holder.get())->value;
         _results.emplace(key, std::move(holder));
         return result;

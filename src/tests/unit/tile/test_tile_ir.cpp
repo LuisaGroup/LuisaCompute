@@ -4,6 +4,7 @@
 // - semantic MMA dimension verification and explicit MemoryState effects
 // - target execution containment and independent resource access capabilities
 // - RTTI-free cached analyses and invalidation
+// - allocator-owned IR lifetimes and over-aligned analysis result destruction
 
 #include "ut/ut.hpp"
 
@@ -46,6 +47,31 @@ struct OperationCountAnalysis {
 };
 
 uint32_t OperationCountAnalysis::runs = 0u;
+
+template<size_t Alignment>
+struct alignas(Alignment) TrackedAnalysisResult {
+    uint32_t *destructions;
+    explicit TrackedAnalysisResult(uint32_t *destructions) noexcept : destructions{destructions} {}
+    TrackedAnalysisResult(TrackedAnalysisResult &&other) noexcept
+        : destructions{std::exchange(other.destructions, nullptr)} {}
+    TrackedAnalysisResult(const TrackedAnalysisResult &) = delete;
+    TrackedAnalysisResult &operator=(const TrackedAnalysisResult &) = delete;
+    TrackedAnalysisResult &operator=(TrackedAnalysisResult &&) = delete;
+    ~TrackedAnalysisResult() noexcept {
+        if (destructions != nullptr) { ++*destructions; }
+    }
+};
+
+template<size_t Alignment>
+struct TrackedAnalysis {
+    using Result = TrackedAnalysisResult<Alignment>;
+    inline static uint32_t runs = 0u;
+    inline static uint32_t destructions = 0u;
+    [[nodiscard]] static Result run(const Function &) noexcept {
+        ++runs;
+        return Result{&destructions};
+    }
+};
 
 struct GemmTypes {
     Dim m;
@@ -96,6 +122,77 @@ void test_opaque_type_with_windows_macro() {
     expect(type != Type::opaque("test.other_resource"));
     expect(type != Type::index());
     expect(!Type::opaque("").is_valid());
+}
+
+void test_allocator_owned_ir_lifetimes() {
+    // ASan alloc_dealloc_mismatch=1 diagnoses a default-delete owner even on
+    // hosts where malloc/new share an implementation. Windows allocators need
+    // the exact pairing independently of whether a sanitizer is enabled.
+    for (auto i = 0u; i < 32u; i++) {
+        Module module;
+        auto function = module.create_function("allocator_lifetimes");
+        auto root = function->body().append_block();
+        auto argument = root->add_argument(Type::index(), "index");
+        expect(argument != nullptr);
+        IRBuilder builder{root};
+        auto constant = make_constant(builder, Type::scalar(ScalarType::INT32));
+        auto container = builder.create(OperationKind::CUSTOM, {}, {}, "test.container");
+        auto region = container->add_region("nested");
+        expect(region != nullptr);
+        auto nested = region->append_block();
+        expect(nested->add_argument(Type::index()) != nullptr);
+        builder.set_insertion_block(nested);
+        expect(make_constant(builder, Type::scalar(ScalarType::FLOAT32))->result(0u) != nullptr);
+        // Exercise early reclamation as well as whole-module destruction.
+        expect(root->erase(container));
+        expect(root->erase(constant));
+    }
+}
+
+template<size_t Alignment>
+void test_analysis_result_lifetimes() {
+    using Analysis = TrackedAnalysis<Alignment>;
+    Analysis::runs = 0u;
+    Analysis::destructions = 0u;
+    Module module;
+    auto first = module.create_function("first");
+    auto second = module.create_function("second");
+    {
+        AnalysisManager analyses;
+        expect(analyses.get<Analysis>() == nullptr);
+        expect(eq(Analysis::runs, 0u));
+        auto get = [&] {
+            auto result = analyses.get<Analysis>();
+            expect(result != nullptr);
+            expect(eq(reinterpret_cast<uintptr_t>(result) % Alignment, uintptr_t{0u}));
+            return result;
+        };
+        analyses.bind(first);
+        auto cached = get();
+        expect(get() == cached);
+        expect(eq(Analysis::runs, 1u));
+        expect(eq(Analysis::destructions, 0u));
+        analyses.invalidate<Analysis>();
+        analyses.invalidate<Analysis>();
+        expect(eq(Analysis::destructions, 1u));
+        static_cast<void>(get());
+        analyses.invalidate_all();
+        expect(eq(Analysis::destructions, 2u));
+        cached = get();
+        analyses.bind(first);
+        expect(get() == cached);
+        expect(eq(Analysis::runs, 3u));
+        analyses.bind(second);
+        expect(eq(Analysis::destructions, 3u));
+        static_cast<void>(get());
+        analyses.bind(nullptr);
+        expect(eq(Analysis::destructions, 4u));
+        expect(analyses.get<Analysis>() == nullptr);
+        analyses.bind(first);
+        static_cast<void>(get());
+    }
+    expect(eq(Analysis::runs, 5u));
+    expect(eq(Analysis::destructions, 5u));
 }
 
 void test_valid_structured_mma() {
@@ -351,6 +448,9 @@ void test_intrusive_instruction_mutation() {
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     "tile_ir_opaque_type_with_windows_macro"_test = test_opaque_type_with_windows_macro;
+    "tile_ir_allocator_owned_lifetimes"_test = test_allocator_owned_ir_lifetimes;
+    "tile_ir_analysis_result_lifetimes"_test = test_analysis_result_lifetimes<alignof(void *)>;
+    "tile_ir_overaligned_analysis_result_lifetimes"_test = test_analysis_result_lifetimes<128u>;
     "tile_ir_valid_structured_mma"_test = test_valid_structured_mma;
     "tile_ir_pipeline_and_memory"_test = test_pipeline_regions_and_memory_effects;
     "tile_ir_execution_scope_partial_order"_test = test_execution_scope_partial_order;
