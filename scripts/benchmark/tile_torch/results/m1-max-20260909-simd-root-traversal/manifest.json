@@ -1,0 +1,646 @@
+{
+  "schema": "luisa-simd-root-traversal-evidence-v1",
+  "base_commit": "b6b10e6039d2edc1eb85672055af315ec455c5df",
+  "roles": {
+    "baseline": "4096 cubed FP32 GEMM, original pipeline source; completed whole-process diagnostic",
+    "baseline-full": "4096 cubed FP32 GEMM, full-packet specialization enabled (not full-K)",
+    "m8n1": "4096 cubed FP32 GEMM, changed source tile shape",
+    "m8n1-full": "4096 cubed FP32 GEMM, changed source tile shape and full-packet specialization",
+    "m8n1-w4-full": "4096 cubed FP32 GEMM, W4 and full-packet specialization",
+    "root32-rect": "rectangular FP32 GEMM, opt-in root traversal mapping",
+    "root32-4096": "4096 cubed FP32 GEMM, opt-in root traversal mapping",
+    "run/root-v1/source": "measured root traversal implementation snapshot",
+    "run/final-source": "later implementation/test source snapshot; not a rerun of all seven diagnostics"
+  },
+  "limitations": [
+    "All timings are single-sample synchronized Runtime E2E diagnostics, not native-entry or pure-kernel measurements.",
+    "The seven cases are not randomized ABBA pairs or a statistically qualified benchmark matrix.",
+    "All seven sources use k_tile_pipeline; some cases change tile shape, full-packet specialization or SIMD width. Do not attribute every difference to root mapping.",
+    "Root temporal cache cost is unmodeled; the mapping option is not an automatically calibrated solver choice.",
+    "The original archived 4096-cubed SIMD matrix Error remains unchanged; these are separate completed diagnostic attempts.",
+    "No new legacy Tile, Torch, MPS or BLAS timing comparison is established.",
+    "Archive-time hashes are integrity receipts, not retroactive pre-run binary freeze evidence.",
+    "Passing archive verification is not a numerical or semantic validation by itself."
+  ],
+  "logical_file_count": 79,
+  "logical_bytes": 2043205157,
+  "bundles": [
+    {
+      "path": "evidence-00.tar.gz",
+      "size": 4692738,
+      "sha256": "4b42995c7789ad97fe6ac6d1c584fc79780c04497f77f53a449299cb4e40676c",
+      "members": [
+        {
+          "path": "run/baseline.expected.f64",
+          "size": 134217728,
+          "sha256": "ec23918fb3a1942ec9aae14958cca87ba867972873764a60bb7aaff7a9162dd8",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/baseline.expected.f64"
+        },
+        {
+          "path": "run/baseline.input0.f32",
+          "size": 67108864,
+          "sha256": "c7ab2a9308ef6f39ac28afdeb51c74486981067ee11d1fa93aa9f2dcbd8696b5",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/baseline.input0.f32"
+        },
+        {
+          "path": "run/baseline.input1.f32",
+          "size": 67108864,
+          "sha256": "a42e193c1ebad4d26626b22dbfdd2045940de64eb2129e2cd173751a5d2e0dc5",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/baseline.input1.f32"
+        },
+        {
+          "path": "run/baseline.log",
+          "size": 2095,
+          "sha256": "08467fd7157021f72bd6d4f5d59aa86cfef395f3aa048c13adcb0149f0a68a3e",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/baseline.log"
+        },
+        {
+          "path": "run/baseline.output.f32",
+          "size": 67108864,
+          "sha256": "a50e202d02cf3ecba388306cc54306cee86c85ac1f15dd9c0028d6ac0e369879",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/baseline.output.f32"
+        },
+        {
+          "path": "run/baseline.sample.txt",
+          "size": 164317,
+          "sha256": "ae04c4ddadde20cc98c7d467852c0f1752f622bdfb116953820b4b5db96fe12f",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/baseline.sample.txt"
+        },
+        {
+          "path": "run/baseline.source.txt",
+          "size": 29183,
+          "sha256": "06cfbd9fcbe23aa6578ad8f158c4adb2707bba19ab54a176b1192b5f735daeea",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/baseline.source.txt"
+        }
+      ],
+      "group": "baseline"
+    },
+    {
+      "path": "evidence-01.tar.gz",
+      "size": 4664362,
+      "sha256": "525246a23e15a066d5d8123e31dacbbebe05244ba17c8810017f9f3c8cdd72de",
+      "members": [
+        {
+          "path": "run/baseline-full.expected.f64",
+          "size": 134217728,
+          "sha256": "ec23918fb3a1942ec9aae14958cca87ba867972873764a60bb7aaff7a9162dd8",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/baseline-full.expected.f64"
+        },
+        {
+          "path": "run/baseline-full.input0.f32",
+          "size": 67108864,
+          "sha256": "c7ab2a9308ef6f39ac28afdeb51c74486981067ee11d1fa93aa9f2dcbd8696b5",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/baseline-full.input0.f32"
+        },
+        {
+          "path": "run/baseline-full.input1.f32",
+          "size": 67108864,
+          "sha256": "a42e193c1ebad4d26626b22dbfdd2045940de64eb2129e2cd173751a5d2e0dc5",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/baseline-full.input1.f32"
+        },
+        {
+          "path": "run/baseline-full.log",
+          "size": 2094,
+          "sha256": "a5cfa47e50deb81935272238fc02599bb08155be3b1036f01ae78e76d9bb4c05",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/baseline-full.log"
+        },
+        {
+          "path": "run/baseline-full.output.f32",
+          "size": 67108864,
+          "sha256": "a50e202d02cf3ecba388306cc54306cee86c85ac1f15dd9c0028d6ac0e369879",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/baseline-full.output.f32"
+        },
+        {
+          "path": "run/baseline-full.source.txt",
+          "size": 49038,
+          "sha256": "cc222c3f4bda367a9eed0e42557d8059985c93dbd07208dbf4647795ceedb5ea",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/baseline-full.source.txt"
+        }
+      ],
+      "group": "baseline-full"
+    },
+    {
+      "path": "evidence-02.tar.gz",
+      "size": 4667056,
+      "sha256": "961f0b328687a15cad2ce1653299db74dca446f2a1ba167acc2718f0a81ade1d",
+      "members": [
+        {
+          "path": "run/m8n1.expected.f64",
+          "size": 134217728,
+          "sha256": "ec23918fb3a1942ec9aae14958cca87ba867972873764a60bb7aaff7a9162dd8",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/m8n1.expected.f64"
+        },
+        {
+          "path": "run/m8n1.input0.f32",
+          "size": 67108864,
+          "sha256": "c7ab2a9308ef6f39ac28afdeb51c74486981067ee11d1fa93aa9f2dcbd8696b5",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/m8n1.input0.f32"
+        },
+        {
+          "path": "run/m8n1.input1.f32",
+          "size": 67108864,
+          "sha256": "a42e193c1ebad4d26626b22dbfdd2045940de64eb2129e2cd173751a5d2e0dc5",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/m8n1.input1.f32"
+        },
+        {
+          "path": "run/m8n1.log",
+          "size": 2085,
+          "sha256": "03ed8ee22a38005ab08be3267bf6861601fc4a28970c22e7c081ee90f613a08b",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/m8n1.log"
+        },
+        {
+          "path": "run/m8n1.output.f32",
+          "size": 67108864,
+          "sha256": "a50e202d02cf3ecba388306cc54306cee86c85ac1f15dd9c0028d6ac0e369879",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/m8n1.output.f32"
+        },
+        {
+          "path": "run/m8n1.source.txt",
+          "size": 49952,
+          "sha256": "fa4a968e93856ba0e997b9325896ec1292426e9d1b692969b68cb03dbfaae4c8",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/m8n1.source.txt"
+        }
+      ],
+      "group": "m8n1"
+    },
+    {
+      "path": "evidence-03.tar.gz",
+      "size": 4672906,
+      "sha256": "54e21f6c24a99e9dc6b3435aebbb606f151110f5f7fd9378855b6d8844140212",
+      "members": [
+        {
+          "path": "run/m8n1-full.expected.f64",
+          "size": 134217728,
+          "sha256": "ec23918fb3a1942ec9aae14958cca87ba867972873764a60bb7aaff7a9162dd8",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/m8n1-full.expected.f64"
+        },
+        {
+          "path": "run/m8n1-full.input0.f32",
+          "size": 67108864,
+          "sha256": "c7ab2a9308ef6f39ac28afdeb51c74486981067ee11d1fa93aa9f2dcbd8696b5",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/m8n1-full.input0.f32"
+        },
+        {
+          "path": "run/m8n1-full.input1.f32",
+          "size": 67108864,
+          "sha256": "a42e193c1ebad4d26626b22dbfdd2045940de64eb2129e2cd173751a5d2e0dc5",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/m8n1-full.input1.f32"
+        },
+        {
+          "path": "run/m8n1-full.log",
+          "size": 2093,
+          "sha256": "f3dbaa77d80c26af713ff31eb0d44bdb953f9974e9eb20b69b895ab6959be004",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/m8n1-full.log"
+        },
+        {
+          "path": "run/m8n1-full.output.f32",
+          "size": 67108864,
+          "sha256": "a50e202d02cf3ecba388306cc54306cee86c85ac1f15dd9c0028d6ac0e369879",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/m8n1-full.output.f32"
+        },
+        {
+          "path": "run/m8n1-full.source.txt",
+          "size": 90534,
+          "sha256": "cad86fae7ed3ec0f08e1d19e233a58efd6ee01154e485b8a2c3b381949829e5f",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/m8n1-full.source.txt"
+        }
+      ],
+      "group": "m8n1-full"
+    },
+    {
+      "path": "evidence-04.tar.gz",
+      "size": 4672885,
+      "sha256": "189d83860ab360553c89cbd2ef3b47651d313c783893637483c6248963044254",
+      "members": [
+        {
+          "path": "run/m8n1-w4-full.expected.f64",
+          "size": 134217728,
+          "sha256": "ec23918fb3a1942ec9aae14958cca87ba867972873764a60bb7aaff7a9162dd8",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/m8n1-w4-full.expected.f64"
+        },
+        {
+          "path": "run/m8n1-w4-full.input0.f32",
+          "size": 67108864,
+          "sha256": "c7ab2a9308ef6f39ac28afdeb51c74486981067ee11d1fa93aa9f2dcbd8696b5",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/m8n1-w4-full.input0.f32"
+        },
+        {
+          "path": "run/m8n1-w4-full.input1.f32",
+          "size": 67108864,
+          "sha256": "a42e193c1ebad4d26626b22dbfdd2045940de64eb2129e2cd173751a5d2e0dc5",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/m8n1-w4-full.input1.f32"
+        },
+        {
+          "path": "run/m8n1-w4-full.log",
+          "size": 2091,
+          "sha256": "bbb949f00ce1908f9bf33896956760309482baa45fa5bf6809a56583616f5fcf",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/m8n1-w4-full.log"
+        },
+        {
+          "path": "run/m8n1-w4-full.output.f32",
+          "size": 67108864,
+          "sha256": "a50e202d02cf3ecba388306cc54306cee86c85ac1f15dd9c0028d6ac0e369879",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/m8n1-w4-full.output.f32"
+        },
+        {
+          "path": "run/m8n1-w4-full.source.txt",
+          "size": 90422,
+          "sha256": "f7392a4acc0e81d8b265b8f6a75c109a4b1bca6a578aa073ac1c23491c32f504",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/m8n1-w4-full.source.txt"
+        }
+      ],
+      "group": "m8n1-w4-full"
+    },
+    {
+      "path": "evidence-05.tar.gz",
+      "size": 754552,
+      "sha256": "a440fb8f0497da837ec3c308c94b455e52919688e5db735362de00b0f00311f8",
+      "members": [
+        {
+          "path": "run/root32-rect.expected.f64",
+          "size": 16777216,
+          "sha256": "cc44a16b6faf467b75123812ecb4e8d602fb864da660767dc71e9043b41f6917",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/root32-rect.expected.f64"
+        },
+        {
+          "path": "run/root32-rect.input0.f32",
+          "size": 1048576,
+          "sha256": "6b77c4dcfe034e0a38ffe68099fb24491bd306280b9e859891ecad78316ea5d4",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/root32-rect.input0.f32"
+        },
+        {
+          "path": "run/root32-rect.input1.f32",
+          "size": 2097152,
+          "sha256": "4f20abe0df7053c610fb076fbd041b9e70904e1fa39d0cb2cf0e3e4c93c56329",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/root32-rect.input1.f32"
+        },
+        {
+          "path": "run/root32-rect.log",
+          "size": 2134,
+          "sha256": "ac11c3d37de9c7635d6729a71cd100476271ca299ade1b38521463ed40acc788",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/root32-rect.log"
+        },
+        {
+          "path": "run/root32-rect.output.f32",
+          "size": 8388608,
+          "sha256": "4fac7526d84d32a98e13fad20b9568f2aeadcc8c5054fb53085189ffe646131b",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/root32-rect.output.f32"
+        },
+        {
+          "path": "run/root32-rect.source.txt",
+          "size": 30086,
+          "sha256": "081a90d71634f84cf1f48cf592e575fa8e0c8c357f86e918304cd11162b4bafd",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/root32-rect.source.txt"
+        }
+      ],
+      "group": "root32-rect"
+    },
+    {
+      "path": "evidence-06.tar.gz",
+      "size": 4664236,
+      "sha256": "4d571eaad3a8dd508b602d8888c01afca0771386cba476aba57801d84406093a",
+      "members": [
+        {
+          "path": "run/root32-4096.expected.f64",
+          "size": 134217728,
+          "sha256": "ec23918fb3a1942ec9aae14958cca87ba867972873764a60bb7aaff7a9162dd8",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/root32-4096.expected.f64"
+        },
+        {
+          "path": "run/root32-4096.input0.f32",
+          "size": 67108864,
+          "sha256": "c7ab2a9308ef6f39ac28afdeb51c74486981067ee11d1fa93aa9f2dcbd8696b5",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/root32-4096.input0.f32"
+        },
+        {
+          "path": "run/root32-4096.input1.f32",
+          "size": 67108864,
+          "sha256": "a42e193c1ebad4d26626b22dbfdd2045940de64eb2129e2cd173751a5d2e0dc5",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/root32-4096.input1.f32"
+        },
+        {
+          "path": "run/root32-4096.log",
+          "size": 2160,
+          "sha256": "e5fb83348b8c96769ad6fe1079331e344175524b5dc024b49d2d20ac62748dd1",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/root32-4096.log"
+        },
+        {
+          "path": "run/root32-4096.output.f32",
+          "size": 67108864,
+          "sha256": "a50e202d02cf3ecba388306cc54306cee86c85ac1f15dd9c0028d6ac0e369879",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/root32-4096.output.f32"
+        },
+        {
+          "path": "run/root32-4096.source.txt",
+          "size": 30090,
+          "sha256": "0a6ee0b587d59aeb778f971d2eef9e0be63ba59303ec9d1da37e89cf120f5815",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/root32-4096.source.txt"
+        }
+      ],
+      "group": "root32-4096"
+    },
+    {
+      "path": "evidence-07.tar.gz",
+      "size": 708726,
+      "sha256": "bd3fc02b6e82bfd16bd3a40f6f74757fc4d3159bf962d25ba492d0953044f645",
+      "members": [
+        {
+          "path": "run/build-root-v1.log",
+          "size": 2950,
+          "sha256": "5ef7c7391843c46d314b96ed65c0e2da643432d2546faac088f35314410fd7e4",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/build-root-v1.log"
+        },
+        {
+          "path": "run/build-root-v2.log",
+          "size": 1055,
+          "sha256": "a653d4f0f261b04ca713d44000689a0d0f6d3a23e3c05e5d85704d1bd9fc9a47",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/build-root-v2.log"
+        },
+        {
+          "path": "run/docs-build.log",
+          "size": 27023,
+          "sha256": "aae19adc24847aba52836281767db85060c495c39a3acaf532b89617bd0b8287",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/docs-build.log"
+        },
+        {
+          "path": "run/docs-qa.log",
+          "size": 66,
+          "sha256": "c80ba36860e102f673f0b8b21482d564db80507a5d48a6e223dd42a696bf893e",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/docs-qa.log"
+        },
+        {
+          "path": "run/docs-qa/gemm-1280-table.png",
+          "size": 227912,
+          "sha256": "1592758722c9d13f2f795de33b376c280ee4775967895162f7ac0b83e8f6f73b",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/docs-qa/gemm-1280-table.png"
+        },
+        {
+          "path": "run/docs-qa/gemm-1280.png",
+          "size": 227912,
+          "sha256": "1592758722c9d13f2f795de33b376c280ee4775967895162f7ac0b83e8f6f73b",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/docs-qa/gemm-1280.png"
+        },
+        {
+          "path": "run/docs-qa/gemm-390-table.png",
+          "size": 80109,
+          "sha256": "10bfb480b8257f07f454518266d2bf9f08fc03c4c455de6daa565dc84bb90b03",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/docs-qa/gemm-390-table.png"
+        },
+        {
+          "path": "run/docs-qa/gemm-390.png",
+          "size": 94361,
+          "sha256": "6752e4b65437fc999311f6f73c831b00dfcdc25c20c441453950c289847146ea",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/docs-qa/gemm-390.png"
+        },
+        {
+          "path": "run/docs-qa/receipt.json",
+          "size": 6891,
+          "sha256": "fb3ddfa42a8afa71e77d3270be1646f6f05c198883dd71ea17dd84c4f53e7e3e",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/docs-qa/receipt.json"
+        },
+        {
+          "path": "run/evidence-qa/archive-fixture.log",
+          "size": 2263,
+          "sha256": "41fa678088b6d704ad89ade848ad33c645f75c98efcd4de329b83babc4896827",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/evidence-qa/archive-fixture.log"
+        },
+        {
+          "path": "run/evidence-qa/archive-fixture.py",
+          "size": 4023,
+          "sha256": "a88385970501142e8f382fa1a9004c6fdd8db72ed61eef367ccd8a42748a926d",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/evidence-qa/archive-fixture.py"
+        },
+        {
+          "path": "run/final-source/include/luisa/tile/bridge/xir/lower.h",
+          "size": 4798,
+          "sha256": "8e2c15b7efdd709e16f46c7d47608071a35172c0491b66926da62c56a4397363",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/final-source/include/luisa/tile/bridge/xir/lower.h"
+        },
+        {
+          "path": "run/final-source/include/luisa/tile/bridge/xir/planner.h",
+          "size": 5920,
+          "sha256": "b4f7c5cf89c84a34c3e9cf531e5d898079361a79ef2212d46cc789343abe2c79",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/final-source/include/luisa/tile/bridge/xir/planner.h"
+        },
+        {
+          "path": "run/final-source/src/backends/simd/runtime/simd_tile.cpp",
+          "size": 14014,
+          "sha256": "45a0733c5ec3aaf761aede968650a4c9cf2208ed752c1f8cffe9c3b2aa2db997",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/final-source/src/backends/simd/runtime/simd_tile.cpp"
+        },
+        {
+          "path": "run/final-source/src/tests/unit/tile/bridge/test_xir.cpp",
+          "size": 51637,
+          "sha256": "c647c51ce3582bd351c24f03b38b148f43c2244e20a0b92e5d7d62f99c5c0c6b",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/final-source/src/tests/unit/tile/bridge/test_xir.cpp"
+        },
+        {
+          "path": "run/final-source/src/tests/unit/tile/bridge/test_xir_runtime.cpp",
+          "size": 68468,
+          "sha256": "6058c4308b7fa51b060a094ca38ea0cd8e76dc84fa9b44e075d773a8285cd42d",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/final-source/src/tests/unit/tile/bridge/test_xir_runtime.cpp"
+        },
+        {
+          "path": "run/final-source/src/tile/HANDOFF_2026-09-09.zh.md",
+          "size": 3660,
+          "sha256": "230150bbb65dbe5a3dc8b4e61538b373f4cd45f7e15e335b995b590ff35dcce9",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/final-source/src/tile/HANDOFF_2026-09-09.zh.md"
+        },
+        {
+          "path": "run/final-source/src/tile/ROOT_MAPPING_COST_NOTES.zh.md",
+          "size": 20122,
+          "sha256": "3123aa9fa211fb4afd86270ad635bbd33da872a8b8a94f0df1c231af69291fe3",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/final-source/src/tile/ROOT_MAPPING_COST_NOTES.zh.md"
+        },
+        {
+          "path": "run/final-source/src/tile/bridge/xir/lower.cpp",
+          "size": 72408,
+          "sha256": "503cd76e7bddbcf3f217633fbf8c8389bd875ec61febe869508d9b811decdf5f",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/final-source/src/tile/bridge/xir/lower.cpp"
+        },
+        {
+          "path": "run/final-source/src/tile/bridge/xir/planner.cpp",
+          "size": 25848,
+          "sha256": "4eb7fb82dda7bfdc5eaa3ab34f900c85736221637aa26d9dc478b4aebfb94aa3",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/final-source/src/tile/bridge/xir/planner.cpp"
+        },
+        {
+          "path": "run/final-source/src/tile/bridge/xir/root_mapping.h",
+          "size": 4069,
+          "sha256": "357b9d7eedb5fd40b6c985f8eccfe70d197961aeb7b47d2a961a7622722751b2",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/final-source/src/tile/bridge/xir/root_mapping.h"
+        },
+        {
+          "path": "run/qa-docs.cjs",
+          "size": 2786,
+          "sha256": "0a1d8bab3a85af027db8d7ea0284ee87fabd56c4e69928b956544e2e9fcb196f",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/qa-docs.cjs"
+        },
+        {
+          "path": "run/root-v1/source/include/luisa/tile/bridge/xir/lower.h",
+          "size": 4798,
+          "sha256": "8e2c15b7efdd709e16f46c7d47608071a35172c0491b66926da62c56a4397363",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/root-v1/source/include/luisa/tile/bridge/xir/lower.h"
+        },
+        {
+          "path": "run/root-v1/source/include/luisa/tile/bridge/xir/planner.h",
+          "size": 5920,
+          "sha256": "b4f7c5cf89c84a34c3e9cf531e5d898079361a79ef2212d46cc789343abe2c79",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/root-v1/source/include/luisa/tile/bridge/xir/planner.h"
+        },
+        {
+          "path": "run/root-v1/source/src/backends/simd/runtime/simd_tile.cpp",
+          "size": 14014,
+          "sha256": "45a0733c5ec3aaf761aede968650a4c9cf2208ed752c1f8cffe9c3b2aa2db997",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/root-v1/source/src/backends/simd/runtime/simd_tile.cpp"
+        },
+        {
+          "path": "run/root-v1/source/src/tile/bridge/xir/lower.cpp",
+          "size": 72408,
+          "sha256": "503cd76e7bddbcf3f217633fbf8c8389bd875ec61febe869508d9b811decdf5f",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/root-v1/source/src/tile/bridge/xir/lower.cpp"
+        },
+        {
+          "path": "run/root-v1/source/src/tile/bridge/xir/planner.cpp",
+          "size": 25848,
+          "sha256": "4eb7fb82dda7bfdc5eaa3ab34f900c85736221637aa26d9dc478b4aebfb94aa3",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/root-v1/source/src/tile/bridge/xir/planner.cpp"
+        },
+        {
+          "path": "run/root-v1/source/src/tile/bridge/xir/root_mapping.h",
+          "size": 4069,
+          "sha256": "357b9d7eedb5fd40b6c985f8eccfe70d197961aeb7b47d2a961a7622722751b2",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/root-v1/source/src/tile/bridge/xir/root_mapping.h"
+        },
+        {
+          "path": "run/syntax-final-0.log",
+          "size": 22,
+          "sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/syntax-final-0.log"
+        },
+        {
+          "path": "run/syntax-final-1.log",
+          "size": 22,
+          "sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/syntax-final-1.log"
+        },
+        {
+          "path": "run/syntax-final-2.log",
+          "size": 22,
+          "sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/syntax-final-2.log"
+        },
+        {
+          "path": "run/syntax-final-3.log",
+          "size": 22,
+          "sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/syntax-final-3.log"
+        },
+        {
+          "path": "run/syntax-final-4.log",
+          "size": 22,
+          "sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/syntax-final-4.log"
+        },
+        {
+          "path": "run/tests-root-v1-existing.log",
+          "size": 370,
+          "sha256": "b498fc3e988bfef9a3f04aac6089fbb4d6aa4300e691c913451f7b202a53064c",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/tests-root-v1-existing.log"
+        },
+        {
+          "path": "run/tests-root-v2.log",
+          "size": 755,
+          "sha256": "87a7a74e1ff74b7a9c29db6642611b87b3de7aeec440c424412c9865d7d6f1f1",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/tests-root-v2.log"
+        },
+        {
+          "path": "run/tests-root-v2.xml",
+          "size": 2724,
+          "sha256": "7c3ed9a1408556748fb05212b3b263a2c4c29691a158b70ac295d39e4c7e9817",
+          "mode": 420,
+          "original_path": "/private/tmp/luisa-simd-gemm.dx2oxi/tests-root-v2.xml"
+        }
+      ],
+      "group": "source-and-receipts"
+    }
+  ]
+}

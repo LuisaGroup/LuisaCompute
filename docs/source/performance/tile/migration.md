@@ -456,6 +456,62 @@ entries, not cooperative kernels, aliased buffers or arbitrary scalar/resource
 arguments. The helper's validation-only tests cover both entry ABIs, XYZ tails,
 multiple buffers, complete-output errors, immutable inputs and guards.
 
+## SIMD GEMM diagnosis and root traversal checkpoint
+
+The current 4096³ SIMD Error is **not yet fixed in the default matrix route**.
+An extended diagnostic establishes that compilation took about 34 ms and the
+complete numerical/guard checks pass, but the original 2×2×4 kernel takes
+about 13 seconds per execution. Four fixed warmup calls alone took about
+53 seconds. The stack sample places workers in generated kernel code, not
+compilation. It does not identify cache/TLB counters or prove a specific
+memory bottleneck.
+
+The XIR bridge now accepts a fixed, opt-in `root_axis_tiles` constraint, also
+exposed as `LUISA_SIMD_ROOT_AXIS_TILES=32,32`. It normalizes a mixed-radix
+root traversal, checks a static divisor/permutation/volume contract, and leaves
+the source program's inner serial/pipeline/fold/MMA order unchanged. Equivalent
+identity factorizations retain exact XIR/LLVM. The planner accounts for the
+actual fastest digit and conservative cross-digit gathers, but **does not
+search root factors or award temporal-cache credit**.
+
+The following are separate single-sample, eight-worker Runtime host-wall
+diagnostics, not ABBA, pure-entry timing or a replacement for the original
+60-second-budget matrix. All use strict FP32; all 16,777,216 outputs and guards
+are checked twice, with zero error on the structured inputs.
+
+| 4096³ source microblock / realization | Packet width | Throughput sample, seconds |
+|---|---:|---:|
+| 2×2×4, original traversal | 8 | 13.111 |
+| 2×2×4, full-packet specialization | 8 | 10.171 |
+| 2×2×4, fixed root tiles 32×32 | 8 | 8.753 |
+| Hand-staged 8×1×4 | 8 | 4.656 |
+| Hand-staged 8×1×4, full-packet specialization | 8 | 2.570 |
+| Hand-staged 8×1×4, full-packet specialization | 4 | 3.478 |
+
+Root blocking improves this probe but its whole process still takes 70.38 s;
+it does not close the timeout issue. The 8×1×4 probes also change per-program
+register/load structure, so their gains cannot be attributed to root traversal
+or automatic planner selection. A separate 1024×2048×256 root-blocked probe
+passes with a 17.782 ms throughput sample; this is not a regression qualification
+across sizes or operators.
+
+The complete configured build, three XIR/Runtime/LLM CTests and five changed-C++
+syntax checks pass. New tests check the emitted address sequence and bijection,
+identity code, invalid factors, noncommutative recurrences and ragged local-lane
+reduction. The final source overlay and all seven diagnostic captures are in
+`scripts/benchmark/tile_torch/results/m1-max-20260909-simd-root-traversal/`.
+No pre-run full binary inventory or captured ORC object was recorded for these
+GEMM probes; retained source/output evidence must not be overstated as binary
+provenance. The original Error remains unchanged.
+
+The next work is a generic per-resource access/reuse analysis plus measured
+issue/cache/TLB costs, followed by multi-size pure-entry and Runtime replay.
+The Chinese implementation proposal and overnight handoff are
+{download}`root-mapping cost notes <../../../../src/tile/ROOT_MAPPING_COST_NOTES.zh.md>`
+and {download}`September 9 handoff <../../../../src/tile/HANDOFF_2026-09-09.zh.md>`.
+CUDA lowering is the overnight priority; SIMD optimization pauses at this
+checkpoint, without claiming the overall Torch/MPS/BLAS performance goal.
+
 ## Failures retained and what they teach
 
 1. **Numerical boundaries matter under fusion.** The first BF16 round-trip

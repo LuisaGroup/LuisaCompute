@@ -42,6 +42,11 @@ struct LowerOptions {
     // one execution region. Captures immutable SSA representations, never
     // delayed memory loads. Experimental complete-program-lane realization.
     bool enable_map_fusion{false};
+    // Fixed root traversal factors, indexed by original domain axis. Empty
+    // preserves lexicographic traversal; otherwise each positive factor must
+    // divide its static extent. Enumerate outer digits, then inner digits, in
+    // root_axis_order. Does not reorder any work inside a logical program.
+    luisa::vector<uint32_t> root_axis_tiles;
 };
 
 struct NativeFunction {

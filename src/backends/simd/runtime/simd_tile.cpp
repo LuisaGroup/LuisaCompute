@@ -1,4 +1,8 @@
+#include <charconv>
+#include <cstdlib>
 #include <exception>
+#include <stdexcept>
+#include <string_view>
 
 #include <luisa/core/stl/format.h>
 #include <luisa/tile/analysis.h>
@@ -16,6 +20,35 @@
 #include "../../common/env_flag.h"
 
 namespace luisa::compute::simd {
+
+namespace {
+
+// Diagnostic fixed constraint, not a search heuristic. Do not silently repair
+// malformed metadata or override a conflicting explicit Runtime constraint.
+void root_axis_tiles_from_environment(tile::bridge::xir::PlannerOptions &options) {
+    auto text = std::getenv("LUISA_SIMD_ROOT_AXIS_TILES");
+    if (text == nullptr) { return; }
+    auto remaining = std::string_view{text};
+    luisa::vector<uint32_t> tiles;
+    while (true) {
+        auto delimiter = remaining.find(',');
+        auto token = remaining.substr(0u, delimiter);
+        auto tile = uint32_t{0u};
+        auto parsed = std::from_chars(token.data(), token.data() + token.size(), tile);
+        if (token.empty() || parsed.ec != std::errc{} || parsed.ptr != token.data() + token.size() || tile == 0u) {
+            throw std::invalid_argument{"LUISA_SIMD_ROOT_AXIS_TILES requires comma-separated positive uint32 factors"};
+        }
+        tiles.emplace_back(tile);
+        if (delimiter == std::string_view::npos) { break; }
+        remaining.remove_prefix(delimiter + 1u);
+    }
+    if (!options.root_axis_tiles.empty() && options.root_axis_tiles != tiles) {
+        throw std::invalid_argument{"Conflicting XIR and LUISA_SIMD_ROOT_AXIS_TILES constraints"};
+    }
+    options.root_axis_tiles = std::move(tiles);
+}
+
+}// namespace
 
 ShaderCreationInfo SIMDDevice::create_tile_kernel(
     const ShaderOption &option, const tile::Function &kernel,
@@ -35,6 +68,7 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
         planner_options.enable_expression_reduction_fusion &= !detail::env_flag("LUISA_SIMD_DISABLE_EXPRESSION_REDUCTION_FUSION");
         planner_options.enable_map_fusion |= detail::env_flag("LUISA_SIMD_ENABLE_MAP_FUSION");
         planner_options.enable_map_fusion &= !detail::env_flag("LUISA_SIMD_DISABLE_MAP_FUSION");
+        root_axis_tiles_from_environment(planner_options);
         if (tile_options.threads_per_group != 0u) {
             if (planner_options.block_size != 0u && planner_options.block_size != tile_options.threads_per_group) {
                 metadata.error = "Conflicting XIR and Runtime block width constraints";
@@ -58,7 +92,8 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
                                                          .enable_load_reduction_fusion = planner_options.enable_load_reduction_fusion,
                                                          .enable_pointwise_fusion = planner_options.enable_pointwise_fusion,
                                                          .enable_expression_reduction_fusion = planner_options.enable_expression_reduction_fusion,
-                                                         .enable_map_fusion = planner_options.enable_map_fusion});
+                                                         .enable_map_fusion = planner_options.enable_map_fusion,
+                                                         .root_axis_tiles = plan.root_axis_tiles});
         if (!lowered) {
             metadata.error = std::move(lowered.error);
             return ShaderCreationInfo::make_invalid();
@@ -119,6 +154,14 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
             metadata.realization.append(luisa::format("{}", plan.root_axis_order[i]));
         }
         metadata.realization.append("]");
+        if (!plan.root_axis_tiles.empty()) {
+            metadata.realization.append("; fixed_root_axis_tiles=[");
+            for (size_t i = 0u; i < plan.root_axis_tiles.size(); i++) {
+                if (i != 0u) { metadata.realization.append(","); }
+                metadata.realization.append(luisa::format("{}", plan.root_axis_tiles[i]));
+            }
+            metadata.realization.append("]; root_temporal_cache_cost=unmodeled");
+        }
         metadata.realization.append(luisa::format("; local_lanes={}", plan.local_lanes));
         metadata.realization.append(luisa::format("; blocks_per_task={}; task_dispatch_cost={:.3f}; worker_activation_cost={:.3f}; custom_cost_policy={}",
                                                   plan.blocks_per_task, plan.cost.task_dispatch_work, plan.cost.activation_work, planner_options.cost_policy != nullptr));

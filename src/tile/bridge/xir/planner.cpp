@@ -7,6 +7,7 @@
 #include <luisa/tile/bridge/xir/planner.h>
 #include <luisa/tile/verifier.h>
 #include "representation.h"
+#include "root_mapping.h"
 
 namespace luisa::compute::tile::bridge::xir {
 namespace {
@@ -64,6 +65,15 @@ namespace {
 struct Work {
     double arithmetic{0.0};
     double memory{0.0};
+};
+
+struct SpatialAxis {
+    const Value *value;
+    double scale{1.0};
+    // False when a packet can cross a root traversal digit boundary. This
+    // must not become a null axis passed to slope(), which would incorrectly
+    // classify every root coordinate as uniform.
+    bool coherent{true};
 };
 
 [[nodiscard]] double local_iterations(uint64_t count, uint32_t lanes) {
@@ -148,7 +158,7 @@ void read_work(const Value *value, double repetitions, bool dynamic,
     }
 }
 
-void measure(const Block &block, const Value *axis, double repetitions,
+void measure(const Block &block, SpatialAxis axis, double repetitions,
              ExecutionTarget target, const ExecutionCostModel &cost,
              luisa::vector<const Value *> indices, uint32_t limit, uint32_t lanes, Work &work, const PlannerOptions &options) {
     auto snapshot = [&](const Value *value) {
@@ -207,13 +217,13 @@ void measure(const Block &block, const Value *axis, double repetitions,
             auto &space = *op->operand(0u)->type().index_space();
             luisa::optional<double> stride{0.0};
             for (size_t i = 0u; i < space.rank(); i++) {
-                auto coefficient = lanes == 1u ? slope(op->operand(i + 1u), axis, indices) :
+                auto coefficient = lanes == 1u ? (axis.coherent ? slope(op->operand(i + 1u), axis.value, indices) : luisa::optional<double>{}) :
                                                  luisa::optional<double>{op->domain() && op->domain()->axis(i).extent.constant_value() > 1u ? 1.0 : 0.0};
                 if (!coefficient || !stride || !space.axis(i).extent.is_constant()) {
                     stride.reset();
                     break;
                 }
-                *stride = *stride * static_cast<double>(space.axis(i).extent.constant_value()) + *coefficient;
+                *stride = *stride * static_cast<double>(space.axis(i).extent.constant_value()) + *coefficient * (lanes == 1u ? axis.scale : 1.0);
             }
             auto weight = cost.gathered_lane * target.packet_width;
             if (stride && std::isfinite(*stride)) {
@@ -327,13 +337,24 @@ void measure(const Block &block, const Value *axis, double repetitions,
     for (size_t i = 0u; i < rank; i++) { indices.emplace_back(body->argument(i)); }
     PlanningResult result;
     do {
+        auto mapping = detail::root_mapping(*root->domain(), order, options.root_axis_tiles);
         for (auto lanes : local_widths) {
             Work work;
-            measure(*body, indices[order.back()], 1.0, target, model, indices, options.max_unrolled_tile_elements, lanes, work, options);
-            // If a packet crosses the chosen innermost axis, its memory estimate
-            // is conservatively penalized. No lane-coherence fact reaches codegen.
+            auto spatial = SpatialAxis{indices[order.back()]};
             auto extent = root->domain()->axis(order.back()).extent.constant_value();
-            if (lanes == 1u && extent % target.packet_width != 0u) { work.memory *= 2.0; }
+            if (!mapping.identity && lanes == 1u) {
+                auto digit = mapping.digits.back();
+                spatial = {indices[digit.axis], static_cast<double>(digit.scale), digit.extent % target.packet_width == 0u};
+            }
+            measure(*body, spatial, 1.0, target, model, indices, options.max_unrolled_tile_elements, lanes, work, options);
+            // Identity preserves the historical estimate. A blocked traversal
+            // instead uses the actual fastest digit, or the gather prior if
+            // a packet spans digits. Neither heuristic is a codegen guarantee.
+            if (mapping.identity && lanes == 1u && extent % target.packet_width != 0u) { work.memory *= 2.0; }
+            // Charge root decoding once, not once per nested K/fold iteration.
+            // Temporal cache reuse is deliberately unmodeled: fixed factors
+            // are constraints, not an automatically selected cache optimum.
+            work.arithmetic += mapping.decode_arithmetic * model.arithmetic;
             if (!std::isfinite(work.arithmetic) || !std::isfinite(work.memory)) { fail("XIR work estimate overflow"); }
             auto physical_count = count * lanes;
             for (auto width : widths) {
@@ -348,7 +369,7 @@ void measure(const Block &block, const Value *axis, double repetitions,
                 }
                 for (auto grain : grains) {
                     if (result.candidates.size() >= options.max_candidates) { fail("XIR exact search exceeds its candidate budget"); }
-                    ExecutionPlan candidate{width, order, static_cast<uint32_t>(physical_count), {}, lanes, grain};
+                    ExecutionPlan candidate{width, order, static_cast<uint32_t>(physical_count), {}, lanes, grain, options.root_axis_tiles};
                     auto cost = policy.evaluate(target, candidate, distribute_work(work, candidate, target), model);
                     for (auto component : {cost.arithmetic_work, cost.memory_work, cost.dispatch_work, cost.imbalance_work,
                                            cost.score, cost.task_dispatch_work, cost.activation_work}) {

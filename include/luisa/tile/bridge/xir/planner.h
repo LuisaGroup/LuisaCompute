@@ -57,6 +57,9 @@ struct PlannerOptions {
     // Shares pure map admission with lower(); work is charged at reads,
     // including repeated/broadcast reads, rather than at an elided snapshot.
     bool enable_map_fusion{false};
+    // Fixed opt-in root traversal, not searched or credited with cache reuse.
+    // Factors are in original-axis order and must divide the static extents.
+    luisa::vector<uint32_t> root_axis_tiles;
 };
 
 struct ExecutionCost {
@@ -78,6 +81,7 @@ struct ExecutionPlan {
     ExecutionCost cost;
     uint32_t local_lanes{1u};
     uint32_t blocks_per_task{0u};
+    luisa::vector<uint32_t> root_axis_tiles;
 };
 
 // The bridge extracts work and the exact static home-chunk assignment. The

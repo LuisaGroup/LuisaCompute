@@ -9,13 +9,191 @@
 #include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/instructions/load.h>
 #include <luisa/xir/instructions/store.h>
+#include <luisa/xir/instructions/cast.h>
+#include <luisa/xir/instructions/resource.h>
+#include <luisa/xir/constant.h>
+#include <luisa/xir/special_register.h>
+#include <luisa/xir/debug_printer.h>
+#include <array>
+#include <numeric>
+#include <tuple>
 #include <limits>
 
 using namespace luisa;
 using namespace luisa::compute;
 using namespace boost::ut;
 
+namespace {
+
+// Evaluate only the integer address DAG of a one-element root fixture. This
+// tests emitted XIR, not a second invocation of the planner's mapping helper.
+[[nodiscard]] optional<uint64_t> root_address(const xir::Value *value, uint64_t dispatch, uint32_t depth = 0u) {
+    if (depth > 256u) { return {}; }
+    auto constant = uint64_t{0u};
+    if (xir::try_decode_constant_nonnegative_integer(value, constant)) { return constant; }
+    if (value->isa<xir::CastInst>()) { return root_address(static_cast<const xir::CastInst *>(value)->value(), dispatch, depth + 1u); }
+    if (!value->isa<xir::ArithmeticInst>()) { return {}; }
+    auto inst = static_cast<const xir::ArithmeticInst *>(value);
+    if (inst->op() == xir::ArithmeticOp::EXTRACT && inst->operand(0u)->isa<xir::SpecialRegister>() &&
+        static_cast<const xir::SpecialRegister *>(inst->operand(0u))->derived_special_register_tag() == xir::DerivedSpecialRegisterTag::DISPATCH_ID &&
+        xir::try_decode_constant_nonnegative_integer(inst->operand(1u), constant) && constant == 0u) { return dispatch; }
+    if (inst->operand_count() != 2u) { return {}; }
+    auto a = root_address(inst->operand(0u), dispatch, depth + 1u);
+    auto b = root_address(inst->operand(1u), dispatch, depth + 1u);
+    if (!a || !b) { return {}; }
+    switch (inst->op()) {
+        case xir::ArithmeticOp::BINARY_ADD: return *a + *b;
+        case xir::ArithmeticOp::BINARY_MUL: return *a * *b;
+        case xir::ArithmeticOp::BINARY_DIV: return *b ? optional<uint64_t>{*a / *b} : optional<uint64_t>{};
+        case xir::ArithmeticOp::BINARY_MOD: return *b ? optional<uint64_t>{*a % *b} : optional<uint64_t>{};
+        default: return {};
+    }
+}
+
+template<size_t Rank>
+[[nodiscard]] tile::Kernel root_fixture(std::array<uint64_t, Rank> extents) {
+    using namespace tile;
+    return tile_kernel("root_traversal", [=](TensorView<float, 1> output) {
+               std::array<Axis, Rank> axes;
+               constexpr string_view names[]{"a", "b", "c"};
+               for (size_t i = 0u; i < Rank; i++) { axes[i] = axis(names[i], extents[i]); }
+               auto domain = std::apply([](auto... axes) { return shape(axes...); }, axes);
+               for (auto &nest : parallel(domain)) {
+                   auto linear = Scalar<int64_t>{0};
+                   for (size_t i = 0u; i < Rank; i++) { linear = linear * static_cast<int64_t>(extents[i]) + nest.index(axes[i]); }
+                   output(coord(linear), shape(1)).store(full<float>(shape(1), 1.0f));
+               }
+           })
+        .capture(tensor_shape(std::accumulate(extents.begin(), extents.end(), uint64_t{1u}, std::multiplies{})));
+}
+
+// Independent outer-block / inner-element reference, in original-axis space.
+template<size_t Rank>
+[[nodiscard]] vector<uint64_t> root_sequence(std::array<uint64_t, Rank> extents,
+                                             span<const uint32_t> order, span<const uint32_t> tiles) {
+    auto inner_count = std::accumulate(tiles.begin(), tiles.end(), uint64_t{1u}, std::multiplies{});
+    auto total = std::accumulate(extents.begin(), extents.end(), uint64_t{1u}, std::multiplies{});
+    vector<uint64_t> result;
+    for (auto outer = uint64_t{0u}; outer < total / inner_count; outer++) {
+        for (auto inner = uint64_t{0u}; inner < inner_count; inner++) {
+            auto outer_remaining = outer, inner_remaining = inner;
+            std::array<uint64_t, Rank> coordinate{};
+            for (size_t position = Rank; position-- > 0u;) {
+                auto axis = order[position];
+                auto blocks = extents[axis] / tiles[axis];
+                coordinate[axis] = outer_remaining % blocks * tiles[axis] + inner_remaining % tiles[axis];
+                outer_remaining /= blocks;
+                inner_remaining /= tiles[axis];
+            }
+            auto linear = uint64_t{0u};
+            for (size_t axis = 0u; axis < Rank; axis++) { linear = linear * extents[axis] + coordinate[axis]; }
+            result.emplace_back(linear);
+        }
+    }
+    return result;
+}
+
+template<size_t Rank>
+void check_root_traversal(std::array<uint64_t, Rank> extents, span<const vector<uint32_t>> factors) {
+    auto kernel = root_fixture(extents);
+    auto order = vector<uint32_t>(Rank);
+    std::iota(order.begin(), order.end(), 0u);
+    do {
+        auto baseline = tile::bridge::xir::lower(kernel.function(), {.root_axis_order = order});
+        expect(baseline.ok()) << baseline.error;
+        if (!baseline) { return; }
+        string baseline_text;
+        xir::XIRDebugPrinter{}.emit_function(baseline_text, baseline.function);
+        auto flat = root_sequence(extents, order, vector<uint32_t>(Rank, 1u));
+        for (auto &tiles : factors) {
+            auto lowered = tile::bridge::xir::lower(kernel.function(), {.root_axis_order = order, .root_axis_tiles = tiles});
+            auto planned = tile::bridge::xir::plan(kernel.function(), {8u, 1u}, {.block_size = 32u, .root_axis_order = order, .root_axis_tiles = tiles});
+            expect(lowered.ok() && planned.ok()) << lowered.error << planned.error;
+            if (!lowered || !planned) { continue; }
+            expect(xir::xir_verify_module(lowered.module.get(), {.require_reachable_blocks = true}).succeeded());
+            expect(planned.selected.root_axis_tiles == tiles);
+            const xir::Value *address = nullptr;
+            auto stores = 0u;
+            lowered.function->traverse_instructions([&](xir::Instruction *inst) noexcept {
+                if (inst->isa<xir::ResourceWriteInst>() && static_cast<xir::ResourceWriteInst *>(inst)->op() == xir::ResourceWriteOp::BUFFER_WRITE) {
+                    address = inst->operand(1u);
+                    stores++;
+                }
+            });
+            expect(eq(stores, 1u));
+            if (!address || stores != 1u) { continue; }
+            auto expected = root_sequence(extents, order, tiles);
+            vector<uint64_t> actual;
+            vector<uint32_t> visits(expected.size(), 0u);
+            for (auto ordinal = 0u; ordinal < lowered.dispatch_size; ordinal++) {
+                auto decoded = root_address(address, ordinal);
+                expect(decoded && *decoded < visits.size());
+                if (!decoded || *decoded >= visits.size()) { break; }
+                actual.emplace_back(*decoded);
+                visits[*decoded]++;
+            }
+            expect(actual == expected);
+            expect(std::all_of(visits.begin(), visits.end(), [](auto count) { return count == 1u; }));
+            string text;
+            xir::XIRDebugPrinter{}.emit_function(text, lowered.function);
+            if (expected == flat) {
+                expect(text == baseline_text);// identity must preserve exact XIR, not only outputs
+            } else {
+                expect(actual != flat);// ensure the realization really changed traversal
+                expect(text != baseline_text);
+            }
+        }
+    } while (std::next_permutation(order.begin(), order.end()));
+}
+
+}// namespace
+
 int main() {
+    "tile_xir_root_traversal_is_bijective_and_identity_is_exact"_test = [] {
+        check_root_traversal<1u>({12u}, vector<vector<uint32_t>>{{1u}, {3u}, {12u}});
+        check_root_traversal<2u>({4u, 6u}, vector<vector<uint32_t>>{{1u, 1u}, {1u, 3u}, {4u, 6u}, {2u, 3u}, {2u, 1u}});
+        check_root_traversal<3u>({4u, 1u, 6u}, vector<vector<uint32_t>>{{1u, 1u, 1u}, {2u, 1u, 3u}, {4u, 1u, 6u}});
+        check_root_traversal<3u>({4u, 6u, 3u}, vector<vector<uint32_t>>{{1u, 1u, 1u}, {2u, 3u, 1u}, {4u, 6u, 3u}});
+        auto expected = vector<uint64_t>{0u, 1u, 2u, 6u, 7u, 8u, 3u, 4u, 5u, 9u, 10u, 11u,
+                                         12u, 13u, 14u, 18u, 19u, 20u, 15u, 16u, 17u, 21u, 22u, 23u};
+        expect(root_sequence<2u>({4u, 6u}, vector<uint32_t>{0u, 1u}, vector<uint32_t>{2u, 3u}) == expected);
+    };
+    "tile_xir_root_traversal_rejects_invalid_constraints"_test = [] {
+        auto kernel = root_fixture<2u>({4u, 6u});
+        for (auto tiles : vector<vector<uint32_t>>{{2u}, {2u, 3u, 1u}, {0u, 3u}, {3u, 3u}, {8u, 3u}, {2u, UINT32_MAX}}) {
+            expect(!tile::bridge::xir::lower(kernel.function(), {.root_axis_tiles = tiles}));
+            expect(!tile::bridge::xir::plan(kernel.function(), {8u, 1u}, {.root_axis_tiles = tiles}));
+        }
+        for (auto order : vector<vector<uint32_t>>{{0u}, {0u, 0u}, {0u, 2u}}) {
+            expect(!tile::bridge::xir::lower(kernel.function(), {.root_axis_order = order, .root_axis_tiles = {2u, 3u}}));
+            expect(!tile::bridge::xir::plan(kernel.function(), {8u, 1u}, {.root_axis_order = order, .root_axis_tiles = {2u, 3u}}));
+        }
+        auto overflow = root_fixture<2u>({65536u, 65536u});
+        expect(!tile::bridge::xir::lower(overflow.function(), {.root_axis_tiles = {256u, 256u}}));
+        expect(!tile::bridge::xir::plan(overflow.function(), {8u, 1u}, {.root_axis_tiles = {256u, 256u}}));
+    };
+    "tile_xir_root_traversal_cost_uses_physical_fast_digit"_test = [] {
+        using namespace tile;
+        // Memory is column-major relative to the root's (a,b) order. Factoring
+        // only a makes a the physical fast digit, even though b is last in order.
+        auto kernel = tile_kernel("root_stride", [](TensorView<const float, 2> input, TensorView<float, 2> output) {
+                          auto a = axis("a", 32), b = axis("b", 24);
+                          for (auto &nest : parallel(shape(a, b))) {
+                              auto origin = coord(nest.index(b), nest.index(a));
+                              output(origin, shape(1, 1)).store(input[origin, shape(1, 1)]);
+                          }
+                      }).capture(tensor_shape(24, 32), tensor_shape(24, 32));
+        auto score = [&](vector<uint32_t> tiles) {
+            return bridge::xir::plan(kernel.function(), {8u, 1u}, {.block_size = 32u, .root_axis_order = {0u, 1u}, .root_axis_tiles = std::move(tiles)});
+        };
+        auto flat = score({}), identity = score({1u, 8u}), coherent = score({8u, 1u}), crossing = score({2u, 1u});
+        expect(flat.ok() && identity.ok() && coherent.ok() && crossing.ok());
+        if (!flat || !identity || !coherent || !crossing) { return; }
+        expect(eq(flat.selected.cost.score, identity.selected.cost.score));
+        expect(lt(coherent.selected.cost.memory_work, flat.selected.cost.memory_work));
+        expect(eq(crossing.selected.cost.memory_work, flat.selected.cost.memory_work));
+        expect(gt(coherent.selected.cost.arithmetic_work, flat.selected.cost.arithmetic_work));
+    };
     "tile_xir_deferred_map_depth_budget"_test = [] {
         using namespace tile;
         for (auto depth_limit : {63u, 64u, 65u, 70u}) {

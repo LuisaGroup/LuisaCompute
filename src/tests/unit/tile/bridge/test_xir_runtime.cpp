@@ -23,6 +23,127 @@ namespace {
 
 [[nodiscard]] bool close(span<const float> actual, span<const double> expected);
 
+void root_traversal_recurrences(Device &device) {
+    using namespace tile;
+    constexpr int64_t rows = 4 * 3 * 10, steps = 5, modes = 4;
+    auto kernel = tile_kernel("root_recurrences", [](TensorView<const float, 2> input, TensorView<float, 2> output) {
+                      auto a = axis("a", 4), b = axis("b", 3), c = axis("c", 10);
+                      for (auto &nest : parallel(shape(a, b, c))) {
+                          auto row = (nest.index(a) * 3 + nest.index(b)) * 10 + nest.index(c);
+                          auto values = input[coord(row, 0), shape(1, steps)];
+                          for (auto mode = int64_t{0}; mode < modes; mode++) {
+                              auto state = cast<float>(row) * .125f;
+                              if (mode == 0) {
+                                  for (auto &step : nest.serial(shape(steps))) { state = state * 2.0f + values.at(coord(0, step.index())); }
+                              } else if (mode == 1) {
+                                  for (auto &step : nest.pipeline(shape(steps), {.stages = 2u, .initiation_interval = 1u})) {
+                                      step.stage("load");
+                                      auto value = input[coord(row, step.index()), shape(1, 1)];
+                                      step.stage("compute");
+                                      state = state * 2.0f + value.at(coord(0, 0));
+                                  }
+                              } else {
+                                  auto policy = mode == 2 ? reduction::fold_left : reduction::fold_right;
+                                  for (auto &step : nest.reduce(shape(steps), policy)) { state = state * 2.0f + values.at(coord(0, step.index())); }
+                              }
+                              output(coord(row, mode), shape(1, 1)).store(full<float>(shape(1, 1), state));
+                          }
+                      }
+                  }).capture(tensor_shape(rows, steps), tensor_shape(rows, modes));
+    constexpr size_t pad = 17u;
+    constexpr float guard = -731.25f;
+    vector<float> input(rows * steps + 2u * pad, guard), initial(rows * modes + 2u * pad, guard);
+    vector<double> expected(rows * modes);
+    for (int64_t row = 0; row < rows; row++) {
+        for (int64_t i = 0; i < steps; i++) { input[pad + row * steps + i] = static_cast<float>((row * 3 + i * 7) % 31 - 15) * .125f; }
+        for (int64_t mode = 0; mode < modes; mode++) {
+            auto state = static_cast<double>(row) * .125;
+            for (int64_t i = 0; i < steps; i++) { state = state * 2.0 + input[pad + row * steps + (mode == 3 ? steps - 1 - i : i)]; }
+            expected[row * modes + mode] = state;
+        }
+    }
+    // Dyadic inputs keep every update exact. Different fold directions really
+    // differ, so bitwise agreement cannot conceal an accidentally reordered fold.
+    expect(expected[0] != expected[3]);
+    auto a = device.create_buffer<float>(input.size()), b = device.create_buffer<float>(initial.size());
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    vector<float> baseline;
+    for (auto order : vector<vector<uint32_t>>{{0u, 1u, 2u}, {2u, 0u, 1u}}) {
+        string baseline_llvm;
+        for (auto tiles : vector<vector<uint32_t>>{{}, {1u, 1u, 1u}, {4u, 3u, 10u}, {2u, 1u, 5u}}) {
+            auto options = bridge::xir::PlannerOptions{.block_size = 32u, .root_axis_order = order, .blocks_per_task = tiles.empty() ? 1u : 3u, .root_axis_tiles = tiles};
+            auto shader = compile(device, kernel, {.xir = &options}, {.enable_fast_math = false});
+            expect(static_cast<bool>(shader)) << shader.metadata().error;
+            if (!shader) { continue; }
+            auto actual = initial, after = input;
+            stream << a.copy_from(span{input}) << b.copy_from(span{initial})
+                   << shader(a.view(pad, rows * steps), b.view(pad, rows * modes)).dispatch()
+                   << a.copy_to(span{after}) << b.copy_to(span{actual}) << synchronize();
+            expect(after == input);// includes readonly input and both input guards
+            expect(close(span{actual}.subspan(pad, rows * modes), expected));
+            expect(std::all_of(actual.begin(), actual.begin() + pad, [](float x) { return x == guard; }));
+            expect(std::all_of(actual.end() - pad, actual.end(), [](float x) { return x == guard; }));
+            if (baseline.empty()) { baseline = actual; }
+            expect(std::equal(actual.begin(), actual.end(), baseline.begin(), baseline.end(), [](float x, float y) {
+                return std::bit_cast<uint32_t>(x) == std::bit_cast<uint32_t>(y);
+            }));
+            if (tiles.empty()) {
+                baseline_llvm = shader.metadata().source;
+            } else {
+                expect(shader.metadata().realization.find("fixed_root_axis_tiles=[") != string::npos);
+                expect(shader.metadata().realization.find("root_temporal_cache_cost=unmodeled") != string::npos);
+                if (tiles == vector<uint32_t>{1u, 1u, 1u} || tiles == vector<uint32_t>{4u, 3u, 10u}) {
+                    expect(shader.metadata().source == baseline_llvm);
+                }
+            }
+        }
+    }
+}
+
+void root_traversal_local_axis(Device &device, uint32_t lanes) {
+    using namespace tile;
+    constexpr int64_t rows = 6 * 10, width = 65;
+    auto kernel = tile_kernel("root_local_axis", [](TensorView<const float, 2> input, TensorView<float, 2> output) {
+                      auto a = axis("a", 6), b = axis("b", 10), m = axis("m", 1), n = axis("n", width);
+                      for (auto &nest : parallel(shape(a, b))) {
+                          auto row = nest.index(a) * 10 + nest.index(b);
+                          auto x = input[coord(row, 0), shape(m, n)];
+                          output(coord(row, 0), shape(m, n)).store(x + reduce(x, n, add));
+                      }
+                  }).capture(tensor_shape(rows, width), tensor_shape(rows, width));
+    constexpr size_t pad = 17u;
+    constexpr float guard = -731.25f;
+    vector<float> input(rows * width + 2u * pad, guard), initial(input.size(), guard), baseline;
+    vector<double> expected(rows * width);
+    for (int64_t row = 0; row < rows; row++) {
+        double sum = 0.0;
+        for (int64_t i = 0; i < width; i++) {
+            auto value = static_cast<float>((row * 3 + i * 7) % 31 - 15) * .125f;
+            input[pad + row * width + i] = value;
+            sum += value;
+        }
+        for (int64_t i = 0; i < width; i++) { expected[row * width + i] = input[pad + row * width + i] + sum; }
+    }
+    auto a = device.create_buffer<float>(input.size()), b = device.create_buffer<float>(initial.size());
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    for (auto tiles : vector<vector<uint32_t>>{{}, {1u, 1u}, {6u, 10u}, {2u, 5u}}) {
+        auto options = bridge::xir::PlannerOptions{.block_size = 32u, .root_axis_order = {1u, 0u}, .local_lanes = lanes, .blocks_per_task = 3u, .root_axis_tiles = tiles};
+        auto shader = compile(device, kernel, {.xir = &options}, {.enable_fast_math = false});
+        expect(static_cast<bool>(shader)) << shader.metadata().error;
+        if (!shader) { continue; }
+        auto actual = initial, after = input;
+        stream << a.copy_from(span{input}) << b.copy_from(span{initial})
+               << shader(a.view(pad, rows * width), b.view(pad, rows * width)).dispatch()
+               << a.copy_to(span{after}) << b.copy_to(span{actual}) << synchronize();
+        expect(after == input);
+        expect(close(span{actual}.subspan(pad, rows * width), expected));
+        expect(std::all_of(actual.begin(), actual.begin() + pad, [](float x) { return x == guard; }));
+        expect(std::all_of(actual.end() - pad, actual.end(), [](float x) { return x == guard; }));
+        if (baseline.empty()) { baseline = actual; }
+        expect(actual == baseline);// every dyadic reduction/update is exact
+    }
+}
+
 void map_chain(Device &device, int64_t width, uint32_t variant) {
     using namespace tile;
     constexpr int64_t rows = 17;
@@ -933,6 +1054,12 @@ void packet_local_reductions(Device &device, int64_t count, int64_t width, uint3
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     auto [context, device] = test::create_device(argc, argv);
+    "tile_xir_runtime_root_traversal_preserves_strict_program_order"_test = [&] {
+        root_traversal_recurrences(device);
+    };
+    "tile_xir_runtime_root_traversal_preserves_packet_local_coordinates"_test = [&] {
+        for (auto lanes : {1u, device.compute_warp_size()}) { root_traversal_local_axis(device, lanes); }
+    };
     "tile_xir_runtime_map_fusion_snapshots_and_carries"_test = [&] {
         for (auto width : {1, 7, 32, 65, 129}) {
             for (auto variant : {0u, 1u, 2u, 3u}) { map_chain(device, width, variant); }

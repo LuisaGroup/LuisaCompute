@@ -12,6 +12,7 @@
 #include <luisa/xir/verifier.h>
 #include "representation.h"
 #include "pointwise.h"
+#include "root_mapping.h"
 
 namespace luisa::compute::tile::bridge::xir {
 namespace {
@@ -716,6 +717,28 @@ private:
             if (extent != 0u) { _coordinate_ranges.insert_or_assign(body.argument(i), IndexRange{0, static_cast<int64_t>(extent - 1u)}); }
         }
     }
+    void _bind_root_coordinates(const Block &body, const IndexSpace &domain, x::Value *flat) {
+        auto mapping = detail::root_mapping(domain, _options.root_axis_order, _options.root_axis_tiles);
+        if (mapping.identity) {
+            _bind_coordinates(body, domain, flat, _options.root_axis_order);
+            return;
+        }
+        Elements coordinates(domain.rank(), nullptr);
+        auto trailing = mapping.volume;
+        for (size_t i = 0u; i < mapping.digits.size(); i++) {
+            auto digit = mapping.digits[i];
+            trailing /= digit.extent;
+            auto value = _binary(A::BINARY_DIV, flat, _index(trailing));
+            if (i != 0u) { value = _binary(A::BINARY_MOD, value, _index(digit.extent)); }
+            if (digit.scale != 1u) { value = _binary(A::BINARY_MUL, value, _index(digit.scale)); }
+            auto &coordinate = coordinates[digit.axis];
+            coordinate = coordinate ? _binary(A::BINARY_ADD, coordinate, value) : value;
+        }
+        for (size_t i = 0u; i < domain.rank(); i++) {
+            _define(body.argument(i), Elements{coordinates[i] ? coordinates[i] : _index(0u)});
+            _coordinate_ranges.insert_or_assign(body.argument(i), IndexRange{0, static_cast<int64_t>(_extent(domain, i) - 1u)});
+        }
+    }
     void _pointwise(const detail::PointwiseRegion &region) {
         // Pure scalar/index definitions dominate both paths and any later
         // users. No Tile effect, stage or region boundary is crossed.
@@ -948,16 +971,7 @@ private:
                 // is uniform, unlike the element coordinate distributed below.
                 dispatch = _binary(A::BINARY_DIV, _binary(A::BINARY_SUB, dispatch, lane), _constant(_options.local_lanes));
             }
-            auto &order = _options.root_axis_order;
-            if (!order.empty()) {
-                if (order.size() != domain.rank()) { _fail("XIR execution order must be a complete permutation"); }
-                luisa::vector<bool> seen(domain.rank(), false);
-                for (auto axis : order) {
-                    if (axis >= domain.rank() || seen[axis]) { _fail("XIR execution order must be a complete permutation"); }
-                    seen[axis] = true;
-                }
-            }
-            _bind_coordinates(*body, domain, _builder.static_cast_(XType::of<int64_t>(), dispatch), order);
+            _bind_root_coordinates(*body, domain, _builder.static_cast_(XType::of<int64_t>(), dispatch));
             if (!_region(*body).empty()) { _fail("root parallel yielded state"); }
             _inside_parallel = false;
             return;
