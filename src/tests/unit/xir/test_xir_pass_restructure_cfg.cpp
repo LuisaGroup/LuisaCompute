@@ -3402,6 +3402,155 @@ void reg_restructure_cfg() {
             << "the SimpleLoop exit protocol must be a fixed point";
     };
 
+    "restructure_generated_terminal_continue_dispatch_has_epoch_merge"_test = [] {
+        for (auto terminal_return : {false, true}) {
+            for (auto in_place : {false, true}) {
+                Module module;
+                BasicBlock *entry;
+                auto *kernel = make_kernel_with_body(module, entry);
+                auto *definition = kernel->definition();
+                auto *selector = kernel->create_value_argument(Type::of<uint32_t>());
+                auto *head = definition->create_basic_block();
+                auto *dispatch = definition->create_basic_block();
+                auto *payload = definition->create_basic_block();
+                auto *backedge = definition->create_basic_block();
+                auto *terminal_proxy = definition->create_basic_block();
+                auto *terminal = definition->create_basic_block();
+                auto *payload_proxy = definition->create_basic_block();
+                XIRBuilder builder;
+                builder.set_insertion_point(entry);
+                auto *slot = builder.alloca_local(Type::of<uint32_t>());
+                builder.br(head);
+                builder.set_insertion_point(head);
+                builder.br(dispatch);
+                builder.set_insertion_point(dispatch);
+                auto *branch = builder.indexed_branch(selector);
+                branch->set_default_block(payload);
+                branch->add_case(0, terminal_proxy);
+                branch->add_case(1, payload_proxy);
+                builder.set_insertion_point(payload);
+                auto *effect = builder.store(slot,
+                    module.create_constant_one(Type::of<uint32_t>()));
+                builder.br(backedge);
+                builder.set_insertion_point(backedge);
+                builder.br(head);
+                builder.set_insertion_point(terminal_proxy);
+                builder.br(terminal);
+                builder.set_insertion_point(terminal);
+                if (terminal_return) { builder.return_void(); }
+                else { builder.unreachable_(); }
+                builder.set_insertion_point(payload_proxy);
+                builder.br(payload);
+
+                // Reduced from the original 2027-block continuation. Switch
+                // exit normalization generates a conditional which either
+                // terminates or writes before continuing the enclosing loop.
+                // Its global post-dominator is reachable from the continue
+                // arm only in a future epoch, not as a lexical merge.
+                expect(count_owned_blocks(definition) == 8u);
+                expect(xir_verify_module(&module).succeeded());
+                RestructureCFGOptions options;
+                if (in_place) {
+                    options.mutation_mode = RestructureCFGMutationMode::IN_PLACE_DISCARDABLE;
+                }
+                auto first = restructure_cfg_pass_run_on_function(kernel, options);
+                expect(first.succeeded())
+                    << "generated terminal/continue dispatch must not remain raw";
+                if (!first.succeeded()) { continue; }
+                expect(first.unstructured_branch_count == 0u);
+                expect(first.iteration_limit_count == 0u);
+                expect(effect->parent_block() == payload);
+                expect(count_owned_blocks(definition) <= 24u);
+                auto verification = xir_verify_module(&module,
+                    {.require_no_unstructured_control_flow = true,
+                     .require_unique_merge_blocks = true,
+                     .require_canonical_break_continue_targets = true});
+                expect(verification.succeeded());
+                expect(xir_to_ast_translate(*kernel, {}) != nullptr);
+                auto stable_blocks = count_owned_blocks(definition);
+                auto second = restructure_cfg_pass_run_on_function(kernel, options);
+                expect(second.succeeded());
+                expect(!second.changed());
+                expect(count_owned_blocks(definition) == stable_blocks);
+            }
+        }
+    };
+
+    "restructure_payload_continue_and_break_use_synthetic_epoch_merge"_test = [] {
+        for (auto reverse_arms : {false, true}) {
+            for (auto break_payload : {false, true}) {
+                Module module;
+                BasicBlock *entry;
+                auto *kernel = make_kernel_with_body(module, entry);
+                auto *definition = kernel->definition();
+                auto *condition = kernel->create_value_argument(Type::of<bool>());
+                XIRBuilder builder;
+                builder.set_insertion_point(entry);
+                auto *payload = builder.alloca_local(Type::of<uint32_t>());
+                auto *loop = builder.loop();
+                auto *prepare = loop->create_prepare_block();
+                auto *body = loop->create_body_block();
+                auto *update = loop->create_update_block();
+                auto *exit = loop->create_merge_block();
+                auto *repeat_arm = definition->create_basic_block();
+                auto *exit_arm = definition->create_basic_block();
+                builder.set_insertion_point(prepare);
+                builder.br(body);
+                builder.set_insertion_point(body);
+                builder.cond_br(condition,
+                    reverse_arms ? exit_arm : repeat_arm,
+                    reverse_arms ? repeat_arm : exit_arm);
+                builder.set_insertion_point(repeat_arm);
+                auto *repeat_store = builder.store(payload,
+                    module.create_constant_one(Type::of<uint32_t>()));
+                builder.continue_(update);
+                builder.set_insertion_point(exit_arm);
+                if (break_payload) {
+                    builder.store(payload,
+                        module.create_constant_zero(Type::of<uint32_t>()));
+                }
+                builder.break_(exit);
+                builder.set_insertion_point(update);
+                builder.br(prepare);
+                builder.set_insertion_point(exit);
+                builder.return_void();
+
+                // Neither arm has a normal successor in this loop epoch.
+                // A global post-dominator may nevertheless choose `exit`,
+                // reached from the continue arm only on a later iteration.
+                // The payload prohibits treating the branch as a direct,
+                // merge-less loop guard. A fresh unreachable selection merge
+                // preserves both transfers without moving/duplicating work.
+                expect(xir_verify_module(&module).succeeded());
+                auto initial_blocks = count_owned_blocks(definition);
+                auto first = restructure_cfg_pass_run_on_function(kernel,
+                    {.main_iteration_limit = 0u, .post_iteration_limit = 8u});
+                expect(first.succeeded())
+                    << "payload-bearing continue/break split needs a lexical merge";
+                if (!first.succeeded()) { continue; }
+                expect(first.unstructured_branch_count == 0u);
+                expect(first.iteration_limit_count == 0u);
+                expect(repeat_store->parent_block() == repeat_arm)
+                    << "restructuring must not relocate the arm's side effect";
+                expect(body->terminator()->isa<IfInst>());
+                expect(count_owned_blocks(definition) <= initial_blocks + 6u);
+                auto verification = xir_verify_module(&module,
+                    {.require_no_unstructured_control_flow = true,
+                     .require_unique_merge_blocks = true,
+                     .require_canonical_break_continue_targets = true});
+                expect(verification.succeeded());
+                auto ast = xir_to_ast_translate(*kernel, {});
+                expect(ast != nullptr);
+                auto stable_blocks = count_owned_blocks(definition);
+                auto second = restructure_cfg_pass_run_on_function(kernel,
+                    {.main_iteration_limit = 64u, .post_iteration_limit = 8u});
+                expect(second.succeeded());
+                expect(!second.changed());
+                expect(count_owned_blocks(definition) == stable_blocks);
+            }
+        }
+    };
+
     "restructure_remaining_branch_uses_lexical_loop_epoch_merge"_test = [] {
         Module module;
         BasicBlock *entry;
