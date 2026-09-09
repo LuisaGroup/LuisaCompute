@@ -1103,6 +1103,31 @@ luisa_compute_add_test(test_coro_wavefront_auxiliary_pipeline
         unit/coro/test_coro_wavefront_auxiliary_pipeline.cpp)
 luisa_compute_add_test(test_coro_wavefront_resume_annotation
         unit/coro/test_coro_wavefront_resume_annotation.cpp)
+luisa_compute_add_test(test_coro_wavefront_resume_batching
+        unit/coro/test_coro_wavefront_resume_batching.cpp)
+add_test(NAME test_coro_wavefront_resume_batching_metadata
+        COMMAND test_coro_wavefront_resume_batching
+                fallback resume_batching_rejects_incompatible_metadata)
+set_tests_properties(test_coro_wavefront_resume_batching_metadata
+        PROPERTIES LABELS "unit;unit_coro")
+foreach(_batch_backend IN ITEMS hip fallback vk)
+    string(TOUPPER "${_batch_backend}" _batch_backend_option)
+    if(_batch_backend STREQUAL "vk")
+        set(_batch_backend_option VULKAN)
+    endif()
+    if(NOT LUISA_COMPUTE_ENABLE_${_batch_backend_option})
+        continue()
+    endif()
+    add_test(NAME test_coro_wavefront_resume_batching_${_batch_backend}
+            COMMAND test_coro_wavefront_resume_batching ${_batch_backend})
+    set_tests_properties(test_coro_wavefront_resume_batching_${_batch_backend}
+            PROPERTIES LABELS "unit_coro_runtime"
+            ENVIRONMENT "LUISA_CORO_WAVEFRONT_VERIFY_QUEUES=1")
+endforeach()
+if(TEST test_coro_wavefront_resume_batching_vk)
+    set_property(TEST test_coro_wavefront_resume_batching_vk APPEND PROPERTY ENVIRONMENT
+            "LUISA_VULKAN_USE_XIR=1;LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV=1;LUISA_VULKAN_DISABLE_DXC=1")
+endif()
 luisa_compute_add_test(test_coro_wavefront_auxiliary_admission
         unit/coro/test_coro_wavefront_auxiliary_admission.cpp)
 luisa_compute_add_test(test_coro_radix_sort     unit/coro/test_coro_radix_sort.cpp)
