@@ -825,6 +825,10 @@ if (TARGET luisa-compute-backend-metal)
             LABELS "integration;integration_metal" TIMEOUT 120)
 endif ()
 if (TARGET luisa-compute-backend-metal4)
+    add_test(NAME test_metal4_codegen_regressions
+            COMMAND test_metal_codegen_regressions metal4)
+    set_tests_properties(test_metal4_codegen_regressions PROPERTIES
+            LABELS "integration;integration_metal4" TIMEOUT 120)
     add_test(NAME test_metal4_local_lifetimes
             COMMAND test_metal_codegen_regressions metal4 --local-only)
     set_tests_properties(test_metal4_local_lifetimes PROPERTIES
@@ -981,6 +985,7 @@ luisa_compute_add_test(test_dsl_xir_optimize_vk unit/runtime/test_dsl_xir_optimi
 luisa_compute_add_test(test_ast_to_xir unit/xir/test_ast_to_xir.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_ast_pack_usage unit/xir/test_ast_pack_usage.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_ast_external_lowering unit/xir/test_ast_external_lowering.cpp LABELS "unit;unit_xir")
+luisa_compute_add_test(test_ast_callable_swizzle unit/xir/test_ast_callable_swizzle.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_module      unit/xir/test_xir_module.cpp      LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_builder     unit/xir/test_xir_builder.cpp     LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_verifier    unit/xir/test_xir_verifier.cpp    LABELS "unit;unit_xir")
