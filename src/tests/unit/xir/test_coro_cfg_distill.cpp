@@ -15,6 +15,7 @@
 #include <luisa/xir/instructions/switch.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/coro_cfg_distill.h>
+#include <luisa/xir/passes/coro_call.h>
 #include <luisa/xir/passes/coro_reg2mem.h>
 #include <luisa/xir/passes/destructure_cfg.h>
 #include <luisa/xir/translators/xir2text.h>
@@ -38,6 +39,172 @@ namespace {
 }// namespace
 
 void reg_coro_cfg_distill() {
+    "materialized_continuation_rebuilds_cross_block_indexed_addresses"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *input = kernel->create_value_argument(Type::of<uint32_t>());
+        auto *output = kernel->create_reference_argument(Type::of<uint32_t>());
+        auto *consumer = kernel->create_basic_block();
+        auto *inner_type = Type::array(Type::of<uint32_t>(), 2u);
+        auto *outer_type = Type::array(inner_type, 2u);
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *storage = b.alloca_local(outer_type);
+        auto *one = m.create_constant_one(Type::of<uint32_t>());
+        auto *index = b.call(Type::of<uint32_t>(), ArithmeticOp::BINARY_BIT_AND, {input, one});
+        auto *inner = b.gep(inner_type, storage, {index});
+        auto *element = b.gep(Type::of<uint32_t>(), inner, {index});
+        b.store(element, input);
+        b.br(consumer);
+        b.set_insertion_point(consumer);
+        b.store(output, b.load(Type::of<uint32_t>(), element));
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        coro_call_structure_continuation(kernel);
+        expect(xir_verify_module(&m, {.require_no_phi = true,
+                                      .require_unique_merge_blocks = true,
+                                      .require_canonical_break_continue_targets = true})
+                   .succeeded());
+        auto suspend_count = 0u;
+        for (auto *block : kernel->basic_blocks()) {
+            for (auto *inst : block->instructions()) {
+                suspend_count += inst->isa<CoroSuspendInst>();
+                if (!inst->isa<GEPInst>()) { continue; }
+                for (auto *use : inst->use_list()) {
+                    auto *user = use->user();
+                    if (user != nullptr && user->isa<Instruction>()) {
+                        expect(static_cast<Instruction *>(user)->parent_block() == block)
+                            << "each continuation arm must rebuild its own indexed address";
+                    }
+                }
+            }
+        }
+        expect(suspend_count == 0u);
+    };
+
+    "shared_callable_tokens_preserve_sparse_root_ids_and_call_site_independence"_test = [] {
+        for (auto root_token : {1u, 0xfffffffeu}) {
+            for (auto call_sites : {1u, 8u}) {
+                Module m;
+                XIRBuilder b;
+                auto *always_true = m.create_constant_one(Type::of<bool>());
+                auto *leaf = m.create_callable(nullptr);
+                auto *leaf_entry = leaf->create_body_block();
+                auto *leaf_suspend = leaf->create_basic_block();
+                auto *leaf_resume = leaf->create_basic_block();
+                b.set_insertion_point(leaf_entry);
+                // AST-to-XIR represents the resume edge synthetically until
+                // coroutine reachability/distillation gives it token meaning.
+                b.cond_br(always_true, leaf_suspend, leaf_resume);
+                b.set_insertion_point(leaf_suspend);
+                b.coro_suspend(1u, "leaf", nullptr);
+                b.set_insertion_point(leaf_resume);
+                b.coro_resume(1u, nullptr);
+                b.return_void();
+
+                BasicBlock *entry;
+                auto *kernel = make_kernel_with_body(m, entry);
+                auto *root_suspend = kernel->create_basic_block();
+                auto *root_resume = kernel->create_basic_block();
+                b.set_insertion_point(entry);
+                for (auto i = 0u; i < call_sites; ++i) {
+                    static_cast<void>(b.call(nullptr, leaf, {}));
+                }
+                b.cond_br(always_true, root_suspend, root_resume);
+                b.set_insertion_point(root_suspend);
+                b.coro_suspend(root_token, "root", nullptr);
+                b.set_insertion_point(root_resume);
+                b.coro_resume(root_token, nullptr);
+                b.return_void();
+
+                expect(xir_verify_module(&m).succeeded());
+                auto info = coro_call_pass_run_on_function(kernel);
+                expect(info.callable_count == 1u);
+                expect(info.call_site_count == call_sites);
+                expect(info.graph.functions.size() == 2u);
+                expect(info.graph.functions.front().resume_tokens == luisa::vector<uint32_t>{root_token});
+                auto expected_leaf_token = root_token == 1u ? 2u : 1u;
+                expect(info.graph.functions.back().resume_tokens == luisa::vector<uint32_t>{expected_leaf_token});
+                auto suspend_count = 0u;
+                for (auto *block : kernel->basic_blocks()) {
+                    for (auto *inst : block->instructions()) {
+                        if (!inst->isa<CoroSuspendInst>()) { continue; }
+                        auto token = static_cast<CoroSuspendInst *>(inst)->token();
+                        expect(token == root_token || token == expected_leaf_token);
+                        expect(token != 0u && token != 0xffffffffu);
+                        ++suspend_count;
+                    }
+                }
+                expect(suspend_count == 2u);
+                expect(xir_verify_module(&m).succeeded());
+                auto cfg = coro_cfg_distill_pass_run_on_function(kernel);
+                expect(cfg.succeeded());
+                expect(cfg.scopes.size() == 3u);
+            }
+        }
+    };
+
+    "shared_call_liveness_matches_return_context_before_projection"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(m, body);
+        auto *shared = kernel->create_basic_block();
+        auto *resume = kernel->create_basic_block();
+        auto *first_return = kernel->create_basic_block();
+        auto *second_return = kernel->create_basic_block();
+        auto *invalid = kernel->create_basic_block();
+        XIRBuilder b;
+        auto one = uint{1u}, two = uint{2u};
+        auto *c1 = m.create_constant(Type::of<uint>(), &one);
+        auto *c2 = m.create_constant(Type::of<uint>(), &two);
+        b.set_insertion_point(body);
+        auto *selector = b.alloca_local(Type::of<uint>());
+        selector->set_coro_return_selector(1u);
+        auto *saved = b.alloca_local(Type::of<uint>());
+        b.store(selector, c1);
+        b.br(shared);
+        b.set_insertion_point(shared);
+        b.coro_suspend(1u, "shared", nullptr);
+        b.set_insertion_point(resume);
+        b.coro_resume(1u, nullptr);
+        auto *tag = b.load(Type::of<uint>(), selector);
+        b.store(selector, m.create_constant_zero(Type::of<uint>()));
+        auto *dispatch = b.indexed_branch(tag);
+        dispatch->add_case(1u, first_return);
+        dispatch->add_case(2u, second_return);
+        dispatch->set_default_block(invalid);
+        b.set_insertion_point(first_return);
+        b.store(saved, c2);
+        b.store(selector, c2);
+        b.br(shared);
+        b.set_insertion_point(second_return);
+        b.print("saved = {}", {b.load(Type::of<uint>(), saved)});
+        b.return_void();
+        b.set_insertion_point(invalid);
+        b.unreachable_();
+        CoroCfgDistillStats stats;
+        auto matched = coro_cfg_distill_pass_run_on_function(kernel, {.stats = &stats});
+        expect(matched.succeeded());
+        expect(matched.scopes.size() == 2u);
+        expect(stats.call_context_state_count > 0u);
+        auto carries_saved = [&](const CoroCfgDistillResult &cfg, size_t source) {
+            for (auto &edge : cfg.transition_edges) {
+                if (edge.from_scope != source || !edge.is_suspend) { continue; }
+                for (auto i : edge.target_live_frame_value_indices) {
+                    if (cfg.frame_values[i].value == saved) { return true; }
+                }
+            }
+            return false;
+        };
+        expect(!carries_saved(matched, 0u)) << "first call cannot return to the second call's continuation";
+        expect(carries_saved(matched, 1u)) << "second call must preserve the first return's saved value";
+        selector->set_coro_return_selector(0u);
+        auto context_free = coro_cfg_distill_pass_run_on_function(kernel);
+        expect(context_free.succeeded());
+        expect(carries_saved(context_free, 0u)) << "oracle must expose the mismatched-return false liveness";
+    };
 
     "no_suspend_single_scope"_test = [] {
         // given: a function with no coroutine instructions

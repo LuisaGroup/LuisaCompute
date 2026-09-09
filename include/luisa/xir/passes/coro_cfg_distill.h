@@ -218,6 +218,7 @@ public:
 // including rejected input, and do not participate in the immutable semantic
 // certificate carried by CoroCfgDistillResult.
 struct CoroCfgDistillStats {
+    size_t call_context_state_count{0u};
     size_t value_atom_count{0u};
     size_t scope_count{0u};
     // Sum of each scope's compact active atom domain. The corresponding

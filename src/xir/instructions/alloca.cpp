@@ -7,7 +7,9 @@ AllocaInst::AllocaInst(BasicBlock *parent_block, const Type *type, AllocaOp op) 
     : Super{op, parent_block, type} {}
 
 AllocaInst *AllocaInst::clone(XIRBuilder &b, InstructionCloneValueResolver &resolver) const noexcept {
-    return b.alloca_(type(), op());
+    auto *result = b.alloca_(type(), op());
+    result->set_coro_return_selector(_coro_return_selector);
+    return result;
 }
 
 }// namespace luisa::compute::xir

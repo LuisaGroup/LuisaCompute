@@ -135,7 +135,7 @@ struct ReachingValue {
 
 [[nodiscard]] bool collect_local_state_candidate(
     AllocaInst *alloca, LocalStateCandidate &candidate) noexcept {
-    if (alloca == nullptr || !alloca->is_local() ||
+    if (alloca == nullptr || !alloca->is_local() || alloca->coro_return_selector() != 0u ||
         !has_only_nonsemantic_metadata(*alloca)) {
         return false;
     }

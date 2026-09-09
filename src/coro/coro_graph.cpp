@@ -6,6 +6,7 @@
 #include <luisa/core/stl/format.h>
 #include <luisa/core/stl/memory.h>
 #include <luisa/dsl/coro_frame.h>
+#include <luisa/dsl/sugar.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/coro_cfg_distill.h>
@@ -142,7 +143,7 @@ clone_extensions(const xir::CoroSuspendExtensionOwner &owner) noexcept {
     extensions.reserve(owner.extensions.size());
     for (auto &&extension : owner.extensions) {
         extensions.emplace_back(
-            extension == nullptr ? nullptr : extension->clone());
+            extension == nullptr ? nullptr : extension->clone_logical());
     }
     return extensions;
 }
@@ -189,6 +190,15 @@ const Expression *CoroSlotAccess::_read(CoroFrame &frame) const noexcept {
                  "Coroutine binding read has no frame/type metadata.");
     auto *builder = detail::FunctionBuilder::current();
     auto *result = builder->local(_type);
+    if (!_alternatives.empty()) {
+        builder->assign(result, builder->call(_type, CallOp::UNDEFINED, {}));
+        for (size_t i = 0; i < _alternatives.size(); ++i) {
+            $if (Expr<bool>{_conditions[i]._read(frame)}) {
+                builder->assign(result, _alternatives[i]._read(frame));
+            };
+        }
+        return result;
+    }
     // The materialized pieces form the complete static partition of this
     // binding. Begin the aggregate lifetime without clearing it, then rebuild
     // every semantic leaf from the exact frame projection below.
@@ -235,6 +245,14 @@ void CoroSlotAccess::_write(
                      value->type() == _type,
                  "Coroutine binding write has invalid frame/value metadata.");
     auto *builder = detail::FunctionBuilder::current();
+    if (!_alternatives.empty()) {
+        for (size_t i = 0; i < _alternatives.size(); ++i) {
+            $if (Expr<bool>{_conditions[i]._read(frame)}) {
+                _alternatives[i]._write(frame, value);
+            };
+        }
+        return;
+    }
     for (auto &piece : _pieces) {
         LUISA_ASSERT(
             piece.field_index < frame.desc()->frame_field_count() &&
@@ -307,6 +325,10 @@ void CoroSlotAccess::_write(
 
 [[nodiscard]] luisa::string CoroGraph::dump() const noexcept {
     luisa::string s;
+    for (auto &edge : _call_graph.edges) {
+        s.append(luisa::format("Call function {} -> {} return_site={}\n",
+                               edge.caller, edge.callee, edge.return_site));
+    }
     for (auto &node : _nodes) {
         auto name = node.name.empty() ? luisa::string{"<entry>"} : node.name;
         s.append(luisa::format("Node {} '{}' token={} terminal={}\n",
@@ -532,6 +554,45 @@ void CoroSlotAccess::_write(
                 binding_value->type(), descriptor->access,
                 descriptor->lifetime, std::move(pieces)});
         }
+
+        // Keep the normalized carriers private. The plugin receives exactly
+        // its logical bindings, with direct conditional access to shared slots.
+        auto physical_bindings = boundary.bindings;
+        for (auto &&extension : transition.extension_owner.extensions) {
+            for (auto &&projection : extension->binding_projections()) {
+                auto &descriptor = projection.binding;
+                CoroSlotAccess access;
+                access._access = descriptor.access;
+                access._lifetime = descriptor.lifetime;
+                auto merge = [](auto &to, auto const &from) {
+                    to.insert(to.end(), from.begin(), from.end());
+                    sort_unique(to);
+                };
+                for (auto alternative : projection.alternatives) {
+                    auto &candidate = physical_bindings.at(alternative.value_index);
+                    auto &condition = physical_bindings.at(alternative.condition_index);
+                    LUISA_ASSERT(condition.type() == Type::of<bool>(), "Invalid coroutine alias guard type.");
+                    access._type = candidate.type();
+                    access._alternatives.emplace_back(candidate);
+                    access._conditions.emplace_back(condition);
+                    for (auto *part : {&candidate, &condition}) {
+                        merge(access._use_frame_values, part->_use_frame_values);
+                        merge(access._def_frame_values, part->_def_frame_values);
+                        merge(access._use_slots, part->_use_slots);
+                        merge(access._def_slots, part->_def_slots);
+                        merge(access._rmw_slots, part->_rmw_slots);
+                        merge(access._reconstruct_slots, part->_reconstruct_slots);
+                    }
+                }
+                boundary.bindings[descriptor.index] = std::move(access);
+            }
+        }
+
+        size_t logical_binding_count = 0u;
+        for (auto &extension : boundary.extensions) {
+            for (auto &binding : extension->bindings()) { logical_binding_count = std::max(logical_binding_count, size_t{binding.index} + 1u); }
+        }
+        boundary.bindings.resize(logical_binding_count);
 
         boundary.source_store = make_slot_set(
             transition.store_frame_value_indices, cfg);

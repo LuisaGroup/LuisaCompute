@@ -1449,11 +1449,13 @@ private:
 
     void _translate_switch_stmt(XIRBuilder &b, const SwitchStmt *ast_switch, luisa::span<const Statement *const> cdr) noexcept {
         auto old_break_continue_target = _current.break_continue_target;
-        _current.break_continue_target = {.break_target = nullptr,
-                                          .continue_target = old_break_continue_target.continue_target};
         auto value = _translate_expression(b, ast_switch->expression(), true);
         auto inst = _commented(b.switch_(value));
         auto merge_block = inst->create_merge_block();
+        // Nested conditional breaks leave this switch just like its trailing
+        // case break; continue still targets the enclosing loop.
+        _current.break_continue_target = {.break_target = merge_block,
+                                          .continue_target = old_break_continue_target.continue_target};
         auto case_break_removed = [](auto stmt_span) noexcept {
             while (!stmt_span.empty() &&
                    (stmt_span.back()->tag() == Statement::Tag::BREAK ||

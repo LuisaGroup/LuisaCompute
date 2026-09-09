@@ -74,6 +74,8 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/dom_tree.cpp
         passes/call_graph.cpp
         passes/convergence_region.cpp
+        passes/coro_call.cpp
+        passes/coro_call_alias.cpp
         passes/coro_cfg_distill.cpp
         passes/coro_cfg_dataflow.cpp
         passes/coro_alloca_scope.cpp

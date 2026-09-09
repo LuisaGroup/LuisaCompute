@@ -20,6 +20,10 @@
 
 #include "../pointer_containers.h"
 #include "coro_replayable.h"
+#include "coro_semantic_graph.h"
+#include <luisa/core/stl/map.h>
+#include <luisa/xir/constant.h>
+#include <luisa/xir/instructions/indexed_branch.h>
 
 namespace luisa::compute::xir::detail {
 
@@ -958,6 +962,250 @@ void append_frame_value_indices(
             }
         }
     });
+}
+
+CoroCallContextDataflow analyze_coro_call_contexts(
+    FunctionDefinition *definition, const CoroCfgDistillResult &cfg,
+    const DenseValueDomain &domain, CoroReplayableValueAnalysis &replayable) noexcept {
+    CoroCallContextDataflow result;
+    luisa::unordered_map<Value *, size_t> selectors;
+    for (auto *block : definition->basic_blocks()) {
+        for (auto *inst : block->instructions()) {
+            if (inst->isa<AllocaInst>() && static_cast<AllocaInst *>(inst)->coro_return_selector() != 0u) {
+                selectors.emplace(inst, selectors.size());
+            }
+        }
+    }
+    if (selectors.empty()) { return result; }
+    CoroSemanticGraph graph{definition};
+    LUISA_ASSERT(graph.valid(), "Invalid shared-callable semantic CFG.");
+    struct State {
+        size_t block;
+        luisa::vector<uint32_t> context;
+        luisa::vector<size_t> successors;
+        luisa::vector<size_t> predecessors;
+    };
+    luisa::vector<State> states;
+    using Key = std::pair<size_t, luisa::vector<uint32_t>>;
+    luisa::map<Key, size_t> state_ids;
+    auto intern = [&](size_t block, const luisa::vector<uint32_t> &context) {
+        auto [i, added] = state_ids.emplace(Key{block, context}, states.size());
+        if (added) { states.push_back({block, context, {}, {}}); }
+        return i->second;
+    };
+    intern(graph.block_id(definition->body_block()), luisa::vector<uint32_t>(selectors.size(), 0u));
+    for (size_t id = 0; id < states.size(); ++id) {
+        auto context = states[id].context;
+        auto block_id = states[id].block;
+        auto *block = graph.block(block_id);
+        auto *term = block->terminator();
+        auto *dispatch = term->isa<IndexedBranchInst>() ? static_cast<IndexedBranchInst *>(term) : nullptr;
+        luisa::optional<uint32_t> return_site;
+        for (auto *inst : block->instructions()) {
+            if (inst->isa<LoadInst>()) {
+                auto *load = static_cast<LoadInst *>(inst);
+                if (auto i = selectors.find(load->variable()); i != selectors.end()) {
+                    if (dispatch != nullptr && dispatch->value() == load) { return_site = context[i->second]; }
+                }
+            } else if (inst->isa<StoreInst>()) {
+                auto *store = static_cast<StoreInst *>(inst);
+                if (auto i = selectors.find(store->variable()); i != selectors.end()) {
+                    uint64_t site = 0;
+                    LUISA_ASSERT(try_decode_constant_nonnegative_integer(store->value(), site) && site <= UINT32_MAX,
+                                 "Coroutine return selector requires a constant call site.");
+                    context[i->second] = static_cast<uint32_t>(site);
+                }
+            }
+        }
+        auto append = [&](size_t next_block) {
+            auto next = intern(next_block, context);
+            states[id].successors.emplace_back(next);
+            states[next].predecessors.emplace_back(id);
+        };
+        if (return_site) {
+            auto *target = dispatch->default_block();
+            for (size_t i = 0; i < dispatch->case_count(); ++i) {
+                if (dispatch->case_value(i) == *return_site) {
+                    target = dispatch->case_block(i);
+                    break;
+                }
+            }
+            append(graph.block_id(target));
+        } else {
+            for (auto next : graph.successors(block_id)) { append(next); }
+        }
+    }
+    result.state_count = states.size();
+    auto count = domain.size();
+    luisa::vector<DenseBlockEffect> effects;
+    for (size_t i = 0; i < graph.block_count(); ++i) {
+        PointerScopeDataflowState transfer{domain, replayable};
+        for (auto *inst : graph.block(i)->instructions()) { transfer_instruction(inst, transfer); }
+        auto &effect = effects.emplace_back(count);
+        for (auto atom : transfer.killed) { effect.killed.set(atom); }
+        for (auto atom : transfer.external) { effect.external.set(atom); }
+        for (auto atom : transfer.touched) { effect.touched.set(atom); }
+    }
+    auto transfer_extensions = [&](BasicBlock *block, DenseValueSet live) {
+        auto *term = block->terminator();
+        if (!term->isa<CoroSuspendInst>()) { return live; }
+        auto *suspend = static_cast<CoroSuspendInst *>(term);
+        auto extensions = suspend->extensions();
+        for (size_t reverse = 0; reverse < extensions.size(); ++reverse) {
+            auto &extension = extensions[extensions.size() - 1u - reverse];
+            DenseValueSet uses{count}, defs{count};
+            for (auto &binding : extension->bindings()) {
+                if (binding.lifetime == CoroSuspendBindingLifetime::boundary) { continue; }
+                auto *value = suspend->extension_binding_value(binding.index);
+                if (binding.access == CoroSuspendBindingAccess::read) {
+                    if (auto index = domain.ssa_index(value)) { uses.set(*index); }
+                } else {
+                    for (auto access : domain.memory_accesses(value)) {
+                        defs.set(access.atom_index);
+                        if (binding.access == CoroSuspendBindingAccess::read_write) { uses.set(access.atom_index); }
+                    }
+                }
+            }
+            live.subtract(defs);
+            live.union_with(uses);
+        }
+        return live;
+    };
+    // Compose ordered external stages with the source block once. Each
+    // transfer is distributive: use union (out - kill).
+    for (size_t i = 0; i < graph.block_count(); ++i) {
+        auto *block = graph.block(i);
+        auto extension_input = transfer_extensions(block, DenseValueSet{count});
+        extension_input.subtract(effects[i].killed);
+        effects[i].external.union_with(extension_input);
+        if (auto *term = block->terminator(); term->isa<CoroSuspendInst>()) {
+            auto *suspend = static_cast<CoroSuspendInst *>(term);
+            for (auto &extension : suspend->extensions()) {
+                for (auto &binding : extension->bindings()) {
+                    if (binding.lifetime != CoroSuspendBindingLifetime::boundary && binding.access != CoroSuspendBindingAccess::read) {
+                        for (auto access : domain.memory_accesses(suspend->extension_binding_value(binding.index))) { effects[i].killed.set(access.atom_index); }
+                    }
+                }
+            }
+        }
+    }
+    auto solve = [&](const luisa::vector<uint8_t> &active, bool cut_suspend) {
+        luisa::vector<DenseValueSet> live(states.size(), DenseValueSet{count});
+        luisa::deque<size_t> work;
+        luisa::vector<uint8_t> queued = active;
+        for (size_t i = 0; i < states.size(); ++i) {
+            if (active[i]) { work.emplace_back(i); }
+        }
+        while (!work.empty()) {
+            auto id = work.front();
+            work.pop_front();
+            queued[id] = 0u;
+            auto &state = states[id];
+            auto *block = graph.block(state.block);
+            DenseValueSet next{count};
+            if (!cut_suspend || !block->terminator()->isa<CoroSuspendInst>()) {
+                for (auto successor : state.successors) {
+                    if (active[successor]) { next.union_with(live[successor]); }
+                }
+            }
+            next.subtract(effects[state.block].killed);
+            next.union_with(effects[state.block].external);
+            if (!(next == live[id])) {
+                live[id] = std::move(next);
+                for (auto pred : state.predecessors) {
+                    if (active[pred] && !queued[pred]) {
+                        queued[pred] = 1u;
+                        work.emplace_back(pred);
+                    }
+                }
+            }
+        }
+        if (auto *flag = std::getenv("LUISA_CORO_VERIFY_DENSE_DATAFLOW"); flag != nullptr && luisa::string_view{flag} == "1") {
+            // Independent full-sweep set oracle over the matched state graph.
+            // The legacy scope-only oracle has a different path domain.
+            luisa::vector<luisa::unordered_set<size_t>> oracle(states.size());
+            bool changed;
+            do {
+                changed = false;
+                // States are discovered forward from entry. Sweep backward so
+                // liveness can cross a long call-context path in one round,
+                // instead of advancing only one predecessor per forward sweep.
+                // Every active state is still recomputed until the complete
+                // monotone set equations reach their least fixed point.
+                for (size_t reverse = states.size(); reverse > 0u; --reverse) {
+                    auto id = reverse - 1u;
+                    if (!active[id]) { continue; }
+                    auto &state = states[id];
+                    luisa::unordered_set<size_t> next;
+                    if (!cut_suspend || !graph.block(state.block)->terminator()->isa<CoroSuspendInst>()) {
+                        for (auto successor : state.successors) {
+                            if (active[successor]) { next.insert(oracle[successor].begin(), oracle[successor].end()); }
+                        }
+                    }
+                    effects[state.block].killed.for_each_set_bit([&](size_t atom) { next.erase(atom); });
+                    effects[state.block].external.for_each_set_bit([&](size_t atom) { next.emplace(atom); });
+                    if (!same_set(next, oracle[id])) {
+                        oracle[id] = std::move(next);
+                        changed = true;
+                    }
+                }
+            } while (changed);
+            for (size_t id = 0; id < states.size(); ++id) {
+                LUISA_ASSERT(live[id].count_size() == oracle[id].size(), "Matched coroutine liveness differs from set oracle.");
+                live[id].for_each_set_bit([&](size_t atom) { LUISA_ASSERT(oracle[id].contains(atom), "Matched coroutine liveness atom differs from set oracle."); });
+            }
+        }
+        return live;
+    };
+    auto live = solve(luisa::vector<uint8_t>(states.size(), 1u), false);
+    result.scope_live.assign(cfg.scopes.size(), DenseValueSet{count});
+    result.scope_external.assign(cfg.scopes.size(), DenseValueSet{count});
+    result.edge_target_live.assign(cfg.transition_edges.size(), DenseValueSet{count});
+    for (size_t scope_id = 0; scope_id < cfg.scopes.size(); ++scope_id) {
+        auto &scope = cfg.scopes[scope_id];
+        if (scope.blocks.empty()) { continue; }
+        luisa::vector<uint8_t> member(graph.block_count(), 0u);
+        for (auto *block : scope.blocks) { member[graph.block_id(block)] = 1u; }
+        auto root = graph.block_id(scope.blocks.front());
+        luisa::vector<uint8_t> active(states.size(), 0u);
+        luisa::vector<size_t> reachable;
+        for (size_t i = 0; i < states.size(); ++i) {
+            if (states[i].block == root) {
+                active[i] = 1u;
+                reachable.emplace_back(i);
+                result.scope_live[scope_id].union_with(live[i]);
+            }
+        }
+        for (size_t cursor = 0; cursor < reachable.size(); ++cursor) {
+            auto id = reachable[cursor];
+            auto *block = graph.block(states[id].block);
+            if (block->terminator()->isa<CoroSuspendInst>()) { continue; }
+            for (auto next : states[id].successors) {
+                if (member[states[next].block] && !active[next]) {
+                    active[next] = 1u;
+                    reachable.emplace_back(next);
+                }
+            }
+        }
+        auto external = solve(active, true);
+        for (auto id : reachable) {
+            if (states[id].block == root) { result.scope_external[scope_id].union_with(external[id]); }
+        }
+        for (size_t edge_id = 0; edge_id < cfg.transition_edges.size(); ++edge_id) {
+            auto &edge = cfg.transition_edges[edge_id];
+            if (edge.from_scope != scope_id) { continue; }
+            auto exit = graph.block_id(edge.exit_block);
+            for (auto id : reachable) {
+                if (states[id].block != exit) { continue; }
+                for (auto next : states[id].successors) {
+                    if (edge.is_suspend || !member[states[next].block]) {
+                        result.edge_target_live[edge_id].union_with(live[next]);
+                    }
+                }
+            }
+        }
+    }
+    return result;
 }
 
 }// namespace luisa::compute::xir::detail

@@ -394,9 +394,24 @@ inline void block_barrier() {
     threadgroup_barrier(mem_flags::mem_threadgroup);
 }
 
-#define LC_AS_ATOMIC(addr_space, type)                           \
-    [[nodiscard]] inline auto as_atomic(addr_space type &a) {    \
-        return reinterpret_cast<addr_space atomic_##type *>(&a); \
+template<typename T>
+[[nodiscard]] inline device T *lc_atomic_address(device T *p) { return p; }
+
+template<typename T>
+[[nodiscard]] inline threadgroup T *lc_atomic_address(threadgroup T *p) {
+    // Apple Metal can miscompile a divergent loop's result when it feeds a
+    // threadgroup atomic address: ordinary stores keep the per-lane index,
+    // but atomic updates use the wrong bucket (or fail to reconverge).
+    // Materialize the address in each thread before the atomic. This is a
+    // private pointer, not volatile shared storage or a synchronization fence.
+    // Covered by shared_atomic_address_after_divergent_loop in test_atomic.
+    threadgroup T *volatile address = p;
+    return address;
+}
+
+#define LC_AS_ATOMIC(addr_space, type)                                              \
+    [[nodiscard]] inline auto as_atomic(addr_space type &a) {                       \
+        return lc_atomic_address(reinterpret_cast<addr_space atomic_##type *>(&a)); \
     }
 LC_AS_ATOMIC(device, int)
 LC_AS_ATOMIC(device, uint)

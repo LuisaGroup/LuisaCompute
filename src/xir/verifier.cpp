@@ -809,6 +809,33 @@ template<typename Enum>
                     return false;
                 }
             }
+            luisa::unordered_set<uint32_t> projection_support;
+            luisa::unordered_set<luisa::string_view> logical_names;
+            for (auto &projection : extension->binding_projections()) {
+                auto &logical = projection.binding;
+                if (logical.name.empty() || !logical_names.emplace(logical.name).second ||
+                    static_cast<uint8_t>(logical.access) > 2u || static_cast<uint8_t>(logical.lifetime) > 2u ||
+                    projection.alternatives.empty() || projection.alternatives.front().value_index != logical.index) { return false; }
+                const Type *type = nullptr;
+                for (auto alternative : projection.alternatives) {
+                    auto matches = [&](uint32_t index, CoroSuspendBindingAccess access) {
+                        return std::any_of(extension->bindings().begin(), extension->bindings().end(), [&](auto &b) {
+                            return b.index == index && b.access == access && b.lifetime == logical.lifetime;
+                        });
+                    };
+                    if (!projection_support.emplace(alternative.value_index).second ||
+                        !projection_support.emplace(alternative.condition_index).second ||
+                        !matches(alternative.value_index, CoroSuspendBindingAccess::read_write) ||
+                        !matches(alternative.condition_index, CoroSuspendBindingAccess::read)) { return false; }
+                    auto *value = suspend->extension_binding_value(alternative.value_index);
+                    auto *guard = suspend->extension_binding_value(alternative.condition_index);
+                    if (guard->type() != Type::of<bool>() || (type != nullptr && value->type() != type)) { return false; }
+                    type = value->type();
+                }
+            }
+            for (auto &binding : extension->bindings()) {
+                if (!projection_support.contains(binding.index) && !logical_names.emplace(binding.name).second) { return false; }
+            }
             luisa::unordered_set<luisa::string_view> attribute_names;
             for (auto &&attribute : extension->attributes()) {
                 if (attribute.name.empty() ||
@@ -824,6 +851,10 @@ template<typename Enum>
         // cannot be checked by the legacy generic coroutine rule, which
         // assumes that every trailing operand is an rvalue.
         return true;
+    }
+    if (tag == DerivedInstructionTag::ALLOCA) {
+        auto *alloca = static_cast<const AllocaInst *>(instruction);
+        if (alloca->coro_return_selector() != 0u && (!alloca->is_local() || alloca->type() != Type::of<uint32_t>())) { return false; }
     }
     auto bindless_access = [&]() noexcept {
         switch (tag) {

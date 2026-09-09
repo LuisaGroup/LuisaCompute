@@ -19,6 +19,7 @@
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/coro_alloca_scope.h>
 #include <luisa/xir/passes/coro_cfg_distill.h>
+#include <luisa/xir/passes/coro_call.h>
 #include <luisa/xir/passes/coro_materialize.h>
 #include <luisa/xir/passes/coro_rematerialize.h>
 #include <luisa/xir/passes/coro_reg2mem.h>
@@ -756,6 +757,8 @@ CoroutineCompileResult compile_coroutine_pipeline(
                    promoted_ref_args.promoted_ref_arg_count);
     }
     profiler.checkpoint("ordinary callable reference promotion");
+    auto call_info = xir::coro_call_pass_run_on_function(coro_func);
+    profiler.checkpoint("shared callable lowering");
     auto ordinary_callable_snapshots =
         verify_coro_pass_domain_enabled() ?
             snapshot_ordinary_callables(module.get(), coro_func) :
@@ -787,6 +790,12 @@ CoroutineCompileResult compile_coroutine_pipeline(
         verify_ordinary_callables_unchanged(
             ordinary_callable_snapshots, "pre-distill optimization");
     }
+    if (call_info.callable_count != 0u) {
+        // A shared callee can be re-entered after a resume in the same scope.
+        // Give cross-block values explicit storage so a live-in reload does
+        // not replace the next invocation's recomputation of that definition.
+        xir::coro_call_demote_cross_block_values(coro_func);
+    }
     pre_distill_stats.log("Coroutine pre-distill optimization");
     profiler.checkpoint("pre-distill optimization");
     if (verify_intermediate_xir) {
@@ -803,10 +812,13 @@ CoroutineCompileResult compile_coroutine_pipeline(
             coro_func->parent_module() == module.get(),
         "Coroutine source definition was lost during pre-distill optimization.");
 
+    xir::CoroCfgDistillStats call_stats;
     auto cfg = xir::coro_cfg_distill_pass_run_on_function(
         coro_func,
         {.verification_transaction =
-             nested_pass_verification_transaction});
+             nested_pass_verification_transaction,
+         .stats = &call_stats});
+    call_info.graph.analysis_state_count = call_stats.call_context_state_count;
     nested_pass_boundary_verifier_count +=
         cfg.boundary_verifier_count;
     if (!ordinary_callable_snapshots.empty()) {
@@ -917,6 +929,14 @@ CoroutineCompileResult compile_coroutine_pipeline(
             subroutine.callable);
     }
     profiler.checkpoint("continuation destructuring");
+    if (call_info.callable_count != 0u) {
+        for (auto &subroutine : split_info.subroutines) {
+            xir::coro_call_structure_continuation(subroutine.callable);
+            (void)xir::dce_pass_run_on_function(subroutine.callable);
+        }
+        verify_coro_xir_or_error(module.get(), "shared continuation dispatch");
+    }
+
     // Splitting at a suspend boundary can cut paths inside an otherwise
     // reducible source loop. A continuation scope may consequently contain a
     // residual cyclic SCC with several entry nodes even though the original
@@ -925,6 +945,7 @@ CoroutineCompileResult compile_coroutine_pipeline(
     // entry edge through a selector and one dispatcher; it never clones the
     // shader body and therefore has linear CFG/code-size cost.
     for (auto &subroutine : split_info.subroutines) {
+        if (call_info.callable_count != 0u) { continue; }
         auto irreducible_info =
             xir::lower_irreducible_cfg_pass_run_on_function(
                 subroutine.callable,
@@ -946,6 +967,7 @@ CoroutineCompileResult compile_coroutine_pipeline(
         environment_flag_enabled(
             "LUISA_XIR_VERIFY_REMAINING_DIVERGENT_INDEX");
     for (auto &subroutine : split_info.subroutines) {
+        if (call_info.callable_count != 0u) { continue; }
         auto restructure_info =
             xir::restructure_cfg_pass_run_on_function(
                 subroutine.callable,
@@ -1119,6 +1141,7 @@ CoroutineCompileResult compile_coroutine_pipeline(
     // DCE/SROA/restructuring.
     result.graph = coro::CoroGraph::from_module(
         *module, materialize_info, cfg, split_info);
+    result.graph.set_call_graph(std::move(call_info.graph));
     profiler.checkpoint("graph transport metadata");
     // Keep continuation code and its routing token as one atomic relation.
     // Silently skipping a failed XIR->AST translation and then independently

@@ -1,15 +1,23 @@
 // A selection merge must be inferred in a graph whose loop scopes are known.
 // Reduced from the native SPIR-V coroutine continuation of a surface shader.
 #include "ut/ut.hpp"
+#include "xir_cfg_test_utils.h"
 
 #include <luisa/ast/type_registry.h>
+#include <luisa/core/logging.h>
+
 #include <luisa/xir/builder.h>
 #include <luisa/xir/module.h>
+#include <luisa/xir/passes/dom_tree.h>
 #include <luisa/xir/passes/restructure_cfg.h>
 #include <luisa/xir/translators/xir_interchange.h>
 #include <luisa/xir/verifier.h>
 
 #include <array>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <string>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -95,23 +103,17 @@ int main(int argc, char *argv[]) {
                     expect(verification.succeeded())
                         << (verification.errors.empty() ? "" :
                                                           verification.errors.front().message.c_str());
-                    // A canonical Loop.prepare is deliberately a raw binary
-                    // guard; the blanket no-raw-CFG verifier rejects that legal
-                    // XIR representation too. Check the precise output contract.
+                    // Raw conditionals are legal loop prepares or direct
+                    // exits through an enclosing construct's boundary. Check
+                    // that ownership explicitly instead of requiring an extra
+                    // If/selector around an already structured transfer.
+                    auto dominance = compute_dom_tree(kernel);
                     for (auto *block : kernel->basic_blocks()) {
                         auto *term = block->terminator();
                         expect(!term->isa<IndexedBranchInst>());
                         if (!term->isa<ConditionalBranchInst>()) { continue; }
-                        auto *guard = static_cast<ConditionalBranchInst *>(term);
-                        auto canonical_prepare = false;
-                        for (auto *owner : kernel->basic_blocks()) {
-                            if (!owner->terminator()->isa<LoopInst>()) { continue; }
-                            auto *loop = static_cast<LoopInst *>(owner->terminator());
-                            canonical_prepare |= loop->prepare_block() == block &&
-                                                 guard->true_block() == loop->body_block() &&
-                                                 guard->false_block() == loop->merge_block();
-                        }
-                        expect(canonical_prepare);
+                        expect(luisa::test::raw_conditional_has_structured_owner(
+                            kernel, static_cast<ConditionalBranchInst *>(term), dominance));
                     }
                     if (info.succeeded()) {
                         auto again = restructure_cfg_pass_run_on_function(
@@ -124,7 +126,7 @@ int main(int argc, char *argv[]) {
         }
     };
 
-    "crossing_declared_loop_epochs_fail_without_unbounded_exit_growth"_test = [] {
+    "crossing_declared_loop_epochs_restructure_without_unbounded_exit_growth"_test = [] {
         for (auto mutation : {RestructureCFGMutationMode::TRANSACTIONAL,
                               RestructureCFGMutationMode::IN_PLACE_DISCARDABLE}) {
             Module module;
@@ -191,20 +193,101 @@ int main(int argc, char *argv[]) {
                 b.unreachable_();
             }
             expect(xir_verify_module(&module).succeeded());
-            auto before = xir_to_interchange_text(&module);
-            expect(before.succeeded());
             auto info = restructure_cfg_pass_run_on_function(
                 kernel, {.mutation_mode = mutation});
-            expect(!info.succeeded());
-            expect(info.invalid_construct_count != 0u);
-            expect(info.iteration_limit_count == 0u)
-                << "reject a repeated hierarchy obligation, not a time/iteration budget";
-            if (mutation == RestructureCFGMutationMode::TRANSACTIONAL) {
-                expect(!info.changed());
-                auto after = xir_to_interchange_text(&module);
-                expect(after.succeeded());
-                expect(before.text == after.text);
+            // This input is valid XIR with inconsistent region annotations.
+            // Its former rejection was the repeated-obligation guard firing,
+            // not a required pass outcome. The finite counterpart in
+            // crossing_loop_epochs_preserve_bounded_execution checks complete
+            // store sequences for this same crossing declaration. Keep this
+            // original infinite-loop shape as a convergence/structure check.
+            expect(info.succeeded());
+            expect(info.invalid_construct_count == 0u);
+            expect(info.unstructured_branch_count == 0u);
+            expect(info.iteration_limit_count == 0u);
+            auto verification = xir_verify_module(
+                &module, {.require_no_phi = true,
+                          .require_unique_merge_blocks = true,
+                          .require_canonical_break_continue_targets = true});
+            expect(verification.succeeded())
+                << (verification.errors.empty() ? "" :
+                                                  verification.errors.front().message.c_str());
+            if (info.succeeded()) {
+                auto record_graph = [&](uint32_t invocation, const RestructureCFGInfo &stats) {
+                    auto graph = xir_to_interchange_text(&module);
+                    expect(graph.succeeded());
+                    if (auto *directory = std::getenv("LUISA_XIR_CFG_TEST_DUMP_DIR")) {
+                        std::filesystem::create_directories(directory);
+                        auto mode_name = mutation == RestructureCFGMutationMode::TRANSACTIONAL ? "transactional" : "in-place";
+                        auto filename = std::string{"crossing-epochs-"} + mode_name + "-pass-" + std::to_string(invocation) + ".xir";
+                        std::ofstream file{std::filesystem::path{directory} / filename};
+                        file << graph.text;
+                        expect(file.good());
+                        LUISA_INFO(
+                            "crossing epochs {} invocation {}: loops={}, ifs={}, switches={}, canonicalized={}.",
+                            mode_name, invocation, stats.restructured_loop_count,
+                            stats.restructured_if_count, stats.restructured_switch_count,
+                            stats.canonicalized_cfg_count);
+                    }
+                    return graph;
+                };
+                auto previous = record_graph(1u, info);
+                for (auto invocation = 2u; invocation <= 4u; ++invocation) {
+                    auto again = restructure_cfg_pass_run_on_function(
+                        kernel, {.mutation_mode = mutation});
+                    expect(again.succeeded());
+                    expect(!again.changed()) << "invocation=" << invocation;
+                    expect(again.iteration_limit_count == 0u);
+                    auto current = record_graph(invocation, again);
+                    auto identical = current.text == previous.text;
+                    expect(identical) << "public-pass fixed point invocation=" << invocation;
+                    previous = std::move(current);
+                }
             }
+        }
+    };
+    "conditional_latch_preserves_both_exit_payloads"_test = [] {
+        for (auto mutation : {RestructureCFGMutationMode::TRANSACTIONAL,
+                              RestructureCFGMutationMode::IN_PLACE_DISCARDABLE}) {
+            Module module;
+            auto *kernel = module.create_kernel();
+            auto *output = kernel->create_reference_argument(Type::of<uint>());
+            auto *first = kernel->create_value_argument(Type::of<bool>());
+            auto *second = kernel->create_value_argument(Type::of<bool>());
+            auto *entry = kernel->create_body_block();
+            auto *header = kernel->create_basic_block();
+            auto *latch = kernel->create_basic_block();
+            auto *left = kernel->create_basic_block();
+            auto *right = kernel->create_basic_block();
+            auto *exit = kernel->create_basic_block();
+            XIRBuilder b;
+            b.set_insertion_point(entry);
+            b.br(header);
+            b.set_insertion_point(header);
+            b.cond_br(first, left, latch);
+            b.set_insertion_point(latch);
+            b.cond_br(second, right, header);
+            b.set_insertion_point(left);
+            auto *left_store = b.store(output, module.create_constant_zero(Type::of<uint>()));
+            b.br(exit);
+            b.set_insertion_point(right);
+            auto *right_store = b.store(output, module.create_constant_one(Type::of<uint>()));
+            b.br(exit);
+            b.set_insertion_point(exit);
+            b.return_void();
+            auto info = restructure_cfg_pass_run_on_function(kernel, {.mutation_mode = mutation});
+            expect(info.succeeded());
+            bool left_reachable = false, right_reachable = false;
+            kernel->traverse_basic_blocks([&](BasicBlock *block) {
+                for (auto *inst : block->instructions()) {
+                    left_reachable |= inst == left_store;
+                    right_reachable |= inst == right_store;
+                }
+            });
+            expect(left_reachable && right_reachable) << "loop recovery must preserve both exit stores";
+            expect(xir_verify_module(&module, {.require_unique_merge_blocks = true,
+                                               .require_canonical_break_continue_targets = true})
+                       .succeeded());
         }
     };
 }

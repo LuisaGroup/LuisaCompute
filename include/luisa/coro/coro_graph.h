@@ -6,6 +6,7 @@
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/ast/coro_suspend.h>
+#include <luisa/ast/coro_call.h>
 #include <luisa/coro/coro_slot_access.h>
 
 namespace luisa::compute::xir {
@@ -127,6 +128,7 @@ public:
     };
 
 private:
+    CoroCallGraph _call_graph;
     luisa::vector<Node> _nodes;
     luisa::vector<Edge> _edges;
     luisa::vector<Boundary> _boundaries;
@@ -142,6 +144,12 @@ public:
     CoroGraph &operator=(const CoroGraph &) = delete;
     CoroGraph(CoroGraph &&) noexcept = default;
     CoroGraph &operator=(CoroGraph &&) noexcept = default;
+
+    // Call/return edges are internal execution transfers, not queue yields.
+    // They retain static function identity even though scheduler nodes are
+    // still indexed only by actual suspend/resume tokens.
+    [[nodiscard]] const CoroCallGraph &call_graph() const noexcept { return _call_graph; }
+    void set_call_graph(CoroCallGraph graph) noexcept { _call_graph = std::move(graph); }
 
     // --- Accessors ---
 

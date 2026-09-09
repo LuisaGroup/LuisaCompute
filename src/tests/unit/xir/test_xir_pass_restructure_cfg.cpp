@@ -1,6 +1,7 @@
 // Test for reconstructing structured XIR control flow from explicit CFGs.
 
 #include "ut/ut.hpp"
+#include "xir_cfg_test_utils.h"
 #include <luisa/luisa-compute.h>
 #include <luisa/ast/type_registry.h>
 #include <luisa/xir/basic_block.h>
@@ -3822,36 +3823,42 @@ void reg_restructure_cfg() {
         Module m;
         auto *f = m.create_callable(Type::of<int>());
         auto *body = f->create_body_block();
-        auto *condition =
-            f->create_value_argument(Type::of<bool>());
-        auto *true_return = f->create_basic_block();
-        auto *false_return = f->create_basic_block();
+        auto *selector =
+            f->create_value_argument(Type::of<uint32_t>());
+        auto *shared_return = f->create_basic_block();
         XIRBuilder b;
 
         b.set_insertion_point(body);
-        auto *selection = b.if_(condition);
-        auto *true_path = selection->create_true_block();
-        auto *false_path = selection->create_false_block();
-        auto *unreachable_merge = selection->create_merge_block();
+        auto *selection = b.switch_(selector);
+        auto *value_path = selection->create_case_block(1u);
+        auto *alternative_path = selection->create_case_block(2u);
+        auto *default_path = selection->create_default_block();
+        auto *merge = selection->create_merge_block();
         auto *one = m.create_constant_one(Type::of<int>());
-        b.set_insertion_point(true_path);
+        b.set_insertion_point(value_path);
         auto *path_value = b.call(
             Type::of<int>(), ArithmeticOp::BINARY_ADD,
             {one, one});
-        b.br(true_return);
-        b.set_insertion_point(false_path);
-        b.br(false_return);
-        b.set_insertion_point(unreachable_merge);
-        b.unreachable_();
-        b.set_insertion_point(true_return);
+        b.br(merge);
+        b.set_insertion_point(alternative_path);
+        b.br(shared_return);
+        b.set_insertion_point(default_path);
+        b.br(shared_return);
+        b.set_insertion_point(merge);
         auto *path_return = b.return_(path_value);
-        b.set_insertion_point(false_return);
+        b.set_insertion_point(shared_return);
         b.return_(m.create_constant_zero(Type::of<int>()));
 
+        // The value path originally dominates its merge. A return shared by
+        // the other two arms forms a real non-local exit; the resulting
+        // multi-target dispatch destroys that dominance and must carry the
+        // value through a typed spill until mem2reg can promote it again.
         expect(xir_verify_module(&m).succeeded());
         auto info = restructure_cfg_pass_run_on_function(f);
         expect(info.succeeded());
         expect(info.unstructured_branch_count == 0u);
+        expect(info.selection_exit_ssa_repair_request_count >= 1u);
+        expect(info.selection_exit_ssa_repaired_value_count == 1u);
         auto spills = audit_reg2mem_spills_on_function(f);
         expect(spills.remaining_phi_spill_count == 0u);
         expect(spills.remaining_cross_block_spill_count == 1u);
@@ -3873,19 +3880,20 @@ void reg_restructure_cfg() {
         Module m;
         auto *f = m.create_callable(Type::of<int>());
         auto *body = f->create_body_block();
-        auto *selector =
+        auto *first_selector =
             f->create_value_argument(Type::of<uint32_t>());
-        auto *first_return = f->create_basic_block();
-        auto *first_alternative_return = f->create_basic_block();
-        auto *second_return = f->create_basic_block();
-        auto *second_alternative_return = f->create_basic_block();
+        auto *second_selector =
+            f->create_value_argument(Type::of<uint32_t>());
+        auto *output = f->create_reference_argument(Type::of<int>());
+        auto *first_shared_return = f->create_basic_block();
+        auto *second_shared_return = f->create_basic_block();
         XIRBuilder b;
         auto *one = m.create_constant_one(Type::of<int>());
         auto *zero = m.create_constant_zero(Type::of<int>());
 
         b.set_insertion_point(body);
-        auto *first = b.switch_(selector);
-        auto *first_fallthrough = first->create_default_block();
+        auto *first = b.switch_(first_selector);
+        auto *first_default_arm = first->create_default_block();
         auto *first_value_arm = first->create_case_block(1u);
         auto *first_alternative_arm = first->create_case_block(2u);
         auto *first_merge = first->create_merge_block();
@@ -3893,15 +3901,16 @@ void reg_restructure_cfg() {
         auto *first_value = b.call(
             Type::of<int>(), ArithmeticOp::BINARY_ADD,
             {one, one});
-        b.br(first_return);
-        b.set_insertion_point(first_alternative_arm);
-        b.br(first_alternative_return);
-        b.set_insertion_point(first_fallthrough);
         b.br(first_merge);
+        b.set_insertion_point(first_alternative_arm);
+        b.br(first_shared_return);
+        b.set_insertion_point(first_default_arm);
+        b.br(first_shared_return);
 
         b.set_insertion_point(first_merge);
-        auto *second = b.switch_(selector);
-        auto *second_fallthrough = second->create_default_block();
+        auto *first_value_store = b.store(output, first_value);
+        auto *second = b.switch_(second_selector);
+        auto *second_default_arm = second->create_default_block();
         auto *second_value_arm = second->create_case_block(1u);
         auto *second_alternative_arm = second->create_case_block(2u);
         auto *second_merge = second->create_merge_block();
@@ -3909,23 +3918,25 @@ void reg_restructure_cfg() {
         auto *second_value = b.call(
             Type::of<int>(), ArithmeticOp::BINARY_ADD,
             {one, one});
-        b.br(second_return);
-        b.set_insertion_point(second_alternative_arm);
-        b.br(second_alternative_return);
-        b.set_insertion_point(second_fallthrough);
         b.br(second_merge);
+        b.set_insertion_point(second_alternative_arm);
+        b.br(second_shared_return);
+        b.set_insertion_point(second_default_arm);
+        b.br(second_shared_return);
         b.set_insertion_point(second_merge);
-        b.return_(zero);
-
-        b.set_insertion_point(first_return);
-        auto *first_value_return = b.return_(first_value);
-        b.set_insertion_point(first_alternative_return);
-        b.return_(zero);
-        b.set_insertion_point(second_return);
         auto *second_value_return = b.return_(second_value);
-        b.set_insertion_point(second_alternative_return);
+
+        b.set_insertion_point(first_shared_return);
+        b.return_(zero);
+        b.set_insertion_point(second_shared_return);
         b.return_(zero);
 
+        // Each original merge has only the value arm as a predecessor, so
+        // these uses are dominated without PHIs. The other two arms converge
+        // at a shared return outside either arm. Repairing that genuine exit
+        // cut routes both the shared return and the declared merge through a
+        // selector, which removes value-arm dominance and requires SSA repair.
+        // Private terminal blocks, by contrast, must remain inside their arm.
         expect(xir_verify_module(&m).succeeded());
         auto info = restructure_cfg_pass_run_on_function(f);
         expect(info.succeeded());
@@ -3939,7 +3950,7 @@ void reg_restructure_cfg() {
         expect(info.selection_exit_ssa_repaired_value_count >= 2u);
         auto spills = audit_reg2mem_spills_on_function(f);
         expect(spills.remaining_cross_block_spill_count == 2u);
-        expect(first_value_return->return_value()->isa<LoadInst>());
+        expect(first_value_store->value()->isa<LoadInst>());
         expect(second_value_return->return_value()->isa<LoadInst>());
         expect(xir_verify_module(
                    &m, {.require_unique_merge_blocks = true})
@@ -5393,9 +5404,13 @@ void reg_restructure_cfg() {
         expect(count_terminator_kind(
                    k->definition(),
                    DerivedInstructionTag::SWITCH) == 1u);
-        expect(count_terminator_kind(
-                   k->definition(),
-                   DerivedInstructionTag::CONDITIONAL_BRANCH) == 0u);
+        auto dominance = compute_dom_tree(k);
+        k->definition()->traverse_basic_blocks([&](BasicBlock *block) noexcept {
+            if (auto *term = block->terminator(); term->isa<ConditionalBranchInst>()) {
+                expect(luisa::test::raw_conditional_has_structured_owner(
+                    k, static_cast<ConditionalBranchInst *>(term), dominance));
+            }
+        });
         auto block_count = size_t{0u};
         k->definition()->traverse_basic_blocks(
             [&](BasicBlock *) noexcept { ++block_count; });
@@ -5418,7 +5433,7 @@ void reg_restructure_cfg() {
             << rerun_block_count << ")";
         expect(xir_verify_module(
                    &m,
-                   {.require_no_unstructured_control_flow = true,
+                   {.require_no_phi = true,
                     .require_unique_merge_blocks = true,
                     .require_canonical_break_continue_targets =
                         true})

@@ -49,6 +49,18 @@ struct CoroSuspendBinding {
     uint32_t index{0u};
 };
 
+// Compiler-owned alias projection. Conditions and candidate values refer to
+// normalized owner bindings; the scheduler sees the original logical binding.
+struct CoroSuspendBindingProjection {
+    struct Alternative {
+        uint32_t value_index{0u};
+        uint32_t condition_index{0u};
+        bool operator==(const Alternative &) const noexcept = default;
+    };
+    CoroSuspendBinding binding;
+    luisa::vector<Alternative> alternatives;
+};
+
 class CoroSuspendExtension;
 using CoroSuspendExtensionPtr = luisa::unique_ptr<CoroSuspendExtension>;
 
@@ -82,6 +94,11 @@ public:
     [[nodiscard]] virtual luisa::span<const CoroSuspendAttribute>
     attributes() const noexcept = 0;
 
+    [[nodiscard]] virtual luisa::span<const CoroSuspendBindingProjection>
+    binding_projections() const noexcept { return {}; }
+    [[nodiscard]] virtual CoroSuspendExtensionPtr clone_logical() const noexcept {
+        return clone();
+    }
     [[nodiscard]] virtual CoroSuspendExtensionPtr clone() const noexcept = 0;
     [[nodiscard]] virtual CoroSuspendExtensionPtr freeze(
         CoroSuspendExtensionRecorder &recorder) && noexcept = 0;
@@ -91,6 +108,15 @@ class LUISA_AST_API CoroSuspendAnnotation : public CoroSuspendExtension {
 public:
     [[nodiscard]] bool is_annotation() const noexcept final { return true; }
 };
+
+// Wrap a logical extension with compiler-owned finite alias projections. The
+// normalized bindings describe complete read/modify/write carrier effects;
+// clone_logical restores the plugin schema without exposing compiler bindings.
+[[nodiscard]] LUISA_AST_API CoroSuspendExtensionPtr
+make_coro_suspend_projected_extension(
+    CoroSuspendExtensionPtr logical,
+    luisa::vector<CoroSuspendBinding> physical_bindings,
+    luisa::vector<CoroSuspendBindingProjection> projections) noexcept;
 
 // Construct normalized, data-backed representations. Attribute order is
 // canonicalized and the complete object is independent of the source plugin.
