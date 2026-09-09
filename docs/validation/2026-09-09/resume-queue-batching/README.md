@@ -107,3 +107,66 @@ ca904d40c0af65b8940f3c85ed860c6839991103739b1418eef046bd13076693  frozen libluis
 bbf767982507a1548bda4b01a7004d3fd3f84c90c7d59d8338c89859a578456d  complete batching fallback log
 5886762c9f1b5aaa31d3bcb137946002822ac92a890dcae0bbb4a32e6b701d02  complete batching native Vulkan log
 ```
+
+## Fresh upstream integration and actual relocation follow-up
+
+The historical baseline above remains frozen. A later complete, all-32-thread
+Psycles build rebuilt the actual nested SDK at
+`98f4667ca678a3a1425ff4467e0d7803a0a0d12e`, including newer upstream CFG and
+coroutine changes. Nineteen standalone permanent-test executables were then
+built using only that checkout's headers and its newly built matching
+`build/bin` libraries. No old isolated-worktree headers or ABI overlays were
+used. Evidence and reproducible CMake runner:
+`/var/tmp/psycles-holdout-CXlJR7/next-integration-YpUTb4/sdk-regression`.
+
+The scheduler campaign includes the thirteen original scheduler executables,
+plus auxiliary admission, resume batching, guarded binding metadata, packed
+words, read-only forwarding and shared callables. Seventeen complete binaries
+exercise each runtime backend; scheduler base, guarded bindings and the
+explicitly filtered batching metadata case also have three host-only CTests.
+
+The batching test now distinguishes a compaction *policy* from proof that
+relocation executed. Its no-refill matrix covers full gather and incremental
+separate/fused publication, including fused publication with compaction
+enabled. A separate nineteen-input, capacity-fifteen case creates four holes
+while both compatible target entries are queued. Refill moves four target
+frames into those holes before the joint sort. The real Handler's observed
+queue must contain exactly the eight expected physical slots once each, then
+produce one complete key-sorted target launch. Original-ID outputs check every
+path's transported payload and completion. All four AoS/SoA by separate/fused
+cases require positive `compact_scan_count`; the observed value is four.
+The queue readback is test-only and changes no production scheduling path.
+
+| Fresh integration check | Result |
+|---|---|
+| Nineteen targets, all 32 build threads | Green |
+| Three host CTests | Green; scheduler 39, guarded 34, metadata 18 assertions |
+| Initial complete HIP campaign | Green: 17/17 CTests; 162 unit cases, 21,051 assertions |
+| Expanded batching complete HIP follow-up | Green: 6 cases, 663 assertions, including actual relocation |
+| Complete fallback campaign, expanded batching included | Green: 17/17 CTests; 163 cases, 21,349 assertions |
+| Complete strict native Vulkan campaign, expanded batching included | Green: 17/17 CTests; 163 cases, 21,349 assertions |
+
+There are no skips in the completed runtime campaigns. The initial HIP
+batching binary and its source/library manifests are retained separately as
+`*.pre-relocation`; the later test-only expansion does not overwrite that
+earlier evidence. All runtime checks retain queue verification and loader
+tracing. Native Vulkan used all three XIR/native-SPIR-V/no-DXC guards. Its
+seventeen complete logs contain 1,023 successful SPIR-V compilations and no
+DXC/DXIL library references. Loader traces initialize the actual newly built
+coroutine, XIR and Vulkan libraries; their SHA-256 identities still match the
+configuration manifest. The four actual-relocation cases again report
+`compact_scan=4`, with compatible source routes aliasing one representative.
+The native CTest campaign completed in 20.55 seconds. These tests establish
+correctness coverage, not rendering performance.
+
+```text
+cd82440e134958baca557eb886b7b99f0fc0288292bb22274c9c0f1cedb3967e  fresh libluisa-coro.so
+4a2c5092a4b1b7e44cc4846d82bcf502cd9e3e231807f9c15bf05f8767f1f98b  fresh libluisa-xir.so
+02c19d3767cf71c541b53404f43139292d3c93d1918df817de4eb68427ebc636  fresh libluisa-backend-vk.so
+0d59a6928e9466f1e1d90c68489c71b56de865a5d49e985096a778447e3a2f7b  expanded batching source
+42acea10e9b153c10143045042544d91e07cab7555e85b69d24c0249e1b8473e  expanded batching executable
+ddba66b3580dce1a7912980ce22fe3fbc6fd977b4e6a1c27b38bf85861f0ce1b  initial complete HIP CTest log
+af3c7ab5f87fb1d00b9bd877bfb93f79e56d89d30338335a7209eaf9f9157372  expanded batching HIP CTest log
+cfe1f60825bb400a8c8e312e1400acd17914cbe08efc834083dfd47ae41b337e  complete fallback CTest log
+207e77b4c9d510564dca3a7c8d038f3d711b2312504c900eb4a1d3bcee551c0a  complete strict native Vulkan CTest log
+```

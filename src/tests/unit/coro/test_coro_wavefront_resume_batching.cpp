@@ -17,6 +17,8 @@ namespace {
 struct Observations {
     vector<uint> ranked_counts;
     uint prefix_visits{};
+    bool capture_first_rank_slots{};
+    vector<uint> first_rank_slots;
 };
 
 // Tiny deterministic rank, not a second production sorting implementation.
@@ -68,6 +70,11 @@ class Rank final : public WavefrontCoroSchedulerExtensionHandler {
     [[nodiscard]] BufferView<uint>
     dispatch_queue(const WavefrontCoroExtensionDispatchContext &context) noexcept override {
         _observations->ranked_counts.emplace_back(context.frame_count);
+        if (_observations->capture_first_rank_slots && _observations->first_rank_slots.empty()) {
+            _observations->first_rank_slots.resize(context.frame_count);
+            context.stream << context.frame_indices.copy_to(span{_observations->first_rank_slots})
+                           << synchronize();
+        }
         context.stream << _shader(context.frame_buffer, context.frame_indices,
                                   context.frame_capacity, context.frame_count)
                               .dispatch(context.frame_count);
@@ -123,8 +130,9 @@ struct CountMode {
 
 constexpr std::array count_modes{
     CountMode{false, false, false}, // Full queue snapshot/count/gather.
-    CountMode{true, false, true},   // Separate publication and relocation.
-    CountMode{true, true, false}};  // Fused publication, no relocation.
+    CountMode{true, false, true},   // Separate publication, compact policy.
+    CountMode{true, true, false},   // Fused publication, no relocation.
+    CountMode{true, true, true}};   // Fused publication, compact policy.
 
 // Public CoroGraph records can be copied as metadata fixtures without mutating
 // the source Coroutine or inventing its private typed slot projections.
@@ -182,8 +190,9 @@ void set_threshold(CoroGraph::Boundary &boundary, double threshold) {
 
 void run_case(const luisa::test::coro_test::Options &options, Permission permission,
               uint visits, bool prefix, bool soa,
-              CountMode mode = {true, true, false}) {
-    constexpr uint N = 15u, target_population = 8u;
+              CountMode mode = {true, true, false}, bool refill = false) {
+    constexpr uint capacity = 15u, target_population = 8u;
+    const uint N = capacity + (refill ? 4u : 0u);
     auto dc = luisa::test::coro_test::create_device(options);
     auto &device = dc.device;
     auto stream = device.create_stream();
@@ -191,8 +200,9 @@ void run_case(const luisa::test::coro_test::Options &options, Permission permiss
     auto output = device.create_buffer<uint>(N);
     auto ordered = device.create_buffer<uint>(target_population);
     auto observations = make_shared<Observations>();
+    observations->capture_first_rank_slots = refill;
     Coroutine<void(Buffer<uint>, Buffer<uint>, Buffer<uint>)> coro{
-        [prefix, N](BufferUInt inputs, BufferUInt result, BufferUInt order) {
+        [prefix, N, refill](BufferUInt inputs, BufferUInt result, BufferUInt order) {
             auto route = inputs.read(dispatch_x());
             auto limit = inputs.read(N);
             UInt state = route * 7u + 3u;
@@ -215,7 +225,13 @@ void run_case(const luisa::test::coro_test::Options &options, Permission permiss
                 };
                 state += iteration;
             }
-            $else { $suspend("rival"); };
+            $else {
+                if (refill) {
+                    // Prelude paths 8..11 terminate, opening holes while the
+                    // two compatible target entries are still queued.
+                    $if(route >= 12u) { $suspend("rival"); };
+                } else { $suspend("rival"); }
+            };
             result.write(route, state);
         }};
     const auto *target = coro.graph().node_by_name("target");
@@ -223,13 +239,14 @@ void run_case(const luisa::test::coro_test::Options &options, Permission permiss
     WavefrontCoroScheduler<Buffer<uint>, Buffer<uint>, Buffer<uint>> scheduler{
         device,
         coro,
-        {.thread_count = N,
+        {.thread_count = capacity,
          .global_memory_soa = soa,
          .gather_by_sorting = false,
          .frame_buffer_compaction = mode.compact,
          .report_stats = true,
          .execution_block_size = 32u,
          .largest_continuation_first = true,
+         .refill_threshold = refill ? capacity : 0u,
          .incremental_continuation_counts = mode.incremental,
          .fused_continuation_counts = mode.fused}};
     scheduler.register_extension_handler(
@@ -255,7 +272,9 @@ void run_case(const luisa::test::coro_test::Options &options, Permission permiss
             return make_unique<Rank>(context, stage, std::move(identity), observations);
         });
     vector<uint> inputs(N + 1u), actual(N, ~0u), permutation(target_population, ~0u);
-    for (auto i = 0u; i < N; ++i) { inputs[i] = N - 1u - i; }
+    for (auto i = 0u; i < N; ++i) {
+        inputs[i] = i < capacity ? capacity - 1u - i : N + capacity - 1u - i;
+    }
     inputs[N] = visits;
     stream << input.copy_from(span{inputs}) << output.copy_from(span{actual})
            << ordered.copy_from(span{permutation});
@@ -272,6 +291,24 @@ void run_case(const luisa::test::coro_test::Options &options, Permission permiss
     expect(observations->prefix_visits == (prefix ? target_population * visits : 0u));
     expect(scheduler.last_dispatch_stats().continuations[target->index].executed_count ==
            target_population * visits);
+    if (refill) {
+        const auto &stats = scheduler.last_dispatch_stats();
+        expect(stats.generated_count == N);
+        expect(stats.continuations[coro.graph().entry_index()].dispatch_count == 2u);
+        expect(stats.compact_scan_count > 0u) << "the relocation kernel must actually execute";
+        expect(observations->first_rank_slots.size() == target_population);
+        // Original physical slots 11..14 contain target IDs3..0. They move
+        // into dead prelude slots3..6; the other target IDs7..4 stay at7..10.
+        // Observe the actual Handler queue, not merely the compaction flag.
+        std::array<bool, target_population> seen{};
+        for (auto slot : observations->first_rank_slots) {
+            expect(slot >= 3u && slot < 11u) << "joint target members survive refill relocation";
+            if (slot >= 3u && slot < 11u) {
+                expect(!seen[slot - 3u]) << "relocated alias queue contains each member once";
+                seen[slot - 3u] = true;
+            }
+        }
+    }
     if (!prefix) {
         if (permission == Permission::compatible) {
             expect(observations->ranked_counts == vector<uint>(visits, target_population))
@@ -375,6 +412,18 @@ int main(int argc, char *argv[]) {
     "resume_batching_self_edge_conserves_membership"_test = [options] {
         for (auto mode : count_modes) {
             run_case(options, Permission::compatible, 2u, false, true, mode);
+        }
+    };
+    "resume_batching_relocates_joint_alias_members_at_refill"_test = [options] {
+        // N19 exceeds capacity15. The first producer frees four interior
+        // slots, forcing pending aliased target members to move before the
+        // next four inputs are generated. Their original IDs, keys and live
+        // payloads must all remain valid through the one joint resume.
+        for (auto soa : {false, true}) {
+            for (auto fused : {false, true}) {
+                run_case(options, Permission::compatible, 1u, false, soa,
+                         CountMode{true, fused, true}, true);
+            }
         }
     };
     "resume_batching_preserves_semantic_prefix"_test = [options] {
