@@ -23,6 +23,9 @@ local function test_proj(name, source, gui_dep, callable, kind, cxx_standard)
 end
 
 -- unit/core
+if is_plat("macosx") then
+    test_proj("test_metal_shared_ptr", "unit/ext/test_metal_shared_ptr.cpp")
+end
 test_proj("test_basic_traits", "unit/core/test_basic_traits.cpp")
 test_proj("test_basic_types", "unit/core/test_basic_types.cpp")
 test_proj("test_binary_file_stream", "unit/core/test_binary_file_stream.cpp")
@@ -514,6 +517,7 @@ if has_config("lc_enable_xir") then
 end
 
 -- integration/runtime
+test_proj("test_metal4_switch_lookup", "integration/runtime/test_metal4_switch_lookup.cpp")
 test_proj("test_aot", "integration/runtime/test_aot.cpp", true)
 test_proj("test_device_debugger", "integration/runtime/test_device_debugger.cpp")
 test_proj("test_dstorage_decompression", "integration/runtime/test_dstorage_decompression.cpp", true)

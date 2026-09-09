@@ -428,6 +428,10 @@ if (TARGET luisa-compute-backend-vk)
 endif ()
 luisa_compute_add_test(test_argument_block_layout unit/ext/test_argument_block_layout.cpp LABELS "unit;unit_ext")
 target_include_directories(test_argument_block_layout PRIVATE ../backends/common)
+if (APPLE)
+    luisa_compute_add_test(test_metal_shared_ptr unit/ext/test_metal_shared_ptr.cpp
+            LABELS "unit;unit_ext;unit_metal")
+endif ()
 if (TARGET luisa-compute-backend-metal4)
     luisa_compute_add_test(benchmark_metal4
             benchmark/benchmark_metal4.cpp)
@@ -471,6 +475,7 @@ if (TARGET luisa-compute-backend-metal4)
 
     foreach (_metal4_test IN ITEMS
             test_metal_xir_air
+            test_metal4_switch_lookup
             test_metal_xir_air_accel
             test_metal4_air_extended_accel_limits
             test_metal4_motion_instance_render
@@ -813,6 +818,18 @@ endif ()
 luisa_compute_add_test(test_bindless_mip        unit/runtime/test_bindless_mip.cpp)
 luisa_compute_add_test(test_direct_texture_sampling unit/runtime/test_direct_texture_sampling.cpp)
 luisa_compute_add_test(test_metal_codegen_regressions unit/runtime/test_metal_codegen_regressions.cpp)
+if (TARGET luisa-compute-backend-metal)
+    add_test(NAME test_metal_local_codegen
+            COMMAND test_metal_codegen_regressions metal)
+    set_tests_properties(test_metal_local_codegen PROPERTIES
+            LABELS "integration;integration_metal" TIMEOUT 120)
+endif ()
+if (TARGET luisa-compute-backend-metal4)
+    add_test(NAME test_metal4_local_lifetimes
+            COMMAND test_metal_codegen_regressions metal4 --local-only)
+    set_tests_properties(test_metal4_local_lifetimes PROPERTIES
+            LABELS "integration;integration_metal4" TIMEOUT 120)
+endif ()
 luisa_compute_add_test(test_mipmap              unit/runtime/test_mipmap.cpp)
 luisa_compute_add_test(test_motion_instance_keyframes unit/runtime/test_motion_instance_keyframes.cpp LABELS "unit;unit_runtime")
 luisa_compute_add_test(test_pinned_mem          unit/runtime/test_pinned_mem.cpp)

@@ -83,6 +83,82 @@ void set_dump_source_environment(const char *value) noexcept {
     return all(d < make_float4(2.0e-2f));
 }
 
+void test_local_lifetime_declarations(
+    Device &device, SourceTrackingBinaryIO &binary_io) {
+    // UNDEFINED starts a fresh lexical lifetime, but is not an initialization.
+    // Every Local component below is written before being read, including on
+    // loop/branch re-entry. Exercise scalar, vector and array representations.
+    auto lookup = Callable<uint(uint)>{[](UInt seed) noexcept {
+        Local<uint> values{9u};
+        $for (i, 9u) { values[i] = seed + 3u * i; };
+        return values[seed % 9u];
+    }};
+    std::array<uint, 4u> local_uids{};
+    Kernel1D kernel = [&](BufferUInt out, UInt seed) noexcept {
+        auto id = dispatch_x();
+        UInt base = id + seed;
+        Local<uint> scalar{1u};
+        Local<uint> root{3u};
+        local_uids[0] = scalar.expression()->variable().uid();
+        local_uids[1] = root.expression()->variable().uid();
+        scalar[0u] = 2u * base;
+        $for (i, 3u) { root[i] = base + 10u * i; };
+        Local<uint> copied = root;
+        UInt total;
+        ArrayUInt<2u> ordinary_zero;
+        total += ordinary_zero[0u] + ordinary_zero[1u];
+        total += scalar[0u] + copied[id % 3u] + lookup(base);
+        $for (epoch, 3u) {
+            Local<uint> iteration{7u};
+            local_uids[2] = iteration.expression()->variable().uid();
+            $for (j, 7u) { iteration[j] = base + 17u * epoch + j; };
+            total += iteration[(id + epoch) % 7u];
+            $if (((id + epoch) & 1u) != 0u) {
+                Local<uint> branch{2u};
+                local_uids[3] = branch.expression()->variable().uid();
+                branch[0u] = base + 100u;
+                branch[1u] = base + 200u;
+                total += branch[epoch % 2u];
+            };
+        };
+        out.write(id, total);
+    };
+    const auto *old_dump_source = std::getenv("LUISA_DUMP_SOURCE");
+    auto old_value = old_dump_source == nullptr ? std::string{} : std::string{old_dump_source};
+    set_dump_source_environment("1");
+    binary_io.last_shader_source.clear();
+    // This BinaryIO never returns cached code. Keep the option enabled because
+    // the AST Metal compiler routes source dumps through its cache IO path.
+    auto shader = device.compile(kernel);
+    set_dump_source_environment(old_dump_source == nullptr ? nullptr : old_value.c_str());
+    if (device.backend_name() == "metal") {
+        expect(!binary_io.last_shader_source.empty()) << "The declaration check must inspect generated MSL";
+        for (auto uid : local_uids) {
+            expect(binary_io.last_shader_source.find(luisa::format(" v{};\n", uid)) != std::string::npos)
+                << "A Local lifetime seed must retain its uninitialized declaration";
+            expect(binary_io.last_shader_source.find(luisa::format(" v{}{{}};", uid)) == std::string::npos)
+                << "A lexical Local declaration must not introduce a zero fill";
+        }
+    }
+    constexpr uint count = 257u;
+    auto output = device.create_buffer<uint>(count);
+    std::array<uint, count> results{};
+    auto stream = device.create_stream();
+    for (auto seed : {0u, 19u, 131u}) {
+        stream << shader(output, seed).dispatch(count)
+               << output.copy_to(luisa::span{results}) << synchronize();
+        for (uint id = 0u; id < count; id++) {
+            auto base = id + seed;
+            auto expected = 4u * base + 10u * (id % 3u) + 3u * (base % 9u);
+            for (uint epoch = 0u; epoch < 3u; epoch++) {
+                expected += base + 17u * epoch + (id + epoch) % 7u;
+                if (((id + epoch) & 1u) != 0u) { expected += base + 100u * (1u + epoch % 2u); }
+            }
+            expect(results[id] == expected) << "Local writes must dominate reads across lexical lifetimes";
+        }
+    }
+}
+
 void test_metal_codegen_regressions(
     Device &device, SourceTrackingBinaryIO &binary_io) {
     constexpr auto size = make_uint2(2u, 2u);
@@ -290,5 +366,9 @@ int main(int argc, char *argv[]) {
     DeviceConfig config{.binary_io = &binary_io};
     auto dc = luisa::test::create_device_from_ut(argc, argv, &config);
     if (!dc) { return 0; }
+    test_local_lifetime_declarations(dc->device, binary_io);
+    // The remaining historical fixture exercises AST-specific mutable
+    // swizzle references. Keep the new portable lifetime gate selectable.
+    if (argc > 2 && luisa::string_view{argv[2]} == "--local-only") { return 0; }
     test_metal_codegen_regressions(dc->device, binary_io);
 }
