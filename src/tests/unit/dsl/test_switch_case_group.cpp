@@ -60,6 +60,67 @@ void check_wide_labels(T a, T b, T c) {
     expect(decoded.get_function("wide").hash() == source.function()->hash());
 }
 
+void check_single_label_semantics(Function lhs, Function rhs) {
+    expect(lhs.tag() == rhs.tag());
+    expect(lhs.block_size().x == rhs.block_size().x);
+    expect(lhs.block_size().y == rhs.block_size().y);
+    expect(lhs.block_size().z == rhs.block_size().z);
+    expect(lhs.arguments().size() == rhs.arguments().size());
+    for (auto i = 0u; i < lhs.arguments().size(); i++) {
+        auto left = lhs.arguments()[i];
+        auto right = rhs.arguments()[i];
+        expect(left.uid() == right.uid());
+        expect(left.tag() == right.tag());
+        expect(*left.type() == *right.type());
+    }
+
+    auto left_body = lhs.body();
+    auto right_body = rhs.body();
+    expect(left_body->statements().size() == right_body->statements().size());
+    expect(left_body->statements().size() == 1u);
+    if (left_body->statements().size() != 1u || right_body->statements().size() != 1u) { return; }
+
+    auto left_switch = static_cast<const SwitchStmt *>(left_body->statements()[0]);
+    auto right_switch = static_cast<const SwitchStmt *>(right_body->statements()[0]);
+    expect(left_switch->tag() == Statement::Tag::SWITCH);
+    expect(right_switch->tag() == Statement::Tag::SWITCH);
+    expect(left_switch->expression()->tag() == right_switch->expression()->tag());
+    expect(*left_switch->expression()->type() == *right_switch->expression()->type());
+    expect(left_switch->expression()->hash() == right_switch->expression()->hash());
+
+    auto left_cases = left_switch->body()->statements();
+    auto right_cases = right_switch->body()->statements();
+    expect(left_cases.size() == right_cases.size());
+    expect(left_cases.size() == 1u);
+    if (left_cases.size() != 1u || right_cases.size() != 1u) { return; }
+
+    auto left_case = static_cast<const SwitchCaseStmt *>(left_cases[0]);
+    auto right_case = static_cast<const SwitchCaseStmt *>(right_cases[0]);
+    auto left_labels = left_case->expressions();
+    auto right_labels = right_case->expressions();
+    expect(left_labels.size() == right_labels.size());
+    expect(left_labels.size() == 1u);
+    if (left_labels.size() != 1u || right_labels.size() != 1u) { return; }
+    expect(left_labels[0]->tag() == right_labels[0]->tag());
+    expect(*left_labels[0]->type() == *right_labels[0]->type());
+    expect(left_labels[0]->hash() == right_labels[0]->hash());
+    if (left_labels[0]->tag() == Expression::Tag::LITERAL) {
+        auto left_literal = static_cast<const LiteralExpr *>(left_labels[0]);
+        auto right_literal = static_cast<const LiteralExpr *>(right_labels[0]);
+        expect(left_literal->value().index() == right_literal->value().index());
+        expect(std::get<int>(left_literal->value().to_variant()) ==
+               std::get<int>(right_literal->value().to_variant()));
+    }
+
+    auto left_case_body = left_case->body()->statements();
+    auto right_case_body = right_case->body()->statements();
+    expect(left_case_body.size() == right_case_body.size());
+    expect(left_case_body.size() == 1u);
+    if (left_case_body.size() != 1u || right_case_body.size() != 1u) { return; }
+    expect(left_case_body[0]->tag() == Statement::Tag::BREAK);
+    expect(right_case_body[0]->tag() == Statement::Tag::BREAK);
+}
+
 }// namespace
 
 int main() {
@@ -123,6 +184,8 @@ int main() {
                             auto *c = grouped ? builder->case_(luisa::span{labels}) : builder->case_(label);
                             builder->with(c->body(), [&] { builder->break_(); });
                         });
+                        // Function duplication validates kernel launch metadata.
+                        builder->set_block_size(make_uint3(1u, 1u, 1u));
                     });
                 };
                 auto single = make_single(false);
@@ -131,7 +194,15 @@ int main() {
                 CallableLibrary a, b;
                 a.add_callable("single", single);
                 b.add_callable("single", grouped);
-                expect(static_cast<bool>(a.serialize() == b.serialize()));
+                CallableLibrary decoded_a, decoded_b;
+                decoded_a.load(a.serialize());
+                decoded_b.load(b.serialize());
+                auto rehashed_a = decoded_a.get_function_builder("single")->duplicate();
+                auto rehashed_b = decoded_b.get_function_builder("single")->duplicate();
+                expect(rehashed_a->hash() == single->hash());
+                expect(rehashed_b->hash() == grouped->hash());
+                expect(rehashed_a->hash() == rehashed_b->hash());
+                check_single_label_semantics(rehashed_a->function(), rehashed_b->function());
             }
         }
     };
