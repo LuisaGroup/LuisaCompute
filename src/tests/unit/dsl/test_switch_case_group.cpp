@@ -108,8 +108,8 @@ void check_single_label_semantics(Function lhs, Function rhs) {
         auto left_literal = static_cast<const LiteralExpr *>(left_labels[0]);
         auto right_literal = static_cast<const LiteralExpr *>(right_labels[0]);
         expect(left_literal->value().index() == right_literal->value().index());
-        expect(std::get<int>(left_literal->value().to_variant()) ==
-               std::get<int>(right_literal->value().to_variant()));
+        expect(luisa::get<int>(left_literal->value().to_variant()) ==
+               luisa::get<int>(right_literal->value().to_variant()));
     }
 
     auto left_case_body = left_case->body()->statements();

@@ -270,6 +270,119 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
     }
 }
 
+template<typename ResourceFn>
+[[nodiscard]] PlanningResult search_candidates(
+    const ExecutionTarget &target, const ExecutionTargetInfo &info,
+    const PlannerOptions &options, const ExecutionCostPolicy &policy,
+    const ExecutionCostModel &model, const Operation *root, const Block *body,
+    const luisa::vector<const Value *> &indices, luisa::vector<uint32_t> order,
+    bool fixed_order, const luisa::vector<uint32_t> &widths,
+    const luisa::vector<uint32_t> &local_widths, uint64_t count,
+    ResourceFn &&resources) {
+    PlanningResult result;
+    uint32_t considered = 0u;
+    do {
+        auto mapping = detail::root_mapping(*root->domain(), order, options.root_axis_tiles);
+        for (auto lanes : local_widths) {
+            Work work;
+            bool work_ready = false;
+            auto physical_count = count * lanes;
+            for (auto width : widths) {
+                auto blocks = ceil_div(physical_count, static_cast<uint64_t>(width));
+                luisa::vector<uint32_t> grains{options.blocks_per_task};
+                if (options.search_task_grain && !options.blocks_per_task) {
+                    grains = {static_cast<uint32_t>(ceil_div(blocks, static_cast<uint64_t>(target.worker_count) * target.task_chunks_per_worker)),
+                              static_cast<uint32_t>(blocks)};
+                    for (auto grain = uint64_t{1u}; grain < blocks; grain *= 2u) { grains.emplace_back(static_cast<uint32_t>(grain)); }
+                    std::sort(grains.begin(), grains.end());
+                    grains.erase(std::unique(grains.begin(), grains.end()), grains.end());
+                }
+                for (auto grain : grains) {
+                    if (considered++ >= options.max_candidates) {
+                        result.error = "XIR exact search exceeds its candidate budget";
+                        return result;
+                    }
+                    // MSVC C1001 workaround: aggregate-init of ExecutionPlan
+                    // with the order vector + {} cost ICEs the frontend; build
+                    // the candidate with default-construct + assignments.
+                    ExecutionPlan candidate;
+                    candidate.block_size = width;
+                    candidate.root_axis_order = order;
+                    candidate.dispatch_size = static_cast<uint32_t>(physical_count);
+                    candidate.local_lanes = lanes;
+                    candidate.blocks_per_task = grain;
+                    candidate.root_axis_tiles = options.root_axis_tiles;
+                    if (!info.accepts(candidate)) {
+                        result.rejected.emplace_back(ExecutionRejection{std::move(candidate), "XIR target rejected execution geometry"});
+                        continue;
+                    }
+                    const auto &analysis = resources(lanes);
+                    if (!analysis) {
+                        result.rejected.emplace_back(ExecutionRejection{std::move(candidate), analysis.error});
+                        continue;
+                    }
+                    candidate.resources = analysis.resources;
+                    candidate.resource_limits = info.resource_limits(candidate);
+                    if (candidate.resources.snapshot_bytes_per_worker > candidate.resource_limits.max_snapshot_bytes_per_worker) {
+                        auto reason = luisa::format("XIR candidate local_lanes={} requires {} static snapshot bytes per worker; backend budget is {}",
+                                                    lanes, candidate.resources.snapshot_bytes_per_worker, candidate.resource_limits.max_snapshot_bytes_per_worker);
+                        result.rejected.emplace_back(ExecutionRejection{std::move(candidate), std::move(reason)});
+                        continue;
+                    }
+                    if (!work_ready) {
+                        // Extract dynamic work only for resource-admissible
+                        // representations, then reuse it across block/task
+                        // geometries with the same root order and local lanes.
+                        auto spatial = SpatialAxis{indices[order.back()]};
+                        auto extent = root->domain()->axis(order.back()).extent.constant_value();
+                        if (!mapping.identity && lanes == 1u) {
+                            auto digit = mapping.digits.back();
+                            spatial = {indices[digit.axis], static_cast<double>(digit.scale), digit.extent % target.packet_width == 0u};
+                        }
+                        measure(*body, spatial, 1.0, target, model, indices, options.max_unrolled_tile_elements, lanes, work, options);
+                        // Identity preserves the historical estimate. A blocked
+                        // traversal uses the fastest digit or the gather prior
+                        // when packets span digits; neither is a codegen proof.
+                        if (mapping.identity && lanes == 1u && extent % target.packet_width != 0u) { work.memory *= 2.0; }
+                        // Charge root decoding once, not per nested K/fold.
+                        // Temporal cache reuse is deliberately still unmodeled.
+                        work.arithmetic += mapping.decode_arithmetic * model.arithmetic;
+                        if (!std::isfinite(work.arithmetic) || !std::isfinite(work.memory)) {
+                            result.error = "XIR work estimate overflow";
+                            return result;
+                        }
+                        work_ready = true;
+                    }
+                    ExecutionWork execution_work{work.arithmetic, work.memory,
+                                                 ceil_div(physical_count, static_cast<uint64_t>(target.packet_width)), blocks};
+                    auto cost = policy.evaluate(target, candidate, info.schedule(candidate, execution_work), model);
+                    for (auto component : {cost.arithmetic_work, cost.memory_work, cost.dispatch_work, cost.imbalance_work,
+                                           cost.score, cost.task_dispatch_work, cost.activation_work}) {
+                        if (!std::isfinite(component) || component < 0.0) {
+                            return PlanningResult{.error = luisa::string{"XIR cost policy returned a nonfinite or negative cost"}};
+                        }
+                    }
+                    candidate.cost = cost;
+                    result.candidates.emplace_back(std::move(candidate));
+                }
+            }
+        }
+    } while (!fixed_order && std::next_permutation(order.begin(), order.end()));
+    if (result.candidates.empty()) {
+        result.error = "XIR target rejected every execution candidate";
+        if (!result.rejected.empty()) { result.error.append(": ").append(result.rejected.front().reason); }
+        return result;
+    }
+    // MSVC C1001 workaround: std::min_element + lambda ICEs the frontend
+    // (Utc\src\p2\main.cpp); use an explicit loop.
+    auto selected = result.candidates.begin();
+    for (auto it = result.candidates.begin(); it != result.candidates.end(); ++it) {
+        if (it->cost.score < selected->cost.score) { selected = it; }
+    }
+    result.selected = *selected;
+    return result;
+}
+
 [[nodiscard]] PlanningResult solve(const Function &function, const ExecutionTargetInfo &info, const PlannerOptions &options) {
     auto target = info.target();
     auto reject = [](luisa::string_view message) { return PlanningResult{.error = luisa::string{message}}; };
@@ -355,7 +468,6 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
     luisa::vector<const Value *> indices;
     auto body = root->region(0u)->block(0u);
     for (size_t i = 0u; i < rank; i++) { indices.emplace_back(body->argument(i)); }
-    PlanningResult result;
     // Root traversal, block size and CPU task grain change coordinates and
     // scheduling, not the static snapshot sites within a logical program.
     // Representation options are fixed for this search; only local_lanes
@@ -376,91 +488,10 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
         resource_cache.emplace_back(lanes, std::move(analysis));
         return resource_cache.back().second;
     };
-    uint32_t considered = 0u;
-    do {
-        auto mapping = detail::root_mapping(*root->domain(), order, options.root_axis_tiles);
-        for (auto lanes : local_widths) {
-            Work work;
-            bool work_ready = false;
-            auto physical_count = count * lanes;
-            for (auto width : widths) {
-                auto blocks = ceil_div(physical_count, static_cast<uint64_t>(width));
-                luisa::vector<uint32_t> grains{options.blocks_per_task};
-                if (options.search_task_grain && !options.blocks_per_task) {
-                    grains = {static_cast<uint32_t>(ceil_div(blocks, static_cast<uint64_t>(target.worker_count) * target.task_chunks_per_worker)),
-                              static_cast<uint32_t>(blocks)};
-                    for (auto grain = uint64_t{1u}; grain < blocks; grain *= 2u) { grains.emplace_back(static_cast<uint32_t>(grain)); }
-                    std::sort(grains.begin(), grains.end());
-                    grains.erase(std::unique(grains.begin(), grains.end()), grains.end());
-                }
-                for (auto grain : grains) {
-                    if (considered++ >= options.max_candidates) {
-                        result.error = "XIR exact search exceeds its candidate budget";
-                        return result;
-                    }
-                    ExecutionPlan candidate{width, order, static_cast<uint32_t>(physical_count), {}, lanes, grain, options.root_axis_tiles};
-                    if (!info.accepts(candidate)) {
-                        result.rejected.emplace_back(ExecutionRejection{std::move(candidate), "XIR target rejected execution geometry"});
-                        continue;
-                    }
-                    const auto &analysis = resources(lanes);
-                    if (!analysis) {
-                        result.rejected.emplace_back(ExecutionRejection{std::move(candidate), analysis.error});
-                        continue;
-                    }
-                    candidate.resources = analysis.resources;
-                    candidate.resource_limits = info.resource_limits(candidate);
-                    if (candidate.resources.snapshot_bytes_per_worker > candidate.resource_limits.max_snapshot_bytes_per_worker) {
-                        auto reason = luisa::format("XIR candidate local_lanes={} requires {} static snapshot bytes per worker; backend budget is {}",
-                                                    lanes, candidate.resources.snapshot_bytes_per_worker, candidate.resource_limits.max_snapshot_bytes_per_worker);
-                        result.rejected.emplace_back(ExecutionRejection{std::move(candidate), std::move(reason)});
-                        continue;
-                    }
-                    if (!work_ready) {
-                        // Extract dynamic work only for resource-admissible
-                        // representations, then reuse it across block/task
-                        // geometries with the same root order and local lanes.
-                        auto spatial = SpatialAxis{indices[order.back()]};
-                        auto extent = root->domain()->axis(order.back()).extent.constant_value();
-                        if (!mapping.identity && lanes == 1u) {
-                            auto digit = mapping.digits.back();
-                            spatial = {indices[digit.axis], static_cast<double>(digit.scale), digit.extent % target.packet_width == 0u};
-                        }
-                        measure(*body, spatial, 1.0, target, model, indices, options.max_unrolled_tile_elements, lanes, work, options);
-                        // Identity preserves the historical estimate. A blocked
-                        // traversal uses the fastest digit or the gather prior
-                        // when packets span digits; neither is a codegen proof.
-                        if (mapping.identity && lanes == 1u && extent % target.packet_width != 0u) { work.memory *= 2.0; }
-                        // Charge root decoding once, not per nested K/fold.
-                        // Temporal cache reuse is deliberately still unmodeled.
-                        work.arithmetic += mapping.decode_arithmetic * model.arithmetic;
-                        if (!std::isfinite(work.arithmetic) || !std::isfinite(work.memory)) {
-                            result.error = "XIR work estimate overflow";
-                            return result;
-                        }
-                        work_ready = true;
-                    }
-                    ExecutionWork execution_work{work.arithmetic, work.memory,
-                                                 ceil_div(physical_count, static_cast<uint64_t>(target.packet_width)), blocks};
-                    auto cost = policy.evaluate(target, candidate, info.schedule(candidate, execution_work), model);
-                    for (auto component : {cost.arithmetic_work, cost.memory_work, cost.dispatch_work, cost.imbalance_work,
-                                           cost.score, cost.task_dispatch_work, cost.activation_work}) {
-                        if (!std::isfinite(component) || component < 0.0) { return reject("XIR cost policy returned a nonfinite or negative cost"); }
-                    }
-                    candidate.cost = cost;
-                    result.candidates.emplace_back(std::move(candidate));
-                }
-            }
-        }
-    } while (!fixed_order && std::next_permutation(order.begin(), order.end()));
-    if (result.candidates.empty()) {
-        result.error = "XIR target rejected every execution candidate";
-        if (!result.rejected.empty()) { result.error.append(": ").append(result.rejected.front().reason); }
-        return result;
-    }
-    result.selected = *std::min_element(result.candidates.begin(), result.candidates.end(), [](auto &a, auto &b) { return a.cost.score < b.cost.score; });
-    return result;
+    return search_candidates(target, info, options, policy, model, root, body, indices,
+                             std::move(order), fixed_order, widths, local_widths, count, resources);
 }
+
 
 }// namespace
 
