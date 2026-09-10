@@ -44,8 +44,22 @@ void TopAccel::UpdateMesh(
     // Queue a refresh of the instance's BLAS address. Storing the stable
     // BottomAccel instead of the pooled MeshHandle keeps the entry valid even
     // if the handle is later destroyed/recycled before the next TLAS build.
-    setMap[instIndex] = handle->mesh;
+    QueueRefresh(instIndex, handle->mesh);
     requireBuild = true;
+}
+void TopAccel::QueueRefresh(size_t index, BottomAccel *mesh) noexcept {
+    auto &pending = allInstance[index].refresh;
+    if (pending == nullptr) {
+        ++pendingRefreshCount;
+    }
+    pending = mesh;
+}
+void TopAccel::DropRefresh(size_t index, BottomAccel *mesh) noexcept {
+    auto &pending = allInstance[index].refresh;
+    if (pending == mesh) {
+        pending = nullptr;
+        --pendingRefreshCount;
+    }
 }
 void TopAccel::SetMesh(BottomAccel *mesh, uint64 index) {
     auto &&inst = allInstance[index].handle;
@@ -110,19 +124,13 @@ bool TopAccel::GenerateNewBuffer(
 void TopAccel::ResizeAllInstance(size_t size) {
     if (size < allInstance.size()) {
         for (auto &i : vstd::ptr_range(allInstance.data() + size, allInstance.data() + allInstance.size())) {
+            // Pending refreshes of removed slots vanish with the Instance
+            // structs themselves (resize below); keep the counter in sync.
+            if (i.refresh != nullptr) {
+                --pendingRefreshCount;
+            }
             if (!i.handle) continue;
             i.handle->mesh->RemoveAccelRef(i.handle);
-        }
-        // Mesh-refresh entries queued by BLAS re-creation (SyncTopAccel) may
-        // still reference the destroyed (pooled) handles of the removed slots;
-        // drop them so a later build never dereferences a recycled handle and
-        // binds an instance to the wrong BLAS.
-        for (auto ite = setMap.begin(); ite != setMap.end();) {
-            if (ite->first >= size) {
-                ite = setMap.erase(ite);
-            } else {
-                ++ite;
-            }
         }
     }
     allInstance.resize(size);
@@ -158,25 +166,28 @@ void TopAccel::PreProcessInst(
     }
 }
 void TopAccel::ProcessSetMap() {
-    if (setMap.size() != 0) {
+    if (pendingRefreshCount != 0) {
         update = false;
-        setDesc.reserve(setDesc.size() + setMap.size());
-        for (auto &&i : setMap) {
-            if (i.first >= allInstance.size()) continue;
+        setDesc.reserve(setDesc.size() + pendingRefreshCount);
+        for (auto index = 0u; index < allInstance.size(); index++) {
+            auto mesh = allInstance[index].refresh;
+            if (mesh == nullptr) continue;
             auto &mod = setDesc.emplace_back();
             std::memset(&mod, 0, sizeof(PackedModifier));
-            mod.index = i.first;
+            mod.index = index;
             mod.flags = AccelBuildCommand::Modification::flag_primitive;
-            mod.primitive = i.second->GetAccelBuffer()->GetAddress();
+            mod.primitive = mesh->GetAccelBuffer()->GetAddress();
+            allInstance[index].refresh = nullptr;
+            --pendingRefreshCount;
         }
-        setMap.clear();
     }
 }
 
 void TopAccel::ProcessSetDesc(EnhancedBarrierTracker &tracker) {
 
     for (auto &&m : setDesc) {
-        auto ite = setMap.find(m.index);
+        auto mod_index = m.index;// bitfield: copy before reuse
+        auto &pending = allInstance[mod_index].refresh;
 #ifndef NDEBUG
         if (m.flags & AccelBuildCommand::Modification::flag_user_id) {
             if (m.user_id >= (1u << 24u)) [[unlikely]] {
@@ -189,18 +200,21 @@ void TopAccel::ProcessSetDesc(EnhancedBarrierTracker &tracker) {
 #endif
         bool updateMesh = (m.flags & AccelBuildCommand::Modification::flag_primitive);
 
-        if (ite != setMap.end()) {
+        if (pending != nullptr) {
             if (!updateMesh) {
-                m.primitive = reinterpret_cast<uint64_t>(ite->second);
+                m.primitive = reinterpret_cast<uint64_t>(pending);
                 m.flags |= AccelBuildCommand::Modification::flag_primitive;
                 updateMesh = true;
             }
-            setMap.erase(ite);
+            // A modification touching this slot (explicit or folded) consumes
+            // or overrides any pending refresh for it.
+            pending = nullptr;
+            --pendingRefreshCount;
         }
         if (updateMesh) {
             auto mesh = reinterpret_cast<BottomAccel *>(m.primitive);
             tracker.Record(mesh->GetAccelBuffer(), EnhancedBarrierTracker::Usage::AccelInstanceBuffer);
-            SetMesh(mesh, m.index);
+            SetMesh(mesh, mod_index);
             m.primitive = mesh->GetAccelBuffer()->GetAddress();
             update = false;
         }

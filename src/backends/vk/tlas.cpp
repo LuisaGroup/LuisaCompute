@@ -158,17 +158,20 @@ void Tlas::pre_build(
             _motion_instance_buffer = vstd::make_unique<DefaultBuffer>(device(), motion_buf_size, false, VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR);
         }
     }
-    if (!(modifications.empty() && _set_map.empty())) {
+    if (!(modifications.empty() && _pending_refresh_count == 0u)) {
         // First pass: resolve primitives and update mesh references
         // Store resolved Blas pointers for each modification that has a primitive
         luisa::vector<Blas *> resolved_meshes(modifications.size(), nullptr);
         for (size_t idx = 0; idx < modifications.size(); idx++) {
             auto &&i = modifications[idx];
-            auto ite = _set_map.find(i.index);
             bool updateMesh = (i.flags & AccelBuildCommand::Modification::flag_primitive);
             // Whether the primitive comes from the modification itself (as
             // opposed to a pending refresh entry force-enabling the rewrite).
             bool explicit_primitive = updateMesh;
+            // Pending refresh state lives per-slot (dense instance index), so
+            // the merge below is a plain array access — no hash lookup.
+            auto index = static_cast<size_t>(i.index);
+            auto &pending = _all_instance[index].refresh_blas;
             if (updateMesh) {
                 // An explicit primitive modification is authoritative: it wins
                 // over any pending BLAS-recreate refresh entry for the same
@@ -176,13 +179,16 @@ void Tlas::pre_build(
                 // Otherwise the replacement would be silently dropped and the
                 // TLAS would keep tracing the old mesh.
                 resolved_meshes[idx] = tlas_detail::resolve_to_blas(i.primitive);
-            } else if (ite != _set_map.end()) {
-                resolved_meshes[idx] = ite->second;
+            } else if (pending != nullptr) {
+                resolved_meshes[idx] = pending;
                 const_cast<uint &>(i.flags) = i.flags | AccelBuildCommand::Modification::flag_primitive;
                 updateMesh = true;
             }
-            if (ite != _set_map.end()) {
-                _set_map.erase(ite);
+            // A modification touching this slot (explicit or folded) consumes
+            // or overrides any pending refresh for it.
+            if (pending != nullptr) {
+                pending = nullptr;
+                --_pending_refresh_count;
             }
             if (updateMesh) {
                 auto motion_instance = false;
@@ -223,7 +229,7 @@ void Tlas::pre_build(
             // keep persistent host-side shadow copies, update them
             // incrementally and upload them whole: refilling from the current
             // modification list alone would zero every untouched instance and
-            // drop pending _set_map refreshes (which carry the new device
+            // drop pending slot refreshes (which carry the new device
             // addresses of recreated BLAS).
             _motion_instance_cache.resize(motion_upload_size);
             _std_instance_cache.resize(std_inst_size_bytes);
@@ -254,10 +260,13 @@ void Tlas::pre_build(
 
             // Fold pending BLAS-recreate refreshes into the shadow copies,
             // touching only the acceleration-structure reference fields.
-            for (auto &&entry : _set_map) {
-                auto index = entry.first;
-                auto mesh = entry.second;
-                if (index >= instance_count || mesh == nullptr) continue;
+            // _all_instance is already sized to instance_count (resized at the
+            // top of pre_build), so a single contiguous slot scan replaces the
+            // hash-map iteration.
+            for (auto index = 0u; index < _all_instance.size(); index++) {
+                auto mesh = _all_instance[index].refresh_blas;
+                if (mesh == nullptr) continue;
+                if (index >= instance_count) continue;// defensive
                 auto addr = mesh->get_accel_device_address();
                 resource_barrier->record(BufferView{mesh->_accel_buffer.get()},
                                          ResourceBarrier::Usage::kAccelInstanceBuffer);
@@ -278,6 +287,8 @@ void Tlas::pre_build(
                         *reinterpret_cast<uint64_t *>(refresh_base + 8u + 56u) = addr;
                         break;
                 }
+                _all_instance[index].refresh_blas = nullptr;
+                --_pending_refresh_count;
             }
 
             // Apply the modification list on top of the preserved shadow
@@ -425,7 +436,7 @@ void Tlas::pre_build(
                     &buffer_copy};
                 detail::cmd_copy_buffer(cmdbuffer.cmdbuffer(), device(), &copy_info2);
             }
-            _set_map.clear();
+            _pending_refresh_count = 0;// all pending refreshes were folded into the shadows above
         } else {
         // Non-motion path: use compute shader to fill instance buffer
         resource_barrier->record(
@@ -445,7 +456,7 @@ void Tlas::pre_build(
                 device()->logic_device(),
                 &alloc_info,
                 &desc_set));
-        const uint modification_size = modifications.size() + _set_map.size();
+        const uint modification_size = static_cast<uint>(modifications.size() + _pending_refresh_count);
         uint2 value = {
             modification_size,
             instance_count};
@@ -484,24 +495,33 @@ void Tlas::pre_build(
             }
             inst_ptr++;
         }
-        for (auto &i : _set_map) {
-            if (i.first >= _all_instance.size()) continue;
+        // Append the pending refreshes not consumed by a modification: a single
+        // contiguous pass over the instance slots (dense index space) replaces
+        // the hash-map iteration.
+        for (auto index = 0u; index < _all_instance.size(); index++) {
+            auto mesh = _all_instance[index].refresh_blas;
+            if (mesh == nullptr) continue;
             inst_ptr->index_visibility =
                 TlasInputInst::pack_index_visibility(
-                    static_cast<uint32_t>(i.first), 0u);
+                    static_cast<uint32_t>(index), 0u);
             inst_ptr->user_id_flags =
                 TlasInputInst::pack_user_id_flags(
                     0u,
                     AccelBuildCommand::Modification::flag_primitive);
-            resource_barrier->record(BufferView{i.second->_accel_buffer.get()},
+            resource_barrier->record(BufferView{mesh->_accel_buffer.get()},
                                      ResourceBarrier::Usage::kAccelInstanceBuffer);
-            auto addr = i.second->get_accel_device_address();
+            auto addr = mesh->get_accel_device_address();
             inst_ptr->mesh =
                 TlasInputInst::device_address_words(addr);
             ++inst_ptr;
+            _all_instance[index].refresh_blas = nullptr;
+            --_pending_refresh_count;
         }
         static_cast<UploadBuffer const *>(dsc_buffer.buffer)->copy_from(cache.data(), dsc_buffer.offset, dsc_buffer.size_bytes);
-        _set_map.clear();
+        LUISA_ASSERT(_pending_refresh_count == 0u,
+                     "pending refresh accounting desynced ({} left)",
+                     _pending_refresh_count);
+        _pending_refresh_count = 0;// defensive clear, mirrors the old map clear()
         VkDescriptorBufferInfo arg_buffer_info{
             dsc_buffer.buffer->vk_buffer(),
             dsc_buffer.offset,
@@ -564,7 +584,7 @@ void Tlas::pre_build(
     // addresses in the instance buffer (instance AABBs derive from child BLAS
     // contents), so each child BLAS buffer must be synchronized with this build
     // even when the instance list itself is untouched — an in-place BLAS update
-    // leaves both `modifications` and `_set_map` empty and would otherwise race
+    // leaves both `modifications` and the pending-refresh slots empty and would otherwise race
     // with the BLAS build, letting the TLAS pick up stale geometry.
     for (auto &inst : _all_instance) {
         if (inst.handle != nullptr) {
@@ -675,8 +695,22 @@ void Tlas::_update_mesh(
     // Queue a refresh of the instance's BLAS address. Storing the stable Blas
     // instead of the pooled MeshHandle keeps the entry valid even if the
     // handle is later destroyed/recycled before the next TLAS build.
-    _set_map[instIndex] = handle->mesh;
+    _queue_refresh(instIndex, handle->mesh);
     _require_rebuild = true;
+}
+void Tlas::_queue_refresh(size_t instance_index, Blas *blas) noexcept {
+    auto &pending = _all_instance[instance_index].refresh_blas;
+    if (pending == nullptr) {
+        ++_pending_refresh_count;
+    }
+    pending = blas;
+}
+void Tlas::_drop_refresh(size_t instance_index, Blas *blas) noexcept {
+    auto &pending = _all_instance[instance_index].refresh_blas;
+    if (pending == blas) {
+        pending = nullptr;
+        --_pending_refresh_count;
+    }
 }
 void Tlas::build(
     CommandBuffer &cmdbuffer,
@@ -708,18 +742,13 @@ void Tlas::build(
 void Tlas::_resize_instance(size_t size) {
     if (size < _all_instance.size()) {
         for (auto &i : vstd::ptr_range(_all_instance.data() + size, _all_instance.data() + _all_instance.size())) {
+            // Pending refreshes of removed slots vanish with the Instance
+            // structs themselves (resize below); just keep the counter in sync.
+            if (i.refresh_blas != nullptr) {
+                --_pending_refresh_count;
+            }
             if (!i.handle) continue;
             i.handle->mesh->_remove_accel_ref(i.handle);
-        }
-        // Mesh-refresh entries queued by BLAS re-creation (_sync_tlas) may
-        // still reference the removed slots; drop them so a later build never
-        // rebinds a recycled slot to a stale BLAS.
-        for (auto ite = _set_map.begin(); ite != _set_map.end();) {
-            if (ite->first >= size) {
-                ite = _set_map.erase(ite);
-            } else {
-                ++ite;
-            }
         }
     }
     _all_instance.resize(size);

@@ -32,13 +32,28 @@ class TopAccel : public Resource {
     D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC topLevelBuildDesc;
     struct Instance {
         MeshHandle *handle = nullptr;
+        // Pending BLAS-address refresh queued by a BLAS recreate
+        // (SyncTopAccel). Stores the stable BottomAccel (never the pooled
+        // MeshHandle) so a destroyed or recycled handle can never leave a
+        // dangling entry behind. Lives in the slot itself because the key
+        // space (instance index) is exactly the dense [0, allInstance.size())
+        // range of the contiguous instance array: queue/consume/erase are
+        // O(1) array operations instead of hash-map read/writes, and shrinking
+        // the vector drops entries of removed slots automatically.
+        BottomAccel *refresh = nullptr;
     };
-      vstd::vector<Instance> allInstance;
-      void ResizeAllInstance(size_t size);
-      // Pending BLAS-address refreshes, keyed by TLAS instance index. The value
-      // is the stable BottomAccel (never the pooled MeshHandle) so that a
-      // destroyed or recycled handle can never leave a dangling entry behind.
-      vstd::unordered_map<uint64, BottomAccel *> setMap;
+    vstd::vector<Instance> allInstance;
+    void ResizeAllInstance(size_t size);
+    // Number of slots carrying a non-null `refresh`. Mirrors the size of the
+    // former refresh hash map so ProcessSetMap can skip its scan in O(1) when
+    // nothing is pending. Kept in sync by QueueRefresh/DropRefresh and the
+    // process/resize paths.
+    size_t pendingRefreshCount = 0;
+    // Queues a refresh of the BLAS device address of one instance slot.
+    void QueueRefresh(size_t index, BottomAccel *mesh) noexcept;
+    // Drops the pending refresh of one slot if it references `mesh` (used by
+    // ~BottomAccel so a destroyed BLAS never leaks a refresh entry behind).
+    void DropRefresh(size_t index, BottomAccel *mesh) noexcept;
     vstd::vector<PackedModifier> setDesc;
     void SetMesh(BottomAccel *mesh, uint64 index);
     uint compactSize = 0;

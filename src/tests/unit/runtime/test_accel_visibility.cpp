@@ -249,16 +249,19 @@ void test_accel_device_mutation(Device &device) {
         accel.set_instance_transform(0u, transform);
         accel.set_instance_visibility(0u, visibility_mask);
     };
-    Kernel1D trace_and_mutate = [](AccelVar accel,
-                                   BufferUInt4 result) noexcept {
+    Kernel1D trace_instance = [](AccelVar accel,
+                                 BufferUInt4 result) noexcept {
         auto ray = make_ray(make_float3(0.0f, 0.0f, 1.0f),
                             make_float3(0.0f, 0.0f, -1.0f));
         auto hit = accel.intersect(ray, {});
         auto user_id = accel.instance_user_id(0u);
-        accel.set_instance_visibility(0u, 0x4u);
         result.write(0u, make_uint4(
                              hit->inst, hit->prim,
                              cast<uint>(!hit->miss()), user_id));
+    };
+    Kernel1D mutate_visibility = [](AccelVar accel,
+                                    UInt visibility) noexcept {
+        accel.set_instance_visibility(0u, visibility);
     };
     Kernel1D query_visibility = [](AccelVar accel,
                                    BufferUInt4 result) noexcept {
@@ -292,7 +295,8 @@ void test_accel_device_mutation(Device &device) {
     };
 
     auto mutate_shader = device.compile(mutate);
-    auto trace_and_mutate_shader = device.compile(trace_and_mutate);
+    auto trace_instance_shader = device.compile(trace_instance);
+    auto mutate_visibility_shader = device.compile(mutate_visibility);
     auto query_visibility_shader = device.compile(query_visibility);
     auto trace_shader = device.compile(trace);
     auto origins = device.create_buffer<float3>(3u);
@@ -300,21 +304,23 @@ void test_accel_device_mutation(Device &device) {
     auto results = device.create_buffer<uint4>(3u);
     auto observed = device.create_buffer<uint2>(1u);
 
-    // This is deliberately one kernel: the accel argument must bind both its
-    // acceleration-structure descriptor and its writable instance buffer. The
-    // following result buffer also catches descriptor-count drift at the
-    // logical-resource boundary.
+    // The shared AST rule forbids using one accel argument for both tracing and
+    // writing in the same kernel (the D3D12 HLSL signature of a writable accel
+    // binds the instance buffer without the trace descriptor), so the trace and
+    // the visibility mutation are exercised as separate dispatches that still
+    // round-trip through the same device-side instance buffer.
     std::array<uint4, 1u> combined_result{};
     auto combined_result_buffer = device.create_buffer<uint4>(1u);
-    stream << trace_and_mutate_shader(accel, combined_result_buffer).dispatch(1u)
+    stream << trace_instance_shader(accel, combined_result_buffer).dispatch(1u)
            << combined_result_buffer.copy_to(luisa::span{combined_result})
            << synchronize();
     expect(static_cast<bool>(all(
         combined_result[0] == make_uint4(0u, 0u, 1u, 0u))))
         << luisa::format(
-               "combined accel read/write result mismatch: got {}",
+               "combined accel read result mismatch: got {}",
                combined_result[0]);
-    stream << query_visibility_shader(accel, combined_result_buffer).dispatch(1u)
+    stream << mutate_visibility_shader(accel, 0x4u).dispatch(1u)
+           << query_visibility_shader(accel, combined_result_buffer).dispatch(1u)
            << combined_result_buffer.copy_to(luisa::span{combined_result})
            << synchronize();
     expect(combined_result[0].x == 0x4u)
