@@ -1,4 +1,5 @@
-// Cross-target execution tests for one portable Tile DSL capture.
+// Cross-target execution tests for one portable Tile DSL capture, plus
+// compile-only recoverable rejection of missing Metal precise-math contracts.
 
 #include "ut/ut.hpp"
 
@@ -32,6 +33,25 @@ struct Executable {
 
     [[nodiscard]] bool ok() const noexcept {
         return error.empty() && module.has_value() && entry.has_value();
+    }
+};
+
+class GlobalFunctionRestorer {
+private:
+    std::string_view _name;
+    tvm::ffi::Optional<tvm::ffi::Function> _original;
+
+public:
+    explicit GlobalFunctionRestorer(std::string_view name)
+        : _name{name}, _original{tvm::ffi::Function::GetGlobal(name)} {}
+    GlobalFunctionRestorer(const GlobalFunctionRestorer &) = delete;
+    GlobalFunctionRestorer &operator=(const GlobalFunctionRestorer &) = delete;
+    ~GlobalFunctionRestorer() {
+        if (_original) {
+            tvm::ffi::Function::SetGlobal(_name, _original.value(), true);
+        } else {
+            tvm::ffi::Function::RemoveGlobal(tvm::ffi::String{_name.data(), _name.size()});
+        }
     }
 };
 
@@ -243,6 +263,62 @@ void test_cpu_target_model_reaches_codegen() {
     }
 }
 
+void test_ordered_metal_reduction_missing_contract_is_recoverable() {
+    constexpr auto rows = int64_t{3}, columns = int64_t{37};
+    auto definition = tile_kernel("metal_fold_left_missing_precise_math", [=](TensorView<const float, 2> input,
+                                                                              TensorView<float, 2> output) {
+        auto one = axis("one", 1), column = axis("column", columns);
+        for (auto &nest : parallel(shape(rows))) {
+            auto x = input[coord(nest.index(), 0), shape(one, column)];
+            auto fold = reduce(x, column, add, reduction::fold_left);
+            output(coord(nest.index(), 0), shape(1, 1)).store(full<float>(shape(1, 1), fold.at(coord(0))));
+        }
+    });
+    auto kernel = definition.capture(tensor_shape(rows, columns), tensor_shape(rows, 1));
+    expect(kernel.valid());
+    if (!kernel.valid()) { return; }
+    auto native = lower(kernel.function());
+    expect(native.ok()) << native.error;
+    if (!native) { return; }
+    CompileOptions options;
+    options.target = "metal";
+    options.host = "llvm";
+    constexpr auto target_contract = "target.metal.precise_math_contract_version";
+    constexpr auto runtime_contract = "runtime.metal.precise_math_contract_version";
+    auto original_target = tvm::ffi::Function::GetGlobal(target_contract);
+    auto original_runtime = tvm::ffi::Function::GetGlobal(runtime_contract);
+    // UT invokes these standalone test bodies serially. Registry mutation is
+    // confined to this synchronous compile-only scope, never GPU execution.
+    for (auto missing : {target_contract, runtime_contract}) {
+        {
+            GlobalFunctionRestorer restore_target{target_contract};
+            GlobalFunctionRestorer restore_runtime{runtime_contract};
+            // Register both versions first so the runtime-missing case reaches
+            // the second check even when neither real extension is installed.
+            auto version_one = tvm::ffi::Function::FromTyped([] { return int64_t{1}; });
+            tvm::ffi::Function::SetGlobal(target_contract, version_one, true);
+            tvm::ffi::Function::SetGlobal(runtime_contract, version_one, true);
+            tvm::ffi::Function::RemoveGlobal(tvm::ffi::String{missing});
+            expect(!tvm::ffi::Function::GetGlobal(missing).has_value());
+            auto present_name = std::string_view{missing} == target_contract ? runtime_contract : target_contract;
+            auto present = tvm::ffi::Function::GetGlobal(present_name);
+            expect(present.has_value());
+            if (present) { expect(eq((*present)().cast<int64_t>(), int64_t{1})); }
+            auto compiled = compile(native.value, kernel.function().name(), options);
+            expect(!compiled.ok());
+            expect(!compiled.module().has_value());
+            expect(compiled.error() == "ordered reductions on TVM's Metal runtime require metal-precise-math-v1.patch; Luisa Runtime compile_device does not require this extension")
+                << "missing " << missing << ": " << compiled.error();
+        }
+        auto restored_target = tvm::ffi::Function::GetGlobal(target_contract);
+        auto restored_runtime = tvm::ffi::Function::GetGlobal(runtime_contract);
+        expect(eq(restored_target.has_value(), original_target.has_value()));
+        expect(eq(restored_runtime.has_value(), original_runtime.has_value()));
+        if (original_target && restored_target) { expect(restored_target.value().same_as(original_target.value())); }
+        if (original_runtime && restored_runtime) { expect(restored_runtime.value().same_as(original_runtime.value())); }
+    }
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -250,4 +326,5 @@ int main(int argc, char *argv[]) {
     "tile_tirx_same_axpy_executes_on_cpu_and_metal"_test = test_same_axpy_on_cpu_and_metal;
     "tile_tirx_same_reduction_executes_on_cpu_and_metal"_test = test_same_reduction_on_cpu_and_metal;
     "tile_tirx_cpu_target_model_reaches_codegen"_test = test_cpu_target_model_reaches_codegen;
+    "tile_tirx_ordered_metal_reduction_missing_contract_is_recoverable"_test = test_ordered_metal_reduction_missing_contract_is_recoverable;
 }

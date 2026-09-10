@@ -527,18 +527,23 @@ int main(int argc, char *argv[]) {
 
     // CTest checks fatal preconditions in fresh processes and requires the
     // missing-key diagnostic. Reaching return 0 means unexpected acceptance.
-    if (argc == 2 && luisa::string_view{argv[1]} == "--reject-map-at-mutable") {
-        luisa::map<int, luisa::string> m;
-        m.emplace(1, "one");
-        static_cast<void>(m.at(2));
-        return 0;
-    }
-    if (argc == 2 && luisa::string_view{argv[1]} == "--reject-map-at-const") {
-        luisa::map<int, luisa::string> m;
-        m.emplace(1, "one");
-        const auto &cm = m;
-        static_cast<void>(cm.at(2));
-        return 0;
+    // Keep the argc guard separate: Boost.UT's overloaded logical operators
+    // eagerly evaluate their operands instead of short-circuiting.
+    if (argc == 2) {
+        const auto mode = luisa::string_view{argv[1]};
+        if (mode == "--reject-map-at-mutable") {
+            luisa::map<int, luisa::string> m;
+            m.emplace(1, "one");
+            static_cast<void>(m.at(2));
+            return 0;
+        }
+        if (mode == "--reject-map-at-const") {
+            luisa::map<int, luisa::string> m;
+            m.emplace(1, "one");
+            const auto &cm = m;
+            static_cast<void>(cm.at(2));
+            return 0;
+        }
     }
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     reg_vector_basic();

@@ -2,6 +2,7 @@
 #include <array>
 #include <exception>
 #include <limits>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -434,29 +435,29 @@ public:
     auto program_order = options.planner.program_order_rows != 1u || options.planner.program_order_columns != 1u;
     if (options.planner.program_order_rows == 0u || options.planner.program_order_columns == 0u ||
         (program_order && (!options.planner.enabled || target->kind->name != "metal"))) {
-        return diagnostic.reject("program traversal requires positive rectangle sizes and an enabled Metal planner", tvm::IRModule{});
+        return diagnostic.reject("program traversal requires positive rectangle sizes and an enabled Metal planner", module);
     }
     if (options.cpu_matrix_backend != CpuMatrixBackend::REFERENCE &&
         binding != RootParallelBinding::CPU_THREADS) {
-        return diagnostic.reject("CPU matrix realization requires an LLVM target", tvm::IRModule{});
+        return diagnostic.reject("CPU matrix realization requires an LLVM target", module);
     }
     if (options.cpu_math_backend != CpuMathBackend::REFERENCE &&
         binding != RootParallelBinding::CPU_THREADS) {
-        return diagnostic.reject("CPU array-math realization requires an LLVM target", tvm::IRModule{});
+        return diagnostic.reject("CPU array-math realization requires an LLVM target", module);
     }
     if (options.planner.max_cpu_stack_bytes > 65536u ||
         (options.planner.max_cpu_stack_bytes != 0u && binding != RootParallelBinding::CPU_THREADS)) {
-        return diagnostic.reject("CPU stack planning requires an LLVM target and a byte budget in [0,65536]", tvm::IRModule{});
+        return diagnostic.reject("CPU stack planning requires an LLVM target and a byte budget in [0,65536]", module);
     }
     if (options.planner.min_cpu_parallel_tasks == 0u ||
         (options.planner.min_cpu_parallel_tasks != 64u &&
          binding != RootParallelBinding::CPU_THREADS)) {
-        return diagnostic.reject("CPU parallel launch threshold requires an LLVM target and a positive task count", tvm::IRModule{});
+        return diagnostic.reject("CPU parallel launch threshold requires an LLVM target and a positive task count", module);
     }
     auto lanes = options.planner.max_cpu_vector_lanes;
     if (lanes < 16u || lanes > 128u || (lanes & (lanes - 1u)) != 0u ||
         (lanes != 16u && (binding != RootParallelBinding::CPU_THREADS || !options.auto_vectorize || !options.vectorize))) {
-        return diagnostic.reject("CPU vector packing requires 16/32/64/128 logical lanes and LLVM auto-vectorization when non-default", tvm::IRModule{});
+        return diagnostic.reject("CPU vector packing requires 16/32/64/128 logical lanes and LLVM auto-vectorization when non-default", module);
     }
     auto threads = uint32_t{1u};
     auto group_thread_limit = uint32_t{1u};
@@ -466,7 +467,7 @@ public:
         group_thread_limit = threads;
         if (auto maximum = target->GetAttr<int64_t>("max_num_threads")) {
             if (maximum.value() <= 0 || maximum.value() > std::numeric_limits<uint32_t>::max()) {
-                return diagnostic.reject("target thread capacity must be a positive uint32 value", tvm::IRModule{});
+                return diagnostic.reject("target thread capacity must be a positive uint32 value", module);
             }
             group_thread_limit = static_cast<uint32_t>(maximum.value());
             // The reference worker launch width is a scheduling choice, not a
@@ -484,55 +485,55 @@ public:
     // be silently downgraded to the reference path.
     if (options.cooperative_matrix &&
         (target->kind->name == "cuda" || target->kind->name == "nvptx")) {
-        return diagnostic.reject("CUDA device artifacts do not support cooperative matrices; Tile MMA uses the reference multiply/add realization", tvm::IRModule{});
+        return diagnostic.reject("CUDA device artifacts do not support cooperative matrices; Tile MMA uses the reference multiply/add realization", module);
     }
     auto subgroup_reductions = options.planner.metal_subgroup_reductions;
     if (options.planner.cache_reduction_inputs && !subgroup_reductions) {
-        return diagnostic.reject("input stripe caching requires Metal SIMD-group reductions", tvm::IRModule{});
+        return diagnostic.reject("input stripe caching requires Metal SIMD-group reductions", module);
     }
     auto lane_elements = options.planner.reduction_lane_elements;
     if ((lane_elements != 1u && lane_elements != 2u && lane_elements != 4u && lane_elements != 8u) ||
         (lane_elements != 1u && !subgroup_reductions)) {
-        return diagnostic.reject("reduction lane elements require a width in {1,2,4,8} and Metal SIMD-group reductions when non-default", tvm::IRModule{});
+        return diagnostic.reject("reduction lane elements require a width in {1,2,4,8} and Metal SIMD-group reductions when non-default", module);
     }
     if (options.planner.reduction_unroll_factor == 0u || options.planner.reduction_unroll_factor > 16u ||
         (options.planner.reduction_unroll_factor != 1u && !subgroup_reductions)) {
-        return diagnostic.reject("reduction unrolling requires a factor in [1,16] and Metal SIMD-group reductions when non-default", tvm::IRModule{});
+        return diagnostic.reject("reduction unrolling requires a factor in [1,16] and Metal SIMD-group reductions when non-default", module);
     }
     if (options.planner.reduction_programs_per_group != 0u &&
         (!subgroup_reductions || options.planner.reduction_programs_per_group > 8u)) {
-        return diagnostic.reject("exact reduction packing requires Metal SIMD-group reductions and 1..8 programs per group", tvm::IRModule{});
+        return diagnostic.reject("exact reduction packing requires Metal SIMD-group reductions and 1..8 programs per group", module);
     }
     if (subgroup_reductions &&
         (!options.planner.enabled || !options.noalias || target->kind->name != "metal" ||
          target->GetAttr<int64_t>("thread_warp_size").value_or(0) != 32)) {
-        return diagnostic.reject("Metal SIMD-group reductions require an enabled planner, noalias, and a Metal target with thread_warp_size=32", tvm::IRModule{});
+        return diagnostic.reject("Metal SIMD-group reductions require an enabled planner, noalias, and a Metal target with thread_warp_size=32", module);
     }
     if (options.metal_mpp) {
         if (!cooperative_matrix || !options.planner.enabled) {
-            return diagnostic.reject("Metal MPP requires the Metal cooperative matrix capability and an enabled planner", tvm::IRModule{});
+            return diagnostic.reject("Metal MPP requires the Metal cooperative matrix capability and an enabled planner", module);
         }
         auto capability = tvm::ffi::Function::GetGlobal("target.metal.mpp_memory_contract_version");
         if (!capability || (*capability)().cast<int64_t>() != 2) {
-            return diagnostic.reject("This TVM build lacks Metal MPP memory contract v2; use SIMD-group lowering or the documented TVM patch", tvm::IRModule{});
+            return diagnostic.reject("This TVM build lacks Metal MPP memory contract v2; use SIMD-group lowering or the documented TVM patch", module);
         }
     }
     FunctionMap functions;
     for (auto &&[global, base_function] : module->functions) {
         auto function = base_function.as<tvm::tirx::PrimFunc>();
         if (!function) {
-            return diagnostic.reject("Tile TIRx execution mapping only accepts PrimFunc modules", tvm::IRModule{});
+            return diagnostic.reject("Tile TIRx execution mapping only accepts PrimFunc modules", module);
         }
         auto mapped = function.value();
         if (options.cpu_matrix_backend == CpuMatrixBackend::CBLAS) {
             mapped = realize_cpu_whole_gemm(std::move(mapped), options.noalias, diagnostic);
-            if (diagnostic.failed()) { return {}; }
+            if (diagnostic.failed()) { return module; }
             functions.Set(global, std::move(mapped));
             continue;
         }
         if (options.cpu_math_backend == CpuMathBackend::ACCELERATE) {
             mapped.CopyOnWrite()->body = realize_cpu_vector_math(mapped->body, diagnostic);
-            if (diagnostic.failed()) { return {}; }
+            if (diagnostic.failed()) { return module; }
             mapped = tvm::WithAttr(
                 std::move(mapped), cpu_math_realization_annotation,
                 tvm::ffi::String{"accelerate"});
@@ -603,9 +604,9 @@ public:
         mapped.CopyOnWrite()->body = schedule_pipelines(mapped->body, options.noalias, shared_memory_limit, diagnostic,
                                                         !options.metal_mpp && cooperative_matrix && options.planner.enabled && options.planner.max_pipeline_prefetch_scalars_per_lane != 0u,
                                                         target->kind->name == "metal" && cooperative_matrix && options.planner.enabled && options.planner.map_gpu_cooperative_programs);
-        if (diagnostic.failed()) { return {}; }
+        if (diagnostic.failed()) { return module; }
         mapped.CopyOnWrite()->body = ExecutionMapper{binding, threads, group_thread_limit, shared_memory_limit, options.vectorize, options.auto_vectorize, cooperative_matrix, options.metal_mpp, std::string{target->kind->name}, options.planner, plans, views.inputs, diagnostic}(mapped->body);
-        if (diagnostic.failed()) { return {}; }
+        if (diagnostic.failed()) { return module; }
         functions.Set(global, std::move(mapped));
     }
     return make_module(std::move(functions), module->attrs, module->global_infos);
@@ -804,7 +805,7 @@ void finalize_device(tvm::IRModule &module) {
     return tvm::Target{configuration};
 }
 
-[[nodiscard]] tvm::ffi::Module codegen(tvm::IRModule module, const tvm::Target &target, Diagnostic &diagnostic, bool precise_reduction = false) {
+[[nodiscard]] std::optional<tvm::ffi::Module> codegen(tvm::IRModule module, const tvm::Target &target, Diagnostic &diagnostic, bool precise_reduction = false) {
     if (precise_reduction && target->kind->name == "metal") {
         // The stock TVM runtime hardcodes fast math. Require both halves of
         // the native extension; a patched compiler with an old runtime is
@@ -812,7 +813,8 @@ void finalize_device(tvm::IRModule &module) {
         for (auto name : {"target.metal.precise_math_contract_version", "runtime.metal.precise_math_contract_version"}) {
             auto capability = tvm::ffi::Function::GetGlobal(name);
             if (!capability || (*capability)().cast<int64_t>() != 1) {
-                return diagnostic.reject("ordered reductions on TVM's Metal runtime require metal-precise-math-v1.patch; Luisa Runtime compile_device does not require this extension", tvm::ffi::Module{});
+                diagnostic.set_error("ordered reductions on TVM's Metal runtime require metal-precise-math-v1.patch; Luisa Runtime compile_device does not require this extension");
+                return std::nullopt;
             }
         }
         module = tvm::WithAttr(std::move(module), "tirx.metal.precise_math", true);
@@ -1026,7 +1028,7 @@ DeviceCompilationResult compile_device(tvm::tirx::PrimFunc function, luisa::stri
                 result.error = diagnostic.error();
                 return result;
             }
-            auto source = compiled->InspectSource(tvm::ffi::String{inspect_source.data(), inspect_source.size()});
+            auto source = (*compiled)->InspectSource(tvm::ffi::String{inspect_source.data(), inspect_source.size()});
             result.artifact.source.assign(source.data(), source.size());
             if (source.empty()) {
                 result.error = std::string{target->kind->name} + " code generator returned no source artifact";
@@ -1109,9 +1111,9 @@ CompilationResult compile(tvm::IRModule module, const CompileOptions &options) n
             detail::finalize_device(device_module);
             auto compiled = detail::codegen(std::move(device_module), partition.target, diagnostic, precise_reduction);
             if (diagnostic.failed()) { return CompilationResult{diagnostic.error()}; }
-            runtime_module->ImportModule(compiled);
+            (*runtime_module)->ImportModule(*compiled);
         }
-        return CompilationResult{std::move(runtime_module), std::move(plans)};
+        return CompilationResult{std::move(*runtime_module), std::move(plans)};
     } catch (const tvm::ffi::Error &error) {
         return CompilationResult{luisa::string{error.what()}};
     } catch (const std::exception &error) {
