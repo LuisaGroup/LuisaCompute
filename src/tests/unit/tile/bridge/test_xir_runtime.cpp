@@ -2,6 +2,7 @@
 #include "test_device.h"
 #include "tile_xir_test_utils.h"
 #include "tile_reduction_policy_test_utils.h"
+#include "tile_llm_test_utils.h"
 #include <bit>
 #include <cstdlib>
 #include <luisa/core/logging.h>
@@ -372,6 +373,102 @@ void shared_pointwise(Device &device, int64_t width, uint32_t lanes, uint32_t va
             baseline_c = actual_c;
         } else {
             expect(actual_a == baseline_a && actual_b == baseline_b && actual_c == baseline_c);
+        }
+    }
+}
+
+void rope_shared_pointwise(Device &device, int64_t half_width) {
+    using namespace tile;
+    // Reuse the actual four-load/two-store RoPE DAG and its independent FP64
+    // oracle. One program makes every shifted overlap an intra-program
+    // snapshot test, without introducing a cross-parallel-iteration race.
+    auto fixture = test::tile_llm::rows(test::tile_llm::RowOp::ROPE, 1, half_width * 2);
+    expect(fixture.kernel.valid());
+    if (!fixture.kernel.valid()) { return; }
+    auto lanes = device.compute_warp_size();
+    constexpr auto pad = size_t{19u};
+    constexpr auto input_offset = pad + 1u;
+    constexpr auto guard = -731.25f;
+    auto output_count = fixture.expected.size();
+    auto allocation_count = output_count + 2u * pad + 2u;
+    std::array<vector<float>, 4u> seeds;
+    vector<Buffer<float>> buffers;
+    for (size_t i = 0u; i < seeds.size(); i++) {
+        seeds[i].resize(allocation_count, guard);
+        if (i < fixture.inputs.size()) {
+            std::copy(fixture.inputs[i].begin(), fixture.inputs[i].end(), seeds[i].begin() + input_offset);
+        }
+        buffers.emplace_back(device.create_buffer<float>(allocation_count));
+    }
+    struct Binding {
+        size_t output_allocation;
+        int32_t shift;
+    };
+    // Distinct output, then Y overlapping X/U/V at the same base and on both
+    // sides. Auxiliary allocations also have room for the full-width Y view.
+    constexpr std::array bindings{Binding{3u, 0},
+                                  Binding{0u, -1}, Binding{0u, 0}, Binding{0u, 1},
+                                  Binding{1u, -1}, Binding{1u, 0}, Binding{1u, 1},
+                                  Binding{2u, -1}, Binding{2u, 0}, Binding{2u, 1}};
+    using Allocations = std::array<vector<float>, 4u>;
+    std::array<Allocations, bindings.size()> baselines;
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    for (auto enabled : {false, true}) {
+        auto options = bridge::xir::PlannerOptions{.block_size = 32u, .local_lanes = lanes, .enable_pointwise_fusion = enabled};
+        auto shader = compile(device, fixture.kernel, {.xir = &options}, {.enable_fast_math = false});
+        expect(static_cast<bool>(shader)) << shader.metadata().error;
+        if (!shader) { return; }
+        const auto &metadata = shader.metadata();
+        expect(metadata.realization.find(format("; local_lanes={};", lanes)) != string::npos) << metadata.realization;
+        expect(metadata.realization.find(format("; pointwise_fusion={}; fused_pointwise_regions={}; fused_pointwise_loads={}; fused_pointwise_stores={}; pointwise_alias_checks={};",
+                                                enabled, enabled ? 1u : 0u, enabled ? 4u : 0u,
+                                                enabled ? 2u : 0u, enabled ? 3u : 0u)) != string::npos)
+            << metadata.realization;
+        // Guarded fusion keeps the original four snapshots in its fallback.
+        auto snapshot_bytes = ceil_div(static_cast<uint64_t>(half_width), uint64_t{lanes}) * 4u * sizeof(float);
+        expect(metadata.realization.find(format("; static_snapshot_bytes_per_worker={}; static_snapshot_allocations=4;", snapshot_bytes)) != string::npos)
+            << metadata.realization;
+        expect(eq(metadata.dispatch_size.x, lanes));
+        for (size_t binding_index = 0u; binding_index < bindings.size(); binding_index++) {
+            auto binding = bindings[binding_index];
+            auto output_offset = static_cast<size_t>(static_cast<int64_t>(input_offset) + binding.shift);
+            auto actual = seeds;
+            std::array<vector<double>, 4u> expected;
+            for (size_t i = 0u; i < seeds.size(); i++) {
+                expected[i].assign(seeds[i].begin(), seeds[i].end());
+                stream << buffers[i].copy_from(span{seeds[i]});
+            }
+            std::copy(fixture.expected.begin(), fixture.expected.end(), expected[binding.output_allocation].begin() + output_offset);
+            stream << shader(buffers[0].view(input_offset, fixture.inputs[0].size()),
+                             buffers[1].view(input_offset, fixture.inputs[1].size()),
+                             buffers[2].view(input_offset, fixture.inputs[2].size()),
+                             buffers[binding.output_allocation].view(output_offset, output_count))
+                          .dispatch();
+            for (size_t i = 0u; i < actual.size(); i++) { stream << buffers[i].copy_to(span{actual[i]}); }
+            stream << synchronize();
+            for (size_t i = 0u; i < actual.size(); i++) {
+                expect(close(actual[i], expected[i])) << "RoPE half=" << half_width << " fused=" << enabled
+                                                      << " Y allocation=" << binding.output_allocation << " shift=" << binding.shift << " allocation=" << i;
+                // All guards, all independent read-only inputs, and the
+                // unmodified part of an aliased input remain bit-identical.
+                auto unchanged = true;
+                for (size_t j = 0u; j < allocation_count; j++) {
+                    auto written = i == binding.output_allocation && j >= output_offset && j < output_offset + output_count;
+                    if (!written && std::bit_cast<uint32_t>(actual[i][j]) != std::bit_cast<uint32_t>(seeds[i][j])) {
+                        unchanged = false;
+                        break;
+                    }
+                }
+                expect(unchanged) << "RoPE changed an unwritten element: half=" << half_width << " allocation=" << i
+                                  << " Y allocation=" << binding.output_allocation << " shift=" << binding.shift;
+                if (enabled) {
+                    expect(std::equal(actual[i].begin(), actual[i].end(), baselines[binding_index][i].begin(), baselines[binding_index][i].end(), [](float a, float b) {
+                        return std::bit_cast<uint32_t>(a) == std::bit_cast<uint32_t>(b);
+                    })) << "RoPE on/off mismatch: half="
+                        << half_width << " allocation=" << i << " Y allocation=" << binding.output_allocation << " shift=" << binding.shift;
+                }
+            }
+            if (!enabled) { baselines[binding_index] = std::move(actual); }
         }
     }
 }
@@ -1162,6 +1259,9 @@ int main(int argc, char *argv[]) {
                 for (auto shift : {-2 * width, 2 * width}) { shared_pointwise(device, width, lanes, 0u, shift); }
             }
         }
+    };
+    "tile_xir_runtime_rope_shared_dag_three_alias_guards"_test = [&] {
+        for (auto half_width : {33, 2049}) { rope_shared_pointwise(device, half_width); }
     };
     "tile_xir_runtime_task_grain_preserves_kernel_and_guards"_test = [&] {
         for (auto rows : {17, 129}) {

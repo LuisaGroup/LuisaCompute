@@ -1,0 +1,2089 @@
+{
+  "manifest_sha256": "85ab55ca647c899a0320abef164513034387d0662dbc63f791db62bd75f3e45d",
+  "replay_sha256": "f186fba189b1869a7d945143686f17751dd9ee3eb2388006a6960371b503954a",
+  "auditor_sha256": "1828208ea0cc9c5e4683c58be935b32ab8662a036b4ba4f0ceafceb6636c9206",
+  "native_output_checks": [
+    {
+      "case": "rmsnorm-17x65",
+      "variant": "off",
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 2.3720950825811826e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "rmsnorm-17x65",
+      "variant": "on",
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 2.3720950825811826e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "rmsnorm-17x65",
+      "variant": "inductor",
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 2.851864606689958e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "rmsnorm-129x768",
+      "variant": "off",
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 2.632167821481346e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "rmsnorm-129x768",
+      "variant": "on",
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 2.632167821481346e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "rmsnorm-129x768",
+      "variant": "inductor",
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 4.066459495799535e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "rmsnorm-257x1538",
+      "variant": "off",
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 3.3424404710657996e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "rmsnorm-257x1538",
+      "variant": "on",
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 3.3424404710657996e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "rmsnorm-257x1538",
+      "variant": "inductor",
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 4.395120491995641e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "rmsnorm-1024x4097",
+      "variant": "off",
+      "correctness": {
+        "elements": 4195328,
+        "max_abs_error": 3.2819568041020375e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "rmsnorm-1024x4097",
+      "variant": "on",
+      "correctness": {
+        "elements": 4195328,
+        "max_abs_error": 3.2819568041020375e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "rmsnorm-1024x4097",
+      "variant": "inductor",
+      "correctness": {
+        "elements": 4195328,
+        "max_abs_error": 7.027867956477252e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "layernorm-17x65",
+      "variant": "off",
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 2.5756824362233033e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "layernorm-17x65",
+      "variant": "on",
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 2.5756824362233033e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "layernorm-17x65",
+      "variant": "inductor",
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 2.8727466094835563e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "layernorm-129x768",
+      "variant": "off",
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 3.9680348340453975e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "layernorm-129x768",
+      "variant": "on",
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 3.9680348340453975e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "layernorm-129x768",
+      "variant": "inductor",
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 4.907619057803458e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "layernorm-257x1538",
+      "variant": "off",
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 4.291160045077902e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "layernorm-257x1538",
+      "variant": "on",
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 4.291160045077902e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "layernorm-257x1538",
+      "variant": "inductor",
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 7.205651679775826e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "layernorm-1024x4097",
+      "variant": "off",
+      "correctness": {
+        "elements": 4195328,
+        "max_abs_error": 4.6299314782061174e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "layernorm-1024x4097",
+      "variant": "on",
+      "correctness": {
+        "elements": 4195328,
+        "max_abs_error": 4.6299314782061174e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "layernorm-1024x4097",
+      "variant": "inductor",
+      "correctness": {
+        "elements": 4195328,
+        "max_abs_error": 1.0828684917640885e-06,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "masked_softmax-17x65",
+      "variant": "off",
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 2.984370495173749e-08,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "masked_softmax-17x65",
+      "variant": "on",
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 2.984370495173749e-08,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "masked_softmax-17x65",
+      "variant": "inductor",
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 2.984370495173749e-08,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "masked_softmax-129x768",
+      "variant": "off",
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 2.7739393226866582e-08,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "masked_softmax-129x768",
+      "variant": "on",
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 2.7739393226866582e-08,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "masked_softmax-129x768",
+      "variant": "inductor",
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 2.7739393226866582e-08,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "masked_softmax-257x1538",
+      "variant": "off",
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 2.386560055134268e-08,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "masked_softmax-257x1538",
+      "variant": "on",
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 2.386560055134268e-08,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "masked_softmax-257x1538",
+      "variant": "inductor",
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 2.386560055134268e-08,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "masked_softmax-1024x4097",
+      "variant": "off",
+      "correctness": {
+        "elements": 4195328,
+        "max_abs_error": 2.648944508187867e-08,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "masked_softmax-1024x4097",
+      "variant": "on",
+      "correctness": {
+        "elements": 4195328,
+        "max_abs_error": 2.648944508187867e-08,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "masked_softmax-1024x4097",
+      "variant": "inductor",
+      "correctness": {
+        "elements": 4195328,
+        "max_abs_error": 2.4830495048977497e-08,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "swiglu-17x65",
+      "variant": "off",
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 1.7778814753732775e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "swiglu-17x65",
+      "variant": "on",
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 1.7778814753732775e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "swiglu-17x65",
+      "variant": "inductor",
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 1.7778814753732775e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "swiglu-129x768",
+      "variant": "off",
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 2.209143261655555e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "swiglu-129x768",
+      "variant": "on",
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 2.209143261655555e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "swiglu-129x768",
+      "variant": "inductor",
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 2.209143261655555e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "swiglu-257x1538",
+      "variant": "off",
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 2.209143261655555e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "swiglu-257x1538",
+      "variant": "on",
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 2.209143261655555e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "swiglu-257x1538",
+      "variant": "inductor",
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 2.209143261655555e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "swiglu-1024x4097",
+      "variant": "off",
+      "correctness": {
+        "elements": 4195328,
+        "max_abs_error": 2.267375835973695e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "swiglu-1024x4097",
+      "variant": "on",
+      "correctness": {
+        "elements": 4195328,
+        "max_abs_error": 2.267375835973695e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "swiglu-1024x4097",
+      "variant": "inductor",
+      "correctness": {
+        "elements": 4195328,
+        "max_abs_error": 2.267375835973695e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "gelu_residual-17x65",
+      "variant": "off",
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 2.847937956573787e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "gelu_residual-17x65",
+      "variant": "on",
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 2.847937956573787e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "gelu_residual-17x65",
+      "variant": "inductor",
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 2.2304376212645138e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "gelu_residual-129x768",
+      "variant": "off",
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 3.3307994140585606e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "gelu_residual-129x768",
+      "variant": "on",
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 3.3307994140585606e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "gelu_residual-129x768",
+      "variant": "inductor",
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 2.594270291922385e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "gelu_residual-257x1538",
+      "variant": "off",
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 3.3307994140585606e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "gelu_residual-257x1538",
+      "variant": "on",
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 3.3307994140585606e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "gelu_residual-257x1538",
+      "variant": "inductor",
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 2.60716346733858e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "gelu_residual-1024x4097",
+      "variant": "off",
+      "correctness": {
+        "elements": 4195328,
+        "max_abs_error": 3.390792695512346e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "gelu_residual-1024x4097",
+      "variant": "on",
+      "correctness": {
+        "elements": 4195328,
+        "max_abs_error": 3.390792695512346e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "gelu_residual-1024x4097",
+      "variant": "inductor",
+      "correctness": {
+        "elements": 4195328,
+        "max_abs_error": 2.644159513565114e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "rope-17x66",
+      "variant": "off",
+      "correctness": {
+        "elements": 1122,
+        "max_abs_error": 1.7592435597180156e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "rope-17x66",
+      "variant": "on",
+      "correctness": {
+        "elements": 1122,
+        "max_abs_error": 1.7592435597180156e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "rope-17x66",
+      "variant": "inductor",
+      "correctness": {
+        "elements": 1122,
+        "max_abs_error": 1.7592435597180156e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "rope-129x768",
+      "variant": "off",
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 2.337733633339667e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "rope-129x768",
+      "variant": "on",
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 2.337733633339667e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "rope-129x768",
+      "variant": "inductor",
+      "correctness": {
+        "elements": 99072,
+        "max_abs_error": 2.337733633339667e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "rope-257x1538",
+      "variant": "off",
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 2.199755897436262e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "rope-257x1538",
+      "variant": "on",
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 2.199755897436262e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "rope-257x1538",
+      "variant": "inductor",
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 2.199755897436262e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "rope-1024x4098",
+      "variant": "off",
+      "correctness": {
+        "elements": 4196352,
+        "max_abs_error": 2.3765414880472235e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "rope-1024x4098",
+      "variant": "on",
+      "correctness": {
+        "elements": 4196352,
+        "max_abs_error": 2.3765414880472235e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "rope-1024x4098",
+      "variant": "inductor",
+      "correctness": {
+        "elements": 4196352,
+        "max_abs_error": 2.3765414880472235e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    }
+  ],
+  "summaries": [
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        17,
+        65
+      ],
+      "summary_us": {
+        "off": 0.2554818801879883,
+        "on": 0.2551383972167969,
+        "inductor": 0.7422208786010742
+      },
+      "paired_ratios": {
+        "on/off": {
+          "median": 1.0006436300147104,
+          "minimum": 0.9913858243018728,
+          "maximum": 1.012075704827363,
+          "wins": 3,
+          "rounds": [
+            0.9952255341708836,
+            1.0017972580566599,
+            1.012075704827363,
+            0.9994900019727606,
+            1.0046222632724453,
+            0.9913858243018728
+          ]
+        },
+        "on/inductor": {
+          "median": 0.34375009675563484,
+          "minimum": 0.34177484477115944,
+          "maximum": 0.35484987906365967,
+          "wins": 6,
+          "rounds": [
+            0.3429480172659612,
+            0.34388687787461286,
+            0.35484987906365967,
+            0.34177484477115944,
+            0.34361331563665676,
+            0.34416814678112306
+          ]
+        },
+        "off/inductor": {
+          "median": 0.3439315996305662,
+          "minimum": 0.3419492382080615,
+          "maximum": 0.3506159444111831,
+          "wins": 6,
+          "rounds": [
+            0.34459326603961093,
+            0.3432699332215214,
+            0.3506159444111831,
+            0.3419492382080615,
+            0.3420323520577521,
+            0.3471586322343109
+          ]
+        }
+      }
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        129,
+        768
+      ],
+      "summary_us": {
+        "off": 24.394002197265625,
+        "on": 24.790679931640625,
+        "inductor": 60.4639892578125
+      },
+      "paired_ratios": {
+        "on/off": {
+          "median": 1.0145731882010627,
+          "minimum": 0.9832012449550671,
+          "maximum": 1.0222740921782871,
+          "wins": 1,
+          "rounds": [
+            0.9832012449550671,
+            1.0036085226244287,
+            1.0174529776380856,
+            1.0116933987640397,
+            1.0177229771811476,
+            1.0222740921782871
+          ]
+        },
+        "on/inductor": {
+          "median": 0.40895402444919376,
+          "minimum": 0.40831698181126314,
+          "maximum": 0.41480968014639574,
+          "wins": 6,
+          "rounds": [
+            0.41480968014639574,
+            0.40862170566115946,
+            0.40928634323722807,
+            0.40831698181126314,
+            0.4084513135453825,
+            0.41096523521702577
+          ]
+        },
+        "off/inductor": {
+          "median": 0.4029315825982113,
+          "minimum": 0.4013384022012515,
+          "maximum": 0.4218970249222506,
+          "wins": 6,
+          "rounds": [
+            0.4218970249222506,
+            0.4071524867013054,
+            0.40226561053204146,
+            0.4035975546643812,
+            0.4013384022012515,
+            0.40201080939196143
+          ]
+        }
+      }
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        257,
+        1538
+      ],
+      "summary_us": {
+        "off": 110.4915361328125,
+        "on": 110.635171875,
+        "inductor": 241.7643203125
+      },
+      "paired_ratios": {
+        "on/off": {
+          "median": 1.0075704747154928,
+          "minimum": 0.9931859088087216,
+          "maximum": 1.069173285182657,
+          "wins": 2,
+          "rounds": [
+            1.0291683863409362,
+            1.069173285182657,
+            0.9931859088087216,
+            0.996137631395928,
+            1.0137948368334921,
+            1.0013461125974934
+          ]
+        },
+        "on/inductor": {
+          "median": 0.4573477555111419,
+          "minimum": 0.45055957552314113,
+          "maximum": 0.48824856102809566,
+          "wins": 6,
+          "rounds": [
+            0.46976686591133743,
+            0.48824856102809566,
+            0.4558597303906708,
+            0.45482782190990073,
+            0.45883578063161296,
+            0.45055957552314113
+          ]
+        },
+        "off/inductor": {
+          "median": 0.45652210908922164,
+          "minimum": 0.4499538869276567,
+          "maximum": 0.4589873117888397,
+          "wins": 6,
+          "rounds": [
+            0.45645287218890157,
+            0.45665989582285865,
+            0.4589873117888397,
+            0.45659134598954165,
+            0.45259234310637264,
+            0.4499538869276567
+          ]
+        }
+      }
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        1024,
+        4097
+      ],
+      "summary_us": {
+        "off": 1176.221359375,
+        "on": 1168.501953125,
+        "inductor": 2639.10675
+      },
+      "paired_ratios": {
+        "on/off": {
+          "median": 0.9927347480588877,
+          "minimum": 0.981214567871555,
+          "maximum": 1.0168690012451973,
+          "wins": 4,
+          "rounds": [
+            0.9837232765535988,
+            0.9882953788295634,
+            0.981214567871555,
+            1.0034310130890454,
+            1.0168690012451973,
+            0.9971741172882119
+          ]
+        },
+        "on/inductor": {
+          "median": 0.4424077435350915,
+          "minimum": 0.43782044094784944,
+          "maximum": 0.4508551118124122,
+          "wins": 6,
+          "rounds": [
+            0.44279207077475297,
+            0.44202341629542996,
+            0.43782044094784944,
+            0.44750153120227276,
+            0.4508551118124122,
+            0.4411473670340328
+          ]
+        },
+        "off/inductor": {
+          "median": 0.44608697307049594,
+          "minimum": 0.442397530567401,
+          "maximum": 0.4501185255329547,
+          "wins": 6,
+          "rounds": [
+            0.4501185255329547,
+            0.4472584065089099,
+            0.4462025486408819,
+            0.44597139750011006,
+            0.44337580480899885,
+            0.442397530567401
+          ]
+        }
+      }
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        17,
+        65
+      ],
+      "summary_us": {
+        "off": 0.4323215446472168,
+        "on": 0.631217643737793,
+        "inductor": 0.5825087280273438
+      },
+      "paired_ratios": {
+        "on/off": {
+          "median": 1.4573494241728726,
+          "minimum": 1.454874073175754,
+          "maximum": 1.464946896584081,
+          "wins": 0,
+          "rounds": [
+            1.4576185653431568,
+            1.464946896584081,
+            1.455189356436866,
+            1.454874073175754,
+            1.4570802830025882,
+            1.4615435814376743
+          ]
+        },
+        "on/inductor": {
+          "median": 1.0835449269340547,
+          "minimum": 1.0767511686749351,
+          "maximum": 1.0923600557196649,
+          "wins": 0,
+          "rounds": [
+            1.0863053131320393,
+            1.0923600557196649,
+            1.0807845407360703,
+            1.0767511686749351,
+            1.080001257198608,
+            1.0890455004790214
+          ]
+        },
+        "off/inductor": {
+          "median": 0.7439221857670095,
+          "minimum": 0.740099221319246,
+          "maximum": 0.7456652922142072,
+          "wins": 6,
+          "rounds": [
+            0.7452603437966626,
+            0.7456652922142072,
+            0.742710586739342,
+            0.740099221319246,
+            0.7412091631444371,
+            0.745133784794677
+          ]
+        }
+      }
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        129,
+        768
+      ],
+      "summary_us": {
+        "off": 42.18575048828125,
+        "on": 36.8066611328125,
+        "inductor": 68.998494140625
+      },
+      "paired_ratios": {
+        "on/off": {
+          "median": 0.8698945691176379,
+          "minimum": 0.8644279817485444,
+          "maximum": 0.8842397348030343,
+          "wins": 6,
+          "rounds": [
+            0.8719937669078418,
+            0.8690787336897391,
+            0.8842397348030343,
+            0.8644279817485444,
+            0.8671937043363447,
+            0.8707104045455365
+          ]
+        },
+        "on/inductor": {
+          "median": 0.5334427053684876,
+          "minimum": 0.5314612057964438,
+          "maximum": 0.5372172756166879,
+          "wins": 6,
+          "rounds": [
+            0.5321394858564628,
+            0.5372172756166879,
+            0.5365532220032487,
+            0.5347459248805125,
+            0.5318992293970999,
+            0.5314612057964438
+          ]
+        },
+        "off/inductor": {
+          "median": 0.6118667136154996,
+          "minimum": 0.6067960993890043,
+          "maximum": 0.6186124653193679,
+          "wins": 6,
+          "rounds": [
+            0.6102560660994987,
+            0.6181456924344374,
+            0.6067960993890043,
+            0.6186124653193679,
+            0.613356885246483,
+            0.6103765419845163
+          ]
+        }
+      }
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        257,
+        1538
+      ],
+      "summary_us": {
+        "off": 176.61653515625,
+        "on": 178.55069921875,
+        "inductor": 475.5485
+      },
+      "paired_ratios": {
+        "on/off": {
+          "median": 1.0120382677193616,
+          "minimum": 1.0082092116370336,
+          "maximum": 1.0148152243196975,
+          "wins": 0,
+          "rounds": [
+            1.0148152243196975,
+            1.0121361447049,
+            1.012005639472201,
+            1.0082092116370336,
+            1.012070895966522,
+            1.0113398172088834
+          ]
+        },
+        "on/inductor": {
+          "median": 0.3757465303221753,
+          "minimum": 0.37396503279476667,
+          "maximum": 0.3770919831537106,
+          "wins": 6,
+          "rounds": [
+            0.3770919831537106,
+            0.3761244092087208,
+            0.37563291456152087,
+            0.37396503279476667,
+            0.3753656605681449,
+            0.3758601460828297
+          ]
+        },
+        "off/inductor": {
+          "median": 0.3713817708318061,
+          "minimum": 0.37088870163554377,
+          "maximum": 0.3716457511977886,
+          "wins": 6,
+          "rounds": [
+            0.37158684075369686,
+            0.37161444255938936,
+            0.37117670090991545,
+            0.37092007142799066,
+            0.37088870163554377,
+            0.3716457511977886
+          ]
+        }
+      }
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        1024,
+        4097
+      ],
+      "summary_us": {
+        "off": 1940.1315,
+        "on": 1913.23828125,
+        "inductor": 5090.3984375
+      },
+      "paired_ratios": {
+        "on/off": {
+          "median": 0.9882149777118625,
+          "minimum": 0.9822952392102087,
+          "maximum": 1.018863936178125,
+          "wins": 5,
+          "rounds": [
+            0.9822952392102087,
+            0.9855252834216138,
+            0.9873712139607689,
+            0.9936765091543964,
+            0.9890587414629562,
+            1.018863936178125
+          ]
+        },
+        "on/inductor": {
+          "median": 0.376121426209319,
+          "minimum": 0.372929538522844,
+          "maximum": 0.3888335466868442,
+          "wins": 6,
+          "rounds": [
+            0.372929538522844,
+            0.37640716655656686,
+            0.3758356858620711,
+            0.37493832617256917,
+            0.38531658839855937,
+            0.3888335466868442
+          ]
+        },
+        "off/inductor": {
+          "median": 0.3811385804799435,
+          "minimum": 0.3773243331389971,
+          "maximum": 0.38957907376524703,
+          "wins": 6,
+          "rounds": [
+            0.3796511717013809,
+            0.3819355757669969,
+            0.3806427416031638,
+            0.3773243331389971,
+            0.38957907376524703,
+            0.38163441935672315
+          ]
+        }
+      }
+    },
+    {
+      "operation": "masked_softmax",
+      "dimensions": [
+        17,
+        65
+      ],
+      "summary_us": {
+        "off": 3.5685806274414062,
+        "on": 3.5797335205078125,
+        "inductor": 2.186162322998047
+      },
+      "paired_ratios": {
+        "on/off": {
+          "median": 1.0034896760423404,
+          "minimum": 0.991673939213476,
+          "maximum": 1.0182324179522357,
+          "wins": 1,
+          "rounds": [
+            0.991673939213476,
+            1.0045444193186455,
+            1.0024349327660356,
+            1.0182324179522357,
+            1.0002163353811255,
+            1.004849386892975
+          ]
+        },
+        "on/inductor": {
+          "median": 1.6375590040199266,
+          "minimum": 1.6304258680011685,
+          "maximum": 1.6548819406520552,
+          "wins": 0,
+          "rounds": [
+            1.6317087185533345,
+            1.6352621283227742,
+            1.6304258680011685,
+            1.6548819406520552,
+            1.6428886737386623,
+            1.6398558797170792
+          ]
+        },
+        "off/inductor": {
+          "median": 1.6299031957588364,
+          "minimum": 1.6252497086865327,
+          "maximum": 1.6454084896568804,
+          "wins": 0,
+          "rounds": [
+            1.6454084896568804,
+            1.6278644297600369,
+            1.6264655337801395,
+            1.6252497086865327,
+            1.6425333356634801,
+            1.6319419617576356
+          ]
+        }
+      }
+    },
+    {
+      "operation": "masked_softmax",
+      "dimensions": [
+        129,
+        768
+      ],
+      "summary_us": {
+        "off": 233.765380859375,
+        "on": 234.185140625,
+        "inductor": 174.3212890625
+      },
+      "paired_ratios": {
+        "on/off": {
+          "median": 1.001796185669427,
+          "minimum": 0.9729122000125645,
+          "maximum": 1.008911238972937,
+          "wins": 2,
+          "rounds": [
+            1.008911238972937,
+            1.000491341812632,
+            0.9903039322827569,
+            1.00537020977228,
+            1.0031010295262224,
+            0.9729122000125645
+          ]
+        },
+        "on/inductor": {
+          "median": 1.3440828682312467,
+          "minimum": 1.3229547640184496,
+          "maximum": 1.3487036201446934,
+          "wins": 0,
+          "rounds": [
+            1.3453186416650558,
+            1.3446252691551515,
+            1.3325476131156169,
+            1.343540467307342,
+            1.3487036201446934,
+            1.3229547640184496
+          ]
+        },
+        "off/inductor": {
+          "median": 1.3442495514737078,
+          "minimum": 1.333436074153142,
+          "maximum": 1.359788441342769,
+          "wins": 0,
+          "rounds": [
+            1.333436074153142,
+            1.3439649229937738,
+            1.3455945893741446,
+            1.336363912763696,
+            1.3445341799536419,
+            1.359788441342769
+          ]
+        }
+      }
+    },
+    {
+      "operation": "masked_softmax",
+      "dimensions": [
+        257,
+        1538
+      ],
+      "summary_us": {
+        "off": 1086.276046875,
+        "on": 1087.78059375,
+        "inductor": 690.2333984375
+      },
+      "paired_ratios": {
+        "on/off": {
+          "median": 1.000213607581403,
+          "minimum": 0.9285017229032375,
+          "maximum": 1.0085214263603968,
+          "wins": 3,
+          "rounds": [
+            0.9998566873472498,
+            1.0083040820706444,
+            1.0005705278155563,
+            1.0085214263603968,
+            0.9987818348253295,
+            0.9285017229032375
+          ]
+        },
+        "on/inductor": {
+          "median": 1.5789989483755558,
+          "minimum": 1.5693440257131905,
+          "maximum": 1.6212205627663778,
+          "wins": 0,
+          "rounds": [
+            1.5832515666248137,
+            1.5739865477696562,
+            1.6212205627663778,
+            1.5781916829324776,
+            1.5693440257131905,
+            1.579806213818634
+          ]
+        },
+        "off/inductor": {
+          "median": 1.5773682883564097,
+          "minimum": 1.5610236790248149,
+          "maximum": 1.7014574931308677,
+          "wins": 0,
+          "rounds": [
+            1.5834784991290969,
+            1.5610236790248149,
+            1.6202961387497825,
+            1.5648568703472525,
+            1.5712580775837228,
+            1.7014574931308677
+          ]
+        }
+      }
+    },
+    {
+      "operation": "masked_softmax",
+      "dimensions": [
+        1024,
+        4097
+      ],
+      "summary_us": {
+        "off": 11689.8595,
+        "on": 11698.53125,
+        "inductor": 7708.328125
+      },
+      "paired_ratios": {
+        "on/off": {
+          "median": 1.001496183484758,
+          "minimum": 0.9821540274449667,
+          "maximum": 1.0078923143373513,
+          "wins": 2,
+          "rounds": [
+            1.0078923143373513,
+            1.0030819505597193,
+            0.9975610299234754,
+            1.0016717696838255,
+            1.0013205972856907,
+            0.9821540274449667
+          ]
+        },
+        "on/inductor": {
+          "median": 1.5209353635097156,
+          "minimum": 1.4753869889509157,
+          "maximum": 1.5540109094952703,
+          "wins": 0,
+          "rounds": [
+            1.4753869889509157,
+            1.5496974842162512,
+            1.5269314773387013,
+            1.51493924968073,
+            1.5540109094952703,
+            1.4828886823774237
+          ]
+        },
+        "off/inductor": {
+          "median": 1.5215377849359435,
+          "minimum": 1.4638339512698075,
+          "maximum": 1.5519613934915288,
+          "wins": 0,
+          "rounds": [
+            1.4638339512698075,
+            1.5449360676378643,
+            1.5306647227947894,
+            1.5124108470770976,
+            1.5519613934915288,
+            1.5098331228504935
+          ]
+        }
+      }
+    },
+    {
+      "operation": "swiglu",
+      "dimensions": [
+        17,
+        65
+      ],
+      "summary_us": {
+        "off": 1.6520048828125,
+        "on": 1.5598932800292968,
+        "inductor": 1.3304354248046875
+      },
+      "paired_ratios": {
+        "on/off": {
+          "median": 0.9431728832772963,
+          "minimum": 0.9279358820259718,
+          "maximum": 0.9462675339186993,
+          "wins": 6,
+          "rounds": [
+            0.9423355652613757,
+            0.9444749771343576,
+            0.9462675339186993,
+            0.9279358820259718,
+            0.9440102012932168,
+            0.9411382008299362
+          ]
+        },
+        "on/inductor": {
+          "median": 1.1720647155685024,
+          "minimum": 1.1524761174487061,
+          "maximum": 1.186625516798285,
+          "wins": 0,
+          "rounds": [
+            1.1724432489906174,
+            1.173293467803672,
+            1.160830243269137,
+            1.1716861821463875,
+            1.1524761174487061,
+            1.186625516798285
+          ]
+        },
+        "off/inductor": {
+          "median": 1.2432296279395774,
+          "minimum": 1.2208301519092783,
+          "maximum": 1.2626801106001346,
+          "wins": 0,
+          "rounds": [
+            1.2441886862939495,
+            1.2422705695852052,
+            1.2267463499058104,
+            1.2626801106001346,
+            1.2208301519092783,
+            1.2608408794286192
+          ]
+        }
+      }
+    },
+    {
+      "operation": "swiglu",
+      "dimensions": [
+        129,
+        768
+      ],
+      "summary_us": {
+        "off": 139.0064296875,
+        "on": 123.187662109375,
+        "inductor": 118.385498046875
+      },
+      "paired_ratios": {
+        "on/off": {
+          "median": 0.8850293670996852,
+          "minimum": 0.848777075411473,
+          "maximum": 0.8942903068587271,
+          "wins": 6,
+          "rounds": [
+            0.8886724084366695,
+            0.8765138674535515,
+            0.848777075411473,
+            0.8942903068587271,
+            0.889840000659581,
+            0.8813863257627009
+          ]
+        },
+        "on/inductor": {
+          "median": 1.0392839813421275,
+          "minimum": 1.0188425501652478,
+          "maximum": 1.050276021600352,
+          "wins": 0,
+          "rounds": [
+            1.050276021600352,
+            1.0188425501652478,
+            1.0264842012217246,
+            1.0434016919349427,
+            1.048453128492661,
+            1.0351662707493123
+          ]
+        },
+        "off/inductor": {
+          "median": 1.1763620584294798,
+          "minimum": 1.162380411761413,
+          "maximum": 1.2093684324875318,
+          "wins": 0,
+          "rounds": [
+            1.1818483522493644,
+            1.162380411761413,
+            1.2093684324875318,
+            1.16673711425989,
+            1.1782490422047902,
+            1.1744750746541694
+          ]
+        }
+      }
+    },
+    {
+      "operation": "swiglu",
+      "dimensions": [
+        257,
+        1538
+      ],
+      "summary_us": {
+        "off": 567.29915625,
+        "on": 501.810875,
+        "inductor": 475.7454453125
+      },
+      "paired_ratios": {
+        "on/off": {
+          "median": 0.8845353936239821,
+          "minimum": 0.8502864250663691,
+          "maximum": 0.8882684459863373,
+          "wins": 6,
+          "rounds": [
+            0.885972705452814,
+            0.8882684459863373,
+            0.8860380563698325,
+            0.8820651543672112,
+            0.8830980817951501,
+            0.8502864250663691
+          ]
+        },
+        "on/inductor": {
+          "median": 1.0574248788413527,
+          "minimum": 1.033781681890829,
+          "maximum": 1.063638445571864,
+          "wins": 0,
+          "rounds": [
+            1.0626419304313413,
+            1.0535496192591742,
+            1.0596010290810907,
+            1.033781681890829,
+            1.063638445571864,
+            1.055248728601615
+          ]
+        },
+        "off/inductor": {
+          "median": 1.1976468316496043,
+          "minimum": 1.17200149759057,
+          "maximum": 1.2410508947255596,
+          "wins": 0,
+          "rounds": [
+            1.199407074158377,
+            1.1860711973048959,
+            1.1958865891408315,
+            1.17200149759057,
+            1.204439764391418,
+            1.2410508947255596
+          ]
+        }
+      }
+    },
+    {
+      "operation": "swiglu",
+      "dimensions": [
+        1024,
+        4097
+      ],
+      "summary_us": {
+        "off": 6080.75525,
+        "on": 5391.5989375,
+        "inductor": 5120.716125
+      },
+      "paired_ratios": {
+        "on/off": {
+          "median": 0.8832415543548893,
+          "minimum": 0.8421068253662012,
+          "maximum": 0.9500107680030554,
+          "wins": 6,
+          "rounds": [
+            0.8965742239971869,
+            0.8699088847125915,
+            0.8421068253662012,
+            0.9500107680030554,
+            0.8453990106824641,
+            0.9094706431658941
+          ]
+        },
+        "on/inductor": {
+          "median": 1.0321131767883727,
+          "minimum": 1.018971128029718,
+          "maximum": 1.0932886083013986,
+          "wins": 0,
+          "rounds": [
+            1.0275335197937598,
+            1.070206901204169,
+            1.0366928337829855,
+            1.0932886083013986,
+            1.018971128029718,
+            1.0205608449705512
+          ]
+        },
+        "off/inductor": {
+          "median": 1.1780654549725385,
+          "minimum": 1.1221481997681078,
+          "maximum": 1.2310704563309602,
+          "wins": 0,
+          "rounds": [
+            1.14606631809324,
+            1.2302517194749123,
+            1.2310704563309602,
+            1.1508170697891316,
+            1.2053138401559456,
+            1.1221481997681078
+          ]
+        }
+      }
+    },
+    {
+      "operation": "gelu_residual",
+      "dimensions": [
+        17,
+        65
+      ],
+      "summary_us": {
+        "off": 3.1164156494140625,
+        "on": 3.057325988769531,
+        "inductor": 4.840098022460937
+      },
+      "paired_ratios": {
+        "on/off": {
+          "median": 0.9776667579828564,
+          "minimum": 0.9570463162100128,
+          "maximum": 1.0177872240673362,
+          "wins": 5,
+          "rounds": [
+            1.0177872240673362,
+            0.9954475832501322,
+            0.9826088526201847,
+            0.9669386603332579,
+            0.9727246633455281,
+            0.9570463162100128
+          ]
+        },
+        "on/inductor": {
+          "median": 0.6324423738895713,
+          "minimum": 0.6056994759132289,
+          "maximum": 0.6511483849728128,
+          "wins": 6,
+          "rounds": [
+            0.6511483849728128,
+            0.6461480340175171,
+            0.6285135457928787,
+            0.6203329904911575,
+            0.6363712019862637,
+            0.6056994759132289
+          ]
+        },
+        "off/inductor": {
+          "median": 0.640655973322672,
+          "minimum": 0.6328841829848443,
+          "maximum": 0.6542151401791012,
+          "wins": 6,
+          "rounds": [
+            0.6397686761783651,
+            0.6491030214849148,
+            0.6396375771670589,
+            0.641543270466979,
+            0.6542151401791012,
+            0.6328841829848443
+          ]
+        }
+      }
+    },
+    {
+      "operation": "gelu_residual",
+      "dimensions": [
+        129,
+        768
+      ],
+      "summary_us": {
+        "off": 253.2556953125,
+        "on": 236.8551484375,
+        "inductor": 428.1020546875
+      },
+      "paired_ratios": {
+        "on/off": {
+          "median": 0.9396614081050005,
+          "minimum": 0.8999717593530528,
+          "maximum": 0.9410531354991312,
+          "wins": 6,
+          "rounds": [
+            0.9410531354991312,
+            0.9406791258898521,
+            0.9407799828585838,
+            0.8999717593530528,
+            0.938643690320149,
+            0.929190902453235
+          ]
+        },
+        "on/inductor": {
+          "median": 0.5531465691852797,
+          "minimum": 0.551796734083514,
+          "maximum": 0.5563484430275046,
+          "wins": 6,
+          "rounds": [
+            0.551796734083514,
+            0.5519993265211861,
+            0.5542359988904614,
+            0.5530345415525467,
+            0.5532585968180127,
+            0.5563484430275046
+          ]
+        },
+        "off/inductor": {
+          "median": 0.589273686098903,
+          "minimum": 0.5863608687631044,
+          "maximum": 0.614502106099526,
+          "wins": 6,
+          "rounds": [
+            0.5863608687631044,
+            0.5868093713666842,
+            0.589123928005357,
+            0.614502106099526,
+            0.589423444192449,
+            0.5987450388920537
+          ]
+        }
+      }
+    },
+    {
+      "operation": "gelu_residual",
+      "dimensions": [
+        257,
+        1538
+      ],
+      "summary_us": {
+        "off": 1043.54428125,
+        "on": 976.028,
+        "inductor": 1744.1360625
+      },
+      "paired_ratios": {
+        "on/off": {
+          "median": 0.947109064388347,
+          "minimum": 0.9118723886952868,
+          "maximum": 0.9704492379220486,
+          "wins": 6,
+          "rounds": [
+            0.9118723886952868,
+            0.9342782465642497,
+            0.9704492379220486,
+            0.9599398822124442,
+            0.9637357132576263,
+            0.9326007769089085
+          ]
+        },
+        "on/inductor": {
+          "median": 0.5551666966973089,
+          "minimum": 0.5495193820298944,
+          "maximum": 0.5938265634698414,
+          "wins": 6,
+          "rounds": [
+            0.5586751393702106,
+            0.5495274448818077,
+            0.5938265634698414,
+            0.5634730729964268,
+            0.5516582540244072,
+            0.5495193820298944
+          ]
+        },
+        "off/inductor": {
+          "median": 0.5887085843245048,
+          "minimum": 0.572416531249722,
+          "maximum": 0.6126681170482273,
+          "wins": 6,
+          "rounds": [
+            0.6126681170482273,
+            0.5881839236893943,
+            0.6119089389377629,
+            0.5869878764675854,
+            0.572416531249722,
+            0.5892332449596153
+          ]
+        }
+      }
+    },
+    {
+      "operation": "gelu_residual",
+      "dimensions": [
+        1024,
+        4097
+      ],
+      "summary_us": {
+        "off": 11191.979125,
+        "on": 10529.974,
+        "inductor": 18649.6665
+      },
+      "paired_ratios": {
+        "on/off": {
+          "median": 0.9429651448326485,
+          "minimum": 0.8931199023330099,
+          "maximum": 1.0027910007355656,
+          "wins": 5,
+          "rounds": [
+            0.8931199023330099,
+            0.964831200532322,
+            1.0027910007355656,
+            0.9767363448211954,
+            0.921099089132975,
+            0.9186452733042536
+          ]
+        },
+        "on/inductor": {
+          "median": 0.5608142354140238,
+          "minimum": 0.5405844629860064,
+          "maximum": 0.6054185351823683,
+          "wins": 6,
+          "rounds": [
+            0.5520916671403326,
+            0.5405844629860064,
+            0.5726195922670441,
+            0.6054185351823683,
+            0.5611811568518237,
+            0.5604473139762237
+          ]
+        },
+        "off/inductor": {
+          "median": 0.6096659461444651,
+          "minimum": 0.5602891601015308,
+          "maximum": 0.6198382382230266,
+          "wins": 6,
+          "rounds": [
+            0.6181607482916432,
+            0.5602891601015308,
+            0.571025858675454,
+            0.6198382382230266,
+            0.6092516684389083,
+            0.610080223850022
+          ]
+        }
+      }
+    },
+    {
+      "operation": "rope",
+      "dimensions": [
+        17,
+        66
+      ],
+      "summary_us": {
+        "off": 0.14803234672546386,
+        "on": 0.25122101974487304,
+        "inductor": 0.1061726417541504
+      },
+      "paired_ratios": {
+        "on/off": {
+          "median": 1.70157880435085,
+          "minimum": 1.6638985347787898,
+          "maximum": 1.7524694897870603,
+          "wins": 0,
+          "rounds": [
+            1.7524694897870603,
+            1.7009822682386648,
+            1.7079665883632782,
+            1.6992531678038272,
+            1.702175340463035,
+            1.6638985347787898
+          ]
+        },
+        "on/inductor": {
+          "median": 2.369614458133511,
+          "minimum": 2.349442543106688,
+          "maximum": 2.403791241371166,
+          "wins": 0,
+          "rounds": [
+            2.389468869390627,
+            2.3685384667622524,
+            2.3569417905680385,
+            2.403791241371166,
+            2.349442543106688,
+            2.370690449504769
+          ]
+        },
+        "off/inductor": {
+          "median": 1.3863560924361207,
+          "minimum": 1.3634867159262027,
+          "maximum": 1.4247806581667224,
+          "wins": 0,
+          "rounds": [
+            1.3634867159262027,
+            1.3924533553279361,
+            1.379969495086356,
+            1.4146163072792197,
+            1.380258829544305,
+            1.4247806581667224
+          ]
+        }
+      }
+    },
+    {
+      "operation": "rope",
+      "dimensions": [
+        129,
+        768
+      ],
+      "summary_us": {
+        "off": 28.370412353515626,
+        "on": 16.276357177734376,
+        "inductor": 15.083892944335936
+      },
+      "paired_ratios": {
+        "on/off": {
+          "median": 0.573710394908488,
+          "minimum": 0.5587821210123846,
+          "maximum": 0.6047002884867558,
+          "wins": 6,
+          "rounds": [
+            0.5649787286954657,
+            0.5718077265676993,
+            0.6047002884867558,
+            0.5911962445567865,
+            0.5756130632492766,
+            0.5587821210123846
+          ]
+        },
+        "on/inductor": {
+          "median": 1.0828468136251588,
+          "minimum": 1.0327195162955316,
+          "maximum": 1.1465804001036588,
+          "wins": 0,
+          "rounds": [
+            1.05166240541479,
+            1.1071932686716843,
+            1.1465804001036588,
+            1.0685925161699932,
+            1.0971011110803242,
+            1.0327195162955316
+          ]
+        },
+        "off/inductor": {
+          "median": 1.878766500969148,
+          "minimum": 1.8075089718661959,
+          "maximum": 1.936303441224308,
+          "wins": 0,
+          "rounds": [
+            1.8614194694428152,
+            1.936303441224308,
+            1.8961135324954808,
+            1.8075089718661959,
+            1.9059697931233546,
+            1.8481613449343754
+          ]
+        }
+      }
+    },
+    {
+      "operation": "rope",
+      "dimensions": [
+        257,
+        1538
+      ],
+      "summary_us": {
+        "off": 125.556072265625,
+        "on": 66.4384765625,
+        "inductor": 70.1743974609375
+      },
+      "paired_ratios": {
+        "on/off": {
+          "median": 0.5267868458929722,
+          "minimum": 0.5046259914807467,
+          "maximum": 0.5841138726002089,
+          "wins": 6,
+          "rounds": [
+            0.5135368900440642,
+            0.542167863658719,
+            0.5400368017418802,
+            0.5841138726002089,
+            0.5061456281676023,
+            0.5046259914807467
+          ]
+        },
+        "on/inductor": {
+          "median": 0.9433019566122707,
+          "minimum": 0.8523723432137286,
+          "maximum": 1.0108581814896034,
+          "wins": 5,
+          "rounds": [
+            0.8749186303589352,
+            0.9391258099045448,
+            0.9474781033199966,
+            1.0108581814896034,
+            0.9677655241685932,
+            0.8523723432137286
+          ]
+        },
+        "off/inductor": {
+          "median": 1.731376037784738,
+          "minimum": 1.689117004680187,
+          "maximum": 1.9120297999455063,
+          "wins": 0,
+          "rounds": [
+            1.7037113541811233,
+            1.7321679738947062,
+            1.754469510714679,
+            1.73058410167477,
+            1.9120297999455063,
+            1.689117004680187
+          ]
+        }
+      }
+    },
+    {
+      "operation": "rope",
+      "dimensions": [
+        1024,
+        4098
+      ],
+      "summary_us": {
+        "off": 1325.8391875,
+        "on": 913.279296875,
+        "inductor": 1061.96809375
+      },
+      "paired_ratios": {
+        "on/off": {
+          "median": 0.6948634484350518,
+          "minimum": 0.5919609918809057,
+          "maximum": 0.8057166829246333,
+          "wins": 6,
+          "rounds": [
+            0.5919609918809057,
+            0.8057166829246333,
+            0.6947400506288285,
+            0.6949868462412752,
+            0.7092904269953929,
+            0.6945603879905554
+          ]
+        },
+        "on/inductor": {
+          "median": 0.8800724246507223,
+          "minimum": 0.811543490247686,
+          "maximum": 0.9692063932884936,
+          "wins": 6,
+          "rounds": [
+            0.811543490247686,
+            0.9692063932884936,
+            0.8799644005643872,
+            0.8855250378608441,
+            0.868269159392785,
+            0.8801804487370576
+          ]
+        },
+        "off/inductor": {
+          "median": 1.2669289217422168,
+          "minimum": 1.202912157373255,
+          "maximum": 1.3709408244436438,
+          "wins": 0,
+          "rounds": [
+            1.3709408244436438,
+            1.202912157373255,
+            1.2666095754345916,
+            1.2741608602379515,
+            1.2241377105156175,
+            1.267248268049842
+          ]
+        }
+      }
+    }
+  ],
+  "identity_checks": 1413,
+  "rejected_mutations": [
+    "missing_visit",
+    "wrong_median",
+    "wrong_ratio",
+    "failed_guard",
+    "wrong_oracle",
+    "verification_only",
+    "wrong_order",
+    "failed_status",
+    "wrong_summary",
+    "duplicate_visit",
+    "boolean_sample"
+  ],
+  "guard_caveat": "Guards were checked during replay; not retained for post-hoc reinspection.",
+  "status": "passed"
+}

@@ -59,6 +59,68 @@ per-candidate resource admission, not a larger universal lane/storage constant.
 The interrupted matrix and noisy same-realization observations do not establish
 a new performance ranking, calibrated policy or Torch/MPS parity.
 
+### Native pointwise replay separates fusion benefit from code growth
+
+The September 10 {download}`native pointwise checkpoint
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260910-native-pointwise-v2/notes.md>`
+compares the existing guarded pointwise-fusion implementation **off/on** and
+frozen TorchInductor entries. It changes no production compiler code: the
+measurement source is `202955f7d` plus a correctness test. W8/local=8/block=32,
+one CPU thread, precise math and the other realization switches remain fixed.
+This is a native-entry A/B experiment, not automatic planner selection.
+
+The completed **24-case matrix** uses four shapes through 1024×4097
+(RoPE rounds odd widths up to even), in all six off/on/Inductor orders.
+These ranges span the four cases' paired median time ratios, not confidence
+intervals; lower is better. Wins count within-round on/Inductor comparisons.
+
+| Operator | On/off | On/Inductor | Wins |
+|---|---:|---:|---:|
+| RMSNorm, identical-object control | 0.993–1.015 | 0.344–0.457 | 24/24 |
+| LayerNorm | 0.870–1.457 | 0.376–1.084 | 18/24 |
+| Masked softmax, identical-object control | 1.000–1.003 | 1.344–1.638 | 0/24 |
+| SwiGLU | 0.883–0.943 | 1.032–1.172 | 0/24 |
+| GELU + residual | 0.940–0.978 | 0.553–0.632 | 24/24 |
+| RoPE | 0.527–1.702 | 0.880–2.370 | 11/24 |
+
+Large RoPE (1024×4098) takes **0.695× off time / 0.880× Inductor time**;
+all six rounds win both comparisons. The negative cases remain:
+17×66 RoPE regresses to **1.702× off**, and 17×65 LayerNorm to **1.457×**;
+both lose all six rounds. SwiGLU improves at every size but still loses all
+24 comparisons with Inductor. The eight RMSNorm/masked-softmax off/on ORC
+objects are byte-identical; their timing changes are **not fusion benefits**.
+All absolute times, paired ranges and wins are in the {download}`24-case tables
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260910-native-pointwise-v2/tables.md>`.
+
+All 432 native visits pass full-output, input and guard checks. An independent
+audit rereads 72 native outputs at their original locations, recomputes the
+FP64 oracle and statistics, verifies 1,413 artifact/runner identity entries,
+and rejects 11 evidence mutations. Guards were checked at execution, not
+retained for post-hoc rereading. These are **native-entry host-wall times**:
+Runtime/Python/JIT/caller allocations are excluded; necessary traversal,
+resets and compiler-emitted libc/internal allocations remain.
+The repository preserves actual entries, objects, LLVM and audit records,
+but excludes tensor payloads; the recorded output audit is not a claim that
+the repository archive alone can rerun it without the original temporary data.
+
+The separate four-case pilot and its 72 visits are retained, not pooled into
+the matrix: its small RoPE regresses to 1.708× off, large RoPE takes 0.627×,
+and SwiGLU improves but still loses to Inductor. Its revised audit verifies
+12 outputs / 253 identity entries / 11 mutations; the earlier seven-mutation
+audit is preserved unchanged. Pilot and matrix numbers are not interchangeable.
+
+Actual object code confirms one four-input/two-output loop for the large
+RoPE non-alias fast path and no snapshot-copy calls in the SwiGLU fast paths.
+Alias-safe fallbacks and their reserved storage remain. Small RoPE's fused
+helper is not inlined and its whole-entry code/frame size grows; this is a
+testable profitability hypothesis, **not measured cycle attribution**.
+
+Desktop background load is recorded, not claimed absent. Both current Tile
+variants use LLVM22; their off objects differ from the September 9 LLVM21
+archive. Do not splice absolute timings across those compiler identities.
+This fixed-candidate evidence neither changes defaults nor calibrates costs,
+and makes no new Runtime, Metal, MPS or cross-route performance claim.
+
 ### Native row entries expose both broader wins and remaining gaps
 
 The September 9 {download}`six-operator native report <../../../../scripts/benchmark/tile_torch/results/m1-max-20260909-native-rows/notes.md>`
@@ -109,10 +171,11 @@ math implementations. FP64 checks use `atol=rtol=5e-5` on the same deterministic
 finite inputs, not cross-framework bitwise equality or an all-domain accuracy
 guarantee.
 
-Actual RoPE C++ shares four input vectors across two stores in one loop.
-The XIR bridge still materializes loads and multi-consumer values, deferring
-only pure single-use arithmetic. This motivates an effect-aware shared-DAG
-fusion candidate, followed by softmax phase/materialization search. It is
+In the archived September 9 entries, actual RoPE C++ shares four input vectors
+across two stores in one loop, while the XIR bridge materializes loads and
+multi-consumer values, deferring only pure single-use arithmetic. This
+motivated the guarded shared-DAG fusion candidate measured separately above,
+followed by softmax phase/materialization search. It is
 static code evidence, not measured hardware bottleneck attribution. GELU's
 win also rules out a blanket claim that every transcendental path is slow.
 Realization-sensitive cost calibration and independent CPU task grain remain

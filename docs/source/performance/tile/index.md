@@ -54,24 +54,32 @@ and negative results. Historical experiments are not one matched leaderboard.
 
 ## Results by route
 
-**Direct SIMD: three native operator families win; three still lose.**
-The latest [24-case native comparison](results.md#native-row-entries-expose-both-broader-wins-and-remaining-gaps)
-uses actual ORC and TorchInductor 2.14.0 entries, FP32 and one CPU thread,
-at four sizes through approximately 4.2 million elements. Fixed local=8
-RMSNorm, LayerNorm and GELU+residual respectively take 0.337–0.469×,
-0.374–0.735× and 0.568–0.645× Inductor time; all 72 paired rounds win.
-Masked softmax, SwiGLU and RoPE remain 1.350–1.607×, 1.166–1.244× and
-1.247–1.944×; all their 72 paired rounds lose. Actual variance/reduction/math
-implementation differences remain documented alongside full FP64 checks.
+**Direct SIMD: bounded native wins, with shape-dependent fusion results.**
+The September 10 [24-case fixed-candidate comparison](results.md#native-pointwise-replay-separates-fusion-benefit-from-code-growth)
+uses actual ORC and TorchInductor 2.14.0 entries, FP32 and one CPU worker,
+at four sizes through approximately 4.2 million elements. With fusion on,
+RMSNorm and GELU+residual take 0.344–0.457× and 0.553–0.632× Inductor time;
+all 48 paired rounds win. LayerNorm spans 0.376–1.084×, with its smallest
+case losing. Masked softmax and SwiGLU remain 1.344–1.638× and 1.032–1.172×;
+all 48 paired rounds lose. RoPE spans 0.880–2.370×: two larger cases' medians
+win, but 17×66 and 129×768 still lose. Full FP64 checks accompany the
+documented math differences; these are native-entry times, not Runtime E2E.
 
-This new measurement uses the existing opt-in
-[use-site memory realization](results.md#use-site-private-indices-unlock-contiguous-simd-memory),
-not a new compiler optimization or calibrated automatic policy. The separate
+This measurement uses existing opt-in
+[use-site memory realization](results.md#use-site-private-indices-unlock-contiguous-simd-memory)
+and guarded pointwise fusion, not a new compiler optimization or calibrated
+automatic policy. The separate
 440-visit E2E screen improves many large/local row programs but retains small
 task regressions and non-winning attention. Shared-input/multi-output DAG
-fusion now has a [guarded, opt-in implementation](../../internals/tile/xir.md#guarded-pointwise-dag-fusion-keeps-an-alias-safe-fallback)
-with alias and bounds regressions; it is **not yet a measured performance
-win**. A separate [expression/reduction fusion checkpoint](validation.md#expression-producers-join-their-first-reduction-traversal)
+fusion has a [guarded, opt-in implementation](../../internals/tile/xir.md#guarded-pointwise-dag-fusion-keeps-an-alias-safe-fallback)
+with alias and bounds regressions. The complete matrix shows mixed
+profitability: large RoPE takes 0.695× off time, but small RoPE and LayerNorm
+regress to 1.702× and 1.457×. Eight RMSNorm/softmax off/on objects are identical
+controls, not fusion speedups. The separate pilot's negative results remain.
+Current LLVM22 off/on entries must not be spliced into the older
+[September 9 LLVM21 timings](results.md#native-row-entries-expose-both-broader-wins-and-remaining-gaps);
+desktop coactivity is recorded, and no default or cost policy is promoted.
+A separate [expression/reduction fusion checkpoint](validation.md#expression-producers-join-their-first-reduction-traversal)
 now merges two producer traversals in masked softmax and one in LayerNorm,
 with full output checks at four sizes. It remains opt-in: an interrupted,
 contended timing cohort is excluded, so the native ratios above are not
