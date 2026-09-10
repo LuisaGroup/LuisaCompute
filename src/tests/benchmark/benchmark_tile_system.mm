@@ -6,6 +6,8 @@
 #import <Metal/Metal.h>
 #import <MetalPerformanceShaders/MetalPerformanceShaders.h>
 
+#include <luisa/core/logging.h>
+
 #include "metal_benchmark.h"
 
 #include <algorithm>
@@ -19,9 +21,9 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
-#include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 namespace {
@@ -54,18 +56,16 @@ struct Measurement {
     auto input = std::string_view{text};
     auto value = 0;
     auto parsed = std::from_chars(input.data(), input.data() + input.size(), value);
-    if (parsed.ec != std::errc{} || parsed.ptr != input.data() + input.size() || value <= 0) {
-        throw std::invalid_argument{"expected a positive int32"};
-    }
+    LUISA_ASSERT(parsed.ec == std::errc{} && parsed.ptr == input.data() + input.size() && value > 0,
+                 "expected a positive int32");
     return value;
 }
 
 [[nodiscard]] size_t elements(int rows, int columns) {
     auto count = static_cast<uint64_t>(rows) * static_cast<uint64_t>(columns);
-    if (count > std::numeric_limits<size_t>::max() / sizeof(float) ||
-        count > static_cast<uint64_t>(std::numeric_limits<std::streamsize>::max()) / sizeof(float)) {
-        throw std::invalid_argument{"matrix size overflow"};
-    }
+    LUISA_ASSERT(count <= std::numeric_limits<size_t>::max() / sizeof(float) &&
+                     count <= static_cast<uint64_t>(std::numeric_limits<std::streamsize>::max()) / sizeof(float),
+                 "matrix size overflow");
     return static_cast<size_t>(count);
 }
 
@@ -82,18 +82,18 @@ struct Measurement {
 }
 
 void complete(id<MTLCommandBuffer> command) {
-    if (command == nil) { throw std::runtime_error{"cannot create Metal command buffer"}; }
+    LUISA_ASSERT(command != nil, "cannot create Metal command buffer");
     [command commit];
     [command waitUntilCompleted];
     if (command.status != MTLCommandBufferStatusCompleted) {
         auto reason = command.error.localizedDescription;
-        throw std::runtime_error{reason == nil ? "Metal command failed" : reason.UTF8String};
+        LUISA_ERROR("{}", reason == nil ? "Metal command failed" : reason.UTF8String);
     }
 }
 
 [[nodiscard]] id<MTLBuffer> buffer(id<MTLDevice> device, size_t bytes, MTLResourceOptions options) {
     auto result = [device newBufferWithLength:bytes options:options];
-    if (result == nil) { throw std::runtime_error{"Metal buffer allocation failed"}; }
+    LUISA_ASSERT(result != nil, "Metal buffer allocation failed");
     return result;
 }
 
@@ -106,9 +106,8 @@ void validate(const Configuration &cfg, const std::vector<float> &a,
                 expected += static_cast<double>(a[static_cast<size_t>(i) * cfg.k + k]) * b[static_cast<size_t>(k) * cfg.n + j];
             }
             auto actual = c[static_cast<size_t>(i) * cfg.n + j];
-            if (!std::isfinite(actual) || std::abs(actual - expected) > 1e-4 + 1e-4 * std::abs(expected)) {
-                throw std::runtime_error{"full FP64-oracle comparison failed"};
-            }
+            LUISA_ASSERT(std::isfinite(actual) && std::abs(actual - expected) <= 1e-4 + 1e-4 * std::abs(expected),
+                         "full FP64-oracle comparison failed");
         }
     }
 }
@@ -140,10 +139,10 @@ void validate(const Configuration &cfg, const std::vector<float> &a,
         };
     } else if (backend == "metal") {
         auto device = MTLCreateSystemDefaultDevice();
-        if (device == nil || !MPSSupportsMTLDevice(device)) { throw std::runtime_error{"MPS device unavailable; no CPU fallback"}; }
+        LUISA_ASSERT(device != nil && MPSSupportsMTLDevice(device), "MPS device unavailable; no CPU fallback");
         result.device = device.name.UTF8String;
         auto queue = [device newCommandQueue];
-        if (queue == nil) { throw std::runtime_error{"Metal command queue unavailable"}; }
+        LUISA_ASSERT(queue != nil, "Metal command queue unavailable");
         auto make_matrix = [&](size_t rows, size_t columns) {
             auto storage = buffer(device, rows * columns * sizeof(float), MTLResourceStorageModePrivate);
             auto descriptor = [MPSMatrixDescriptor matrixDescriptorWithRows:rows
@@ -151,7 +150,7 @@ void validate(const Configuration &cfg, const std::vector<float> &a,
                                                                    rowBytes:columns * sizeof(float)
                                                                    dataType:MPSDataTypeFloat32];
             auto matrix = [[MPSMatrix alloc] initWithBuffer:storage descriptor:descriptor];
-            if (matrix == nil) { throw std::runtime_error{"MPS matrix creation failed"}; }
+            LUISA_ASSERT(matrix != nil, "MPS matrix creation failed");
             return matrix;
         };
         auto left = make_matrix(cfg.m, cfg.k);
@@ -165,7 +164,7 @@ void validate(const Configuration &cfg, const std::vector<float> &a,
                                                       interiorColumns:cfg.k
                                                                 alpha:1.0
                                                                  beta:0.0];
-        if (kernel == nil) { throw std::runtime_error{"MPS GEMM creation failed"}; }
+        LUISA_ASSERT(kernel != nil, "MPS GEMM creation failed");
         kernel.options = MPSKernelOptionsNone;
         // Upload once. Timed calls reuse private device buffers and output.
         auto upload = [&](MPSMatrix *matrix, const std::vector<float> &values) {
@@ -173,7 +172,7 @@ void validate(const Configuration &cfg, const std::vector<float> &a,
             std::memcpy(staging.contents, values.data(), values.size() * sizeof(float));
             auto command = [queue commandBuffer];
             auto blit = [command blitCommandEncoder];
-            if (blit == nil) { throw std::runtime_error{"Metal upload encoder unavailable"}; }
+            LUISA_ASSERT(blit != nil, "Metal upload encoder unavailable");
             [blit copyFromBuffer:staging sourceOffset:0 toBuffer:matrix.data destinationOffset:0 size:staging.length];
             [blit endEncoding];
             complete(command);
@@ -185,7 +184,7 @@ void validate(const Configuration &cfg, const std::vector<float> &a,
             @autoreleasepool {
                 auto begin = Clock::now();
                 auto command = [queue commandBuffer];
-                if (command == nil) { throw std::runtime_error{"Metal command buffer unavailable"}; }
+                LUISA_ASSERT(command != nil, "Metal command buffer unavailable");
                 for (auto i = uint64_t{0u}; i < repetitions; i++) {
                     [kernel encodeToCommandBuffer:command leftMatrix:left rightMatrix:right resultMatrix:output];
                 }
@@ -198,14 +197,14 @@ void validate(const Configuration &cfg, const std::vector<float> &a,
             auto staging = buffer(device, c.size() * sizeof(float), MTLResourceStorageModeShared);
             auto command = [queue commandBuffer];
             auto blit = [command blitCommandEncoder];
-            if (blit == nil) { throw std::runtime_error{"Metal download encoder unavailable"}; }
+            LUISA_ASSERT(blit != nil, "Metal download encoder unavailable");
             [blit copyFromBuffer:output.data sourceOffset:0 toBuffer:staging destinationOffset:0 size:staging.length];
             [blit endEncoding];
             complete(command);
             std::memcpy(c.data(), staging.contents, c.size() * sizeof(float));
         };
     } else {
-        throw std::invalid_argument{"backend must be cpu or metal"};
+        LUISA_ERROR("backend must be cpu or metal");
     }
     result.setup_ms = milliseconds(start);
     result.cold_ms = batch(1u);
@@ -239,10 +238,14 @@ void validate(const Configuration &cfg, const std::vector<float> &a,
     } else {
         // The Python driver validates every element against its shared FP64
         // oracle. A successful subprocess alone is not a correctness claim.
-        if (std::filesystem::exists(path)) { throw std::runtime_error{"output already exists"}; }
+        std::error_code path_error;
+        auto output_exists = std::filesystem::exists(path, path_error);
+        LUISA_ASSERT(!path_error, "cannot inspect output '{}': {}", path, path_error.message());
+        LUISA_ASSERT(!output_exists, "output already exists");
         std::ofstream file{path, std::ios::binary};
         file.write(reinterpret_cast<const char *>(c.data()), static_cast<std::streamsize>(c.size() * sizeof(float)));
-        if (!file) { throw std::runtime_error{"cannot write output"}; }
+        file.close();
+        LUISA_ASSERT(file, "cannot write output");
     }
     return result;
 }
@@ -261,51 +264,44 @@ void print_samples(std::string_view name, const std::vector<double> &samples) {
 
 int main(int argc, char *argv[]) {
     @autoreleasepool {
-        try {
-            if (argc == 3 && std::string_view{argv[1]} == "--self-test") {
-                for (auto cfg : {Configuration{1, 1, 1}, Configuration{7, 19, 13}, Configuration{32, 32, 32}, Configuration{17, 8, 33}}) {
-                    static_cast<void>(measure(argv[2], cfg, nullptr));
-                }
-                std::cout << "Four shapes passed full FP64 validation, including repeated beta=0 calls.\n";
-                return 0;
+        if (argc == 3 && std::string_view{argv[1]} == "--self-test") {
+            for (auto cfg : {Configuration{1, 1, 1}, Configuration{7, 19, 13}, Configuration{32, 32, 32}, Configuration{17, 8, 33}}) {
+                static_cast<void>(measure(argv[2], cfg, nullptr));
             }
-            if (argc != 9) {
-                throw std::invalid_argument{"Usage: benchmark_tile_system <cpu|metal> M N K samples sample-ms warmup-ms output.f32"};
-            }
-            auto backend = std::string_view{argv[1]};
-            Configuration cfg{positive_integer(argv[2]), positive_integer(argv[3]), positive_integer(argv[4]),
-                              positive_integer(argv[5]), positive_integer(argv[6]), positive_integer(argv[7])};
-            luisa::test::MetalBenchmarkTiming device_timing{backend == "metal"};
-            auto result = measure(backend, cfg, argv[8], &device_timing);
-            std::cout << std::setprecision(12) << "{\"backend\":" << std::quoted(backend)
-                      << ",\"implementation\":" << std::quoted(backend == "cpu" ? "accelerate_cblas_sgemm" : "mps_matrix_multiplication")
-                      << ",\"api_variant\":" << std::quoted(backend == "cpu" ? "classic_lp64" : "MPSKernelOptionsNone")
-                      << ",\"operation\":\"gemm\",\"dtype\":\"float32\",\"layout\":\"compact_row_major\""
-                      << ",\"alpha\":1,\"beta\":0,\"transpose_left\":false,\"transpose_right\":false"
-                      << ",\"m\":" << cfg.m << ",\"n\":" << cfg.n << ",\"k\":" << cfg.k
-                      << ",\"row_bytes\":[" << static_cast<uint64_t>(cfg.k) * 4u << ',' << static_cast<uint64_t>(cfg.n) * 4u << ',' << static_cast<uint64_t>(cfg.n) * 4u << ']'
-                      << ",\"device\":" << std::quoted(result.device)
-                      << ",\"storage\":" << std::quoted(backend == "cpu" ? "host" : "private")
-                      << ",\"batch_policy\":" << std::quoted(backend == "cpu" ? "synchronous_calls" : "one_command_buffer_per_batch")
-                      << ",\"compiler\":" << std::quoted(__clang_version__)
-                      << ",\"setup_ms\":" << result.setup_ms << ",\"cold_call_ms\":" << result.cold_ms
-                      << ",\"warmup_ms\":" << result.warmup_ms << ",\"download_ms\":" << result.download_ms
-                      << ",\"repetitions\":" << result.repetitions << ',';
-            print_samples("throughput_us", result.throughput);
-            std::cout << ',';
-            print_samples("latency_us", result.latency);
-            if (backend == "metal") {
-                std::cout << ',';
-                print_samples("gpu_throughput_us", result.gpu_throughput);
-                std::cout << ',';
-                print_samples("gpu_latency_us", result.gpu_latency);
-            }
-            device_timing.print();
-            std::cout << "}\n";
+            std::cout << "Four shapes passed full FP64 validation, including repeated beta=0 calls.\n";
             return 0;
-        } catch (const std::exception &error) {
-            std::cerr << error.what() << '\n';
-            return 1;
         }
+        LUISA_ASSERT(argc == 9, "Usage: benchmark_tile_system <cpu|metal> M N K samples sample-ms warmup-ms output.f32");
+        auto backend = std::string_view{argv[1]};
+        Configuration cfg{positive_integer(argv[2]), positive_integer(argv[3]), positive_integer(argv[4]),
+                          positive_integer(argv[5]), positive_integer(argv[6]), positive_integer(argv[7])};
+        luisa::test::MetalBenchmarkTiming device_timing{backend == "metal"};
+        auto result = measure(backend, cfg, argv[8], &device_timing);
+        std::cout << std::setprecision(12) << "{\"backend\":" << std::quoted(backend)
+                  << ",\"implementation\":" << std::quoted(backend == "cpu" ? "accelerate_cblas_sgemm" : "mps_matrix_multiplication")
+                  << ",\"api_variant\":" << std::quoted(backend == "cpu" ? "classic_lp64" : "MPSKernelOptionsNone")
+                  << ",\"operation\":\"gemm\",\"dtype\":\"float32\",\"layout\":\"compact_row_major\""
+                  << ",\"alpha\":1,\"beta\":0,\"transpose_left\":false,\"transpose_right\":false"
+                  << ",\"m\":" << cfg.m << ",\"n\":" << cfg.n << ",\"k\":" << cfg.k
+                  << ",\"row_bytes\":[" << static_cast<uint64_t>(cfg.k) * 4u << ',' << static_cast<uint64_t>(cfg.n) * 4u << ',' << static_cast<uint64_t>(cfg.n) * 4u << ']'
+                  << ",\"device\":" << std::quoted(result.device)
+                  << ",\"storage\":" << std::quoted(backend == "cpu" ? "host" : "private")
+                  << ",\"batch_policy\":" << std::quoted(backend == "cpu" ? "synchronous_calls" : "one_command_buffer_per_batch")
+                  << ",\"compiler\":" << std::quoted(__clang_version__)
+                  << ",\"setup_ms\":" << result.setup_ms << ",\"cold_call_ms\":" << result.cold_ms
+                  << ",\"warmup_ms\":" << result.warmup_ms << ",\"download_ms\":" << result.download_ms
+                  << ",\"repetitions\":" << result.repetitions << ',';
+        print_samples("throughput_us", result.throughput);
+        std::cout << ',';
+        print_samples("latency_us", result.latency);
+        if (backend == "metal") {
+            std::cout << ',';
+            print_samples("gpu_throughput_us", result.gpu_throughput);
+            std::cout << ',';
+            print_samples("gpu_latency_us", result.gpu_latency);
+        }
+        device_timing.print();
+        std::cout << "}\n";
+        return 0;
     }
 }

@@ -129,12 +129,7 @@ void test_same_axpy_on_cpu_and_metal() {
     auto x_metal = upload({n}, x_values, metal_device);
     auto y_metal = upload({n}, y_values, metal_device);
     auto result_metal = allocate({n}, metal_device);
-    try {
-        (*metal.entry)(x_metal, y_metal, result_metal);
-    } catch (const tvm::ffi::Error &error) {
-        expect(false) << error.what();
-        return;
-    }
+    (*metal.entry)(x_metal, y_metal, result_metal);
 
     auto cpu_values = download(result_cpu, n);
     auto metal_values = download(result_metal, n);
@@ -187,12 +182,7 @@ void test_same_reduction_on_cpu_and_metal() {
     (*cpu.entry)(input_cpu, result_cpu);
     auto input_metal = upload({rows, columns}, input_values, metal_device);
     auto result_metal = allocate({rows}, metal_device);
-    try {
-        (*metal.entry)(input_metal, result_metal);
-    } catch (const tvm::ffi::Error &error) {
-        expect(false) << error.what();
-        return;
-    }
+    (*metal.entry)(input_metal, result_metal);
 
     auto cpu_values = download(result_cpu, rows);
     auto metal_values = download(result_metal, rows);

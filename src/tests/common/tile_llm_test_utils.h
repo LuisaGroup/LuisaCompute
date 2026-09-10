@@ -3,7 +3,7 @@
 #include <array>
 #include <algorithm>
 #include <cmath>
-#include <stdexcept>
+#include <luisa/core/logging.h>
 #include <luisa/core/mathematics.h>
 #include <luisa/tile/dsl.h>
 
@@ -25,7 +25,7 @@ enum class RowOp { RMS_NORM,
 
 [[nodiscard]] inline Case rows(RowOp op, int64_t count, int64_t width) {
     using namespace compute::tile;
-    if (count <= 0 || width <= 0 || (op == RowOp::ROPE && width % 2 != 0)) { throw std::invalid_argument{"invalid LLM row shape"}; }
+    LUISA_ASSERT(count > 0 && width > 0 && (op != RowOp::ROPE || width % 2 == 0), "Invalid LLM row shape");
     auto definition = tile_kernel("llm_rows", [=](TensorView<const float, 2> X, TensorView<const float, 2> U,
                                                   TensorView<const float, 2> V, TensorView<float, 2> Y) {
         auto m = axis("m", 1), n = axis("n", op == RowOp::ROPE ? width / 2 : width);
@@ -118,9 +118,8 @@ enum class RowOp { RMS_NORM,
                                     int64_t queries, int64_t keys, int64_t channels, int64_t value_channels,
                                     int64_t bq = 2, int64_t bk = 3, bool qk_reduction = false) {
     using namespace compute::tile;
-    if (batches <= 0 || heads <= 0 || kv_heads <= 0 || heads % kv_heads || queries <= 0 || keys < queries || channels <= 0 || value_channels <= 0 || bq <= 0 || bk <= 0) {
-        throw std::invalid_argument{"invalid attention shape"};
-    }
+    LUISA_ASSERT(batches > 0 && heads > 0 && kv_heads > 0 && heads % kv_heads == 0 && queries > 0 && keys >= queries && channels > 0 && value_channels > 0 && bq > 0 && bk > 0,
+                 "Invalid attention shape");
     auto scale = 1.0f / std::sqrt(static_cast<float>(channels));
     auto definition = tile_kernel("llm_attention", [=](TensorView<const float, 4> Q, TensorView<const float, 4> K,
                                                        TensorView<const float, 4> V, TensorView<float, 4> O) {

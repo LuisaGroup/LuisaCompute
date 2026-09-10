@@ -714,6 +714,7 @@ if (APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
             OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED ON OBJCXX_EXTENSIONS OFF)
     target_compile_options(benchmark_tile_system PRIVATE -fobjc-arc)
     target_link_libraries(benchmark_tile_system PRIVATE
+            luisa-compute-core
             "-framework Foundation" "-framework Accelerate"
             "-framework Metal" "-framework MetalPerformanceShaders")
     add_executable(benchmark_tile_manual benchmark/benchmark_tile_manual.mm)
@@ -721,12 +722,14 @@ if (APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
             OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED ON OBJCXX_EXTENSIONS OFF)
     target_compile_options(benchmark_tile_manual PRIVATE -fobjc-arc)
     target_link_libraries(benchmark_tile_manual PRIVATE
+            luisa-compute-core
             "-framework Foundation" "-framework Metal")
     add_executable(benchmark_tile_mpp benchmark/benchmark_tile_mpp.mm)
     set_target_properties(benchmark_tile_mpp PROPERTIES
             OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED ON OBJCXX_EXTENSIONS OFF)
     target_compile_options(benchmark_tile_mpp PRIVATE -fobjc-arc)
     target_link_libraries(benchmark_tile_mpp PRIVATE
+            luisa-compute-core
             "-framework Foundation" "-framework Metal")
     foreach (_system_backend IN ITEMS cpu metal)
         add_test(NAME test_tile_system_${_system_backend}

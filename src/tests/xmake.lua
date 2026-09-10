@@ -248,7 +248,6 @@ end)
 test_proj("benchmark_tile_migrated", "benchmark/benchmark_tile_migrated.cpp", false, function()
     add_deps("lc-tile")
     add_includedirs("$(projectdir)/examples")
-    set_exceptions("cxx")
 end)
 for _, standard in ipairs({20, 23}) do
     test_proj("test_tile_values_cpp" .. standard, "unit/tile/test_tile_values.cpp", false, function()

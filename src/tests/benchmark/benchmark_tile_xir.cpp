@@ -2,6 +2,7 @@
 // Host wall time, with compilation/allocation/upload excluded. No TVM dependency.
 #include "tile_xir_test_utils.h"
 #include "tile_llm_benchmark.h"
+#include <luisa/core/logging.h>
 #include <luisa/tile/runtime.h>
 #include <luisa/tile/bridge/xir/planner.h>
 #include <luisa/runtime/context.h>
@@ -11,11 +12,11 @@
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
+#include <system_error>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <limits>
-#include <stdexcept>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -27,7 +28,7 @@ namespace {
     auto input = std::string_view{text};
     int64_t n{};
     auto result = std::from_chars(input.data(), input.data() + input.size(), n);
-    if (result.ec != std::errc{} || result.ptr != input.data() + input.size() || n <= 0) { throw std::invalid_argument{"expected positive integer"}; }
+    LUISA_ASSERT(result.ec == std::errc{} && result.ptr == input.data() + input.size() && n > 0, "expected positive integer: {}", text);
     return n;
 }
 
@@ -100,98 +101,102 @@ int main(int argc, char *argv[]) {
         std::cerr << "Usage: benchmark_tile_xir fp32 M N K samples sample-ms warmup-ms output.f32 tile-M tile-N tile-K [planned|canonical|reversed [block-workers]]\n";
         return 1;
     }
-    try {
-        if (std::string_view{argv[1]} != "fp32") { throw std::invalid_argument{"only FP32 supported"}; }
-        test::tile_xir::Gemm cfg{positive(argv[2]), positive(argv[3]), positive(argv[4]), positive(argv[9]), positive(argv[10]), positive(argv[11])};
-        auto count = positive(argv[5]), target_ms = positive(argv[6]), warmup_ms = positive(argv[7]);
-        if (cfg.m > 16384 || cfg.n > 16384 || cfg.k > 16384 || cfg.bm > 64 || cfg.bn > 64 || cfg.bk > 64 ||
-            count > 101 || target_ms > 10000 || warmup_ms > 60000) { throw std::invalid_argument{"invalid shape/schedule/timing limits"}; }
-        if (std::filesystem::exists(argv[8])) { throw std::invalid_argument{"output path already exists"}; }
-        auto policy = argc > 12 ? std::string_view{argv[12]} : std::string_view{"planned"};
-        auto planner = tile::bridge::xir::PlannerOptions{};
-        if (policy == "canonical") {
-            planner.root_axis_order = {0u, 1u};
-        } else if (policy == "reversed") {
-            planner.root_axis_order = {1u, 0u};
-        } else if (policy != "planned") {
-            throw std::invalid_argument{"invalid planner policy"};
-        }
-        if (argc > 13) {
-            auto workers = positive(argv[13]);
-            if (workers > 1024) { throw std::invalid_argument{"invalid block worker count"}; }
-            planner.block_size = static_cast<uint32_t>(workers);
-        }
-        log_level_error();
-        auto start = Clock::now();
-        Context context{argv[0]};
-        auto device = context.create_device("simd");
-        auto stream = device.create_stream(StreamTag::COMPUTE);
-        auto runtime_ms = elapsed(start);
-        start = Clock::now();
-        auto kernel = test::tile_xir::gemm(cfg);
-        auto capture_ms = elapsed(start);
-        start = Clock::now();
-        auto shader = tile::compile(device, kernel, {.xir = &planner});
-        auto compile_ms = elapsed(start);
-        if (!shader) { throw std::runtime_error{shader.metadata().error.c_str()}; }
-        if (auto path = std::getenv("LUISA_TILE_BENCH_DUMP_SOURCE")) {
-            if (std::filesystem::exists(path)) { throw std::invalid_argument{"source path already exists"}; }
-            std::ofstream file{path};
-            file << shader.metadata().source;
-            if (!file) { throw std::runtime_error{"cannot write generated source"}; }
-        }
-        auto host_a = values(cfg.m * cfg.k, 5), host_b = values(cfg.k * cfg.n, 11);
-        vector<float> output(cfg.m * cfg.n, std::numeric_limits<float>::quiet_NaN());
-        start = Clock::now();
-        auto a = device.create_buffer<float>(host_a.size());
-        auto b = device.create_buffer<float>(host_b.size());
-        auto c = device.create_buffer<float>(output.size());
-        stream << a.copy_from(host_a.data()) << b.copy_from(host_b.data()) << c.copy_from(output.data()) << synchronize();
-        auto upload_ms = elapsed(start);
-        auto batch = [&](uint64_t repetitions) {
-            stream.synchronize();
-            auto before = Clock::now();
-            CommandList commands;
-            for (auto i = uint64_t{0}; i < repetitions; i++) { commands << shader(a, b, c).dispatch(); }
-            stream << commands.commit() << synchronize();
-            return elapsed(before);
-        };
-        auto cold_ms = batch(1);
-        start = Clock::now();
-        while (elapsed(start) < warmup_ms) { static_cast<void>(batch(8)); }
-        auto actual_warmup_ms = elapsed(start);
-        uint64_t repetitions = 1;
-        for (auto attempt = 0; attempt < 8; attempt++) {
-            auto ms = batch(repetitions);
-            if (ms >= target_ms * .8 || repetitions == 100000) { break; }
-            auto estimate = repetitions * static_cast<double>(target_ms) / std::max(ms, 1e-6);
-            repetitions = std::clamp<uint64_t>(static_cast<uint64_t>(estimate), repetitions + 1, 100000);
-        }
-        vector<double> throughput, latency;
-        for (auto i = 0; i < count; i++) { throughput.emplace_back(1000.0 * batch(repetitions) / repetitions); }
-        for (auto i = 0; i < count; i++) { latency.emplace_back(1000.0 * batch(1)); }
-        stream << c.copy_to(output.data()) << synchronize();
-        std::ofstream file{argv[8], std::ios::binary};
-        file.write(reinterpret_cast<const char *>(output.data()), static_cast<std::streamsize>(output.size() * sizeof(float)));
-        if (!file) { throw std::runtime_error{"cannot write output"}; }
-        std::cout << std::setprecision(12)
-                  << "{\"implementation\":\"tile_xir_simd\",\"backend\":\"cpu\",\"precision\":\"fp32\","
-                     "\"fast_math\":false,\"relaxed_precision\":false,\"timing\":\"synchronized_host_wall\","
-                     "\"batch_policy\":\"one_runtime_command_list_per_batch\",\"m\":"
-                  << cfg.m << ",\"n\":" << cfg.n << ",\"k\":" << cfg.k
-                  << ",\"block\":[" << cfg.bm << ',' << cfg.bn << ',' << cfg.bk << ']'
-                  << ",\"planner_policy\":" << std::quoted(std::string{policy})
-                  << ",\"repetitions\":" << repetitions << ",\"runtime_init_ms\":" << runtime_ms
-                  << ",\"capture_ms\":" << capture_ms << ",\"compile_ms\":" << compile_ms
-                  << ",\"allocation_upload_ms\":" << upload_ms << ",\"cold_call_ms\":" << cold_ms
-                  << ",\"warmup_ms\":" << actual_warmup_ms << ",\"realization\":" << std::quoted(shader.metadata().realization)
-                  << ",\"source_hash\":" << std::quoted(std::to_string(luisa::hash<luisa::string_view>{}(shader.metadata().source))) << ',';
-        samples("throughput_us", throughput);
-        std::cout << ',';
-        samples("latency_us", latency);
-        std::cout << "}\n";
-    } catch (const std::exception &error) {
-        std::cerr << error.what() << '\n';
-        return 2;
+    LUISA_ASSERT(std::string_view{argv[1]} == "fp32", "only FP32 supported");
+    test::tile_xir::Gemm cfg{positive(argv[2]), positive(argv[3]), positive(argv[4]), positive(argv[9]), positive(argv[10]), positive(argv[11])};
+    auto count = positive(argv[5]), target_ms = positive(argv[6]), warmup_ms = positive(argv[7]);
+    LUISA_ASSERT(cfg.m <= 16384 && cfg.n <= 16384 && cfg.k <= 16384 && cfg.bm <= 64 && cfg.bn <= 64 && cfg.bk <= 64 &&
+                     count <= 101 && target_ms <= 10000 && warmup_ms <= 60000,
+                 "invalid shape/schedule/timing limits");
+    auto require_missing = [](const char *path) {
+        std::error_code error;
+        auto exists = std::filesystem::exists(path, error);
+        LUISA_ASSERT(!error, "cannot inspect benchmark path {}: {}", path, error.message());
+        LUISA_ASSERT(!exists, "benchmark path already exists: {}", path);
+    };
+    require_missing(argv[8]);
+    auto policy = argc > 12 ? std::string_view{argv[12]} : std::string_view{"planned"};
+    auto planner = tile::bridge::xir::PlannerOptions{};
+    if (policy == "canonical") {
+        planner.root_axis_order = {0u, 1u};
+    } else if (policy == "reversed") {
+        planner.root_axis_order = {1u, 0u};
+    } else if (policy != "planned") {
+        LUISA_ERROR("invalid planner policy: {}", policy);
     }
+    if (argc > 13) {
+        auto workers = positive(argv[13]);
+        LUISA_ASSERT(workers <= 1024, "invalid block worker count: {}", workers);
+        planner.block_size = static_cast<uint32_t>(workers);
+    }
+    log_level_error();
+    auto start = Clock::now();
+    Context context{argv[0]};
+    auto device = context.create_device("simd");
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    auto runtime_ms = elapsed(start);
+    start = Clock::now();
+    auto kernel = test::tile_xir::gemm(cfg);
+    auto capture_ms = elapsed(start);
+    start = Clock::now();
+    auto shader = tile::compile(device, kernel, {.xir = &planner});
+    auto compile_ms = elapsed(start);
+    LUISA_ASSERT(shader, "{}", shader.metadata().error.c_str());
+    if (auto path = std::getenv("LUISA_TILE_BENCH_DUMP_SOURCE")) {
+        require_missing(path);
+        std::ofstream file{path};
+        file << shader.metadata().source;
+        file.close();
+        LUISA_ASSERT(file, "cannot write generated source: {}", path);
+    }
+    auto host_a = values(cfg.m * cfg.k, 5), host_b = values(cfg.k * cfg.n, 11);
+    vector<float> output(cfg.m * cfg.n, std::numeric_limits<float>::quiet_NaN());
+    start = Clock::now();
+    auto a = device.create_buffer<float>(host_a.size());
+    auto b = device.create_buffer<float>(host_b.size());
+    auto c = device.create_buffer<float>(output.size());
+    stream << a.copy_from(host_a.data()) << b.copy_from(host_b.data()) << c.copy_from(output.data()) << synchronize();
+    auto upload_ms = elapsed(start);
+    auto batch = [&](uint64_t repetitions) {
+        stream.synchronize();
+        auto before = Clock::now();
+        CommandList commands;
+        for (auto i = uint64_t{0}; i < repetitions; i++) { commands << shader(a, b, c).dispatch(); }
+        stream << commands.commit() << synchronize();
+        return elapsed(before);
+    };
+    auto cold_ms = batch(1);
+    start = Clock::now();
+    while (elapsed(start) < warmup_ms) { static_cast<void>(batch(8)); }
+    auto actual_warmup_ms = elapsed(start);
+    uint64_t repetitions = 1;
+    for (auto attempt = 0; attempt < 8; attempt++) {
+        auto ms = batch(repetitions);
+        if (ms >= target_ms * .8 || repetitions == 100000) { break; }
+        auto estimate = repetitions * static_cast<double>(target_ms) / std::max(ms, 1e-6);
+        repetitions = std::clamp<uint64_t>(static_cast<uint64_t>(estimate), repetitions + 1, 100000);
+    }
+    vector<double> throughput, latency;
+    for (auto i = 0; i < count; i++) { throughput.emplace_back(1000.0 * batch(repetitions) / repetitions); }
+    for (auto i = 0; i < count; i++) { latency.emplace_back(1000.0 * batch(1)); }
+    stream << c.copy_to(output.data()) << synchronize();
+    std::ofstream file{argv[8], std::ios::binary};
+    file.write(reinterpret_cast<const char *>(output.data()), static_cast<std::streamsize>(output.size() * sizeof(float)));
+    file.close();
+    LUISA_ASSERT(file, "cannot write output: {}", argv[8]);
+    std::cout << std::setprecision(12)
+              << "{\"implementation\":\"tile_xir_simd\",\"backend\":\"cpu\",\"precision\":\"fp32\","
+                 "\"fast_math\":false,\"relaxed_precision\":false,\"timing\":\"synchronized_host_wall\","
+                 "\"batch_policy\":\"one_runtime_command_list_per_batch\",\"m\":"
+              << cfg.m << ",\"n\":" << cfg.n << ",\"k\":" << cfg.k
+              << ",\"block\":[" << cfg.bm << ',' << cfg.bn << ',' << cfg.bk << ']'
+              << ",\"planner_policy\":" << std::quoted(std::string{policy})
+              << ",\"repetitions\":" << repetitions << ",\"runtime_init_ms\":" << runtime_ms
+              << ",\"capture_ms\":" << capture_ms << ",\"compile_ms\":" << compile_ms
+              << ",\"allocation_upload_ms\":" << upload_ms << ",\"cold_call_ms\":" << cold_ms
+              << ",\"warmup_ms\":" << actual_warmup_ms << ",\"realization\":" << std::quoted(shader.metadata().realization)
+              << ",\"source_hash\":" << std::quoted(std::to_string(luisa::hash<luisa::string_view>{}(shader.metadata().source))) << ',';
+    samples("throughput_us", throughput);
+    std::cout << ',';
+    samples("latency_us", latency);
+    std::cout << "}\n";
 }

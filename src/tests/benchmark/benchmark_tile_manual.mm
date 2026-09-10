@@ -4,6 +4,8 @@
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
 
+#include <luisa/core/logging.h>
+
 #include <algorithm>
 #include <charconv>
 #include <chrono>
@@ -15,9 +17,9 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
-#include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 namespace {
@@ -236,9 +238,8 @@ kernel void manual_gemm(device const float *a [[buffer(0)]],
     auto input = std::string_view{text};
     auto value = 0;
     auto parsed = std::from_chars(input.data(), input.data() + input.size(), value);
-    if (parsed.ec != std::errc{} || parsed.ptr != input.data() + input.size() || value <= 0) {
-        throw std::invalid_argument{"expected a positive int32"};
-    }
+    LUISA_ASSERT(parsed.ec == std::errc{} && parsed.ptr == input.data() + input.size() && value > 0,
+                 "expected a positive int32");
     return value;
 }
 
@@ -253,14 +254,12 @@ kernel void manual_gemm(device const float *a [[buffer(0)]],
     if (name == "pad1") { return 7; }
     if (name == "pad8") { return 8; }
     if (name == "stream-a") { return 9; }
-    throw std::invalid_argument{"unknown manual GEMM variant"};
+    LUISA_ERROR("unknown manual GEMM variant");
 }
 
 [[nodiscard]] size_t elements(int rows, int columns) {
     auto count = static_cast<uint64_t>(rows) * static_cast<uint64_t>(columns);
-    if (count > std::numeric_limits<size_t>::max() / sizeof(float)) {
-        throw std::invalid_argument{"matrix size overflow"};
-    }
+    LUISA_ASSERT(count <= std::numeric_limits<size_t>::max() / sizeof(float), "matrix size overflow");
     return static_cast<size_t>(count);
 }
 
@@ -277,32 +276,31 @@ kernel void manual_gemm(device const float *a [[buffer(0)]],
 }
 
 void complete(id<MTLCommandBuffer> command) {
-    if (command == nil) { throw std::runtime_error{"cannot create Metal command buffer"}; }
+    LUISA_ASSERT(command != nil, "cannot create Metal command buffer");
     [command commit];
     [command waitUntilCompleted];
     if (command.status != MTLCommandBufferStatusCompleted) {
         auto reason = command.error.localizedDescription;
-        throw std::runtime_error{reason == nil ? "Metal command failed" : reason.UTF8String};
+        LUISA_ERROR("{}", reason == nil ? "Metal command failed" : reason.UTF8String);
     }
 }
 
 [[nodiscard]] id<MTLBuffer> make_buffer(id<MTLDevice> device, size_t bytes, MTLResourceOptions options) {
     auto result = [device newBufferWithLength:bytes options:options];
-    if (result == nil) { throw std::runtime_error{"Metal buffer allocation failed"}; }
+    LUISA_ASSERT(result != nil, "Metal buffer allocation failed");
     return result;
 }
 
 [[nodiscard]] Measurement measure(std::string_view name, Configuration cfg, const char *path) {
-    if (cfg.m % 64 != 0 || cfg.n % 64 != 0 || cfg.k % 32 != 0) {
-        throw std::invalid_argument{"manual GEMM requires M/N multiples of 64 and K a multiple of 32"};
-    }
+    LUISA_ASSERT(cfg.m % 64 == 0 && cfg.n % 64 == 0 && cfg.k % 32 == 0,
+                 "manual GEMM requires M/N multiples of 64 and K a multiple of 32");
     auto a = input_values(elements(cfg.m, cfg.k), 5u);
     auto b = input_values(elements(cfg.k, cfg.n), 11u);
     std::vector<float> c(elements(cfg.m, cfg.n), std::numeric_limits<float>::quiet_NaN());
     auto device = MTLCreateSystemDefaultDevice();
-    if (device == nil) { throw std::runtime_error{"Metal device unavailable"}; }
+    LUISA_ASSERT(device != nil, "Metal device unavailable");
     auto queue = [device newCommandQueue];
-    if (queue == nil) { throw std::runtime_error{"Metal command queue unavailable"}; }
+    LUISA_ASSERT(queue != nil, "Metal command queue unavailable");
     auto mode = variant(name);
     auto a_stride = mode == 5 || mode == 7 ? 33 : mode == 8 ? 40 : 32;
     auto b_stride = mode == 6 || mode == 7 ? 65 : mode == 8 ? 72 : 64;
@@ -318,13 +316,13 @@ void complete(id<MTLCommandBuffer> command) {
     auto start = Clock::now();
     auto library = [device newLibraryWithSource:source options:options error:&error];
     if (library == nil) {
-        throw std::runtime_error{error == nil ? "Metal source compilation failed" : error.localizedDescription.UTF8String};
+        LUISA_ERROR("{}", error == nil ? "Metal source compilation failed" : error.localizedDescription.UTF8String);
     }
     auto function = [library newFunctionWithName:@"manual_gemm"];
-    if (function == nil) { throw std::runtime_error{"manual_gemm function unavailable"}; }
+    LUISA_ASSERT(function != nil, "manual_gemm function unavailable");
     auto pipeline = [device newComputePipelineStateWithFunction:function error:&error];
     if (pipeline == nil) {
-        throw std::runtime_error{error == nil ? "Metal pipeline creation failed" : error.localizedDescription.UTF8String};
+        LUISA_ERROR("{}", error == nil ? "Metal pipeline creation failed" : error.localizedDescription.UTF8String);
     }
     auto a_buffer = make_buffer(device, a.size() * sizeof(float), MTLResourceStorageModePrivate);
     auto b_buffer = make_buffer(device, b.size() * sizeof(float), MTLResourceStorageModePrivate);
@@ -334,7 +332,7 @@ void complete(id<MTLCommandBuffer> command) {
         std::memcpy(staging.contents, data, bytes);
         auto command = [queue commandBuffer];
         auto blit = [command blitCommandEncoder];
-        if (blit == nil) { throw std::runtime_error{"Metal upload encoder unavailable"}; }
+        LUISA_ASSERT(blit != nil, "Metal upload encoder unavailable");
         [blit copyFromBuffer:staging sourceOffset:0 toBuffer:destination destinationOffset:0 size:bytes];
         [blit endEncoding];
         complete(command);
@@ -352,7 +350,7 @@ void complete(id<MTLCommandBuffer> command) {
             auto begin = Clock::now();
             auto command = [queue commandBuffer];
             auto encoder = [command computeCommandEncoder];
-            if (encoder == nil) { throw std::runtime_error{"Metal compute encoder unavailable"}; }
+            LUISA_ASSERT(encoder != nil, "Metal compute encoder unavailable");
             [encoder setComputePipelineState:pipeline];
             [encoder setBuffer:a_buffer offset:0 atIndex:0];
             [encoder setBuffer:b_buffer offset:0 atIndex:1];
@@ -386,16 +384,20 @@ void complete(id<MTLCommandBuffer> command) {
     auto staging = make_buffer(device, c.size() * sizeof(float), MTLResourceStorageModeShared);
     auto command = [queue commandBuffer];
     auto blit = [command blitCommandEncoder];
-    if (blit == nil) { throw std::runtime_error{"Metal download encoder unavailable"}; }
+    LUISA_ASSERT(blit != nil, "Metal download encoder unavailable");
     [blit copyFromBuffer:c_buffer sourceOffset:0 toBuffer:staging destinationOffset:0 size:staging.length];
     [blit endEncoding];
     complete(command);
     std::memcpy(c.data(), staging.contents, c.size() * sizeof(float));
     result.download_ms = milliseconds(start);
-    if (std::filesystem::exists(path)) { throw std::runtime_error{"output already exists"}; }
+    std::error_code path_error;
+    auto output_exists = std::filesystem::exists(path, path_error);
+    LUISA_ASSERT(!path_error, "cannot inspect output '{}': {}", path, path_error.message());
+    LUISA_ASSERT(!output_exists, "output already exists");
     std::ofstream file{path, std::ios::binary};
     file.write(reinterpret_cast<const char *>(c.data()), static_cast<std::streamsize>(c.size() * sizeof(float)));
-    if (!file) { throw std::runtime_error{"cannot write output"}; }
+    file.close();
+    LUISA_ASSERT(file, "cannot write output");
     return result;
 }
 
@@ -412,33 +414,26 @@ void print_samples(std::string_view name, const std::vector<double> &samples) {
 
 int main(int argc, char *argv[]) {
     @autoreleasepool {
-        try {
-            if (argc != 9) {
-                throw std::invalid_argument{"Usage: benchmark_tile_manual VARIANT M N K samples sample-ms warmup-ms output.f32"};
-            }
-            auto name = std::string_view{argv[1]};
-            Configuration cfg{positive_integer(argv[2]), positive_integer(argv[3]), positive_integer(argv[4]),
-                              positive_integer(argv[5]), positive_integer(argv[6]), positive_integer(argv[7])};
-            auto result = measure(name, cfg, argv[8]);
-            std::cout << std::setprecision(12)
-                      << "{\"backend\":\"metal\",\"implementation\":\"manual_simdgroup_gemm\""
-                      << ",\"variant\":" << std::quoted(name) << ",\"dtype\":\"float32\""
-                      << ",\"m\":" << cfg.m << ",\"n\":" << cfg.n << ",\"k\":" << cfg.k
-                      << ",\"device\":" << std::quoted(result.device)
-                      << ",\"threads_per_group\":256,\"block\":[64,64,32]"
-                      << ",\"max_threadgroup_bytes\":" << result.max_threadgroup_bytes
-                      << ",\"static_threadgroup_bytes\":" << result.static_threadgroup_bytes
-                      << ",\"setup_ms\":" << result.setup_ms << ",\"cold_call_ms\":" << result.cold_ms
-                      << ",\"warmup_ms\":" << result.warmup_ms << ",\"download_ms\":" << result.download_ms
-                      << ",\"repetitions\":" << result.repetitions << ',';
-            print_samples("throughput_us", result.throughput);
-            std::cout << ',';
-            print_samples("latency_us", result.latency);
-            std::cout << "}\n";
-            return 0;
-        } catch (const std::exception &error) {
-            std::cerr << error.what() << '\n';
-            return 1;
-        }
+        LUISA_ASSERT(argc == 9, "Usage: benchmark_tile_manual VARIANT M N K samples sample-ms warmup-ms output.f32");
+        auto name = std::string_view{argv[1]};
+        Configuration cfg{positive_integer(argv[2]), positive_integer(argv[3]), positive_integer(argv[4]),
+                          positive_integer(argv[5]), positive_integer(argv[6]), positive_integer(argv[7])};
+        auto result = measure(name, cfg, argv[8]);
+        std::cout << std::setprecision(12)
+                  << "{\"backend\":\"metal\",\"implementation\":\"manual_simdgroup_gemm\""
+                  << ",\"variant\":" << std::quoted(name) << ",\"dtype\":\"float32\""
+                  << ",\"m\":" << cfg.m << ",\"n\":" << cfg.n << ",\"k\":" << cfg.k
+                  << ",\"device\":" << std::quoted(result.device)
+                  << ",\"threads_per_group\":256,\"block\":[64,64,32]"
+                  << ",\"max_threadgroup_bytes\":" << result.max_threadgroup_bytes
+                  << ",\"static_threadgroup_bytes\":" << result.static_threadgroup_bytes
+                  << ",\"setup_ms\":" << result.setup_ms << ",\"cold_call_ms\":" << result.cold_ms
+                  << ",\"warmup_ms\":" << result.warmup_ms << ",\"download_ms\":" << result.download_ms
+                  << ",\"repetitions\":" << result.repetitions << ',';
+        print_samples("throughput_us", result.throughput);
+        std::cout << ',';
+        print_samples("latency_us", result.latency);
+        std::cout << "}\n";
+        return 0;
     }
 }

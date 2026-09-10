@@ -95,12 +95,7 @@ void check_gemm(Runtime &runtime, const Executable &executable, Shape cfg, doubl
         auto left = runtime.upload<float>({cfg.transpose_a ? cfg.k : cfg.m, cfg.transpose_a ? cfg.m : cfg.k}, a);
         auto right = runtime.upload<float>({cfg.transpose_b ? cfg.n : cfg.k, cfg.transpose_b ? cfg.k : cfg.n}, b);
         auto initial = runtime.upload<float>({column_major_c ? cfg.n : cfg.m, column_major_c ? cfg.m : cfg.n}, c);
-        try {
-            (*executable.entry)(left, right, initial, destination);
-        } catch (const tvm::ffi::Error &error) {
-            expect(false) << error.what();
-            return;
-        }
+        (*executable.entry)(left, right, initial, destination);
         auto actual = runtime.download<float>(destination, cfg.m * cfg.n);
         auto valid = true;
         auto maximum_error = 0.0;
