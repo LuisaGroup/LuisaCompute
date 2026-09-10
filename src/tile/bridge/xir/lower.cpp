@@ -567,16 +567,25 @@ private:
         if (attribute == nullptr) { _fail("Tile constant is missing its value"); }
         x::Value *value = nullptr;
         auto &payload = attribute->value();
+        if (auto item = luisa::get_if<double>(&payload)) {
+            // Attribute storage precision is not an execution requirement.
+            // Materialize the declared literal type directly: an FP32 kernel
+            // must not acquire an FP64 instruction just to decode a literal.
+            switch (op.result(0u)->type().scalar_type()) {
+                case ScalarType::FLOAT16: return _constant(half_float::half_cast<half>(*item));
+                case ScalarType::FLOAT32: return _constant(static_cast<float>(*item));
+                case ScalarType::FLOAT64: return _constant(*item);
+                // The frontend has already rounded its host BF16 literal.
+                case ScalarType::BFLOAT16: return _constant(bfloat16{static_cast<float>(*item)}.bits());
+                default: break;
+            }
+        }
         if (auto item = luisa::get_if<bool>(&payload)) { value = _constant(*item); }
         if (auto item = luisa::get_if<int64_t>(&payload)) { value = _constant(*item); }
         if (auto item = luisa::get_if<uint64_t>(&payload)) { value = _constant(*item); }
         if (auto item = luisa::get_if<double>(&payload)) { value = _constant(*item); }
         if (value == nullptr) { _fail("invalid Tile constant payload"); }
-        if (op.result(0u)->type().scalar_type() == ScalarType::BFLOAT16) {
-            // The frontend has already rounded its host BF16 literal.
-            if (auto item = luisa::get_if<double>(&payload)) { return _constant(bfloat16{static_cast<float>(*item)}.bits()); }
-            _fail("BF16 constant requires a floating payload");
-        }
+        if (op.result(0u)->type().scalar_type() == ScalarType::BFLOAT16) { _fail("BF16 constant requires a floating payload"); }
         return _builder.static_cast_if_necessary(_type(op.result(0)->type()), value);
     }
     [[nodiscard]] x::Value *_guarded_load(x::Value *condition, x::Value *buffer, x::Value *address, x::Value *fallback) {
@@ -1247,7 +1256,7 @@ public:
         if (_input.parent_module() == nullptr || !verify(*_input.parent_module())) { _fail("TileIR verification failed before XIR lowering"); }
         if (_input.body().block_count() != 1u || !x::KernelFunction::is_valid_block_size(luisa::make_uint3(_options.block_size, 1u, 1u)) || _options.max_expanded_values == 0u ||
             _options.reduction_partitions == 0u || _options.reduction_partitions > 16u ||
-            !_options.local_lanes || _options.local_lanes > 16u || (_options.local_lanes & (_options.local_lanes - 1u)) ||
+            !_options.local_lanes || (_options.local_lanes & (_options.local_lanes - 1u)) ||
             _options.block_size % _options.local_lanes) { _fail("invalid XIR realization options or entry region"); }
         if (_options.local_lanes > 1u && !detail::packet_local_program(_input, _options.local_lanes)) {
             _fail("XIR packet-local realization requires a common pointwise axis and closed unordered reductions with owner-preserving extracts");

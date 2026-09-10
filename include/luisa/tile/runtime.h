@@ -41,7 +41,7 @@ struct CompileOptions {
     // No TVM dependency is introduced into the public Runtime/TileIR layers.
     // The backend supplies the physical target and enforces its capabilities.
     const bridge::tirx::CompileOptions *tirx{nullptr};
-    // Optional exact constraints/cost prior for the CPU XIR execution planner.
+    // Optional exact constraints/cost prior for the backend's XIR planner.
     // Unsupported backends reject this configuration instead of ignoring it.
     const bridge::xir::PlannerOptions *xir{nullptr};
 };

@@ -1,8 +1,9 @@
-# TileIR → XIR: execution planning and SIMD realization
+# TileIR → XIR: execution planning and backend realization
 
-Status: executable CPU realization with bounded packet-index proofs and
+Status: CPU realization with bounded packet-index proofs and
 compiler-owned snapshots, bounded Tile traversal, closed unordered partials and
-an opt-in packet-local mapping, September 9, 2026. The finite solver below is implemented. General Tile distribution, packed
+an opt-in packet-local mapping; backend-provided execution target info and a
+Metal4 XIR/AIR Runtime adapter, September 10, 2026. The finite solver below is implemented. General Tile distribution, packed
 matrix atoms, software pipelining and measured cost calibration are not.
 
 This document complements the [language/layout design](../../tile/design.md),
@@ -56,15 +57,17 @@ Planner, bridge, backend and Runtime are separate owners. No Python source or AS
 | Component | Owns | Does not own |
 |---|---|---|
 | TileIR | Typed semantic operations, nested regions, mutable use-def structure | LLVM, TVM, device queues |
-| XIR planner | Finite candidate enumeration, target facts, cost decomposition | Runtime allocation or JIT |
+| XIR planner | Semantic admission, finite candidate enumeration, work extraction | CPU/GPU hardware constants, Runtime allocation or JIT |
+| Backend target info | Candidate widths, extra legality, scheduling and default cost policy | Relaxing TileIR semantics |
 | XIR lowerer | An owned XIR Module and typed argument/dispatch metadata | AST reconstruction or serialization |
 | SIMD backend | Schedule/LLVM compilation, native shader and CPU dispatch | A second Tile language |
+| Metal4 backend | XIR/LLVM/AIR compilation, PSO ABI checks and GPU dispatch | CPU home-chunk scheduling or MSL export |
 | Runtime adapter | Shader lifetime, argument/range checking, normal dispatch commands | Hardware scheduling policy |
 
 Public headers live in `include/luisa/tile/bridge/xir/`; implementations live
 in `src/tile/bridge/xir/`. The bridge links TileIR and XIR, not TVM, LLVM,
-SIMD or Runtime. Native Metal lowering remains in the Metal backend. A future
-backend may consume the same XIR result without relocating this bridge.
+SIMD or Runtime. Native MPP lowering remains in the `metal` backend; the
+`metal4` backend consumes the same XIR result directly through its AIR path.
 
 The input Module is borrowed and unchanged. The lowerer returns an owning
 Module, not a dangling function pointer. Passes may rewrite its basic blocks,
@@ -717,11 +720,13 @@ cache blocking or a packed matrix atom. See the
 The first solver searches the Cartesian product of:
 
 - All permutations of root parallel axes, unless an exact order is supplied.
-- Block worker counts `{32, 64, 128, 256, 512, 1024}`, unless fixed explicitly.
+- Block widths provided by the backend target info, unless fixed explicitly.
+  The reusable CPU info proposes `{32, 64, 128, 256, 512, 1024}`; the Metal4
+  bootstrap proposes `{32, 64, 128, 256}` within device limits.
 - With `local_lanes=0`, whole-program lanes and an admitted full-packet local
   axis; `local_lanes=W` fixes the latter. The default remains `local_lanes=1`
   until tail-control and CPU worker-activation costs are modeled adequately.
-- With `search_task_grain=true`, power-of-two blocks-per-CPU-task, the legacy
+- On a task-grain-capable target, with `search_task_grain=true`, power-of-two blocks-per-CPU-task, the legacy
   grain and the whole launch. `blocks_per_task` fixes a grain independently
   of the block width; zero without search retains the Runtime heuristic.
 
@@ -736,6 +741,14 @@ width. Root domains must be static, nonempty, uint32-addressable and independent
 there must be one root parallel with no escaping state. Supported descendant
 regions retain their existing local order. Unsupported operation, explicit
 binding or manual resource requirements are rejected.
+
+The bridge does **not** impose the SIMD CPU backend's 16-lane maximum.
+The current XOR-tree realization requires a power-of-two physical packet.
+A local mapping spans **exactly that packet**, not an arbitrary subgroup inside
+it: `program = (dispatch_id - warp_lane_id) / W`. Lowering records
+`required_packet_width`, and the consumer must verify this ABI. Thus a CPU W8
+mapping cannot simply be compiled on a Metal W32 device. This is an implemented
+realization constraint, not a restriction on the execution-first language.
 
 The solver enumerates the entire declared finite space and returns its exact
 minimum **under the specified cost function**. It is not a globally optimal
@@ -812,7 +825,24 @@ access slopes and a fixed shuffle prior. Its private-array estimate remains
 conservative and uncalibrated; it does not yet price the interleaved emitter's
 actual accesses. Joint search is therefore opt-in, not a promised speedup.
 
-### Backend cost policy, without changing the legal candidate space
+### Backend target info and cost policy
+
+`ExecutionTargetInfo` separates hardware realization from the public solver:
+
+| Hook | Responsibility |
+|---|---|
+| `target()` | Physical packet width; CPU scheduling parameters only for thread-pool info |
+| `block_sizes()` | Finite candidate proposals; pinned widths are still checked |
+| `supports_local_distribution()` / `supports_task_grain()` | Availability of these realizations |
+| `accepts(candidate)` | Additional backend constraints; may only narrow common legality |
+| `schedule(candidate, work)` | Target scheduling quantities from extracted work and packet/block counts |
+| `cost_policy()` | Backend's default objective; an explicit user cost policy may replace it |
+
+`plan(function, info, options)` is the backend entry point. The legacy overload
+taking `ExecutionTarget` wraps `ThreadPoolExecutionTargetInfo` for compatibility.
+CPU home-chunk calculations are now confined to that concrete implementation.
+Metal4 retains packet/block counts without inventing CPU worker counts or
+work-stealing behavior, and rejects CPU task-grain options.
 
 `ExecutionCostPolicy::coefficients()` replaces target coefficients before work
 extraction; `evaluate()` receives the candidate and `ExecutionWork`, and returns
@@ -824,15 +854,21 @@ rejected. Neither a policy nor a low score can waive IR, domain, binding,
 redistribution or candidate-budget checks.
 
 ```text
-TileIR + hard realization constraints
-               │
-        legal (order, local lanes, block, task grain)
-               │
-        work extraction + home-chunk topology
-               │
-     backend coefficients / complete cost objective
-               │
-        exact finite minimum → native body + Runtime task grain
+TileIR semantics ── common mapping invariants
+                               │
+backend target info ── candidates ∩ backend constraints
+                               │
+                    target-independent work extraction
+                               │
+                    backend scheduling model
+                    ├─ CPU: thread-pool home chunks
+                    └─ GPU: packet/group work (no CPU tasks)
+                               │
+                    backend/user cost objective
+                               │
+                    exact finite minimum
+                               │
+                    lower → backend ABI check → Runtime
 ```
 
 The [task-grain experiment](../../performance/tile/results.md#cpu-task-grain-is-independent-of-the-native-packet-body)
@@ -851,7 +887,40 @@ auto shader = tile::compile(device, kernel, {.xir = &options});
 
 `CompileOptions::threads_per_group` and the XIR block constraint must agree
 when both are supplied. Configuration is borrowed only during synchronous
-compilation. Metal rejects XIR options rather than silently ignoring them.
+compilation. The legacy `metal` backend rejects XIR options; `metal4` uses its
+own target info and accepts them for native XIR/AIR compilation.
+
+The initial Metal4 objective is total estimated packet arithmetic/memory work
+plus group-dispatch cost. It is deliberately labeled uncalibrated: there is no
+occupancy, register-spill, residency, cache or communication model yet. Default
+local distribution remains one program per lane; `local_lanes=0` opts into
+search and `local_lanes=32` fixes a supported full SIMD-group mapping. The
+64-KiB per-lane snapshot budget is a compiler bound, **not** a claimed hardware
+private-memory capacity. The final PSO is checked for physical width, thread
+limit and threadgroup-memory limit. Generic scalar MMA is not MPP/tensor MMA.
+
+This split is an extension boundary, not yet complete resource feasibility.
+The current snapshot budget is checked during lowering, after cost selection;
+it is not an exact per-candidate storage/liveness analysis. A selected plan can
+therefore exceed that budget even when another mapping could fit. Adding that
+analysis and candidate retry is still required. Some existing deep bridge
+rejections also use fatal Luisa diagnostics rather than a recoverable result;
+the new top-level target/candidate errors return `PlanningResult.error`, but
+this does not make every unsupported program recoverable.
+
+The shared LLM benchmark selects this distinct route with
+`LUISA_TILE_BENCH_XIR_BACKEND=metal4` and reports `tile_xir_metal4` (not
+`tile_tirx_metal`). Its current samples are synchronized Runtime host wall.
+The legacy Metal timestamp helper does not instrument Metal4 and is rejected
+if requested for this route; Metal4 GPU timestamps require a separate adapter.
+
+The {download}`September 10 validation record <../../../../scripts/benchmark/tile_torch/results/m1-max-20260910-xir-target-info/README.md>`
+records the complete build, five passing selected CTests and the actual
+nonzero Metal4 assertions. On the local LLVM22/TVM-LLVM21 setup,
+`LUISA_COMPUTE_TILE_XIR_TEST_TIRX_COMPARISON=OFF` isolates the native test
+processes while retaining independent oracle checks and standalone TIRx
+targets. It does not solve cross-version LLVM symbol coexistence. Performance
+probes are archived as unstable host-wall diagnostics, not GPU cost calibration.
 
 Searching a physical plan is distinct from tuning the C++ specialization:
 changing BM/BN/BK or the semantic pipeline shape simply recaptures the lambda.

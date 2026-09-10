@@ -1,4 +1,4 @@
-// TileIR -> XIR -> SIMD backend -> ordinary Runtime Stream benchmark.
+// TileIR -> XIR -> SIMD or Metal4 backend -> ordinary Runtime Stream benchmark.
 // Host wall time, with compilation/allocation/upload excluded. No TVM dependency.
 #include "tile_xir_test_utils.h"
 #include "tile_llm_benchmark.h"
@@ -88,7 +88,13 @@ int main(int argc, char *argv[]) {
                 }
             }
         }
-        return test::tile_llm::benchmark(argc, argv, "simd", {.xir = &planner});
+        auto backend = string_view{"simd"};
+        if (auto setting = std::getenv("LUISA_TILE_BENCH_XIR_BACKEND")) { backend = setting; }
+        if (backend != "simd" && backend != "metal4") {
+            std::cerr << "LUISA_TILE_BENCH_XIR_BACKEND must be simd or metal4\n";
+            return 1;
+        }
+        return test::tile_llm::benchmark(argc, argv, backend, {.xir = &planner});
     }
     if (argc < 12 || argc > 14) {
         std::cerr << "Usage: benchmark_tile_xir fp32 M N K samples sample-ms warmup-ms output.f32 tile-M tile-N tile-K [planned|canonical|reversed [block-workers]]\n";

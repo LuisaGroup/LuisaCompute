@@ -1,7 +1,7 @@
 #pragma once
 
 // One capture, input generator, FP64 oracle and Runtime submission protocol for
-// both XIR/SIMD and TIRx/Metal. This is a benchmark, not a dispatch policy.
+// XIR/SIMD, XIR/Metal4 and TIRx/Metal. This is a benchmark, not a dispatch policy.
 #include "tile_llm_test_utils.h"
 #include "metal_benchmark.h"
 #include <luisa/tile/runtime.h>
@@ -178,8 +178,9 @@ namespace luisa::test::tile_llm {
             std::cout << ']';
         };
         std::cout << std::setprecision(12)
-                  << "{\"implementation\":" << std::quoted(backend == "metal" ? "tile_tirx_metal" : "tile_xir_simd")
-                  << ",\"backend\":" << std::quoted(backend == "metal" ? "metal" : "cpu")
+                  << "{\"implementation\":" << std::quoted(backend == "metal" ? "tile_tirx_metal" : backend == "metal4" ? "tile_xir_metal4" :
+                                                                                                                          "tile_xir_simd")
+                  << ",\"backend\":" << std::quoted(backend == "simd" ? "cpu" : backend)
                   << ",\"precision\":\"fp32\",\"fast_math\":false,\"relaxed_precision\":false,\"runtime\":\"luisa\","
                      "\"timing\":\"synchronized_host_wall\",\"batch_policy\":\"one_runtime_command_list_per_batch\",\"operation\":"
                   << std::quoted(op)
@@ -190,11 +191,12 @@ namespace luisa::test::tile_llm {
         // and from the capability-resolved automatic Runtime choice.
         std::cout << ",\"reduction_tree\":" << (reduction_tree ? "true" : "false")
                   << ",\"requested_input_views\":" << (forward_input_views ? "true" : "false")
-                  << ",\"attention_qk\":" << std::quoted(op != "attention" ? "not_applicable" : attention_qk_reduction ? "reduce" : "mma")
+                  << ",\"attention_qk\":" << std::quoted(op != "attention" ? "not_applicable" : attention_qk_reduction ? "reduce" :
+                                                                                                                         "mma")
                   << ",\"source_reduction_policy\":\"unordered_tree\""
-                  << ",\"reduction_candidate_setting\":" << std::quoted(backend != "metal" ? "not_applicable" :
-                                                                               compile_options.tirx == nullptr ? "automatic" :
-                                                                               reduction_tree ? "enabled" : "disabled")
+                  << ",\"reduction_candidate_setting\":" << std::quoted(backend != "metal" ? "not_applicable" : compile_options.tirx == nullptr ? "automatic" :
+                                                                                                            reduction_tree                      ? "enabled" :
+                                                                                                                                                  "disabled")
                   << ",\"requested_group_threads\":" << options.threads_per_group
                   << ",\"attention_block\":[" << bq << ',' << bk << "],\"input_shapes\":[";
         for (auto i = 0u; i < 3u; i++) {

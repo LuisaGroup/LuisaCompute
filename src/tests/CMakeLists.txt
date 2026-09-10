@@ -7,6 +7,12 @@
 # --- CTest integration ---
 enable_testing()
 
+# Loading incompatible LLVM majors in one process can coalesce LLVM's weak
+# C++ symbols. Keep TVM comparison optional without disabling either bridge's
+# standalone tests or the native tests' independent numerical oracle.
+option(LUISA_COMPUTE_TILE_XIR_TEST_TIRX_COMPARISON
+        "Compare XIR with TIRx in-process (requires compatible LLVM libraries)" ON)
+
 # Helper: add a standalone test executable, include path, AND register with CTest.
 # Usage: luisa_compute_add_test(name source LABELS label1;label2 [ARGS arg1 ...])
 # Tests without LABELS compile but are NOT registered with CTest.
@@ -625,16 +631,31 @@ if (TARGET luisa-compute-backend-metal AND LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE
 endif ()
 luisa_compute_add_test(test_tile_xir unit/tile/bridge/test_xir.cpp LABELS "unit;unit_tile;unit_tile_xir")
 target_link_libraries(test_tile_xir PRIVATE luisa::tile-xir)
-if (TARGET luisa-compute-backend-simd)
+luisa_compute_add_test(test_tile_xir_target_info unit/tile/bridge/test_xir_target_info.cpp LABELS "unit;unit_tile;unit_tile_xir")
+target_link_libraries(test_tile_xir_target_info PRIVATE luisa::tile-xir)
+if (TARGET luisa-compute-backend-simd OR TARGET luisa-compute-backend-metal4)
     luisa_compute_add_test(benchmark_tile_xir benchmark/benchmark_tile_xir.cpp)
-    add_dependencies(benchmark_tile_xir luisa-compute-backend-simd)
+    foreach (_tile_xir_backend IN ITEMS simd metal4)
+        if (TARGET luisa-compute-backend-${_tile_xir_backend})
+            add_dependencies(benchmark_tile_xir luisa-compute-backend-${_tile_xir_backend})
+        endif ()
+    endforeach ()
+endif ()
+if (TARGET luisa-compute-backend-metal4)
+    luisa_compute_add_test(test_tile_xir_metal unit/tile/bridge/test_xir_metal.cpp
+            LABELS "integration;integration_tile_xir;integration_metal4" ARGS metal4)
+    add_dependencies(test_tile_xir_metal luisa-compute-backend-metal4)
+    set_tests_properties(test_tile_xir_metal PROPERTIES TIMEOUT 240
+            FAIL_REGULAR_EXPRESSION "0 asserts;tests skipped")
+endif ()
+if (TARGET luisa-compute-backend-simd)
     luisa_compute_add_test(test_tile_xir_runtime unit/tile/bridge/test_xir_runtime.cpp
             LABELS "integration;integration_tile_xir;integration_simd" ARGS simd)
     add_dependencies(test_tile_xir_runtime luisa-compute-backend-simd)
     luisa_compute_add_test(test_tile_xir_llm unit/tile/bridge/test_xir_llm.cpp
             LABELS "integration;integration_tile_xir;integration_simd" ARGS simd)
     add_dependencies(test_tile_xir_llm luisa-compute-backend-simd)
-    if (LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE)
+    if (LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE AND LUISA_COMPUTE_TILE_XIR_TEST_TIRX_COMPARISON)
         target_link_libraries(test_tile_xir_runtime PRIVATE luisa::tile-tirx)
         target_compile_definitions(test_tile_xir_runtime PRIVATE LUISA_TEST_TILE_XIR_TIRX=1)
         target_link_libraries(test_tile_xir_llm PRIVATE luisa::tile-tirx)

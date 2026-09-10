@@ -76,7 +76,8 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
             }
             planner_options.block_size = tile_options.threads_per_group;
         }
-        auto planned = tile::bridge::xir::plan(kernel, {_warp_width, _thread_pool->worker_count()}, planner_options);
+        const auto target_info = tile::bridge::xir::ThreadPoolExecutionTargetInfo{{_warp_width, _thread_pool->worker_count()}};
+        auto planned = tile::bridge::xir::plan(kernel, target_info, planner_options);
         if (!planned) {
             metadata.error = std::move(planned.error);
             return ShaderCreationInfo::make_invalid();
