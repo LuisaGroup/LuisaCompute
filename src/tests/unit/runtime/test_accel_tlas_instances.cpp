@@ -368,6 +368,54 @@ void test_accel_tlas_instances(Device &device) {
             run_trace(accel2, luisa::format("v7 shared refit accel2 f{}", f));
         }
     }
+    // ---- variant 8: BLAS recreate queues refresh entries, accel shrinks -----
+    // Recreating a BLAS queues a per-slot refresh (vk queues on every FORCE
+    // recreate; dx on growth/compaction). Shrinking the accel afterwards
+    // destroys the pooled handles of the removed slots: the refresh entries
+    // must not survive into the next build and rebind a recycled slot to a
+    // stale BLAS. This covers the hazard fixed for dx (stale setMap on shrink)
+    // and now hardened identically on vk.
+    {
+        AccelOption mesh_option{.hint = AccelUsageHint::FAST_TRACE,
+                                .allow_compaction = true,
+                                .allow_update = true};
+        auto mesh_a = device.create_mesh(grid_vb, grid_ib, mesh_option);
+        auto mesh_b = device.create_mesh(quad_vb, quad_ib, mesh_option);
+        auto mesh_c = device.create_mesh(quad_vb, quad_ib, mesh_option);
+        AccelOption accel_option{.hint = AccelUsageHint::FAST_TRACE,
+                                 .allow_compaction = false,
+                                 .allow_update = true};
+        auto accel = device.create_accel(accel_option);
+        accel.emplace_back(mesh_a, make_float4x4(1.0f), 0xffu, true);
+        accel.emplace_back(mesh_b, translation(make_float3(10.0f, 0.0f, 0.0f)),
+                           0xffu, true);
+        accel.emplace_back(mesh_c, translation(make_float3(0.0f, 5.0f, 0.0f)),
+                           0xffu, true);
+        stream << mesh_a.build(build_req)
+               << mesh_b.build(build_req)
+               << mesh_c.build(build_req)
+               << accel.build(build_req) << synchronize();
+        // Recreate every BLAS: queues refresh entries for slots 0..2 (vk
+        // unconditionally on recreate; dx via compaction at the flush point).
+        stream << mesh_a.build(build_req)
+               << mesh_b.build(build_req)
+               << mesh_c.build(build_req)
+               << accel.build(build_req) << synchronize();
+        // Shrink from 3 to 1 instance while refresh entries are still queued.
+        accel.pop_back();
+        accel.pop_back();
+        accel.set_transform_on_update(0u, make_float4x4(1.0f));
+        stream << accel.build(build_req) << synchronize();
+        // Re-grow slot 1 with a fresh mesh and refit transform-only: slot 1
+        // must keep the freshly-assigned quad, not a stale recycled BLAS.
+        accel.emplace_back(mesh_b, translation(make_float3(10.0f, 0.0f, 0.0f)),
+                           0xffu, true);
+        accel.set_transform_on_update(1u,
+                                      translation(make_float3(10.0f, 0.0f, 0.0f)));
+        stream << mesh_b.build(build_req)
+               << accel.build(build_req) << synchronize();
+        run_trace(accel, "v8 recreate+shrink+regrow");
+    }
 }
 
 int main(int argc, char *argv[]) {

@@ -23,7 +23,10 @@ private:
     VkAccelerationStructureBuildGeometryInfoKHR *_acceleration_build_geometry_info{nullptr};
     AccelOption _option;
     Buffer const *_scratch_buffer{nullptr};
-    vstd::unordered_map<uint64, MeshHandle *> _set_map;
+    // Pending BLAS-address refreshes, keyed by TLAS instance index. The value
+    // is the stable Blas (never the pooled MeshHandle) so that a destroyed or
+    // recycled handle can never leave a dangling entry behind.
+    vstd::unordered_map<uint64, Blas *> _set_map;
     uint64_t _scratch_buffer_offset{0};
     uint _last_instance_count = 0;
     struct Instance {

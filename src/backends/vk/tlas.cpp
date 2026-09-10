@@ -177,7 +177,7 @@ void Tlas::pre_build(
                 // TLAS would keep tracing the old mesh.
                 resolved_meshes[idx] = tlas_detail::resolve_to_blas(i.primitive);
             } else if (ite != _set_map.end()) {
-                resolved_meshes[idx] = ite->second->mesh;
+                resolved_meshes[idx] = ite->second;
                 const_cast<uint &>(i.flags) = i.flags | AccelBuildCommand::Modification::flag_primitive;
                 updateMesh = true;
             }
@@ -256,9 +256,8 @@ void Tlas::pre_build(
             // touching only the acceleration-structure reference fields.
             for (auto &&entry : _set_map) {
                 auto index = entry.first;
-                auto handle = entry.second;
-                if (index >= instance_count || handle->mesh == nullptr) continue;
-                auto mesh = handle->mesh;
+                auto mesh = entry.second;
+                if (index >= instance_count || mesh == nullptr) continue;
                 auto addr = mesh->get_accel_device_address();
                 resource_barrier->record(BufferView{mesh->_accel_buffer.get()},
                                          ResourceBarrier::Usage::kAccelInstanceBuffer);
@@ -494,9 +493,9 @@ void Tlas::pre_build(
                 TlasInputInst::pack_user_id_flags(
                     0u,
                     AccelBuildCommand::Modification::flag_primitive);
-            resource_barrier->record(BufferView{i.second->mesh->_accel_buffer.get()},
+            resource_barrier->record(BufferView{i.second->_accel_buffer.get()},
                                      ResourceBarrier::Usage::kAccelInstanceBuffer);
-            auto addr = i.second->mesh->get_accel_device_address();
+            auto addr = i.second->get_accel_device_address();
             inst_ptr->mesh =
                 TlasInputInst::device_address_words(addr);
             ++inst_ptr;
@@ -673,7 +672,10 @@ void Tlas::_update_mesh(
     MeshHandle *handle) {
     auto instIndex = handle->accel_index;
     LUISA_ASSUME(_all_instance[instIndex].handle == handle);
-    _set_map[instIndex] = handle;
+    // Queue a refresh of the instance's BLAS address. Storing the stable Blas
+    // instead of the pooled MeshHandle keeps the entry valid even if the
+    // handle is later destroyed/recycled before the next TLAS build.
+    _set_map[instIndex] = handle->mesh;
     _require_rebuild = true;
 }
 void Tlas::build(
@@ -708,6 +710,16 @@ void Tlas::_resize_instance(size_t size) {
         for (auto &i : vstd::ptr_range(_all_instance.data() + size, _all_instance.data() + _all_instance.size())) {
             if (!i.handle) continue;
             i.handle->mesh->_remove_accel_ref(i.handle);
+        }
+        // Mesh-refresh entries queued by BLAS re-creation (_sync_tlas) may
+        // still reference the removed slots; drop them so a later build never
+        // rebinds a recycled slot to a stale BLAS.
+        for (auto ite = _set_map.begin(); ite != _set_map.end();) {
+            if (ite->first >= size) {
+                ite = _set_map.erase(ite);
+            } else {
+                ++ite;
+            }
         }
     }
     _all_instance.resize(size);
