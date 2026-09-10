@@ -110,6 +110,17 @@ void TopAccel::ResizeAllInstance(size_t size) {
             if (!i.handle) continue;
             i.handle->mesh->RemoveAccelRef(i.handle);
         }
+        // Mesh-refresh entries queued by BLAS re-creation (SyncTopAccel) may
+        // still reference the destroyed (pooled) handles of the removed slots;
+        // drop them so a later build never dereferences a recycled handle and
+        // binds an instance to the wrong BLAS.
+        for (auto ite = setMap.begin(); ite != setMap.end();) {
+            if (ite->first >= size) {
+                ite = setMap.erase(ite);
+            } else {
+                ++ite;
+            }
+        }
     }
     allInstance.resize(size);
 }
@@ -134,8 +145,13 @@ void TopAccel::PreProcessInst(
     if (GenerateNewBuffer(
             "tlas-instance-buffer",
             tracker, builder, instBuffer, instanceByteCount, true,
-            D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE)) {
+            D3D12_RESOURCE_STATE_COMMON)) {
         input.InstanceDescs = instBuffer->GetAddress();
+    }
+    if (!setDesc.empty()) {
+        tracker.Record(
+            BufferView(instBuffer.get(), 0, instBuffer->GetByteSize()),
+            EnhancedBarrierTracker::Usage::ComputeUAV);
     }
 }
 void TopAccel::ProcessSetMap() {
@@ -280,7 +296,7 @@ void TopAccel::Build(
         auto cs = device->set_accel_kernel.get(device);
         auto size = setDesc.size();
         auto size_bytes = luisa::size_bytes(setDesc);
-        auto setBuffer = alloc->get_temp_upload_buffer(size_bytes);
+        auto setBuffer = alloc->get_temp_upload_buffer(size_bytes, 16);
         auto cbuffer = alloc->get_temp_upload_buffer(sizeof(size_t), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
         struct CBuffer {
             uint dsp;
