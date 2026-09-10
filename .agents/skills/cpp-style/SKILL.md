@@ -76,15 +76,33 @@ RTTI is disabled for project code. Do **not** use:
 
 Prefer virtual dispatch or explicit type tags for type-safe downcasting. Third-party code under `src/ext` is exempt.
 
-## No Exceptions in Tests
+## No C++ Exception Raising in Project Code
 
-Do not use `throw` or rethrow in project-owned tests, benchmarks, or shared
-test helpers. Use `LUISA_ASSERT` for fatal preconditions and `LUISA_ERROR` for
-unconditional failures, with an explicit `<luisa/core/logging.h>` include.
-Use a literal format string for dynamic messages, such as
-`LUISA_ERROR("{}", message)`. Do not add exception-based assertion helpers or
-enable exceptions on test targets to make them compile. Preserve cleanup and
-expected-error coverage; see [the test skill](../test/SKILL.md#fatal-checks-without-exceptions).
+The entire repository's own C++ code must not use `throw`, rethrow, or an
+exception-raising helper/macro as a substitute. This includes libraries,
+backends, bindings, examples, tests, benchmarks, and generated project code.
+Third-party libraries and archived third-party compiler output are exempt;
+project-owned glue under a dependency directory is not automatically exempt.
+
+- Use `LUISA_ASSERT` for fatal preconditions and `LUISA_ERROR` for unconditional
+  failures, with an explicit `<luisa/core/logging.h>` include. Use a literal
+  format string for dynamic messages, such as `LUISA_ERROR("{}", message)`.
+- Preserve recoverable API contracts with explicit error/status results and
+  propagate failures before consuming invalid values. Do not turn compilation
+  rejection, protocol errors, or Python validation errors into process aborts
+  merely to remove an exception. Python bindings can use the Python C API error
+  indicator and a null return from a C API entry point.
+- Preserve cleanup with RAII. Catching a third-party exception at an integration
+  boundary is allowed; do not remove that boundary or enable exceptions on an
+  otherwise exception-free target to accommodate project-owned raising code.
+- Test expected fatal failures in a separate process; do not use `expect(throws(...))`
+  for a function that now reports through Luisa fatal checks. See
+  [the test skill](../test/SKILL.md#fatal-checks-without-exceptions).
+
+Run `python scripts/check_cpp_no_throw.py` to scan all tracked project C++
+sources. It checks exception-raising tokens and helpers, with explicit third-party
+exclusions, and is also run by CI. Python `raise` and other host-language error
+handling remain governed by their own API contracts.
 
 ## Integer Types
 

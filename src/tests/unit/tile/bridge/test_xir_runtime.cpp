@@ -3,6 +3,9 @@
 #include "tile_xir_test_utils.h"
 #include "tile_reduction_policy_test_utils.h"
 #include <bit>
+#include <cstdlib>
+#include <luisa/core/logging.h>
+#include <luisa/core/stl/optional.h>
 #include <luisa/runtime/stream.h>
 #include <luisa/tile/runtime.h>
 #include <luisa/tile/bridge/xir/planner.h>
@@ -22,6 +25,71 @@ using namespace boost::ut;
 namespace {
 
 [[nodiscard]] bool close(span<const float> actual, span<const double> expected);
+
+class ScopedRootAxisTiles {
+private:
+    optional<string> _previous;
+
+public:
+    ScopedRootAxisTiles() {
+        if (auto value = std::getenv("LUISA_SIMD_ROOT_AXIS_TILES")) { _previous.emplace(value); }
+    }
+    ~ScopedRootAxisTiles() noexcept { set(_previous ? _previous->c_str() : nullptr); }
+    static void set(const char *value) noexcept {
+#ifdef _WIN32
+        LUISA_ASSERT(_putenv_s("LUISA_SIMD_ROOT_AXIS_TILES", value == nullptr ? "" : value) == 0,
+                     "Cannot set SIMD root-axis test constraint");
+#else
+        auto result = value == nullptr ? unsetenv("LUISA_SIMD_ROOT_AXIS_TILES") :
+                                         setenv("LUISA_SIMD_ROOT_AXIS_TILES", value, 1);
+        LUISA_ASSERT(result == 0, "Cannot set SIMD root-axis test constraint");
+#endif
+    }
+};
+
+void root_traversal_environment_errors(Device &device) {
+    using namespace tile;
+    ScopedRootAxisTiles environment;
+    auto kernel = tile_kernel("root_environment_constraints", [](TensorView<float, 2> output) {
+                      auto a = axis("a", 4), b = axis("b", 6);
+                      for (auto &nest : parallel(shape(a, b))) {
+                          output(coord(nest.index(a), nest.index(b)), shape(1, 1)).store(full<float>(shape(1, 1), 1.0f));
+                      }
+                  }).capture(tensor_shape(4, 6));
+    auto options = bridge::xir::PlannerOptions{.block_size = 32u, .root_axis_tiles = {1u, 1u}};
+    auto reject = [&](const char *value, string_view expected_error) {
+        environment.set(value);
+        auto shader = compile(device, kernel, {.xir = &options});
+        expect(!shader) << value;
+        expect(shader.metadata().error == expected_error) << value << shader.metadata().error;
+        expect(shader.metadata().source.empty());
+        expect(shader.metadata().arguments.empty());
+        expect(options.root_axis_tiles == vector<uint32_t>{1u, 1u});
+    };
+    // Windows treats an empty environment value as removal.
+#ifndef _WIN32
+    reject("", "LUISA_SIMD_ROOT_AXIS_TILES requires comma-separated positive uint32 factors");
+#endif
+    for (auto value : {"0", "-1", "4294967296", "1x", "1,", ",1", "1,,2"}) {
+        reject(value, "LUISA_SIMD_ROOT_AXIS_TILES requires comma-separated positive uint32 factors");
+    }
+    reject("2,3", "Conflicting XIR and LUISA_SIMD_ROOT_AXIS_TILES constraints");
+
+    // Recover in the same process after every rejected configuration. Matching
+    // constraints remain legal, and an absent explicit constraint adopts env.
+    environment.set("1,1");
+    auto matching = compile(device, kernel, {.xir = &options});
+    expect(static_cast<bool>(matching)) << matching.metadata().error;
+    expect(matching.metadata().error.empty());
+    expect(matching.metadata().realization.find("fixed_root_axis_tiles=[1,1]") != string::npos);
+    options.root_axis_tiles.clear();
+    environment.set("2,3");
+    auto adopted = compile(device, kernel, {.xir = &options});
+    expect(static_cast<bool>(adopted)) << adopted.metadata().error;
+    expect(adopted.metadata().error.empty());
+    expect(adopted.metadata().realization.find("fixed_root_axis_tiles=[2,3]") != string::npos);
+    expect(options.root_axis_tiles.empty());
+}
 
 void root_traversal_recurrences(Device &device) {
     using namespace tile;
@@ -1054,6 +1122,9 @@ void packet_local_reductions(Device &device, int64_t count, int64_t width, uint3
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     auto [context, device] = test::create_device(argc, argv);
+    "tile_xir_runtime_root_traversal_environment_errors_are_recoverable"_test = [&] {
+        root_traversal_environment_errors(device);
+    };
     "tile_xir_runtime_root_traversal_preserves_strict_program_order"_test = [&] {
         root_traversal_recurrences(device);
     };

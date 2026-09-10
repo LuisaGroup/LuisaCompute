@@ -1,13 +1,14 @@
 #include <algorithm>
 #include <exception>
 #include <limits>
-#include <stdexcept>
 
 #include <tvm/ffi/error.h>
 #include <tvm/tirx/op.h>
 
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/tile/bridge/tirx/layout.h>
+
+#include "diagnostic.h"
 
 namespace luisa::compute::tile::bridge::tirx {
 
@@ -28,15 +29,21 @@ namespace detail {
 [[nodiscard]] tvm::PrimExpr lower_index_expression(
     const IndexExpr &expression,
     const IndexSpace &domain,
-    const tvm::ffi::Array<tvm::PrimExpr> &coordinates) {
+    const tvm::ffi::Array<tvm::PrimExpr> &coordinates,
+    Diagnostic &diagnostic) {
+    if (diagnostic.failed()) { return {}; }
     switch (expression.kind()) {
         case IndexExprKind::CONSTANT: return tvm::IntImm::Int64(*expression.constant_value());
         case IndexExprKind::COORDINATE: return coordinates[*domain.axis_index(expression.dimension())];
-        case IndexExprKind::INVALID: throw std::runtime_error{"invalid Tile index expression"};
+        case IndexExprKind::INVALID:
+            diagnostic.set_error("invalid Tile index expression");
+            return {};
         default: break;
     }
-    auto lhs = lower_index_expression(expression.lhs(), domain, coordinates);
-    auto rhs = lower_index_expression(expression.rhs(), domain, coordinates);
+    auto lhs = lower_index_expression(expression.lhs(), domain, coordinates, diagnostic);
+    if (diagnostic.failed()) { return {}; }
+    auto rhs = lower_index_expression(expression.rhs(), domain, coordinates, diagnostic);
+    if (diagnostic.failed()) { return {}; }
     switch (expression.kind()) {
         case IndexExprKind::ADD: return tvm::add(lhs, rhs);
         case IndexExprKind::SUBTRACT: return tvm::sub(lhs, rhs);
@@ -56,7 +63,9 @@ namespace detail {
                                tvm::right_shift(bits, count);
             return tvm::cast(tvm::PrimType::Int(64), std::move(shifted));
         }
-        default: throw std::runtime_error{"unsupported Tile index expression opcode"};
+        default:
+            diagnostic.set_error("unsupported Tile index expression opcode");
+            return {};
     }
 }
 
@@ -75,8 +84,14 @@ NativeIndices lower_index_map(const IndexMap &map, const tvm::ffi::Array<tvm::Pr
         }
     }
     try {
+        detail::Diagnostic diagnostic;
         for (auto &&expression : map.outputs()) {
-            result.value.push_back(detail::lower_index_expression(expression, map.domain(), coordinates));
+            auto value = detail::lower_index_expression(expression, map.domain(), coordinates, diagnostic);
+            if (diagnostic.failed()) {
+                result.error = diagnostic.error();
+                return result;
+            }
+            result.value.push_back(std::move(value));
         }
     } catch (const tvm::ffi::Error &error) {
         result.error = error.what();

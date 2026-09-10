@@ -3,35 +3,19 @@
 #include <functional>
 #include <utility>
 
-#if __cpp_exceptions
-#include <stdexcept>
-#else
-#include <cstdio>
-#include <cstdlib>
-#endif
-
 #include <fc/btree.h>
 
+#include <luisa/core/logging.h>
 #include <luisa/core/stl/memory.h>
 
 namespace luisa {
 
 namespace detail {
 
-// Reports a missing key in luisa::map::at().
-// Keeps throwing semantics when exceptions are enabled and falls back
-// to a fatal abort so the header also compiles with -fno-exceptions.
-[[noreturn]] inline void map_at_error()
-#if !__cpp_exceptions
-    noexcept
-#endif
-{
-#if __cpp_exceptions
-    throw std::out_of_range{"luisa::map::at"};
-#else
-    std::fprintf(stderr, "luisa::map::at: key not found\n");
-    std::abort();
-#endif
+// A missing key is a fatal precondition failure in every build mode.
+// Call find() or contains() when the key's absence is recoverable.
+[[noreturn]] inline void map_at_error() noexcept {
+    LUISA_ERROR("luisa::map::at: key not found");
 }
 
 template<typename Key, typename Value, typename Compare, template<typename> class Allocator, bool AllowDup>

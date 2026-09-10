@@ -2,7 +2,6 @@
 #include <array>
 #include <exception>
 #include <limits>
-#include <stdexcept>
 #include <string>
 #include <utility>
 
@@ -82,7 +81,7 @@ public:
     tvm::DictAttrs attributes,
     tvm::ffi::Map<tvm::ffi::String, tvm::ffi::Array<tvm::GlobalInfo>> global_infos);
 
-class ExecutionMapper final : public tvm::tirx::StmtMutator {
+class ExecutionMapper final : public DiagnosticStmtMutator {
 
 private:
     RootParallelBinding _binding;
@@ -101,13 +100,12 @@ private:
     luisa::span<const tvm::tirx::BufferVar> _readonly_inputs;
 
 private:
-    [[noreturn]] void _scope_error(
+    void _scope_error(
         const tvm::tirx::ForNode *loop,
         const std::string &scope,
         const std::string &reason) const {
-        throw std::runtime_error{
-            "TileIR " + std::string{loop->loop_var->name} + ": execution scope '" + scope +
-            "' on target '" + _target_name + "' " + reason};
+        _diagnostic.set_error("TileIR " + std::string{loop->loop_var->name} + ": execution scope '" + scope +
+                              "' on target '" + _target_name + "' " + reason);
     }
 
     // This reference planner realizes a worker prefix and, on LLVM, a vector
@@ -117,28 +115,39 @@ private:
         auto constraint = loop->annotations.Get(execution_scope_annotation);
         if (!constraint) { return false; }
         auto scope = constraint.value().as<tvm::ffi::String>();
-        if (!scope) { _scope_error(loop, "<invalid>", "must have a string scope constraint"); }
+        if (!scope) {
+            _scope_error(loop, "<invalid>", "must have a string scope constraint");
+            return false;
+        }
         auto name = std::string{scope.value()};
         if (name == "worker") {
             if (_binding == RootParallelBinding::SERIAL) {
                 _scope_error(loop, name, "has no worker execution mapping");
+                return false;
             }
             if (_logical_parallel_depth != 0u) {
                 _scope_error(loop, name, "requires an explicit coordinate factorization for nested worker bindings");
+                return false;
             }
             return false;
         }
         if (name == "vector") {
             if (_binding != RootParallelBinding::CPU_THREADS) {
                 _scope_error(loop, name, "is not supported by this target's execution mapper");
+                return false;
             }
-            if (!_vectorize) { _scope_error(loop, name, "conflicts with disabled vectorization"); }
+            if (!_vectorize) {
+                _scope_error(loop, name, "conflicts with disabled vectorization");
+                return false;
+            }
             if (_vector_depth != 0u) {
                 _scope_error(loop, name, "requires an explicit coordinate factorization for nested vector bindings");
+                return false;
             }
             return true;
         }
         _scope_error(loop, name, "is not supported by the current execution mapper");
+        return false;
     }
 
     [[nodiscard]] tvm::tirx::Stmt _loop(
@@ -163,8 +172,8 @@ private:
         tvm::tirx::Stmt body) const {
         auto extent_constant = loop->extent.as<tvm::IntImmNode>();
         if (extent_constant == nullptr || extent_constant->value <= 0) {
-            throw std::runtime_error{
-                "GPU execution binding currently requires a positive static logical parallel extent"};
+            return _diagnostic.reject(
+                "GPU execution binding currently requires a positive static logical parallel extent", tvm::ffi::GetRef<tvm::tirx::For>(loop));
         }
         auto extent = static_cast<uint64_t>(extent_constant->value);
         auto thread_count = std::min<uint64_t>(extent, _gpu_threads_per_block);
@@ -184,9 +193,10 @@ private:
                 thread_count = thread_count / cuda_warp_size * cuda_warp_size;
             }
             if (thread_count == 0u) {
-                throw std::runtime_error{
+                return _diagnostic.reject(
                     "CUDA/NVPTX execution binding cannot realize a warp-aligned block "
-                    "below the 32-thread warp capacity"};
+                    "below the 32-thread warp capacity",
+                    tvm::ffi::GetRef<tvm::tirx::For>(loop));
             }
         }
         auto block_count = (extent + thread_count - 1u) / thread_count;
@@ -242,8 +252,9 @@ protected:
             auto resource = constraint.value().as<tvm::ffi::String>();
             if (!resource || resource.value() != "private") {
                 auto name = resource ? std::string{resource.value()} : std::string{"<invalid>"};
-                throw std::runtime_error{"Memory resource '" + name + "' on target '" + _target_name +
-                                         "' has no allocation plan in this execution scope"};
+                return _diagnostic.reject("Memory resource '" + name + "' on target '" + _target_name +
+                                              "' has no allocation plan in this execution scope",
+                                          tvm::ffi::GetRef<tvm::tirx::AllocBuffer>(allocation));
             }
             result.CopyOnWrite()->annotations.erase(memory_resource_annotation);
         }
@@ -254,8 +265,10 @@ protected:
         if (!loop->annotations.count(logical_parallel_annotation)) {
             if (loop->annotations.count(execution_scope_annotation)) {
                 _scope_error(loop, "<orphaned>", "requires its logical parallel domain");
+                return tvm::ffi::GetRef<tvm::tirx::For>(loop);
             }
             auto result = StmtMutator::VisitStmt_(loop);
+            if (_diagnostic.failed()) { return tvm::ffi::GetRef<tvm::tirx::For>(loop); }
             if (loop->annotations.count(independent_elements_annotation)) {
                 auto mapped = result.as_or_throw<tvm::tirx::For>();
                 mapped.CopyOnWrite()->annotations.erase(
@@ -280,13 +293,21 @@ protected:
             scope && scope.value().as<tvm::ffi::String>() && scope.value().cast<tvm::ffi::String>() == "group") {
             if (_planner.metal_subgroup_reductions && (_planner.reduction_programs_per_group != 0u || _planner.reduction_unroll_factor != 1u || _planner.reduction_lane_elements != 1u || _planner.cache_reduction_inputs)) {
                 _scope_error(loop, "group", "conflicts with exact row-program packing, unrolling, lane elements or input caching");
+                return tvm::ffi::GetRef<tvm::tirx::For>(loop);
             }
-            if (_target_name != "metal") { _scope_error(loop, "group", "is not supported by this target's execution mapper"); }
-            if (_logical_parallel_depth != 0u) { _scope_error(loop, "group", "requires a coordinate factorization for nested group bindings"); }
-            return map_metal_cooperative_group(tvm::ffi::GetRef<tvm::tirx::For>(loop), _gpu_group_thread_limit, _shared_memory_limit, _cooperative_matrix, _metal_mpp, _planner, _plans, _readonly_inputs);
+            if (_target_name != "metal") {
+                _scope_error(loop, "group", "is not supported by this target's execution mapper");
+                return tvm::ffi::GetRef<tvm::tirx::For>(loop);
+            }
+            if (_logical_parallel_depth != 0u) {
+                _scope_error(loop, "group", "requires a coordinate factorization for nested group bindings");
+                return tvm::ffi::GetRef<tvm::tirx::For>(loop);
+            }
+            return map_metal_cooperative_group(tvm::ffi::GetRef<tvm::tirx::For>(loop), _gpu_group_thread_limit, _shared_memory_limit, _cooperative_matrix, _metal_mpp, _planner, _plans, _readonly_inputs, _diagnostic);
         }
         if (_logical_parallel_depth == 0u && (_planner.program_order_rows != 1u || _planner.program_order_columns != 1u)) {
             _scope_error(loop, "group", "program traversal requires an explicit Metal group program");
+            return tvm::ffi::GetRef<tvm::tirx::For>(loop);
         }
         auto pending_reduction_threads = false;
         if (_target_name == "metal" && _planner.enabled && _planner.metal_subgroup_reductions &&
@@ -297,13 +318,16 @@ protected:
             if (automatic_or_subgroup) {
                 auto mapped = try_map_metal_subgroup_reduction(
                     tvm::ffi::GetRef<tvm::tirx::For>(loop), _gpu_group_thread_limit,
-                    _shared_memory_limit, _planner, _plans);
+                    _shared_memory_limit, _planner, _plans, _diagnostic);
+                if (_diagnostic.failed()) { return tvm::ffi::GetRef<tvm::tirx::For>(loop); }
                 if (mapped.defined()) { return mapped; }
                 if (_planner.reduction_programs_per_group != 0u || _planner.reduction_unroll_factor != 1u || _planner.reduction_lane_elements != 1u || _planner.cache_reduction_inputs) {
                     _scope_error(loop, "subgroup", "cannot realize the exact reduction mapping (threads, packing, unrolling, lane elements or input caching)");
+                    return tvm::ffi::GetRef<tvm::tirx::For>(loop);
                 }
                 if (constraint) {
                     _scope_error(loop, "subgroup", "does not contain a realizable uniform reduction program");
+                    return tvm::ffi::GetRef<tvm::tirx::For>(loop);
                 }
                 // Group width constrains every group realization, not just
                 // the first (whole-row reduction) candidate family. An
@@ -312,6 +336,7 @@ protected:
                 pending_reduction_threads = _planner.threads_per_group != 0u;
             } else if (_planner.reduction_programs_per_group != 0u || _planner.threads_per_group != 0u || _planner.reduction_unroll_factor != 1u || _planner.reduction_lane_elements != 1u || _planner.cache_reduction_inputs) {
                 _scope_error(loop, "subgroup", "explicit execution scope conflicts with the exact reduction mapping");
+                return tvm::ffi::GetRef<tvm::tirx::For>(loop);
             }
         }
         if (_target_name == "metal" && _logical_parallel_depth == 0u &&
@@ -324,11 +349,13 @@ protected:
         }
         if (pending_reduction_threads) {
             _scope_error(loop, "group", "cannot realize the exact reduction mapping: no reduction or composed program satisfies the thread count");
+            return tvm::ffi::GetRef<tvm::tirx::For>(loop);
         }
         // Resolve before mutating the body, including through unbound or
         // serial intermediate levels. Unsupported constraints are hard errors,
         // never optional hints that disappear during structural export.
         auto is_vector = _resolve_vector(loop);
+        if (_diagnostic.failed()) { return tvm::ffi::GetRef<tvm::tirx::For>(loop); }
         auto annotations = loop->annotations;
         annotations.erase(logical_parallel_annotation);
         annotations.erase(logical_program_shape_annotation);
@@ -339,12 +366,13 @@ protected:
         auto body = VisitStmt(loop->body);
         _vector_depth -= is_vector;
         _logical_parallel_depth--;
+        if (_diagnostic.failed()) { return tvm::ffi::GetRef<tvm::tirx::For>(loop); }
         if (auto extent = loop->extent.as<tvm::IntImmNode>(); extent != nullptr && extent->value == 0) {
             return tvm::tirx::Evaluate{tvm::IntImm::Int32(0)};
         }
         if (is_vector) {
             auto vector_loop = _loop(loop, tvm::tirx::ForKind::kVectorized, std::move(body), std::move(annotations));
-            return privatize_vector_storage(vector_loop.as_or_throw<tvm::tirx::For>());
+            return privatize_vector_storage(vector_loop.as_or_throw<tvm::tirx::For>(), _diagnostic);
         }
         if (!is_outermost || _binding == RootParallelBinding::SERIAL) {
             return _loop(loop, tvm::tirx::ForKind::kSerial, std::move(body), std::move(annotations));
@@ -364,14 +392,14 @@ protected:
         if (_binding == RootParallelBinding::GPU_GRID) {
             return _gpu_grid(loop, std::move(body));
         }
-        throw std::runtime_error{"unresolved TileIR logical parallel binding"};
+        return _diagnostic.reject("unresolved TileIR logical parallel binding", tvm::ffi::GetRef<tvm::tirx::For>(loop));
     }
 
 public:
     ExecutionMapper(RootParallelBinding binding, uint32_t gpu_threads_per_block, uint32_t gpu_group_thread_limit, uint64_t shared_memory_limit,
                     bool vectorize, bool auto_vectorize, bool cooperative_matrix, bool metal_mpp, std::string target_name,
-                    const PlannerOptions &planner, luisa::vector<GroupPlan> &plans, luisa::span<const tvm::tirx::BufferVar> readonly_inputs) noexcept
-        : _binding{binding}, _gpu_threads_per_block{gpu_threads_per_block}, _gpu_group_thread_limit{gpu_group_thread_limit}, _shared_memory_limit{shared_memory_limit},
+                    const PlannerOptions &planner, luisa::vector<GroupPlan> &plans, luisa::span<const tvm::tirx::BufferVar> readonly_inputs, Diagnostic &diagnostic) noexcept
+        : DiagnosticStmtMutator{diagnostic}, _binding{binding}, _gpu_threads_per_block{gpu_threads_per_block}, _gpu_group_thread_limit{gpu_group_thread_limit}, _shared_memory_limit{shared_memory_limit},
           _vectorize{vectorize}, _auto_vectorize{auto_vectorize}, _cooperative_matrix{cooperative_matrix}, _metal_mpp{metal_mpp}, _target_name{std::move(target_name)},
           _planner{planner}, _plans{plans}, _readonly_inputs{readonly_inputs} {}
 
@@ -401,34 +429,34 @@ public:
 [[nodiscard]] tvm::IRModule map_execution(
     tvm::IRModule module,
     const tvm::Target &target,
-    const CompileOptions &options, luisa::vector<GroupPlan> &plans) {
+    const CompileOptions &options, luisa::vector<GroupPlan> &plans, Diagnostic &diagnostic) {
     auto binding = resolve_parallel_binding(target);
     auto program_order = options.planner.program_order_rows != 1u || options.planner.program_order_columns != 1u;
     if (options.planner.program_order_rows == 0u || options.planner.program_order_columns == 0u ||
         (program_order && (!options.planner.enabled || target->kind->name != "metal"))) {
-        throw std::runtime_error{"program traversal requires positive rectangle sizes and an enabled Metal planner"};
+        return diagnostic.reject("program traversal requires positive rectangle sizes and an enabled Metal planner", tvm::IRModule{});
     }
     if (options.cpu_matrix_backend != CpuMatrixBackend::REFERENCE &&
         binding != RootParallelBinding::CPU_THREADS) {
-        throw std::runtime_error{"CPU matrix realization requires an LLVM target"};
+        return diagnostic.reject("CPU matrix realization requires an LLVM target", tvm::IRModule{});
     }
     if (options.cpu_math_backend != CpuMathBackend::REFERENCE &&
         binding != RootParallelBinding::CPU_THREADS) {
-        throw std::runtime_error{"CPU array-math realization requires an LLVM target"};
+        return diagnostic.reject("CPU array-math realization requires an LLVM target", tvm::IRModule{});
     }
     if (options.planner.max_cpu_stack_bytes > 65536u ||
         (options.planner.max_cpu_stack_bytes != 0u && binding != RootParallelBinding::CPU_THREADS)) {
-        throw std::runtime_error{"CPU stack planning requires an LLVM target and a byte budget in [0,65536]"};
+        return diagnostic.reject("CPU stack planning requires an LLVM target and a byte budget in [0,65536]", tvm::IRModule{});
     }
     if (options.planner.min_cpu_parallel_tasks == 0u ||
         (options.planner.min_cpu_parallel_tasks != 64u &&
          binding != RootParallelBinding::CPU_THREADS)) {
-        throw std::runtime_error{"CPU parallel launch threshold requires an LLVM target and a positive task count"};
+        return diagnostic.reject("CPU parallel launch threshold requires an LLVM target and a positive task count", tvm::IRModule{});
     }
     auto lanes = options.planner.max_cpu_vector_lanes;
     if (lanes < 16u || lanes > 128u || (lanes & (lanes - 1u)) != 0u ||
         (lanes != 16u && (binding != RootParallelBinding::CPU_THREADS || !options.auto_vectorize || !options.vectorize))) {
-        throw std::runtime_error{"CPU vector packing requires 16/32/64/128 logical lanes and LLVM auto-vectorization when non-default"};
+        return diagnostic.reject("CPU vector packing requires 16/32/64/128 logical lanes and LLVM auto-vectorization when non-default", tvm::IRModule{});
     }
     auto threads = uint32_t{1u};
     auto group_thread_limit = uint32_t{1u};
@@ -438,7 +466,7 @@ public:
         group_thread_limit = threads;
         if (auto maximum = target->GetAttr<int64_t>("max_num_threads")) {
             if (maximum.value() <= 0 || maximum.value() > std::numeric_limits<uint32_t>::max()) {
-                throw std::runtime_error{"target thread capacity must be a positive uint32 value"};
+                return diagnostic.reject("target thread capacity must be a positive uint32 value", tvm::IRModule{});
             }
             group_thread_limit = static_cast<uint32_t>(maximum.value());
             // The reference worker launch width is a scheduling choice, not a
@@ -456,53 +484,55 @@ public:
     // be silently downgraded to the reference path.
     if (options.cooperative_matrix &&
         (target->kind->name == "cuda" || target->kind->name == "nvptx")) {
-        throw std::runtime_error{"CUDA device artifacts do not support cooperative matrices; Tile MMA uses the reference multiply/add realization"};
+        return diagnostic.reject("CUDA device artifacts do not support cooperative matrices; Tile MMA uses the reference multiply/add realization", tvm::IRModule{});
     }
     auto subgroup_reductions = options.planner.metal_subgroup_reductions;
     if (options.planner.cache_reduction_inputs && !subgroup_reductions) {
-        throw std::runtime_error{"input stripe caching requires Metal SIMD-group reductions"};
+        return diagnostic.reject("input stripe caching requires Metal SIMD-group reductions", tvm::IRModule{});
     }
     auto lane_elements = options.planner.reduction_lane_elements;
     if ((lane_elements != 1u && lane_elements != 2u && lane_elements != 4u && lane_elements != 8u) ||
         (lane_elements != 1u && !subgroup_reductions)) {
-        throw std::runtime_error{"reduction lane elements require a width in {1,2,4,8} and Metal SIMD-group reductions when non-default"};
+        return diagnostic.reject("reduction lane elements require a width in {1,2,4,8} and Metal SIMD-group reductions when non-default", tvm::IRModule{});
     }
     if (options.planner.reduction_unroll_factor == 0u || options.planner.reduction_unroll_factor > 16u ||
         (options.planner.reduction_unroll_factor != 1u && !subgroup_reductions)) {
-        throw std::runtime_error{"reduction unrolling requires a factor in [1,16] and Metal SIMD-group reductions when non-default"};
+        return diagnostic.reject("reduction unrolling requires a factor in [1,16] and Metal SIMD-group reductions when non-default", tvm::IRModule{});
     }
     if (options.planner.reduction_programs_per_group != 0u &&
         (!subgroup_reductions || options.planner.reduction_programs_per_group > 8u)) {
-        throw std::runtime_error{"exact reduction packing requires Metal SIMD-group reductions and 1..8 programs per group"};
+        return diagnostic.reject("exact reduction packing requires Metal SIMD-group reductions and 1..8 programs per group", tvm::IRModule{});
     }
     if (subgroup_reductions &&
         (!options.planner.enabled || !options.noalias || target->kind->name != "metal" ||
          target->GetAttr<int64_t>("thread_warp_size").value_or(0) != 32)) {
-        throw std::runtime_error{"Metal SIMD-group reductions require an enabled planner, noalias, and a Metal target with thread_warp_size=32"};
+        return diagnostic.reject("Metal SIMD-group reductions require an enabled planner, noalias, and a Metal target with thread_warp_size=32", tvm::IRModule{});
     }
     if (options.metal_mpp) {
         if (!cooperative_matrix || !options.planner.enabled) {
-            throw std::runtime_error{"Metal MPP requires the Metal cooperative matrix capability and an enabled planner"};
+            return diagnostic.reject("Metal MPP requires the Metal cooperative matrix capability and an enabled planner", tvm::IRModule{});
         }
         auto capability = tvm::ffi::Function::GetGlobal("target.metal.mpp_memory_contract_version");
         if (!capability || (*capability)().cast<int64_t>() != 2) {
-            throw std::runtime_error{"This TVM build lacks Metal MPP memory contract v2; use SIMD-group lowering or the documented TVM patch"};
+            return diagnostic.reject("This TVM build lacks Metal MPP memory contract v2; use SIMD-group lowering or the documented TVM patch", tvm::IRModule{});
         }
     }
     FunctionMap functions;
     for (auto &&[global, base_function] : module->functions) {
         auto function = base_function.as<tvm::tirx::PrimFunc>();
         if (!function) {
-            throw std::runtime_error{"Tile TIRx execution mapping only accepts PrimFunc modules"};
+            return diagnostic.reject("Tile TIRx execution mapping only accepts PrimFunc modules", tvm::IRModule{});
         }
         auto mapped = function.value();
         if (options.cpu_matrix_backend == CpuMatrixBackend::CBLAS) {
-            mapped = realize_cpu_whole_gemm(std::move(mapped), options.noalias);
+            mapped = realize_cpu_whole_gemm(std::move(mapped), options.noalias, diagnostic);
+            if (diagnostic.failed()) { return {}; }
             functions.Set(global, std::move(mapped));
             continue;
         }
         if (options.cpu_math_backend == CpuMathBackend::ACCELERATE) {
-            mapped.CopyOnWrite()->body = realize_cpu_vector_math(mapped->body);
+            mapped.CopyOnWrite()->body = realize_cpu_vector_math(mapped->body, diagnostic);
+            if (diagnostic.failed()) { return {}; }
             mapped = tvm::WithAttr(
                 std::move(mapped), cpu_math_realization_annotation,
                 tvm::ffi::String{"accelerate"});
@@ -534,7 +564,8 @@ public:
                 // nonzero fill or unsupported padded view keeps the old snapshots,
                 // rather than silently turning an MPP request into scalar work.
                 auto trial = forward_readonly_tile_loads(mapped, options.noalias, true);
-                auto body = schedule_pipelines(std::move(trial.body), options.noalias, shared_memory_limit, false);
+                Diagnostic trial_diagnostic;
+                auto body = schedule_pipelines(std::move(trial.body), options.noalias, shared_memory_limit, trial_diagnostic, false);
                 auto matrices = size_t{0u};
                 tvm::tirx::PostOrderVisit(body, [&](const tvm::ffi::ObjectRef &node) {
                     if (auto loop = node.as<tvm::tirx::ForNode>()) {
@@ -544,13 +575,13 @@ public:
                         }
                     }
                 });
-                if (matrices != 0u) {
+                if (!trial_diagnostic.failed() && matrices != 0u) {
                     try {
                         luisa::vector<GroupPlan> trial_plans;
-                        body = ExecutionMapper{binding, threads, group_thread_limit, shared_memory_limit, options.vectorize, options.auto_vectorize, cooperative_matrix, true, std::string{target->kind->name}, options.planner, trial_plans, trial.inputs}(body);
+                        body = ExecutionMapper{binding, threads, group_thread_limit, shared_memory_limit, options.vectorize, options.auto_vectorize, cooperative_matrix, true, std::string{target->kind->name}, options.planner, trial_plans, trial.inputs, trial_diagnostic}(body);
                         auto realized = size_t{0u};
                         for (auto &&plan : trial_plans) { realized += plan.matrices.size(); }
-                        if (realized == matrices) {
+                        if (!trial_diagnostic.failed() && realized == matrices) {
                             mapped.CopyOnWrite()->body = std::move(body);
                             for (auto &plan : trial_plans) { plans.emplace_back(std::move(plan)); }
                             functions.Set(global, std::move(mapped));
@@ -569,10 +600,12 @@ public:
         auto preserve_view_guards = !options.metal_mpp;
         auto views = forward_views ? forward_readonly_tile_loads(mapped, options.noalias, preserve_view_guards, options.planner.cache_reduction_inputs) : ReadonlyViews{mapped->body, {}};
         mapped.CopyOnWrite()->body = std::move(views.body);
-        mapped.CopyOnWrite()->body = schedule_pipelines(mapped->body, options.noalias, shared_memory_limit,
+        mapped.CopyOnWrite()->body = schedule_pipelines(mapped->body, options.noalias, shared_memory_limit, diagnostic,
                                                         !options.metal_mpp && cooperative_matrix && options.planner.enabled && options.planner.max_pipeline_prefetch_scalars_per_lane != 0u,
                                                         target->kind->name == "metal" && cooperative_matrix && options.planner.enabled && options.planner.map_gpu_cooperative_programs);
-        mapped.CopyOnWrite()->body = ExecutionMapper{binding, threads, group_thread_limit, shared_memory_limit, options.vectorize, options.auto_vectorize, cooperative_matrix, options.metal_mpp, std::string{target->kind->name}, options.planner, plans, views.inputs}(mapped->body);
+        if (diagnostic.failed()) { return {}; }
+        mapped.CopyOnWrite()->body = ExecutionMapper{binding, threads, group_thread_limit, shared_memory_limit, options.vectorize, options.auto_vectorize, cooperative_matrix, options.metal_mpp, std::string{target->kind->name}, options.planner, plans, views.inputs, diagnostic}(mapped->body);
+        if (diagnostic.failed()) { return {}; }
         functions.Set(global, std::move(mapped));
     }
     return make_module(std::move(functions), module->attrs, module->global_infos);
@@ -605,7 +638,7 @@ protected:
     void VisitExpr_(const tvm::tirx::VarNode *variable) final { used.emplace(variable); }
 };
 
-class EmptyAllocationPruner final : public tvm::tirx::StmtMutator {
+class EmptyAllocationPruner final : public DiagnosticStmtMutator {
 
 private:
     const luisa::unordered_set<const tvm::tirx::VarNode *> &_used;
@@ -632,29 +665,30 @@ protected:
             return StmtMutator::VisitStmt_(allocation);
         }
         if (_used.contains(allocation->buffer.get())) {
-            throw std::runtime_error{"zero-sized Tile storage still has live buffer uses after simplification"};
+            return _diagnostic.reject("zero-sized Tile storage still has live buffer uses after simplification", tvm::ffi::GetRef<tvm::tirx::AllocBuffer>(allocation));
         }
         return tvm::tirx::Evaluate{tvm::IntImm::Int32(0)};
     }
 
 public:
-    explicit EmptyAllocationPruner(const luisa::unordered_set<const tvm::tirx::VarNode *> &used) noexcept
-        : _used{used} {}
+    explicit EmptyAllocationPruner(const luisa::unordered_set<const tvm::tirx::VarNode *> &used, Diagnostic &diagnostic) noexcept
+        : DiagnosticStmtMutator{diagnostic}, _used{used} {}
 };
 
-void remove_empty_allocations(tvm::IRModule &module) {
+void remove_empty_allocations(tvm::IRModule &module, Diagnostic &diagnostic) {
     FunctionMap functions;
     for (auto &&[global, base_function] : module->functions) {
         auto function = base_function.as_or_throw<tvm::tirx::PrimFunc>();
         BufferUseCollector uses;
         uses(function->body);
-        function.CopyOnWrite()->body = EmptyAllocationPruner{uses.used}(function->body);
+        function.CopyOnWrite()->body = EmptyAllocationPruner{uses.used, diagnostic}(function->body);
+        if (diagnostic.failed()) { return; }
         functions.Set(global, std::move(function));
     }
     module = make_module(std::move(functions), module->attrs, module->global_infos);
 }
 
-void run_common_pipeline(tvm::IRModule &module, const CompileOptions &options, const tvm::Target &target, bool packed_api = true) {
+void run_common_pipeline(tvm::IRModule &module, const CompileOptions &options, const tvm::Target &target, Diagnostic &diagnostic, bool packed_api = true) {
     auto apply = [&module](tvm::transform::Pass pass) {
         module = run_pass(std::move(pass), std::move(module));
     };
@@ -673,7 +707,8 @@ void run_common_pipeline(tvm::IRModule &module, const CompileOptions &options, c
     // Resource/execution constraints have already been validated. Zero-trip
     // effects are gone, so an unused empty buffer needs no physical storage.
     // TVMx's host and Metal code generators reject zero-sized allocations.
-    remove_empty_allocations(module);
+    remove_empty_allocations(module, diagnostic);
+    if (diagnostic.failed()) { return; }
     // Logical GPU bindings are ordinary TIRx thread-binding loops at this
     // point. Lower them to thread_extent regions before host/device splitting,
     // regardless of whether the function also contains TilePrimitive calls.
@@ -769,7 +804,7 @@ void finalize_device(tvm::IRModule &module) {
     return tvm::Target{configuration};
 }
 
-[[nodiscard]] tvm::ffi::Module codegen(tvm::IRModule module, const tvm::Target &target, bool precise_reduction = false) {
+[[nodiscard]] tvm::ffi::Module codegen(tvm::IRModule module, const tvm::Target &target, Diagnostic &diagnostic, bool precise_reduction = false) {
     if (precise_reduction && target->kind->name == "metal") {
         // The stock TVM runtime hardcodes fast math. Require both halves of
         // the native extension; a patched compiler with an old runtime is
@@ -777,7 +812,7 @@ void finalize_device(tvm::IRModule &module) {
         for (auto name : {"target.metal.precise_math_contract_version", "runtime.metal.precise_math_contract_version"}) {
             auto capability = tvm::ffi::Function::GetGlobal(name);
             if (!capability || (*capability)().cast<int64_t>() != 1) {
-                throw std::runtime_error{"ordered reductions on TVM's Metal runtime require metal-precise-math-v1.patch; Luisa Runtime compile_device does not require this extension"};
+                return diagnostic.reject("ordered reductions on TVM's Metal runtime require metal-precise-math-v1.patch; Luisa Runtime compile_device does not require this extension", tvm::ffi::Module{});
             }
         }
         module = tvm::WithAttr(std::move(module), "tirx.metal.precise_math", true);
@@ -793,29 +828,34 @@ void finalize_device(tvm::IRModule &module) {
 // not be mistaken for a single unconditional dispatch.
 using HostBufferArguments = luisa::unordered_map<const tvm::tirx::VarNode *, uint32_t>;
 
-[[nodiscard]] uint32_t buffer_argument(const tvm::Expr &expr, const HostBufferArguments &buffers) {
+[[nodiscard]] uint32_t buffer_argument(const tvm::Expr &expr, const HostBufferArguments &buffers, Diagnostic &diagnostic) {
     auto projection = expr.as<tvm::CallNode>();
     if (!projection || !projection->op.same_as(tvm::tirx::builtin::buffer_data()) || projection->args.size() != 1u) {
-        throw std::runtime_error{"device artifact requires direct buffer parameters (no scalars, pointer offsets, or host temporaries)"};
+        return diagnostic.reject("device artifact requires direct buffer parameters (no scalars, pointer offsets, or host temporaries)", uint32_t{0u});
     }
     auto variable = projection->args[0u].as<tvm::tirx::VarNode>();
     auto iter = buffers.find(variable);
-    if (iter == buffers.end()) { throw std::runtime_error{"device buffer does not originate at a host parameter"}; }
+    if (iter == buffers.end()) { return diagnostic.reject("device buffer does not originate at a host parameter", uint32_t{0u}); }
     return iter->second;
 }
 
-void collect_static_launch(const tvm::tirx::Stmt &stmt, const tvm::CallNode *&launch, HostBufferArguments &buffers) {
+void collect_static_launch(const tvm::tirx::Stmt &stmt, const tvm::CallNode *&launch, HostBufferArguments &buffers, Diagnostic &diagnostic) {
     if (auto sequence = stmt.as<tvm::tirx::SeqStmtNode>()) {
-        for (auto &child : sequence->seq) { collect_static_launch(child, launch, buffers); }
+        for (auto &child : sequence->seq) {
+            collect_static_launch(child, launch, buffers, diagnostic);
+            if (diagnostic.failed()) { return; }
+        }
         return;
     }
     if (auto declaration = stmt.as<tvm::tirx::DeclBufferNode>()) {
         // FlattenBuffer introduces pure aliases of parameter storage. Track
         // pointer identity through those declarations, without dropping an
         // allocation/copy or guessing from buffer names.
-        auto index = buffer_argument(declaration->data, buffers);
+        auto index = buffer_argument(declaration->data, buffers, diagnostic);
+        if (diagnostic.failed()) { return; }
         if (!buffers.emplace(declaration->buffer.get(), index).second) {
-            throw std::runtime_error{"device artifact has a redefined host buffer"};
+            diagnostic.set_error("device artifact has a redefined host buffer");
+            return;
         }
         return;
     }
@@ -827,32 +867,35 @@ void collect_static_launch(const tvm::tirx::Stmt &stmt, const tvm::CallNode *&la
             return;
         }
     }
-    throw std::runtime_error{"device artifact requires exactly one unconditional launch and no host effects; rejected " + std::string{stmt->GetTypeKey()}};
+    diagnostic.set_error("device artifact requires exactly one unconditional launch and no host effects; rejected " + std::string{stmt->GetTypeKey()});
+    return;
 }
 
 [[nodiscard]] DeviceArtifact extract_device_artifact(const tvm::tirx::PrimFunc &host,
-                                                     const tvm::tirx::PrimFunc &device) {
+                                                     const tvm::tirx::PrimFunc &device, Diagnostic &diagnostic) {
     DeviceArtifact artifact;
     const tvm::CallNode *launch = nullptr;
     HostBufferArguments buffers;
     for (auto i = size_t{0u}; i < host->params.size(); i++) {
-        if (!host->params[i]->ty.as<tvm::tirx::BufferTypeNode>()) { throw std::runtime_error{"device artifact host ABI requires buffer parameters"}; }
+        if (!host->params[i]->ty.as<tvm::tirx::BufferTypeNode>()) { return diagnostic.reject("device artifact host ABI requires buffer parameters", DeviceArtifact{}); }
         buffers.emplace(host->params[i].get(), static_cast<uint32_t>(i));
     }
-    collect_static_launch(host->body, launch, buffers);
-    if (launch == nullptr) { throw std::runtime_error{"device artifact has no launch"}; }
+    collect_static_launch(host->body, launch, buffers, diagnostic);
+    if (diagnostic.failed()) { return {}; }
+    if (launch == nullptr) { return diagnostic.reject("device artifact has no launch", DeviceArtifact{}); }
     auto symbol = device->GetAttr<tvm::ffi::String>(tvm::attr::kGlobalSymbol);
     auto tags = device->GetAttr<tvm::ffi::Array<tvm::ffi::String>>(tvm::tirx::attr::kKernelLaunchParams);
     auto callee = launch->args.empty() ? nullptr : launch->args[0].as<tvm::tirx::StringImmNode>();
     if (!symbol || !tags || !callee || callee->value != symbol.value() ||
         launch->args.size() != 1u + device->params.size() + tags.value().size()) {
-        throw std::runtime_error{"device artifact launch signature mismatch"};
+        return diagnostic.reject("device artifact launch signature mismatch", DeviceArtifact{});
     }
     artifact.entry = std::string{symbol.value()};
     for (auto i = size_t{0u}; i < device->params.size(); i++) {
         auto ptr = device->params[i]->ty.as<tvm::PointerTypeNode>();
-        if (!ptr) { throw std::runtime_error{"device artifact requires a pointer-only device ABI"}; }
-        artifact.buffer_arguments.emplace_back(buffer_argument(launch->args[i + 1u], buffers));
+        if (!ptr) { return diagnostic.reject("device artifact requires a pointer-only device ABI", DeviceArtifact{}); }
+        artifact.buffer_arguments.emplace_back(buffer_argument(launch->args[i + 1u], buffers, diagnostic));
+        if (diagnostic.failed()) { return {}; }
     }
     std::array<bool, 6u> seen{};
     for (auto i = size_t{0u}; i < tags.value().size(); i++) {
@@ -861,10 +904,10 @@ void collect_static_launch(const tvm::tirx::Stmt &stmt, const tvm::CallNode *&la
         auto iter = std::find(names.begin(), names.end(), tag);
         auto extent = launch->args[1u + device->params.size() + i].as<tvm::IntImmNode>();
         if (iter == names.end() || !extent || extent->value <= 0 || extent->value > UINT32_MAX) {
-            throw std::runtime_error{"device artifact requires static uint32 grid/block extents and no dynamic launch resources"};
+            return diagnostic.reject("device artifact requires static uint32 grid/block extents and no dynamic launch resources", DeviceArtifact{});
         }
         auto index = static_cast<size_t>(iter - names.begin());
-        if (seen[index]) { throw std::runtime_error{"duplicate device launch dimension"}; }
+        if (seen[index]) { return diagnostic.reject("duplicate device launch dimension", DeviceArtifact{}); }
         seen[index] = true;
         (index < 3u ? artifact.grid[index] : artifact.block[index - 3u]) = static_cast<uint32_t>(extent->value);
     }
@@ -876,29 +919,47 @@ void collect_static_launch(const tvm::tirx::Stmt &stmt, const tvm::CallNode *&la
 DeviceCompilationResult compile_device(tvm::tirx::PrimFunc function, luisa::string_view name,
                                        const CompileOptions &options) noexcept {
     DeviceCompilationResult result;
+    detail::Diagnostic diagnostic;
     try {
-        if (!function.defined() || name.empty()) { throw std::runtime_error{"device artifact requires a defined, named PrimFunc"}; }
-        if (options.auto_vectorize && !options.vectorize) { throw std::runtime_error{"automatic vectorization requires vectorization"}; }
+        if (!function.defined() || name.empty()) {
+            result.error = "device artifact requires a defined, named PrimFunc";
+            return result;
+        }
+        if (options.auto_vectorize && !options.vectorize) {
+            result.error = "automatic vectorization requires vectorization";
+            return result;
+        }
         tvm::Target target{tvm::ffi::String{options.target}};
         luisa::string_view inspect_source;
         auto format = detail::device_artifact_format(target, inspect_source);
-        if (inspect_source.empty()) { throw std::runtime_error{"device artifact currently supports Metal, CUDA and NVPTX targets"}; }
+        if (inspect_source.empty()) {
+            result.error = "device artifact currently supports Metal, CUDA and NVPTX targets";
+            return result;
+        }
         if (detail::is_cuda_device_target(target)) {
             // The CUDA device-artifact route is a first-class capability gate.
             // Reference-realized tensor operators are always allowed; Metal-only
             // planning knobs are hard errors here so they cannot be mistaken for
             // optional hints that silently disappear during CUDA lowering.
-            if (options.cooperative_matrix) { throw std::runtime_error{"CUDA device artifacts do not support cooperative matrices; Tile MMA uses the reference multiply/add realization"}; }
-            if (options.metal_mpp) { throw std::runtime_error{"Metal MPP memory atoms are not available on the CUDA device-artifact route"}; }
+            if (options.cooperative_matrix) {
+                result.error = "CUDA device artifacts do not support cooperative matrices; Tile MMA uses the reference multiply/add realization";
+                return result;
+            }
+            if (options.metal_mpp) {
+                result.error = "Metal MPP memory atoms are not available on the CUDA device-artifact route";
+                return result;
+            }
             if (options.planner.metal_subgroup_reductions ||
                 options.planner.reduction_programs_per_group != 0u ||
                 options.planner.reduction_unroll_factor != 1u ||
                 options.planner.reduction_lane_elements != 1u ||
                 options.planner.cache_reduction_inputs) {
-                throw std::runtime_error{"Metal SIMD-group reduction policies are not available on the CUDA device-artifact route; REDUCE keeps the reference realization"};
+                result.error = "Metal SIMD-group reduction policies are not available on the CUDA device-artifact route; REDUCE keeps the reference realization";
+                return result;
             }
             if (options.planner.program_order_rows != 1u || options.planner.program_order_columns != 1u) {
-                throw std::runtime_error{"program-order traversal is a Metal group-program option and is not available on the CUDA device-artifact route"};
+                result.error = "program-order traversal is a Metal group-program option and is not available on the CUDA device-artifact route";
+                return result;
             }
         }
         // Use a host target only for TVMx's typed host/device partition pass.
@@ -910,14 +971,29 @@ DeviceCompilationResult compile_device(tvm::tirx::PrimFunc function, luisa::stri
         if (options.noalias) { function = tvm::WithAttr(std::move(function), "tirx.noalias", true); }
         auto global = tvm::GlobalVar{symbol};
         auto module = detail::make_module({{global, std::move(function)}});
-        module = detail::map_execution(std::move(module), target, options, result.plans);
-        detail::run_common_pipeline(module, options, bound, false);
-        if (module->functions.size() != 2u) { throw std::runtime_error{"device artifact requires exactly one host entry and one device entry"}; }
+        module = detail::map_execution(std::move(module), target, options, result.plans, diagnostic);
+        if (diagnostic.failed()) {
+            result.error = diagnostic.error();
+            return result;
+        }
+        detail::run_common_pipeline(module, options, bound, diagnostic, false);
+        if (diagnostic.failed()) {
+            result.error = diagnostic.error();
+            return result;
+        }
+        if (module->functions.size() != 2u) {
+            result.error = "device artifact requires exactly one host entry and one device entry";
+            return result;
+        }
         auto host = module->functions.at(global).as_or_throw<tvm::tirx::PrimFunc>();
         for (auto &[device_global, base] : module->functions) {
             if (device_global.same_as(global)) { continue; }
             auto device = base.as_or_throw<tvm::tirx::PrimFunc>();
-            result.artifact = detail::extract_device_artifact(host, device);
+            result.artifact = detail::extract_device_artifact(host, device, diagnostic);
+            if (diagnostic.failed()) {
+                result.error = diagnostic.error();
+                return result;
+            }
             result.artifact.format = format;
             result.artifact.requires_precise_math = precise_reduction;
             auto device_module = detail::make_module({{device_global, device}}, module->attrs, module->global_infos);
@@ -940,14 +1016,22 @@ DeviceCompilationResult compile_device(tvm::tirx::PrimFunc function, luisa::stri
                 }
             });
             if (detail::is_cuda_device_target(target) && !allocation_scope_message.empty()) {
-                throw std::runtime_error{"CUDA device artifact contains Metal-only allocation scope '" + allocation_scope_message + "'"};
+                result.error = "CUDA device artifact contains Metal-only allocation scope '" + allocation_scope_message + "'";
+                return result;
             }
             // InspectSource returns the code generator's own output unchanged.
             // ABI metadata was already extracted from the typed launch above.
-            auto compiled = detail::codegen(std::move(device_module), target);
+            auto compiled = detail::codegen(std::move(device_module), target, diagnostic);
+            if (diagnostic.failed()) {
+                result.error = diagnostic.error();
+                return result;
+            }
             auto source = compiled->InspectSource(tvm::ffi::String{inspect_source.data(), inspect_source.size()});
             result.artifact.source.assign(source.data(), source.size());
-            if (source.empty()) { throw std::runtime_error{std::string{target->kind->name} + " code generator returned no source artifact"}; }
+            if (source.empty()) {
+                result.error = std::string{target->kind->name} + " code generator returned no source artifact";
+                return result;
+            }
         }
     } catch (const tvm::ffi::Error &error) {
         result.error = error.what();
@@ -964,6 +1048,7 @@ CompilationResult compile(tvm::IRModule module, const CompileOptions &options) n
     if (options.target.empty()) { return CompilationResult{luisa::string{"TIRx target must not be empty"}}; }
     if (options.host.empty()) { return CompilationResult{luisa::string{"TIRx host target must not be empty"}}; }
     if (options.auto_vectorize && !options.vectorize) { return CompilationResult{luisa::string{"automatic vectorization requires vectorization to be enabled"}}; }
+    detail::Diagnostic diagnostic;
     try {
         auto precise_reduction = false;
         for (auto &&[global, base] : module->functions) {
@@ -980,8 +1065,10 @@ CompilationResult compile(tvm::IRModule module, const CompileOptions &options) n
                                                                    detail::preserve_reduction_arithmetic(tvm::Target{tvm::ffi::String{options.host}}, precise_reduction);
         tvm::Target bound_target{device_target, host_target};
         luisa::vector<GroupPlan> plans;
-        module = detail::map_execution(std::move(module), device_target, options, plans);
-        detail::run_common_pipeline(module, options, bound_target);
+        module = detail::map_execution(std::move(module), device_target, options, plans, diagnostic);
+        if (diagnostic.failed()) { return CompilationResult{diagnostic.error()}; }
+        detail::run_common_pipeline(module, options, bound_target, diagnostic);
+        if (diagnostic.failed()) { return CompilationResult{diagnostic.error()}; }
 
         detail::FunctionMap host_functions;
         struct DevicePartition {
@@ -1014,12 +1101,15 @@ CompilationResult compile(tvm::IRModule module, const CompileOptions &options) n
         auto host_module = detail::make_module(
             std::move(host_functions), module->attrs, module->global_infos);
         detail::finalize_host(host_module, options.planner.enabled ? options.planner.max_cpu_stack_bytes : 0u);
-        auto runtime_module = detail::codegen(std::move(host_module), host_target);
+        auto runtime_module = detail::codegen(std::move(host_module), host_target, diagnostic);
+        if (diagnostic.failed()) { return CompilationResult{diagnostic.error()}; }
         for (auto &&partition : device_partitions) {
             auto device_module = detail::make_module(
                 std::move(partition.functions), module->attrs, module->global_infos);
             detail::finalize_device(device_module);
-            runtime_module->ImportModule(detail::codegen(std::move(device_module), partition.target, precise_reduction));
+            auto compiled = detail::codegen(std::move(device_module), partition.target, diagnostic, precise_reduction);
+            if (diagnostic.failed()) { return CompilationResult{diagnostic.error()}; }
+            runtime_module->ImportModule(compiled);
         }
         return CompilationResult{std::move(runtime_module), std::move(plans)};
     } catch (const tvm::ffi::Error &error) {

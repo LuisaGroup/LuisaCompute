@@ -4,7 +4,6 @@
 #include <initializer_list>
 #include <limits>
 #include <optional>
-#include <stdexcept>
 #include <string>
 
 #include <tvm/ir/attrs.h>
@@ -504,10 +503,6 @@ private:
         if (result_type == bf16 && op != ElementwiseOp::SELECT) {
             if (op == ElementwiseOp::CAST) {
                 if (operands[0u].ty() == bf16) { return operands[0u]; }
-                auto from = operands[0u].ty();
-                if (from.bits() > 32 || (from.bits() == 32 && from != f32)) {
-                    throw std::runtime_error{"Tile to TIRx: wide-source BF16 conversion requires an explicit intermediate cast<float>"};
-                }
                 return _round_bfloat16(operands[0u]);
             }
             luisa::vector<tvm::PrimExpr> promoted;
@@ -1087,6 +1082,17 @@ private:
                 break;
             }
             case OperationKind::ELEMENTWISE:
+                // Reject unsupported casts before creating deferred Tile
+                // expressions, so no consumer constructs TVM nodes from a
+                // failed expression.
+                if (operation.elementwise_op() == ElementwiseOp::CAST &&
+                    _primitive_type(operation.result(0u)->type()) == tvm::PrimType::BFloat(16)) {
+                    auto from = _primitive_type(operation.operand(0u)->type());
+                    if (from.bits() > 32 || (from.bits() == 32 && from != tvm::PrimType::Float(32))) {
+                        _fail("Tile to TIRx: wide-source BF16 conversion requires an explicit intermediate cast<float>");
+                        return;
+                    }
+                }
                 if (operation.result(0)->type().is_tile()) {
                     _lower_tile_elementwise(operation, statements);
                 } else {

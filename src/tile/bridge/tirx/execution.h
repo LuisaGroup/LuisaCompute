@@ -1,5 +1,7 @@
 #pragma once
 
+#include "diagnostic.h"
+
 #include <array>
 #include <functional>
 #include <optional>
@@ -116,7 +118,7 @@ struct ReadonlyViews {
 // planner uses TVMx's native software-pipeline pass for safe two-phase
 // prefetching, and leaves other pipelines ordered.
 [[nodiscard]] tvm::tirx::Stmt schedule_pipelines(
-    tvm::tirx::Stmt body, bool noalias, uint64_t shared_memory_limit, bool defer_prefetch = false,
+    tvm::tirx::Stmt body, bool noalias, uint64_t shared_memory_limit, Diagnostic &diagnostic, bool defer_prefetch = false,
     bool automatic_cooperative = false);
 
 // Split proved read-only global-to-shared copies around a closed matrix
@@ -128,7 +130,7 @@ struct ReadonlyViews {
 
 // Give every logical vector lane its own compiler-local storage before TIRx
 // vectorization. TIRx currently does not privatize AllocBuffer itself.
-[[nodiscard]] tvm::tirx::Stmt privatize_vector_storage(const tvm::tirx::For &loop);
+[[nodiscard]] tvm::tirx::Stmt privatize_vector_storage(const tvm::tirx::For &loop, Diagnostic &diagnostic);
 
 // Pack a CPU independent-element domain into SIMD lanes, retaining inner
 // serial/reduction order. Undefined means retain the ordinary reference loop.
@@ -141,21 +143,21 @@ struct ReadonlyViews {
 // Replace versioned compiler-owned FP32 exp materializations with an Apple
 // array-math call. The matcher revalidates the perfect compact map and refuses
 // dependent/in-place bodies; unsupported hosts fail closed when requested.
-[[nodiscard]] tvm::tirx::Stmt realize_cpu_vector_math(tvm::tirx::Stmt body);
+[[nodiscard]] tvm::tirx::Stmt realize_cpu_vector_math(tvm::tirx::Stmt body, Diagnostic &diagnostic);
 
 // Replace the reference body only when the versioned whole-GEMM contract,
 // parameter ABI, noalias promise, and registered provider all agree.
-// Throws on any mismatch; an explicit library request never silently falls
+// Reports any mismatch; an explicit library request never silently falls
 // back to a different numerical/performance contract.
 [[nodiscard]] tvm::tirx::PrimFunc realize_cpu_whole_gemm(
-    tvm::tirx::PrimFunc function, bool noalias);
+    tvm::tirx::PrimFunc function, bool noalias, Diagnostic &diagnostic);
 
 // Realize one logical group per Metal threadgroup. Independent element
 // domains and child workers share group-owned compiler temporaries.
 [[nodiscard]] tvm::tirx::Stmt map_metal_cooperative_group(
     const tvm::tirx::For &loop, uint32_t max_threads, uint64_t shared_memory_limit,
     bool cooperative_matrix, bool metal_mpp, const PlannerOptions &options, luisa::vector<GroupPlan> &plans,
-    luisa::span<const tvm::tirx::BufferVar> readonly_inputs);
+    luisa::span<const tvm::tirx::BufferVar> readonly_inputs, Diagnostic &diagnostic);
 
 // Optional realization of an automatic root. Uses the parallel/element
 // contracts directly and checks only new storage, effect and target needs.
@@ -172,7 +174,7 @@ struct ReadonlyViews {
 [[nodiscard]] tvm::tirx::Stmt try_map_metal_subgroup_reduction(
     const tvm::tirx::For &loop, uint32_t max_threads,
     uint64_t shared_memory_limit,
-    const PlannerOptions &options, luisa::vector<GroupPlan> &plans);
+    const PlannerOptions &options, luisa::vector<GroupPlan> &plans, Diagnostic &diagnostic);
 
 // A closed reduction Tile inside an already bound cooperative group. Each
 // output is owned by one whole subgroup; only its leader publishes the result.
@@ -256,7 +258,7 @@ struct MatrixLoopEmission {
 [[nodiscard]] tvm::tirx::Stmt try_metal_matrix(
     const tvm::tirx::For &loop, const tvm::tirx::PrimVar &thread, uint64_t threads,
     const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer,
-    const MatrixDistribution &distribution = {}, MatrixLoopEmission *loop_emission = nullptr,
+    Diagnostic &diagnostic, const MatrixDistribution &distribution = {}, MatrixLoopEmission *loop_emission = nullptr,
     bool metal_mpp = false, luisa::span<const tvm::tirx::ForNode *const> ancestors = {});
 
 }// namespace luisa::compute::tile::bridge::tirx::detail

@@ -8,7 +8,7 @@
 #include <cstring>
 #include <limits>
 #include <mutex>
-#include <stdexcept>
+#include <exception>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
@@ -18,6 +18,7 @@
 #include <luisa/ast/ast2json.h>
 #include <luisa/ast/type.h>
 #include <luisa/core/logging.h>
+#include <luisa/core/magic_enum.h>
 #include <luisa/core/mathematics.h>
 #include <luisa/core/stl/format.h>
 
@@ -1327,15 +1328,15 @@ private:
         auto remote = reader.read_u64();
         auto name = reader.read_string();
         if (!reader.finish()) { return invalid(luisa::string{reader.error()}); }
-        if (tag_value > static_cast<uint32_t>(Resource::Tag::TENSOR_GRAPH)) {
+        auto tag = magic_enum::enum_cast<Resource::Tag>(tag_value);
+        if (!tag) {
             return invalid("Remote resource tag is invalid.");
         }
-        auto tag = static_cast<Resource::Tag>(tag_value);
         uint64_t native{};
-        if (!_resolve_resource_for_name(tag, remote, native)) {
+        if (!_resolve_resource_for_name(*tag, remote, native)) {
             return not_found("Remote named resource was not found or unsupported.");
         }
-        _native->set_name(tag, native, name);
+        _native->set_name(*tag, native, name);
         return {};
     }
 
@@ -1887,17 +1888,13 @@ public:
           _device_factory{std::move(device_factory)},
           _options{std::move(options)},
           _device_selection_enabled{device_selection_enabled} {
-        if (!_device_factory) {
-            throw std::invalid_argument{"Remote server requires a device factory."};
-        }
-        if (_options.protocol_limits.max_frame_payload < 256u ||
-            _options.protocol_limits.max_string_size == 0u ||
-            _options.protocol_limits.max_array_size == 0u ||
-            _options.max_concurrent_sessions == 0u ||
-            _options.max_concurrent_sessions > 4096u) {
-            throw std::invalid_argument{
-                "Remote server protocol or session limits are invalid."};
-        }
+        LUISA_ASSERT(_device_factory, "Remote server requires a device factory.");
+        LUISA_ASSERT(_options.protocol_limits.max_frame_payload >= 256u &&
+                         _options.protocol_limits.max_string_size != 0u &&
+                         _options.protocol_limits.max_array_size != 0u &&
+                         _options.max_concurrent_sessions != 0u &&
+                         _options.max_concurrent_sessions <= 4096u,
+                     "Remote server protocol or session limits are invalid.");
         constexpr uint64_t blob_upload_frame_overhead = 68u;
         constexpr uint64_t blob_prepare_header_size = 16u;
         constexpr uint64_t blob_descriptor_size =
@@ -1937,11 +1934,8 @@ public:
         }
         asio::error_code error;
         auto address = asio::ip::make_address(_options.listen_address, error);
-        if (error) {
-            throw std::invalid_argument{luisa::format(
-                "Invalid remote listen address '{}': {}",
-                _options.listen_address, error.message())};
-        }
+        LUISA_ASSERT(!error, "Invalid remote listen address '{}': {}",
+                     _options.listen_address, error.message());
         _ipv6 = address.is_v6();
         auto endpoint = Tcp::endpoint{address, _options.port};
         _acceptor.open(endpoint.protocol());
@@ -1954,9 +1948,8 @@ public:
     ~Impl() noexcept { stop(); }
 
     void run() {
-        if (_running.exchange(true, std::memory_order_acq_rel)) {
-            throw std::logic_error{"Remote server is already running."};
-        }
+        LUISA_ASSERT(!_running.exchange(true, std::memory_order_acq_rel),
+                     "Remote server is already running.");
         while (!_stopping.load(std::memory_order_acquire)) {
             Tcp::socket socket{_io};
             asio::error_code error;

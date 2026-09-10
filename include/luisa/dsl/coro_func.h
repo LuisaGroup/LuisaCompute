@@ -71,7 +71,7 @@ struct CoroutineCompileResult {
 /// Phase 1 (DSL recording) is already done; this performs Phase 2:
 ///   AST → XIR → coro-cfg-distill → coro-split → coro-materialize →
 ///   coro-reg2mem → extract CoroGraph + CoroFrameDesc + continuations.
-/// @throw std::runtime_error on any pipeline failure.
+/// Reports pipeline failures through LUISA_ERROR.
 [[nodiscard]] LUISA_CORO_API CoroutineCompileResult
 compile_coroutine_pipeline(
     const luisa::shared_ptr<const FunctionBuilder> &builder);

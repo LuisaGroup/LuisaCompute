@@ -1,6 +1,5 @@
 #include <algorithm>
 #include <limits>
-#include <stdexcept>
 
 #include <tvm/ffi/function.h>
 #include <tvm/ir/module.h>
@@ -198,7 +197,9 @@ protected:
 // SBlock is a temporary adapter to an existing TVMx optimization, not the
 // public bridge boundary. Restore flat TIRx allocations before execution
 // mapping so worker/private and group/shared placement stay target-specific.
-class StageEraser final : public tvm::tirx::StmtMutator {
+class StageEraser final : public DiagnosticStmtMutator {
+public:
+    using DiagnosticStmtMutator::DiagnosticStmtMutator;
 protected:
     [[nodiscard]] tvm::tirx::Stmt VisitStmt_(const tvm::tirx::AttrStmtNode *attribute) final {
         return attribute->attr_key == pipeline_stage_annotation ?
@@ -208,7 +209,7 @@ protected:
     [[nodiscard]] tvm::tirx::Stmt VisitStmt_(const tvm::tirx::SBlockRealizeNode *realize) final {
         auto &&block = realize->block;
         if (!realize->iter_values.empty() || !block->iter_vars.empty() || block->init || !block->match_buffers.empty()) {
-            throw std::runtime_error{"software pipeline adapter expected an opaque, init-free block"};
+            return _diagnostic.reject("software pipeline adapter expected an opaque, init-free block", tvm::ffi::GetRef<tvm::tirx::SBlockRealize>(realize));
         }
         Statements statements;
         for (auto &&buffer : block->alloc_buffers) { statements.push_back(tvm::tirx::AllocBuffer{buffer}); }
@@ -221,7 +222,7 @@ protected:
 
 [[nodiscard]] tvm::tirx::Stmt inject_pipeline(const tvm::tirx::For &loop,
                                               const Statements &phases,
-                                              tvm::ffi::Array<tvm::tirx::BufferVar> allocations) {
+                                              tvm::ffi::Array<tvm::tirx::BufferVar> allocations, Diagnostic &diagnostic) {
     auto annotated = loop;
     auto node = annotated.CopyOnWrite();
     node->annotations.erase(logical_pipeline_annotation);
@@ -243,43 +244,45 @@ protected:
                       .cast<tvm::IRModule>();
     module = run_pass(tvm::s_tir::transform::InjectSoftwarePipeline(), std::move(module)).cast<tvm::IRModule>();
     auto transformed = module->functions.at(global).as<tvm::tirx::PrimFunc>().value();
-    return StageEraser{}(transformed->body);
+    return StageEraser{diagnostic}(transformed->body);
 }
 
-class PipelineScheduler final : public tvm::tirx::StmtMutator {
+class PipelineScheduler final : public DiagnosticStmtMutator {
 private:
     bool _noalias;
     uint64_t _version_budget;
     bool _defer_prefetch;
 
-    [[nodiscard]] static int64_t _integer_annotation(const tvm::tirx::For &loop, const char *name, int64_t fallback) {
+    [[nodiscard]] int64_t _integer_annotation(const tvm::tirx::For &loop, const char *name, int64_t fallback) {
         if (auto value = loop->annotations.Get(name)) {
             auto integer = value.value().as<tvm::IntImm>();
             if (!integer || integer.value()->value < 0) {
-                throw std::runtime_error{"invalid native Tile pipeline policy annotation"};
+                return _diagnostic.reject("invalid native Tile pipeline policy annotation", fallback);
             }
             return integer.value()->value;
         }
         return fallback;
     }
 
-    [[nodiscard]] static tvm::tirx::Stmt _ordered(tvm::tirx::For loop, bool defer = false) {
+    [[nodiscard]] tvm::tirx::Stmt _ordered(tvm::tirx::For loop, bool defer = false) {
         auto node = loop.CopyOnWrite();
         node->annotations.erase(logical_pipeline_annotation);
         node->annotations.erase(pipeline_window_annotation);
         node->annotations.erase(pipeline_interval_annotation);
         if (defer) { node->annotations.Set(deferred_pipeline_annotation, tvm::IntImm::Int64(1)); }
-        node->body = StageEraser{}(node->body);
+        node->body = StageEraser{_diagnostic}(node->body);
         return loop;
     }
 
 protected:
     [[nodiscard]] tvm::tirx::Stmt VisitStmt_(const tvm::tirx::ForNode *original) final {
         auto loop = StmtMutator::VisitStmt_(original).as_or_throw<tvm::tirx::For>();
+        if (_diagnostic.failed()) { return tvm::ffi::GetRef<tvm::tirx::For>(original); }
         if (loop->annotations.count(logical_pipeline_annotation) == 0u) { return loop; }
         auto window = _integer_annotation(loop, pipeline_window_annotation, 0);
         auto interval = _integer_annotation(loop, pipeline_interval_annotation, 1);
-        if (interval == 0) { throw std::runtime_error{"pipeline initiation interval must be positive"}; }
+        if (_diagnostic.failed()) { return loop; }
+        if (interval == 0) { return _diagnostic.reject("pipeline initiation interval must be positive", loop); }
         auto extent = loop->extent.as<tvm::IntImmNode>();
         // The native pass has unit issue spacing. Other timing policies need
         // a target latency model; retain their ordered reference execution.
@@ -351,7 +354,8 @@ protected:
             if (!safe || !has_transfer) { continue; }
             Statements phases{stage_block(std::move(producer_body), producer, 0),
                               stage_block(std::move(consumer_body), consumer, 1)};
-            auto scheduled = inject_pipeline(loop, phases, std::move(pipeline_allocations));
+            auto scheduled = inject_pipeline(loop, phases, std::move(pipeline_allocations), _diagnostic);
+            if (_diagnostic.failed()) { return loop; }
             _version_budget -= extra_bytes;
             unused_allocations.push_back(std::move(scheduled));
             return tvm::tirx::SeqStmt::Flatten(unused_allocations);
@@ -360,8 +364,8 @@ protected:
     }
 
 public:
-    PipelineScheduler(bool noalias, uint64_t version_budget, bool defer_prefetch) noexcept
-        : _noalias{noalias}, _version_budget{version_budget}, _defer_prefetch{defer_prefetch} {}
+    PipelineScheduler(bool noalias, uint64_t version_budget, bool defer_prefetch, Diagnostic &diagnostic) noexcept
+        : DiagnosticStmtMutator{diagnostic}, _noalias{noalias}, _version_budget{version_budget}, _defer_prefetch{defer_prefetch} {}
 };
 
 using Coordinates = tvm::ffi::Map<tvm::tirx::Var, tvm::Expr>;
@@ -594,7 +598,7 @@ tvm::tirx::Stmt try_prefetch_matrix_pipeline(const tvm::tirx::For &loop, const t
     return tvm::tirx::SeqStmt::Flatten(allocations);
 }
 
-tvm::tirx::Stmt schedule_pipelines(tvm::tirx::Stmt body, bool noalias, uint64_t shared_memory_limit,
+tvm::tirx::Stmt schedule_pipelines(tvm::tirx::Stmt body, bool noalias, uint64_t shared_memory_limit, Diagnostic &diagnostic,
                                    bool defer_prefetch, bool automatic_cooperative) {
     auto budget = std::numeric_limits<uint64_t>::max();
     if (shared_memory_limit != 0u) {
@@ -607,7 +611,7 @@ tvm::tirx::Stmt schedule_pipelines(tvm::tirx::Stmt body, bool noalias, uint64_t 
         footprint(body);
         if (footprint.has_group) { budget = shared_memory_limit - std::min(shared_memory_limit, footprint.bytes); }
     }
-    return PipelineScheduler{noalias, budget, defer_prefetch}(std::move(body));
+    return PipelineScheduler{noalias, budget, defer_prefetch, diagnostic}(std::move(body));
 }
 
 }// namespace luisa::compute::tile::bridge::tirx::detail

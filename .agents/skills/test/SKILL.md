@@ -320,9 +320,11 @@ expect(all_correct) << "all elements must match expected values";
 
 ### Fatal checks without exceptions
 
-Project-owned tests, benchmarks, and shared test helpers must not use `throw`
-or rethrow. Keep them compatible with builds that disable C++ exceptions;
-do not enable exceptions on a test target to work around a diagnostic.
+The [repository-wide C++ rule](../cpp-style/SKILL.md#no-c-exception-raising-in-project-code)
+also applies to tests, benchmarks, and shared test helpers: do not use `throw`,
+rethrow, or exception-raising assertion helpers. Keep them compatible with builds
+that disable C++ exceptions; do not enable exceptions on a test target to work
+around a diagnostic.
 
 - Use Boost.UT `expect` for ordinary checks that can safely continue.
 - Use `LUISA_ASSERT(condition, "message")` for fatal preconditions and
@@ -333,8 +335,11 @@ do not enable exceptions on a test target to work around a diagnostic.
   failures. Preserve required cleanup with RAII and keep all validation checks.
 - For expected recoverable failures, use the API's error/status/null result
   and assert its documented outcome. Do not replace an expected failure with
-  process termination or remove its coverage. Tests of a library's exception
-  contract must guard exception syntax with `__cpp_exceptions`.
+  process termination or remove its coverage. For an expected fatal Luisa check,
+  run the invalid operation in a separate process and check both failure and its
+  diagnostic. Remove stale `expect(throws(...))` assertions when the API becomes
+  fatal. Tests of third-party exception contracts must guard exception syntax
+  with `__cpp_exceptions`.
 - Check standalone benchmark targets also link `luisa-compute-core` when
   introducing the logging macros. Leave vendored test-framework code intact.
 

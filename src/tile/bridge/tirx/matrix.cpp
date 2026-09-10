@@ -3,7 +3,6 @@
 #include <cmath>
 #include <limits>
 #include <optional>
-#include <stdexcept>
 
 #include <tvm/arith/analyzer.h>
 #include <tvm/ffi/extra/structural_equal.h>
@@ -468,12 +467,12 @@ struct MatchedMatrix {
 }
 
 [[gnu::noinline]] int32_t native_fragment_index(const tvm::tirx::Layout &layout,
-                                                const tvm::ffi::Array<tvm::PrimExpr> &shape, int64_t row, int64_t column) {
+                                                const tvm::ffi::Array<tvm::PrimExpr> &shape, int64_t row, int64_t column, Diagnostic &diagnostic) {
     auto placement = layout->Apply({tvm::IntImm::Int64(row), tvm::IntImm::Int64(column)}, shape);
     auto index = placement.Get("m");
     auto constant = index ? index->as<tvm::IntImmNode>() : nullptr;
     if (constant == nullptr || constant->value < 0 || constant->value > std::numeric_limits<int32_t>::max()) {
-        throw std::runtime_error{"native matrix distribution did not resolve a static fragment ordinal"};
+        return diagnostic.reject("native matrix distribution did not resolve a static fragment ordinal", int32_t{0});
     }
     return static_cast<int32_t>(constant->value);
 }
@@ -574,27 +573,37 @@ struct MatchedMatrix {
 
 [[nodiscard]] tvm::tirx::Stmt rectangular_matrix(
     const MatchedMatrix &matrix, const MatrixDistribution &distribution,
-    const tvm::tirx::PrimVar &thread, MatrixLoopEmission *loop_emission) {
+    const tvm::tirx::PrimVar &thread, MatrixLoopEmission *loop_emission, Diagnostic &diagnostic) {
     auto suffix = matrix.axes[0]->name;
     auto rows = static_cast<int64_t>(distribution.atom_rows);
     auto columns = static_cast<int64_t>(distribution.atom_columns);
     auto subgroup = tvm::floordiv(thread, tvm::IntImm::Int64(32));
     MatrixWorkload workload{static_cast<uint64_t>(matrix.m), static_cast<uint64_t>(matrix.n), static_cast<uint64_t>(matrix.k)};
     auto layout = matrix_distribution_layout(workload, distribution);
-    if (!layout) { throw std::runtime_error{layout.error.c_str()}; }
+    if (!layout) { return diagnostic.reject(layout.error, tvm::tirx::Stmt{}); }
     tvm::ffi::Array<tvm::PrimExpr> atom_shape{tvm::IntImm::Int64(matrix.m / 8), tvm::IntImm::Int64(matrix.n / 8)};
-    auto fragment_index = [&](int64_t i, int64_t j) { return native_fragment_index(layout.value, atom_shape, i, j); };
     auto af = tvm::tirx::decl_buffer({tvm::IntImm::Int64(rows * 64)}, tvm::PrimType::Float(32), suffix + "_mma_a", "metal.simdgroup");
     auto bf = tvm::tirx::decl_buffer({tvm::IntImm::Int64(columns * 64)}, tvm::PrimType::Float(32), suffix + "_mma_b", "metal.simdgroup");
     auto cf = tvm::tirx::decl_buffer({tvm::IntImm::Int64(rows * columns * 64)}, tvm::PrimType::Float(32), suffix + "_mma_c", "metal.simdgroup");
     auto reduction = tvm::tirx::PrimVar{suffix + "_mma_k", tvm::PrimType::Int(64)};
-    auto coordinates = [&](int64_t i, int64_t j) {
-        auto mapped = matrix_atom_coordinates(workload, distribution, subgroup, tvm::IntImm::Int64(i * columns + j));
-        if (!mapped) { throw std::runtime_error{mapped.error.c_str()}; }
-        return Coordinates{{matrix.axes[0], mapped.value[0] * tvm::IntImm::Int64(8)},
-                           {matrix.axes[1], mapped.value[1] * tvm::IntImm::Int64(8)},
-                           {matrix.axes[2], reduction * tvm::IntImm::Int64(8)}};
-    };
+    // Resolve every layout-dependent value before emitting or publishing a
+    // matrix recurrence. Invalid layouts remain recoverable compiler errors.
+    luisa::vector<int32_t> fragment_indices;
+    luisa::vector<Coordinates> atom_coordinates;
+    for (auto i = int64_t{0}; i < rows; i++) {
+        for (auto j = int64_t{0}; j < columns; j++) {
+            auto index = native_fragment_index(layout.value, atom_shape, i, j, diagnostic);
+            if (diagnostic.failed()) { return {}; }
+            auto mapped = matrix_atom_coordinates(workload, distribution, subgroup, tvm::IntImm::Int64(i * columns + j));
+            if (!mapped) { return diagnostic.reject(mapped.error, tvm::tirx::Stmt{}); }
+            fragment_indices.emplace_back(index);
+            atom_coordinates.emplace_back(Coordinates{{matrix.axes[0], mapped.value[0] * tvm::IntImm::Int64(8)},
+                                                      {matrix.axes[1], mapped.value[1] * tvm::IntImm::Int64(8)},
+                                                      {matrix.axes[2], reduction * tvm::IntImm::Int64(8)}});
+        }
+    }
+    auto fragment_index = [&](int64_t i, int64_t j) { return fragment_indices[static_cast<size_t>(i * columns + j)]; };
+    auto coordinates = [&](int64_t i, int64_t j) -> const Coordinates & { return atom_coordinates[static_cast<size_t>(i * columns + j)]; };
     tvm::ffi::Array<tvm::tirx::Stmt> initial{tvm::tirx::AllocBuffer{cf}};
     tvm::ffi::Array<tvm::tirx::Stmt> statements{tvm::tirx::AllocBuffer{af}, tvm::tirx::AllocBuffer{bf}};
     tvm::ffi::Array<tvm::tirx::Stmt> final;
@@ -895,11 +904,11 @@ std::optional<MatrixLoopEmission::Output> metal_matrix_output(
 tvm::tirx::Stmt try_metal_matrix(
     const tvm::tirx::For &loop, const tvm::tirx::PrimVar &thread, uint64_t threads,
     const std::function<tvm::tirx::BufferVar(tvm::tirx::BufferVar)> &map_buffer,
-    const MatrixDistribution &distribution, MatrixLoopEmission *loop_emission, bool metal_mpp,
+    Diagnostic &diagnostic, const MatrixDistribution &distribution, MatrixLoopEmission *loop_emission, bool metal_mpp,
     luisa::span<const tvm::tirx::ForNode *const> ancestors) {
-    if (threads < 32u || threads % 32u != 0u) { return {}; }
+    if (diagnostic.failed() || threads < 32u || threads % 32u != 0u) { return {}; }
     auto matched = match_metal_matrix(loop, map_buffer, metal_mpp, ancestors);
-    if (!matched) { return {}; }
+    if (diagnostic.failed() || !matched) { return {}; }
     auto &[axes, a_view, b_view, d_view, c, initial, m, n, k, reduction_length] = *matched;
     auto a = &a_view;
     auto b = &b_view;
@@ -911,14 +920,15 @@ tvm::tirx::Stmt try_metal_matrix(
         if (threads > std::numeric_limits<uint32_t>::max() ||
             !verify_matrix_distribution(workload, distribution, static_cast<uint32_t>(threads), 32u)) { return {}; }
         if (loop_emission != nullptr && (!distribution.persistent_accumulator || !metal_matrix_carry(loop, map_buffer, metal_mpp, ancestors))) { return {}; }
+        if (diagnostic.failed()) { return {}; }
         if (distribution.direct_accumulator_store &&
             (loop_emission == nullptr || !loop_emission->output || loop_emission->initial.as<tvm::FloatImmNode>() == nullptr ||
              loop_emission->initial.ty() != tvm::PrimType::Float(32))) { return {}; }
         return metal_mpp ? mpp_matrix(*matched, distribution, thread, loop_emission) :
-                           rectangular_matrix(*matched, distribution, thread, loop_emission);
+                           rectangular_matrix(*matched, distribution, thread, loop_emission, diagnostic);
     }
 
-    if (metal_mpp) { throw std::runtime_error{"Metal MPP currently requires an exact rectangular subgroup plan"}; }
+    if (metal_mpp) { return diagnostic.reject("Metal MPP currently requires an exact rectangular subgroup plan", tvm::tirx::Stmt{}); }
 
     auto suffix = loop->loop_var->name;
     auto af = tvm::tirx::decl_buffer({tvm::IntImm::Int64(64)}, tvm::PrimType::Float(32), suffix + "_mma_a", "metal.simdgroup");

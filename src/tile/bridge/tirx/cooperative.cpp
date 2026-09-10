@@ -1,7 +1,7 @@
 #include <algorithm>
 #include <cmath>
+#include <exception>
 #include <limits>
-#include <stdexcept>
 #include <string>
 
 #include <tvm/tirx/buffer.h>
@@ -9,9 +9,11 @@
 #include <tvm/tirx/op.h>
 #include <tvm/tirx/stmt_functor.h>
 
+#include <luisa/core/stl/format.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/vector.h>
 
+#include "diagnostic.h"
 #include "execution.h"
 
 #include <luisa/tile/bridge/tirx/layout.h>
@@ -20,19 +22,21 @@ namespace luisa::compute::tile::bridge::tirx::detail {
 
 namespace {
 
-[[nodiscard]] uint64_t static_extent(const tvm::PrimExpr &expression) {
+[[nodiscard]] uint64_t static_extent(const tvm::PrimExpr &expression, Diagnostic &diagnostic) {
+    if (diagnostic.failed()) { return 0u; }
     auto constant = expression.as<tvm::IntImmNode>();
     if (constant == nullptr || constant->value < 0) {
-        throw std::runtime_error{"cooperative Tile execution requires nonnegative static extents"};
+        diagnostic.set_error("cooperative Tile execution requires nonnegative static extents");
+        return 0u;
     }
     return static_cast<uint64_t>(constant->value);
 }
 
-void validate_domain(const tvm::tirx::ForNode *loop) {
+void validate_domain(const tvm::tirx::ForNode *loop, Diagnostic &diagnostic) {
     auto step = loop->step ? loop->step.value().as<tvm::IntImmNode>() : nullptr;
     if (loop->kind != tvm::tirx::ForKind::kSerial || loop->thread_binding ||
         (loop->step && (step == nullptr || step->value != 1))) {
-        throw std::runtime_error{"cooperative Tile execution requires serial unit-step domains before binding"};
+        diagnostic.set_error("cooperative Tile execution requires serial unit-step domains before binding");
     }
 }
 
@@ -42,12 +46,14 @@ struct ElementDomain {
     uint64_t count{1u};
 };
 
-[[nodiscard]] ElementDomain element_domain(const tvm::tirx::ForNode *loop) {
+[[nodiscard]] ElementDomain element_domain(const tvm::tirx::ForNode *loop, Diagnostic &diagnostic) {
+    if (diagnostic.failed()) { return {}; }
     auto rank = int64_t{1};
     if (auto annotation = loop->annotations.Get(independent_elements_annotation)) {
         auto value = annotation.value().as<tvm::IntImmNode>();
         if (value == nullptr || value->value <= 0) {
-            throw std::runtime_error{"cooperative Tile element domain requires a positive static rank"};
+            diagnostic.set_error("cooperative Tile element domain requires a positive static rank");
+            return {};
         }
         rank = value->value;
     }
@@ -56,12 +62,16 @@ struct ElementDomain {
     for (auto i = int64_t{0}; i < rank; i++) {
         if (current == nullptr || (i != 0 && !current->annotations.empty()) ||
             current->min.as<tvm::IntImmNode>() == nullptr) {
-            throw std::runtime_error{"cooperative Tile element domain requires a perfect static rectangular nest"};
+            diagnostic.set_error("cooperative Tile element domain requires a perfect static rectangular nest");
+            return {};
         }
-        validate_domain(current);
-        auto extent = static_extent(current->extent);
+        validate_domain(current, diagnostic);
+        if (diagnostic.failed()) { return {}; }
+        auto extent = static_extent(current->extent, diagnostic);
+        if (diagnostic.failed()) { return {}; }
         if (extent != 0u && result.count > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) / extent) {
-            throw std::runtime_error{"cooperative Tile element domain exceeds int64 range"};
+            diagnostic.set_error("cooperative Tile element domain exceeds int64 range");
+            return {};
         }
         result.count *= extent;
         result.axes.emplace_back(current);
@@ -108,10 +118,14 @@ using AccumulatorLoops = luisa::unordered_map<const tvm::tirx::ForNode *, Accumu
            value->value == 0.0 && !std::signbit(value->value);
 }
 
-[[nodiscard]] bool is_carry_update(const tvm::tirx::ForNode *loop, const MatrixCarry &carry) {
+[[nodiscard]] bool is_carry_update(const tvm::tirx::ForNode *loop, const MatrixCarry &carry, Diagnostic &diagnostic) {
     if (loop->annotations.size() != 1u || !loop->annotations.count(independent_elements_annotation)) { return false; }
-    auto domain = element_domain(loop);
-    if (domain.axes.size() != 2u || static_extent(domain.axes[0]->extent) != carry.rows || static_extent(domain.axes[1]->extent) != carry.columns) { return false; }
+    auto domain = element_domain(loop, diagnostic);
+    if (diagnostic.failed() || domain.axes.size() != 2u) { return false; }
+    auto rows = static_extent(domain.axes[0]->extent, diagnostic);
+    if (diagnostic.failed() || rows != carry.rows) { return false; }
+    auto columns = static_extent(domain.axes[1]->extent, diagnostic);
+    if (diagnostic.failed() || columns != carry.columns) { return false; }
     auto store = domain.body.as<tvm::tirx::BufferStoreNode>();
     if (store == nullptr || store->predicate || !store->buffer.same_as(carry.initial) || store->indices.size() != 2u) { return false; }
     auto load = store->value.as<tvm::tirx::BufferLoadNode>();
@@ -139,10 +153,14 @@ using AccumulatorLoops = luisa::unordered_map<const tvm::tirx::ForNode *, Accumu
     return observed;
 }
 
-[[nodiscard]] tvm::PrimExpr literal_initial(const tvm::tirx::ForNode *loop, const MatrixCarry &carry) {
+[[nodiscard]] tvm::PrimExpr literal_initial(const tvm::tirx::ForNode *loop, const MatrixCarry &carry, Diagnostic &diagnostic) {
     if (loop->annotations.size() != 1u || !loop->annotations.count(independent_elements_annotation)) { return {}; }
-    auto domain = element_domain(loop);
-    if (domain.axes.size() != 2u || static_extent(domain.axes[0]->extent) != carry.rows || static_extent(domain.axes[1]->extent) != carry.columns) { return {}; }
+    auto domain = element_domain(loop, diagnostic);
+    if (diagnostic.failed() || domain.axes.size() != 2u) { return {}; }
+    auto rows = static_extent(domain.axes[0]->extent, diagnostic);
+    if (diagnostic.failed() || rows != carry.rows) { return {}; }
+    auto columns = static_extent(domain.axes[1]->extent, diagnostic);
+    if (diagnostic.failed() || columns != carry.columns) { return {}; }
     auto store = domain.body.as<tvm::tirx::BufferStoreNode>();
     if (store == nullptr || store->predicate || !store->buffer.same_as(carry.initial) || store->indices.size() != 2u ||
         store->value.as<tvm::FloatImmNode>() == nullptr || store->value.ty() != tvm::PrimType::Float(32)) { return {}; }
@@ -158,6 +176,7 @@ using AccumulatorLoops = luisa::unordered_map<const tvm::tirx::ForNode *, Accumu
 // in the emitter and is checked there again. No source names drive semantics.
 class GroupWorkloadAnalysis final : public tvm::tirx::StmtVisitor {
 private:
+    Diagnostic &_diagnostic;
     bool _cooperative_reductions;
     bool _matrix;
     bool _metal_mpp;
@@ -206,13 +225,20 @@ private:
                 auto offset = buffer->elem_offset.as<tvm::IntImmNode>();
                 if (allocation->annotations.empty() && buffer.scope() == "local" && buffer->strides.empty() &&
                     !buffer->layout && buffer->allocated_addr.empty() && offset && offset->value == 0 &&
-                    buffer->shape.size() == 2u && static_extent(buffer->shape[0]) == carry.rows &&
-                    static_extent(buffer->shape[1]) == carry.columns) {
-                    if (!temporary_allocations.emplace(buffer.get(), allocation).second) { return {}; }
+                    buffer->shape.size() == 2u) {
+                    auto rows = static_extent(buffer->shape[0], _diagnostic);
+                    if (_diagnostic.failed()) { return {}; }
+                    if (rows == carry.rows) {
+                        auto columns = static_extent(buffer->shape[1], _diagnostic);
+                        if (_diagnostic.failed()) { return {}; }
+                        if (columns == carry.columns && !temporary_allocations.emplace(buffer.get(), allocation).second) { return {}; }
+                    }
                 }
             }
             if (auto loop = statement.as<tvm::tirx::ForNode>()) {
-                if (auto fill = literal_initial(loop, carry); fill.defined()) {
+                auto fill = literal_initial(loop, carry, _diagnostic);
+                if (_diagnostic.failed()) { return {}; }
+                if (fill.defined()) {
                     if (!allocated || initial != nullptr || seen_loop) { return {}; }
                     initial = loop;
                     value = fill;
@@ -298,10 +324,14 @@ private:
                 result_allocations++;
                 continue;
             }
-            if (auto copy = statement.as<tvm::tirx::ForNode>(); copy != nullptr && is_carry_update(copy, *carry)) {
-                if (!seen_matrix || update != nullptr) { return; }
-                update = copy;
-                continue;
+            if (auto copy = statement.as<tvm::tirx::ForNode>()) {
+                auto matches = is_carry_update(copy, *carry, _diagnostic);
+                if (_diagnostic.failed()) { return; }
+                if (matches) {
+                    if (!seen_matrix || update != nullptr) { return; }
+                    update = copy;
+                    continue;
+                }
             }
             auto observes_carry = false;
             tvm::tirx::PostOrderVisit(statement, [&](const tvm::ffi::ObjectRef &node) {
@@ -331,13 +361,19 @@ private:
     }
 
 protected:
+    void VisitStmt(const tvm::tirx::Stmt &statement) final {
+        if (!_diagnostic.failed()) { StmtVisitor::VisitStmt(statement); }
+    }
+
     void VisitStmt_(const tvm::tirx::SeqStmtNode *sequence) final {
         StmtVisitor::VisitStmt_(sequence);
-        if (_lane_depth != 0u || !_matrix) { return; }
+        if (_diagnostic.failed() || _lane_depth != 0u || !_matrix) { return; }
         for (auto &&statement : sequence->seq) {
             auto loop = statement.as<tvm::tirx::ForNode>();
             if (auto iter = accumulators.find(loop); iter != accumulators.end()) {
-                if (auto direct = _find_direct_output(sequence, loop, iter->second.carry)) {
+                auto direct = _find_direct_output(sequence, loop, iter->second.carry);
+                if (_diagnostic.failed()) { return; }
+                if (direct) {
                     iter->second.direct = std::move(direct);
                     workload.matrices[iter->second.matrix_index].has_direct_output = true;
                     auto &matrix = workload.matrices[iter->second.matrix_index];
@@ -366,7 +402,11 @@ protected:
         if (_lane_depth != 0u) { return; }
         auto buffer = allocation->buffer;
         auto bytes = static_cast<uint64_t>((buffer->dtype.bits() * buffer->dtype.lanes() + 7) / 8);
-        for (auto &&dimension : buffer->shape) { bytes = saturating_multiply(bytes, static_extent(dimension)); }
+        for (auto &&dimension : buffer->shape) {
+            auto extent = static_extent(dimension, _diagnostic);
+            if (_diagnostic.failed()) { return; }
+            bytes = saturating_multiply(bytes, extent);
+        }
         workload.shared_memory_bytes += std::min(bytes, std::numeric_limits<uint64_t>::max() - workload.shared_memory_bytes);
         auto offset = buffer->elem_offset.as<tvm::IntImmNode>();
         if (!_matrix || buffer.scope() != "local" || !buffer->strides.empty() || buffer->layout || !buffer->allocated_addr.empty() ||
@@ -378,7 +418,8 @@ protected:
     void VisitStmt_(const tvm::tirx::ForNode *loop) final {
         auto independent = loop->annotations.count(independent_elements_annotation) || loop->annotations.count(logical_parallel_annotation);
         if (independent) {
-            auto domain = element_domain(loop);
+            auto domain = element_domain(loop, _diagnostic);
+            if (_diagnostic.failed()) { return; }
             workload.max_independent_elements = std::max(workload.max_independent_elements, domain.count);
             if (_lane_depth == 0u) {
                 if (_cooperative_reductions) {
@@ -407,7 +448,7 @@ protected:
             }
             _ancestors.emplace_back(loop);
             StmtVisitor::VisitStmt_(loop);
-            if (_lane_depth == 0u && _matrix) { _find_accumulator_loop(loop); }
+            if (!_diagnostic.failed() && _lane_depth == 0u && _matrix) { _find_accumulator_loop(loop); }
             _ancestors.pop_back();
             _executions = previous;
         }
@@ -417,11 +458,11 @@ public:
     GroupWorkload workload;
     MatrixPlanIndices matrices;
     AccumulatorLoops accumulators;
-    GroupWorkloadAnalysis(bool matrix, bool metal_mpp, bool matrix_epilogues, bool cooperative_reductions, const tvm::tirx::ForNode *root, luisa::span<const tvm::tirx::BufferVar> readonly_inputs)
-        : _cooperative_reductions{cooperative_reductions}, _matrix{matrix}, _metal_mpp{metal_mpp}, _matrix_epilogues{matrix_epilogues}, _root{root}, _ancestors{root}, _readonly_inputs{readonly_inputs} {}
+    GroupWorkloadAnalysis(bool matrix, bool metal_mpp, bool matrix_epilogues, bool cooperative_reductions, const tvm::tirx::ForNode *root, luisa::span<const tvm::tirx::BufferVar> readonly_inputs, Diagnostic &diagnostic)
+        : _diagnostic{diagnostic}, _cooperative_reductions{cooperative_reductions}, _matrix{matrix}, _metal_mpp{metal_mpp}, _matrix_epilogues{matrix_epilogues}, _root{root}, _ancestors{root}, _readonly_inputs{readonly_inputs} {}
 };
 
-class CooperativeGroupMapper final : public tvm::tirx::StmtExprMutator {
+class CooperativeGroupMapper final : public DiagnosticStmtExprMutator {
 
 private:
     tvm::tirx::PrimVar _thread;
@@ -499,20 +540,23 @@ private:
     }
 
     [[nodiscard]] tvm::tirx::Stmt _distribute(const tvm::tirx::ForNode *loop) {
-        auto domain = element_domain(loop);
+        auto domain = element_domain(loop, _diagnostic);
+        if (_diagnostic.failed()) { return tvm::ffi::GetRef<tvm::tirx::For>(loop); }
         auto count = domain.count;
         _lane_depth++;
         auto body = VisitStmt(domain.body);
         _lane_depth--;
+        if (_diagnostic.failed()) { return tvm::ffi::GetRef<tvm::tirx::For>(loop); }
         if (count == 0u) { return tvm::tirx::Evaluate{tvm::IntImm::Int32(0)}; }
         auto chunks = (count + _threads - 1u) / _threads;
         auto chunk = tvm::tirx::PrimVar{loop->loop_var->name + "_chunk", tvm::PrimType::Int(64)};
-        auto element = [&](tvm::PrimExpr ordinal, bool guard) {
+        auto element = [&](tvm::PrimExpr ordinal, bool guard) -> tvm::tirx::Stmt {
             auto linear = ordinal * tvm::IntImm::Int64(static_cast<int64_t>(_threads)) + _thread;
             tvm::ffi::Map<tvm::tirx::Var, tvm::Expr> coordinates;
             auto trailing = count;
             for (auto axis : domain.axes) {
-                auto extent = static_extent(axis->extent);
+                auto extent = static_extent(axis->extent, _diagnostic);
+                if (_diagnostic.failed()) { return tvm::ffi::GetRef<tvm::tirx::For>(loop); }
                 trailing /= extent;
                 tvm::PrimExpr coordinate = linear;
                 if (domain.axes.size() != 1u) {
@@ -531,8 +575,9 @@ private:
             auto batches = count / _threads / batch;
             tvm::ffi::Array<tvm::tirx::Stmt> reads, writes;
             for (auto i = uint64_t{0u}; i < batch; i++) {
-                auto copy = element(chunk * tvm::IntImm::Int64(static_cast<int64_t>(batch)) + tvm::IntImm::Int64(static_cast<int64_t>(i)), false)
-                                .as_or_throw<tvm::tirx::BufferStore>();
+                auto statement = element(chunk * tvm::IntImm::Int64(static_cast<int64_t>(batch)) + tvm::IntImm::Int64(static_cast<int64_t>(i)), false);
+                if (_diagnostic.failed()) { return tvm::ffi::GetRef<tvm::tirx::For>(loop); }
+                auto copy = statement.as_or_throw<tvm::tirx::BufferStore>();
                 auto value = tvm::tirx::PrimVar{loop->loop_var->name + "_copy_value_" + std::to_string(i), copy->value.ty()};
                 reads.push_back(tvm::tirx::Bind{value, copy->value});
                 writes.push_back(tvm::tirx::BufferStore{copy->buffer, value, copy->indices, std::nullopt, copy->span});
@@ -547,9 +592,11 @@ private:
         // original load predicate and domain guard, so no inactive worker
         // speculates an out-of-bounds read just to fill a batch.
         if (consumed != chunks) {
+            auto tail = element(chunk, chunks * _threads != count);
+            if (_diagnostic.failed()) { return tvm::ffi::GetRef<tvm::tirx::For>(loop); }
             distributed.push_back(tvm::tirx::For{chunk, tvm::IntImm::Int64(static_cast<int64_t>(consumed)),
                                                  tvm::IntImm::Int64(static_cast<int64_t>(chunks - consumed)),
-                                                 tvm::tirx::ForKind::kSerial, element(chunk, chunks * _threads != count)});
+                                                 tvm::tirx::ForKind::kSerial, std::move(tail)});
         }
         // A barrier is outside the tail predicate: inactive workers still
         // participate, and the next operation may read any produced element.
@@ -563,7 +610,7 @@ private:
     [[nodiscard]] tvm::tirx::BufferVar _buffer(tvm::tirx::BufferVar buffer) const {
         if (auto iter = _buffers.find(buffer.get()); iter != _buffers.end()) { return iter->second; }
         if (buffer.scope() == "local") {
-            throw std::runtime_error{"cooperative group capture of host-local storage requires a device allocation plan"};
+            _diagnostic.set_error("cooperative group capture of host-local storage requires a device allocation plan");
         }
         return buffer;
     }
@@ -585,7 +632,8 @@ protected:
         if (auto iter = _accumulators.find(loop); iter != _accumulators.end() &&
                                                   _plan.matrices[iter->second.matrix_index].persistent_accumulator) {
             if (_lane_depth != 0u || !_buffers.contains(iter->second.carry.initial.get())) {
-                throw std::runtime_error{"planned accumulator must have group-owned storage outside its recurrence"};
+                _diagnostic.set_error("planned accumulator must have group-owned storage outside its recurrence");
+                return tvm::ffi::GetRef<tvm::tirx::For>(loop);
             }
             auto previous = _active_accumulator;
             auto previous_emission = _loop_emission;
@@ -601,6 +649,7 @@ protected:
             auto body = StmtExprMutator::VisitStmt_(loop);
             _active_accumulator = previous;
             _loop_emission = previous_emission;
+            if (_diagnostic.failed()) { return tvm::ffi::GetRef<tvm::tirx::For>(loop); }
             auto mapped_loop = body.as_or_throw<tvm::tirx::For>();
             if (loop->annotations.count(deferred_pipeline_annotation)) {
                 auto prefetched = try_prefetch_matrix_pipeline(mapped_loop, _compiler_barrier, _prefetch_budget, _plan);
@@ -611,7 +660,8 @@ protected:
                 body = mapped_loop;
             }
             if (!emission.before.defined() || !emission.after.defined()) {
-                throw std::runtime_error{"planned accumulator recurrence was not emitted"};
+                _diagnostic.set_error("planned accumulator recurrence was not emitted");
+                return tvm::ffi::GetRef<tvm::tirx::For>(loop);
             }
             if (direct) {
                 if (emission.subgroup_inputs && emission.subgroup_step.defined() &&
@@ -635,12 +685,14 @@ protected:
         }
         auto logical = loop->annotations.count(logical_parallel_annotation) != 0u;
         auto elements = loop->annotations.count(independent_elements_annotation) != 0u;
-        if (logical || elements) { validate_domain(loop); }
+        if (logical || elements) { validate_domain(loop, _diagnostic); }
+        if (_diagnostic.failed()) { return tvm::ffi::GetRef<tvm::tirx::For>(loop); }
         if (auto constraint = loop->annotations.Get(execution_scope_annotation)) {
             auto scope = constraint.value().as<tvm::ffi::String>();
             if (!logical || !scope || scope.value() != "worker" || _lane_depth != 0u) {
                 auto name = scope ? std::string{scope.value()} : std::string{"<invalid>"};
-                throw std::runtime_error{"nested execution scope '" + name + "' in a cooperative group requires an available, unfactored worker level"};
+                _diagnostic.set_error(luisa::format("nested execution scope '{}' in a cooperative group requires an available, unfactored worker level", name));
+                return tvm::ffi::GetRef<tvm::tirx::For>(loop);
             }
         }
         if (elements && _lane_depth == 0u && _cooperative_matrix) {
@@ -652,17 +704,24 @@ protected:
                                                // read-only inputs can authorize a matrix access.
                                                if (auto iter = _buffers.find(buffer.get()); iter != _buffers.end()) { return iter->second; }
                                                for (auto &&input : _readonly_inputs) { if (buffer.same_as(input)) { return buffer; } }
-                                               return tvm::tirx::BufferVar{}; }, distribution, emission, _plan.metal_mpp, _ancestors);
-            if (emission != nullptr && !matrix.defined()) { throw std::runtime_error{"planned matrix recurrence failed emission verification"}; }
+                                               return tvm::tirx::BufferVar{}; }, _diagnostic, distribution, emission, _plan.metal_mpp, _ancestors);
+            if (_diagnostic.failed()) { return tvm::ffi::GetRef<tvm::tirx::For>(loop); }
+            if (emission != nullptr && !matrix.defined()) {
+                _diagnostic.set_error("planned matrix recurrence failed emission verification");
+                return tvm::ffi::GetRef<tvm::tirx::For>(loop);
+            }
             if (matrix.defined()) { return _synchronize(std::move(matrix)); }
         }
         if (elements && _lane_depth == 0u && _cooperative_reductions) {
             auto reduction = try_metal_reduction_tile(tvm::ffi::GetRef<tvm::tirx::For>(loop), _thread, _threads,
                                                       [this](tvm::tirx::BufferVar buffer) { return _buffer(std::move(buffer)); });
+            if (_diagnostic.failed()) { return tvm::ffi::GetRef<tvm::tirx::For>(loop); }
             if (reduction.defined()) { return _synchronize(std::move(reduction)); }
         }
         if ((logical || elements) && _lane_depth == 0u) { return _distribute(loop); }
-        auto result = StmtExprMutator::VisitStmt_(loop).as_or_throw<tvm::tirx::For>();
+        auto statement = StmtExprMutator::VisitStmt_(loop);
+        if (_diagnostic.failed()) { return tvm::ffi::GetRef<tvm::tirx::For>(loop); }
+        auto result = statement.as_or_throw<tvm::tirx::For>();
         auto node = result.CopyOnWrite();
         node->annotations.erase(logical_parallel_annotation);
         node->annotations.erase(logical_program_shape_annotation);
@@ -691,13 +750,15 @@ protected:
             auto expected = _lane_depth == 0u ? "shared" : "private";
             if (!resource || resource.value() != expected) {
                 auto name = resource ? std::string{resource.value()} : std::string{"<invalid>"};
-                throw std::runtime_error{"Memory resource '" + name +
-                                         "' cannot realize this logical owner in cooperative Metal execution"};
+                _diagnostic.set_error(luisa::format("Memory resource '{}' cannot realize this logical owner in cooperative Metal execution", name));
+                return tvm::ffi::GetRef<tvm::tirx::AllocBuffer>(allocation);
             }
             annotations.erase(memory_resource_annotation);
         }
         if (_lane_depth != 0u) {
-            auto result = StmtExprMutator::VisitStmt_(allocation).as_or_throw<tvm::tirx::AllocBuffer>();
+            auto statement = StmtExprMutator::VisitStmt_(allocation);
+            if (_diagnostic.failed()) { return tvm::ffi::GetRef<tvm::tirx::AllocBuffer>(allocation); }
+            auto result = statement.as_or_throw<tvm::tirx::AllocBuffer>();
             result.CopyOnWrite()->annotations = std::move(annotations);
             _buffers.emplace(buffer.get(), buffer);
             return result;
@@ -705,7 +766,8 @@ protected:
         auto offset = buffer->elem_offset.as<tvm::IntImmNode>();
         if (buffer.scope() != "local" || !buffer->strides.empty() || buffer->layout || !buffer->allocated_addr.empty() ||
             offset == nullptr || offset->value != 0) {
-            throw std::runtime_error{"cooperative Tile storage requires an unplaced compact compiler temporary"};
+            _diagnostic.set_error("cooperative Tile storage requires an unplaced compact compiler temporary");
+            return tvm::ffi::GetRef<tvm::tirx::AllocBuffer>(allocation);
         }
         auto empty = std::any_of(buffer->shape.begin(), buffer->shape.end(), [](auto &&dimension) noexcept {
             auto extent = dimension.template as<tvm::IntImmNode>();
@@ -713,14 +775,17 @@ protected:
         });
         auto bytes = empty ? uint64_t{0u} : static_cast<uint64_t>((buffer->dtype.bits() * buffer->dtype.lanes() + 7) / 8);
         for (auto &&dimension : buffer->shape) {
-            auto extent = static_extent(dimension);
+            auto extent = static_extent(dimension, _diagnostic);
+            if (_diagnostic.failed()) { return tvm::ffi::GetRef<tvm::tirx::AllocBuffer>(allocation); }
             if (extent != 0u && bytes > std::numeric_limits<uint64_t>::max() / extent) {
-                throw std::runtime_error{"cooperative Tile storage size exceeds uint64 range"};
+                _diagnostic.set_error("cooperative Tile storage size exceeds uint64 range");
+                return tvm::ffi::GetRef<tvm::tirx::AllocBuffer>(allocation);
             }
             bytes *= extent;
         }
         if (bytes > _shared_memory_limit - _shared_memory_used) {
-            throw std::runtime_error{"cooperative Tile storage exceeds target shared-memory capacity"};
+            _diagnostic.set_error("cooperative Tile storage exceeds target shared-memory capacity");
+            return tvm::ffi::GetRef<tvm::tirx::AllocBuffer>(allocation);
         }
         _shared_memory_used += bytes;
         auto type = tvm::tirx::BufferType{"shared", buffer->dtype, buffer->shape, {}, buffer->elem_offset, buffer->data_alignment, buffer->offset_factor};
@@ -732,15 +797,21 @@ protected:
 
     [[nodiscard]] tvm::Expr VisitExpr_(const tvm::tirx::BufferLoadNode *load) final {
         auto buffer = _buffer(load->buffer);
-        return tvm::tirx::BufferLoad{std::move(buffer), load->indices.Map([this](const tvm::PrimExpr &index) { return VisitPrimExpr(index); }),
-                                     _predicate(load->predicate), load->span};
+        if (_diagnostic.failed()) { return tvm::ffi::GetRef<tvm::tirx::BufferLoad>(load); }
+        auto indices = load->indices.Map([this](const tvm::PrimExpr &index) { return VisitPrimExpr(index); });
+        auto predicate = _predicate(load->predicate);
+        if (_diagnostic.failed()) { return tvm::ffi::GetRef<tvm::tirx::BufferLoad>(load); }
+        return tvm::tirx::BufferLoad{std::move(buffer), std::move(indices), std::move(predicate), load->span};
     }
 
     [[nodiscard]] tvm::tirx::Stmt VisitStmt_(const tvm::tirx::BufferStoreNode *store) final {
         auto buffer = _buffer(store->buffer);
-        auto statement = tvm::tirx::BufferStore{std::move(buffer), VisitPrimExpr(store->value),
-                                                store->indices.Map([this](const tvm::PrimExpr &index) { return VisitPrimExpr(index); }),
-                                                _predicate(store->predicate), store->span};
+        if (_diagnostic.failed()) { return tvm::ffi::GetRef<tvm::tirx::BufferStore>(store); }
+        auto value = VisitPrimExpr(store->value);
+        auto indices = store->indices.Map([this](const tvm::PrimExpr &index) { return VisitPrimExpr(index); });
+        auto predicate = _predicate(store->predicate);
+        if (_diagnostic.failed()) { return tvm::ffi::GetRef<tvm::tirx::BufferStore>(store); }
+        auto statement = tvm::tirx::BufferStore{std::move(buffer), std::move(value), std::move(indices), std::move(predicate), store->span};
         if (_lane_depth != 0u) { return statement; }
         // A scalar effect at group scope has one logical invocation, not one
         // copy per hardware thread. Publish it before any worker consumes it.
@@ -749,7 +820,8 @@ protected:
 
     [[nodiscard]] tvm::Expr VisitExpr_(const tvm::tirx::VarNode *variable) final {
         if (_buffers.contains(variable)) {
-            throw std::runtime_error{"cooperative Tile storage cannot escape through an opaque buffer use"};
+            _diagnostic.set_error("cooperative Tile storage cannot escape through an opaque buffer use");
+            return tvm::ffi::GetRef<tvm::tirx::Var>(variable);
         }
         return StmtExprMutator::VisitExpr_(variable);
     }
@@ -757,12 +829,15 @@ protected:
 public:
     CooperativeGroupMapper(tvm::tirx::PrimVar thread, uint64_t threads, uint64_t shared_memory_limit, bool cooperative_matrix,
                            const MatrixPlanIndices &matrix_indices, GroupPlan &plan, const AccumulatorLoops &accumulators, uint32_t prefetch_budget,
-                           luisa::span<const tvm::tirx::BufferVar> readonly_inputs, const tvm::tirx::ForNode *root)
-        : _thread{std::move(thread)}, _ancestors{root}, _threads{threads}, _shared_memory_limit{shared_memory_limit}, _prefetch_budget{prefetch_budget},
+                           luisa::span<const tvm::tirx::BufferVar> readonly_inputs, const tvm::tirx::ForNode *root, Diagnostic &diagnostic)
+        : DiagnosticStmtExprMutator{diagnostic}, _thread{std::move(thread)}, _ancestors{root}, _threads{threads}, _shared_memory_limit{shared_memory_limit}, _prefetch_budget{prefetch_budget},
           _cooperative_matrix{cooperative_matrix}, _matrix_indices{matrix_indices}, _plan{plan}, _accumulators{accumulators}, _readonly_inputs{readonly_inputs} {
         for (auto &&[loop, accumulator] : _accumulators) {
             if (_plan.matrices[accumulator.matrix_index].direct_accumulator_store) {
-                if (!accumulator.direct) { throw std::runtime_error{"direct matrix store lacks a proved initializer and sink"}; }
+                if (!accumulator.direct) {
+                    _diagnostic.set_error("direct matrix store lacks a proved initializer and sink");
+                    return;
+                }
                 _elided_buffers.emplace(accumulator.carry.initial.get());
                 _elided_initializers.emplace(accumulator.direct->initial);
                 for (auto allocation : accumulator.direct->temporaries) { _elided_buffers.emplace(allocation->buffer.get()); }
@@ -774,8 +849,10 @@ public:
     }
 
     [[nodiscard]] tvm::tirx::Stmt map(const tvm::tirx::Stmt &body, const PlannerOptions &options) {
+        if (_diagnostic.failed()) { return body; }
         _cooperative_reductions = options.enabled && options.metal_subgroup_reductions;
-        auto result = StmtExprMutator::operator()(body);
+        auto result = VisitStmt(body);
+        if (_diagnostic.failed()) { return body; }
         return coalesce_group_barriers(std::move(result), _compiler_barrier, _shared_allocations,
                                        options.enabled && options.coalesce_group_barriers, options.elide_independent_subgroup_barriers, _plan,
                                        _subgroup_private_operations, _subgroup_output_stores);
@@ -842,15 +919,22 @@ public:
 
 tvm::tirx::Stmt map_metal_cooperative_group(const tvm::tirx::For &loop, uint32_t max_threads, uint64_t shared_memory_limit,
                                             bool cooperative_matrix, bool metal_mpp, const PlannerOptions &options, luisa::vector<GroupPlan> &plans,
-                                            luisa::span<const tvm::tirx::BufferVar> readonly_inputs) {
-    validate_domain(loop.get());
-    auto groups = static_extent(loop->extent);
-    GroupWorkloadAnalysis analysis{cooperative_matrix, metal_mpp, options.fuse_matrix_epilogues, options.enabled && options.metal_subgroup_reductions, loop.get(), readonly_inputs};
+                                            luisa::span<const tvm::tirx::BufferVar> readonly_inputs, Diagnostic &diagnostic) {
+    if (diagnostic.failed()) { return {}; }
+    validate_domain(loop.get(), diagnostic);
+    if (diagnostic.failed()) { return {}; }
+    auto groups = static_extent(loop->extent, diagnostic);
+    if (diagnostic.failed()) { return {}; }
+    GroupWorkloadAnalysis analysis{cooperative_matrix, metal_mpp, options.fuse_matrix_epilogues, options.enabled && options.metal_subgroup_reductions, loop.get(), readonly_inputs, diagnostic};
     analysis.workload.programs = groups;
     analysis(loop->body);
+    if (diagnostic.failed()) { return {}; }
     auto planned = plan_group(analysis.workload, ExecutionLimits{max_threads, 32u, shared_memory_limit}, options,
                               metal_mpp ? MatrixCostBasis::METAL_MPP_MEMORY : MatrixCostBasis::SIMDGROUP_REFERENCE);
-    if (!planned) { throw std::runtime_error{planned.error.c_str()}; }
+    if (!planned) {
+        diagnostic.set_error(planned.error);
+        return {};
+    }
     auto &plan = planned.plan;
     plan.metal_mpp = metal_mpp;
     plan.name = std::string{loop->loop_var->name};
@@ -860,7 +944,10 @@ tvm::tirx::Stmt map_metal_cooperative_group(const tvm::tirx::For &loop, uint32_t
     auto logical_group = tvm::PrimExpr{group};
     auto reordered = options.program_order_rows != 1u || options.program_order_columns != 1u;
     auto shape = loop->annotations.Get(logical_program_shape_annotation);
-    if (reordered && !shape) { throw std::runtime_error{"program traversal requires the original parallel shape"}; }
+    if (reordered && !shape) {
+        diagnostic.set_error("program traversal requires the original parallel shape");
+        return {};
+    }
     if (shape) {
         auto dimensions = shape.value().cast<tvm::ffi::Array<tvm::PrimExpr>>();
         auto volume = uint64_t{1u};
@@ -868,12 +955,14 @@ tvm::tirx::Stmt map_metal_cooperative_group(const tvm::tirx::For &loop, uint32_t
             auto extent = dimension.as<tvm::IntImmNode>();
             if (extent == nullptr || extent->value < 0 ||
                 (extent->value != 0 && volume > static_cast<uint64_t>(INT64_MAX / extent->value))) {
-                throw std::runtime_error{"invalid parallel program shape"};
+                diagnostic.set_error("invalid parallel program shape");
+                return {};
             }
             volume *= static_cast<uint64_t>(extent->value);
         }
         if (volume != groups || (reordered && dimensions.size() < 2u)) {
-            throw std::runtime_error{"program traversal requires a matching rank-two-or-higher parallel shape"};
+            diagnostic.set_error("program traversal requires a matching rank-two-or-higher parallel shape");
+            return {};
         }
         if (dimensions.size() >= 2u) {
             auto rows = static_cast<uint64_t>(dimensions[dimensions.size() - 2u].as<tvm::IntImmNode>()->value);
@@ -884,7 +973,10 @@ tvm::tirx::Stmt map_metal_cooperative_group(const tvm::tirx::For &loop, uint32_t
                 auto area = tvm::IntImm::Int64(static_cast<int64_t>(rows * columns));
                 auto mapped = rectangular_program_ordinal(tvm::floormod(group, area), rows, columns,
                                                           options.program_order_rows, options.program_order_columns);
-                if (!mapped) { throw std::runtime_error{mapped.error.c_str()}; }
+                if (!mapped) {
+                    diagnostic.set_error(mapped.error);
+                    return {};
+                }
                 logical_group = tvm::floordiv(group, area) * area + mapped.value[0];
             }
         }
@@ -892,11 +984,15 @@ tvm::tirx::Stmt map_metal_cooperative_group(const tvm::tirx::For &loop, uint32_t
     plan.program_order_rows = options.program_order_rows;
     plan.program_order_columns = options.program_order_columns;
     auto body = CooperativeGroupMapper{thread, threads, shared_memory_limit, cooperative_matrix, analysis.matrices, plan, analysis.accumulators,
-                                       options.enabled && !metal_mpp ? options.max_pipeline_prefetch_scalars_per_lane : 0u, readonly_inputs, loop.get()}
+                                       options.enabled && !metal_mpp ? options.max_pipeline_prefetch_scalars_per_lane : 0u, readonly_inputs, loop.get(), diagnostic}
                     .map(loop->body, options);
-    plans.emplace_back(std::move(plan));
+    if (diagnostic.failed()) { return {}; }
     // Empty domains are no-ops, but must not hide unsupported descendants.
-    if (groups == 0u) { return tvm::tirx::Evaluate{tvm::IntImm::Int32(0)}; }
+    if (groups == 0u) {
+        auto result = tvm::tirx::Evaluate{tvm::IntImm::Int32(0)};
+        plans.emplace_back(std::move(plan));
+        return result;
+    }
     body = tvm::tirx::Substitute(std::move(body),
                                  tvm::ffi::Map<tvm::tirx::Var, tvm::Expr>{{loop->loop_var, logical_group + loop->min}});
     auto zero = tvm::IntImm::Int64(0);
@@ -906,7 +1002,9 @@ tvm::tirx::Stmt map_metal_cooperative_group(const tvm::tirx::For &loop, uint32_t
     body = tvm::tirx::For{thread, zero, worker_count, tvm::tirx::ForKind::kThreadBinding, std::move(body), std::move(worker_axis)};
     auto group_axis = tvm::tirx::IterVar{tvm::Range::FromMinExtent(zero, loop->extent), group,
                                          tvm::tirx::IterVarType::kThreadIndex, "blockIdx.x"};
-    return tvm::tirx::For{group, zero, loop->extent, tvm::tirx::ForKind::kThreadBinding, std::move(body), std::move(group_axis)};
+    auto result = tvm::tirx::For{group, zero, loop->extent, tvm::tirx::ForKind::kThreadBinding, std::move(body), std::move(group_axis)};
+    plans.emplace_back(std::move(plan));
+    return result;
 }
 
 tvm::tirx::Stmt try_map_metal_cooperative_program(
@@ -923,9 +1021,11 @@ tvm::tirx::Stmt try_map_metal_cooperative_program(
     // composes matrix work, ordinary Tile phases and ordered loop-carried state.
     if (!audit.valid || !audit.has_matrix) { return {}; }
     try {
+        Diagnostic diagnostic;
         luisa::vector<GroupPlan> candidate;
         auto result = map_metal_cooperative_group(loop, max_threads, shared_memory_limit,
-                                                  cooperative_matrix, metal_mpp, options, candidate, readonly_inputs);
+                                                  cooperative_matrix, metal_mpp, options, candidate, readonly_inputs, diagnostic);
+        if (diagnostic.failed() || !result.defined()) { return {}; }
         for (auto &plan : candidate) {
             plan.automatic_cooperative = true;
             plans.emplace_back(std::move(plan));

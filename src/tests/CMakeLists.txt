@@ -289,6 +289,15 @@ luisa_compute_add_test(test_matrix             unit/core/test_matrix.cpp        
 luisa_compute_add_test(test_pool               unit/core/test_pool.cpp               LABELS "unit;unit_core")
 luisa_compute_add_test(test_type               unit/core/test_type.cpp               LABELS "unit;unit_core")
 luisa_compute_add_test(test_stl_containers     unit/core/test_stl_containers.cpp     LABELS "unit;unit_core")
+foreach (_map_rejection IN ITEMS mutable const)
+    add_test(NAME test_map_at_reject_${_map_rejection}
+            COMMAND ${CMAKE_COMMAND}
+            "-DTEST_PROGRAM=$<TARGET_FILE:test_stl_containers>"
+            "-DTEST_CASE=${_map_rejection}"
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/common/map_expect_rejection.cmake)
+    set_tests_properties(test_map_at_reject_${_map_rejection} PROPERTIES
+            LABELS "unit;unit_core" TIMEOUT 40)
+endforeach ()
 luisa_compute_add_test(test_hash               unit/core/test_hash.cpp               LABELS "unit;unit_core")
 luisa_compute_add_test(test_spin_mutex         unit/core/test_spin_mutex.cpp         LABELS "unit;unit_core")
 luisa_compute_add_test(test_fiber              unit/core/test_fiber.cpp              LABELS "unit;unit_core")

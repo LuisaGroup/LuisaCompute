@@ -2,7 +2,6 @@
 #include <cstdint>
 #include <functional>
 #include <limits>
-#include <stdexcept>
 
 #include <tvm/ffi/extra/structural_equal.h>
 #include <tvm/tirx/analysis.h>
@@ -21,12 +20,12 @@ namespace luisa::compute::tile::bridge::tirx::detail {
 
 namespace {
 
-class VectorStorageExpander final : public tvm::tirx::StmtExprMutator {
+class VectorStorageExpander final : public DiagnosticStmtExprMutator {
 
 private:
     tvm::PrimExpr _lane;
     tvm::PrimExpr _extent;
-    uint64_t _lane_count;
+    uint64_t _lane_count{0u};
     luisa::unordered_map<const tvm::tirx::VarNode *, tvm::tirx::BufferVar> _buffers;
     tvm::ffi::Array<tvm::tirx::Stmt> _allocations;
 
@@ -46,14 +45,14 @@ protected:
         if (buffer.scope() != "local" || !buffer->strides.empty() ||
             buffer->layout || !buffer->allocated_addr.empty() ||
             offset == nullptr || offset->value != 0) {
-            throw std::runtime_error{"TileIR vector scope requires compact compiler-local allocations"};
+            return _diagnostic.reject("TileIR vector scope requires compact compiler-local allocations", tvm::ffi::GetRef<tvm::tirx::AllocBuffer>(allocation));
         }
         auto volume = _lane_count;
         for (auto &&dimension : buffer->shape) {
             auto extent = dimension.as<tvm::IntImmNode>();
             if (extent == nullptr || extent->value < 0 ||
                 (extent->value != 0 && volume > static_cast<uint64_t>(std::numeric_limits<int64_t>::max() / extent->value))) {
-                throw std::runtime_error{"TileIR vector private allocation needs a static shape within int64 range"};
+                return _diagnostic.reject("TileIR vector private allocation needs a static shape within int64 range", tvm::ffi::GetRef<tvm::tirx::AllocBuffer>(allocation));
             }
             volume *= static_cast<uint64_t>(extent->value);
         }
@@ -93,23 +92,26 @@ protected:
 
     [[nodiscard]] tvm::Expr VisitExpr_(const tvm::tirx::VarNode *variable) final {
         if (_buffers.contains(variable)) {
-            throw std::runtime_error{"TileIR vector private allocation cannot escape through an opaque buffer use"};
+            return _diagnostic.reject("TileIR vector private allocation cannot escape through an opaque buffer use", tvm::ffi::GetRef<tvm::tirx::Var>(variable));
         }
         return StmtExprMutator::VisitExpr_(variable);
     }
 
 public:
-    explicit VectorStorageExpander(const tvm::tirx::For &loop)
-        : _lane{loop->loop_var - loop->min}, _extent{loop->extent} {
+    explicit VectorStorageExpander(const tvm::tirx::For &loop, Diagnostic &diagnostic)
+        : DiagnosticStmtExprMutator{diagnostic}, _lane{loop->loop_var - loop->min}, _extent{loop->extent} {
         auto extent = _extent.as<tvm::IntImmNode>();
         if (extent == nullptr || extent->value <= 0 || extent->value > std::numeric_limits<uint16_t>::max()) {
-            throw std::runtime_error{"TileIR vector scope requires a positive static width representable by TIRx"};
+            _diagnostic.set_error("TileIR vector scope requires a positive static width representable by TIRx");
+            return;
         }
         _lane_count = static_cast<uint64_t>(extent->value);
     }
 
     [[nodiscard]] tvm::tirx::Stmt run(tvm::tirx::For loop) {
+        if (_diagnostic.failed()) { return loop; }
         auto body = VisitStmt(loop->body);
+        if (_diagnostic.failed()) { return loop; }
         loop.CopyOnWrite()->body = std::move(body);
         // Lexical compiler storage inside a vector instance is allocated once
         // for the whole vector and indexed separately by every lane. Parent
@@ -251,8 +253,8 @@ protected:
 
 }// namespace
 
-tvm::tirx::Stmt privatize_vector_storage(const tvm::tirx::For &loop) {
-    return VectorStorageExpander{loop}.run(loop);
+tvm::tirx::Stmt privatize_vector_storage(const tvm::tirx::For &loop, Diagnostic &diagnostic) {
+    return VectorStorageExpander{loop, diagnostic}.run(loop);
 }
 
 tvm::tirx::Stmt vectorize_independent_elements(const tvm::tirx::For &loop, uint32_t max_lanes) {

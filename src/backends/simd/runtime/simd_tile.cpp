@@ -1,9 +1,9 @@
 #include <charconv>
 #include <cstdlib>
 #include <exception>
-#include <stdexcept>
 #include <string_view>
 
+#include <luisa/core/logging.h>
 #include <luisa/core/stl/format.h>
 #include <luisa/tile/analysis.h>
 #include <luisa/tile/bridge/xir/lower.h>
@@ -25,9 +25,10 @@ namespace {
 
 // Diagnostic fixed constraint, not a search heuristic. Do not silently repair
 // malformed metadata or override a conflicting explicit Runtime constraint.
-void root_axis_tiles_from_environment(tile::bridge::xir::PlannerOptions &options) {
+[[nodiscard]] bool root_axis_tiles_from_environment(
+    tile::bridge::xir::PlannerOptions &options, luisa::string &error) {
     auto text = std::getenv("LUISA_SIMD_ROOT_AXIS_TILES");
-    if (text == nullptr) { return; }
+    if (text == nullptr) { return true; }
     auto remaining = std::string_view{text};
     luisa::vector<uint32_t> tiles;
     while (true) {
@@ -36,16 +37,19 @@ void root_axis_tiles_from_environment(tile::bridge::xir::PlannerOptions &options
         auto tile = uint32_t{0u};
         auto parsed = std::from_chars(token.data(), token.data() + token.size(), tile);
         if (token.empty() || parsed.ec != std::errc{} || parsed.ptr != token.data() + token.size() || tile == 0u) {
-            throw std::invalid_argument{"LUISA_SIMD_ROOT_AXIS_TILES requires comma-separated positive uint32 factors"};
+            error = "LUISA_SIMD_ROOT_AXIS_TILES requires comma-separated positive uint32 factors";
+            return false;
         }
         tiles.emplace_back(tile);
         if (delimiter == std::string_view::npos) { break; }
         remaining.remove_prefix(delimiter + 1u);
     }
     if (!options.root_axis_tiles.empty() && options.root_axis_tiles != tiles) {
-        throw std::invalid_argument{"Conflicting XIR and LUISA_SIMD_ROOT_AXIS_TILES constraints"};
+        error = "Conflicting XIR and LUISA_SIMD_ROOT_AXIS_TILES constraints";
+        return false;
     }
     options.root_axis_tiles = std::move(tiles);
+    return true;
 }
 
 }// namespace
@@ -68,7 +72,9 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
         planner_options.enable_expression_reduction_fusion &= !detail::env_flag("LUISA_SIMD_DISABLE_EXPRESSION_REDUCTION_FUSION");
         planner_options.enable_map_fusion |= detail::env_flag("LUISA_SIMD_ENABLE_MAP_FUSION");
         planner_options.enable_map_fusion &= !detail::env_flag("LUISA_SIMD_DISABLE_MAP_FUSION");
-        root_axis_tiles_from_environment(planner_options);
+        if (!root_axis_tiles_from_environment(planner_options, metadata.error)) {
+            return ShaderCreationInfo::make_invalid();
+        }
         if (tile_options.threads_per_group != 0u) {
             if (planner_options.block_size != 0u && planner_options.block_size != tile_options.threads_per_group) {
                 metadata.error = "Conflicting XIR and Runtime block width constraints";

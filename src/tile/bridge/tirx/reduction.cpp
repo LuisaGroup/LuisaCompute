@@ -3,7 +3,6 @@
 #include <cstdint>
 #include <limits>
 #include <optional>
-#include <stdexcept>
 #include <string>
 #include <utility>
 
@@ -947,7 +946,7 @@ public:
     }
 };
 
-class ReductionProgramMapper final : public tvm::tirx::StmtExprMutator {
+class ReductionProgramMapper final : public DiagnosticStmtExprMutator {
 private:
     tvm::PrimExpr _worker;
     tvm::PrimExpr _lane;
@@ -1051,11 +1050,11 @@ private:
         auto linear = (chunk * tvm::IntImm::Int64(static_cast<int64_t>(_workers)) + _worker) * width + element;
         auto previous_slot = std::move(_striped_slot);
         _striped_slot = chunk * width + element;
-        auto contribution = tvm::tirx::Substitute(
-            VisitPrimExpr(match.contribution),
-            tvm::ffi::Map<tvm::tirx::Var, tvm::Expr>{
-                {loop->loop_var, linear}});
+        auto contribution = VisitPrimExpr(match.contribution);
         _striped_slot = std::move(previous_slot);
+        if (_diagnostic.failed()) { return tvm::ffi::GetRef<tvm::tirx::For>(loop); }
+        contribution = tvm::tirx::Substitute(
+            contribution, tvm::ffi::Map<tvm::tirx::Var, tvm::Expr>{{loop->loop_var, linear}});
         auto current = tvm::tirx::BufferLoad{
             match.carry, {tvm::IntImm::Int64(0)}};
         tvm::PrimExpr combined;
@@ -1123,6 +1122,7 @@ private:
         auto body = VisitStmt(domain.body);
         _lane_depth--;
         _striped_slot = std::move(previous_slot);
+        if (_diagnostic.failed()) { return tvm::ffi::GetRef<tvm::tirx::For>(loop); }
         if (domain.count == 0u) {
             return tvm::tirx::Evaluate{tvm::IntImm::Int32(0)};
         }
@@ -1158,8 +1158,7 @@ protected:
                 !_analysis.replicated_elements.contains(loop)) {
                 auto domain = element_domain(loop);
                 if (!domain) {
-                    throw std::runtime_error{
-                        "validated SIMD-group element domain became invalid"};
+                    return _diagnostic.reject("validated SIMD-group element domain became invalid", tvm::ffi::GetRef<tvm::tirx::For>(loop));
                 }
                 return _distributed_elements(loop, *domain);
             }
@@ -1201,8 +1200,7 @@ protected:
         if (auto iter = _striped_buffers.find(load->buffer.get());
             iter != _striped_buffers.end()) {
             if (!_striped_slot) {
-                throw std::runtime_error{
-                    "proved striped Tile storage escaped its element domain"};
+                return _diagnostic.reject("proved striped Tile storage escaped its element domain", tvm::ffi::GetRef<tvm::tirx::BufferLoad>(load));
             }
             return tvm::tirx::BufferLoad{
                 iter->second, {_striped_slot.value()}, _predicate(load->predicate), load->span};
@@ -1215,8 +1213,7 @@ protected:
         if (auto iter = _striped_buffers.find(store->buffer.get());
             iter != _striped_buffers.end()) {
             if (!_striped_slot) {
-                throw std::runtime_error{
-                    "proved striped Tile storage escaped its element domain"};
+                return _diagnostic.reject("proved striped Tile storage escaped its element domain", tvm::ffi::GetRef<tvm::tirx::BufferStore>(store));
             }
             return tvm::tirx::BufferStore{
                 iter->second, VisitPrimExpr(store->value), {_striped_slot.value()}, _predicate(store->predicate), store->span};
@@ -1231,8 +1228,7 @@ protected:
     [[nodiscard]] tvm::Expr VisitExpr_(
         const tvm::tirx::VarNode *variable) final {
         if (_striped_buffers.contains(variable)) {
-            throw std::runtime_error{
-                "proved striped Tile storage escaped through an opaque use"};
+            return _diagnostic.reject("proved striped Tile storage escaped through an opaque use", tvm::ffi::GetRef<tvm::tirx::Var>(variable));
         }
         return StmtExprMutator::VisitExpr_(variable);
     }
@@ -1247,8 +1243,9 @@ public:
         const luisa::unordered_map<const tvm::tirx::ForNode *,
                                    tvm::tirx::BufferVar> &partials,
         const luisa::unordered_map<BufferKey,
-                                   tvm::tirx::BufferVar> &striped_buffers) noexcept
-        : _worker{std::move(worker)}, _lane{std::move(lane)},
+                                   tvm::tirx::BufferVar> &striped_buffers,
+        Diagnostic &diagnostic) noexcept
+        : DiagnosticStmtExprMutator{diagnostic}, _worker{std::move(worker)}, _lane{std::move(lane)},
           _subgroup{std::move(subgroup)}, _partial_base{std::move(partial_base)},
           _program_active{std::move(program_active)}, _workers{workers},
           _subgroups{subgroups}, _unroll_factor{unroll_factor}, _lane_elements{lane_elements}, _analysis{analysis}, _partials{partials},
@@ -1374,7 +1371,7 @@ tvm::tirx::Stmt try_metal_reduction_tile(
 tvm::tirx::Stmt try_map_metal_subgroup_reduction(
     const tvm::tirx::For &loop, uint32_t max_threads,
     uint64_t shared_memory_limit,
-    const PlannerOptions &options, luisa::vector<GroupPlan> &plans) {
+    const PlannerOptions &options, luisa::vector<GroupPlan> &plans, Diagnostic &diagnostic) {
     auto groups = static_extent(loop->extent, true);
     auto minimum = loop->min.as<tvm::IntImmNode>();
     auto scope = loop->annotations.Get(execution_scope_annotation);
@@ -1425,7 +1422,7 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
         !std::isfinite(model.subgroup_reduction_global_access_byte) || model.subgroup_reduction_global_access_byte < 0.0 ||
         !std::isfinite(model.subgroup_reduction_private_access_byte) || model.subgroup_reduction_private_access_byte < 0.0 ||
         options.max_thread_candidates == 0u) {
-        throw std::runtime_error{"invalid reduction cost coefficients or search budget"};
+        return diagnostic.reject("invalid reduction cost coefficients or search budget", tvm::tirx::Stmt{});
     }
     struct Candidate {
         uint64_t subgroups{0u};
@@ -1450,7 +1447,7 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
         widths.emplace_back(options.threads_per_group / (subgroup_size * requested_packing));
     } else {
         if (maximum_program_subgroups > options.max_thread_candidates) {
-            throw std::runtime_error{"reduction thread candidate budget exceeded; increase the budget or request an exact width"};
+            return diagnostic.reject("reduction thread candidate budget exceeded; increase the budget or request an exact width", tvm::tirx::Stmt{});
         }
         for (auto subgroups = uint64_t{1u};
              subgroups <= maximum_program_subgroups; subgroups++) {
@@ -1530,7 +1527,7 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
             if (!std::isfinite(cost.program_score) || cost.program_score < 0.0 ||
                 !std::isfinite(cost.concurrent_waves) || cost.concurrent_waves < 1.0 ||
                 !std::isfinite(cost.kernel_score) || cost.kernel_score < 0.0) {
-                throw std::runtime_error{"reduction cost policy returned a nonfinite or negative score"};
+                return diagnostic.reject("reduction cost policy returned a nonfinite or negative score", tvm::tirx::Stmt{});
             }
             if (cost.kernel_score < best.cost.kernel_score) {
                 best = Candidate{subgroups, packed, threads,
@@ -1596,13 +1593,13 @@ tvm::tirx::Stmt try_map_metal_subgroup_reduction(
         striped_buffers.emplace(key, std::move(buffer));
     }
     if (striped_storage_scalars != best.striped_storage_scalars) {
-        throw std::runtime_error{
-            "reduction stripe resource accounting changed after planning"};
+        return diagnostic.reject("reduction stripe resource accounting changed after planning", tvm::tirx::Stmt{});
     }
     auto body = ReductionProgramMapper{
         std::move(worker), lane, subgroup, partial_base, program_active,
         program_workers, multi_subgroup ? subgroups_per_program : 1u, options.reduction_unroll_factor, options.reduction_lane_elements,
-        analysis, partials, striped_buffers}(loop->body);
+        analysis, partials, striped_buffers, diagnostic}(loop->body);
+    if (diagnostic.failed()) { return {}; }
     if (!allocations.empty()) {
         allocations.push_back(std::move(body));
         body = tvm::tirx::SeqStmt::Flatten(allocations);

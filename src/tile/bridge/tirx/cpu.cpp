@@ -1,8 +1,6 @@
 #include <cstdint>
 #include <limits>
 #include <optional>
-#include <stdexcept>
-#include <string>
 
 #include <tvm/ffi/extra/structural_equal.h>
 #include <tvm/ffi/function.h>
@@ -12,8 +10,10 @@
 #include <tvm/tirx/stmt_functor.h>
 #include <tvm/tirx/transform.h>
 
+#include <luisa/core/stl/format.h>
 #include <luisa/core/stl/unordered_map.h>
 
+#include "diagnostic.h"
 #include "execution.h"
 
 #if defined(LUISA_TILE_HAS_ACCELERATE)
@@ -427,33 +427,37 @@ protected:
 }
 
 [[nodiscard]] int64_t required_positive_attribute(
-    const tvm::tirx::PrimFunc &function, const char *name) {
+    const tvm::tirx::PrimFunc &function, const char *name, Diagnostic &diagnostic) {
     auto value = function->GetAttr<int64_t>(name);
     if (!value || value.value() <= 0) {
-        throw std::runtime_error{std::string{"CPU matrix realization requires positive TIRx attribute '"} + name + "'"};
+        diagnostic.set_error(luisa::format("CPU matrix realization requires positive TIRx attribute '{}'", name));
+        return 0;
     }
     return value.value();
 }
 
 [[nodiscard]] tvm::tirx::BufferVar checked_matrix_parameter(
     const tvm::tirx::PrimFunc &function, size_t index,
-    int64_t rows, int64_t columns) {
+    int64_t rows, int64_t columns, Diagnostic &diagnostic) {
     if (index >= function->params.size()) {
-        throw std::runtime_error{"CPU matrix realization has an incomplete buffer ABI"};
+        diagnostic.set_error("CPU matrix realization has an incomplete buffer ABI");
+        return {};
     }
     auto parameter = function->params[index];
     auto type = parameter->ty.as<tvm::tirx::BufferTypeNode>();
     if (type == nullptr || type->dtype != tvm::PrimType::Float(32) ||
         type->shape.size() != 2u || !type->strides.empty() ||
         type->layout || !type->allocated_addr.empty()) {
-        throw std::runtime_error{"CPU CBLAS realization requires compact rank-2 FP32 buffers"};
+        diagnostic.set_error("CPU CBLAS realization requires compact rank-2 FP32 buffers");
+        return {};
     }
     auto row_extent = type->shape[0u].as<tvm::IntImmNode>();
     auto column_extent = type->shape[1u].as<tvm::IntImmNode>();
     auto offset = type->elem_offset.as<tvm::IntImmNode>();
     if (row_extent == nullptr || column_extent == nullptr || offset == nullptr ||
         row_extent->value != rows || column_extent->value != columns || offset->value != 0) {
-        throw std::runtime_error{"CPU CBLAS realization buffer shape/offset disagrees with its whole-GEMM contract"};
+        diagnostic.set_error("CPU CBLAS realization buffer shape/offset disagrees with its whole-GEMM contract");
+        return {};
     }
     return tvm::tirx::BufferVar{parameter};
 }
@@ -461,26 +465,37 @@ protected:
 }// namespace
 
 tvm::tirx::PrimFunc realize_cpu_whole_gemm(
-    tvm::tirx::PrimFunc function, bool noalias) {
+    tvm::tirx::PrimFunc function, bool noalias, Diagnostic &diagnostic) {
+    if (diagnostic.failed()) { return {}; }
     if (!noalias) {
-        throw std::runtime_error{"CPU CBLAS realization requires the caller's noalias contract"};
+        diagnostic.set_error("CPU CBLAS realization requires the caller's noalias contract");
+        return {};
     }
     auto version = function->GetAttr<int64_t>(whole_gemm_contract_annotation);
     if (!version || version.value() != 1) {
-        throw std::runtime_error{"CPU CBLAS realization requires a proved whole-GEMM TileIR contract v1"};
+        diagnostic.set_error("CPU CBLAS realization requires a proved whole-GEMM TileIR contract v1");
+        return {};
     }
     if (function->params.size() != 3u) {
-        throw std::runtime_error{"CPU whole-GEMM contract v1 requires exactly A, B, and C parameters"};
+        diagnostic.set_error("CPU whole-GEMM contract v1 requires exactly A, B, and C parameters");
+        return {};
     }
     if (!tvm::ffi::Function::GetGlobal("tvm.contrib.cblas.matmul")) {
-        throw std::runtime_error{"CPU CBLAS realization requested, but tvm.contrib.cblas.matmul is not registered"};
+        diagnostic.set_error("CPU CBLAS realization requested, but tvm.contrib.cblas.matmul is not registered");
+        return {};
     }
-    auto m = required_positive_attribute(function, whole_gemm_m_annotation);
-    auto n = required_positive_attribute(function, whole_gemm_n_annotation);
-    auto k = required_positive_attribute(function, whole_gemm_k_annotation);
-    auto a = checked_matrix_parameter(function, 0u, m, k);
-    auto b = checked_matrix_parameter(function, 1u, k, n);
-    auto c = checked_matrix_parameter(function, 2u, m, n);
+    auto m = required_positive_attribute(function, whole_gemm_m_annotation, diagnostic);
+    if (diagnostic.failed()) { return {}; }
+    auto n = required_positive_attribute(function, whole_gemm_n_annotation, diagnostic);
+    if (diagnostic.failed()) { return {}; }
+    auto k = required_positive_attribute(function, whole_gemm_k_annotation, diagnostic);
+    if (diagnostic.failed()) { return {}; }
+    auto a = checked_matrix_parameter(function, 0u, m, k, diagnostic);
+    if (diagnostic.failed()) { return {}; }
+    auto b = checked_matrix_parameter(function, 1u, k, n, diagnostic);
+    if (diagnostic.failed()) { return {}; }
+    auto c = checked_matrix_parameter(function, 2u, m, n, diagnostic);
+    if (diagnostic.failed()) { return {}; }
     tvm::ffi::Array<tvm::Expr> arguments{
         tvm::tirx::StringImm{"tvm.contrib.cblas.matmul"},
         pack_buffer(a),
@@ -495,12 +510,14 @@ tvm::tirx::PrimFunc realize_cpu_whole_gemm(
         tvm::ffi::String{"cblas"});
 }
 
-tvm::tirx::Stmt realize_cpu_vector_math(tvm::tirx::Stmt body) {
+tvm::tirx::Stmt realize_cpu_vector_math(tvm::tirx::Stmt body, Diagnostic &diagnostic) {
+    if (diagnostic.failed()) { return {}; }
 #if defined(LUISA_TILE_HAS_ACCELERATE)
     return VectorMathRealizer{}(std::move(body));
 #else
     static_cast<void>(body);
-    throw std::runtime_error{"Apple Accelerate array-math realization is unavailable in this build"};
+    diagnostic.set_error("Apple Accelerate array-math realization is unavailable in this build");
+    return {};
 #endif
 }
 
