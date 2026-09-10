@@ -655,6 +655,15 @@ if (TARGET luisa-compute-backend-simd)
     luisa_compute_add_test(test_tile_xir_llm unit/tile/bridge/test_xir_llm.cpp
             LABELS "integration;integration_tile_xir;integration_simd" ARGS simd)
     add_dependencies(test_tile_xir_llm luisa-compute-backend-simd)
+    foreach (_attention_rejection IN ITEMS heads block)
+        add_test(NAME test_tile_xir_llm_reject_${_attention_rejection}
+                COMMAND ${CMAKE_COMMAND}
+                "-DTEST_PROGRAM=$<TARGET_FILE:test_tile_xir_llm>"
+                "-DTEST_CASE=${_attention_rejection}"
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/common/tile_llm_expect_rejection.cmake)
+        set_tests_properties(test_tile_xir_llm_reject_${_attention_rejection} PROPERTIES
+                LABELS "unit;unit_tile;unit_tile_xir" TIMEOUT 40)
+    endforeach ()
     if (LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE AND LUISA_COMPUTE_TILE_XIR_TEST_TIRX_COMPARISON)
         target_link_libraries(test_tile_xir_runtime PRIVATE luisa::tile-tirx)
         target_compile_definitions(test_tile_xir_runtime PRIVATE LUISA_TEST_TILE_XIR_TIRX=1)

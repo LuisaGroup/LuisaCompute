@@ -23,7 +23,8 @@ intervals. No slow or failed row is discarded to improve the headline.
 The September 10 {download}`target-info checkpoint <../../../../scripts/benchmark/tile_torch/results/m1-max-20260910-xir-target-info/README.md>`
 adds the distinct `TileIR -> XIR -> LLVM/AIR -> Metal4 Runtime` route, not MPP
 or TIRx. Five selected CTests pass: TileIR, backend target info, Metal4 rows,
-SIMD Runtime and SIMD LLM. Metal4 checks 41 FP32 instances plus five expected
+SIMD Runtime and SIMD LLM, plus two subprocess checks for fatal invalid-attention
+inputs after integrating the latest `next` test helpers. Metal4 checks 41 FP32 instances plus five expected
 rejections, with full outputs, unchanged inputs and guards. The generic bridge
 checks physical 32/64-lane contracts; this machine executes only W32.
 

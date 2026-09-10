@@ -1,7 +1,8 @@
 # XIR backend target info / Metal4：接入与验证 checkpoint
 
 日期：2026-09-10。Apple M1 Max；macOS 26 / Darwin 25.6；LLVM 22.1.8。
-源码基线 `7670fbd5769910a0c8c19ab5f60cdf9bc04f35a4` 加本目录所在提交的改动。
+下方九个 Metal4 探针和 `test-final.xml` 对应实现提交 `214223013`：
+源码基线 `7670fbd5769910a0c8c19ab5f60cdf9bc04f35a4` 加该实现提交的改动。
 主分支为 `next`。隔离源码不包含用户原有 TIRx/matrix/iOS 等 WIP。
 
 ## 结论与边界
@@ -39,7 +40,7 @@ Metal4 正例包含 RMSNorm、LayerNorm、SwiGLU、GELU residual、masked softma
 仅用于环境排查，不用于性能结论，也不受下方最终测量二进制哈希覆盖。
 
 8 个改动 C++ 编译单元通过项目 clangd/clang-tidy 检查（0 errors，保留已报告的风格建议）。
-Doxygen + 严格 Sphinx 构建通过；72 个 HTML、5,424 个本地链接/资源、199 个兼容锚点检查通过。
+最终隔离工作区的 Doxygen + 严格 Sphinx 构建通过；72 个 HTML、5,420 个本地链接/资源、199 个兼容锚点检查通过。
 
 验证中发现并处理：
 
@@ -51,6 +52,23 @@ Doxygen + 严格 Sphinx 构建通过；72 个 HTML、5,424 个本地链接/资�
 4. 上游 CUDA artifact 测试漏引入 `ceil_div` 声明，补齐 mathematics header。
 
 旧 `test_tile_xir` 的部分非法 lower 负例仍与上游 fatal 错误策略不匹配；本次不将它计为通过。
+
+### 合并最新 next 的复验
+
+实现提交后合入 `f6334b385`，合并提交为 `5045809d9`。上游将测试 helper 改为
+无异常 fatal 检查；合并保留该改动及 Metal4 benchmark 路径标识，没有更改 planner/lowering。
+完整构建通过，但第一次复验为 4/5：SIMD LLM 中两个旧 `expect(throws(...))`
+遇到新的 attention shape assertion 而中止，见 `test-next-merge-before-fix.xml`。
+
+这两个负例改为独立 CTest 子进程，在创建设备/线程池前执行同样的非法输入。
+包装器要求非零退出及 `Invalid attention shape` 诊断，明确拒绝超时和正常返回；
+用 `/usr/bin/true` 的反向控制也确认正常退出不会被误计为通过。原有数值检查未删除。
+此适配没有改变下面九个历史探针的数据，不应把历史二进制哈希解释为合并后产物。
+
+最终源码为 `5045809d9` 加本节所在提交的负例适配，完整配置构建通过，7 项 CTest
+全部通过（197.02 s），见 `test-next-rejection.xml`。Metal4 仍有 98,682 个断言，
+SIMD Runtime 为 5,085,845；SIMD LLM 为 2,370,853，恰好少掉移至独立进程的两个
+异常断言，其余数值检查不变。新增修改的 C++ 单元也通过 clangd/clang-tidy 和格式检查。
 
 ## 运行通路探针：不是可靠的性能排名
 
