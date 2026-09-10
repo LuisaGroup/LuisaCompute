@@ -41,7 +41,7 @@ private:
     template<typename T>
     struct ResultHolder final : ResultBase {
         T value;
-        explicit ResultHolder(T value) noexcept : value{std::move(value)} {}
+        explicit ResultHolder(T &&value) noexcept : value{std::move(value)} {}
     };
 
     const Function *_function{nullptr};
