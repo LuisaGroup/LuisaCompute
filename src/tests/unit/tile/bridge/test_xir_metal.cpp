@@ -24,7 +24,7 @@ void check_guards(span<const float> values) {
     expect(std::all_of(values.end() - padding, values.end(), [](float x) { return x == guard; }));
 }
 
-void run(Device &device, const test::tile_llm::Case &fixture, uint32_t lanes) {
+void run(Device &device, const test::tile_llm::Case &fixture, uint32_t lanes, uint32_t expected_lanes = 0u) {
     LUISA_INFO("Metal4 Tile-XIR: {} rows={} width={} local_lanes={}",
                fixture.kernel.function().name(), fixture.shapes[3][0], fixture.shapes[3][1], lanes);
     expect(fixture.kernel.valid());
@@ -35,9 +35,9 @@ void run(Device &device, const test::tile_llm::Case &fixture, uint32_t lanes) {
     expect(static_cast<bool>(shader)) << shader.metadata().error;
     if (!shader) { return; }
     const auto &metadata = shader.metadata();
-    // Automatic mode is used only by the width-seven fallback fixture below;
-    // its local domain cannot span the physical 32-lane packet.
-    auto expected_lanes = lanes == 0u ? 1u : lanes;
+    // Narrow automatic fixtures cannot span a packet. Resource-admission
+    // fixtures explicitly require the surviving packet-local realization.
+    if (expected_lanes == 0u) { expected_lanes = lanes == 0u ? 1u : lanes; }
     expect(metadata.realization.find("TileIR -> XIR SSA -> LLVM AIR -> Metal4 Runtime") != string::npos) << metadata.realization;
     expect(metadata.realization.find("source_format=XIR") != string::npos) << metadata.realization;
     expect(metadata.realization.find(format("local_lanes={};", expected_lanes)) != string::npos) << metadata.realization;
@@ -117,6 +117,18 @@ int main(int argc, char *argv[]) {
     };
     "tile_xir_metal4_rope_complete_program_mapping"_test = [&] {
         for (auto width : {6, 32, 66}) { run(device, test::tile_llm::rows(RowOp::ROPE, 17, width), 1u); }
+    };
+    "tile_xir_metal4_resource_budget_rejects_fixed_and_admits_auto"_test = [&] {
+        for (auto op : {RowOp::LAYER_NORM, RowOp::MASKED_SOFTMAX}) {
+            auto fixture = test::tile_llm::rows(op, 17, 4097);
+            tile::bridge::xir::PlannerOptions forced{.block_size = 64u, .local_lanes = 1u};
+            auto rejected = tile::compile(device, fixture.kernel, {.threads_per_group = 64u, .xir = &forced});
+            expect(!static_cast<bool>(rejected));
+            expect(rejected.metadata().error.find("static snapshot bytes per worker") != string::npos) << rejected.metadata().error;
+            // A rejected fixed mapping must not terminate the process or
+            // poison subsequent compilation. Auto selects a legal candidate.
+            run(device, fixture, 0u, 32u);
+        }
     };
     return 0;
 }

@@ -71,6 +71,9 @@ public:
                candidate.blocks_per_task == 0u &&
                (candidate.local_lanes == 1u || candidate.local_lanes == tile_subgroup_width);
     }
+    [[nodiscard]] tx::ExecutionResourceLimits resource_limits(const tx::ExecutionPlan &) const noexcept override {
+        return {tile_private_snapshot_budget};
+    }
     [[nodiscard]] tx::ExecutionWork schedule(const tx::ExecutionPlan &, tx::ExecutionWork work) const noexcept override {
         // Keep generic packet/block counts. GPU occupancy and residency are
         // deliberately unmodeled rather than represented as CPU home chunks.
@@ -122,7 +125,7 @@ ShaderCreationInfo MetalDevice::create_tile_kernel(
         const auto &plan = planned.selected;
         auto lowered = tx::lower(kernel, {.block_size = plan.block_size,
                                           .root_axis_order = plan.root_axis_order,
-                                          .max_local_bytes = tile_private_snapshot_budget,
+                                          .max_local_bytes = plan.resource_limits.max_snapshot_bytes_per_worker,
                                           .max_unrolled_tile_elements = planner_options.max_unrolled_tile_elements,
                                           .reduction_partitions = planner_options.reduction_partitions,
                                           .local_lanes = plan.local_lanes,
@@ -132,6 +135,10 @@ ShaderCreationInfo MetalDevice::create_tile_kernel(
                                           .enable_map_fusion = planner_options.enable_map_fusion,
                                           .root_axis_tiles = plan.root_axis_tiles});
         if (!lowered) { return fail(lowered.error); }
+        if (lowered.resources.snapshot_bytes_per_worker != plan.resources.snapshot_bytes_per_worker ||
+            lowered.resources.snapshot_allocations != plan.resources.snapshot_allocations) {
+            return fail("Metal4 Tile planner/lowering static snapshot analysis mismatch");
+        }
         if (lowered.required_packet_width != 0u && lowered.required_packet_width != tile_subgroup_width) {
             return fail("Tile XIR subgroup-width contract differs from the Metal4 target");
         }
@@ -218,9 +225,11 @@ ShaderCreationInfo MetalDevice::create_tile_kernel(
             "; private_snapshot_budget={}; max_unrolled_tile_elements={}; unordered_reduction_partitions={}; "
             "fused_reduction_loads={}; fused_reduction_expressions={}; fused_pointwise_regions={}; deferred_maps={}; "
             "custom_cost_policy={}; fast_math={}; ordered_reduction={}",
-            tile_private_snapshot_budget, planner_options.max_unrolled_tile_elements, planner_options.reduction_partitions,
+            plan.resource_limits.max_snapshot_bytes_per_worker, planner_options.max_unrolled_tile_elements, planner_options.reduction_partitions,
             lowered.fused_reduction_loads, lowered.fused_reduction_expressions, lowered.fused_pointwise_regions,
             lowered.deferred_maps, planner_options.cost_policy != nullptr, option.enable_fast_math, ordered_reduction));
+        metadata.realization.append(luisa::format("; static_snapshot_bytes_per_worker={}; static_snapshot_allocations={}; rejected_candidates={}",
+                                                  plan.resources.snapshot_bytes_per_worker, plan.resources.snapshot_allocations, planned.rejected.size()));
         auto shader = luisa::new_with_allocator<MetalShader>(
             this, std::move(pipeline), std::move(shader_metadata.argument_usages),
             std::move(shader_metadata.argument_sampled), luisa::vector<MetalShader::Argument>{},

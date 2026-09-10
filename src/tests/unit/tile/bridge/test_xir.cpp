@@ -148,7 +148,8 @@ void check_root_traversal(std::array<uint64_t, Rank> extents, span<const vector<
 
 }// namespace
 
-int main() {
+int main(int argc, char *argv[]) {
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     "tile_xir_root_traversal_is_bijective_and_identity_is_exact"_test = [] {
         check_root_traversal<1u>({12u}, vector<vector<uint32_t>>{{1u}, {3u}, {12u}});
         check_root_traversal<2u>({4u, 6u}, vector<vector<uint32_t>>{{1u, 1u}, {1u, 3u}, {4u, 6u}, {2u, 3u}, {2u, 1u}});

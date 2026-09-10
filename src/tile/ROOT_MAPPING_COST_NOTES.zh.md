@@ -347,3 +347,104 @@ Error 尚未修复**，性能目标不得标记完成。
   同步 host-wall 诊断或已有 pure-entry 结果混算。
 - 保留未解决 Error 和原始证据；恢复 SIMD 工作时从明确的源码/二进制
   checkpoint 重建测试，不把临时 probe 的成功外推成默认路径已修复。
+
+## 9. RoPE 生成代码的有界证据：先组织共享 DAG，再调 root 枚举
+
+本节于 2026 年 9 月 10 日只读检查已保存的生成物，**性能数据来自 9 月 9 日，
+不是本轮重新测量**。它补充 program 内部 realization 的证据，不扩大 §1 中
+`root_axis_tiles` 仅改变 program 枚举顺序的定义，也不作为新的优化规范。
+
+### 9.1 实验身份与不能混用的结论
+
+来源为 [native 行算子报告](../../scripts/benchmark/tile_torch/results/m1-max-20260909-native-rows/notes.md)
+及 [完整表](../../scripts/benchmark/tile_torch/results/m1-max-20260909-native-rows/tables.md)：
+M1 Max、FP32、单 CPU worker、packet W8、block 32、固定 local=8，沿用
+`4f46d03f3` 对应的编译器。full-packet specialization、predicated memory
+effects、cohort-private access 开启，load/reduction fusion 与 fast math 关闭；
+这批 entry 没有当前 guarded pointwise DAG fusion 的执行证据。
+
+- `17×66`：Tile local 为 **0.146 µs**，实际 Inductor entry 为 **0.105 µs**，
+  配对比值中位数 **1.389**，六轮范围 1.372–1.398，Tile 胜出 0/6。
+- `1024×4098`：分别为 **1256.193 µs**、**1016.388 µs**，配对比值中位数
+  **1.247**，六轮范围 1.144–1.350，Tile 胜出 0/6。
+
+单位是 warm single-thread **native-entry host-wall**，不是 Runtime E2E、GPU
+时间或硬件周期。表内时间为六轮 p50 的中位数，比值为同轮比值的中位数，不应重新
+相除替换。正式协议保留了全部六种执行顺序、输出/oracle、输入不变性与现场 guards
+检查；本次只读代码检查没有重跑这些验证。固定候选的成绩不是 solver 自动优化成绩。
+
+这两个 RoPE entry **不计算 sin/cos**。其三个输入是 `x/u/v`，图计算
+`left*u - right*v` 和 `left*v + right*u`；三角函数只用于构造测试输入，位于
+被测 entry 之外。两侧实际代码只有这里的乘、加、减，不能把差距归因为重复三角函数。
+
+### 9.2 大尺寸：四份 snapshot 与两遍输出遍历确实留在机器码中
+
+归档中 `captures/rope-1024x4098-l8/kernel.ll.gz` 包含四个 `[8224 x i8]`
+snapshot。这里不能只由 LLVM 中出现 `alloca` 就断言最终开销；还检查了
+`kernel.o.gz` 的 relocation 和 `native/rope-1024x4098/local.dylib.gz`
+的实际 linked entry，确认以下结构保留：
+
+```text
+四个输入区间：left / right / u / v
+       │ 四次 8192-byte memcpy，另处理尾元素
+       ▼
+四份 packet-private snapshot
+       ├─ 第一遍：读四份 snapshot → 写左输出
+       └─ 第二遍：重读四份 snapshot → 写右输出
+```
+
+对应 [归档反汇编](../../scripts/benchmark/tile_torch/results/m1-max-20260909-native-rows/native/rope-1024x4098/local.asm.gz)
+中，object-relative `0x154/0x17c/0x1ac/0x1d0` 的调用由
+[`kernel.o.gz`](../../scripts/benchmark/tile_torch/results/m1-max-20260909-native-rows/captures/rope-1024x4098-l8/kernel.o.gz)
+的 relocation 确认为 `_memcpy`；`0x1f8–0x240`、`0x268–0x2b0` 是两遍输出循环。
+linked entry 的栈帧为 `0xa0 + 0x8000 + 0x340 = 33760 B`，含编译器额外状态，
+不等于四个 Tile snapshot 的逻辑字节数。
+
+相对地，[实际 Inductor C++](../../scripts/benchmark/tile_torch/results/m1-max-20260909-native-rows/native/rope-1024x4098/inductor.cpp)
+的一个 float4 迭代读取四个向量，共享寄存器 SSA 后立即写两个输出；其机器码
+`_kernel+0x74…0xb8` 确认同样结构。忽略 padding，每个 paired coordinate 的
+逻辑访存从 `4 input reads + 4 snapshot writes + 8 snapshot reads + 2 output writes`
+变为 `4 reads + 2 writes`，即 18 对 6 个 float 访问。**这不是三倍 DRAM 流量或
+三倍加速预测**：snapshot 可能主要命中 cache，实际瓶颈尚无周期/counter 归因。
+
+### 9.3 小尺寸：整行展开拉长共享值生命周期，实际发生 spill/reload
+
+`native/rope-17x66/local.asm.gz` 的 entry 栈帧为 `0xa0 + 0x700 = 1952 B`。
+它先展开读取整行，完成左输出后再计算右输出；object-relative `0x220` 起可见
+从 `[sp,#0x1c0]`、`[sp,#0x1a0]` 等位置重新加载共享输入。
+[小尺寸 Inductor C++](../../scripts/benchmark/tile_torch/results/m1-max-20260909-native-rows/native/rope-17x66/inductor.cpp)
+及其机器码则每四个元素共享计算两份输出后才进入下一块，最后单独处理一个尾元素。
+
+此外，Tile entry 的 `0x998–0xa14` 仍有三维 block 进位、launch-record 写回、
+remaining-lanes 和 full/partial packet 分派；Inductor 是固定行循环。重放调用的是
+单个 `packet_batch.blocks`，**不是每个 packet 一次外部调用**。这些事实支持检查
+小尺寸的 entry 开销，但没有证据能把约 41 ns 的绝对差距分摊给 spill 或分派。
+
+### 9.4 对联合候选的启发与本轮验证边界
+
+按优先级，下一步不是按 `rope` 名字选择算法，而是：
+
+1. **先验证已有共享 DAG 候选。** [`Lowerer::_pointwise`](bridge/xir/lower.cpp)
+   已能按同一坐标遍历全部 consumer，每个 SSA 值只求一次，并保留 alias-safe
+   snapshot fallback。[`PointwiseRegion`](bridge/xir/pointwise.h) 的共同域、effect
+   interval、escape 与读写不相交检查仍必须成立，不能由不同参数名推出 noalias。
+2. **把融合组的 live-state 与 chunk/unroll 联合考虑。** 相同元素数的单输出链和
+   多输出共享 DAG 会有不同 live range。当前
+   [`traversal_emission_plan`](bridge/xir/representation.h) 主要按 extent、lanes
+   和展开阈值选择循环；可逐步增加同时存活值、spill 风险和代码体积特征。不能只
+   减小展开阈值就预先宣布获益，也不能把静态 snapshot 字节数当寄存器压力。
+3. **之后评估通用静态域入口专化。** 由一维 root/完整 packet/精确 tail 的事实
+   简化分派，保留 ABI 和子区间执行语义。该方向的证据弱于前两项，暂不添加拟合权重。
+
+当前 [`PlannerOptions::enable_pointwise_fusion`](../../include/luisa/tile/bridge/xir/planner.h)
+仍是固定开关，其 prior 仍估计原 snapshot 路径；representation 选项也没有在
+当前搜索中联合枚举。因此 `mapping × fusion/materialization × chunk/unroll`
+是待验证、待纳入求解的空间，**不是已实现的自动最优选择**。
+
+本轮新增静态资源接口将 compiler-owned allocation facts 与 backend budget 分开，
+详见 [XIR 资源分析文档](../../docs/source/internals/tile/xir.md#static-snapshot-admission-precedes-cost-ranking)。
+它统计 emitted allocation sites，不统计动态访存、峰值 liveness、native 对齐或
+寄存器溢出；不能单靠它兑现本节性能假设。该接口已完成全构建及 8 项选定回归，
+见 [资源准入 checkpoint](../../scripts/benchmark/tile_torch/results/m1-max-20260910-xir-resource-admission/README.md)；
+**本节 RoPE 的新 native A/B 验证仍 pending**。历史生成物完整可读不等于当前性能已复验；下一次测量
+必须冻结新源码/二进制，与旧记录分开，并覆盖其他多输出图、别名反例和未拟合尺寸。

@@ -12,9 +12,9 @@ struct LowerOptions {
     uint32_t max_expanded_values{262144u};
     // Empty preserves declaration order, useful as a fixed baseline.
     luisa::vector<uint32_t> root_axis_order;
-    // Total compiler-owned snapshot storage per logical worker (not packet).
+    // Total compiler-owned snapshot storage per physical worker/lane (not packet).
     // A hard bound, not a peak-liveness or target stack-size estimate.
-    uint32_t max_local_bytes{262144u};
+    uint64_t max_local_bytes{262144u};
     // Larger Tile traversals use runtime loops. Zero keeps the fully expanded
     // realization as an explicit diagnostic baseline; it does not remove budgets.
     uint32_t max_unrolled_tile_elements{64u};
@@ -49,6 +49,26 @@ struct LowerOptions {
     luisa::vector<uint32_t> root_axis_tiles;
 };
 
+// Static compiler-owned array allocations per physical worker/lane. This is
+// neither peak live storage nor a target stack/register/occupancy estimate.
+struct ExecutionResources {
+    uint64_t snapshot_bytes_per_worker{0u};
+    uint64_t snapshot_allocations{0u};
+};
+
+struct ResourceAnalysis {
+    ExecutionResources resources;
+    luisa::string error;
+    [[nodiscard]] bool ok() const noexcept { return error.empty(); }
+    [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
+};
+
+// Analyze the same representation and static emission plan as lower(), without
+// emitting XIR. Reports demand independently of max_local_bytes; unsupported
+// realization contracts return an error rather than an optimistic estimate.
+[[nodiscard]] LUISA_TILE_XIR_BRIDGE_API ResourceAnalysis analyze_resources(
+    const Function &function, const LowerOptions &options = {}) noexcept;
+
 struct NativeFunction {
     luisa::unique_ptr<compute::xir::Module> module;
     compute::xir::KernelFunction *function{nullptr};
@@ -68,6 +88,7 @@ struct NativeFunction {
     uint32_t fused_reduction_expressions{0u};
     uint32_t elided_expression_snapshots{0u};
     uint32_t deferred_maps{0u};
+    ExecutionResources resources;
     luisa::string error;
     [[nodiscard]] bool ok() const noexcept { return module != nullptr && function != nullptr && error.empty(); }
     [[nodiscard]] explicit operator bool() const noexcept { return ok(); }

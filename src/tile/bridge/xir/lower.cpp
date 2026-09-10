@@ -11,6 +11,7 @@
 #include <luisa/xir/constant.h>
 #include <luisa/xir/verifier.h>
 #include "representation.h"
+#include "resources.h"
 #include "pointwise.h"
 #include "root_mapping.h"
 
@@ -88,7 +89,6 @@ private:
     luisa::unordered_map<const Representation *, x::Value *> _fused_elements;
     luisa::unordered_map<const Value *, IndexRange> _coordinate_ranges;
     uint64_t _expanded_values{0u};
-    uint64_t _local_bytes{0u};
     uint32_t _recipe_depth{0u};
     bool _inside_parallel{false};
     bool _saw_parallel{false};
@@ -153,12 +153,12 @@ private:
         return result;
     }
     [[nodiscard]] bool _bounded(uint64_t count) const noexcept {
-        return _options.max_unrolled_tile_elements != 0u && count > _options.max_unrolled_tile_elements;
+        return detail::bounded_count(count, _options);
     }
-    [[nodiscard]] bool _distributed(uint64_t count) const noexcept { return _options.local_lanes > 1u && count >= _options.local_lanes; }
+    [[nodiscard]] bool _distributed(uint64_t count) const noexcept { return detail::distributed_count(count, _options); }
     [[nodiscard]] uint64_t _storage_count(const Type &type) const {
         auto count = _volume(*type.index_space());
-        return _distributed(count) ? ceil_div(count, static_cast<uint64_t>(_options.local_lanes)) : count;
+        return detail::snapshot_elements(count, _options);
     }
     [[nodiscard]] x::Value *_storage_index(const Type &type, x::Value *flat) {
         if (!_distributed(_volume(*type.index_space()))) { return flat; }
@@ -204,10 +204,12 @@ private:
         auto element = _type(type);
         auto count = _storage_count(type);
         auto bytes = count * element->size();
-        if (bytes > _options.max_local_bytes || _local_bytes > _options.max_local_bytes - bytes) {
+        auto &resources = _output.resources;
+        if (bytes > _options.max_local_bytes || resources.snapshot_bytes_per_worker > _options.max_local_bytes - bytes) {
             _fail("XIR realization exceeds its local snapshot storage budget");
         }
-        _local_bytes += bytes;
+        resources.snapshot_bytes_per_worker += bytes;
+        resources.snapshot_allocations++;
         _charge();
         auto storage = _builder.alloca_local(XType::array(element, count));
         storage->set_name("tile_snapshot");
@@ -215,7 +217,7 @@ private:
     }
     template<typename F>
     void _serial_for(uint64_t count, F &&emit, bool force_loop = false) {
-        if (!_bounded(count) && !force_loop) {
+        if (!detail::serial_runtime_loop(count, _options, force_loop)) {
             for (uint64_t i = 0u; i < count; i++) { emit(_index(i)); }
             return;
         }
@@ -235,23 +237,24 @@ private:
     }
     template<typename F>
     void _for_each(uint64_t count, F &&emit) {
-        if (!_distributed(count)) {
+        auto plan = detail::traversal_emission_plan(count, _options);
+        if (plan.lanes == 1u) {
             _serial_for(count, emit);
             return;
         }
-        auto lanes = _options.local_lanes;
-        auto full = count / lanes;
+        auto lanes = plan.lanes;
+        auto full = plan.full_count;
         auto element = [&](x::Value *chunk) {
             auto previous = _local_slot;
             _local_slot = chunk;
             emit(_binary(A::BINARY_ADD, _binary(A::BINARY_MUL, chunk, _index(lanes)), _lane));
             _local_slot = previous;
         };
-        _serial_for(full, element, _bounded(count));
-        if (count % lanes != 0u) {
+        _serial_for(full, element, plan.runtime_loop);
+        if (plan.tail_lanes != 0u) {
             auto tail = _output.function->create_basic_block();
             auto exit = _output.function->create_basic_block();
-            _builder.cond_br(_compare(A::BINARY_LESS, _lane, _index(count % lanes)), tail, exit);
+            _builder.cond_br(_compare(A::BINARY_LESS, _lane, _index(plan.tail_lanes)), tail, exit);
             _at(tail);
             element(_index(full));
             _builder.br(exit);
@@ -308,7 +311,7 @@ private:
     template<typename F>
     void _emit_tile(const Value *value, F &&emit) {
         auto count = _volume(*value->type().index_space());
-        if (_bounded(count) || _distributed(count)) {
+        if (detail::traversal_snapshot(count, _options)) {
             auto storage = _allocate(value->type());
             _for_each(count, [&](x::Value *flat) { _store_local(value->type(), storage, flat, emit(flat)); });
             _representation(value)->storage = storage;
@@ -320,7 +323,7 @@ private:
     }
     void _define(const Value *value, Elements elements) {
         auto data = _representation(value);
-        if (elements.size() > 1u && detail::needs_indexable_snapshot(value, _options.max_unrolled_tile_elements)) {
+        if (detail::definition_snapshot(value, elements.size(), _options)) {
             auto storage = _allocate(value->type());
             for (size_t i = 0u; i < elements.size(); i++) {
                 _store_local(value->type(), storage, _index(i), elements[i]);
@@ -677,9 +680,8 @@ private:
         auto count = op.domain() ? _volume(*op.domain()) : 1u;
         auto access = [&](x::Value *flat) { return _view_element(captured, flat); };
         if (op.kind() == OperationKind::VIEW_LOAD) {
-            if (auto fusion = detail::reduction_producer_fusion(op.result(0u), _options.max_unrolled_tile_elements,
-                                                                _options.local_lanes, _options.reduction_partitions,
-                                                                _options.enable_load_reduction_fusion, _options.enable_expression_reduction_fusion)) {
+            auto plan = detail::value_allocation_plan(op.result(0u), count, _options);
+            if (auto fusion = plan.fusion) {
                 auto result = _representation(op.result(0u));
                 result->pending_producer = true;
                 if (fusion->retain_snapshot) { result->storage = _allocate(*result->type); }
@@ -847,19 +849,19 @@ private:
         return {};
     }
     [[nodiscard]] bool _partial_reduction(const Operation &op) {
-        auto closed = detail::closed_reduction(op);
-        if (!closed) { return false; }
         auto total = _volume(*op.domain());
-        auto distributed = _distributed(total);
-        if (!distributed && (!_bounded(total) || _options.reduction_partitions <= 1u)) { return false; }
+        auto plan = detail::reduction_emission_plan(op, total, _options);
+        if (!plan) { return false; }
+        auto &closed = plan->closed;
+        auto distributed = plan->lanes > 1u;
         auto body = op.region(0u)->block(0u);
-        auto update = closed->update;
-        auto yield = closed->yield;
-        auto left = closed->carry_left;
-        auto contribution = closed->contribution;
-        auto lanes = distributed ? _options.local_lanes : 1u;
-        auto count = total / lanes;
-        auto partitions = std::min<uint64_t>(_options.reduction_partitions, count);
+        auto update = closed.update;
+        auto yield = closed.yield;
+        auto left = closed.carry_left;
+        auto contribution = closed.contribution;
+        auto lanes = plan->lanes;
+        auto count = plan->count;
+        auto partitions = plan->partitions;
         auto type = _type(op.result(0u)->type());
         auto initial = _scalar(op.operand(0u));
         // Consume, rather than retain, this host-side plan. The same source
@@ -928,11 +930,11 @@ private:
             // A final partial chunk updates only the owning active lanes. All
             // lanes reconverge before shuffles; no empty-lane identity or
             // duplicated initial accumulator is introduced.
-            if (total % lanes != 0u) {
+            if (plan->tail_lanes != 0u) {
                 auto before = _block;
                 auto tail = _output.function->create_basic_block();
                 auto exit = _output.function->create_basic_block();
-                _builder.cond_br(_compare(A::BINARY_LESS, _lane, _index(total % lanes)), tail, exit);
+                _builder.cond_br(_compare(A::BINARY_LESS, _lane, _index(plan->tail_lanes)), tail, exit);
                 _at(tail);
                 auto value = combine(results[0u], evaluate(_index(count)));
                 auto after = _block;
@@ -995,7 +997,9 @@ private:
         luisa::vector<Carry> carries(op.result_count());
         for (size_t i = 0u; i < carries.size(); i++) {
             auto &type = op.result(i)->type();
-            if (type.is_tile() && _bounded(_volume(*type.index_space()))) {
+            auto count = type.is_tile() ? _volume(*type.index_space()) : 1u;
+            auto plan = detail::carry_allocation_plan(body->argument(domain.rank() + i), op.result(i), count, _options);
+            if (plan.buffered) {
                 carries[i].current = _allocate(type);
                 carries[i].next = _allocate(type);
                 _copy(_get(op.operand(i)), carries[i].current);
@@ -1101,7 +1105,8 @@ private:
             case OperationKind::CONSTANT: {
                 auto result = op.result(0u);
                 auto count = result->type().is_tile() ? _volume(*result->type().index_space()) : 1u;
-                if (_bounded(count) || _distributed(count)) {
+                auto plan = detail::value_allocation_plan(result, count, _options);
+                if (plan.representation == detail::ValueRepresentation::SPLAT) {
                     _charge();
                     auto data = _representation(result);
                     data->splat = true;
@@ -1115,7 +1120,8 @@ private:
             case OperationKind::ELEMENTWISE: {
                 auto result = op.result(0u);
                 auto domain = result->type().is_tile() ? *result->type().index_space() : IndexSpace{};
-                if (detail::deferred_expression(result, _options.max_unrolled_tile_elements, _options.local_lanes, _options.enable_map_fusion)) {
+                auto plan = detail::value_allocation_plan(result, _volume(domain), _options);
+                if (plan.representation == detail::ValueRepresentation::DEFERRED_EXPRESSION) {
                     // Capture immutable physical operands now, not mutable
                     // TileIR-to-XIR bindings that another map/carry may replace.
                     // Single-use arithmetic is evaluated at its consumer.
@@ -1125,9 +1131,7 @@ private:
                     for (size_t j = 0u; j < op.operand_count(); j++) { data->inputs.emplace_back(_get(op.operand(j))); }
                     break;
                 }
-                if (auto fusion = detail::reduction_producer_fusion(result, _options.max_unrolled_tile_elements,
-                                                                    _options.local_lanes, _options.reduction_partitions,
-                                                                    _options.enable_load_reduction_fusion, _options.enable_expression_reduction_fusion)) {
+                if (auto fusion = plan.fusion) {
                     _charge();
                     auto data = _representation(result);
                     data->expression = &op;
@@ -1162,7 +1166,8 @@ private:
             case OperationKind::MMA: _mma(op); break;
             case OperationKind::TILE_MAP: {
                 auto body = op.region(0u)->block(0u);
-                if (detail::deferred_map(op.result(0u), _options.enable_map_fusion, _options.local_lanes)) {
+                auto plan = detail::value_allocation_plan(op.result(0u), _volume(*op.domain()), _options);
+                if (plan.representation == detail::ValueRepresentation::DEFERRED_MAP) {
                     auto data = _representation(op.result(0u));
                     data->expression = &op;
                     for (auto child : body->operations()) {
@@ -1253,13 +1258,15 @@ private:
 public:
     Lowerer(const Function &input, LowerOptions options) : _input{input}, _options{options} {}
     [[nodiscard]] NativeFunction run() {
-        if (_input.parent_module() == nullptr || !verify(*_input.parent_module())) { _fail("TileIR verification failed before XIR lowering"); }
-        if (_input.body().block_count() != 1u || !x::KernelFunction::is_valid_block_size(luisa::make_uint3(_options.block_size, 1u, 1u)) || _options.max_expanded_values == 0u ||
-            _options.reduction_partitions == 0u || _options.reduction_partitions > 16u ||
-            !_options.local_lanes || (_options.local_lanes & (_options.local_lanes - 1u)) ||
-            _options.block_size % _options.local_lanes) { _fail("invalid XIR realization options or entry region"); }
-        if (_options.local_lanes > 1u && !detail::packet_local_program(_input, _options.local_lanes)) {
-            _fail("XIR packet-local realization requires a common pointwise axis and closed unordered reductions with owner-preserving extracts");
+        auto analysis = analyze_resources(_input, _options);
+        if (!analysis) {
+            _output.error = std::move(analysis.error);
+            return std::move(_output);
+        }
+        if (analysis.resources.snapshot_bytes_per_worker > _options.max_local_bytes) {
+            _output.error = luisa::format("XIR realization exceeds its snapshot storage budget: requires {} bytes per worker, budget {} bytes",
+                                          analysis.resources.snapshot_bytes_per_worker, _options.max_local_bytes);
+            return std::move(_output);
         }
         _output.module = luisa::make_unique<x::Module>();
         _output.required_packet_width = _options.local_lanes > 1u ? _options.local_lanes : 0u;
@@ -1286,6 +1293,11 @@ public:
             _operation(*op);
         }
         if (!_saw_parallel) { _fail("XIR realization requires a root parallel domain"); }
+        LUISA_ASSERT(_output.resources.snapshot_bytes_per_worker == analysis.resources.snapshot_bytes_per_worker &&
+                         _output.resources.snapshot_allocations == analysis.resources.snapshot_allocations,
+                     "XIR snapshot allocation plan disagrees with emitted storage: predicted {} bytes / {} allocations, emitted {} bytes / {} allocations",
+                     analysis.resources.snapshot_bytes_per_worker, analysis.resources.snapshot_allocations,
+                     _output.resources.snapshot_bytes_per_worker, _output.resources.snapshot_allocations);
         _builder.return_void();
         auto verified = x::xir_verify_module(_output.module.get(), {.require_reachable_blocks = true});
         if (!verified.succeeded()) { _fail(verified.errors.front().message); }
@@ -1294,6 +1306,10 @@ public:
 };
 
 }// namespace
+
+ResourceAnalysis analyze_resources(const Function &function, const LowerOptions &options) noexcept {
+    return detail::ResourceAnalyzer{function, options}.run();
+}
 
 NativeFunction lower(const Function &function, const LowerOptions &options) noexcept {
     return Lowerer{function, options}.run();

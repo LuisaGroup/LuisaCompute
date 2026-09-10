@@ -5,6 +5,9 @@ compiler-owned snapshots, bounded Tile traversal, closed unordered partials and
 an opt-in packet-local mapping; backend-provided execution target info and a
 Metal4 XIR/AIR Runtime adapter, September 10, 2026. The finite solver below is implemented. General Tile distribution, packed
 matrix atoms, software pipelining and measured cost calibration are not.
+Shared static snapshot analysis and backend-owned pre-cost resource admission are
+implemented and regression-tested. Their verification is recorded separately from
+older benchmarks; they do not imply measured cost calibration or a kernel speedup.
 
 This document complements the [language/layout design](../../tile/design.md),
 [target-independent planner formulation](planner.md) and
@@ -178,12 +181,14 @@ This is a physical representation repair, **not contribution-axis vectorization*
 The SIMD emitter allocates each worker's local array separately within a
 packet and uses its existing gather/scatter machinery. It may still spill.
 `max_local_bytes` bounds
-the sum of snapshot allocations per logical worker (default 256 KiB), not
+the sum of snapshot allocations per physical worker/lane (standalone default 256 KiB), not
 peak liveness or the complete target stack; the packet multiplies this storage
 by W. The existing SSA expansion budget also charges allocation/GEP/store
-construction. Exceeding either bound rejects lowering rather than truncating
-values or silently changing semantics. This does not introduce manual Memory
-requirements or a new execution scope.
+construction. Exceeding either bound does not truncate values or silently change
+semantics. The new snapshot-admission path returns a diagnostic; existing deep
+SSA expansion and deferred-recipe depth failures still use fatal Luisa diagnostics,
+so this is not a fully recoverable lowering boundary. This does not introduce manual
+Memory requirements or a new execution scope.
 
 The guarded load retains this bridge's existing flat-index zero fallback;
 it is not a new language-wide promise about invalid multidimensional
@@ -834,7 +839,8 @@ actual accesses. Joint search is therefore opt-in, not a promised speedup.
 | `target()` | Physical packet width; CPU scheduling parameters only for thread-pool info |
 | `block_sizes()` | Finite candidate proposals; pinned widths are still checked |
 | `supports_local_distribution()` / `supports_task_grain()` | Availability of these realizations |
-| `accepts(candidate)` | Additional backend constraints; may only narrow common legality |
+| `accepts(candidate)` | Additional geometry constraints before resource analysis; may only narrow common legality |
+| `resource_limits(candidate)` | Backend snapshot budget after shared static resource facts are attached |
 | `schedule(candidate, work)` | Target scheduling quantities from extracted work and packet/block counts |
 | `cost_policy()` | Backend's default objective; an explicit user cost policy may replace it |
 
@@ -851,30 +857,120 @@ again. `AnalyticExecutionCostPolicy` supplies the formula above; a backend can
 inherit either hook. The policy is borrowed only during synchronous planning.
 Invalid coefficients and nonfinite/negative returned cost components are
 rejected. Neither a policy nor a low score can waive IR, domain, binding,
-redistribution or candidate-budget checks.
+redistribution, static snapshot capacity or candidate-budget checks.
 
 ```text
 TileIR semantics ── common mapping invariants
                                │
-backend target info ── candidates ∩ backend constraints
+backend target info ── candidates ∩ geometry constraints
                                │
-                    target-independent work extraction
+                    shared static resource analysis
                                │
-                    backend scheduling model
+                    backend resource_limits(candidate)
+                    ├─ rejected: retain candidate + reason
+                    └─ admitted
+                               │
+                    backend scheduling model ← compiled work facts
                     ├─ CPU: thread-pool home chunks
                     └─ GPU: packet/group work (no CPU tasks)
                                │
-                    backend/user cost objective
+                    backend/user cost objective ← compiled work facts
                                │
                     exact finite minimum
                                │
                     lower → backend ABI check → Runtime
 ```
 
+Dynamic work extraction starts only after a resource-admissible candidate exists
+and is reused across block/task geometries with the same root order and local
+distribution. These work facts are separate from static storage demand. Rejected
+candidates never reach `schedule()` or `evaluate()`. Fixed root constraints share
+validation with resource analysis and lowering, before mixed-radix decoding.
+
 The [task-grain experiment](../../performance/tile/results.md#cpu-task-grain-is-independent-of-the-native-packet-body)
 shows why this hook must include actual realization costs before automatic
 rollout: a provisional activation-only extension helps small dispatches, but
 still underprices state-machine fallbacks and overly coarse parallel chunks.
+
+### Static snapshot admission precedes cost ranking
+
+The current resource interface is a bounded compiler fact, separate from the
+dynamic memory-work prior and native hardware resource reports:
+
+```cpp
+struct ExecutionResources {
+    uint64_t snapshot_bytes_per_worker;
+    uint64_t snapshot_allocations;
+};
+```
+
+`analyze_resources(function, lower_options)` walks the same allocation and static
+emission plans used by lowering, without emitting XIR. It reports demand independently
+of `max_local_bytes`; checked unsupported cases and count overflow produce diagnostics,
+not optimistic zero demand. This does not make all unsupported expansion or recipe
+depth failures recoverable: existing deep helpers can still issue fatal diagnostics.
+Each successfully analyzed `ExecutionPlan` carries `resources`
+and the `ExecutionResourceLimits` returned by
+`ExecutionTargetInfo::resource_limits(candidate)`. The hook may inspect the
+candidate geometry and its resource facts; the solver does not own hardware constants.
+
+The admission sequence is geometry → shared resource analysis → backend budget →
+scheduling/cost. `accepts()` does not receive populated resource facts because it
+performs the earlier geometry check. A successfully analyzed candidate is rejected
+before `schedule()`/`evaluate()` if its static snapshot demand exceeds the returned
+budget. Zero capacity permits allocation-free candidates. Unfixed search continues
+with other declared candidates; a fixed mapping that cannot fit returns a diagnostic
+and never silently changes lanes.
+
+`PlanningResult.candidates` contains admitted, scored plans; `selected` preserves
+the winning plan's resource demand and budget. `PlanningResult.rejected` retains
+candidate geometry, available analysis facts/budget and a reason. A geometry or
+analysis failure must not be interpreted as a measured zero-byte realization simply
+because its resource fields have not been populated. If every candidate is rejected,
+planning returns an error while retaining those rejection records.
+
+These counts describe **static emitted allocation sites per physical worker/lane**:
+
+```text
+B(r) = Σ_s multiplicity_s(r) × storage_elements_s(r) × scalar_bytes_s
+A(r) = Σ_s multiplicity_s(r)
+```
+
+Here `r` fixes the candidate's local distribution and representation settings;
+`s` ranges over allocation sites in their shared representation plans.
+`multiplicity_s` counts static emissions, not runtime iterations, and
+`storage_elements_s` is the site's storage per physical worker/lane, including its
+representation rounding. The reported fields are `snapshot_bytes_per_worker = B(r)`
+and `snapshot_allocations = A(r)`:
+
+- Root program count and Runtime task repetition do not multiply a worker's storage.
+- A runtime loop body is emitted once; a statically expanded map/reduction body is
+  counted at each emission. Even a zero-trip ordered loop may have an emitted body.
+- Large carry current/next buffers, retained producer snapshots and definition-time
+  indexed snapshots follow the shared representation rules.
+- Guarded pointwise fusion retains one eager alias fallback. Its snapshot sites
+  still count once even when the fast path has no arrays; runtime disjointness does
+  not remove static fallback storage from this budget.
+
+This is **not** peak liveness, register count, stack usage, native aligned workspace,
+occupancy or executed memory traffic. The SIMD backend's packet-wide interleaving,
+alignment, stack/workspace placement and final 16-MiB workspace check remain separate;
+its target info supplies the logical per-worker ceiling from `16 MiB / W`. Metal4
+supplies its 64-KiB compiler snapshot limit, not a queried hardware register capacity.
+Neither budget implies that a fitting candidate is fast or spill-free.
+
+The adapters pass the selected budget back into lowering and compare both resource
+fields against the emitted result. Lowering retains its defensive allocation check;
+backend PSO/ABI/native-allocation checks still follow. Representation settings are
+fixed during this search; the current resource cache is shared across geometries
+with the same local distribution, not across different fusion/unroll policies.
+
+The {download}`resource-admission checkpoint <../../../../scripts/benchmark/tile_torch/results/m1-max-20260910-xir-resource-admission/README.md>`
+records full builds, eight selected CTests, independent allocation oracles and the
+remaining deep-failure test boundary. No new speedup, automatic pointwise-fusion
+selection or measured resource-model calibration is claimed. The historical
+{download}`RoPE code-shape evidence <../../../../src/tile/ROOT_MAPPING_COST_NOTES.zh.md>`
+explains why snapshot capacity alone cannot replace live-state and native issue cost.
 
 ### Reproducible fixed-plan controls
 
@@ -899,14 +995,12 @@ search and `local_lanes=32` fixes a supported full SIMD-group mapping. The
 private-memory capacity. The final PSO is checked for physical width, thread
 limit and threadgroup-memory limit. Generic scalar MMA is not MPP/tensor MMA.
 
-This split is an extension boundary, not yet complete resource feasibility.
-The current snapshot budget is checked during lowering, after cost selection;
-it is not an exact per-candidate storage/liveness analysis. A selected plan can
-therefore exceed that budget even when another mapping could fit. Adding that
-analysis and candidate retry is still required. Some existing deep bridge
-rejections also use fatal Luisa diagnostics rather than a recoverable result;
-the new top-level target/candidate errors return `PlanningResult.error`, but
-this does not make every unsupported program recoverable.
+This split is an extension boundary, not complete native resource feasibility.
+The interface applies the shared static snapshot count and backend budget before
+cost selection, as described above. Native spills, peak live state and aligned packet placement remain outside
+that fact. Some existing deep bridge rejections also use fatal Luisa diagnostics
+rather than a recoverable result; top-level target/resource/candidate errors return
+`PlanningResult.error`, but this does not make every unsupported program recoverable.
 
 The shared LLM benchmark selects this distinct route with
 `LUISA_TILE_BENCH_XIR_BACKEND=metal4` and reports `tile_xir_metal4` (not
@@ -930,21 +1024,12 @@ On macOS, run GPU experiments under an explicit temporary awake assertion
 (`caffeinate -diu`) and retain timeouts as errors, not slow-kernel observations.
 
 The interrupted {download}`fixed-batch timing checkpoint <../../../../scripts/benchmark/tile_torch/results/m1-max-20260910-metal4-timing/README.md>`
-exposes a remaining admission gap: large single-lane LayerNorm/softmax snapshots
-exceed the compiler budget only after planning, while W32 candidates execute.
-The next resource interface should expose **static snapshot bytes per physical
-worker** from a shared materialization analysis, with backend-owned limits applied
-before cost ranking. This is not register usage, peak liveness or a hardware
-private-memory limit; the current emitter counts cumulative static allocations.
-Dynamic memory-work estimates in the cost model cannot substitute for this fact.
-
-That analysis must share snapshot/alias/carry, deferred producer and static
-traversal rules with emission; a second approximate copy would drift on fused
-maps, expanded bodies and double-buffered carries. Automatic search should retain
-over-budget rejection reasons and continue; a fixed user mapping should return
-a resource diagnostic, never silently change lanes. Emission keeps a defensive
-check. This candidate-level resource interface remains planned, not implemented
-or calibrated by the timing checkpoint.
+records the **earlier implementation's** admission gap: large single-lane
+LayerNorm/softmax exceeded the snapshot budget only during lowering, while W32
+candidates executed. Those Error/NotRun rows and their binary identity remain
+unchanged. They motivate the new pre-cost resource boundary but do not validate
+its implementation: the matrix has not been rerun, and no improved speed or newly
+successful automatic selection may be inferred from its historical results.
 
 The {download}`September 10 validation record <../../../../scripts/benchmark/tile_torch/results/m1-max-20260910-xir-target-info/README.md>`
 records the complete build, five passing selected CTests and the actual

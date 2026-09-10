@@ -77,6 +77,12 @@ struct ExecutionCost {
     double activation_work{0.0};
 };
 
+struct ExecutionResourceLimits {
+    // Compiler-owned static snapshots only. This does not bound native
+    // registers, peak liveness, aligned workspace, or hardware occupancy.
+    uint64_t max_snapshot_bytes_per_worker{LowerOptions{}.max_local_bytes};
+};
+
 struct ExecutionPlan {
     uint32_t block_size{64u};
     // Outer-to-inner order of root parallel axes. This is an execution map,
@@ -87,6 +93,8 @@ struct ExecutionPlan {
     uint32_t local_lanes{1u};
     uint32_t blocks_per_task{0u};
     luisa::vector<uint32_t> root_axis_tiles;
+    ExecutionResources resources;
+    ExecutionResourceLimits resource_limits;
 };
 
 // The bridge extracts work and packet/block counts (including masked tails).
@@ -134,6 +142,10 @@ public:
     [[nodiscard]] virtual bool supports_local_distribution() const noexcept { return true; }
     [[nodiscard]] virtual bool supports_task_grain() const noexcept { return false; }
     [[nodiscard]] virtual bool accepts(const ExecutionPlan &candidate) const noexcept = 0;
+    // Called after geometry admission, with the candidate's shared static
+    // resource analysis attached. The returned budget is retained in the plan
+    // and must also be used by lowering. Zero permits allocation-free plans.
+    [[nodiscard]] virtual ExecutionResourceLimits resource_limits(const ExecutionPlan &candidate) const noexcept { return {}; }
     // The input contains target-independent work/packet/block counts; the
     // target fills scheduling quantities. A GPU must not inherit CPU home
     // chunks, work stealing, or caller-thread activation costs by accident.
@@ -158,10 +170,16 @@ public:
     [[nodiscard]] const ExecutionCostPolicy &cost_policy() const noexcept override;
 };
 
+struct ExecutionRejection {
+    ExecutionPlan candidate;
+    luisa::string reason;
+};
+
 struct PlanningResult {
     ExecutionPlan selected;
     luisa::vector<ExecutionPlan> candidates;
     luisa::string error;
+    luisa::vector<ExecutionRejection> rejected;
     [[nodiscard]] bool ok() const noexcept { return error.empty() && !candidates.empty(); }
     [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
 };

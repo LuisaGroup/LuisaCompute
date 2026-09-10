@@ -23,6 +23,17 @@ namespace luisa::compute::simd {
 
 namespace {
 
+class SIMDTileTargetInfo final : public tile::bridge::xir::ThreadPoolExecutionTargetInfo {
+public:
+    explicit SIMDTileTargetInfo(tile::bridge::xir::ExecutionTarget target) noexcept
+        : ThreadPoolExecutionTargetInfo{target} {}
+    [[nodiscard]] tile::bridge::xir::ExecutionResourceLimits resource_limits(const tile::bridge::xir::ExecutionPlan &) const noexcept override {
+        // The workspace ABI is packet-wide, including complete-program lanes.
+        // Native codegen still checks alignment and its final workspace size.
+        return {simd_max_private_workspace_bytes / target().packet_width};
+    }
+};
+
 // Diagnostic fixed constraint, not a search heuristic. Do not silently repair
 // malformed metadata or override a conflicting explicit Runtime constraint.
 [[nodiscard]] bool root_axis_tiles_from_environment(
@@ -82,7 +93,7 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
             }
             planner_options.block_size = tile_options.threads_per_group;
         }
-        const auto target_info = tile::bridge::xir::ThreadPoolExecutionTargetInfo{{_warp_width, _thread_pool->worker_count()}};
+        const auto target_info = SIMDTileTargetInfo{{_warp_width, _thread_pool->worker_count()}};
         auto planned = tile::bridge::xir::plan(kernel, target_info, planner_options);
         if (!planned) {
             metadata.error = std::move(planned.error);
@@ -92,7 +103,7 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
         auto threads = plan.block_size;
         auto lowered = tile::bridge::xir::lower(kernel, {.block_size = threads,
                                                          .root_axis_order = plan.root_axis_order,
-                                                         .max_local_bytes = static_cast<uint32_t>(simd_max_private_workspace_bytes / _warp_width),
+                                                         .max_local_bytes = plan.resource_limits.max_snapshot_bytes_per_worker,
                                                          .max_unrolled_tile_elements = planner_options.max_unrolled_tile_elements,
                                                          .reduction_partitions = planner_options.reduction_partitions,
                                                          .local_lanes = plan.local_lanes,
@@ -103,6 +114,11 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
                                                          .root_axis_tiles = plan.root_axis_tiles});
         if (!lowered) {
             metadata.error = std::move(lowered.error);
+            return ShaderCreationInfo::make_invalid();
+        }
+        if (lowered.resources.snapshot_bytes_per_worker != plan.resources.snapshot_bytes_per_worker ||
+            lowered.resources.snapshot_allocations != plan.resources.snapshot_allocations) {
+            metadata.error = "SIMD Tile planner/lowering static snapshot analysis mismatch";
             return ShaderCreationInfo::make_invalid();
         }
         if (lowered.required_packet_width != 0u && lowered.required_packet_width != _warp_width) {
@@ -170,6 +186,9 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
             metadata.realization.append("]; root_temporal_cache_cost=unmodeled");
         }
         metadata.realization.append(luisa::format("; local_lanes={}", plan.local_lanes));
+        metadata.realization.append(luisa::format("; static_snapshot_bytes_per_worker={}; static_snapshot_allocations={}; snapshot_budget={}; rejected_candidates={}",
+                                                  plan.resources.snapshot_bytes_per_worker, plan.resources.snapshot_allocations,
+                                                  plan.resource_limits.max_snapshot_bytes_per_worker, planned.rejected.size()));
         metadata.realization.append(luisa::format("; blocks_per_task={}; task_dispatch_cost={:.3f}; worker_activation_cost={:.3f}; custom_cost_policy={}",
                                                   plan.blocks_per_task, plan.cost.task_dispatch_work, plan.cost.activation_work, planner_options.cost_policy != nullptr));
         metadata.realization.append(luisa::format("; max_unrolled_tile_elements={}", planner_options.max_unrolled_tile_elements));

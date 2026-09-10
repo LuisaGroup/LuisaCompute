@@ -1,6 +1,8 @@
 #pragma once
 
 #include <algorithm>
+#include <luisa/core/mathematics.h>
+#include <luisa/tile/bridge/xir/lower.h>
 #include <luisa/tile/ir.h>
 
 namespace luisa::compute::tile::bridge::xir::detail {
@@ -413,6 +415,129 @@ struct ReductionProducerFusion {
         if ((op->kind() == OperationKind::ELEMENTWISE || op->kind() == OperationKind::MMA) && bounded_tile(op->result(0u), limit)) { return true; }
     }
     return false;
+}
+
+// These plans describe static emission, not dynamic execution or liveness.
+// Resource admission and the emitter must use the same decisions: counting
+// source Values once is incorrect when a map or partial reduction emits a
+// source definition multiple times.
+[[nodiscard]] inline bool bounded_count(uint64_t count, const LowerOptions &options) noexcept {
+    return options.max_unrolled_tile_elements != 0u && count > options.max_unrolled_tile_elements;
+}
+
+[[nodiscard]] inline bool distributed_count(uint64_t count, const LowerOptions &options) noexcept {
+    return options.local_lanes > 1u && count >= options.local_lanes;
+}
+
+[[nodiscard]] inline uint64_t snapshot_elements(uint64_t count, const LowerOptions &options) noexcept {
+    return distributed_count(count, options) ? ceil_div(count, static_cast<uint64_t>(options.local_lanes)) : count;
+}
+
+[[nodiscard]] inline bool traversal_snapshot(uint64_t count, const LowerOptions &options) noexcept {
+    return bounded_count(count, options) || distributed_count(count, options);
+}
+
+[[nodiscard]] inline bool definition_snapshot(const Value *value, uint64_t elements, const LowerOptions &options) noexcept {
+    return elements > 1u && needs_indexable_snapshot(value, options.max_unrolled_tile_elements);
+}
+
+enum class ValueRepresentation : uint8_t {
+    EMITTED,
+    SPLAT,
+    DEFERRED_EXPRESSION,
+    DEFERRED_MAP,
+    REDUCTION_PRODUCER
+};
+
+struct ValueAllocationPlan {
+    ValueRepresentation representation{ValueRepresentation::EMITTED};
+    bool snapshot{false};
+    luisa::optional<ReductionProducerFusion> fusion;
+};
+
+// count is the already validated static Tile volume (one for a scalar).
+[[nodiscard]] inline ValueAllocationPlan value_allocation_plan(
+    const Value *value, uint64_t count, const LowerOptions &options) noexcept {
+    if (!value->type().is_tile()) { return {}; }
+    auto op = value->defining_operation();
+    if (op && op->kind() == OperationKind::CONSTANT && traversal_snapshot(count, options)) {
+        return {ValueRepresentation::SPLAT, false, {}};
+    }
+    if (deferred_expression(value, options.max_unrolled_tile_elements, options.local_lanes, options.enable_map_fusion)) {
+        return {ValueRepresentation::DEFERRED_EXPRESSION, false, {}};
+    }
+    if (deferred_map(value, options.enable_map_fusion, options.local_lanes)) {
+        return {ValueRepresentation::DEFERRED_MAP, false, {}};
+    }
+    if (auto fusion = reduction_producer_fusion(value, options.max_unrolled_tile_elements,
+                                                options.local_lanes, options.reduction_partitions,
+                                                options.enable_load_reduction_fusion, options.enable_expression_reduction_fusion)) {
+        return {ValueRepresentation::REDUCTION_PRODUCER, fusion->retain_snapshot, fusion};
+    }
+    return {ValueRepresentation::EMITTED,
+            traversal_snapshot(count, options) || definition_snapshot(value, count, options),
+            {}};
+}
+
+struct TraversalEmissionPlan {
+    uint64_t full_count;
+    uint32_t lanes;
+    uint32_t tail_lanes;
+    bool runtime_loop;
+    [[nodiscard]] uint64_t emitted_bodies() const noexcept {
+        return (runtime_loop ? 1u : full_count) + (tail_lanes != 0u);
+    }
+};
+
+[[nodiscard]] inline bool serial_runtime_loop(uint64_t count, const LowerOptions &options, bool force_loop = false) noexcept {
+    return force_loop || bounded_count(count, options);
+}
+
+[[nodiscard]] inline TraversalEmissionPlan traversal_emission_plan(uint64_t count, const LowerOptions &options) noexcept {
+    auto lanes = distributed_count(count, options) ? options.local_lanes : 1u;
+    auto full = count / lanes;
+    return {full, lanes, static_cast<uint32_t>(count % lanes),
+            serial_runtime_loop(full, options, bounded_count(count, options))};
+}
+
+struct ReductionEmissionPlan {
+    ClosedReduction closed;
+    uint64_t count;
+    uint64_t partitions;
+    uint32_t lanes;
+    uint32_t tail_lanes;
+    [[nodiscard]] uint64_t emitted_bodies() const noexcept {
+        // One seed and one emitted runtime body per partition, followed by
+        // unrolled residuals and a separately emitted masked packet tail.
+        return partitions * 2u + count % partitions + (tail_lanes != 0u);
+    }
+};
+
+[[nodiscard]] inline luisa::optional<ReductionEmissionPlan> reduction_emission_plan(
+    const Operation &op, uint64_t total, const LowerOptions &options) noexcept {
+    auto closed = closed_reduction(op);
+    if (!closed || (!distributed_count(total, options) &&
+                    (!bounded_count(total, options) || options.reduction_partitions <= 1u))) { return {}; }
+    auto lanes = distributed_count(total, options) ? options.local_lanes : 1u;
+    auto count = total / lanes;
+    return ReductionEmissionPlan{*closed, count, std::min<uint64_t>(options.reduction_partitions, count),
+                                 lanes, static_cast<uint32_t>(total % lanes)};
+}
+
+struct CarryAllocationPlan {
+    bool buffered;
+    bool argument_snapshot;
+    bool result_snapshot;
+    [[nodiscard]] uint64_t allocations() const noexcept {
+        return buffered ? 2u : static_cast<uint64_t>(argument_snapshot) + result_snapshot;
+    }
+};
+
+[[nodiscard]] inline CarryAllocationPlan carry_allocation_plan(
+    const Value *argument, const Value *result, uint64_t count, const LowerOptions &options) noexcept {
+    auto buffered = result->type().is_tile() && bounded_count(count, options);
+    return {buffered, !buffered && definition_snapshot(argument, count, options),
+            !buffered && definition_snapshot(result, count, options)};
 }
 
 }// namespace luisa::compute::tile::bridge::xir::detail

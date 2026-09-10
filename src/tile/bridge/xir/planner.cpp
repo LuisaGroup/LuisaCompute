@@ -4,6 +4,7 @@
 
 #include <luisa/core/logging.h>
 #include <luisa/core/mathematics.h>
+#include <luisa/core/stl/format.h>
 #include <luisa/tile/bridge/xir/planner.h>
 #include <luisa/tile/verifier.h>
 #include "representation.h"
@@ -271,7 +272,7 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
 
 [[nodiscard]] PlanningResult solve(const Function &function, const ExecutionTargetInfo &info, const PlannerOptions &options) {
     auto target = info.target();
-    auto reject = [](const char *message) { return PlanningResult{.error = message}; };
+    auto reject = [](luisa::string_view message) { return PlanningResult{.error = luisa::string{message}}; };
     if (!target.packet_width || (target.packet_width & (target.packet_width - 1u)) || !options.max_candidates ||
         !options.reduction_partitions || options.reduction_partitions > 16u) {
         return reject("invalid XIR target or search budget");
@@ -299,6 +300,9 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
     }
     if (!root || !root->domain() || root->domain()->empty() || root->result_count()) { return reject("XIR planner requires a nonempty independent root parallel"); }
     if (auto binding = root->execution_scope_constraint(); binding && *binding != "worker" && *binding != "auto") { return reject("XIR planner cannot satisfy this explicit execution binding"); }
+    if (auto error = detail::root_mapping_error(*root->domain(), options.root_axis_order, options.root_axis_tiles); !error.empty()) {
+        return reject(error);
+    }
     auto count = volume(*root->domain());
     if (!count) { return reject("XIR planner requires a nonempty launch"); }
     if (options.local_lanes != 0u && options.local_lanes != 1u && options.local_lanes != target.packet_width) {
@@ -352,27 +356,32 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
     auto body = root->region(0u)->block(0u);
     for (size_t i = 0u; i < rank; i++) { indices.emplace_back(body->argument(i)); }
     PlanningResult result;
+    // Root traversal, block size and CPU task grain change coordinates and
+    // scheduling, not the static snapshot sites within a logical program.
+    // Representation options are fixed for this search; only local_lanes
+    // changes storage distribution. Analyze each such realization once.
+    luisa::vector<std::pair<uint32_t, ResourceAnalysis>> resource_cache;
+    auto resources = [&](uint32_t lanes) -> const ResourceAnalysis & {
+        for (auto &entry : resource_cache) {
+            if (entry.first == lanes) { return entry.second; }
+        }
+        auto analysis = analyze_resources(function, {.block_size = widths.front(),
+                                                     .max_unrolled_tile_elements = options.max_unrolled_tile_elements,
+                                                     .reduction_partitions = options.reduction_partitions,
+                                                     .local_lanes = lanes,
+                                                     .enable_load_reduction_fusion = options.enable_load_reduction_fusion,
+                                                     .enable_pointwise_fusion = options.enable_pointwise_fusion,
+                                                     .enable_expression_reduction_fusion = options.enable_expression_reduction_fusion,
+                                                     .enable_map_fusion = options.enable_map_fusion});
+        resource_cache.emplace_back(lanes, std::move(analysis));
+        return resource_cache.back().second;
+    };
     uint32_t considered = 0u;
     do {
         auto mapping = detail::root_mapping(*root->domain(), order, options.root_axis_tiles);
         for (auto lanes : local_widths) {
             Work work;
-            auto spatial = SpatialAxis{indices[order.back()]};
-            auto extent = root->domain()->axis(order.back()).extent.constant_value();
-            if (!mapping.identity && lanes == 1u) {
-                auto digit = mapping.digits.back();
-                spatial = {indices[digit.axis], static_cast<double>(digit.scale), digit.extent % target.packet_width == 0u};
-            }
-            measure(*body, spatial, 1.0, target, model, indices, options.max_unrolled_tile_elements, lanes, work, options);
-            // Identity preserves the historical estimate. A blocked traversal
-            // instead uses the actual fastest digit, or the gather prior if
-            // a packet spans digits. Neither heuristic is a codegen guarantee.
-            if (mapping.identity && lanes == 1u && extent % target.packet_width != 0u) { work.memory *= 2.0; }
-            // Charge root decoding once, not once per nested K/fold iteration.
-            // Temporal cache reuse is deliberately unmodeled: fixed factors
-            // are constraints, not an automatically selected cache optimum.
-            work.arithmetic += mapping.decode_arithmetic * model.arithmetic;
-            if (!std::isfinite(work.arithmetic) || !std::isfinite(work.memory)) { return reject("XIR work estimate overflow"); }
+            bool work_ready = false;
             auto physical_count = count * lanes;
             for (auto width : widths) {
                 auto blocks = ceil_div(physical_count, static_cast<uint64_t>(width));
@@ -385,9 +394,52 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
                     grains.erase(std::unique(grains.begin(), grains.end()), grains.end());
                 }
                 for (auto grain : grains) {
-                    if (considered++ >= options.max_candidates) { return reject("XIR exact search exceeds its candidate budget"); }
+                    if (considered++ >= options.max_candidates) {
+                        result.error = "XIR exact search exceeds its candidate budget";
+                        return result;
+                    }
                     ExecutionPlan candidate{width, order, static_cast<uint32_t>(physical_count), {}, lanes, grain, options.root_axis_tiles};
-                    if (!info.accepts(candidate)) { continue; }
+                    if (!info.accepts(candidate)) {
+                        result.rejected.emplace_back(ExecutionRejection{std::move(candidate), "XIR target rejected execution geometry"});
+                        continue;
+                    }
+                    const auto &analysis = resources(lanes);
+                    if (!analysis) {
+                        result.rejected.emplace_back(ExecutionRejection{std::move(candidate), analysis.error});
+                        continue;
+                    }
+                    candidate.resources = analysis.resources;
+                    candidate.resource_limits = info.resource_limits(candidate);
+                    if (candidate.resources.snapshot_bytes_per_worker > candidate.resource_limits.max_snapshot_bytes_per_worker) {
+                        auto reason = luisa::format("XIR candidate local_lanes={} requires {} static snapshot bytes per worker; backend budget is {}",
+                                                    lanes, candidate.resources.snapshot_bytes_per_worker, candidate.resource_limits.max_snapshot_bytes_per_worker);
+                        result.rejected.emplace_back(ExecutionRejection{std::move(candidate), std::move(reason)});
+                        continue;
+                    }
+                    if (!work_ready) {
+                        // Extract dynamic work only for resource-admissible
+                        // representations, then reuse it across block/task
+                        // geometries with the same root order and local lanes.
+                        auto spatial = SpatialAxis{indices[order.back()]};
+                        auto extent = root->domain()->axis(order.back()).extent.constant_value();
+                        if (!mapping.identity && lanes == 1u) {
+                            auto digit = mapping.digits.back();
+                            spatial = {indices[digit.axis], static_cast<double>(digit.scale), digit.extent % target.packet_width == 0u};
+                        }
+                        measure(*body, spatial, 1.0, target, model, indices, options.max_unrolled_tile_elements, lanes, work, options);
+                        // Identity preserves the historical estimate. A blocked
+                        // traversal uses the fastest digit or the gather prior
+                        // when packets span digits; neither is a codegen proof.
+                        if (mapping.identity && lanes == 1u && extent % target.packet_width != 0u) { work.memory *= 2.0; }
+                        // Charge root decoding once, not per nested K/fold.
+                        // Temporal cache reuse is deliberately still unmodeled.
+                        work.arithmetic += mapping.decode_arithmetic * model.arithmetic;
+                        if (!std::isfinite(work.arithmetic) || !std::isfinite(work.memory)) {
+                            result.error = "XIR work estimate overflow";
+                            return result;
+                        }
+                        work_ready = true;
+                    }
                     ExecutionWork execution_work{work.arithmetic, work.memory,
                                                  ceil_div(physical_count, static_cast<uint64_t>(target.packet_width)), blocks};
                     auto cost = policy.evaluate(target, candidate, info.schedule(candidate, execution_work), model);
@@ -401,7 +453,11 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
             }
         }
     } while (!fixed_order && std::next_permutation(order.begin(), order.end()));
-    if (result.candidates.empty()) { return reject("XIR target rejected every execution candidate"); }
+    if (result.candidates.empty()) {
+        result.error = "XIR target rejected every execution candidate";
+        if (!result.rejected.empty()) { result.error.append(": ").append(result.rejected.front().reason); }
+        return result;
+    }
     result.selected = *std::min_element(result.candidates.begin(), result.candidates.end(), [](auto &a, auto &b) { return a.cost.score < b.cost.score; });
     return result;
 }

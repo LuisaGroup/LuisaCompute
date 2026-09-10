@@ -1,0 +1,504 @@
+
+Running "tile_xir_root_traversal_is_bijective_and_identity_is_exact"... [33mSKIPPED[0m
+
+Running "tile_xir_root_traversal_rejects_invalid_constraints"... [33mSKIPPED[0m
+
+Running "tile_xir_root_traversal_cost_uses_physical_fast_digit"... [33mSKIPPED[0m
+
+Running "tile_xir_deferred_map_depth_budget"... [33mSKIPPED[0m
+
+Running "tile_xir_pure_map_fusion_admission_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_expression_reduction_fusion_contract_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_pointwise_effect_intervals_and_partitioned_outputs"... [33mSKIPPED[0m
+
+Running "tile_xir_pointwise_does_not_cross_stages_or_reduction_state"... [33mSKIPPED[0m
+
+Running "tile_xir_task_distribution_matches_static_home_chunks"... [33mSKIPPED[0m
+
+Running "tile_xir_task_search_and_policy_are_independent_of_legality"... [33mSKIPPED[0m
+
+Running "tile_xir_load_reduction_fusion_contract_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_packet_local_admission_and_abi"... [33mSKIPPED[0m
+
+Running "tile_xir_packet_local_rejects_unrealized_redistribution_and_folds"... [33mSKIPPED[0m
+
+Running "tile_xir_dynamic_extract_has_linear_snapshot_storage"... [33mSKIPPED[0m
+
+Running "tile_xir_large_tiles_have_bounded_code_and_eager_load_snapshots"... [33mSKIPPED[0m
+
+Running "tile_xir_expanded_map_extracts_need_no_snapshot"... [33mSKIPPED[0m
+
+Running "tile_xir_verified_ssa_and_abi"... [33mSKIPPED[0m
+
+Running "tile_xir_expansion_budget_is_fail_closed"... [33mSKIPPED[0m
+
+Running "tile_xir_rejects_unrealized_execution_binding"... [33mSKIPPED[0m
+
+Running "tile_xir_planner_searches_execution_order_not_memory_layout"... [33mSKIPPED[0m
+[32mSuite 'global': all tests passed[0m (0 asserts in 20 tests)
+20 tests skipped
+
+Running "tile_xir_root_traversal_is_bijective_and_identity_is_exact"... [33mSKIPPED[0m
+
+Running "tile_xir_root_traversal_rejects_invalid_constraints"... [33mSKIPPED[0m
+
+Running "tile_xir_root_traversal_cost_uses_physical_fast_digit"... [33mSKIPPED[0m
+
+Running "tile_xir_deferred_map_depth_budget"... [33mSKIPPED[0m
+
+Running "tile_xir_pure_map_fusion_admission_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_expression_reduction_fusion_contract_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_pointwise_effect_intervals_and_partitioned_outputs"... [33mSKIPPED[0m
+
+Running "tile_xir_pointwise_does_not_cross_stages_or_reduction_state"... [33mSKIPPED[0m
+
+Running "tile_xir_task_distribution_matches_static_home_chunks"... [33mSKIPPED[0m
+
+Running "tile_xir_task_search_and_policy_are_independent_of_legality"... [33mSKIPPED[0m
+
+Running "tile_xir_load_reduction_fusion_contract_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_packet_local_admission_and_abi"... [33mSKIPPED[0m
+
+Running "tile_xir_packet_local_rejects_unrealized_redistribution_and_folds"... [33mSKIPPED[0m
+
+Running "tile_xir_dynamic_extract_has_linear_snapshot_storage"... [33mSKIPPED[0m
+
+Running "tile_xir_large_tiles_have_bounded_code_and_eager_load_snapshots"... [33mSKIPPED[0m
+
+Running "tile_xir_expanded_map_extracts_need_no_snapshot"... [33mSKIPPED[0m
+
+Running "tile_xir_verified_ssa_and_abi"... [33mSKIPPED[0m
+
+Running "tile_xir_expansion_budget_is_fail_closed"... [33mSKIPPED[0m
+
+Running "tile_xir_rejects_unrealized_execution_binding"... [33mSKIPPED[0m
+
+Running "tile_xir_planner_searches_execution_order_not_memory_layout"... [33mSKIPPED[0m
+[32mSuite 'global': all tests passed[0m (0 asserts in 20 tests)
+20 tests skipped
+
+Running "tile_xir_root_traversal_is_bijective_and_identity_is_exact"... [33mSKIPPED[0m
+
+Running "tile_xir_root_traversal_rejects_invalid_constraints"... [33mSKIPPED[0m
+
+Running "tile_xir_root_traversal_cost_uses_physical_fast_digit"... [33mSKIPPED[0m
+
+Running "tile_xir_deferred_map_depth_budget"... [33mSKIPPED[0m
+
+Running "tile_xir_pure_map_fusion_admission_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_expression_reduction_fusion_contract_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_pointwise_effect_intervals_and_partitioned_outputs"... [33mSKIPPED[0m
+
+Running "tile_xir_pointwise_does_not_cross_stages_or_reduction_state"... [33mSKIPPED[0m
+
+Running "tile_xir_task_distribution_matches_static_home_chunks"... [33mSKIPPED[0m
+
+Running "tile_xir_task_search_and_policy_are_independent_of_legality"... [33mSKIPPED[0m
+
+Running "tile_xir_load_reduction_fusion_contract_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_packet_local_admission_and_abi"... [33mSKIPPED[0m
+
+Running "tile_xir_packet_local_rejects_unrealized_redistribution_and_folds"... [33mSKIPPED[0m
+
+Running "tile_xir_dynamic_extract_has_linear_snapshot_storage"... [33mSKIPPED[0m
+
+Running "tile_xir_large_tiles_have_bounded_code_and_eager_load_snapshots"... [33mSKIPPED[0m
+
+Running "tile_xir_expanded_map_extracts_need_no_snapshot"... [33mSKIPPED[0m
+
+Running "tile_xir_verified_ssa_and_abi"... [33mSKIPPED[0m
+
+Running "tile_xir_expansion_budget_is_fail_closed"... [33mSKIPPED[0m
+
+Running "tile_xir_rejects_unrealized_execution_binding"... [33mSKIPPED[0m
+
+Running "tile_xir_planner_searches_execution_order_not_memory_layout"... [33mSKIPPED[0m
+[32mSuite 'global': all tests passed[0m (0 asserts in 20 tests)
+20 tests skipped
+
+Running "tile_xir_root_traversal_is_bijective_and_identity_is_exact"... [33mSKIPPED[0m
+
+Running "tile_xir_root_traversal_rejects_invalid_constraints"... [33mSKIPPED[0m
+
+Running "tile_xir_root_traversal_cost_uses_physical_fast_digit"... [33mSKIPPED[0m
+
+Running "tile_xir_deferred_map_depth_budget"... [33mSKIPPED[0m
+
+Running "tile_xir_pure_map_fusion_admission_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_expression_reduction_fusion_contract_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_pointwise_effect_intervals_and_partitioned_outputs"... [33mSKIPPED[0m
+
+Running "tile_xir_pointwise_does_not_cross_stages_or_reduction_state"... [33mSKIPPED[0m
+
+Running "tile_xir_task_distribution_matches_static_home_chunks"... [33mSKIPPED[0m
+
+Running "tile_xir_task_search_and_policy_are_independent_of_legality"... [33mSKIPPED[0m
+
+Running "tile_xir_load_reduction_fusion_contract_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_packet_local_admission_and_abi"... [33mSKIPPED[0m
+
+Running "tile_xir_packet_local_rejects_unrealized_redistribution_and_folds"... [33mSKIPPED[0m
+
+Running "tile_xir_dynamic_extract_has_linear_snapshot_storage"... [33mSKIPPED[0m
+
+Running "tile_xir_large_tiles_have_bounded_code_and_eager_load_snapshots"... [33mSKIPPED[0m
+
+Running "tile_xir_expanded_map_extracts_need_no_snapshot"... [33mSKIPPED[0m
+
+Running "tile_xir_verified_ssa_and_abi"... [33mSKIPPED[0m
+
+Running "tile_xir_expansion_budget_is_fail_closed"... [33mSKIPPED[0m
+
+Running "tile_xir_rejects_unrealized_execution_binding"... [33mSKIPPED[0m
+
+Running "tile_xir_planner_searches_execution_order_not_memory_layout"... [33mSKIPPED[0m
+[32mSuite 'global': all tests passed[0m (0 asserts in 20 tests)
+20 tests skipped
+
+Running "tile_xir_root_traversal_is_bijective_and_identity_is_exact"... [33mSKIPPED[0m
+
+Running "tile_xir_root_traversal_rejects_invalid_constraints"... [33mSKIPPED[0m
+
+Running "tile_xir_root_traversal_cost_uses_physical_fast_digit"... [33mSKIPPED[0m
+
+Running "tile_xir_deferred_map_depth_budget"... [33mSKIPPED[0m
+
+Running "tile_xir_pure_map_fusion_admission_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_expression_reduction_fusion_contract_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_pointwise_effect_intervals_and_partitioned_outputs"... [33mSKIPPED[0m
+
+Running "tile_xir_pointwise_does_not_cross_stages_or_reduction_state"... [33mSKIPPED[0m
+
+Running "tile_xir_task_distribution_matches_static_home_chunks"... [33mSKIPPED[0m
+
+Running "tile_xir_task_search_and_policy_are_independent_of_legality"... [33mSKIPPED[0m
+
+Running "tile_xir_load_reduction_fusion_contract_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_packet_local_admission_and_abi"... [33mSKIPPED[0m
+
+Running "tile_xir_packet_local_rejects_unrealized_redistribution_and_folds"... [33mSKIPPED[0m
+
+Running "tile_xir_dynamic_extract_has_linear_snapshot_storage"... [33mSKIPPED[0m
+
+Running "tile_xir_large_tiles_have_bounded_code_and_eager_load_snapshots"... [33mSKIPPED[0m
+
+Running "tile_xir_expanded_map_extracts_need_no_snapshot"... [33mSKIPPED[0m
+
+Running "tile_xir_verified_ssa_and_abi"... [33mSKIPPED[0m
+
+Running "tile_xir_expansion_budget_is_fail_closed"... [33mSKIPPED[0m
+
+Running "tile_xir_rejects_unrealized_execution_binding"... [33mSKIPPED[0m
+
+Running "tile_xir_planner_searches_execution_order_not_memory_layout"... [33mSKIPPED[0m
+[32mSuite 'global': all tests passed[0m (0 asserts in 20 tests)
+20 tests skipped
+
+Running "tile_xir_root_traversal_is_bijective_and_identity_is_exact"... [33mSKIPPED[0m
+
+Running "tile_xir_root_traversal_rejects_invalid_constraints"... [33mSKIPPED[0m
+
+Running "tile_xir_root_traversal_cost_uses_physical_fast_digit"... [33mSKIPPED[0m
+
+Running "tile_xir_deferred_map_depth_budget"... [33mSKIPPED[0m
+
+Running "tile_xir_pure_map_fusion_admission_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_expression_reduction_fusion_contract_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_pointwise_effect_intervals_and_partitioned_outputs"... [33mSKIPPED[0m
+
+Running "tile_xir_pointwise_does_not_cross_stages_or_reduction_state"... [33mSKIPPED[0m
+
+Running "tile_xir_task_distribution_matches_static_home_chunks"... [33mSKIPPED[0m
+
+Running "tile_xir_task_search_and_policy_are_independent_of_legality"... [33mSKIPPED[0m
+
+Running "tile_xir_load_reduction_fusion_contract_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_packet_local_admission_and_abi"... [33mSKIPPED[0m
+
+Running "tile_xir_packet_local_rejects_unrealized_redistribution_and_folds"... [33mSKIPPED[0m
+
+Running "tile_xir_dynamic_extract_has_linear_snapshot_storage"... [33mSKIPPED[0m
+
+Running "tile_xir_large_tiles_have_bounded_code_and_eager_load_snapshots"... [33mSKIPPED[0m
+
+Running "tile_xir_expanded_map_extracts_need_no_snapshot"... [33mSKIPPED[0m
+
+Running "tile_xir_verified_ssa_and_abi"... [33mSKIPPED[0m
+
+Running "tile_xir_expansion_budget_is_fail_closed"... [33mSKIPPED[0m
+
+Running "tile_xir_rejects_unrealized_execution_binding"... [33mSKIPPED[0m
+
+Running "tile_xir_planner_searches_execution_order_not_memory_layout"... [33mSKIPPED[0m
+[32mSuite 'global': all tests passed[0m (0 asserts in 20 tests)
+20 tests skipped
+
+Running "tile_xir_root_traversal_is_bijective_and_identity_is_exact"... [33mSKIPPED[0m
+
+Running "tile_xir_root_traversal_rejects_invalid_constraints"... [33mSKIPPED[0m
+
+Running "tile_xir_root_traversal_cost_uses_physical_fast_digit"... [33mSKIPPED[0m
+
+Running "tile_xir_deferred_map_depth_budget"... [33mSKIPPED[0m
+
+Running "tile_xir_pure_map_fusion_admission_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_expression_reduction_fusion_contract_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_pointwise_effect_intervals_and_partitioned_outputs"... [33mSKIPPED[0m
+
+Running "tile_xir_pointwise_does_not_cross_stages_or_reduction_state"... [33mSKIPPED[0m
+
+Running "tile_xir_task_distribution_matches_static_home_chunks"... [33mSKIPPED[0m
+
+Running "tile_xir_task_search_and_policy_are_independent_of_legality"... [33mSKIPPED[0m
+
+Running "tile_xir_load_reduction_fusion_contract_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_packet_local_admission_and_abi"... [33mSKIPPED[0m
+
+Running "tile_xir_packet_local_rejects_unrealized_redistribution_and_folds"... [33mSKIPPED[0m
+
+Running "tile_xir_dynamic_extract_has_linear_snapshot_storage"... [33mSKIPPED[0m
+
+Running "tile_xir_large_tiles_have_bounded_code_and_eager_load_snapshots"... [33mSKIPPED[0m
+
+Running "tile_xir_expanded_map_extracts_need_no_snapshot"... [33mSKIPPED[0m
+
+Running "tile_xir_verified_ssa_and_abi"... [33mSKIPPED[0m
+
+Running "tile_xir_expansion_budget_is_fail_closed"... [33mSKIPPED[0m
+
+Running "tile_xir_rejects_unrealized_execution_binding"... [33mSKIPPED[0m
+
+Running "tile_xir_planner_searches_execution_order_not_memory_layout"... [33mSKIPPED[0m
+[32mSuite 'global': all tests passed[0m (0 asserts in 20 tests)
+20 tests skipped
+
+Running "tile_xir_root_traversal_is_bijective_and_identity_is_exact"... [33mSKIPPED[0m
+
+Running "tile_xir_root_traversal_rejects_invalid_constraints"... [33mSKIPPED[0m
+
+Running "tile_xir_root_traversal_cost_uses_physical_fast_digit"... [33mSKIPPED[0m
+
+Running "tile_xir_deferred_map_depth_budget"... [33mSKIPPED[0m
+
+Running "tile_xir_pure_map_fusion_admission_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_expression_reduction_fusion_contract_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_pointwise_effect_intervals_and_partitioned_outputs"... [33mSKIPPED[0m
+
+Running "tile_xir_pointwise_does_not_cross_stages_or_reduction_state"... [33mSKIPPED[0m
+
+Running "tile_xir_task_distribution_matches_static_home_chunks"... [33mSKIPPED[0m
+
+Running "tile_xir_task_search_and_policy_are_independent_of_legality"... [33mSKIPPED[0m
+
+Running "tile_xir_load_reduction_fusion_contract_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_packet_local_admission_and_abi"... [33mSKIPPED[0m
+
+Running "tile_xir_packet_local_rejects_unrealized_redistribution_and_folds"... [33mSKIPPED[0m
+
+Running "tile_xir_dynamic_extract_has_linear_snapshot_storage"... [33mSKIPPED[0m
+
+Running "tile_xir_large_tiles_have_bounded_code_and_eager_load_snapshots"... [33mSKIPPED[0m
+
+Running "tile_xir_expanded_map_extracts_need_no_snapshot"... [33mSKIPPED[0m
+
+Running "tile_xir_verified_ssa_and_abi"... [33mSKIPPED[0m
+
+Running "tile_xir_expansion_budget_is_fail_closed"... [33mSKIPPED[0m
+
+Running "tile_xir_rejects_unrealized_execution_binding"... [33mSKIPPED[0m
+
+Running "tile_xir_planner_searches_execution_order_not_memory_layout"... [33mSKIPPED[0m
+[32mSuite 'global': all tests passed[0m (0 asserts in 20 tests)
+20 tests skipped
+
+Running "tile_xir_root_traversal_is_bijective_and_identity_is_exact"... [33mSKIPPED[0m
+
+Running "tile_xir_root_traversal_rejects_invalid_constraints"... [33mSKIPPED[0m
+
+Running "tile_xir_root_traversal_cost_uses_physical_fast_digit"... [33mSKIPPED[0m
+
+Running "tile_xir_deferred_map_depth_budget"... [33mSKIPPED[0m
+
+Running "tile_xir_pure_map_fusion_admission_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_expression_reduction_fusion_contract_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_pointwise_effect_intervals_and_partitioned_outputs"... [33mSKIPPED[0m
+
+Running "tile_xir_pointwise_does_not_cross_stages_or_reduction_state"... [33mSKIPPED[0m
+
+Running "tile_xir_task_distribution_matches_static_home_chunks"... [33mSKIPPED[0m
+
+Running "tile_xir_task_search_and_policy_are_independent_of_legality"... [33mSKIPPED[0m
+
+Running "tile_xir_load_reduction_fusion_contract_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_packet_local_admission_and_abi"... [33mSKIPPED[0m
+
+Running "tile_xir_packet_local_rejects_unrealized_redistribution_and_folds"... [33mSKIPPED[0m
+
+Running "tile_xir_dynamic_extract_has_linear_snapshot_storage"... [33mSKIPPED[0m
+
+Running "tile_xir_large_tiles_have_bounded_code_and_eager_load_snapshots"... [33mSKIPPED[0m
+
+Running "tile_xir_expanded_map_extracts_need_no_snapshot"... [33mSKIPPED[0m
+
+Running "tile_xir_verified_ssa_and_abi"... [33mSKIPPED[0m
+
+Running "tile_xir_expansion_budget_is_fail_closed"... [33mSKIPPED[0m
+
+Running "tile_xir_rejects_unrealized_execution_binding"... [33mSKIPPED[0m
+
+Running "tile_xir_planner_searches_execution_order_not_memory_layout"... [33mSKIPPED[0m
+[32mSuite 'global': all tests passed[0m (0 asserts in 20 tests)
+20 tests skipped
+
+Running "tile_xir_root_traversal_is_bijective_and_identity_is_exact"... [33mSKIPPED[0m
+
+Running "tile_xir_root_traversal_rejects_invalid_constraints"... [33mSKIPPED[0m
+
+Running "tile_xir_root_traversal_cost_uses_physical_fast_digit"... [33mSKIPPED[0m
+
+Running "tile_xir_deferred_map_depth_budget"... [33mSKIPPED[0m
+
+Running "tile_xir_pure_map_fusion_admission_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_expression_reduction_fusion_contract_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_pointwise_effect_intervals_and_partitioned_outputs"... [33mSKIPPED[0m
+
+Running "tile_xir_pointwise_does_not_cross_stages_or_reduction_state"... [33mSKIPPED[0m
+
+Running "tile_xir_task_distribution_matches_static_home_chunks"... [33mSKIPPED[0m
+
+Running "tile_xir_task_search_and_policy_are_independent_of_legality"... [33mSKIPPED[0m
+
+Running "tile_xir_load_reduction_fusion_contract_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_packet_local_admission_and_abi"... [33mSKIPPED[0m
+
+Running "tile_xir_packet_local_rejects_unrealized_redistribution_and_folds"... [33mSKIPPED[0m
+
+Running "tile_xir_dynamic_extract_has_linear_snapshot_storage"... [33mSKIPPED[0m
+
+Running "tile_xir_large_tiles_have_bounded_code_and_eager_load_snapshots"... [33mSKIPPED[0m
+
+Running "tile_xir_expanded_map_extracts_need_no_snapshot"... [33mSKIPPED[0m
+
+Running "tile_xir_verified_ssa_and_abi"... [33mSKIPPED[0m
+
+Running "tile_xir_expansion_budget_is_fail_closed"... [33mSKIPPED[0m
+
+Running "tile_xir_rejects_unrealized_execution_binding"... [33mSKIPPED[0m
+
+Running "tile_xir_planner_searches_execution_order_not_memory_layout"... [33mSKIPPED[0m
+[32mSuite 'global': all tests passed[0m (0 asserts in 20 tests)
+20 tests skipped
+
+Running "tile_xir_root_traversal_is_bijective_and_identity_is_exact"... [33mSKIPPED[0m
+
+Running "tile_xir_root_traversal_rejects_invalid_constraints"... [33mSKIPPED[0m
+
+Running "tile_xir_root_traversal_cost_uses_physical_fast_digit"... [33mSKIPPED[0m
+
+Running "tile_xir_deferred_map_depth_budget"... [33mSKIPPED[0m
+
+Running "tile_xir_pure_map_fusion_admission_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_expression_reduction_fusion_contract_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_pointwise_effect_intervals_and_partitioned_outputs"... [33mSKIPPED[0m
+
+Running "tile_xir_pointwise_does_not_cross_stages_or_reduction_state"... [33mSKIPPED[0m
+
+Running "tile_xir_task_distribution_matches_static_home_chunks"... [33mSKIPPED[0m
+
+Running "tile_xir_task_search_and_policy_are_independent_of_legality"... [33mSKIPPED[0m
+
+Running "tile_xir_load_reduction_fusion_contract_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_packet_local_admission_and_abi"... [33mSKIPPED[0m
+
+Running "tile_xir_packet_local_rejects_unrealized_redistribution_and_folds"... [33mSKIPPED[0m
+
+Running "tile_xir_dynamic_extract_has_linear_snapshot_storage"... [33mSKIPPED[0m
+
+Running "tile_xir_large_tiles_have_bounded_code_and_eager_load_snapshots"... [33mSKIPPED[0m
+
+Running "tile_xir_expanded_map_extracts_need_no_snapshot"... [33mSKIPPED[0m
+
+Running "tile_xir_verified_ssa_and_abi"... [33mSKIPPED[0m
+
+Running "tile_xir_expansion_budget_is_fail_closed"... [33mSKIPPED[0m
+
+Running "tile_xir_rejects_unrealized_execution_binding"... [33mSKIPPED[0m
+
+Running "tile_xir_planner_searches_execution_order_not_memory_layout"... [33mSKIPPED[0m
+[32mSuite 'global': all tests passed[0m (0 asserts in 20 tests)
+20 tests skipped
+
+Running "tile_xir_root_traversal_is_bijective_and_identity_is_exact"... [33mSKIPPED[0m
+
+Running "tile_xir_root_traversal_rejects_invalid_constraints"... [33mSKIPPED[0m
+
+Running "tile_xir_root_traversal_cost_uses_physical_fast_digit"... [33mSKIPPED[0m
+
+Running "tile_xir_deferred_map_depth_budget"... [33mSKIPPED[0m
+
+Running "tile_xir_pure_map_fusion_admission_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_expression_reduction_fusion_contract_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_pointwise_effect_intervals_and_partitioned_outputs"... [33mSKIPPED[0m
+
+Running "tile_xir_pointwise_does_not_cross_stages_or_reduction_state"... [33mSKIPPED[0m
+
+Running "tile_xir_task_distribution_matches_static_home_chunks"... [33mSKIPPED[0m
+
+Running "tile_xir_task_search_and_policy_are_independent_of_legality"... [33mSKIPPED[0m
+
+Running "tile_xir_load_reduction_fusion_contract_and_cost"... [33mSKIPPED[0m
+
+Running "tile_xir_packet_local_admission_and_abi"... [33mSKIPPED[0m
+
+Running "tile_xir_packet_local_rejects_unrealized_redistribution_and_folds"... [33mSKIPPED[0m
+
+Running "tile_xir_dynamic_extract_has_linear_snapshot_storage"... [33mSKIPPED[0m
+
+Running "tile_xir_large_tiles_have_bounded_code_and_eager_load_snapshots"... [33mSKIPPED[0m
+
+Running "tile_xir_expanded_map_extracts_need_no_snapshot"... [33mSKIPPED[0m
+
+Running "tile_xir_verified_ssa_and_abi"... [33mSKIPPED[0m
+
+Running "tile_xir_expansion_budget_is_fail_closed"... [33mSKIPPED[0m
+
+Running "tile_xir_rejects_unrealized_execution_binding"... [33mSKIPPED[0m
+
+Running "tile_xir_planner_searches_execution_order_not_memory_layout"... [33mSKIPPED[0m
+[32mSuite 'global': all tests passed[0m (0 asserts in 20 tests)
+20 tests skipped

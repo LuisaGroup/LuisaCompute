@@ -1,0 +1,6 @@
+Warning: 'emplace_back' is called inside a loop; consider pre-allocating the container capacity before the loop (fix available) [performance-inefficient-vector-operation] at line 844, col 69
+Warning: The variable 'scope' of type 'luisa::optional<luisa::string>' (aka 'luisa::optional<basic_string<char>>') is copy-constructed from a const reference but is only used as const reference; consider making it a const reference (fix available) [performance-unnecessary-copy-initialization] at line 966, col 18
+Warning: Parameter 'options' of type 'LowerOptions' is passed by value and only copied once; consider moving it to avoid unnecessary copies (fix available) [performance-unnecessary-value-param] at line 1259, col 84
+Hint: Pass by value and use std::move (fix available) [modernize-pass-by-value] at line 1259, col 36
+------------------------------------------------------------
+Total: 0 error(s), 3 warning(s)

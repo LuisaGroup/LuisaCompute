@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/string.h>
 #include <luisa/tile/dimension.h>
 
 namespace luisa::compute::tile::bridge::xir::detail {
@@ -23,31 +24,51 @@ struct RootMapping {
     uint32_t decode_arithmetic{0u};
 };
 
+// Public planning/lowering boundaries report invalid fixed constraints before
+// reaching the internal emitter. Keep the same contract in all three callers.
+[[nodiscard]] inline luisa::string_view root_mapping_error(
+    const IndexSpace &domain, luisa::span<const uint32_t> order,
+    luisa::span<const uint32_t> tiles) noexcept {
+    auto rank = domain.rank();
+    if (rank == 0u || (!order.empty() && order.size() != rank)) {
+        return "XIR root axis order must be a complete permutation";
+    }
+    if (!tiles.empty() && tiles.size() != rank) {
+        return "XIR root axis tiles must specify every original axis";
+    }
+    uint64_t volume = 1u;
+    luisa::vector<bool> seen(rank, false);
+    for (size_t i = 0u; i < rank; i++) {
+        auto axis = order.empty() ? i : order[i];
+        if (axis >= rank || seen[axis]) { return "XIR root axis order must be a complete permutation"; }
+        seen[axis] = true;
+        auto &extent = domain.axis(i).extent;
+        if (!extent.is_constant() || extent.constant_value() == 0u || extent.constant_value() > UINT32_MAX / volume) {
+            return "XIR root traversal requires positive static extents and uint32 volume";
+        }
+        volume *= extent.constant_value();
+        auto factor = tiles.empty() ? 1u : tiles[i];
+        if (factor == 0u || extent.constant_value() % factor != 0u) {
+            return "XIR root axis tiles must be positive divisors of the original extents";
+        }
+    }
+    return {};
+}
+
 [[nodiscard]] inline RootMapping root_mapping(
     const IndexSpace &domain, luisa::span<const uint32_t> order,
     luisa::span<const uint32_t> tiles) {
+    auto error = root_mapping_error(domain, order, tiles);
+    LUISA_ASSERT(error.empty(), "{}", error);
     auto rank = domain.rank();
-    LUISA_ASSERT(rank != 0u && (order.empty() || order.size() == rank),
-                 "XIR root axis order must be a complete permutation");
-    LUISA_ASSERT(tiles.empty() || tiles.size() == rank,
-                 "XIR root axis tiles must specify every original axis");
     RootMapping result;
     luisa::vector<uint32_t> extents(rank), factors(rank, 1u);
     luisa::vector<bool> seen(rank, false);
     for (size_t i = 0u; i < rank; i++) {
-        auto axis = order.empty() ? i : order[i];
-        LUISA_ASSERT(axis < rank && !seen[axis],
-                     "XIR root axis order must be a complete permutation");
-        seen[axis] = true;
         auto &extent = domain.axis(i).extent;
-        LUISA_ASSERT(extent.is_constant() && extent.constant_value() != 0u &&
-                         extent.constant_value() <= UINT32_MAX / result.volume,
-                     "XIR root traversal requires positive static extents and uint32 volume");
         extents[i] = static_cast<uint32_t>(extent.constant_value());
         result.volume *= extents[i];
         factors[i] = tiles.empty() ? 1u : tiles[i];
-        LUISA_ASSERT(factors[i] != 0u && extents[i] % factors[i] == 0u,
-                     "XIR root axis tiles must be positive divisors of the original extents");
     }
     auto append = [&](RootDigit digit) {
         if (digit.extent == 1u) { return; }
