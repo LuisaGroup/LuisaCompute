@@ -76,6 +76,16 @@ RTTI is disabled for project code. Do **not** use:
 
 Prefer virtual dispatch or explicit type tags for type-safe downcasting. Third-party code under `src/ext` is exempt.
 
+## No Exceptions in Tests
+
+Do not use `throw` or rethrow in project-owned tests, benchmarks, or shared
+test helpers. Use `LUISA_ASSERT` for fatal preconditions and `LUISA_ERROR` for
+unconditional failures, with an explicit `<luisa/core/logging.h>` include.
+Use a literal format string for dynamic messages, such as
+`LUISA_ERROR("{}", message)`. Do not add exception-based assertion helpers or
+enable exceptions on test targets to make them compile. Preserve cleanup and
+expected-error coverage; see [the test skill](../test/SKILL.md#fatal-checks-without-exceptions).
+
 ## Integer Types
 
 Prefer fixed-width integer types:

@@ -6,8 +6,9 @@
 #include <cstdlib>
 #include <cstdint>
 #include <iostream>
-#include <stdexcept>
 #include <vector>
+
+#include <luisa/core/logging.h>
 
 #ifdef __APPLE__
 #include <dlfcn.h>
@@ -31,10 +32,10 @@ private:
 public:
     explicit MetalBenchmarkTiming(bool metal) {
         if (auto path = std::getenv("LUISA_TILE_BENCH_METAL_TIMING")) {
-            if (!metal) { throw std::runtime_error{"Metal device timing requested for a non-Metal benchmark"}; }
+            LUISA_ASSERT(metal, "Metal device timing requested for a non-Metal benchmark");
 #ifdef __APPLE__
             _library = dlopen(path, RTLD_NOW | RTLD_LOCAL);
-            if (_library == nullptr) { throw std::runtime_error{dlerror()}; }
+            if (_library == nullptr) { LUISA_ERROR("Failed to open Metal benchmark timing library '{}': {}", path, dlerror()); }
             auto version = reinterpret_cast<decltype(&luisa_metal_timing_version)>(dlsym(_library, "luisa_metal_timing_version"));
             _begin = reinterpret_cast<decltype(_begin)>(dlsym(_library, "luisa_metal_timing_begin"));
             _begin_control = reinterpret_cast<decltype(_begin_control)>(dlsym(_library, "luisa_metal_timing_begin_control"));
@@ -43,10 +44,10 @@ public:
             if (version == nullptr || version() != 2 || _begin == nullptr || _begin_control == nullptr || _end == nullptr || _error == nullptr) {
                 dlclose(_library);
                 _library = nullptr;
-                throw std::runtime_error{"incompatible Metal benchmark timing library"};
+                LUISA_ERROR("Incompatible Metal benchmark timing library");
             }
 #else
-            throw std::runtime_error{"Metal GPU counters require macOS"};
+            LUISA_ERROR("Metal GPU counters require macOS");
 #endif
         }
     }
@@ -66,16 +67,21 @@ public:
         _repetitions = std::min<uint64_t>(repetitions, 64u);
         auto sample = [&](uint64_t count, bool counters) {
             synchronize();
-            if (!(counters ? _begin(1024u) : _begin_control())) { throw std::runtime_error{_error()}; }
+            if (!(counters ? _begin(1024u) : _begin_control())) { LUISA_ERROR("Failed to begin Metal benchmark timing: {}", _error()); }
             LuisaMetalTimingResult result{};
-            try {
+            auto ended = 0;
+            {
+                // Remove process-local instrumentation when the submission
+                // scope exits, including unwinding from a library callback.
+                struct TimingScope final {
+                    decltype(&luisa_metal_timing_end) end;
+                    LuisaMetalTimingResult &result;
+                    int &ended;
+                    ~TimingScope() noexcept { ended = end(&result); }
+                } cleanup{_end, result, ended};
                 submit(count);
-            } catch (...) {
-                // Always remove process-local instrumentation on unwinding.
-                static_cast<void>(_end(&result));
-                throw;
             }
-            if (!_end(&result)) { throw std::runtime_error{_error()}; }
+            if (!ended) { LUISA_ERROR("Failed to end Metal benchmark timing: {}", _error()); }
             return result;
         };
         auto phase = [&](uint64_t count, auto &control, auto &instrumented) {

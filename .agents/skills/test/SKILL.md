@@ -318,6 +318,26 @@ for (size_t i = 0; i < n; i++) {
 expect(all_correct) << "all elements must match expected values";
 ```
 
+### Fatal checks without exceptions
+
+Project-owned tests, benchmarks, and shared test helpers must not use `throw`
+or rethrow. Keep them compatible with builds that disable C++ exceptions;
+do not enable exceptions on a test target to work around a diagnostic.
+
+- Use Boost.UT `expect` for ordinary checks that can safely continue.
+- Use `LUISA_ASSERT(condition, "message")` for fatal preconditions and
+  `LUISA_ERROR("message")` for unconditional setup or invariant failures.
+  Include `<luisa/core/logging.h>` explicitly. For a dynamic message, use a
+  literal format string: `LUISA_ERROR("{}", message)`.
+- Remove `try/catch` wrappers whose only purpose was to report those fatal
+  failures. Preserve required cleanup with RAII and keep all validation checks.
+- For expected recoverable failures, use the API's error/status/null result
+  and assert its documented outcome. Do not replace an expected failure with
+  process termination or remove its coverage. Tests of a library's exception
+  contract must guard exception syntax with `__cpp_exceptions`.
+- Check standalone benchmark targets also link `luisa-compute-core` when
+  introducing the logging macros. Leave vendored test-framework code intact.
+
 ### LUISA_STRUCT registration
 
 Any struct used in `BufferVar<T>`, `Var<T>`, or kernel/callable signatures must be registered:
