@@ -41,7 +41,10 @@ void TopAccel::UpdateMesh(
     MeshHandle *handle) {
     auto instIndex = handle->accelIndex;
     LUISA_ASSUME(allInstance[instIndex].handle == handle);
-    setMap[instIndex] = handle;
+    // Queue a refresh of the instance's BLAS address. Storing the stable
+    // BottomAccel instead of the pooled MeshHandle keeps the entry valid even
+    // if the handle is later destroyed/recycled before the next TLAS build.
+    setMap[instIndex] = handle->mesh;
     requireBuild = true;
 }
 void TopAccel::SetMesh(BottomAccel *mesh, uint64 index) {
@@ -148,7 +151,7 @@ void TopAccel::ProcessSetMap() {
             std::memset(&mod, 0, sizeof(PackedModifier));
             mod.index = i.first;
             mod.flags = AccelBuildCommand::Modification::flag_primitive;
-            mod.primitive = i.second->mesh->GetAccelBuffer()->GetAddress();
+            mod.primitive = i.second->GetAccelBuffer()->GetAddress();
         }
         setMap.clear();
     }
@@ -172,7 +175,7 @@ void TopAccel::ProcessSetDesc(EnhancedBarrierTracker &tracker) {
 
         if (ite != setMap.end()) {
             if (!updateMesh) {
-                m.primitive = reinterpret_cast<uint64_t>(ite->second->mesh);
+                m.primitive = reinterpret_cast<uint64_t>(ite->second);
                 m.flags |= AccelBuildCommand::Modification::flag_primitive;
                 updateMesh = true;
             }

@@ -810,6 +810,7 @@ luisa_compute_add_test(test_cluster_launch_control  unit/runtime/test_cluster_la
 # --- unit/runtime: standalone tests (need backend, NOT auto-run via CTest) ---
 luisa_compute_add_test(test_accel_build_modes unit/runtime/test_accel_build_modes.cpp)
 luisa_compute_add_test(test_accel_blas_lifetime unit/runtime/test_accel_blas_lifetime.cpp)
+luisa_compute_add_test(test_accel_tlas_instances unit/runtime/test_accel_tlas_instances.cpp)
 luisa_compute_add_test(test_accel_visibility unit/runtime/test_accel_visibility.cpp)
 luisa_compute_add_test(test_hip_rt_scratch_reuse unit/runtime/test_hip_rt_scratch_reuse.cpp)
 luisa_compute_add_test(test_hip_large_accel_instances unit/runtime/test_hip_large_accel_instances.cpp)

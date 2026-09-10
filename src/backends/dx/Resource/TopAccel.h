@@ -33,9 +33,12 @@ class TopAccel : public Resource {
     struct Instance {
         MeshHandle *handle = nullptr;
     };
-    vstd::vector<Instance> allInstance;
-    void ResizeAllInstance(size_t size);
-    vstd::unordered_map<uint64, MeshHandle *> setMap;
+      vstd::vector<Instance> allInstance;
+      void ResizeAllInstance(size_t size);
+      // Pending BLAS-address refreshes, keyed by TLAS instance index. The value
+      // is the stable BottomAccel (never the pooled MeshHandle) so that a
+      // destroyed or recycled handle can never leave a dangling entry behind.
+      vstd::unordered_map<uint64, BottomAccel *> setMap;
     vstd::vector<PackedModifier> setDesc;
     void SetMesh(BottomAccel *mesh, uint64 index);
     uint compactSize = 0;
