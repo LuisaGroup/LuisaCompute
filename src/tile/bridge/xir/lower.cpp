@@ -1,6 +1,6 @@
 #include <algorithm>
-#include <stdexcept>
 
+#include <luisa/core/logging.h>
 #include <luisa/core/stl/format.h>
 #include <luisa/core/mathematics.h>
 #include <luisa/core/stl/unordered_map.h>
@@ -96,7 +96,7 @@ private:
     x::Value *_local_slot{nullptr};
 
     [[noreturn]] static void _fail(luisa::string_view message) {
-        throw std::runtime_error{std::string{message}};
+        LUISA_ERROR("{}", message);
     }
     void _charge(uint64_t count = 1u) {
         if (count > _options.max_expanded_values || _expanded_values > _options.max_expanded_values - count) {
@@ -1287,17 +1287,7 @@ public:
 }// namespace
 
 NativeFunction lower(const Function &function, const LowerOptions &options) noexcept {
-    try {
-        return Lowerer{function, options}.run();
-    } catch (const std::exception &error) {
-        NativeFunction result;
-        result.error = error.what();
-        return result;
-    } catch (...) {
-        NativeFunction result;
-        result.error = "unknown error lowering TileIR to XIR";
-        return result;
-    }
+    return Lowerer{function, options}.run();
 }
 
 }// namespace luisa::compute::tile::bridge::xir

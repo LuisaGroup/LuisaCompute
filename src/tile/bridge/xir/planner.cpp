@@ -1,8 +1,8 @@
 #include <algorithm>
 #include <cmath>
 #include <numeric>
-#include <stdexcept>
 
+#include <luisa/core/logging.h>
 #include <luisa/core/mathematics.h>
 #include <luisa/tile/bridge/xir/planner.h>
 #include <luisa/tile/verifier.h>
@@ -12,7 +12,7 @@
 namespace luisa::compute::tile::bridge::xir {
 namespace {
 
-[[noreturn]] void fail(const char *message) { throw std::invalid_argument{message}; }
+[[noreturn]] void fail(const char *message) { LUISA_ERROR("{}", message); }
 
 [[nodiscard]] uint64_t volume(const IndexSpace &space) {
     uint64_t count = 1u;
@@ -402,17 +402,7 @@ ExecutionCost AnalyticExecutionCostPolicy::evaluate(
 }
 
 PlanningResult plan(const Function &function, ExecutionTarget target, const PlannerOptions &options) noexcept {
-    try {
-        return solve(function, target, options);
-    } catch (const std::exception &error) {
-        PlanningResult result;
-        result.error = error.what();
-        return result;
-    } catch (...) {
-        PlanningResult result;
-        result.error = "unknown XIR planning failure";
-        return result;
-    }
+    return solve(function, target, options);
 }
 
 }// namespace luisa::compute::tile::bridge::xir
