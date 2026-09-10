@@ -1,0 +1,12 @@
+Test project /tmp/luisa-next-integration.roZbN8/build
+    Start 83: test_metal4_timing
+1/1 Test #83: test_metal4_timing ...............   Passed   44.56 sec
+
+100% tests passed out of 1
+
+Label Time Summary:
+integration             =  44.56 sec*proc (1 test)
+integration_metal4      =  44.56 sec*proc (1 test)
+integration_tile_xir    =  44.56 sec*proc (1 test)
+
+Total Test time (real) =  44.57 sec

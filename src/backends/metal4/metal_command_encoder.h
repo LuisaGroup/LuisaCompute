@@ -18,6 +18,7 @@ private:
     MTL4::CommandAllocator *_command_allocator{nullptr};
     luisa::vector<MetalCallbackContext *> _callbacks;
     std::unordered_set<const MTL::Allocation *> _allocations;
+    MetalTimingSubmission _timing;
 
 protected:
     void _prepare_command_buffer() noexcept;
@@ -37,6 +38,11 @@ public:
         size_t sampler_count = 0u) noexcept;
     [[nodiscard]] MTL::GPUAddress upload(const void *data, size_t size) noexcept;
     void use_resource(const MTL::Allocation *allocation) noexcept;
+    void note_timing_non_dispatch_work() noexcept;
+    void note_timing_indirect_dispatch() noexcept;
+    [[nodiscard]] uint32_t begin_dispatch_timing(MTL4::ComputeCommandEncoder *encoder,
+                                                uint64_t shader_checksum, uint3 dispatch_size, uint3 block_size) noexcept;
+    void end_dispatch_timing(MTL4::ComputeCommandEncoder *encoder, uint32_t ordinal) noexcept;
     void visit(BufferUploadCommand *command) noexcept override;
     void visit(BufferDownloadCommand *command) noexcept override;
     void visit(BufferCopyCommand *command) noexcept override;

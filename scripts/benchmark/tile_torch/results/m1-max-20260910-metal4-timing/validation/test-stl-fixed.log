@@ -1,0 +1,15 @@
+Test project /tmp/luisa-next-integration.roZbN8/build
+    Start 29: test_stl_containers
+1/3 Test #29: test_stl_containers ..............   Passed    0.51 sec
+    Start 30: test_map_at_reject_mutable
+2/3 Test #30: test_map_at_reject_mutable .......   Passed    0.09 sec
+    Start 31: test_map_at_reject_const
+3/3 Test #31: test_map_at_reject_const .........   Passed    0.09 sec
+
+100% tests passed out of 3
+
+Label Time Summary:
+unit         =   0.70 sec*proc (3 tests)
+unit_core    =   0.70 sec*proc (3 tests)
+
+Total Test time (real) =   0.70 sec

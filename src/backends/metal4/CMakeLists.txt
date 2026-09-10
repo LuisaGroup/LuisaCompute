@@ -103,6 +103,7 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             metal_raster_ext.cpp metal_raster_ext.h
             metal_raster_shader.cpp metal_raster_shader.h
             metal_stream.cpp metal_stream.h
+            metal_timing.cpp metal_timing.h
             metal_event.cpp metal_event.h
             metal_bindless_array.cpp metal_bindless_array.h
             metal_swapchain.cpp metal_swapchain.h metal_swapchain.mm

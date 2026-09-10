@@ -1,0 +1,30 @@
+Test project /tmp/luisa-next-integration.roZbN8/build
+    Start 70: test_tile_ir
+1/8 Test #70: test_tile_ir .....................   Passed    0.04 sec
+    Start 80: test_tile_xir_target_info
+2/8 Test #80: test_tile_xir_target_info ........   Passed    0.02 sec
+    Start 81: test_metal4_timing
+3/8 Test #81: test_metal4_timing ...............   Passed   57.49 sec
+    Start 82: test_tile_xir_metal
+4/8 Test #82: test_tile_xir_metal ..............   Passed  178.10 sec
+    Start 83: test_tile_xir_runtime
+5/8 Test #83: test_tile_xir_runtime ............   Passed   53.51 sec
+    Start 84: test_tile_xir_llm
+6/8 Test #84: test_tile_xir_llm ................   Passed   17.23 sec
+    Start 85: test_tile_xir_llm_reject_heads
+7/8 Test #85: test_tile_xir_llm_reject_heads ...   Passed    0.09 sec
+    Start 86: test_tile_xir_llm_reject_block
+8/8 Test #86: test_tile_xir_llm_reject_block ...   Passed    0.09 sec
+
+100% tests passed out of 8
+
+Label Time Summary:
+integration             = 306.32 sec*proc (4 tests)
+integration_metal4      = 235.59 sec*proc (2 tests)
+integration_simd        =  70.73 sec*proc (2 tests)
+integration_tile_xir    = 306.32 sec*proc (4 tests)
+unit                    =   0.25 sec*proc (4 tests)
+unit_tile               =   0.25 sec*proc (4 tests)
+unit_tile_xir           =   0.21 sec*proc (3 tests)
+
+Total Test time (real) = 306.58 sec

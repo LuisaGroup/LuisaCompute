@@ -1,0 +1,47 @@
+[2026-09-10 11:11:08.094] [console] [info] Created context for program 'test_metal4_timing'.
+[2026-09-10 11:11:08.094] [console] [info] Runtime directory: /private/tmp/luisa-next-integration.roZbN8/build/bin.
+[2026-09-10 11:11:09.105] [console] [info] Loaded dynamic module '/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-backend-metal4.so' in 1010.311416 ms.
+[2026-09-10 11:11:09.138] [console] [info] Created Metal 4 device 'Apple M1 Max' at index 0.
+[2026-09-10 11:11:09.138] [console] [info] Test device backend: metal4.
+[2026-09-10 11:11:09.138] [console] [info] Metal4 timing capabilities: feedback=true, timestamp_heap=true, frequency_hz=24000000, error=''
+[2026-09-10 11:11:09.151] [console] [info] Metal4 timing setup: creating primary stream
+[2026-09-10 11:11:09.152] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:11:09.152] [console] [info] Metal4 timing setup: uploading shared inputs
+LUISA_METAL4_SUBMISSION_TRACE event=before_commit stream=0xc2547c000 submission=0xc25458778 command_buffer=0xc2543c000 callbacks=1
+LUISA_METAL4_SUBMISSION_TRACE event=after_commit stream=0xc2547c000 submission=0xc25458778
+LUISA_METAL4_SUBMISSION_TRACE event=before_commit stream=0xc2547c000 submission=0xc25458b78 command_buffer=0xc2543c0e0 callbacks=1
+LUISA_METAL4_SUBMISSION_TRACE event=after_commit stream=0xc2547c000 submission=0xc25458b78
+LUISA_METAL4_SUBMISSION_TRACE event=before_commit stream=0xc2547c000 submission=0xc25458a98 command_buffer=0xc2543c1c0 callbacks=1
+LUISA_METAL4_SUBMISSION_TRACE event=after_commit stream=0xc2547c000 submission=0xc25458a98
+[2026-09-10 11:11:09.152] [console] [info] Metal4 timing setup: initial primary reset begin
+LUISA_METAL4_SUBMISSION_TRACE event=before_commit stream=0xc2547c000 submission=0xc25458b38 command_buffer=0xc2543c2a0 callbacks=1
+LUISA_METAL4_SUBMISSION_TRACE event=after_commit stream=0xc2547c000 submission=0xc25458b38
+LUISA_METAL4_SUBMISSION_TRACE event=feedback_begin stream=0xc2547c000 submission=0xc25458778 command_buffer=0xc2543c000
+LUISA_METAL4_SUBMISSION_TRACE event=before_complete stream=0xc2547c000 submission=0xc25458778
+LUISA_METAL4_SUBMISSION_TRACE event=before_commit stream=0xc2547c000 submission=0xc254587f8 command_buffer=0xc2543c380 callbacks=0
+LUISA_METAL4_SUBMISSION_TRACE event=after_commit stream=0xc2547c000 submission=0xc254587f8
+LUISA_METAL4_SUBMISSION_TRACE event=feedback_begin stream=0xc2547c000 submission=0xc25458b78 command_buffer=0xc2543c0e0
+LUISA_METAL4_SUBMISSION_TRACE event=before_complete stream=0xc2547c000 submission=0xc25458b78
+LUISA_METAL4_SUBMISSION_TRACE event=feedback_begin stream=0xc2547c000 submission=0xc25458a98 command_buffer=0xc2543c1c0
+LUISA_METAL4_SUBMISSION_TRACE event=before_complete stream=0xc2547c000 submission=0xc25458a98
+LUISA_METAL4_SUBMISSION_TRACE event=feedback_begin stream=0xc2547c000 submission=0xc25458b38 command_buffer=0xc2543c2a0
+LUISA_METAL4_SUBMISSION_TRACE event=before_complete stream=0xc2547c000 submission=0xc25458b38
+LUISA_METAL4_SUBMISSION_TRACE event=feedback_begin stream=0xc2547c000 submission=0xc254587f8 command_buffer=0xc2543c380
+LUISA_METAL4_SUBMISSION_TRACE event=before_complete stream=0xc2547c000 submission=0xc254587f8
+[2026-09-10 11:11:09.801] [console] [info] Metal4 timing setup: initial primary reset complete
+LUISA_METAL4_SUBMISSION_TRACE event=before_commit stream=0xc2547c000 submission=0xc25027398 command_buffer=0xc2543c000 callbacks=0
+LUISA_METAL4_SUBMISSION_TRACE event=after_commit stream=0xc2547c000 submission=0xc25027398
+LUISA_METAL4_SUBMISSION_TRACE event=feedback_begin stream=0xc2547c000 submission=0xc25027398 command_buffer=0xc2543c000
+LUISA_METAL4_SUBMISSION_TRACE event=before_complete stream=0xc2547c000 submission=0xc25027398
+
+Running "metal4_timing_feedback_counts_boundaries_and_empty_submissions"... [33mSKIPPED[0m
+
+Running "metal4_timing_precise_ticks_conversion_and_command_buffer_ownership"... [33mSKIPPED[0m
+
+Running "metal4_timing_different_streams_have_independent_samples"... [33mSKIPPED[0m
+
+Running "metal4_timing_overflow_is_an_error_without_losing_dispatch_counts"... [33mSKIPPED[0m
+
+Running "metal4_timing_lifecycle_errors_and_normal_dispatch_after_disarm"... [33mSKIPPED[0m
+[32mSuite 'global': all tests passed[0m (7 asserts in 5 tests)
+5 tests skipped

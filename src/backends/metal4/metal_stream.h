@@ -12,6 +12,7 @@
 #include <luisa/runtime/command_list.h>
 #include "metal_api.h"
 #include "metal_stage_buffer_pool.h"
+#include "metal_timing.h"
 
 namespace luisa::compute::metal {
 
@@ -55,6 +56,11 @@ private:
     luisa::queue<CallbackContainer> _callback_lists{};
     luisa::vector<MTL4::CommandAllocator *> _command_allocator_pool;
     LogCallback _log_callback;
+    // Only the opt-in diagnostic path takes this mutex. The disabled path
+    // does not allocate counters or alter command encoding/submission.
+    std::atomic_bool _timing_enabled{false};
+    spin_mutex _timing_mutex;
+    luisa::shared_ptr<MetalTimingSession> _timing_session;
 
 protected:
     void _do_dispatch(MetalCommandEncoder &encoder, CommandList &&list) noexcept;
@@ -89,12 +95,17 @@ public:
     [[nodiscard]] auto command_buffer_options() const noexcept { return _command_buffer_options; }
     [[nodiscard]] auto name() const noexcept { return _name; }
     void set_log_callback(LogCallback callback) noexcept;
+    [[nodiscard]] bool timing_enabled() const noexcept { return _timing_enabled.load(std::memory_order_acquire); }
+    [[nodiscard]] luisa::shared_ptr<MetalTimingSession> timing_session() noexcept;
+    [[nodiscard]] bool begin_timing(luisa::shared_ptr<MetalTimingSession> session) noexcept;
+    [[nodiscard]] Metal4TimingSample end_timing() noexcept;
     [[nodiscard]] MetalStageBufferPool *upload_pool() noexcept;
     [[nodiscard]] MetalStageBufferPool *download_pool() noexcept;
     [[nodiscard]] virtual SubmissionHandle submit(
         MTL4::CommandBuffer *command_buffer,
         MTL4::CommandAllocator *command_allocator,
-        CallbackContainer &&callbacks) noexcept;
+        CallbackContainer &&callbacks,
+        MetalTimingSubmission timing = {}) noexcept;
 };
 
 }// namespace luisa::compute::metal

@@ -391,6 +391,7 @@ void MetalStream::set_name(luisa::string_view name) noexcept {
 
 void MetalStream::_encode(MetalCommandEncoder &encoder,
                           Command *command) noexcept {
+    if (command->tag() != Command::Tag::EShaderDispatchCommand) { encoder.note_timing_non_dispatch_work(); }
     command->accept(encoder);
 }
 
@@ -422,7 +423,8 @@ void MetalStream::present(MetalSwapchain *swapchain, MetalTexture *image) noexce
 MetalStream::SubmissionHandle MetalStream::submit(
     MTL4::CommandBuffer *command_buffer,
     MTL4::CommandAllocator *command_allocator,
-    MetalStream::CallbackContainer &&callbacks) noexcept {
+    MetalStream::CallbackContainer &&callbacks,
+    MetalTimingSubmission timing) noexcept {
     LUISA_ASSERT(command_buffer != nullptr && command_allocator != nullptr,
                  "Invalid Metal4 command-buffer submission.");
     auto submission = luisa::make_shared<Submission>();
@@ -449,8 +451,10 @@ MetalStream::SubmissionHandle MetalStream::submit(
         MTL4::CommitOptions::alloc()->init());
     options->addFeedbackHandler(MTL4::CommitFeedbackHandlerFunction{
         [this, command_buffer, command_allocator, submission,
-         has_callbacks, label = std::move(label)](
+         has_callbacks, timing, label = std::move(label)](
             MTL4::CommitFeedback *feedback) noexcept {
+            // Record receipt before user callbacks or allocator recycling.
+            if (timing.session) { timing.session->feedback(timing.ordinal, feedback); }
             if (has_callbacks) {
                 std::scoped_lock execution_lock{
                     _callback_execution_mutex};
@@ -469,6 +473,7 @@ MetalStream::SubmissionHandle MetalStream::submit(
                 _completed_callback_lists.fetch_add(
                     1u, std::memory_order_release);
             }
+            if (timing.session) { timing.session->callbacks_finished(timing.ordinal); }
             if (metal_command_buffer_profiling_enabled()) {
                 auto begin = feedback->GPUStartTime();
                 auto end = feedback->GPUEndTime();
@@ -507,11 +512,45 @@ MetalStream::SubmissionHandle MetalStream::submit(
             // MetalStream reference and destroy the stream as soon as this
             // becomes true, so the feedback handler must not touch `this`
             // afterwards.
+            if (timing.session) { timing.session->completing(timing.ordinal); }
             submission->completed.store(true, std::memory_order_release);
         }});
     const MTL4::CommandBuffer *command_buffers[]{command_buffer};
+    if (timing.session) { timing.session->will_commit(timing.ordinal, timing.dispatch_count, timing.contains_non_dispatch_work); }
     _queue->commit(command_buffers, 1u, options.get());
+    if (timing.session) { timing.session->did_commit(timing.ordinal); }
     return submission;
+}
+
+luisa::shared_ptr<MetalTimingSession> MetalStream::timing_session() noexcept {
+    if (!timing_enabled()) { return {}; }
+    std::scoped_lock lock{_timing_mutex};
+    return _timing_session;
+}
+
+bool MetalStream::begin_timing(luisa::shared_ptr<MetalTimingSession> session) noexcept {
+    // The public extension requires externally serialized sample boundaries.
+    if (timing_enabled()) { return false; }
+    synchronize();
+    std::scoped_lock lock{_timing_mutex};
+    if (_timing_session) { return false; }
+    _timing_session = std::move(session);
+    _timing_enabled.store(true, std::memory_order_release);
+    return true;
+}
+
+Metal4TimingSample MetalStream::end_timing() noexcept {
+    luisa::shared_ptr<MetalTimingSession> session;
+    {
+        std::scoped_lock lock{_timing_mutex};
+        if (!_timing_session) { return {.error = "No Metal4 timing sample is active on this stream"}; }
+        _timing_enabled.store(false, std::memory_order_release);
+        session = std::move(_timing_session);
+    }
+    // This synchronization's own empty command buffer is deliberately not
+    // attached to the disarmed sample. Earlier buffers retain their session.
+    synchronize();
+    return session->finish();
 }
 
 }// namespace luisa::compute::metal

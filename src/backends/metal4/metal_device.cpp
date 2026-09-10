@@ -33,6 +33,7 @@
 #include "metal_pinned_memory.h"
 #include "metal_debug_capture.h"
 #include "metal_tex_compress.h"
+#include "metal_timing.h"
 #ifdef LUISA_ENABLE_XIR
 #include "../common/xir_autodiff.h"
 #endif
@@ -946,6 +947,11 @@ luisa::string MetalDevice::query(luisa::string_view property) noexcept {
 
 DeviceExtension *MetalDevice::extension(luisa::string_view name) noexcept {
     return with_autorelease_pool([=, this]() noexcept -> DeviceExtension * {
+        if (name == Metal4TimingExt::name) {
+            std::scoped_lock lock{_ext_mutex};
+            if (!_timing_ext) { _timing_ext = luisa::make_unique<MetalTimingExt>(_handle); }
+            return _timing_ext.get();
+        }
         if (name == DStorageExt::name) {
             std::scoped_lock lock{_ext_mutex};
             if (!_dstorage_ext) { _dstorage_ext = luisa::make_unique<MetalDStorageExt>(this); }

@@ -1,0 +1,52 @@
+Start testing: Sep 10 11:11 CST
+----------------------------------------------------------
+81/273 Testing: test_metal4_timing
+81/273 Test: test_metal4_timing
+Command: "/tmp/luisa-next-integration.roZbN8/build/bin/test_metal4_timing" "metal4"
+Directory: /tmp/luisa-next-integration.roZbN8/build/src/tests
+"test_metal4_timing" start time: Sep 10 11:11 CST
+Output:
+----------------------------------------------------------
+[2026-09-10 11:11:29.557] [console] [info] Created context for program 'test_metal4_timing'.
+[2026-09-10 11:11:29.557] [console] [info] Runtime directory: /private/tmp/luisa-next-integration.roZbN8/build/bin.
+[2026-09-10 11:11:29.567] [console] [info] Loaded dynamic module '/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-backend-metal4.so' in 9.663416999999999 ms.
+[2026-09-10 11:11:29.596] [console] [info] Created Metal 4 device 'Apple M1 Max' at index 0.
+[2026-09-10 11:11:29.596] [console] [info] Test device backend: metal4.
+[2026-09-10 11:11:29.596] [console] [info] Metal4 timing capabilities: feedback=true, timestamp_heap=true, frequency_hz=24000000, error=''
+[2026-09-10 11:11:29.607] [console] [info] Metal4 timing setup: creating primary stream
+[2026-09-10 11:11:29.608] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:11:29.608] [console] [info] Metal4 timing setup: uploading shared inputs
+[2026-09-10 11:11:29.609] [console] [info] Metal4 timing setup: initial primary reset begin
+[2026-09-10 11:11:30.951] [console] [info] Metal4 timing setup: initial primary reset complete
+[2026-09-10 11:11:30.951] [console] [info] Metal4 timing case: feedback counts, boundaries and empty submissions
+[2026-09-10 11:11:30.958] [console] [info] Metal4 timing feedback: begin sample 101, expected_dispatches=1
+[2026-09-10 11:11:46.452] [console] [info] Metal4 timing feedback: begin sample 103, expected_dispatches=3
+[2026-09-10 11:11:53.853] [console] [info] Metal4 timing case: precise ticks and command-buffer ownership
+[2026-09-10 11:11:56.552] [console] [info] Metal4 timing case: stream isolation; creating secondary stream
+[2026-09-10 11:11:56.552] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:11:56.552] [console] [info] Metal4 timing isolation: primary reset begin
+[2026-09-10 11:11:57.152] [console] [info] Metal4 timing isolation: secondary reset begin
+[2026-09-10 11:11:58.252] [console] [info] Metal4 timing isolation: primary sample begin
+[2026-09-10 11:12:00.034] [console] [info] Metal4 timing isolation: secondary sample begin
+[2026-09-10 11:12:00.051] [console] [info] Metal4 timing isolation: dispatching independent outputs
+[2026-09-10 11:12:00.051] [console] [info] Metal4 timing isolation: primary sample end
+[2026-09-10 11:12:00.551] [console] [info] Metal4 timing isolation: secondary sample end
+[2026-09-10 11:12:01.768] [console] [info] Metal4 timing case: overflow preserves actual dispatches
+[2026-09-10 11:12:01.893] [console] [info] Metal4 timing case: lifecycle errors and dispatch after disarm
+[32mSuite 'global': all tests passed[0m (8279 asserts in 5 tests)
+<end of output>
+Test time =  38.91 sec
+----------------------------------------------------------
+Test Passed.
+"test_metal4_timing" end time: Sep 10 11:12 CST
+"test_metal4_timing" time elapsed: 00:00:38
+----------------------------------------------------------
+
+End testing: Sep 10 11:12 CST
+
+integration =  38.91 sec*proc
+
+integration_metal4 =  38.91 sec*proc
+
+integration_tile_xir =  38.91 sec*proc
+

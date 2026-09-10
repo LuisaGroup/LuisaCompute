@@ -910,9 +910,41 @@ this does not make every unsupported program recoverable.
 
 The shared LLM benchmark selects this distinct route with
 `LUISA_TILE_BENCH_XIR_BACKEND=metal4` and reports `tile_xir_metal4` (not
-`tile_tirx_metal`). Its current samples are synchronized Runtime host wall.
-The legacy Metal timestamp helper does not instrument Metal4 and is rejected
-if requested for this route; Metal4 GPU timestamps require a separate adapter.
+`tile_tirx_metal`). Its ordinary samples are synchronized Runtime host wall.
+`LUISA_TILE_BENCH_METAL4_TIMING=1` additionally uses the independent
+`Metal4TimingExt`: precise MTL4 timestamp-heap intervals around direct dispatches,
+paired feedback-only command-buffer controls, and host commit/feedback/retirement
+boundaries. Raw ticks and their device-reported frequency are retained. These
+are **instrumented dispatch intervals**, not zero-overhead kernel time; counter
+commands can alter GPU scheduling. Host wall samples run before instrumentation.
+The legacy Metal timestamp helper does not instrument Metal4 and remains rejected
+for this route. `LUISA_TILE_BENCH_FIXED_REPETITIONS` fixes the host batch size;
+the separate GPU-timed batches are capped at 64 dispatches and report their count.
+
+Sampling is opt-in and per stream. Boundary drains are excluded; explicit
+synchronization inside a sample remains visible, including empty command buffers.
+Overflow and unsupported indirect ranges fail the sample instead of silently
+dropping dispatches. Empty buffers without a valid GPU span remain distinguishable
+from real GPU work. Host and GPU clocks must not be subtracted from each other.
+On macOS, run GPU experiments under an explicit temporary awake assertion
+(`caffeinate -diu`) and retain timeouts as errors, not slow-kernel observations.
+
+The interrupted {download}`fixed-batch timing checkpoint <../../../../scripts/benchmark/tile_torch/results/m1-max-20260910-metal4-timing/README.md>`
+exposes a remaining admission gap: large single-lane LayerNorm/softmax snapshots
+exceed the compiler budget only after planning, while W32 candidates execute.
+The next resource interface should expose **static snapshot bytes per physical
+worker** from a shared materialization analysis, with backend-owned limits applied
+before cost ranking. This is not register usage, peak liveness or a hardware
+private-memory limit; the current emitter counts cumulative static allocations.
+Dynamic memory-work estimates in the cost model cannot substitute for this fact.
+
+That analysis must share snapshot/alias/carry, deferred producer and static
+traversal rules with emission; a second approximate copy would drift on fused
+maps, expanded bodies and double-buffered carries. Automatic search should retain
+over-budget rejection reasons and continue; a fixed user mapping should return
+a resource diagnostic, never silently change lanes. Emission keeps a defensive
+check. This candidate-level resource interface remains planned, not implemented
+or calibrated by the timing checkpoint.
 
 The {download}`September 10 validation record <../../../../scripts/benchmark/tile_torch/results/m1-max-20260910-xir-target-info/README.md>`
 records the complete build, five passing selected CTests and the actual

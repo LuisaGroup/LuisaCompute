@@ -14,16 +14,16 @@ migration
 
 ## Current conclusion
 
-As of September 9, 2026, development is on `next` (merged at `2d02721b8`):
+As of September 10, 2026, development is on `next`:
 **the architecture runs, but the general MPS/Torch performance goal is not
 complete.** Several bounded FP32 cohorts on Apple M1 Max beat eager Torch;
 large GEMM and direct XIR/SIMD still have substantial gaps. These results do
 not establish production LLM, low-precision, all-shape or cross-device parity.
 
 The C++ language, mutable TileIR, native C++ TIRx bridge, bounded Metal MPP
-lowering and XIR/SIMD Runtime route are implemented. Execution mapping is
+lowering and the XIR/SIMD and XIR/Metal4 Runtime routes are implemented. Execution mapping is
 planned rather than mechanically copied from logical hierarchy. Backend-owned
-cost policies are extensible; their legal candidates and calibration remain
+target information and cost policies are extensible; their legal candidates and calibration remain
 bounded. See [coverage](implementation.md) and
 [compiler architecture](../../internals/tile/index.md).
 
@@ -43,9 +43,10 @@ Keep these objectives separate:
   Runtime dispatch/Python/JIT and caller allocations excluded. Required native
   traversal, launch resets and compiler-emitted internal allocations stay
   inside; this is not a hardware cycle counter.
-- **GPU timing:** instrumented compute-pass intervals plus a separate
-  no-counter command-buffer control. The control includes GPU work and
-  intra-buffer gaps, not isolated kernel time.
+- **GPU timing:** legacy Metal compute-pass intervals or Metal4 precise
+  dispatch intervals, each with a separate no-counter command-buffer control.
+  Neither instrumented interval is a zero-overhead observation. The control
+  includes GPU work and intra-buffer gaps, not isolated kernel time.
 
 Counters perturb some Torch cases substantially. Every comparison retains
 fusion, output-allocation and math-policy differences, paired round ratios

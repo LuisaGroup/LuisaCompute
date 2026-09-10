@@ -1,0 +1,21 @@
+{
+  "date": "2026-09-10",
+  "change": "Keep argv/environment string comparisons builtin bool to preserve short-circuiting outside Boost.UT expressions",
+  "full_build": "PASS; build-timing-guards.log",
+  "default_environment_test": {
+    "unset": "LUISA_TEST_REQUIRE_METAL4_TIMESTAMPS",
+    "log": "test-timing-guards.xml",
+    "ctest_passed": 1,
+    "cases": 6,
+    "assertions": 8514,
+    "seconds": 44.56,
+    "timestamp_frequency_hz": 24000000,
+    "precise_tests_executed": true
+  },
+  "missing_argument_test": {"exit_code": 2, "usage_printed": true, "crashed": false},
+  "sha256": {
+    "test_metal4_timing": "480a13f8af27a328e6c05b2adba36992a09b8669b5b25d5dee0fd369435bcdeb",
+    "test_metal4_timing.cpp": "1da5805cf4e688dde330ad53cd83a1fa266424d0a547362e38f4b016f63c45e1"
+  },
+  "scope": "Test entry guards only. Backend and benchmark artifacts unchanged from integrated-receipt.json; no performance experiments rerun."
+}

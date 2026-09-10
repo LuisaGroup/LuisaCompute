@@ -13,6 +13,7 @@ class MetalPinnedMemoryExt;
 class MetalDenoiserExt;
 class MetalTexCompressExt;
 class MetalRasterExt;
+class MetalTimingExt;
 
 class MetalDevice : public DeviceInterface {
 
@@ -41,6 +42,7 @@ private:
     luisa::unique_ptr<MetalDebugCaptureExt> _debug_capture_ext{nullptr};
     luisa::unique_ptr<MetalTexCompressExt> _tex_compress_ext{nullptr};
     luisa::unique_ptr<MetalRasterExt> _raster_ext{nullptr};
+    luisa::unique_ptr<MetalTimingExt> _timing_ext{nullptr};
 
 #if LUISA_BACKEND_ENABLE_OIDN
     luisa::unique_ptr<MetalDenoiserExt> _denoiser_ext;

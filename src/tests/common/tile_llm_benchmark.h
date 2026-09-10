@@ -4,6 +4,7 @@
 // XIR/SIMD, XIR/Metal4 and TIRx/Metal. This is a benchmark, not a dispatch policy.
 #include "tile_llm_test_utils.h"
 #include "metal_benchmark.h"
+#include "metal4_benchmark.h"
 #include <luisa/core/logging.h>
 #include <luisa/tile/runtime.h>
 #include <luisa/runtime/context.h>
@@ -161,16 +162,24 @@ namespace luisa::test::tile_llm {
     while (elapsed(start) < warmup_ms) { static_cast<void>(batch(8u)); }
     auto actual_warmup_ms = elapsed(start);
     uint64_t repetitions = 1u;
-    for (auto attempt = 0; attempt < 8; attempt++) {
-        auto ms = batch(repetitions);
-        if (ms >= target_ms * .8 || repetitions == 100000u) { break; }
-        repetitions = std::clamp<uint64_t>(static_cast<uint64_t>(repetitions * target_ms / std::max(ms, 1e-6)), repetitions + 1u, 100000u);
+    auto fixed_repetitions = std::getenv("LUISA_TILE_BENCH_FIXED_REPETITIONS");
+    if (fixed_repetitions != nullptr) {
+        repetitions = static_cast<uint64_t>(integer(fixed_repetitions));
+        LUISA_ASSERT(repetitions <= 100000u, "Fixed benchmark repetitions exceed limit");
+    } else {
+        for (auto attempt = 0; attempt < 8; attempt++) {
+            auto ms = batch(repetitions);
+            if (ms >= target_ms * .8 || repetitions == 100000u) { break; }
+            repetitions = std::clamp<uint64_t>(static_cast<uint64_t>(repetitions * target_ms / std::max(ms, 1e-6)), repetitions + 1u, 100000u);
+        }
     }
     vector<double> throughput, latency;
     for (auto i = 0; i < count; i++) { throughput.emplace_back(1000.0 * batch(repetitions) / repetitions); }
     for (auto i = 0; i < count; i++) { latency.emplace_back(1000.0 * batch(1u)); }
     MetalBenchmarkTiming timing{backend == "metal"};
     timing.measure([&] { stream.synchronize(); }, submit, repetitions, static_cast<uint32_t>(count));
+    Metal4BenchmarkTiming metal4_timing{device, stream, backend == "metal4"};
+    metal4_timing.measure(submit, repetitions, static_cast<uint32_t>(count));
     check();
     write(output_path, span{output}.subspan(pad, fixture.expected.size()));
     auto array = [](const auto &values) {
@@ -212,7 +221,9 @@ namespace luisa::test::tile_llm {
     array(fixture.shapes[3]);
     std::cout << ",\"fixture_ms\":" << fixture_ms << ",\"runtime_init_ms\":" << runtime_ms << ",\"compile_ms\":" << compile_ms
               << ",\"allocation_upload_ms\":" << upload_ms << ",\"cold_call_ms\":" << cold_ms << ",\"warmup_ms\":" << actual_warmup_ms
-              << ",\"repetitions\":" << repetitions << ",\"realization\":" << std::quoted(shader.metadata().realization)
+              << ",\"repetitions\":" << repetitions
+              << ",\"repetition_policy\":" << std::quoted(fixed_repetitions == nullptr ? "adaptive_host_wall" : "fixed")
+              << ",\"realization\":" << std::quoted(shader.metadata().realization)
               << ",\"correctness\":{\"checks\":2,\"elements_per_check\":" << fixture.expected.size()
               << ",\"guard_elements_per_check\":34,\"atol\":0.00005,\"rtol\":0.00005,\"max_abs_error\":" << max_error << '}'
               << ",\"throughput_us\":";
@@ -220,6 +231,7 @@ namespace luisa::test::tile_llm {
     std::cout << ",\"latency_us\":";
     array(latency);
     timing.print();
+    metal4_timing.print();
     std::cout << "}\n";
     return 0;
 }

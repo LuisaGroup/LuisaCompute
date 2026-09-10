@@ -31,12 +31,33 @@ checks physical 32/64-lane contracts; this machine executes only W32.
 Nine 128×1024 RMSNorm/softmax/SwiGLU probes retain all raw synchronized
 Runtime host-wall samples. Automatic search selects the W32 mapping in each
 case, but identical selected physical plans have highly inconsistent timing
-between fixed and automatic requests (about 59× in the SwiGLU probe). These
+between fixed and automatic requests (about 59× in the SwiGLU probe, which also
+used different adaptive batch counts: 1 versus 119). These
 are diagnostic records, **not** a ranking, cost calibration, pure-kernel
-measurement or evidence of Torch/MPS parity. GPU timing and Runtime attribution
-remain the next gate. The tested CPU regressions deliberately avoid loading
+measurement or evidence of Torch/MPS parity. The independent Metal4 timing
+extension now has executed counter/feedback correctness coverage; stable
+fixed-batch comparisons, Runtime attribution and cost calibration remain separate
+gates. The tested CPU regressions deliberately avoid loading
 TVM's LLVM21 and the native backend's LLVM22 into the same process; standalone
 TIRx builds remain enabled.
+
+### Metal4 timing separates device intervals from host completion
+
+The independent `Metal4TimingExt` records precise per-dispatch timestamps,
+feedback-only command-buffer controls and host submission/retirement boundaries.
+The M1 Max timestamp heap executed successfully at 24 MHz. These are instrumented
+dispatch intervals, not zero-overhead kernel times; clocks and separately sampled
+phases must not be subtracted as a single event decomposition.
+
+The {download}`timing implementation and recovery checkpoint <../../../../scripts/benchmark/tile_torch/results/m1-max-20260910-metal4-timing/README.md>`
+retains the staged correctness runs (six timing cases / 8,515 assertions after
+the boundary fix), completed 18-visit pilot, and interrupted 144-visit row matrix:
+**35 OK, two Error, 107 NotRun**.
+The two errors are single-lane 1024×4097 LayerNorm/softmax snapshot-budget
+rejections; corresponding W32/automatic requests execute. This motivates
+per-candidate resource admission, not a larger universal lane/storage constant.
+The interrupted matrix and noisy same-realization observations do not establish
+a new performance ranking, calibrated policy or Torch/MPS parity.
 
 ### Native row entries expose both broader wins and remaining gaps
 

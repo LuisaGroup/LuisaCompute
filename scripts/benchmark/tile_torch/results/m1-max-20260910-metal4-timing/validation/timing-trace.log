@@ -1,0 +1,18 @@
+[2026-09-10 11:04:50.894] [console] [info] Created context for program 'test_metal4_timing'.
+[2026-09-10 11:04:50.895] [console] [info] Runtime directory: /private/tmp/luisa-next-integration.roZbN8/build/bin.
+[2026-09-10 11:04:51.800] [console] [info] Loaded dynamic module '/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-backend-metal4.so' in 904.921791 ms.
+[2026-09-10 11:04:51.835] [console] [info] Created Metal 4 device 'Apple M1 Max' at index 0.
+[2026-09-10 11:04:51.835] [console] [info] Test device backend: metal4.
+[2026-09-10 11:04:51.835] [console] [info] Metal4 timing capabilities: feedback=true, timestamp_heap=true, frequency_hz=24000000, error=''
+[2026-09-10 11:04:51.848] [console] [info] Metal4 timing setup: creating primary stream
+[2026-09-10 11:04:51.849] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 11:04:51.849] [console] [info] Metal4 timing setup: uploading shared inputs
+LUISA_METAL4_SUBMISSION_TRACE event=before_commit stream=0xc9551c000 submission=0xc95490238 command_buffer=0xc95334000 callbacks=1
+LUISA_METAL4_SUBMISSION_TRACE event=after_commit stream=0xc9551c000 submission=0xc95490238
+LUISA_METAL4_SUBMISSION_TRACE event=before_commit stream=0xc9551c000 submission=0xc954900d8 command_buffer=0xc953340e0 callbacks=1
+LUISA_METAL4_SUBMISSION_TRACE event=after_commit stream=0xc9551c000 submission=0xc954900d8
+LUISA_METAL4_SUBMISSION_TRACE event=before_commit stream=0xc9551c000 submission=0xc95013958 command_buffer=0xc953341c0 callbacks=1
+LUISA_METAL4_SUBMISSION_TRACE event=after_commit stream=0xc9551c000 submission=0xc95013958
+[2026-09-10 11:04:51.850] [console] [info] Metal4 timing setup: initial primary reset begin
+LUISA_METAL4_SUBMISSION_TRACE event=before_commit stream=0xc9551c000 submission=0xc95013538 command_buffer=0xc953342a0 callbacks=1
+LUISA_METAL4_SUBMISSION_TRACE event=after_commit stream=0xc9551c000 submission=0xc95013538

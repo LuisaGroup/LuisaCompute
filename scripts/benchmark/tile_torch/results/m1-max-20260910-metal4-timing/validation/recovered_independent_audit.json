@@ -1,0 +1,1413 @@
+{
+  "audited_utc": "2026-09-10T03:36:57.624134+00:00",
+  "method": "independent raw timestamp recomputation and complete NumPy FP64 oracle",
+  "cohorts": {
+    "cohort": {
+      "manifest_receipt": {
+        "bytes": 80562,
+        "sha256": "2fea6607cecc17015a593171ee322d1d14abe54e028a5b3e5a08e4092310f3df"
+      },
+      "status_counts": {
+        "OK": 18
+      },
+      "finished_utc": "2026-09-10T03:24:04.889029+00:00",
+      "artifacts_after_present": true,
+      "artifacts_current_match_before": {
+        "/private/tmp/luisa-next-integration.roZbN8/build/bin/benchmark_tile_xir": true,
+        "/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-backend-metal4.so": true,
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/metal4_timing.py": true,
+        "/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-tile-bridge-xir.dylib": true,
+        "/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-tile.dylib": true,
+        "/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-xir.dylib": true,
+        "/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-runtime.dylib": true,
+        "/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-core.dylib": true
+      },
+      "records": [
+        {
+          "round": 0,
+          "operation": "rmsnorm",
+          "dimensions": [
+            128,
+            1024
+          ],
+          "requested_local_lanes": 1,
+          "status": "OK",
+          "index": 0,
+          "output_elements_checked": 131072,
+          "max_abs_error": 5.092310131349365e-07,
+          "dispatch_records_checked": 18,
+          "command_buffers_checked": 8,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 177708.3333333333,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 205749.99507516623,
+            "throughput_host_wall_us_per_dispatch": 6953.2865,
+            "latency_instrumented_dispatch_ns": 223125.0,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 226416.62508249283,
+            "latency_host_wall_us_per_dispatch": 365940.209
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "rmsnorm",
+          "dimensions": [
+            128,
+            1024
+          ],
+          "requested_local_lanes": 32,
+          "status": "OK",
+          "index": 1,
+          "output_elements_checked": 131072,
+          "max_abs_error": 2.5446868812117884e-07,
+          "dispatch_records_checked": 18,
+          "command_buffers_checked": 8,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 34270.83333333333,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 63817.715272307396,
+            "throughput_host_wall_us_per_dispatch": 981.380125,
+            "latency_instrumented_dispatch_ns": 75250.0,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 59458.31071585417,
+            "latency_host_wall_us_per_dispatch": 17300.542
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "rmsnorm",
+          "dimensions": [
+            128,
+            1024
+          ],
+          "requested_local_lanes": 0,
+          "status": "OK",
+          "index": 2,
+          "output_elements_checked": 131072,
+          "max_abs_error": 2.5446868812117884e-07,
+          "dispatch_records_checked": 18,
+          "command_buffers_checked": 8,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 35833.333333333336,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 67260.40737703443,
+            "throughput_host_wall_us_per_dispatch": 2090.1875,
+            "latency_instrumented_dispatch_ns": 21625.0,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 20625.069737434387,
+            "latency_host_wall_us_per_dispatch": 29050.625
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "masked_softmax",
+          "dimensions": [
+            128,
+            1024
+          ],
+          "requested_local_lanes": 1,
+          "status": "OK",
+          "index": 3,
+          "output_elements_checked": 131072,
+          "max_abs_error": 3.1648980214349365e-08,
+          "dispatch_records_checked": 18,
+          "command_buffers_checked": 8,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 677562.5,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 769598.9625062793,
+            "throughput_host_wall_us_per_dispatch": 1836.4895,
+            "latency_instrumented_dispatch_ns": 838250.0,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 739249.9828711152,
+            "latency_host_wall_us_per_dispatch": 17506.583
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "masked_softmax",
+          "dimensions": [
+            128,
+            1024
+          ],
+          "requested_local_lanes": 32,
+          "status": "OK",
+          "index": 4,
+          "output_elements_checked": 131072,
+          "max_abs_error": 3.236885315338611e-08,
+          "dispatch_records_checked": 18,
+          "command_buffers_checked": 8,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 40270.83333333333,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 114156.23885113746,
+            "throughput_host_wall_us_per_dispatch": 1050.03125,
+            "latency_instrumented_dispatch_ns": 301916.6666666667,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 208916.60824418068,
+            "latency_host_wall_us_per_dispatch": 3422.083
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "masked_softmax",
+          "dimensions": [
+            128,
+            1024
+          ],
+          "requested_local_lanes": 0,
+          "status": "OK",
+          "index": 5,
+          "output_elements_checked": 131072,
+          "max_abs_error": 3.236885315338611e-08,
+          "dispatch_records_checked": 18,
+          "command_buffers_checked": 8,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 32041.666666666668,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 50375.00523030758,
+            "throughput_host_wall_us_per_dispatch": 1121.739625,
+            "latency_instrumented_dispatch_ns": 37958.333333333336,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 35375.007428228855,
+            "latency_host_wall_us_per_dispatch": 13998.667
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "swiglu",
+          "dimensions": [
+            128,
+            1024
+          ],
+          "requested_local_lanes": 1,
+          "status": "OK",
+          "index": 6,
+          "output_elements_checked": 131072,
+          "max_abs_error": 2.209143261655555e-07,
+          "dispatch_records_checked": 18,
+          "command_buffers_checked": 8,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 639854.1666666667,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 691458.3354955539,
+            "throughput_host_wall_us_per_dispatch": 3442.520875,
+            "latency_instrumented_dispatch_ns": 866041.6666666666,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 915291.6027233005,
+            "latency_host_wall_us_per_dispatch": 17091.333
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "swiglu",
+          "dimensions": [
+            128,
+            1024
+          ],
+          "requested_local_lanes": 32,
+          "status": "OK",
+          "index": 7,
+          "output_elements_checked": 131072,
+          "max_abs_error": 2.209143261655555e-07,
+          "dispatch_records_checked": 18,
+          "command_buffers_checked": 8,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 38500.0,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 91411.44983004779,
+            "throughput_host_wall_us_per_dispatch": 5743.78125,
+            "latency_instrumented_dispatch_ns": 42458.333333333336,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 46125.03107637167,
+            "latency_host_wall_us_per_dispatch": 8233.334
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "swiglu",
+          "dimensions": [
+            128,
+            1024
+          ],
+          "requested_local_lanes": 0,
+          "status": "OK",
+          "index": 8,
+          "output_elements_checked": 131072,
+          "max_abs_error": 2.209143261655555e-07,
+          "dispatch_records_checked": 18,
+          "command_buffers_checked": 8,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 42041.66666666667,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 108739.57944568247,
+            "throughput_host_wall_us_per_dispatch": 1557.286375,
+            "latency_instrumented_dispatch_ns": 202833.33333333334,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 44375.075958669186,
+            "latency_host_wall_us_per_dispatch": 764.875
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 1,
+          "operation": "rmsnorm",
+          "dimensions": [
+            128,
+            1024
+          ],
+          "requested_local_lanes": 0,
+          "status": "OK",
+          "index": 9,
+          "output_elements_checked": 131072,
+          "max_abs_error": 2.5446868812117884e-07,
+          "dispatch_records_checked": 18,
+          "command_buffers_checked": 8,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 31833.333333333336,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 25046.88745830208,
+            "throughput_host_wall_us_per_dispatch": 1112.197875,
+            "latency_instrumented_dispatch_ns": 21375.0,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 21375.0172406435,
+            "latency_host_wall_us_per_dispatch": 6652.917
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 1,
+          "operation": "rmsnorm",
+          "dimensions": [
+            128,
+            1024
+          ],
+          "requested_local_lanes": 32,
+          "status": "OK",
+          "index": 10,
+          "output_elements_checked": 131072,
+          "max_abs_error": 2.5446868812117884e-07,
+          "dispatch_records_checked": 18,
+          "command_buffers_checked": 8,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 29458.333333333336,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 89984.3726074323,
+            "throughput_host_wall_us_per_dispatch": 1186.34375,
+            "latency_instrumented_dispatch_ns": 19958.333333333332,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 62750.07035583258,
+            "latency_host_wall_us_per_dispatch": 3481.667
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 1,
+          "operation": "rmsnorm",
+          "dimensions": [
+            128,
+            1024
+          ],
+          "requested_local_lanes": 1,
+          "status": "OK",
+          "index": 11,
+          "output_elements_checked": 131072,
+          "max_abs_error": 5.092310131349365e-07,
+          "dispatch_records_checked": 18,
+          "command_buffers_checked": 8,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 179479.1666666667,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 201843.75171083957,
+            "throughput_host_wall_us_per_dispatch": 2705.49475,
+            "latency_instrumented_dispatch_ns": 294750.0,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 243749.9351799488,
+            "latency_host_wall_us_per_dispatch": 5464.583
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 1,
+          "operation": "masked_softmax",
+          "dimensions": [
+            128,
+            1024
+          ],
+          "requested_local_lanes": 0,
+          "status": "OK",
+          "index": 12,
+          "output_elements_checked": 131072,
+          "max_abs_error": 3.236885315338611e-08,
+          "dispatch_records_checked": 18,
+          "command_buffers_checked": 8,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 32041.666666666664,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 48640.62066189945,
+            "throughput_host_wall_us_per_dispatch": 1209.651,
+            "latency_instrumented_dispatch_ns": 39500.0,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 40458.282455801964,
+            "latency_host_wall_us_per_dispatch": 7836.041
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 1,
+          "operation": "masked_softmax",
+          "dimensions": [
+            128,
+            1024
+          ],
+          "requested_local_lanes": 32,
+          "status": "OK",
+          "index": 13,
+          "output_elements_checked": 131072,
+          "max_abs_error": 3.236885315338611e-08,
+          "dispatch_records_checked": 18,
+          "command_buffers_checked": 8,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 32020.833333333336,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 50265.618483535945,
+            "throughput_host_wall_us_per_dispatch": 2574.64575,
+            "latency_instrumented_dispatch_ns": 250500.0,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 38833.35739374161,
+            "latency_host_wall_us_per_dispatch": 5552.291
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 1,
+          "operation": "masked_softmax",
+          "dimensions": [
+            128,
+            1024
+          ],
+          "requested_local_lanes": 1,
+          "status": "OK",
+          "index": 14,
+          "output_elements_checked": 131072,
+          "max_abs_error": 3.1648980214349365e-08,
+          "dispatch_records_checked": 18,
+          "command_buffers_checked": 8,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 670375.0,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 800958.3398234099,
+            "throughput_host_wall_us_per_dispatch": 1863.43225,
+            "latency_instrumented_dispatch_ns": 808666.6666666666,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 885624.9041855335,
+            "latency_host_wall_us_per_dispatch": 17966.5
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 1,
+          "operation": "swiglu",
+          "dimensions": [
+            128,
+            1024
+          ],
+          "requested_local_lanes": 0,
+          "status": "OK",
+          "index": 15,
+          "output_elements_checked": 131072,
+          "max_abs_error": 2.209143261655555e-07,
+          "dispatch_records_checked": 18,
+          "command_buffers_checked": 8,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 108520.83333333333,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 53187.512094154954,
+            "throughput_host_wall_us_per_dispatch": 909.28125,
+            "latency_instrumented_dispatch_ns": 289291.6666666667,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 108041.5677279234,
+            "latency_host_wall_us_per_dispatch": 11997.417
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 1,
+          "operation": "swiglu",
+          "dimensions": [
+            128,
+            1024
+          ],
+          "requested_local_lanes": 32,
+          "status": "OK",
+          "index": 16,
+          "output_elements_checked": 131072,
+          "max_abs_error": 2.209143261655555e-07,
+          "dispatch_records_checked": 18,
+          "command_buffers_checked": 8,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 36479.16666666667,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 53609.37211662531,
+            "throughput_host_wall_us_per_dispatch": 1102.75525,
+            "latency_instrumented_dispatch_ns": 44458.333333333336,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 45208.26041698456,
+            "latency_host_wall_us_per_dispatch": 9235.959
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 1,
+          "operation": "swiglu",
+          "dimensions": [
+            128,
+            1024
+          ],
+          "requested_local_lanes": 1,
+          "status": "OK",
+          "index": 17,
+          "output_elements_checked": 131072,
+          "max_abs_error": 2.209143261655555e-07,
+          "dispatch_records_checked": 18,
+          "command_buffers_checked": 8,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 640229.1666666667,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 801958.332885988,
+            "throughput_host_wall_us_per_dispatch": 5684.640625,
+            "latency_instrumented_dispatch_ns": 781083.3333333334,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 1054250.0531300902,
+            "latency_host_wall_us_per_dispatch": 16309.375
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        }
+      ],
+      "issues": [],
+      "audited_ok_rows": 18,
+      "output_elements_checked": 2359296,
+      "dispatch_records_checked": 324,
+      "command_buffers_checked": 144
+    },
+    "rows": {
+      "manifest_receipt": {
+        "bytes": 185449,
+        "sha256": "97c08c9a2e248636e77d2e047cd17fea4b32284dcd2fa9af3cad90fc23898809"
+      },
+      "status_counts": {
+        "OK": 35,
+        "Error": 2,
+        "NotRun": 107
+      },
+      "finished_utc": null,
+      "artifacts_after_present": false,
+      "artifacts_current_match_before": {
+        "/private/tmp/luisa-next-integration.roZbN8/build/bin/benchmark_tile_xir": true,
+        "/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-backend-metal4.so": true,
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/metal4_timing.py": true,
+        "/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-tile-bridge-xir.dylib": true,
+        "/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-tile.dylib": true,
+        "/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-xir.dylib": true,
+        "/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-runtime.dylib": true,
+        "/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-core.dylib": true
+      },
+      "records": [
+        {
+          "round": 0,
+          "operation": "rmsnorm",
+          "dimensions": [
+            17,
+            65
+          ],
+          "requested_local_lanes": 1,
+          "status": "OK",
+          "index": 0,
+          "output_elements_checked": 1105,
+          "max_abs_error": 2.1059994836925e-07,
+          "dispatch_records_checked": 54,
+          "command_buffers_checked": 24,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 39562.5,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 61505.19766379148,
+            "throughput_host_wall_us_per_dispatch": 275056.06775,
+            "latency_instrumented_dispatch_ns": 48750.0,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 48374.99000132084,
+            "latency_host_wall_us_per_dispatch": 9105.875
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "rmsnorm",
+          "dimensions": [
+            17,
+            65
+          ],
+          "requested_local_lanes": 32,
+          "status": "OK",
+          "index": 1,
+          "output_elements_checked": 1105,
+          "max_abs_error": 2.3720950825811826e-07,
+          "dispatch_records_checked": 54,
+          "command_buffers_checked": 24,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 44729.166666666664,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 168848.957400769,
+            "throughput_host_wall_us_per_dispatch": 3682.859375,
+            "latency_instrumented_dispatch_ns": 7833.333333333333,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 7041.729986667633,
+            "latency_host_wall_us_per_dispatch": 1560.958
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "rmsnorm",
+          "dimensions": [
+            17,
+            65
+          ],
+          "requested_local_lanes": 0,
+          "status": "OK",
+          "index": 2,
+          "output_elements_checked": 1105,
+          "max_abs_error": 2.3720950825811826e-07,
+          "dispatch_records_checked": 54,
+          "command_buffers_checked": 24,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 57166.66666666667,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 11609.387001954019,
+            "throughput_host_wall_us_per_dispatch": 1573.963625,
+            "latency_instrumented_dispatch_ns": 7625.0,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 76500.00043213367,
+            "latency_host_wall_us_per_dispatch": 1573.458
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "rmsnorm",
+          "dimensions": [
+            129,
+            768
+          ],
+          "requested_local_lanes": 1,
+          "status": "OK",
+          "index": 3,
+          "output_elements_checked": 99072,
+          "max_abs_error": 3.607332252908435e-07,
+          "dispatch_records_checked": 54,
+          "command_buffers_checked": 24,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 178458.33333333334,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 251692.7052056417,
+            "throughput_host_wall_us_per_dispatch": 349.984375,
+            "latency_instrumented_dispatch_ns": 361458.3333333333,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 275374.97226148844,
+            "latency_host_wall_us_per_dispatch": 9943.667
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "rmsnorm",
+          "dimensions": [
+            129,
+            768
+          ],
+          "requested_local_lanes": 32,
+          "status": "OK",
+          "index": 4,
+          "output_elements_checked": 99072,
+          "max_abs_error": 2.6275652120766324e-07,
+          "dispatch_records_checked": 54,
+          "command_buffers_checked": 24,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 13520.833333333332,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 41140.636312775314,
+            "throughput_host_wall_us_per_dispatch": 1040.4115,
+            "latency_instrumented_dispatch_ns": 18416.666666666668,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 18541.70113801956,
+            "latency_host_wall_us_per_dispatch": 4239.084
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "rmsnorm",
+          "dimensions": [
+            129,
+            768
+          ],
+          "requested_local_lanes": 0,
+          "status": "OK",
+          "index": 5,
+          "output_elements_checked": 99072,
+          "max_abs_error": 2.6275652120766324e-07,
+          "dispatch_records_checked": 54,
+          "command_buffers_checked": 24,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 13729.166666666668,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 20635.416149161756,
+            "throughput_host_wall_us_per_dispatch": 1275.786375,
+            "latency_instrumented_dispatch_ns": 16833.333333333332,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 16541.68590903282,
+            "latency_host_wall_us_per_dispatch": 8759.75
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "rmsnorm",
+          "dimensions": [
+            257,
+            1538
+          ],
+          "requested_local_lanes": 1,
+          "status": "OK",
+          "index": 6,
+          "output_elements_checked": 395266,
+          "max_abs_error": 4.474679409227633e-07,
+          "dispatch_records_checked": 54,
+          "command_buffers_checked": 24,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 880187.5,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 1032875.0067856163,
+            "throughput_host_wall_us_per_dispatch": 4645.010375,
+            "latency_instrumented_dispatch_ns": 1030208.3333333334,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 1178874.9834522605,
+            "latency_host_wall_us_per_dispatch": 20106.875
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "rmsnorm",
+          "dimensions": [
+            257,
+            1538
+          ],
+          "requested_local_lanes": 32,
+          "status": "OK",
+          "index": 7,
+          "output_elements_checked": 395266,
+          "max_abs_error": 2.9828561420863764e-07,
+          "dispatch_records_checked": 54,
+          "command_buffers_checked": 24,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 74354.16666666666,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 128505.2130697295,
+            "throughput_host_wall_us_per_dispatch": 1080.151125,
+            "latency_instrumented_dispatch_ns": 207333.33333333334,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 57416.73521697521,
+            "latency_host_wall_us_per_dispatch": 8716.584
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "rmsnorm",
+          "dimensions": [
+            257,
+            1538
+          ],
+          "requested_local_lanes": 0,
+          "status": "OK",
+          "index": 8,
+          "output_elements_checked": 395266,
+          "max_abs_error": 2.9828561420863764e-07,
+          "dispatch_records_checked": 54,
+          "command_buffers_checked": 24,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 30270.833333333336,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 142838.52942753583,
+            "throughput_host_wall_us_per_dispatch": 2006.625,
+            "latency_instrumented_dispatch_ns": 53416.666666666664,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 39375.037886202335,
+            "latency_host_wall_us_per_dispatch": 8838.416
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "rmsnorm",
+          "dimensions": [
+            1024,
+            4097
+          ],
+          "requested_local_lanes": 1,
+          "status": "OK",
+          "index": 9,
+          "output_elements_checked": 4195328,
+          "max_abs_error": 7.591379709293022e-07,
+          "dispatch_records_checked": 54,
+          "command_buffers_checked": 24,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 3240875.0,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 4196765.628876165,
+            "throughput_host_wall_us_per_dispatch": 5194.09375,
+            "latency_instrumented_dispatch_ns": 3136583.3333333335,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 3182833.4322199225,
+            "latency_host_wall_us_per_dispatch": 8734.709
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "rmsnorm",
+          "dimensions": [
+            1024,
+            4097
+          ],
+          "requested_local_lanes": 32,
+          "status": "OK",
+          "index": 10,
+          "output_elements_checked": 4195328,
+          "max_abs_error": 3.0433533915186217e-07,
+          "dispatch_records_checked": 54,
+          "command_buffers_checked": 24,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 280937.5,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 1292234.3739774078,
+            "throughput_host_wall_us_per_dispatch": 1292.8385,
+            "latency_instrumented_dispatch_ns": 388208.3333333333,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 355374.9993443489,
+            "latency_host_wall_us_per_dispatch": 9737.459
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "rmsnorm",
+          "dimensions": [
+            1024,
+            4097
+          ],
+          "requested_local_lanes": 0,
+          "status": "OK",
+          "index": 11,
+          "output_elements_checked": 4195328,
+          "max_abs_error": 3.0433533915186217e-07,
+          "dispatch_records_checked": 54,
+          "command_buffers_checked": 24,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 301812.5,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 359213.532647118,
+            "throughput_host_wall_us_per_dispatch": 2019.3645,
+            "latency_instrumented_dispatch_ns": 362375.0,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 372249.98231977224,
+            "latency_host_wall_us_per_dispatch": 1841.417
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "layernorm",
+          "dimensions": [
+            17,
+            65
+          ],
+          "requested_local_lanes": 1,
+          "status": "OK",
+          "index": 12,
+          "output_elements_checked": 1105,
+          "max_abs_error": 3.057367961023516e-07,
+          "dispatch_records_checked": 54,
+          "command_buffers_checked": 24,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 34770.83333333333,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 124218.74271240085,
+            "throughput_host_wall_us_per_dispatch": 553.3125,
+            "latency_instrumented_dispatch_ns": 116541.66666666667,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 154000.00847876072,
+            "latency_host_wall_us_per_dispatch": 8364.416
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "layernorm",
+          "dimensions": [
+            17,
+            65
+          ],
+          "requested_local_lanes": 32,
+          "status": "OK",
+          "index": 13,
+          "output_elements_checked": 1105,
+          "max_abs_error": 2.575682431782411e-07,
+          "dispatch_records_checked": 54,
+          "command_buffers_checked": 24,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 17000.0,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 16442.70378164947,
+            "throughput_host_wall_us_per_dispatch": 1265.11975,
+            "latency_instrumented_dispatch_ns": 18708.333333333332,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 246791.63470864296,
+            "latency_host_wall_us_per_dispatch": 5160.666
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "layernorm",
+          "dimensions": [
+            17,
+            65
+          ],
+          "requested_local_lanes": 0,
+          "status": "OK",
+          "index": 14,
+          "output_elements_checked": 1105,
+          "max_abs_error": 2.575682431782411e-07,
+          "dispatch_records_checked": 54,
+          "command_buffers_checked": 24,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 22229.166666666668,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 18369.784811511636,
+            "throughput_host_wall_us_per_dispatch": 1055.90625,
+            "latency_instrumented_dispatch_ns": 44666.666666666664,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 9875.046089291573,
+            "latency_host_wall_us_per_dispatch": 1477.833
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "layernorm",
+          "dimensions": [
+            129,
+            768
+          ],
+          "requested_local_lanes": 1,
+          "status": "OK",
+          "index": 15,
+          "output_elements_checked": 99072,
+          "max_abs_error": 4.387069902911378e-07,
+          "dispatch_records_checked": 54,
+          "command_buffers_checked": 24,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 269145.8333333333,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 357531.2584871426,
+            "throughput_host_wall_us_per_dispatch": 2465.177,
+            "latency_instrumented_dispatch_ns": 387291.6666666667,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 444666.59892350435,
+            "latency_host_wall_us_per_dispatch": 8536.417
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "layernorm",
+          "dimensions": [
+            129,
+            768
+          ],
+          "requested_local_lanes": 32,
+          "status": "OK",
+          "index": 16,
+          "output_elements_checked": 99072,
+          "max_abs_error": 3.9680348340453975e-07,
+          "dispatch_records_checked": 54,
+          "command_buffers_checked": 24,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 16395.833333333336,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 144203.1207261607,
+            "throughput_host_wall_us_per_dispatch": 1177.53125,
+            "latency_instrumented_dispatch_ns": 20958.333333333332,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 21791.6676774621,
+            "latency_host_wall_us_per_dispatch": 9053.375
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "layernorm",
+          "dimensions": [
+            129,
+            768
+          ],
+          "requested_local_lanes": 0,
+          "status": "OK",
+          "index": 17,
+          "output_elements_checked": 99072,
+          "max_abs_error": 3.9680348340453975e-07,
+          "dispatch_records_checked": 54,
+          "command_buffers_checked": 24,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 30854.166666666664,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 95885.42161509395,
+            "throughput_host_wall_us_per_dispatch": 1135.84375,
+            "latency_instrumented_dispatch_ns": 20208.333333333332,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 20749.98337775469,
+            "latency_host_wall_us_per_dispatch": 3233.792
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "layernorm",
+          "dimensions": [
+            257,
+            1538
+          ],
+          "requested_local_lanes": 1,
+          "status": "OK",
+          "index": 18,
+          "output_elements_checked": 395266,
+          "max_abs_error": 5.71123666581741e-07,
+          "dispatch_records_checked": 54,
+          "command_buffers_checked": 24,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 1393083.3333333335,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 1588484.3742242083,
+            "throughput_host_wall_us_per_dispatch": 3416.765625,
+            "latency_instrumented_dispatch_ns": 1606958.3333333333,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 1699624.93237108,
+            "latency_host_wall_us_per_dispatch": 2294.959
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "layernorm",
+          "dimensions": [
+            257,
+            1538
+          ],
+          "requested_local_lanes": 32,
+          "status": "OK",
+          "index": 19,
+          "output_elements_checked": 395266,
+          "max_abs_error": 3.949211264675512e-07,
+          "dispatch_records_checked": 54,
+          "command_buffers_checked": 24,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 84083.33333333334,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 113541.65326338261,
+            "throughput_host_wall_us_per_dispatch": 7520.599,
+            "latency_instrumented_dispatch_ns": 92916.66666666667,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 93124.92329627275,
+            "latency_host_wall_us_per_dispatch": 6412.25
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "layernorm",
+          "dimensions": [
+            257,
+            1538
+          ],
+          "requested_local_lanes": 0,
+          "status": "OK",
+          "index": 20,
+          "output_elements_checked": 395266,
+          "max_abs_error": 3.949211264675512e-07,
+          "dispatch_records_checked": 54,
+          "command_buffers_checked": 24,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 99041.66666666667,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 116880.21186273545,
+            "throughput_host_wall_us_per_dispatch": 1222.010375,
+            "latency_instrumented_dispatch_ns": 252250.0,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 356166.62353277206,
+            "latency_host_wall_us_per_dispatch": 8050.083
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "layernorm",
+          "dimensions": [
+            1024,
+            4097
+          ],
+          "requested_local_lanes": 1,
+          "status": "Error",
+          "index": 21,
+          "error_log_first_line": "[2026-09-10 11:27:51.973] [console] [error] XIR realization exceeds its local snapshot storage budget"
+        },
+        {
+          "round": 0,
+          "operation": "layernorm",
+          "dimensions": [
+            1024,
+            4097
+          ],
+          "requested_local_lanes": 32,
+          "status": "OK",
+          "index": 22,
+          "output_elements_checked": 4195328,
+          "max_abs_error": 4.3110201541907145e-07,
+          "dispatch_records_checked": 54,
+          "command_buffers_checked": 24,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 590645.8333333334,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 3201046.8712542206,
+            "throughput_host_wall_us_per_dispatch": 4089.99475,
+            "latency_instrumented_dispatch_ns": 708375.0,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 643374.9804273248,
+            "latency_host_wall_us_per_dispatch": 9064.25
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "layernorm",
+          "dimensions": [
+            1024,
+            4097
+          ],
+          "requested_local_lanes": 0,
+          "status": "OK",
+          "index": 23,
+          "output_elements_checked": 4195328,
+          "max_abs_error": 4.3110201541907145e-07,
+          "dispatch_records_checked": 54,
+          "command_buffers_checked": 24,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 539020.8333333333,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 1458124.999771826,
+            "throughput_host_wall_us_per_dispatch": 5977.66675,
+            "latency_instrumented_dispatch_ns": 715041.6666666666,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 648624.962195754,
+            "latency_host_wall_us_per_dispatch": 13603.25
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "masked_softmax",
+          "dimensions": [
+            17,
+            65
+          ],
+          "requested_local_lanes": 1,
+          "status": "OK",
+          "index": 24,
+          "output_elements_checked": 1105,
+          "max_abs_error": 3.146829730127365e-08,
+          "dispatch_records_checked": 54,
+          "command_buffers_checked": 24,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 79750.0,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 100807.28679895401,
+            "throughput_host_wall_us_per_dispatch": 1223,
+            "latency_instrumented_dispatch_ns": 113041.66666666667,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 94000.01727044582,
+            "latency_host_wall_us_per_dispatch": 8476.542
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "masked_softmax",
+          "dimensions": [
+            17,
+            65
+          ],
+          "requested_local_lanes": 32,
+          "status": "OK",
+          "index": 25,
+          "output_elements_checked": 1105,
+          "max_abs_error": 3.146829730127365e-08,
+          "dispatch_records_checked": 54,
+          "command_buffers_checked": 24,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 13104.166666666666,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 80234.37112569809,
+            "throughput_host_wall_us_per_dispatch": 822.796875,
+            "latency_instrumented_dispatch_ns": 9041.666666666666,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 12124.888598918915,
+            "latency_host_wall_us_per_dispatch": 5405.041
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "masked_softmax",
+          "dimensions": [
+            17,
+            65
+          ],
+          "requested_local_lanes": 0,
+          "status": "OK",
+          "index": 26,
+          "output_elements_checked": 1105,
+          "max_abs_error": 3.146829730127365e-08,
+          "dispatch_records_checked": 54,
+          "command_buffers_checked": 24,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 66187.5,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 54937.496315687895,
+            "throughput_host_wall_us_per_dispatch": 1283.026125,
+            "latency_instrumented_dispatch_ns": 18500.0,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 23708.329536020756,
+            "latency_host_wall_us_per_dispatch": 9015.583
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "masked_softmax",
+          "dimensions": [
+            129,
+            768
+          ],
+          "requested_local_lanes": 1,
+          "status": "OK",
+          "index": 27,
+          "output_elements_checked": 99072,
+          "max_abs_error": 3.035366613612922e-08,
+          "dispatch_records_checked": 54,
+          "command_buffers_checked": 24,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 584791.6666666666,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 664953.1133007258,
+            "throughput_host_wall_us_per_dispatch": 1116.109375,
+            "latency_instrumented_dispatch_ns": 836250.0,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 908749.9929592013,
+            "latency_host_wall_us_per_dispatch": 8066.792
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "masked_softmax",
+          "dimensions": [
+            129,
+            768
+          ],
+          "requested_local_lanes": 32,
+          "status": "OK",
+          "index": 28,
+          "output_elements_checked": 99072,
+          "max_abs_error": 2.8380207239830924e-08,
+          "dispatch_records_checked": 54,
+          "command_buffers_checked": 24,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 32229.166666666668,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 44546.875869855285,
+            "throughput_host_wall_us_per_dispatch": 426.71875,
+            "latency_instrumented_dispatch_ns": 297583.3333333333,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 38624.973967671394,
+            "latency_host_wall_us_per_dispatch": 2274.583
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "masked_softmax",
+          "dimensions": [
+            129,
+            768
+          ],
+          "requested_local_lanes": 0,
+          "status": "OK",
+          "index": 29,
+          "output_elements_checked": 99072,
+          "max_abs_error": 2.8380207239830924e-08,
+          "dispatch_records_checked": 54,
+          "command_buffers_checked": 24,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 32291.666666666668,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 137536.46635450423,
+            "throughput_host_wall_us_per_dispatch": 1593.2605,
+            "latency_instrumented_dispatch_ns": 38000.0,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 38250.00021606684,
+            "latency_host_wall_us_per_dispatch": 34015.166
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "masked_softmax",
+          "dimensions": [
+            257,
+            1538
+          ],
+          "requested_local_lanes": 1,
+          "status": "OK",
+          "index": 30,
+          "output_elements_checked": 395266,
+          "max_abs_error": 2.622536915408702e-08,
+          "dispatch_records_checked": 54,
+          "command_buffers_checked": 24,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 2479750.0,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 2533807.2882732376,
+            "throughput_host_wall_us_per_dispatch": 2912.28125,
+            "latency_instrumented_dispatch_ns": 2495000.0,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 2431083.35416764,
+            "latency_host_wall_us_per_dispatch": 3845.125
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "masked_softmax",
+          "dimensions": [
+            257,
+            1538
+          ],
+          "requested_local_lanes": 32,
+          "status": "OK",
+          "index": 31,
+          "output_elements_checked": 395266,
+          "max_abs_error": 2.3900590673253674e-08,
+          "dispatch_records_checked": 54,
+          "command_buffers_checked": 24,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 78916.66666666667,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 101364.58149645478,
+            "throughput_host_wall_us_per_dispatch": 1358.84375,
+            "latency_instrumented_dispatch_ns": 86083.33333333333,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 240666.67538136244,
+            "latency_host_wall_us_per_dispatch": 8480.083
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "masked_softmax",
+          "dimensions": [
+            257,
+            1538
+          ],
+          "requested_local_lanes": 0,
+          "status": "OK",
+          "index": 32,
+          "output_elements_checked": 395266,
+          "max_abs_error": 2.3900590673253674e-08,
+          "dispatch_records_checked": 54,
+          "command_buffers_checked": 24,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 41520.83333333333,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 138468.74935552478,
+            "throughput_host_wall_us_per_dispatch": 551.359375,
+            "latency_instrumented_dispatch_ns": 227250.0,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 71250.0186637044,
+            "latency_host_wall_us_per_dispatch": 5960.667
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "masked_softmax",
+          "dimensions": [
+            1024,
+            4097
+          ],
+          "requested_local_lanes": 1,
+          "status": "Error",
+          "index": 33,
+          "error_log_first_line": "[2026-09-10 11:28:02.838] [console] [error] XIR realization exceeds its local snapshot storage budget"
+        },
+        {
+          "round": 0,
+          "operation": "masked_softmax",
+          "dimensions": [
+            1024,
+            4097
+          ],
+          "requested_local_lanes": 32,
+          "status": "OK",
+          "index": 34,
+          "output_elements_checked": 4195328,
+          "max_abs_error": 2.26399094471752e-08,
+          "dispatch_records_checked": 54,
+          "command_buffers_checked": 24,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 713666.6666666667,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 4418343.756697141,
+            "throughput_host_wall_us_per_dispatch": 4439.588625,
+            "latency_instrumented_dispatch_ns": 730583.3333333334,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 722000.0261440873,
+            "latency_host_wall_us_per_dispatch": 3579.875
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "masked_softmax",
+          "dimensions": [
+            1024,
+            4097
+          ],
+          "requested_local_lanes": 0,
+          "status": "OK",
+          "index": 35,
+          "output_elements_checked": 4195328,
+          "max_abs_error": 2.26399094471752e-08,
+          "dispatch_records_checked": 54,
+          "command_buffers_checked": 24,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 715479.1666666666,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 1131973.9714963362,
+            "throughput_host_wall_us_per_dispatch": 3253.89575,
+            "latency_instrumented_dispatch_ns": 683541.6666666666,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 761666.6844114661,
+            "latency_host_wall_us_per_dispatch": 6908.667
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        },
+        {
+          "round": 0,
+          "operation": "swiglu",
+          "dimensions": [
+            17,
+            65
+          ],
+          "requested_local_lanes": 1,
+          "status": "OK",
+          "index": 36,
+          "output_elements_checked": 1105,
+          "max_abs_error": 1.7778814753732775e-07,
+          "dispatch_records_checked": 54,
+          "command_buffers_checked": 24,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": 83479.16666666667,
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": 157630.21656312048,
+            "throughput_host_wall_us_per_dispatch": 1177.474,
+            "latency_instrumented_dispatch_ns": 90375.0,
+            "latency_feedback_only_command_buffer_ns_per_dispatch": 95249.96858090162,
+            "latency_host_wall_us_per_dispatch": 7140
+          },
+          "guards_independently_checked": false,
+          "audit": "PASS"
+        }
+      ],
+      "issues": [],
+      "audited_ok_rows": 35,
+      "output_elements_checked": 33827388,
+      "dispatch_records_checked": 1890,
+      "command_buffers_checked": 840
+    }
+  }
+}

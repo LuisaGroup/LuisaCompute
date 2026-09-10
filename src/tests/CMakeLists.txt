@@ -651,6 +651,11 @@ if (TARGET luisa-compute-backend-simd OR TARGET luisa-compute-backend-metal4)
     endforeach ()
 endif ()
 if (TARGET luisa-compute-backend-metal4)
+    luisa_compute_add_test(test_metal4_timing unit/runtime/test_metal4_timing.cpp
+            LABELS "integration;integration_tile_xir;integration_metal4" ARGS metal4)
+    add_dependencies(test_metal4_timing luisa-compute-backend-metal4)
+    set_tests_properties(test_metal4_timing PROPERTIES TIMEOUT 180
+            FAIL_REGULAR_EXPRESSION "0 asserts;tests skipped")
     luisa_compute_add_test(test_tile_xir_metal unit/tile/bridge/test_xir_metal.cpp
             LABELS "integration;integration_tile_xir;integration_metal4" ARGS metal4)
     add_dependencies(test_tile_xir_metal luisa-compute-backend-metal4)
