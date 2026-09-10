@@ -76,12 +76,13 @@ struct NativeFunction {
 // In-memory, verified SSA/CFG bridge, with no AST or TVM intermediate.
 // One root parallel domain maps to independent logical programs. Static Tile
 // elements use SSA or bounded traversal of compiler-owned snapshots; pure
-// single-use elementwise values may be deferred to their consumer. The SIMD
-// backend can pack whole programs or distribute a common local axis across
-// a packet. Closed unordered reductions may use partials and packet shuffles.
+// single-use elementwise values may be deferred to their consumer. A backend
+// can pack whole programs or distribute a common local axis across a physical
+// packet. No CPU-specific lane cap is imposed here; the backend must satisfy
+// required_packet_width. Closed unordered reductions may use partials/shuffles.
 // Other recurrences
 // preserve lexicographic order; explicit right folds
-// visit the reversed logical sequence without changing update operands. This CPU
+// visit the reversed logical sequence without changing update operands. This
 // realization does not implement cooperative bindings or manual Memory.
 [[nodiscard]] LUISA_TILE_XIR_BRIDGE_API NativeFunction lower(
     const Function &function, const LowerOptions &options = {}) noexcept;

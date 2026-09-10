@@ -6,7 +6,6 @@
 #include <cstdint>
 #include <initializer_list>
 #include <limits>
-#include <stdexcept>
 #include <type_traits>
 #include <utility>
 
@@ -15,6 +14,7 @@
 #include <tvm/runtime/device_api.h>
 #include <tvm/runtime/tensor.h>
 
+#include <luisa/core/logging.h>
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/tile/bridge/tirx/compiler.h>
@@ -83,34 +83,34 @@ private:
 
 public:
     explicit Runtime(luisa::string_view backend, bool native_cpu = false) {
-        if (native_cpu && backend != "cpu") { throw std::invalid_argument{"native CPU model requires the CPU backend"}; }
+        LUISA_ASSERT(!native_cpu || backend == "cpu", "Native CPU model requires the CPU backend");
         if (backend == "metal") {
             _device = tvm::Device{kDLMetal, 0};
             _target = "metal";
         } else if (backend != "cpu") {
-            throw std::invalid_argument{"Tile test backend must be cpu or metal"};
+            LUISA_ERROR("Tile test backend must be cpu or metal");
         }
         if (native_cpu) {
             auto cpu = tvm::ffi::Function::GetGlobalRequired("target.llvm_get_system_cpu")().cast<tvm::ffi::String>();
             auto triple = tvm::ffi::Function::GetGlobalRequired("target.llvm_get_system_triple")().cast<tvm::ffi::String>();
             if (cpu.empty() || !tvm::ffi::Function::GetGlobalRequired("target.llvm_is_valid_cpu")(cpu, triple).cast<bool>()) {
-                throw std::runtime_error{"LLVM cannot represent the detected host CPU; no generic fallback"};
+                LUISA_ERROR("LLVM cannot represent the detected host CPU; no generic fallback");
             }
             _cpu_model.assign(cpu.data(), cpu.size());
         }
         auto api = tvm::runtime::DeviceAPI::Get(_device, true);
-        if (api == nullptr) { throw std::runtime_error{"requested TVMx device runtime is unavailable"}; }
+        if (api == nullptr) { LUISA_ERROR("Requested TVMx device runtime is unavailable"); }
         tvm::ffi::Any exists;
         api->GetAttr(_device, tvm::runtime::DeviceAttrKind::kExist, &exists);
         if (exists.cast<int64_t>() == 0) {
-            throw std::runtime_error{"requested TVMx physical device is unavailable"};
+            LUISA_ERROR("Requested TVMx physical device is unavailable");
         }
         if (_device.device_type == kDLMetal) {
             tvm::ffi::Any maximum;
             api->GetAttr(_device, tvm::runtime::DeviceAttrKind::kMaxThreadsPerBlock, &maximum);
             auto threads = maximum.cast<int64_t>();
             if (threads <= 0 || threads > std::numeric_limits<uint32_t>::max()) {
-                throw std::runtime_error{"Metal runtime did not report a valid threadgroup limit"};
+                LUISA_ERROR("Metal runtime did not report a valid threadgroup limit");
             }
             _metal_max_threads = static_cast<uint32_t>(threads);
         }

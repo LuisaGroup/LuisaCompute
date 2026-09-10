@@ -1,13 +1,18 @@
 #pragma once
 
 #include <luisa/tile/bridge/xir/lower.h>
+#include <type_traits>
 
 namespace luisa::compute::tile::bridge::xir {
 
 class ExecutionCostPolicy;
 
 struct ExecutionTarget {
+    // The physical width used by warp_lane_id and warp collectives. It is an
+    // ABI requirement, not an upper bound on an arbitrary logical subgroup.
     uint32_t packet_width{8u};
+    // Scheduling parameters for the thread-pool target info. Other targets
+    // define their own scheduling model; these are not GPU core counts.
     uint32_t worker_count{1u};
     uint32_t task_chunks_per_worker{32u};
 };
@@ -84,9 +89,9 @@ struct ExecutionPlan {
     luisa::vector<uint32_t> root_axis_tiles;
 };
 
-// The bridge extracts work and the exact static home-chunk assignment. The
-// latter is a cost prior for the work-stealing Runtime, not a timing bound on
-// heterogeneous CPU cores. Packet counts include a possibly masked tail.
+// The bridge extracts work and packet/block counts (including masked tails).
+// Target info supplies scheduling fields. The thread-pool implementation uses
+// static home chunks as a cost prior, not a timing bound on heterogeneous CPUs.
 struct ExecutionWork {
     double arithmetic_per_packet{0.0};
     double memory_per_packet{0.0};
@@ -117,6 +122,42 @@ public:
         const ExecutionWork &work, const ExecutionCostModel &model) const noexcept override;
 };
 
+// Backend-provided execution capabilities and scheduling model. The bridge
+// owns semantic admission and mapping invariants; accepts() may only narrow
+// that legal set. Cost policies rank admitted candidates, never legalize them.
+// Objects and their returned cost policy are borrowed only during plan().
+class LUISA_TILE_XIR_BRIDGE_API ExecutionTargetInfo {
+public:
+    virtual ~ExecutionTargetInfo() noexcept = default;
+    [[nodiscard]] virtual ExecutionTarget target() const noexcept = 0;
+    [[nodiscard]] virtual luisa::vector<uint32_t> block_sizes() const noexcept = 0;
+    [[nodiscard]] virtual bool supports_local_distribution() const noexcept { return true; }
+    [[nodiscard]] virtual bool supports_task_grain() const noexcept { return false; }
+    [[nodiscard]] virtual bool accepts(const ExecutionPlan &candidate) const noexcept = 0;
+    // The input contains target-independent work/packet/block counts; the
+    // target fills scheduling quantities. A GPU must not inherit CPU home
+    // chunks, work stealing, or caller-thread activation costs by accident.
+    [[nodiscard]] virtual ExecutionWork schedule(const ExecutionPlan &candidate, ExecutionWork work) const noexcept = 0;
+    [[nodiscard]] virtual const ExecutionCostPolicy &cost_policy() const noexcept = 0;
+};
+
+// Reusable CPU thread-pool realization. Kept explicit so new backend policies
+// do not inherit CPU scheduling by default. Native SIMD additionally checks
+// the device's supported physical widths and workspace ABI.
+class LUISA_TILE_XIR_BRIDGE_API ThreadPoolExecutionTargetInfo : public ExecutionTargetInfo {
+private:
+    ExecutionTarget _target;
+
+public:
+    explicit ThreadPoolExecutionTargetInfo(ExecutionTarget target) noexcept : _target{target} {}
+    [[nodiscard]] ExecutionTarget target() const noexcept override { return _target; }
+    [[nodiscard]] luisa::vector<uint32_t> block_sizes() const noexcept override;
+    [[nodiscard]] bool supports_task_grain() const noexcept override { return true; }
+    [[nodiscard]] bool accepts(const ExecutionPlan &candidate) const noexcept override;
+    [[nodiscard]] ExecutionWork schedule(const ExecutionPlan &candidate, ExecutionWork work) const noexcept override;
+    [[nodiscard]] const ExecutionCostPolicy &cost_policy() const noexcept override;
+};
+
 struct PlanningResult {
     ExecutionPlan selected;
     luisa::vector<ExecutionPlan> candidates;
@@ -125,6 +166,7 @@ struct PlanningResult {
     [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
 };
 
+// Compatibility entry point using ThreadPoolExecutionTargetInfo.
 // Exact minimum over legal axis permutations, block widths and whole-program
 // versus packet-local distribution, and optionally power-of-two CPU task grains
 // (plus the legacy grain and the whole launch), in the
@@ -135,5 +177,19 @@ struct PlanningResult {
 // redistribution/carry realizations are not implemented here yet.
 [[nodiscard]] LUISA_TILE_XIR_BRIDGE_API PlanningResult plan(
     const Function &function, ExecutionTarget target, const PlannerOptions &options = {}) noexcept;
+
+// Backend entry point. Candidate block widths, additional legality, scheduling
+// and the default cost policy come from info. options.cost_policy, when set,
+// replaces only the objective, not the backend's capabilities or schedule.
+[[nodiscard]] LUISA_TILE_XIR_BRIDGE_API PlanningResult plan_with_target_info(
+    const Function &function, const ExecutionTargetInfo &info, const PlannerOptions &options = {}) noexcept;
+
+// Deduction keeps the existing plan(function, {}) spelling unambiguous: an
+// empty initializer cannot deduce Info and still selects ExecutionTarget.
+template<typename Info>
+    requires std::is_base_of_v<ExecutionTargetInfo, Info>
+[[nodiscard]] PlanningResult plan(const Function &function, const Info &info, const PlannerOptions &options = {}) noexcept {
+    return plan_with_target_info(function, info, options);
+}
 
 }// namespace luisa::compute::tile::bridge::xir

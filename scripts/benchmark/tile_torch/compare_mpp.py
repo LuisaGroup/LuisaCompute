@@ -115,7 +115,8 @@ def measure(args: argparse.Namespace, np: Any, shape: tuple[int, int, int],
             process = subprocess.run(command, capture_output=True, text=True, timeout=args.timeout)
             row["stderr"] = process.stderr
             if process.returncode != 0:
-                raise RuntimeError(f"exit {process.returncode}: {process.stderr[-6000:]}")
+                row["stdout"] = process.stdout
+                raise RuntimeError(f"exit {process.returncode}: {process.stderr[-6000:]} {process.stdout[-2000:]}")
             result = json.loads(process.stdout)
             validate_metadata(result, shape, config, args.samples)
             actual = np.fromfile(output, dtype="<f4").reshape(shape[:2])

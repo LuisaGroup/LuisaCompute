@@ -5,6 +5,7 @@
 #include "metal_benchmark.h"
 #include "tile_llm_benchmark.h"
 
+#include <luisa/core/logging.h>
 #include <luisa/core/mathematics.h>
 #include <luisa/tile/algorithms.h>
 #include <luisa/tile/runtime.h>
@@ -27,8 +28,8 @@
 #include <locale>
 #include <optional>
 #include <sstream>
-#include <stdexcept>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 using namespace luisa::compute::tile;
@@ -38,6 +39,13 @@ using luisa::test::tile_tirx::Runtime;
 namespace {
 
 using Clock = std::chrono::steady_clock;
+
+[[nodiscard]] bool path_exists(const char *path) {
+    std::error_code error;
+    auto exists = std::filesystem::exists(path, error);
+    LUISA_ASSERT(!error, "Cannot query path '{}': {}", path, error.message());
+    return exists;
+}
 
 #if defined(__clang__)
 constexpr std::string_view compiler_version = __clang_version__;
@@ -92,16 +100,14 @@ struct Configuration {
     if (name == "auto") { return exec::Scope::AUTOMATIC; }
     if (name == "worker") { return exec::Scope::WORKER; }
     if (name == "group") { return exec::Scope::GROUP; }
-    throw std::invalid_argument{"execution scope must be auto, worker, or group"};
+    LUISA_ERROR("Execution scope must be auto, worker, or group; got '{}'.", name);
 }
 
 [[nodiscard]] int64_t positive_integer(const char *text) {
     auto input = std::string_view{text};
     int64_t value = 0;
     auto parsed = std::from_chars(input.data(), input.data() + input.size(), value);
-    if (parsed.ec != std::errc{} || parsed.ptr != input.data() + input.size() || value <= 0) {
-        throw std::invalid_argument{"expected a positive integer"};
-    }
+    LUISA_ASSERT(parsed.ec == std::errc{} && parsed.ptr == input.data() + input.size() && value > 0, "Expected a positive integer, got '{}'.", input);
     return value;
 }
 
@@ -111,37 +117,29 @@ struct Configuration {
 
 [[nodiscard]] bridge::tirx::ReductionServiceModel parse_reduction_service_profile(std::string_view text) {
     constexpr auto prefix = std::string_view{"service-v1,"};
-    if (!text.starts_with(prefix)) { throw std::invalid_argument{"reduction cost profile must be analytic or service-v1,C,D,R,K,G,W,P"}; }
+    LUISA_ASSERT(text.starts_with(prefix), "Reduction cost profile must be analytic or service-v1,C,D,R,K,G,W,P; got '{}'.", text);
     text.remove_prefix(prefix.size());
     bridge::tirx::ReductionServiceModel model;
     auto capacity_end = text.find(',');
-    if (capacity_end == std::string_view::npos) { throw std::invalid_argument{"missing reduction service coefficients"}; }
+    LUISA_ASSERT(capacity_end != std::string_view::npos, "Missing reduction service coefficients after subgroup capacity in '{}'.", text);
     auto capacity = std::from_chars(text.data(), text.data() + capacity_end, model.concurrent_subgroups);
-    if (capacity.ec != std::errc{} || capacity.ptr != text.data() + capacity_end) {
-        throw std::invalid_argument{"invalid reduction service subgroup capacity"};
-    }
+    LUISA_ASSERT(capacity.ec == std::errc{} && capacity.ptr == text.data() + capacity_end, "Invalid reduction service subgroup capacity '{}'.", text.substr(0u, capacity_end));
     text.remove_prefix(capacity_end + 1u);
     auto coefficients = std::array{&model.dispatch, &model.scalar_round, &model.collective,
                                    &model.global_program_byte, &model.global_worker_byte, &model.private_worker_byte};
     for (auto i = size_t{0u}; i < coefficients.size(); i++) {
         auto end = text.find(',');
-        if ((end == std::string_view::npos) != (i + 1u == coefficients.size())) {
-            throw std::invalid_argument{"reduction service profile requires exactly six coefficients"};
-        }
+        LUISA_ASSERT((end == std::string_view::npos) == (i + 1u == coefficients.size()), "Reduction service profile requires exactly six coefficients; invalid remainder at coefficient {}: '{}'.", i + 1u, text);
         auto token = text.substr(0u, end);
         // Floating-point from_chars requires macOS 26 in Apple's libc++;
         // retain the benchmark's macOS 13 deployment target.
         auto parser = std::istringstream{std::string{token}};
         parser.imbue(std::locale::classic());
         parser >> std::noskipws >> *coefficients[i];
-        if (token.empty() || token.front() == '+' || !parser || parser.peek() != std::char_traits<char>::eof()) {
-            throw std::invalid_argument{"invalid reduction service coefficient"};
-        }
+        LUISA_ASSERT(!token.empty() && token.front() != '+' && parser && parser.peek() == std::char_traits<char>::eof(), "Invalid reduction service coefficient {}: '{}'.", i + 1u, token);
         if (end != std::string_view::npos) { text.remove_prefix(end + 1u); }
     }
-    if (!bridge::tirx::ServiceExecutionCostPolicy{model}.valid()) {
-        throw std::invalid_argument{"reduction service profile requires positive capacity and finite nonnegative coefficients"};
-    }
+    LUISA_ASSERT(bridge::tirx::ServiceExecutionCostPolicy{model}.valid(), "Reduction service profile requires positive capacity and finite nonnegative coefficients; capacity={}, coefficients=[{},{},{},{},{},{}].", model.concurrent_subgroups, model.dispatch, model.scalar_round, model.collective, model.global_program_byte, model.global_worker_byte, model.private_worker_byte);
     return model;
 }
 
@@ -320,11 +318,12 @@ void dump_tile_ir(std::ostream &out, const Region &region, uint32_t depth = 0u) 
 // the device module, not the LLVM host launch wrapper.
 void dump_source(const tvm::ffi::Module &module, std::string_view kind, const char *path) {
     if (std::string_view{module->kind()} == kind) {
-        if (std::filesystem::exists(path)) { throw std::runtime_error{"source dump path already exists"}; }
+        LUISA_ASSERT(!path_exists(path), "Source dump path already exists: '{}'.", path);
         auto source = module->InspectSource(kind == "metal" ? "metal" : "ll");
         std::ofstream file{path};
         file.write(source.data(), static_cast<std::streamsize>(source.size()));
-        if (!file) { throw std::runtime_error{"failed to write generated source"}; }
+        file.close();
+        LUISA_ASSERT(file, "Failed to write generated source to '{}'.", path);
     }
     for (auto &&child : module->imports()) { dump_source(child.cast<tvm::ffi::Module>(), kind, path); }
 }
@@ -511,7 +510,7 @@ void dump_source(const tvm::ffi::Module &module, std::string_view kind, const ch
         });
         return definition.capture(tensor_shape(cfg.m, cfg.n), tensor_shape(cfg.m), tensor_shape(cfg.m));
     }
-    throw std::invalid_argument{"operation must be gemm, add, gelu_add, sigmoid_pair, gelu_pair, sum, softmax, rmsnorm, layernorm, residual_layernorm, or cross_entropy"};
+    LUISA_ERROR("Unsupported operation '{}'; expected gemm, gemm_relu, gemm_gelu, add, gelu_add, sigmoid_pair, gelu_pair, sum, softmax, rmsnorm, layernorm, residual_layernorm, or cross_entropy.", operation);
 }
 
 [[nodiscard]] luisa::vector<float> input_values(size_t count, uint64_t seed) {
@@ -567,12 +566,13 @@ void run_luisa(const char *program, const char *output_path, std::string_view op
                                 {.threads_per_group = options.planner.threads_per_group, .lowering = Lowering::TIRX, .tirx = &options},
                                 {.enable_fast_math = fast_math});
     auto compile_ms = milliseconds(start);
-    if (!shader) { throw std::runtime_error{shader.metadata().error.c_str()}; }
+    LUISA_ASSERT(shader, "Tile shader compilation failed: {}", shader.metadata().error);
     if (auto path = std::getenv("LUISA_TILE_BENCH_DUMP_SOURCE")) {
-        if (std::filesystem::exists(path)) { throw std::runtime_error{"source dump path already exists"}; }
+        LUISA_ASSERT(!path_exists(path), "Source dump path already exists: '{}'.", path);
         std::ofstream file{path};
         file << shader.metadata().source;
-        if (!file) { throw std::runtime_error{"cannot write generated source"}; }
+        file.close();
+        LUISA_ASSERT(file, "Cannot write generated source to '{}'.", path);
     }
     auto columns_a = uses_matrix(operation) ? cfg.k : cfg.n;
     auto rows_b = auxiliary_input_rows(operation, cfg);
@@ -642,7 +642,8 @@ void run_luisa(const char *program, const char *output_path, std::string_view op
     auto download_ms = milliseconds(start);
     std::ofstream file{output_path, std::ios::binary};
     file.write(reinterpret_cast<const char *>(output.data()), static_cast<std::streamsize>(output.size() * sizeof(float)));
-    if (!file) { throw std::runtime_error{"cannot write output"}; }
+    file.close();
+    LUISA_ASSERT(file, "Cannot write benchmark output to '{}'.", output_path);
     auto matrix_calls = size_t{0};
     auto mpp_calls = size_t{0};
     constexpr auto call = std::string_view{"simdgroup_multiply_accumulate("};
@@ -691,389 +692,327 @@ void run_luisa(const char *program, const char *output_path, std::string_view op
 
 int main(int argc, char *argv[]) {
     if (argc > 1 && std::string_view{argv[1]} == "llm") {
-        try {
-            bridge::tirx::CompileOptions options;
-            options.cooperative_matrix = true;
-            if (auto value = std::getenv("LUISA_TILE_BENCH_REDUCTION_TREE")) {
-                auto text = std::string_view{value};
-                if (text != "0" && text != "1") { throw std::invalid_argument{"reduction-tree policy must be 0 or 1"}; }
-                options.planner.metal_subgroup_reductions = text == "1";
-            }
-            if (auto value = std::getenv("LUISA_TILE_BENCH_GROUP_THREADS")) {
-                auto threads = positive_integer(value);
-                if (threads > 1024) { throw std::invalid_argument{"group threads exceed benchmark limit"}; }
-                options.planner.threads_per_group = static_cast<uint32_t>(threads);
-            }
-            if (auto value = std::getenv("LUISA_TILE_BENCH_INPUT_VIEWS")) {
-                auto text = std::string_view{value};
-                if (text != "0" && text != "1") { throw std::invalid_argument{"input views must be 0 or 1"}; }
-                options.forward_readonly_tile_loads = text == "1";
-            }
-            auto attention_qk_reduction = false;
-            if (auto value = std::getenv("LUISA_TILE_BENCH_ATTENTION_QK")) {
-                auto text = std::string_view{value};
-                if (text != "mma" && text != "reduce") { throw std::invalid_argument{"attention QK must be mma or reduce"}; }
-                attention_qk_reduction = text == "reduce";
-            }
-            return luisa::test::tile_llm::benchmark(argc, argv, "metal",
-                                                    {.threads_per_group = options.planner.threads_per_group, .lowering = Lowering::TIRX, .tirx = &options},
-                                                    options.planner.metal_subgroup_reductions, options.forward_readonly_tile_loads, attention_qk_reduction);
-        } catch (const std::exception &error) {
-            std::cerr << error.what() << '\n';
-            return 2;
+        bridge::tirx::CompileOptions options;
+        options.cooperative_matrix = true;
+        if (auto value = std::getenv("LUISA_TILE_BENCH_REDUCTION_TREE")) {
+            auto text = std::string_view{value};
+            LUISA_ASSERT(text == "0" || text == "1", "LUISA_TILE_BENCH_REDUCTION_TREE must be 0 or 1; got '{}'.", text);
+            options.planner.metal_subgroup_reductions = text == "1";
         }
+        if (auto value = std::getenv("LUISA_TILE_BENCH_GROUP_THREADS")) {
+            auto threads = positive_integer(value);
+            LUISA_ASSERT(threads <= 1024, "LUISA_TILE_BENCH_GROUP_THREADS exceeds the benchmark limit of 1024: {}.", threads);
+            options.planner.threads_per_group = static_cast<uint32_t>(threads);
+        }
+        if (auto value = std::getenv("LUISA_TILE_BENCH_INPUT_VIEWS")) {
+            auto text = std::string_view{value};
+            LUISA_ASSERT(text == "0" || text == "1", "LUISA_TILE_BENCH_INPUT_VIEWS must be 0 or 1; got '{}'.", text);
+            options.forward_readonly_tile_loads = text == "1";
+        }
+        auto attention_qk_reduction = false;
+        if (auto value = std::getenv("LUISA_TILE_BENCH_ATTENTION_QK")) {
+            auto text = std::string_view{value};
+            LUISA_ASSERT(text == "mma" || text == "reduce", "LUISA_TILE_BENCH_ATTENTION_QK must be mma or reduce; got '{}'.", text);
+            attention_qk_reduction = text == "reduce";
+        }
+        return luisa::test::tile_llm::benchmark(argc, argv, "metal",
+                                                {.threads_per_group = options.planner.threads_per_group, .lowering = Lowering::TIRX, .tirx = &options},
+                                                options.planner.metal_subgroup_reductions, options.forward_readonly_tile_loads, attention_qk_reduction);
     }
     if (argc < 13 || argc > 37) {
         std::cerr << "Usage: benchmark_tile_tirx <cpu|metal> <gemm|gemm_relu|gemm_gelu|add|gelu_add|sigmoid_pair|gelu_pair|sum|softmax|rmsnorm|layernorm|residual_layernorm|cross_entropy> M N K BM BN BK samples sample-ms warmup-ms output.f32 [auto|worker|group] [pipeline-window:1|2] [scalar|subgroup-reduce|matrix|mpp|mpp-views] [vectorize|no-vectorize|auto-vectorize] [group-threads:auto|N] [copy-batch:1..16] [tvm|luisa|luisa-fast] [retain-subgroup-fences|elide-subgroup-fences] [cpu-stack-bytes:0..65536] [cpu-vector-lanes:16|32|64|128] [retain-input-snapshots|forward-input-views] [cpu-model:generic|native] [cpu-matrix:reference|cblas] [cpu-math:reference|accelerate] [shared-tiles:preserve|expensive-only]\n";
         std::cerr << "Additional mapping options: [reduction-programs:auto|1..8] [element-grid:auto|reference] [reduction-unroll:1..16] [reduction-lane-elements:1|2|4|8] [reduction-inputs:reload|cache] [reduction-cost:analytic|service-v1,...] [program-order-rows:N] [program-order-columns:N] [retain-fragment-epilogues|fuse-fragment-epilogues]\n";
         return 1;
     }
-    try {
-        auto backend = std::string_view{argv[1]};
-        auto operation = std::string_view{argv[2]};
-        Configuration cfg{positive_integer(argv[3]), positive_integer(argv[4]), positive_integer(argv[5]),
-                          positive_integer(argv[6]), positive_integer(argv[7]), positive_integer(argv[8])};
-        auto execution_scope = argc >= 14 ? std::string_view{argv[13]} : std::string_view{"auto"};
-        cfg.execution_scope = parse_execution_scope(execution_scope);
-        auto pipeline_window = argc >= 15 ? positive_integer(argv[14]) : 2;
-        if (pipeline_window > 2) { throw std::invalid_argument{"benchmark pipeline window must be 1 or 2"}; }
-        cfg.pipeline_window = static_cast<uint32_t>(pipeline_window);
-        auto matrix_mode = argc >= 16 ? std::string_view{argv[15]} : std::string_view{"scalar"};
-        if (matrix_mode != "scalar" && matrix_mode != "subgroup-reduce" && matrix_mode != "matrix" && matrix_mode != "mpp" && matrix_mode != "mpp-views") { throw std::invalid_argument{"realization mode must be scalar, subgroup-reduce, matrix, mpp, or mpp-views"}; }
-        auto metal_subgroup_reductions = matrix_mode == "subgroup-reduce";
-        auto cooperative_matrix = matrix_mode == "matrix" || matrix_mode == "mpp" || matrix_mode == "mpp-views";
-        auto forward_readonly_tile_loads = matrix_mode == "mpp-views" || metal_subgroup_reductions;
-        auto metal_mpp = matrix_mode == "mpp" || matrix_mode == "mpp-views";
-        if (argc >= 24) {
-            auto policy = std::string_view{argv[23]};
-            if (policy != "retain-input-snapshots" && policy != "forward-input-views") {
-                throw std::invalid_argument{"unknown input snapshot policy"};
-            }
-            if (policy == "forward-input-views") {
-                forward_readonly_tile_loads = true;
-            }
+    auto backend = std::string_view{argv[1]};
+    auto operation = std::string_view{argv[2]};
+    Configuration cfg{positive_integer(argv[3]), positive_integer(argv[4]), positive_integer(argv[5]),
+                      positive_integer(argv[6]), positive_integer(argv[7]), positive_integer(argv[8])};
+    auto execution_scope = argc >= 14 ? std::string_view{argv[13]} : std::string_view{"auto"};
+    cfg.execution_scope = parse_execution_scope(execution_scope);
+    auto pipeline_window = argc >= 15 ? positive_integer(argv[14]) : 2;
+    LUISA_ASSERT(pipeline_window <= 2, "Benchmark pipeline window must be 1 or 2; got {}.", pipeline_window);
+    cfg.pipeline_window = static_cast<uint32_t>(pipeline_window);
+    auto matrix_mode = argc >= 16 ? std::string_view{argv[15]} : std::string_view{"scalar"};
+    LUISA_ASSERT(matrix_mode == "scalar" || matrix_mode == "subgroup-reduce" || matrix_mode == "matrix" || matrix_mode == "mpp" || matrix_mode == "mpp-views", "Realization mode must be scalar, subgroup-reduce, matrix, mpp, or mpp-views; got '{}'.", matrix_mode);
+    auto metal_subgroup_reductions = matrix_mode == "subgroup-reduce";
+    auto cooperative_matrix = matrix_mode == "matrix" || matrix_mode == "mpp" || matrix_mode == "mpp-views";
+    auto forward_readonly_tile_loads = matrix_mode == "mpp-views" || metal_subgroup_reductions;
+    auto metal_mpp = matrix_mode == "mpp" || matrix_mode == "mpp-views";
+    if (argc >= 24) {
+        auto policy = std::string_view{argv[23]};
+        LUISA_ASSERT(policy == "retain-input-snapshots" || policy == "forward-input-views", "Unknown input snapshot policy '{}'; expected retain-input-snapshots or forward-input-views.", policy);
+        if (policy == "forward-input-views") {
+            forward_readonly_tile_loads = true;
         }
-        if (metal_mpp && (backend != "metal" || !uses_matrix(operation) || cfg.execution_scope != exec::Scope::GROUP)) {
-            throw std::invalid_argument{"MPP benchmarking requires Metal group GEMM"};
-        }
-        if (metal_subgroup_reductions &&
-            (backend != "metal" || cfg.execution_scope != exec::Scope::AUTOMATIC ||
-             (operation != "sum" && operation != "softmax" && operation != "rmsnorm" && operation != "layernorm" && operation != "residual_layernorm" && operation != "cross_entropy"))) {
-            throw std::invalid_argument{"SIMD-group reduction benchmarking requires automatic Metal sum, softmax, RMSNorm, residual LayerNorm, LayerNorm, or cross-entropy"};
-        }
-        auto vector_mode = argc >= 17 ? std::string_view{argv[16]} : std::string_view{"vectorize"};
-        if (vector_mode != "vectorize" && vector_mode != "no-vectorize" && vector_mode != "auto-vectorize") { throw std::invalid_argument{"vector mode must be vectorize, no-vectorize, or auto-vectorize"}; }
-        auto vectorize = vector_mode != "no-vectorize";
-        auto auto_vectorize = vector_mode == "auto-vectorize";
-        bridge::tirx::PlannerOptions planner;
-        planner.metal_subgroup_reductions = metal_subgroup_reductions;
-        if (argc >= 37) {
-            auto policy = std::string_view{argv[36]};
-            if (policy != "retain-fragment-epilogues" && policy != "fuse-fragment-epilogues") {
-                throw std::invalid_argument{"unknown matrix epilogue policy"};
-            }
-            planner.fuse_matrix_epilogues = policy == "fuse-fragment-epilogues";
-            if (planner.fuse_matrix_epilogues && !metal_mpp) { throw std::invalid_argument{"fragment epilogues require MPP"}; }
-        }
-        for (auto index = 34; index < std::min(argc, 36); index++) {
-            auto size = positive_integer(argv[index]);
-            if (size > std::numeric_limits<uint32_t>::max() ||
-                (size != 1 && (backend != "metal" || cfg.execution_scope != exec::Scope::GROUP))) {
-                throw std::invalid_argument{"program traversal requires positive uint32 rectangle sizes and Metal group execution"};
-            }
-            (index == 34 ? planner.program_order_rows : planner.program_order_columns) = static_cast<uint32_t>(size);
-        }
-        auto reduction_cost_profile = argc >= 34 ? std::string_view{argv[33]} : "analytic";
-        auto service_policy = bridge::tirx::ServiceExecutionCostPolicy{
-            reduction_cost_profile == "analytic" ? bridge::tirx::ReductionServiceModel{} :
-                                                   parse_reduction_service_profile(reduction_cost_profile)};
-        if (reduction_cost_profile != "analytic") {
-            if (!metal_subgroup_reductions) { throw std::invalid_argument{"reduction service profiles require subgroup-reduce"}; }
-            planner.cost_policy = &service_policy;
-        }
-        if (argc >= 33) {
-            auto inputs = std::string_view{argv[32]};
-            if ((inputs != "reload" && inputs != "cache") ||
-                (inputs == "cache" && !metal_subgroup_reductions)) {
-                throw std::invalid_argument{"reduction inputs require reload or cache, and subgroup-reduce for cache"};
-            }
-            planner.cache_reduction_inputs = inputs == "cache";
-        }
-        if (argc >= 32) {
-            auto width = positive_integer(argv[31]);
-            if ((width != 1 && width != 2 && width != 4 && width != 8) ||
-                (width != 1 && !metal_subgroup_reductions)) {
-                throw std::invalid_argument{"reduction lane elements require 1, 2, 4 or 8 and subgroup-reduce when non-default"};
-            }
-            planner.reduction_lane_elements = static_cast<uint32_t>(width);
-        }
-        if (argc >= 31) {
-            auto factor = positive_integer(argv[30]);
-            if (factor > 16 || (factor != 1 && !metal_subgroup_reductions)) {
-                throw std::invalid_argument{"reduction unrolling requires a factor in [1,16] and subgroup-reduce when non-default"};
-            }
-            planner.reduction_unroll_factor = static_cast<uint32_t>(factor);
-        }
-        if (argc >= 29 && std::string_view{argv[28]} != "auto") {
-            auto programs = positive_integer(argv[28]);
-            if (!metal_subgroup_reductions || programs > 8) {
-                throw std::invalid_argument{"reduction packing requires subgroup-reduce and 1..8 programs"};
-            }
-            planner.reduction_programs_per_group = static_cast<uint32_t>(programs);
-        }
-        if (argc >= 30) {
-            auto mapping = std::string_view{argv[29]};
-            if (mapping != "auto" && mapping != "reference") {
-                throw std::invalid_argument{"element grid must be auto or reference"};
-            }
-            planner.fuse_gpu_elementwise = mapping == "auto";
-        }
-        if (argc >= 18 && std::string_view{argv[17]} != "auto") {
-            auto requested = positive_integer(argv[17]);
-            if (requested > std::numeric_limits<uint32_t>::max() || backend != "metal" ||
-                (cfg.execution_scope != exec::Scope::GROUP && !metal_subgroup_reductions)) {
-                throw std::invalid_argument{"explicit group threads require Metal group execution or the subgroup-reduction planner"};
-            }
-            planner.threads_per_group = static_cast<uint32_t>(requested);
-        }
-        if (argc >= 19) {
-            auto requested = positive_integer(argv[18]);
-            if (requested > 16u || (requested != 1u && (backend != "metal" || cfg.execution_scope != exec::Scope::GROUP))) {
-                throw std::invalid_argument{"copy batching requires a value in [1,16] and Metal group execution"};
-            }
-            planner.max_copy_batch = static_cast<uint32_t>(requested);
-        }
-        auto sample_count = positive_integer(argv[9]);
-        auto target_ms = positive_integer(argv[10]);
-        auto warmup_ms = positive_integer(argv[11]);
-        if (cfg.m > 16384 || cfg.n > 16384 || cfg.k > 16384 ||
-            cfg.bm > 512 || cfg.bn > 16384 || cfg.bk > 16384 || sample_count > 101) {
-            throw std::invalid_argument{"benchmark dimensions or sample count exceed the supported limit"};
-        }
-        if (std::filesystem::exists(argv[12])) { throw std::invalid_argument{"output path already exists"}; }
-        auto runtime_choice = argc >= 20 ? std::string_view{argv[19]} : "tvm";
-        auto cpu_model = argc >= 25 ? std::string_view{argv[24]} : "generic";
-        if ((cpu_model != "generic" && cpu_model != "native") ||
-            (cpu_model == "native" && (backend != "cpu" || runtime_choice != "tvm"))) {
-            throw std::invalid_argument{"CPU model must be generic; native requires the CPU TVM runtime"};
-        }
-        auto cpu_matrix_name = argc >= 26 ? std::string_view{argv[25]} : "reference";
-        auto cpu_matrix_backend = bridge::tirx::CpuMatrixBackend::REFERENCE;
-        if (cpu_matrix_name == "cblas") {
-            if (backend != "cpu" || runtime_choice != "tvm") {
-                throw std::invalid_argument{"CBLAS realization requires the CPU TVM runtime"};
-            }
-            cpu_matrix_backend = bridge::tirx::CpuMatrixBackend::CBLAS;
-        } else if (cpu_matrix_name != "reference") {
-            throw std::invalid_argument{"CPU matrix realization must be reference or cblas"};
-        }
-        auto cpu_math_name = argc >= 27 ? std::string_view{argv[26]} : "reference";
-        auto cpu_math_backend = bridge::tirx::CpuMathBackend::REFERENCE;
-        if (cpu_math_name == "accelerate") {
-            if (backend != "cpu" || runtime_choice != "tvm") {
-                throw std::invalid_argument{"Accelerate array math requires the CPU TVM runtime"};
-            }
-            cpu_math_backend = bridge::tirx::CpuMathBackend::ACCELERATE;
-        } else if (cpu_math_name != "reference") {
-            throw std::invalid_argument{"CPU array-math realization must be reference or accelerate"};
-        }
-        auto shared_tiles_name = argc >= 28 ? std::string_view{argv[27]} : "preserve";
-        auto lower_options = bridge::tirx::LowerOptions{};
-        if (shared_tiles_name == "expensive-only") {
-            lower_options.shared_tiles = bridge::tirx::SharedTileMaterialization::EXPENSIVE_ONLY;
-        } else if (shared_tiles_name != "preserve") {
-            throw std::invalid_argument{"shared-Tile materialization must be preserve or expensive-only"};
-        }
-        if (argc >= 23) {
-            auto lanes = positive_integer(argv[22]);
-            if ((lanes != 16 && lanes != 32 && lanes != 64 && lanes != 128) ||
-                (lanes != 16 && (backend != "cpu" || !auto_vectorize))) {
-                throw std::invalid_argument{"CPU vector lanes require 16/32/64/128 and CPU auto-vectorization when non-default"};
-            }
-            planner.max_cpu_vector_lanes = static_cast<uint32_t>(lanes);
-        }
-        if (argc >= 22) {
-            auto budget = std::string_view{argv[21]} == "0" ? 0 : positive_integer(argv[21]);
-            if (budget > 65536 || (budget != 0 && backend != "cpu")) {
-                throw std::invalid_argument{"CPU stack budget must be in [0,65536] and requires the CPU backend"};
-            }
-            planner.max_cpu_stack_bytes = static_cast<uint32_t>(budget);
-        }
-        if (argc >= 21) {
-            auto policy = std::string_view{argv[20]};
-            if (policy != "retain-subgroup-fences" && policy != "elide-subgroup-fences") {
-                throw std::invalid_argument{"unknown subgroup-fence policy"};
-            }
-            planner.elide_independent_subgroup_barriers = policy == "elide-subgroup-fences";
-            if (planner.elide_independent_subgroup_barriers && !forward_readonly_tile_loads) {
-                throw std::invalid_argument{"subgroup-fence elision currently requires mpp-views"};
-            }
-        }
-        if (runtime_choice != "tvm") {
-            if (reduction_cost_profile != "analytic") {
-                throw std::invalid_argument{"the reduction service-profile benchmark currently requires the TVM runtime"};
-            }
-            if (backend != "metal" || (runtime_choice != "luisa" && runtime_choice != "luisa-fast")) {
-                throw std::invalid_argument{"Runtime must be tvm, or luisa/luisa-fast on Metal"};
-            }
-            if (lower_options.shared_tiles != bridge::tirx::SharedTileMaterialization::PRESERVE) {
-                throw std::invalid_argument{"the Luisa Runtime benchmark currently requires preserved shared Tile SSA"};
-            }
-            bridge::tirx::CompileOptions options;
-            options.noalias = true;
-            options.cooperative_matrix = cooperative_matrix;
-            options.metal_mpp = metal_mpp;
-            options.forward_readonly_tile_loads = forward_readonly_tile_loads;
-            options.vectorize = vectorize;
-            options.auto_vectorize = auto_vectorize;
-            options.planner = planner;
-            run_luisa(argv[0], argv[12], operation, cfg, sample_count, target_ms, warmup_ms, options, runtime_choice == "luisa-fast");
-            return 0;
-        }
-        auto start = Clock::now();
-        Runtime runtime{backend, cpu_model == "native"};
-        auto runtime_init_ms = milliseconds(start);
-        start = Clock::now();
-        auto kernel = capture(operation, cfg);
-        auto capture_ms = milliseconds(start);
-        if (auto path = std::getenv("LUISA_TILE_BENCH_DUMP_TILE_IR")) {
-            if (std::filesystem::exists(path)) { throw std::runtime_error{"TileIR dump path already exists"}; }
-            std::ofstream file{path};
-            dump_tile_ir(file, kernel.function().body());
-            if (!file) { throw std::runtime_error{"cannot write TileIR dump"}; }
-        }
-        if (auto path = std::getenv("LUISA_TILE_BENCH_DUMP_TIRX")) {
-            if (std::filesystem::exists(path)) { throw std::runtime_error{"TIRx dump path already exists"}; }
-            auto native = bridge::tirx::lower(kernel.function(), lower_options);
-            if (!native) { throw std::runtime_error{native.error.c_str()}; }
-            std::ofstream file{path};
-            file << tvm::Script(native.value);
-            if (!file) { throw std::runtime_error{"cannot write native TIRx dump"}; }
-        }
-        start = Clock::now();
-        auto executable = runtime.build(kernel, true, cooperative_matrix, vectorize, auto_vectorize, planner, metal_mpp, forward_readonly_tile_loads, cpu_matrix_backend, cpu_math_backend, lower_options);
-        auto compile_ms = milliseconds(start);
-        if (!executable.ok()) { throw std::runtime_error{executable.error.c_str()}; }
-        auto matrix_calls = matrix_intrinsics(executable.module.value());
-        auto mpp_calls = matrix_intrinsics(executable.module.value(), true);
-        auto library_matrix_calls = external_matrix_calls(executable.module.value());
-        auto library_vector_math_calls = external_vector_math_calls(executable.module.value());
-        if (auto path = std::getenv("LUISA_TILE_BENCH_DUMP_SOURCE")) {
-            dump_source(executable.module.value(), backend == "metal" ? "metal" : "llvm", path);
-            if (!std::filesystem::exists(path)) { throw std::runtime_error{"requested generated source is unavailable"}; }
-        }
-        auto columns_a = uses_matrix(operation) ? cfg.k : cfg.n;
-        auto rows_b = auxiliary_input_rows(operation, cfg);
-        auto binary = uses_auxiliary_input(operation);
-        auto labeled = uses_label_input(operation);
-        auto paired = has_paired_output(operation);
-        auto host_a = input_values(static_cast<size_t>(cfg.m * columns_a), 5);
-        auto host_b = input_values(binary ? static_cast<size_t>(rows_b * cfg.n) : 0u, 11);
-        auto host_labels = label_values(cfg.m, cfg.n);
-        start = Clock::now();
-        auto a = runtime.upload<float>({cfg.m, columns_a}, host_a);
-        tvm::runtime::Tensor b;
-        if (binary) { b = runtime.upload<float>({rows_b, cfg.n}, host_b); }
-        tvm::runtime::Tensor labels;
-        if (labeled) { labels = runtime.upload<int64_t>({cfg.m}, host_labels); }
-        auto out = has_row_output(operation) ? runtime.allocate<float>({cfg.m}) : runtime.allocate<float>({cfg.m, cfg.n});
-        tvm::runtime::Tensor derivative;
-        if (paired) { derivative = runtime.allocate<float>({cfg.m, cfg.n}); }
-        runtime.synchronize();
-        auto allocation_upload_ms = milliseconds(start);
-        std::function<void()> invoke = [&] {
-            if (paired) {
-                (*executable.entry)(a, out, derivative);
-            } else if (labeled) {
-                (*executable.entry)(a, labels, out);
-            } else if (binary) {
-                (*executable.entry)(a, b, out);
-            } else {
-                (*executable.entry)(a, out);
-            }
-        };
-        auto cold_call_ms = batch(runtime, invoke, 1);
-        start = Clock::now();
-        while (milliseconds(start) < static_cast<double>(warmup_ms)) { static_cast<void>(batch(runtime, invoke, 8)); }
-        auto actual_warmup_ms = milliseconds(start);
-        uint64_t repetitions = 1u;
-        for (auto attempt = 0u; attempt < 8u; attempt++) {
-            auto elapsed = batch(runtime, invoke, repetitions);
-            if (elapsed >= target_ms * 0.8 || repetitions == 100000u) { break; }
-            auto estimate = repetitions * static_cast<double>(target_ms) / std::max(elapsed, 1e-6);
-            repetitions = std::clamp<uint64_t>(static_cast<uint64_t>(estimate), repetitions + 1u, 100000u);
-        }
-        std::vector<double> throughput_us;
-        std::vector<double> latency_us;
-        for (auto i = 0; i < sample_count; i++) { throughput_us.emplace_back(1000.0 * batch(runtime, invoke, repetitions) / repetitions); }
-        for (auto i = 0; i < sample_count; i++) { latency_us.emplace_back(1000.0 * batch(runtime, invoke, 1)); }
-        luisa::test::MetalBenchmarkTiming device_timing{backend == "metal"};
-        device_timing.measure([&] { runtime.synchronize(); }, [&](uint64_t count) {
-            for (auto i = uint64_t{0u}; i < count; i++) { invoke(); }
-            runtime.synchronize(); }, repetitions, static_cast<uint32_t>(sample_count));
-        start = Clock::now();
-        auto output_count = static_cast<size_t>(has_row_output(operation) ? cfg.m : cfg.m * cfg.n);
-        auto output = runtime.download<float>(out, output_count);
-        if (paired) {
-            auto extra = runtime.download<float>(derivative, output_count);
-            output.insert(output.end(), extra.begin(), extra.end());
-            output_count = output.size();
-        }
-        auto download_ms = milliseconds(start);
-        std::ofstream file{argv[12], std::ios::binary};
-        file.write(reinterpret_cast<const char *>(output.data()), static_cast<std::streamsize>(output.size() * sizeof(float)));
-        if (!file) { throw std::runtime_error{"failed to write benchmark output"}; }
-        std::cout << std::setprecision(12)
-                  << "{\"backend\":" << std::quoted(backend) << ",\"operation\":" << std::quoted(operation)
-                  << ",\"execution_scope\":" << std::quoted(execution_scope)
-                  << ",\"pipeline_window\":" << cfg.pipeline_window
-                  << ",\"cooperative_matrix\":" << (cooperative_matrix ? "true" : "false")
-                  << ",\"metal_mpp\":" << (metal_mpp ? "true" : "false")
-                  << ",\"metal_subgroup_reductions\":" << (metal_subgroup_reductions ? "true" : "false")
-                  << ",\"metal_max_threads\":" << runtime.metal_max_threads()
-                  << ",\"reduction_programs_per_group\":" << planner.reduction_programs_per_group
-                  << ",\"reduction_unroll_factor\":" << planner.reduction_unroll_factor
-                  << ",\"reduction_lane_elements\":" << planner.reduction_lane_elements
-                  << ",\"cache_reduction_inputs\":" << (planner.cache_reduction_inputs ? "true" : "false")
-                  << ",\"reduction_cost_profile\":" << std::quoted(reduction_cost_profile)
-                  << ",\"fuse_gpu_elementwise\":" << (planner.fuse_gpu_elementwise ? "true" : "false")
-                  << ",\"shared_tile_materialization\":" << std::quoted(shared_tiles_name)
-                  << ",\"forward_readonly_tile_loads\":" << (forward_readonly_tile_loads ? "true" : "false")
-                  << ",\"fuse_matrix_epilogues\":" << (planner.fuse_matrix_epilogues ? "true" : "false")
-                  << ",\"elide_independent_subgroup_barriers\":" << (planner.elide_independent_subgroup_barriers ? "true" : "false")
-                  << ",\"vectorize\":" << (vectorize ? "true" : "false")
-                  << ",\"auto_vectorize\":" << (auto_vectorize ? "true" : "false")
-                  << ",\"cpu_stack_bytes\":" << planner.max_cpu_stack_bytes
-                  << ",\"cpu_parallel_task_threshold\":" << planner.min_cpu_parallel_tasks
-                  << ",\"cpu_vector_lanes\":" << planner.max_cpu_vector_lanes
-                  << ",\"max_reduction_striped_scalars_per_worker\":" << planner.max_reduction_striped_scalars_per_worker
-                  << ",\"cpu_target_policy\":" << std::quoted(cpu_model)
-                  << ",\"cpu_model\":" << std::quoted(runtime.cpu_model())
-                  << ",\"cpu_matrix_backend\":" << std::quoted(cpu_matrix_name)
-                  << ",\"cpu_math_backend\":" << std::quoted(cpu_math_name)
-                  << ",\"planner_threads\":" << planner.threads_per_group
-                  << ",\"copy_batch\":" << planner.max_copy_batch
-                  << ",\"program_order\":[" << planner.program_order_rows << ',' << planner.program_order_columns << ']'
-                  << ",\"matrix_intrinsics\":" << matrix_calls + mpp_calls
-                  << ",\"external_matrix_calls\":" << library_matrix_calls
-                  << ",\"external_vector_math_calls\":" << library_vector_math_calls
-                  << ",\"simdgroup_intrinsics\":" << matrix_calls << ",\"mpp_intrinsics\":" << mpp_calls
-                  << ",\"runtime_init_ms\":" << runtime_init_ms << ",\"capture_ms\":" << capture_ms
-                  << ",\"compile_ms\":" << compile_ms << ",\"allocation_upload_ms\":" << allocation_upload_ms
-                  << ",\"cold_call_ms\":" << cold_call_ms << ",\"warmup_ms\":" << actual_warmup_ms
-                  << ",\"download_ms\":" << download_ms << ",\"repetitions\":" << repetitions
-                  << ",\"output_elements\":" << output_count << ",\"mma_operations\":"
-                  << luisa::test::tile_tirx::count_operations(kernel.function().body(), OperationKind::MMA)
-                  << ",\"compiler\":" << std::quoted(compiler_version) << ',';
-        print_samples("throughput_us", throughput_us);
-        std::cout << ',';
-        print_samples("latency_us", latency_us);
-        std::cout << ',';
-        print_plans(executable.plans, reduction_cost_profile);
-        device_timing.print();
-        std::cout << "}\n";
-    } catch (const std::exception &error) {
-        std::cerr << error.what() << '\n';
-        return 2;
     }
+    LUISA_ASSERT(!metal_mpp || (backend == "metal" && uses_matrix(operation) && cfg.execution_scope == exec::Scope::GROUP), "MPP benchmarking requires Metal group GEMM; backend='{}', operation='{}', scope='{}'.", backend, operation, execution_scope);
+    LUISA_ASSERT(!metal_subgroup_reductions || (backend == "metal" && cfg.execution_scope == exec::Scope::AUTOMATIC && (operation == "sum" || operation == "softmax" || operation == "rmsnorm" || operation == "layernorm" || operation == "residual_layernorm" || operation == "cross_entropy")), "SIMD-group reductions require automatic Metal sum, softmax, RMSNorm, residual LayerNorm, LayerNorm, or cross-entropy; backend='{}', operation='{}', scope='{}'.", backend, operation, execution_scope);
+    auto vector_mode = argc >= 17 ? std::string_view{argv[16]} : std::string_view{"vectorize"};
+    LUISA_ASSERT(vector_mode == "vectorize" || vector_mode == "no-vectorize" || vector_mode == "auto-vectorize", "Vector mode must be vectorize, no-vectorize, or auto-vectorize; got '{}'.", vector_mode);
+    auto vectorize = vector_mode != "no-vectorize";
+    auto auto_vectorize = vector_mode == "auto-vectorize";
+    bridge::tirx::PlannerOptions planner;
+    planner.metal_subgroup_reductions = metal_subgroup_reductions;
+    if (argc >= 37) {
+        auto policy = std::string_view{argv[36]};
+        LUISA_ASSERT(policy == "retain-fragment-epilogues" || policy == "fuse-fragment-epilogues", "Unknown matrix epilogue policy '{}'; expected retain-fragment-epilogues or fuse-fragment-epilogues.", policy);
+        planner.fuse_matrix_epilogues = policy == "fuse-fragment-epilogues";
+        LUISA_ASSERT(!planner.fuse_matrix_epilogues || metal_mpp, "Fragment epilogues require MPP; realization='{}'.", matrix_mode);
+    }
+    for (auto index = 34; index < std::min(argc, 36); index++) {
+        auto size = positive_integer(argv[index]);
+        LUISA_ASSERT(size <= std::numeric_limits<uint32_t>::max() && (size == 1 || (backend == "metal" && cfg.execution_scope == exec::Scope::GROUP)), "Program traversal requires positive uint32 rectangle sizes and Metal group execution when non-default; size={}, backend='{}', scope='{}'.", size, backend, execution_scope);
+        (index == 34 ? planner.program_order_rows : planner.program_order_columns) = static_cast<uint32_t>(size);
+    }
+    auto reduction_cost_profile = argc >= 34 ? std::string_view{argv[33]} : "analytic";
+    auto service_policy = bridge::tirx::ServiceExecutionCostPolicy{
+        reduction_cost_profile == "analytic" ? bridge::tirx::ReductionServiceModel{} :
+                                               parse_reduction_service_profile(reduction_cost_profile)};
+    if (reduction_cost_profile != "analytic") {
+        LUISA_ASSERT(metal_subgroup_reductions, "Reduction service profile '{}' requires subgroup-reduce; realization='{}'.", reduction_cost_profile, matrix_mode);
+        planner.cost_policy = &service_policy;
+    }
+    if (argc >= 33) {
+        auto inputs = std::string_view{argv[32]};
+        LUISA_ASSERT(inputs == "reload" || (inputs == "cache" && metal_subgroup_reductions), "Reduction inputs require reload or cache, and subgroup-reduce for cache; inputs='{}', realization='{}'.", inputs, matrix_mode);
+        planner.cache_reduction_inputs = inputs == "cache";
+    }
+    if (argc >= 32) {
+        auto width = positive_integer(argv[31]);
+        LUISA_ASSERT((width == 1 || width == 2 || width == 4 || width == 8) && (width == 1 || metal_subgroup_reductions), "Reduction lane elements require 1, 2, 4 or 8 and subgroup-reduce when non-default; width={}, realization='{}'.", width, matrix_mode);
+        planner.reduction_lane_elements = static_cast<uint32_t>(width);
+    }
+    if (argc >= 31) {
+        auto factor = positive_integer(argv[30]);
+        LUISA_ASSERT(factor <= 16 && (factor == 1 || metal_subgroup_reductions), "Reduction unrolling requires a factor in [1,16] and subgroup-reduce when non-default; factor={}, realization='{}'.", factor, matrix_mode);
+        planner.reduction_unroll_factor = static_cast<uint32_t>(factor);
+    }
+    if (argc >= 29 && std::string_view{argv[28]} != "auto") {
+        auto programs = positive_integer(argv[28]);
+        LUISA_ASSERT(metal_subgroup_reductions && programs <= 8, "Reduction packing requires subgroup-reduce and 1..8 programs; programs={}, realization='{}'.", programs, matrix_mode);
+        planner.reduction_programs_per_group = static_cast<uint32_t>(programs);
+    }
+    if (argc >= 30) {
+        auto mapping = std::string_view{argv[29]};
+        LUISA_ASSERT(mapping == "auto" || mapping == "reference", "Element grid must be auto or reference; got '{}'.", mapping);
+        planner.fuse_gpu_elementwise = mapping == "auto";
+    }
+    if (argc >= 18 && std::string_view{argv[17]} != "auto") {
+        auto requested = positive_integer(argv[17]);
+        LUISA_ASSERT(requested <= std::numeric_limits<uint32_t>::max() && backend == "metal" && (cfg.execution_scope == exec::Scope::GROUP || metal_subgroup_reductions), "Explicit group threads require a uint32 count and Metal group execution or the subgroup-reduction planner; threads={}, backend='{}', scope='{}', realization='{}'.", requested, backend, execution_scope, matrix_mode);
+        planner.threads_per_group = static_cast<uint32_t>(requested);
+    }
+    if (argc >= 19) {
+        auto requested = positive_integer(argv[18]);
+        LUISA_ASSERT(requested <= 16u && (requested == 1u || (backend == "metal" && cfg.execution_scope == exec::Scope::GROUP)), "Copy batching requires a value in [1,16] and Metal group execution when non-default; count={}, backend='{}', scope='{}'.", requested, backend, execution_scope);
+        planner.max_copy_batch = static_cast<uint32_t>(requested);
+    }
+    auto sample_count = positive_integer(argv[9]);
+    auto target_ms = positive_integer(argv[10]);
+    auto warmup_ms = positive_integer(argv[11]);
+    LUISA_ASSERT(cfg.m <= 16384 && cfg.n <= 16384 && cfg.k <= 16384 && cfg.bm <= 512 && cfg.bn <= 16384 && cfg.bk <= 16384 && sample_count <= 101, "Benchmark dimensions or sample count exceed limits M/N/K<=16384, BM<=512, BN/BK<=16384, samples<=101; M={}, N={}, K={}, BM={}, BN={}, BK={}, samples={}.", cfg.m, cfg.n, cfg.k, cfg.bm, cfg.bn, cfg.bk, sample_count);
+    LUISA_ASSERT(!path_exists(argv[12]), "Benchmark output path already exists: '{}'.", argv[12]);
+    auto runtime_choice = argc >= 20 ? std::string_view{argv[19]} : "tvm";
+    auto cpu_model = argc >= 25 ? std::string_view{argv[24]} : "generic";
+    LUISA_ASSERT(cpu_model == "generic" || (cpu_model == "native" && backend == "cpu" && runtime_choice == "tvm"), "CPU model must be generic or native, and native requires the CPU TVM runtime; model='{}', backend='{}', runtime='{}'.", cpu_model, backend, runtime_choice);
+    auto cpu_matrix_name = argc >= 26 ? std::string_view{argv[25]} : "reference";
+    auto cpu_matrix_backend = bridge::tirx::CpuMatrixBackend::REFERENCE;
+    if (cpu_matrix_name == "cblas") {
+        LUISA_ASSERT(backend == "cpu" && runtime_choice == "tvm", "CBLAS realization requires the CPU TVM runtime; backend='{}', runtime='{}'.", backend, runtime_choice);
+        cpu_matrix_backend = bridge::tirx::CpuMatrixBackend::CBLAS;
+    } else {
+        LUISA_ASSERT(cpu_matrix_name == "reference", "CPU matrix realization must be reference or cblas; got '{}'.", cpu_matrix_name);
+    }
+    auto cpu_math_name = argc >= 27 ? std::string_view{argv[26]} : "reference";
+    auto cpu_math_backend = bridge::tirx::CpuMathBackend::REFERENCE;
+    if (cpu_math_name == "accelerate") {
+        LUISA_ASSERT(backend == "cpu" && runtime_choice == "tvm", "Accelerate array math requires the CPU TVM runtime; backend='{}', runtime='{}'.", backend, runtime_choice);
+        cpu_math_backend = bridge::tirx::CpuMathBackend::ACCELERATE;
+    } else {
+        LUISA_ASSERT(cpu_math_name == "reference", "CPU array-math realization must be reference or accelerate; got '{}'.", cpu_math_name);
+    }
+    auto shared_tiles_name = argc >= 28 ? std::string_view{argv[27]} : "preserve";
+    auto lower_options = bridge::tirx::LowerOptions{};
+    if (shared_tiles_name == "expensive-only") {
+        lower_options.shared_tiles = bridge::tirx::SharedTileMaterialization::EXPENSIVE_ONLY;
+    } else {
+        LUISA_ASSERT(shared_tiles_name == "preserve", "Shared-Tile materialization must be preserve or expensive-only; got '{}'.", shared_tiles_name);
+    }
+    if (argc >= 23) {
+        auto lanes = positive_integer(argv[22]);
+        LUISA_ASSERT((lanes == 16 || lanes == 32 || lanes == 64 || lanes == 128) && (lanes == 16 || (backend == "cpu" && auto_vectorize)), "CPU vector lanes require 16/32/64/128 and CPU auto-vectorization when non-default; lanes={}, backend='{}', vector-mode='{}'.", lanes, backend, vector_mode);
+        planner.max_cpu_vector_lanes = static_cast<uint32_t>(lanes);
+    }
+    if (argc >= 22) {
+        auto budget = std::string_view{argv[21]} == "0" ? 0 : positive_integer(argv[21]);
+        LUISA_ASSERT(budget <= 65536 && (budget == 0 || backend == "cpu"), "CPU stack budget must be in [0,65536] and requires the CPU backend when nonzero; budget={}, backend='{}'.", budget, backend);
+        planner.max_cpu_stack_bytes = static_cast<uint32_t>(budget);
+    }
+    if (argc >= 21) {
+        auto policy = std::string_view{argv[20]};
+        LUISA_ASSERT(policy == "retain-subgroup-fences" || policy == "elide-subgroup-fences", "Unknown subgroup-fence policy '{}'; expected retain-subgroup-fences or elide-subgroup-fences.", policy);
+        planner.elide_independent_subgroup_barriers = policy == "elide-subgroup-fences";
+        LUISA_ASSERT(!planner.elide_independent_subgroup_barriers || forward_readonly_tile_loads, "Subgroup-fence elision requires forwarded read-only Tile loads; realization='{}'.", matrix_mode);
+    }
+    if (runtime_choice != "tvm") {
+        LUISA_ASSERT(reduction_cost_profile == "analytic", "Reduction service profile '{}' requires the TVM runtime; runtime='{}'.", reduction_cost_profile, runtime_choice);
+        LUISA_ASSERT(backend == "metal" && (runtime_choice == "luisa" || runtime_choice == "luisa-fast"), "Runtime must be tvm, or luisa/luisa-fast on Metal; runtime='{}', backend='{}'.", runtime_choice, backend);
+        LUISA_ASSERT(lower_options.shared_tiles == bridge::tirx::SharedTileMaterialization::PRESERVE, "The Luisa Runtime benchmark requires preserved shared Tile SSA; materialization='{}'.", shared_tiles_name);
+        bridge::tirx::CompileOptions options;
+        options.noalias = true;
+        options.cooperative_matrix = cooperative_matrix;
+        options.metal_mpp = metal_mpp;
+        options.forward_readonly_tile_loads = forward_readonly_tile_loads;
+        options.vectorize = vectorize;
+        options.auto_vectorize = auto_vectorize;
+        options.planner = planner;
+        run_luisa(argv[0], argv[12], operation, cfg, sample_count, target_ms, warmup_ms, options, runtime_choice == "luisa-fast");
+        return 0;
+    }
+    auto start = Clock::now();
+    Runtime runtime{backend, cpu_model == "native"};
+    auto runtime_init_ms = milliseconds(start);
+    start = Clock::now();
+    auto kernel = capture(operation, cfg);
+    auto capture_ms = milliseconds(start);
+    if (auto path = std::getenv("LUISA_TILE_BENCH_DUMP_TILE_IR")) {
+        LUISA_ASSERT(!path_exists(path), "TileIR dump path already exists: '{}'.", path);
+        std::ofstream file{path};
+        dump_tile_ir(file, kernel.function().body());
+        file.close();
+        LUISA_ASSERT(file, "Cannot write TileIR dump to '{}'.", path);
+    }
+    if (auto path = std::getenv("LUISA_TILE_BENCH_DUMP_TIRX")) {
+        LUISA_ASSERT(!path_exists(path), "TIRx dump path already exists: '{}'.", path);
+        auto native = bridge::tirx::lower(kernel.function(), lower_options);
+        LUISA_ASSERT(native, "Native TIRx lowering failed: {}", native.error);
+        std::ofstream file{path};
+        file << tvm::Script(native.value);
+        file.close();
+        LUISA_ASSERT(file, "Cannot write native TIRx dump to '{}'.", path);
+    }
+    start = Clock::now();
+    auto executable = runtime.build(kernel, true, cooperative_matrix, vectorize, auto_vectorize, planner, metal_mpp, forward_readonly_tile_loads, cpu_matrix_backend, cpu_math_backend, lower_options);
+    auto compile_ms = milliseconds(start);
+    LUISA_ASSERT(executable.ok(), "TVM benchmark compilation failed: {}", executable.error);
+    auto matrix_calls = matrix_intrinsics(executable.module.value());
+    auto mpp_calls = matrix_intrinsics(executable.module.value(), true);
+    auto library_matrix_calls = external_matrix_calls(executable.module.value());
+    auto library_vector_math_calls = external_vector_math_calls(executable.module.value());
+    if (auto path = std::getenv("LUISA_TILE_BENCH_DUMP_SOURCE")) {
+        dump_source(executable.module.value(), backend == "metal" ? "metal" : "llvm", path);
+        LUISA_ASSERT(path_exists(path), "Requested generated source is unavailable at '{}' for backend '{}'.", path, backend);
+    }
+    auto columns_a = uses_matrix(operation) ? cfg.k : cfg.n;
+    auto rows_b = auxiliary_input_rows(operation, cfg);
+    auto binary = uses_auxiliary_input(operation);
+    auto labeled = uses_label_input(operation);
+    auto paired = has_paired_output(operation);
+    auto host_a = input_values(static_cast<size_t>(cfg.m * columns_a), 5);
+    auto host_b = input_values(binary ? static_cast<size_t>(rows_b * cfg.n) : 0u, 11);
+    auto host_labels = label_values(cfg.m, cfg.n);
+    start = Clock::now();
+    auto a = runtime.upload<float>({cfg.m, columns_a}, host_a);
+    tvm::runtime::Tensor b;
+    if (binary) { b = runtime.upload<float>({rows_b, cfg.n}, host_b); }
+    tvm::runtime::Tensor labels;
+    if (labeled) { labels = runtime.upload<int64_t>({cfg.m}, host_labels); }
+    auto out = has_row_output(operation) ? runtime.allocate<float>({cfg.m}) : runtime.allocate<float>({cfg.m, cfg.n});
+    tvm::runtime::Tensor derivative;
+    if (paired) { derivative = runtime.allocate<float>({cfg.m, cfg.n}); }
+    runtime.synchronize();
+    auto allocation_upload_ms = milliseconds(start);
+    std::function<void()> invoke = [&] {
+        if (paired) {
+            (*executable.entry)(a, out, derivative);
+        } else if (labeled) {
+            (*executable.entry)(a, labels, out);
+        } else if (binary) {
+            (*executable.entry)(a, b, out);
+        } else {
+            (*executable.entry)(a, out);
+        }
+    };
+    auto cold_call_ms = batch(runtime, invoke, 1);
+    start = Clock::now();
+    while (milliseconds(start) < static_cast<double>(warmup_ms)) { static_cast<void>(batch(runtime, invoke, 8)); }
+    auto actual_warmup_ms = milliseconds(start);
+    uint64_t repetitions = 1u;
+    for (auto attempt = 0u; attempt < 8u; attempt++) {
+        auto elapsed = batch(runtime, invoke, repetitions);
+        if (elapsed >= target_ms * 0.8 || repetitions == 100000u) { break; }
+        auto estimate = repetitions * static_cast<double>(target_ms) / std::max(elapsed, 1e-6);
+        repetitions = std::clamp<uint64_t>(static_cast<uint64_t>(estimate), repetitions + 1u, 100000u);
+    }
+    std::vector<double> throughput_us;
+    std::vector<double> latency_us;
+    for (auto i = 0; i < sample_count; i++) { throughput_us.emplace_back(1000.0 * batch(runtime, invoke, repetitions) / repetitions); }
+    for (auto i = 0; i < sample_count; i++) { latency_us.emplace_back(1000.0 * batch(runtime, invoke, 1)); }
+    luisa::test::MetalBenchmarkTiming device_timing{backend == "metal"};
+    device_timing.measure([&] { runtime.synchronize(); }, [&](uint64_t count) {
+        for (auto i = uint64_t{0u}; i < count; i++) { invoke(); }
+        runtime.synchronize(); }, repetitions, static_cast<uint32_t>(sample_count));
+    start = Clock::now();
+    auto output_count = static_cast<size_t>(has_row_output(operation) ? cfg.m : cfg.m * cfg.n);
+    auto output = runtime.download<float>(out, output_count);
+    if (paired) {
+        auto extra = runtime.download<float>(derivative, output_count);
+        output.insert(output.end(), extra.begin(), extra.end());
+        output_count = output.size();
+    }
+    auto download_ms = milliseconds(start);
+    std::ofstream file{argv[12], std::ios::binary};
+    file.write(reinterpret_cast<const char *>(output.data()), static_cast<std::streamsize>(output.size() * sizeof(float)));
+    file.close();
+    LUISA_ASSERT(file, "Failed to write benchmark output to '{}'.", argv[12]);
+    std::cout << std::setprecision(12)
+              << "{\"backend\":" << std::quoted(backend) << ",\"operation\":" << std::quoted(operation)
+              << ",\"execution_scope\":" << std::quoted(execution_scope)
+              << ",\"pipeline_window\":" << cfg.pipeline_window
+              << ",\"cooperative_matrix\":" << (cooperative_matrix ? "true" : "false")
+              << ",\"metal_mpp\":" << (metal_mpp ? "true" : "false")
+              << ",\"metal_subgroup_reductions\":" << (metal_subgroup_reductions ? "true" : "false")
+              << ",\"metal_max_threads\":" << runtime.metal_max_threads()
+              << ",\"reduction_programs_per_group\":" << planner.reduction_programs_per_group
+              << ",\"reduction_unroll_factor\":" << planner.reduction_unroll_factor
+              << ",\"reduction_lane_elements\":" << planner.reduction_lane_elements
+              << ",\"cache_reduction_inputs\":" << (planner.cache_reduction_inputs ? "true" : "false")
+              << ",\"reduction_cost_profile\":" << std::quoted(reduction_cost_profile)
+              << ",\"fuse_gpu_elementwise\":" << (planner.fuse_gpu_elementwise ? "true" : "false")
+              << ",\"shared_tile_materialization\":" << std::quoted(shared_tiles_name)
+              << ",\"forward_readonly_tile_loads\":" << (forward_readonly_tile_loads ? "true" : "false")
+              << ",\"fuse_matrix_epilogues\":" << (planner.fuse_matrix_epilogues ? "true" : "false")
+              << ",\"elide_independent_subgroup_barriers\":" << (planner.elide_independent_subgroup_barriers ? "true" : "false")
+              << ",\"vectorize\":" << (vectorize ? "true" : "false")
+              << ",\"auto_vectorize\":" << (auto_vectorize ? "true" : "false")
+              << ",\"cpu_stack_bytes\":" << planner.max_cpu_stack_bytes
+              << ",\"cpu_parallel_task_threshold\":" << planner.min_cpu_parallel_tasks
+              << ",\"cpu_vector_lanes\":" << planner.max_cpu_vector_lanes
+              << ",\"max_reduction_striped_scalars_per_worker\":" << planner.max_reduction_striped_scalars_per_worker
+              << ",\"cpu_target_policy\":" << std::quoted(cpu_model)
+              << ",\"cpu_model\":" << std::quoted(runtime.cpu_model())
+              << ",\"cpu_matrix_backend\":" << std::quoted(cpu_matrix_name)
+              << ",\"cpu_math_backend\":" << std::quoted(cpu_math_name)
+              << ",\"planner_threads\":" << planner.threads_per_group
+              << ",\"copy_batch\":" << planner.max_copy_batch
+              << ",\"program_order\":[" << planner.program_order_rows << ',' << planner.program_order_columns << ']'
+              << ",\"matrix_intrinsics\":" << matrix_calls + mpp_calls
+              << ",\"external_matrix_calls\":" << library_matrix_calls
+              << ",\"external_vector_math_calls\":" << library_vector_math_calls
+              << ",\"simdgroup_intrinsics\":" << matrix_calls << ",\"mpp_intrinsics\":" << mpp_calls
+              << ",\"runtime_init_ms\":" << runtime_init_ms << ",\"capture_ms\":" << capture_ms
+              << ",\"compile_ms\":" << compile_ms << ",\"allocation_upload_ms\":" << allocation_upload_ms
+              << ",\"cold_call_ms\":" << cold_call_ms << ",\"warmup_ms\":" << actual_warmup_ms
+              << ",\"download_ms\":" << download_ms << ",\"repetitions\":" << repetitions
+              << ",\"output_elements\":" << output_count << ",\"mma_operations\":"
+              << luisa::test::tile_tirx::count_operations(kernel.function().body(), OperationKind::MMA)
+              << ",\"compiler\":" << std::quoted(compiler_version) << ',';
+    print_samples("throughput_us", throughput_us);
+    std::cout << ',';
+    print_samples("latency_us", latency_us);
+    std::cout << ',';
+    print_plans(executable.plans, reduction_cost_profile);
+    device_timing.print();
+    std::cout << "}\n";
 }

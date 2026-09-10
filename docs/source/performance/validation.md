@@ -23,6 +23,8 @@ The original report paths are retained so existing links remain valid.
 ../../validation/2026-09-07/fallback-abi-temporaries/README
 ../../validation/2026-09-08/fallback-queue-wakeup/README
 ../../validation/2026-09-09/coro-packed-word-definedness/README
+../../validation/2026-09-09/resume-queue-batching/README
+../../validation/2026-09-10/coro-feasible-transitions/README
 ```
 
 ## Control-flow reconstruction
@@ -34,6 +36,7 @@ The original report paths are retained so existing links remain valid.
 ../../validation/2026-09-08/loop-scope-restructure/README
 ../../validation/2026-09-09/shared-switch-cases/README
 ../../validation/2026-09-09/graph-cfg-epoch/README
+../../validation/2026-09-09/prepare-update-bypass/README
 ```
 
 ## Backend code generation

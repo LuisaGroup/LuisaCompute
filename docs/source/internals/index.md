@@ -10,6 +10,7 @@ boundaries; they do not replace the user-facing programming guides.
 ../architecture
 tile/index
 ../coro_suspend_extensions
+../coro_shared_callables
 ../../README
 ```
 

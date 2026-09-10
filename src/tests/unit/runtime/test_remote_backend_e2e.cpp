@@ -8,7 +8,6 @@
 #include <charconv>
 #include <cstring>
 #include <mutex>
-#include <stdexcept>
 #include <thread>
 #include <type_traits>
 #include <unordered_set>
@@ -1256,22 +1255,23 @@ void test_remote_service_device_selection(
     server_thread.join();
 }
 
-void test_remote_service_survives_device_factory_exception(
+void test_remote_service_survives_device_factory_failure(
     const char *program_path) {
     auto state = make_shared<MockState>();
     DeviceFactory factory =
         [program_path, state](
             const DeviceRequest &request,
-            string &) -> shared_ptr<DeviceInterface> {
-        if (request.backend == "throw") {
-            throw std::runtime_error{"test factory failure"};
+            string &error) -> shared_ptr<DeviceInterface> {
+        if (request.backend == "reject") {
+            error = "test factory failure";
+            return nullptr;
         }
         return make_shared<MockDevice>(
             Context{program_path}, state, request.backend);
     };
     ServerOptions server_options;
     server_options.port = 0u;
-    server_options.token = "factory-exception-token";
+    server_options.token = "factory-failure-token";
     Server server{std::move(factory), std::move(server_options)};
     std::thread server_thread{[&] { server.run(); }};
 
@@ -1284,14 +1284,14 @@ void test_remote_service_survives_device_factory_exception(
     hello.write_u8(sizeof(void *));
     hello.write_u8(1u);
     hello.write_u16(0u);
-    hello.write_string("factory-exception-token");
-    hello.write_string("throw");
+    hello.write_string("factory-failure-token");
+    hello.write_string("reject");
     hello.write_u64(std::numeric_limits<size_t>::max());
     hello.write_bool(false);
     auto response = rejected.request(
         MessageKind::HELLO, hello.bytes(), 2s);
     expect(!static_cast<bool>(response));
-    expect(response.status == Status::BACKEND_ERROR);
+    expect(response.status == Status::UNSUPPORTED);
     expect(response.message.find("test factory failure") != string::npos);
     rejected.close();
 
@@ -1300,7 +1300,7 @@ void test_remote_service_survives_device_factory_exception(
     Context context{program_path};
     DeviceConfig config;
     config.extension = make_unique<RemoteDeviceConfigExt>(
-        "127.0.0.1", server.port(), "factory-exception-token",
+        "127.0.0.1", server.port(), "factory-failure-token",
         2'000u, 5'000u, 1u * 1024u * 1024u,
         false, 1u, string{}, "mock", 0u, false);
     auto device = context.create_device("remote", &config, false);
@@ -1337,7 +1337,7 @@ int main(int argc, char *argv[]) {
     "remote_service_device_selection"_test = [&] {
         test_remote_service_device_selection(argv[0]);
     };
-    "remote_service_survives_device_factory_exception"_test = [&] {
-        test_remote_service_survives_device_factory_exception(argv[0]);
+    "remote_service_survives_device_factory_failure"_test = [&] {
+        test_remote_service_survives_device_factory_failure(argv[0]);
     };
 }

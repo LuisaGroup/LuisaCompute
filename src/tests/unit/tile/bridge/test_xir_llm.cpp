@@ -1,6 +1,7 @@
 #include "ut/ut.hpp"
 #include "test_device.h"
 #include "tile_llm_test_utils.h"
+#include <luisa/core/logging.h>
 #include <luisa/runtime/stream.h>
 #include <luisa/tile/runtime.h>
 #include <limits>
@@ -66,6 +67,16 @@ void run(Device &device, const test::tile_llm::Case &fixture, bool compare_tirx 
 }// namespace
 
 int main(int argc, char *argv[]) {
+    // CTest runs fatal fixture checks in fresh processes, before any device or
+    // worker pool exists. The wrapper requires the expected diagnostic too.
+    if (argc == 2 && string_view{argv[1]} == "--reject-attention-heads") {
+        static_cast<void>(test::tile_llm::attention(1, 0, 1, 1, 1, 1, 1));
+        return 0;// Unexpected acceptance makes the wrapper fail.
+    }
+    if (argc == 2 && string_view{argv[1]} == "--reject-attention-block") {
+        static_cast<void>(test::tile_llm::attention(1, 1, 1, 1, 1, 1, 1, 0, 3));
+        return 0;
+    }
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     auto [context, device] = test::create_device(argc, argv);
     using test::tile_llm::RowOp;
@@ -95,8 +106,6 @@ int main(int argc, char *argv[]) {
         for (auto block : {std::array<int64_t, 2>{1, 1}, {2, 4}, {3, 5}}) {
             run(device, test::tile_llm::attention(1, 2, 1, 7, 11, 8, 7, block[0], block[1]));
         }
-        expect(throws([] { static_cast<void>(test::tile_llm::attention(1, 0, 1, 1, 1, 1, 1)); }));
-        expect(throws([] { static_cast<void>(test::tile_llm::attention(1, 1, 1, 1, 1, 1, 1, 0, 3)); }));
     };
     "tile_xir_llm_attention_qk_reduction_probe"_test = [&] {
         // Independent FP64 oracle, including reduction and output tails.

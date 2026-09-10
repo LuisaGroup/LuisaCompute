@@ -83,9 +83,9 @@ struct SpatialAxis {
     return detail::bounded_tile(value, limit) || (lanes > 1u && detail::bounded_tile(value, lanes - 1u));
 }
 
-[[nodiscard]] ExecutionWork distribute_work(Work work, const ExecutionPlan &candidate, ExecutionTarget target) {
-    auto packets = ceil_div(static_cast<uint64_t>(candidate.dispatch_size), static_cast<uint64_t>(target.packet_width));
-    auto blocks = ceil_div(static_cast<uint64_t>(candidate.dispatch_size), static_cast<uint64_t>(candidate.block_size));
+[[nodiscard]] ExecutionWork distribute_thread_pool_work(ExecutionWork work, const ExecutionPlan &candidate, ExecutionTarget target) {
+    auto packets = work.packet_count;
+    auto blocks = work.block_count;
     auto grain = candidate.blocks_per_task ? static_cast<uint64_t>(candidate.blocks_per_task) :
                                              ceil_div(blocks, static_cast<uint64_t>(target.worker_count) * target.task_chunks_per_worker);
     grain = std::min(grain, blocks);
@@ -94,7 +94,7 @@ struct SpatialAxis {
     // SIMDThreadPool executes one whole-range callback on the caller when
     // only one worker can run, regardless of the requested subdivision.
     if (workers == 1u) {
-        return {work.arithmetic, work.memory, packets, blocks, 1u, 1u,
+        return {work.arithmetic_per_packet, work.memory_per_packet, packets, blocks, 1u, 1u,
                 static_cast<uint32_t>(blocks), packets, blocks, 1u};
     }
     // Round-robin home chunks: every chunk but the last is full. Compute the
@@ -105,7 +105,7 @@ struct SpatialAxis {
         return std::max(ceil_div(full_tasks, workers) * capacity,
                         (full_tasks / workers) * capacity + last);
     };
-    return {work.arithmetic, work.memory, packets, blocks, tasks,
+    return {work.arithmetic_per_packet, work.memory_per_packet, packets, blocks, tasks,
             static_cast<uint32_t>(workers), static_cast<uint32_t>(grain),
             critical(packets, grain * candidate.block_size / target.packet_width),
             critical(blocks, grain), ceil_div(tasks, workers)};
@@ -269,56 +269,72 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
     }
 }
 
-[[nodiscard]] PlanningResult solve(const Function &function, ExecutionTarget target, const PlannerOptions &options) {
-    if (!target.packet_width || target.packet_width > 16u || (target.packet_width & (target.packet_width - 1u)) || !target.worker_count || !target.task_chunks_per_worker || !options.max_candidates ||
+[[nodiscard]] PlanningResult solve(const Function &function, const ExecutionTargetInfo &info, const PlannerOptions &options) {
+    auto target = info.target();
+    auto reject = [](const char *message) { return PlanningResult{.error = message}; };
+    if (!target.packet_width || (target.packet_width & (target.packet_width - 1u)) || !options.max_candidates ||
         !options.reduction_partitions || options.reduction_partitions > 16u) {
-        fail("invalid XIR target or search budget");
+        return reject("invalid XIR target or search budget");
     }
-    auto default_policy = AnalyticExecutionCostPolicy{};
-    auto &policy = options.cost_policy ? *options.cost_policy : default_policy;
+    if (!info.supports_task_grain() && (options.blocks_per_task || options.search_task_grain)) {
+        return reject("XIR target does not support CPU task-grain constraints");
+    }
+    if (info.supports_task_grain() && (!target.worker_count || !target.task_chunks_per_worker)) {
+        return reject("invalid XIR thread-pool scheduling parameters");
+    }
+    auto &policy = options.cost_policy ? *options.cost_policy : info.cost_policy();
     auto model = policy.coefficients(target, options.cost);
     for (auto coefficient : {model.arithmetic, model.broadcast_load, model.contiguous_memory, model.gathered_lane, model.block_dispatch, model.task_dispatch, model.worker_activation}) {
-        if (!std::isfinite(coefficient) || coefficient < 0.0) { fail("XIR cost coefficients must be finite and nonnegative"); }
+        if (!std::isfinite(coefficient) || coefficient < 0.0) { return reject("XIR cost coefficients must be finite and nonnegative"); }
     }
-    if (!function.parent_module() || !verify(*function.parent_module()) || function.body().block_count() != 1u) { fail("invalid TileIR before XIR planning"); }
+    if (!function.parent_module() || !verify(*function.parent_module()) || function.body().block_count() != 1u) { return reject("invalid TileIR before XIR planning"); }
     const Operation *root = nullptr;
     for (auto op : function.body().block(0u)->operations()) {
         if (op->kind() == OperationKind::PARALLEL) {
-            if (root) { fail("XIR planner requires a single root parallel"); }
+            if (root) { return reject("XIR planner requires a single root parallel"); }
             root = op;
         } else if (op->kind() != OperationKind::CONSTANT && op->kind() != OperationKind::ELEMENTWISE) {
-            fail("XIR planner cannot schedule root effects outside parallel");
+            return reject("XIR planner cannot schedule root effects outside parallel");
         }
     }
-    if (!root || !root->domain() || root->domain()->empty() || root->result_count()) { fail("XIR planner requires a nonempty independent root parallel"); }
-    if (auto binding = root->execution_scope_constraint(); binding && *binding != "worker" && *binding != "auto") { fail("XIR planner cannot satisfy this explicit execution binding"); }
+    if (!root || !root->domain() || root->domain()->empty() || root->result_count()) { return reject("XIR planner requires a nonempty independent root parallel"); }
+    if (auto binding = root->execution_scope_constraint(); binding && *binding != "worker" && *binding != "auto") { return reject("XIR planner cannot satisfy this explicit execution binding"); }
     auto count = volume(*root->domain());
-    if (!count) { fail("XIR planner requires a nonempty launch"); }
+    if (!count) { return reject("XIR planner requires a nonempty launch"); }
     if (options.local_lanes != 0u && options.local_lanes != 1u && options.local_lanes != target.packet_width) {
-        fail("XIR local-axis distribution must span exactly one target packet");
+        return reject("XIR local-axis distribution must span exactly one target packet");
     }
     luisa::vector<uint32_t> local_widths{1u};
-    auto local_legal = target.packet_width > 1u && count <= UINT32_MAX / target.packet_width && detail::packet_local_program(function, target.packet_width);
+    auto local_legal = info.supports_local_distribution() && target.packet_width > 1u && count <= UINT32_MAX / target.packet_width && detail::packet_local_program(function, target.packet_width);
     if (options.local_lanes > 1u) {
-        if (!local_legal) { fail("XIR local-axis distribution cannot realize this program's access/reduction contract"); }
+        if (!local_legal) { return reject("XIR local-axis distribution cannot realize this target/program access/reduction contract"); }
         local_widths = {target.packet_width};
     } else if (options.local_lanes == 0u && local_legal) {
         local_widths.emplace_back(target.packet_width);
     }
     auto rank = root->domain()->rank();
-    luisa::vector<uint32_t> widths{32u, 64u, 128u, 256u, 512u, 1024u};
+    auto widths = info.block_sizes();
     if (options.block_size) { widths = {options.block_size}; }
-    for (auto width : widths) {
-        if (!compute::xir::KernelFunction::is_valid_block_size(luisa::make_uint3(width, 1u, 1u)) || width % target.packet_width) { fail("invalid XIR block width constraint"); }
+    auto valid_width = [&](uint32_t width) {
+        return compute::xir::KernelFunction::is_valid_block_size(luisa::make_uint3(width, 1u, 1u)) && width % target.packet_width == 0u;
+    };
+    if (options.block_size && !valid_width(options.block_size)) { return reject("invalid XIR block width constraint"); }
+    // Backend candidates are proposals, not permission to violate XIR/warp
+    // invariants. Filter unsupported proposals; never relax a pinned width.
+    widths.erase(std::remove_if(widths.begin(), widths.end(), [&](auto width) { return !valid_width(width); }), widths.end());
+    std::sort(widths.begin(), widths.end());
+    widths.erase(std::unique(widths.begin(), widths.end()), widths.end());
+    if (widths.empty()) {
+        return reject("XIR target provided no legal block widths");
     }
     auto order = options.root_axis_order;
     auto fixed_order = !order.empty();
     if (fixed_order) {
         auto sorted = order;
         std::sort(sorted.begin(), sorted.end());
-        if (sorted.size() != rank) { fail("XIR axis order must be a complete permutation"); }
+        if (sorted.size() != rank) { return reject("XIR axis order must be a complete permutation"); }
         for (size_t i = 0u; i < rank; i++) {
-            if (sorted[i] != i) { fail("XIR axis order must be a complete permutation"); }
+            if (sorted[i] != i) { return reject("XIR axis order must be a complete permutation"); }
         }
     } else {
         order.resize(rank);
@@ -327,15 +343,16 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
     uint64_t candidates = widths.size() * local_widths.size();
     if (!fixed_order) {
         for (size_t i = 2u; i <= rank; i++) {
-            if (candidates > options.max_candidates / i) { fail("XIR exact search exceeds its candidate budget; constrain the execution order"); }
+            if (candidates > options.max_candidates / i) { return reject("XIR exact search exceeds its candidate budget; constrain the execution order"); }
             candidates *= i;
         }
     }
-    if (candidates > options.max_candidates) { fail("XIR exact search exceeds its candidate budget"); }
+    if (candidates > options.max_candidates) { return reject("XIR exact search exceeds its candidate budget"); }
     luisa::vector<const Value *> indices;
     auto body = root->region(0u)->block(0u);
     for (size_t i = 0u; i < rank; i++) { indices.emplace_back(body->argument(i)); }
     PlanningResult result;
+    uint32_t considered = 0u;
     do {
         auto mapping = detail::root_mapping(*root->domain(), order, options.root_axis_tiles);
         for (auto lanes : local_widths) {
@@ -355,7 +372,7 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
             // Temporal cache reuse is deliberately unmodeled: fixed factors
             // are constraints, not an automatically selected cache optimum.
             work.arithmetic += mapping.decode_arithmetic * model.arithmetic;
-            if (!std::isfinite(work.arithmetic) || !std::isfinite(work.memory)) { fail("XIR work estimate overflow"); }
+            if (!std::isfinite(work.arithmetic) || !std::isfinite(work.memory)) { return reject("XIR work estimate overflow"); }
             auto physical_count = count * lanes;
             for (auto width : widths) {
                 auto blocks = ceil_div(physical_count, static_cast<uint64_t>(width));
@@ -368,12 +385,15 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
                     grains.erase(std::unique(grains.begin(), grains.end()), grains.end());
                 }
                 for (auto grain : grains) {
-                    if (result.candidates.size() >= options.max_candidates) { fail("XIR exact search exceeds its candidate budget"); }
+                    if (considered++ >= options.max_candidates) { return reject("XIR exact search exceeds its candidate budget"); }
                     ExecutionPlan candidate{width, order, static_cast<uint32_t>(physical_count), {}, lanes, grain, options.root_axis_tiles};
-                    auto cost = policy.evaluate(target, candidate, distribute_work(work, candidate, target), model);
+                    if (!info.accepts(candidate)) { continue; }
+                    ExecutionWork execution_work{work.arithmetic, work.memory,
+                                                 ceil_div(physical_count, static_cast<uint64_t>(target.packet_width)), blocks};
+                    auto cost = policy.evaluate(target, candidate, info.schedule(candidate, execution_work), model);
                     for (auto component : {cost.arithmetic_work, cost.memory_work, cost.dispatch_work, cost.imbalance_work,
                                            cost.score, cost.task_dispatch_work, cost.activation_work}) {
-                        if (!std::isfinite(component) || component < 0.0) { fail("XIR cost policy returned a nonfinite or negative cost"); }
+                        if (!std::isfinite(component) || component < 0.0) { return reject("XIR cost policy returned a nonfinite or negative cost"); }
                     }
                     candidate.cost = cost;
                     result.candidates.emplace_back(std::move(candidate));
@@ -381,6 +401,7 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
             }
         }
     } while (!fixed_order && std::next_permutation(order.begin(), order.end()));
+    if (result.candidates.empty()) { return reject("XIR target rejected every execution candidate"); }
     result.selected = *std::min_element(result.candidates.begin(), result.candidates.end(), [](auto &a, auto &b) { return a.cost.score < b.cost.score; });
     return result;
 }
@@ -402,7 +423,28 @@ ExecutionCost AnalyticExecutionCostPolicy::evaluate(
 }
 
 PlanningResult plan(const Function &function, ExecutionTarget target, const PlannerOptions &options) noexcept {
-    return solve(function, target, options);
+    return solve(function, ThreadPoolExecutionTargetInfo{target}, options);
+}
+
+PlanningResult plan_with_target_info(const Function &function, const ExecutionTargetInfo &info, const PlannerOptions &options) noexcept {
+    return solve(function, info, options);
+}
+
+luisa::vector<uint32_t> ThreadPoolExecutionTargetInfo::block_sizes() const noexcept {
+    return {32u, 64u, 128u, 256u, 512u, 1024u};
+}
+
+bool ThreadPoolExecutionTargetInfo::accepts(const ExecutionPlan &) const noexcept {
+    return _target.worker_count != 0u && _target.task_chunks_per_worker != 0u;
+}
+
+ExecutionWork ThreadPoolExecutionTargetInfo::schedule(const ExecutionPlan &candidate, ExecutionWork work) const noexcept {
+    return distribute_thread_pool_work(work, candidate, _target);
+}
+
+const ExecutionCostPolicy &ThreadPoolExecutionTargetInfo::cost_policy() const noexcept {
+    static const AnalyticExecutionCostPolicy policy;
+    return policy;
 }
 
 }// namespace luisa::compute::tile::bridge::xir

@@ -3,6 +3,8 @@
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
 
+#include <luisa/core/logging.h>
+
 #include <algorithm>
 #include <bit>
 #include <charconv>
@@ -15,9 +17,9 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
-#include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 260000
@@ -25,6 +27,13 @@
 namespace {
 
 using Clock = std::chrono::steady_clock;
+
+[[nodiscard]] bool path_exists(const char *path) {
+    std::error_code error;
+    auto exists = std::filesystem::exists(path, error);
+    LUISA_ASSERT(!error, "Cannot query path '{}': {}", path, error.message());
+    return exists;
+}
 
 struct Configuration {
     int m;
@@ -170,9 +179,7 @@ kernel void mpp_gemm(uint2 physical_group [[threadgroup_position_in_grid]],
     auto input = std::string_view{text};
     auto value = 0;
     auto parsed = std::from_chars(input.data(), input.data() + input.size(), value);
-    if (parsed.ec != std::errc{} || parsed.ptr != input.data() + input.size() || value <= 0) {
-        throw std::invalid_argument{"expected a positive int32"};
-    }
+    LUISA_ASSERT(parsed.ec == std::errc{} && parsed.ptr == input.data() + input.size() && value > 0, "Expected a positive int32, got '{}'.", input);
     return value;
 }
 
@@ -192,21 +199,20 @@ kernel void mpp_gemm(uint2 physical_group [[threadgroup_position_in_grid]],
     if (name == "bf16-fp32") {
         return {name, "bfloat", "float", MTLTensorDataTypeBFloat16, MTLTensorDataTypeFloat32, 2u, 4u, true};
     }
-    throw std::invalid_argument{"precision must be fp32, fp16, fp16-fp32, bf16, or bf16-fp32"};
+    LUISA_ERROR("Precision must be fp32, fp16, fp16-fp32, bf16, or bf16-fp32; got '{}'.", name);
 }
 
 [[nodiscard]] bool boolean(std::string_view text, std::string_view name) {
     if (text == "0") { return false; }
     if (text == "1") { return true; }
-    throw std::invalid_argument{std::string{name} + " must be 0 or 1"};
+    LUISA_ERROR("{} must be 0 or 1; got '{}'.", name, text);
 }
 
 [[nodiscard]] size_t elements(int rows, int columns) {
     auto count = static_cast<uint64_t>(rows) * static_cast<uint64_t>(columns);
-    if (count > std::numeric_limits<size_t>::max() / sizeof(float) ||
-        count > static_cast<uint64_t>(std::numeric_limits<std::streamsize>::max()) / sizeof(float)) {
-        throw std::invalid_argument{"matrix size overflow"};
-    }
+    LUISA_ASSERT(count <= std::numeric_limits<size_t>::max() / sizeof(float) &&
+                     count <= static_cast<uint64_t>(std::numeric_limits<std::streamsize>::max()) / sizeof(float),
+                 "Matrix size exceeds addressable storage or output stream size: rows={}, columns={}.", rows, columns);
     return static_cast<size_t>(count);
 }
 
@@ -240,18 +246,15 @@ kernel void mpp_gemm(uint2 physical_group [[threadgroup_position_in_grid]],
 }
 
 void complete(id<MTLCommandBuffer> command) {
-    if (command == nil) { throw std::runtime_error{"cannot create Metal command buffer"}; }
+    LUISA_ASSERT(command != nil, "Cannot create Metal command buffer.");
     [command commit];
     [command waitUntilCompleted];
-    if (command.status != MTLCommandBufferStatusCompleted) {
-        auto reason = command.error.localizedDescription;
-        throw std::runtime_error{reason == nil ? "Metal command failed" : reason.UTF8String};
-    }
+    LUISA_ASSERT(command.status == MTLCommandBufferStatusCompleted, "Metal command failed: {}", command.error.localizedDescription == nil ? "no error details" : command.error.localizedDescription.UTF8String);
 }
 
 [[nodiscard]] id<MTLBuffer> make_buffer(id<MTLDevice> device, size_t bytes, MTLResourceOptions options) {
     auto result = [device newBufferWithLength:bytes options:options];
-    if (result == nil) { throw std::runtime_error{"Metal buffer allocation failed"}; }
+    LUISA_ASSERT(result != nil, "Metal buffer allocation failed: bytes={}, options={}.", bytes, static_cast<uint64_t>(options));
     return result;
 }
 
@@ -262,31 +265,22 @@ void complete(id<MTLCommandBuffer> command) {
 
 [[nodiscard]] Measurement measure(std::string_view name, Configuration cfg, const char *path) {
     if (@available(macOS 26.0, *)) {
-        if (cfg.tile_m % 8 != 0 || cfg.tile_n % 8 != 0 || (cfg.tile_m % 16 != 0 && cfg.tile_n % 16 != 0)) {
-            throw std::invalid_argument{"MPP M/N tiles must be multiples of 8, with at least one a multiple of 16"};
-        }
-        if (cfg.static_reduction && cfg.k % 16 != 0) {
-            throw std::invalid_argument{"MPP static K must be a multiple of 16; use dynamic K for a tail"};
-        }
+        LUISA_ASSERT(cfg.tile_m % 8 == 0 && cfg.tile_n % 8 == 0 && (cfg.tile_m % 16 == 0 || cfg.tile_n % 16 == 0), "MPP M/N tiles must be multiples of 8, with at least one a multiple of 16; tile_m={}, tile_n={}.", cfg.tile_m, cfg.tile_n);
+        LUISA_ASSERT(!cfg.static_reduction || cfg.k % 16 == 0, "MPP static K must be a multiple of 16; use dynamic K for a tail. Got K={}.", cfg.k);
         auto group_simdgroups = cfg.group_simdgroups == 0 ? cfg.simdgroups : cfg.group_simdgroups;
         auto cohorts = cfg.simdgroups == 1 ? group_simdgroups : 1;
-        if ((cfg.simdgroups != 1 && group_simdgroups != cfg.simdgroups) || cohorts % cfg.cohort_rows != 0) {
-            throw std::invalid_argument{"MPP scope must be one SIMD group or the whole threadgroup; cohort rows must divide independent groups"};
-        }
+        LUISA_ASSERT((cfg.simdgroups == 1 || group_simdgroups == cfg.simdgroups) && cohorts % cfg.cohort_rows == 0, "MPP scope must be one SIMD group or the whole threadgroup, and cohort rows must divide independent groups; simdgroups={}, group_simdgroups={}, cohort_rows={}.", cfg.simdgroups, group_simdgroups, cfg.cohort_rows);
         auto cohort_columns = cohorts / cfg.cohort_rows;
         auto group_m = static_cast<uint64_t>(cfg.tile_m) * cfg.cohort_rows;
         auto group_n = static_cast<uint64_t>(cfg.tile_n) * cohort_columns;
         auto grid_rows = cfg.m / group_m + (cfg.m % group_m != 0u);
         auto grid_columns = cfg.n / group_n + (cfg.n % group_n != 0u);
-        if (cfg.walk_rows > 0 && (grid_rows * grid_columns > std::numeric_limits<uint32_t>::max() ||
-                                  static_cast<uint64_t>(cfg.walk_rows) * grid_columns > std::numeric_limits<uint32_t>::max())) {
-            throw std::invalid_argument{"linear MPP walk exceeds uint32 program coordinates"};
-        }
+        LUISA_ASSERT(cfg.walk_rows <= 0 || (grid_rows * grid_columns <= std::numeric_limits<uint32_t>::max() &&
+                                            static_cast<uint64_t>(cfg.walk_rows) * grid_columns <= std::numeric_limits<uint32_t>::max()),
+                     "Linear MPP walk exceeds uint32 program coordinates: grid_rows={}, grid_columns={}, walk_rows={}.", grid_rows, grid_columns, cfg.walk_rows);
         auto mode = precision(name);
         auto device = MTLCreateSystemDefaultDevice();
-        if (device == nil || ![device supportsFamily:MTLGPUFamilyApple7]) {
-            throw std::runtime_error{"MPP tensor operations require Apple GPU family 7 or newer"};
-        }
+        LUISA_ASSERT(device != nil && [device supportsFamily:MTLGPUFamilyApple7], "MPP tensor operations require Apple GPU family 7 or newer.");
         auto start = Clock::now();
         auto prefix = [NSString stringWithFormat:
                                     @"#define INPUT_ELEMENT %s\n"
@@ -318,16 +312,15 @@ void complete(id<MTLCommandBuffer> command) {
         if (auto dump = std::getenv("LUISA_TILE_BENCH_DUMP_SOURCE")) {
             std::ofstream output{dump, std::ios::binary};
             output << source.UTF8String;
-            if (!output) { throw std::runtime_error{"cannot archive MPP shader source"}; }
+            output.close();
+            LUISA_ASSERT(output, "Cannot archive MPP shader source to '{}'.", dump);
         }
         auto compile_options = [MTLCompileOptions new];
         compile_options.fastMathEnabled = cfg.relaxed_precision;
         compile_options.languageVersion = MTLLanguageVersion4_0;
         NSError *error = nil;
         auto library = [device newLibraryWithSource:source options:compile_options error:&error];
-        if (library == nil) {
-            throw std::runtime_error{error == nil ? "MPP shader compilation failed" : error.localizedDescription.UTF8String};
-        }
+        LUISA_ASSERT(library != nil, "MPP shader compilation failed: {}", error.localizedDescription == nil ? "no error details" : error.localizedDescription.UTF8String);
         auto function = [library newFunctionWithName:@"mpp_gemm"];
         auto pipeline_descriptor = [MTLComputePipelineDescriptor new];
         pipeline_descriptor.computeFunction = function;
@@ -336,12 +329,8 @@ void complete(id<MTLCommandBuffer> command) {
                                                               options:MTLPipelineOptionNone
                                                            reflection:nil
                                                                 error:&error];
-        if (pipeline == nil) {
-            throw std::runtime_error{error == nil ? "MPP pipeline creation failed" : error.localizedDescription.UTF8String};
-        }
-        if (static_cast<NSUInteger>(group_simdgroups) * pipeline.threadExecutionWidth > pipeline.maxTotalThreadsPerThreadgroup) {
-            throw std::runtime_error{"requested SIMD groups exceed the pipeline threadgroup limit"};
-        }
+        LUISA_ASSERT(pipeline != nil, "MPP pipeline creation failed: {}", error.localizedDescription == nil ? "no error details" : error.localizedDescription.UTF8String);
+        LUISA_ASSERT(static_cast<NSUInteger>(group_simdgroups) * pipeline.threadExecutionWidth <= pipeline.maxTotalThreadsPerThreadgroup, "Requested SIMD groups exceed the pipeline threadgroup limit: groups={}, width={}, max_threads={}.", group_simdgroups, pipeline.threadExecutionWidth, pipeline.maxTotalThreadsPerThreadgroup);
 
         auto input_a = encode_input(input_values(elements(cfg.m, cfg.k), 5u), mode);
         auto input_b = encode_input(input_values(elements(cfg.k, cfg.n), 11u), mode);
@@ -350,13 +339,13 @@ void complete(id<MTLCommandBuffer> command) {
         auto c_bytes = elements(cfg.m, cfg.n) * mode.output_bytes;
         auto c_buffer = make_buffer(device, c_bytes, MTLResourceStorageModePrivate);
         auto transfer_queue = [device newCommandQueue];
-        if (transfer_queue == nil) { throw std::runtime_error{"Metal transfer queue unavailable"}; }
+        LUISA_ASSERT(transfer_queue != nil, "Metal transfer queue unavailable.");
         auto upload = [&](id<MTLBuffer> destination, const std::vector<std::byte> &bytes) {
             auto staging = make_buffer(device, bytes.size(), MTLResourceStorageModeShared);
             std::memcpy(staging.contents, bytes.data(), bytes.size());
             auto command = [transfer_queue commandBuffer];
             auto encoder = [command blitCommandEncoder];
-            if (encoder == nil) { throw std::runtime_error{"Metal upload encoder unavailable"}; }
+            LUISA_ASSERT(encoder != nil, "Metal upload encoder unavailable.");
             [encoder copyFromBuffer:staging sourceOffset:0 toBuffer:destination destinationOffset:0 size:bytes.size()];
             [encoder endEncoding];
             complete(command);
@@ -382,7 +371,7 @@ void complete(id<MTLCommandBuffer> command) {
                     auto begin = Clock::now();
                     auto command = [transfer_queue commandBuffer];
                     auto encoder = [command computeCommandEncoder];
-                    if (encoder == nil) { throw std::runtime_error{"Metal compute encoder unavailable"}; }
+                    LUISA_ASSERT(encoder != nil, "Metal compute encoder unavailable.");
                     [encoder setComputePipelineState:pipeline];
                     [encoder setBuffer:a_buffer offset:0 atIndex:0];
                     [encoder setBuffer:b_buffer offset:0 atIndex:1];
@@ -405,9 +394,7 @@ void complete(id<MTLCommandBuffer> command) {
                 descriptor.usage = MTLTensorUsageCompute;
                 descriptor.storageMode = storage.storageMode;
                 auto tensor = [storage newTensorWithDescriptor:descriptor offset:0 error:&error];
-                if (tensor == nil) {
-                    throw std::runtime_error{error == nil ? "buffer-backed tensor creation failed" : error.localizedDescription.UTF8String};
-                }
+                LUISA_ASSERT(tensor != nil, "Buffer-backed tensor creation failed for shape [{}, {}]: {}", height, width, error.localizedDescription == nil ? "no error details" : error.localizedDescription.UTF8String);
                 return tensor;
             };
             auto tensor_a = make_tensor(a_buffer, cfg.m, cfg.k, mode.input_mtl);
@@ -417,9 +404,7 @@ void complete(id<MTLCommandBuffer> command) {
             auto table_descriptor = [MTL4ArgumentTableDescriptor new];
             table_descriptor.maxBufferBindCount = 3;
             auto table = [device newArgumentTableWithDescriptor:table_descriptor error:&error];
-            if (table == nil) {
-                throw std::runtime_error{error == nil ? "Metal argument table creation failed" : error.localizedDescription.UTF8String};
-            }
+            LUISA_ASSERT(table != nil, "Metal argument table creation failed: {}", error.localizedDescription == nil ? "no error details" : error.localizedDescription.UTF8String);
             [table setResource:tensor_a.gpuResourceID atBufferIndex:0];
             [table setResource:tensor_b.gpuResourceID atBufferIndex:1];
             [table setResource:tensor_c.gpuResourceID atBufferIndex:2];
@@ -427,9 +412,7 @@ void complete(id<MTLCommandBuffer> command) {
             auto residency_descriptor = [MTLResidencySetDescriptor new];
             residency_descriptor.initialCapacity = 3;
             auto residency = [device newResidencySetWithDescriptor:residency_descriptor error:&error];
-            if (residency == nil) {
-                throw std::runtime_error{error == nil ? "Metal residency set creation failed" : error.localizedDescription.UTF8String};
-            }
+            LUISA_ASSERT(residency != nil, "Metal residency set creation failed: {}", error.localizedDescription == nil ? "no error details" : error.localizedDescription.UTF8String);
             [residency addAllocation:tensor_a];
             [residency addAllocation:tensor_b];
             [residency addAllocation:tensor_c];
@@ -437,9 +420,7 @@ void complete(id<MTLCommandBuffer> command) {
 
             auto queue = [device newMTL4CommandQueue];
             auto allocator = [device newCommandAllocator];
-            if (queue == nil || allocator == nil) {
-                throw std::runtime_error{"Metal 4 command infrastructure unavailable"};
-            }
+            LUISA_ASSERT(queue != nil && allocator != nil, "Metal 4 command queue or allocator unavailable.");
             batch = [=](uint64_t repetitions) {
                 @autoreleasepool {
                     auto begin = Clock::now();
@@ -468,10 +449,8 @@ void complete(id<MTLCommandBuffer> command) {
                         dispatch_semaphore_signal(done);
                     }];
                     [queue commit:&command count:1 options:options];
-                    if (dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC)) != 0) {
-                        throw std::runtime_error{"Metal 4 command timed out"};
-                    }
-                    if (feedback.error != nil) { throw std::runtime_error{feedback.error.localizedDescription.UTF8String}; }
+                    LUISA_ASSERT(dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC)) == 0, "Metal 4 command timed out after 30 seconds for {} repetitions.", repetitions);
+                    LUISA_ASSERT(feedback.error == nil, "Metal 4 command failed: {}", feedback.error.localizedDescription == nil ? "no error details" : feedback.error.localizedDescription.UTF8String);
                     [allocator reset];
                     return BatchTiming{milliseconds(begin), 1000.0 * (feedback.GPUEndTime - feedback.GPUStartTime)};
                 }
@@ -505,18 +484,19 @@ void complete(id<MTLCommandBuffer> command) {
         auto staging = make_buffer(device, c_bytes, MTLResourceStorageModeShared);
         auto command = [transfer_queue commandBuffer];
         auto encoder = [command blitCommandEncoder];
-        if (encoder == nil) { throw std::runtime_error{"Metal download encoder unavailable"}; }
+        LUISA_ASSERT(encoder != nil, "Metal download encoder unavailable.");
         [encoder copyFromBuffer:c_buffer sourceOffset:0 toBuffer:staging destinationOffset:0 size:c_bytes];
         [encoder endEncoding];
         complete(command);
         result.download_ms = milliseconds(start);
-        if (std::filesystem::exists(path)) { throw std::runtime_error{"output already exists"}; }
+        LUISA_ASSERT(!path_exists(path), "Benchmark output already exists: '{}'.", path);
         std::ofstream file{path, std::ios::binary};
         file.write(static_cast<const char *>(staging.contents), static_cast<std::streamsize>(c_bytes));
-        if (!file) { throw std::runtime_error{"cannot write output"}; }
+        file.close();
+        LUISA_ASSERT(file, "Cannot write benchmark output to '{}'.", path);
         return result;
     }
-    throw std::runtime_error{"MPP tensor operations require macOS 26 or newer"};
+    LUISA_ERROR("MPP tensor operations require macOS 26 or newer.");
 }
 
 void print_samples(std::string_view name, const std::vector<double> &samples) {
@@ -532,68 +512,62 @@ void print_samples(std::string_view name, const std::vector<double> &samples) {
 
 int main(int argc, char *argv[]) {
     @autoreleasepool {
-        try {
-            if (argc != 9 && argc != 14 && argc != 15 && argc != 16 && argc != 18 && argc != 19 && argc != 20) {
-                throw std::invalid_argument{
-                    "Usage: benchmark_tile_mpp <fp32|fp16|fp16-fp32|bf16|bf16-fp32> M N K samples sample-ms warmup-ms output "
-                    "[tile-m tile-n simdgroups cooperative-output relaxed-precision [static-reduction [inline-tensors [group-simdgroups cohort-rows [walk-rows [walk-columns]]]]]]"};
-            }
-            auto name = std::string_view{argv[1]};
-            Configuration cfg{positive_integer(argv[2]), positive_integer(argv[3]), positive_integer(argv[4]),
-                              positive_integer(argv[5]), positive_integer(argv[6]), positive_integer(argv[7])};
-            if (argc >= 14) {
-                cfg.tile_m = positive_integer(argv[9]);
-                cfg.tile_n = positive_integer(argv[10]);
-                cfg.simdgroups = positive_integer(argv[11]);
-                cfg.cooperative = boolean(argv[12], "cooperative-output");
-                cfg.relaxed_precision = boolean(argv[13], "relaxed-precision");
-            }
-            if (argc >= 15) { cfg.static_reduction = boolean(argv[14], "static-reduction"); }
-            if (argc >= 16) { cfg.inline_tensors = boolean(argv[15], "inline-tensors"); }
-            if (argc >= 18) {
-                cfg.group_simdgroups = positive_integer(argv[16]);
-                cfg.cohort_rows = positive_integer(argv[17]);
-            }
-            if (argc >= 19) { cfg.walk_rows = positive_integer(argv[18]); }
-            if (argc >= 20) { cfg.walk_columns = positive_integer(argv[19]); }
-            auto result = measure(name, cfg, argv[8]);
-            std::cout << std::setprecision(12)
-                      << "{\"backend\":\"metal\",\"implementation\":\"mpp_tensor_ops_matmul2d\""
-                      << ",\"precision\":" << std::quoted(name)
-                      << ",\"m\":" << cfg.m << ",\"n\":" << cfg.n << ",\"k\":" << cfg.k
-                      << ",\"device\":" << std::quoted(result.device)
-                      << ",\"compiler\":" << std::quoted(__clang_version__)
-                      << ",\"execution_simdgroups\":" << cfg.simdgroups
-                      << ",\"group_simdgroups\":" << (cfg.group_simdgroups == 0 ? cfg.simdgroups : cfg.group_simdgroups)
-                      << ",\"cohort_rows\":" << cfg.cohort_rows
-                      << ",\"walk_rows\":" << cfg.walk_rows
-                      << ",\"walk_columns\":" << cfg.walk_columns
-                      << ",\"block\":[" << cfg.tile_m << ',' << cfg.tile_n << ']'
-                      << ",\"cooperative_output\":" << (cfg.cooperative ? "true" : "false")
-                      << ",\"relaxed_precision\":" << (cfg.relaxed_precision ? "true" : "false")
-                      << ",\"static_reduction\":" << (cfg.static_reduction ? "true" : "false")
-                      << ",\"inline_tensors\":" << (cfg.inline_tensors ? "true" : "false")
-                      << ",\"command_api\":" << std::quoted(cfg.inline_tensors ? "MTLCommandQueue" : "MTL4CommandQueue")
-                      << ",\"fast_math\":" << (cfg.relaxed_precision ? "true" : "false")
-                      << ",\"thread_execution_width\":" << result.thread_execution_width
-                      << ",\"static_threadgroup_bytes\":" << result.static_threadgroup_bytes
-                      << ",\"max_threads_per_group\":" << result.max_threads_per_group
-                      << ",\"setup_ms\":" << result.setup_ms << ",\"cold_call_ms\":" << result.cold_ms
-                      << ",\"warmup_ms\":" << result.warmup_ms << ",\"download_ms\":" << result.download_ms
-                      << ",\"repetitions\":" << result.repetitions << ',';
-            print_samples("throughput_us", result.throughput);
-            std::cout << ',';
-            print_samples("latency_us", result.latency);
-            std::cout << ',';
-            print_samples("gpu_throughput_us", result.gpu_throughput);
-            std::cout << ',';
-            print_samples("gpu_latency_us", result.gpu_latency);
-            std::cout << "}\n";
-            return 0;
-        } catch (const std::exception &error) {
-            std::cerr << error.what() << '\n';
-            return 1;
+        LUISA_ASSERT(argc == 9 || argc == 14 || argc == 15 || argc == 16 || argc == 18 || argc == 19 || argc == 20,
+                     "Invalid argument count {}. Usage: benchmark_tile_mpp <fp32|fp16|fp16-fp32|bf16|bf16-fp32> M N K samples sample-ms warmup-ms output "
+                     "[tile-m tile-n simdgroups cooperative-output relaxed-precision [static-reduction [inline-tensors [group-simdgroups cohort-rows [walk-rows [walk-columns]]]]]]",
+                     argc);
+        auto name = std::string_view{argv[1]};
+        Configuration cfg{positive_integer(argv[2]), positive_integer(argv[3]), positive_integer(argv[4]),
+                          positive_integer(argv[5]), positive_integer(argv[6]), positive_integer(argv[7])};
+        if (argc >= 14) {
+            cfg.tile_m = positive_integer(argv[9]);
+            cfg.tile_n = positive_integer(argv[10]);
+            cfg.simdgroups = positive_integer(argv[11]);
+            cfg.cooperative = boolean(argv[12], "cooperative-output");
+            cfg.relaxed_precision = boolean(argv[13], "relaxed-precision");
         }
+        if (argc >= 15) { cfg.static_reduction = boolean(argv[14], "static-reduction"); }
+        if (argc >= 16) { cfg.inline_tensors = boolean(argv[15], "inline-tensors"); }
+        if (argc >= 18) {
+            cfg.group_simdgroups = positive_integer(argv[16]);
+            cfg.cohort_rows = positive_integer(argv[17]);
+        }
+        if (argc >= 19) { cfg.walk_rows = positive_integer(argv[18]); }
+        if (argc >= 20) { cfg.walk_columns = positive_integer(argv[19]); }
+        auto result = measure(name, cfg, argv[8]);
+        std::cout << std::setprecision(12)
+                  << "{\"backend\":\"metal\",\"implementation\":\"mpp_tensor_ops_matmul2d\""
+                  << ",\"precision\":" << std::quoted(name)
+                  << ",\"m\":" << cfg.m << ",\"n\":" << cfg.n << ",\"k\":" << cfg.k
+                  << ",\"device\":" << std::quoted(result.device)
+                  << ",\"compiler\":" << std::quoted(__clang_version__)
+                  << ",\"execution_simdgroups\":" << cfg.simdgroups
+                  << ",\"group_simdgroups\":" << (cfg.group_simdgroups == 0 ? cfg.simdgroups : cfg.group_simdgroups)
+                  << ",\"cohort_rows\":" << cfg.cohort_rows
+                  << ",\"walk_rows\":" << cfg.walk_rows
+                  << ",\"walk_columns\":" << cfg.walk_columns
+                  << ",\"block\":[" << cfg.tile_m << ',' << cfg.tile_n << ']'
+                  << ",\"cooperative_output\":" << (cfg.cooperative ? "true" : "false")
+                  << ",\"relaxed_precision\":" << (cfg.relaxed_precision ? "true" : "false")
+                  << ",\"static_reduction\":" << (cfg.static_reduction ? "true" : "false")
+                  << ",\"inline_tensors\":" << (cfg.inline_tensors ? "true" : "false")
+                  << ",\"command_api\":" << std::quoted(cfg.inline_tensors ? "MTLCommandQueue" : "MTL4CommandQueue")
+                  << ",\"fast_math\":" << (cfg.relaxed_precision ? "true" : "false")
+                  << ",\"thread_execution_width\":" << result.thread_execution_width
+                  << ",\"static_threadgroup_bytes\":" << result.static_threadgroup_bytes
+                  << ",\"max_threads_per_group\":" << result.max_threads_per_group
+                  << ",\"setup_ms\":" << result.setup_ms << ",\"cold_call_ms\":" << result.cold_ms
+                  << ",\"warmup_ms\":" << result.warmup_ms << ",\"download_ms\":" << result.download_ms
+                  << ",\"repetitions\":" << result.repetitions << ',';
+        print_samples("throughput_us", result.throughput);
+        std::cout << ',';
+        print_samples("latency_us", result.latency);
+        std::cout << ',';
+        print_samples("gpu_throughput_us", result.gpu_throughput);
+        std::cout << ',';
+        print_samples("gpu_latency_us", result.gpu_latency);
+        std::cout << "}\n";
+        return 0;
     }
 }
 

@@ -7,6 +7,12 @@
 # --- CTest integration ---
 enable_testing()
 
+# Loading incompatible LLVM majors in one process can coalesce LLVM's weak
+# C++ symbols. Keep TVM comparison optional without disabling either bridge's
+# standalone tests or the native tests' independent numerical oracle.
+option(LUISA_COMPUTE_TILE_XIR_TEST_TIRX_COMPARISON
+        "Compare XIR with TIRx in-process (requires compatible LLVM libraries)" ON)
+
 # Helper: add a standalone test executable, include path, AND register with CTest.
 # Usage: luisa_compute_add_test(name source LABELS label1;label2 [ARGS arg1 ...])
 # Tests without LABELS compile but are NOT registered with CTest.
@@ -625,16 +631,40 @@ if (TARGET luisa-compute-backend-metal AND LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE
 endif ()
 luisa_compute_add_test(test_tile_xir unit/tile/bridge/test_xir.cpp LABELS "unit;unit_tile;unit_tile_xir")
 target_link_libraries(test_tile_xir PRIVATE luisa::tile-xir)
-if (TARGET luisa-compute-backend-simd)
+luisa_compute_add_test(test_tile_xir_target_info unit/tile/bridge/test_xir_target_info.cpp LABELS "unit;unit_tile;unit_tile_xir")
+target_link_libraries(test_tile_xir_target_info PRIVATE luisa::tile-xir)
+if (TARGET luisa-compute-backend-simd OR TARGET luisa-compute-backend-metal4)
     luisa_compute_add_test(benchmark_tile_xir benchmark/benchmark_tile_xir.cpp)
-    add_dependencies(benchmark_tile_xir luisa-compute-backend-simd)
+    foreach (_tile_xir_backend IN ITEMS simd metal4)
+        if (TARGET luisa-compute-backend-${_tile_xir_backend})
+            add_dependencies(benchmark_tile_xir luisa-compute-backend-${_tile_xir_backend})
+        endif ()
+    endforeach ()
+endif ()
+if (TARGET luisa-compute-backend-metal4)
+    luisa_compute_add_test(test_tile_xir_metal unit/tile/bridge/test_xir_metal.cpp
+            LABELS "integration;integration_tile_xir;integration_metal4" ARGS metal4)
+    add_dependencies(test_tile_xir_metal luisa-compute-backend-metal4)
+    set_tests_properties(test_tile_xir_metal PROPERTIES TIMEOUT 240
+            FAIL_REGULAR_EXPRESSION "0 asserts;tests skipped")
+endif ()
+if (TARGET luisa-compute-backend-simd)
     luisa_compute_add_test(test_tile_xir_runtime unit/tile/bridge/test_xir_runtime.cpp
             LABELS "integration;integration_tile_xir;integration_simd" ARGS simd)
     add_dependencies(test_tile_xir_runtime luisa-compute-backend-simd)
     luisa_compute_add_test(test_tile_xir_llm unit/tile/bridge/test_xir_llm.cpp
             LABELS "integration;integration_tile_xir;integration_simd" ARGS simd)
     add_dependencies(test_tile_xir_llm luisa-compute-backend-simd)
-    if (LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE)
+    foreach (_attention_rejection IN ITEMS heads block)
+        add_test(NAME test_tile_xir_llm_reject_${_attention_rejection}
+                COMMAND ${CMAKE_COMMAND}
+                "-DTEST_PROGRAM=$<TARGET_FILE:test_tile_xir_llm>"
+                "-DTEST_CASE=${_attention_rejection}"
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/common/tile_llm_expect_rejection.cmake)
+        set_tests_properties(test_tile_xir_llm_reject_${_attention_rejection} PROPERTIES
+                LABELS "unit;unit_tile;unit_tile_xir" TIMEOUT 40)
+    endforeach ()
+    if (LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE AND LUISA_COMPUTE_TILE_XIR_TEST_TIRX_COMPARISON)
         target_link_libraries(test_tile_xir_runtime PRIVATE luisa::tile-tirx)
         target_compile_definitions(test_tile_xir_runtime PRIVATE LUISA_TEST_TILE_XIR_TIRX=1)
         target_link_libraries(test_tile_xir_llm PRIVATE luisa::tile-tirx)
@@ -693,6 +723,7 @@ if (APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
             OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED ON OBJCXX_EXTENSIONS OFF)
     target_compile_options(benchmark_tile_system PRIVATE -fobjc-arc)
     target_link_libraries(benchmark_tile_system PRIVATE
+            luisa-compute-core
             "-framework Foundation" "-framework Accelerate"
             "-framework Metal" "-framework MetalPerformanceShaders")
     add_executable(benchmark_tile_manual benchmark/benchmark_tile_manual.mm)
@@ -700,12 +731,14 @@ if (APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
             OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED ON OBJCXX_EXTENSIONS OFF)
     target_compile_options(benchmark_tile_manual PRIVATE -fobjc-arc)
     target_link_libraries(benchmark_tile_manual PRIVATE
+            luisa-compute-core
             "-framework Foundation" "-framework Metal")
     add_executable(benchmark_tile_mpp benchmark/benchmark_tile_mpp.mm)
     set_target_properties(benchmark_tile_mpp PROPERTIES
             OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED ON OBJCXX_EXTENSIONS OFF)
     target_compile_options(benchmark_tile_mpp PRIVATE -fobjc-arc)
     target_link_libraries(benchmark_tile_mpp PRIVATE
+            luisa-compute-core
             "-framework Foundation" "-framework Metal")
     foreach (_system_backend IN ITEMS cpu metal)
         add_test(NAME test_tile_system_${_system_backend}

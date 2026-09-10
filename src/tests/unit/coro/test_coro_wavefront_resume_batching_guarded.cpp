@@ -4,8 +4,8 @@
 #include "ut/ut.hpp"
 #include <algorithm>
 #include <array>
-#include <stdexcept>
 
+#include <luisa/core/logging.h>
 #include <luisa/coro/schedulers/wavefront_extension_batch.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/function.h>
@@ -23,9 +23,9 @@ using namespace boost::ut;
 using namespace boost::ut::literals;
 
 namespace {
-void require(bool condition, const char *message) {
+void require(bool condition, const char *message) noexcept {
     expect(condition) << message;
-    if (!condition) { throw std::runtime_error{message}; }
+    LUISA_ASSERT(condition, "{}", message);
 }
 template<typename A, typename B>
 bool equal_slots(A a, B b) { return std::equal(a.begin(), a.end(), b.begin(), b.end()); }

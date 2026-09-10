@@ -10,6 +10,7 @@
 #include <tvm/ffi/string.h>
 
 #include <luisa/core/stl/string.h>
+#include <luisa/core/mathematics.h>
 #include <luisa/tile/bridge/tirx/compiler.h>
 #include <luisa/tile/bridge/tirx/lower.h>
 #include <luisa/tile/dsl.h>

@@ -1,6 +1,6 @@
 # Tile performance by compiler route
 
-Saved comparisons through September 9, 2026. These are separate experiments,
+Saved comparisons and validation checkpoints through September 10, 2026. These are separate experiments,
 not a cross-route leaderboard with one matched timing and math policy.
 See [current status](index.md) for the conclusion and remaining goal.
 
@@ -17,6 +17,26 @@ Report tables use medians of within-round p50s. A paired ratio is the median
 of same-round numerator/denominator ratios, **not** a ratio of the displayed
 medians. Ranges and counts of slower rounds are descriptive, not confidence
 intervals. No slow or failed row is discarded to improve the headline.
+
+### Metal4 XIR route: correctness established, timing not yet stable
+
+The September 10 {download}`target-info checkpoint <../../../../scripts/benchmark/tile_torch/results/m1-max-20260910-xir-target-info/README.md>`
+adds the distinct `TileIR -> XIR -> LLVM/AIR -> Metal4 Runtime` route, not MPP
+or TIRx. Five selected CTests pass: TileIR, backend target info, Metal4 rows,
+SIMD Runtime and SIMD LLM, plus two subprocess checks for fatal invalid-attention
+inputs after integrating the latest `next` test helpers. Metal4 checks 41 FP32 instances plus five expected
+rejections, with full outputs, unchanged inputs and guards. The generic bridge
+checks physical 32/64-lane contracts; this machine executes only W32.
+
+Nine 128×1024 RMSNorm/softmax/SwiGLU probes retain all raw synchronized
+Runtime host-wall samples. Automatic search selects the W32 mapping in each
+case, but identical selected physical plans have highly inconsistent timing
+between fixed and automatic requests (about 59× in the SwiGLU probe). These
+are diagnostic records, **not** a ranking, cost calibration, pure-kernel
+measurement or evidence of Torch/MPS parity. GPU timing and Runtime attribution
+remain the next gate. The tested CPU regressions deliberately avoid loading
+TVM's LLVM21 and the native backend's LLVM22 into the same process; standalone
+TIRx builds remain enabled.
 
 ### Native row entries expose both broader wins and remaining gaps
 
