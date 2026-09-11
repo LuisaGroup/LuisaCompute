@@ -34,24 +34,26 @@ local function tirx_paths_configured()
     return true
 end
 
-if has_config("lc_tile_tirx_bridge") then
-    add_defines("LUISA_TILE_TIRX_BRIDGE_EXPORT_DLL")
-    if tirx_paths_configured() then
-        local tvm_include = get_config("lc_tvm_include_dir")
-        local tvm_ffi_include = get_config("lc_tvm_ffi_include_dir")
-        local tvm_library_dir = get_config("lc_tvm_library_dir")
-        local tvm_ffi_library_dir = get_config("lc_tvm_ffi_library_dir")
-        add_includedirs(tvm_include, tvm_ffi_include)
-        local dlpack_include = path.join(tvm_ffi_include, "../3rdparty/dlpack/include")
-        if os.exists(dlpack_include) then
-            add_includedirs(path.normalize(dlpack_include))
+on_load(function(target)
+    if has_config("lc_tile_tirx_bridge") then
+        target:add("defines", "LUISA_TILE_TIRX_BRIDGE_EXPORT_DLL")
+        if tirx_paths_configured() then
+            local tvm_include = get_config("lc_tvm_include_dir")
+            local tvm_ffi_include = get_config("lc_tvm_ffi_include_dir")
+            local tvm_library_dir = get_config("lc_tvm_library_dir")
+            local tvm_ffi_library_dir = get_config("lc_tvm_ffi_library_dir")
+            target:add("includedirs", tvm_include, tvm_ffi_include)
+            local dlpack_include = path.join(tvm_ffi_include, "../3rdparty/dlpack/include")
+            if os.exists(dlpack_include) then
+                target:add("includedirs", path.normalize(dlpack_include))
+            end
+            target:add("linkdirs", tvm_library_dir, tvm_ffi_library_dir)
+            target:add("links", "tvm_compiler", "tvm_runtime", "tvm_ffi")
         end
-        add_linkdirs(tvm_library_dir, tvm_ffi_library_dir)
-        add_links("tvm_compiler", "tvm_runtime", "tvm_ffi")
+    else
+        target:add("remove_files", "bridge/tirx/*.cpp")
     end
-else
-    remove_files("bridge/tirx/*.cpp")
-end
+end)
 
 on_config(function(target)
     if has_config("lc_tile_tirx_bridge") and not tirx_paths_configured() then
