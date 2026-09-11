@@ -82,6 +82,7 @@ void write_shader_option(Writer &writer,
     writer.write_bool(option.enable_scalarizer);
     writer.write_bool(option.enable_ray_query_pipeline);
     writer.write_bool(option.force_ray_query_pipeline);
+    writer.write_bool(option.assume_no_packed_textures);
     writer.write_bool(option.enable_driver_optimization);
     writer.write_string(option.name);
 }

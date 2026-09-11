@@ -255,6 +255,8 @@ void reg_shader_option_hash() {
         retain_ray_query_loop.enable_ray_query_pipeline = false;
         auto force_ray_query_pipeline = base;
         force_ray_query_pipeline.force_ray_query_pipeline = true;
+        auto assume_no_packed_textures = base;
+        assume_no_packed_textures.assume_no_packed_textures = true;
 
         auto base_hash = luisa::hash_value(base);
         expect(luisa::hash_value(native_include) != base_hash)
@@ -265,6 +267,8 @@ void reg_shader_option_hash() {
             << "ray-query lowering mode changes generated shader code";
         expect(luisa::hash_value(force_ray_query_pipeline) != base_hash)
             << "forced ray-query policy changes generated shader code";
+        expect(luisa::hash_value(assume_no_packed_textures) != base_hash)
+            << "packed-texture specialization changes generated shader code";
     };
 }
 

@@ -505,9 +505,12 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_resource_query_inst(IB &b, FunctionC
             auto llvm_base_level =
                 _get_direct_texture_base_level(b, llvm_texture);
             auto llvm_storage = _get_direct_texture_storage(b, llvm_texture);
-            auto llvm_is_packed_r10g10b10a2 = b.CreateICmpEQ(
-                llvm_storage,
-                b.getInt64(to_underlying(PixelStorage::R10G10B10A2)));
+            auto llvm_is_packed_r10g10b10a2 =
+                _config.assume_no_packed_textures
+                    ? static_cast<llvm::Value *>(b.getFalse())
+                    : b.CreateICmpEQ(
+                          llvm_storage,
+                          b.getInt64(to_underlying(PixelStorage::R10G10B10A2)));
             auto llvm_level_count_ptr = b.CreateInBoundsGEP(
                 b.getInt8Ty(), llvm_descriptor,
                 b.getInt64(offsetof(
@@ -847,9 +850,12 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_resource_query_inst(IB &b, FunctionC
                     llvm_levels_sampler,
                     b.getInt64(HIPBindlessArray::texture_storage_shift)),
                 b.getInt64(HIPBindlessArray::texture_storage_mask));
-            auto llvm_is_packed_r10g10b10a2 = b.CreateICmpEQ(
-                llvm_storage,
-                b.getInt64(to_underlying(PixelStorage::R10G10B10A2)));
+            auto llvm_is_packed_r10g10b10a2 =
+                _config.assume_no_packed_textures
+                    ? static_cast<llvm::Value *>(b.getFalse())
+                    : b.CreateICmpEQ(
+                          llvm_storage,
+                          b.getInt64(to_underlying(PixelStorage::R10G10B10A2)));
             _create_assertion_with_message(
                 b, b.CreateICmpUGT(llvm_level_count, b.getInt64(0)),
                 "Bindless texture slot has no mip levels.");

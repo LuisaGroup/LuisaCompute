@@ -188,6 +188,12 @@ struct ShaderOption {
     ///   unsupported by an intersection-function path). It is intended for
     ///   validation and matched performance experiments.
     bool force_ray_query_pipeline{false};
+    /// Whether the generated shader is guaranteed not to sample
+    /// R10G10B10A2 textures through a bindless array. This is a
+    /// semantics-preserving specialization only when the caller has a
+    /// complete immutable resource proof; the default retains the generic
+    /// packed-texture path.
+    bool assume_no_packed_textures{false};
     /// \brief Whether the native driver may run its full optimization
     ///   pipeline while creating the shader.
     /// \details Disabling this option provides a bounded-compilation escape
@@ -318,6 +324,7 @@ struct hash<compute::ShaderOption> {
         constexpr auto enable_scalarizer_shift = 6u;
         constexpr auto enable_ray_query_pipeline_shift = 7u;
         constexpr auto force_ray_query_pipeline_shift = 8u;
+        constexpr auto assume_no_packed_textures_shift = 9u;
         auto opt_hash = hash_value((static_cast<uint>(option.enable_cache) << enable_cache_shift) |
                                        (static_cast<uint>(option.enable_fast_math) << enable_fast_math_shift) |
                                        (static_cast<uint>(option.enable_debug_info) << enable_debug_info_shift) |
@@ -326,7 +333,8 @@ struct hash<compute::ShaderOption> {
                                        (static_cast<uint>(option.enable_driver_optimization) << enable_driver_optimization_shift) |
                                        (static_cast<uint>(option.enable_scalarizer) << enable_scalarizer_shift) |
                                        (static_cast<uint>(option.enable_ray_query_pipeline) << enable_ray_query_pipeline_shift) |
-                                       (static_cast<uint>(option.force_ray_query_pipeline) << force_ray_query_pipeline_shift),
+                                       (static_cast<uint>(option.force_ray_query_pipeline) << force_ray_query_pipeline_shift) |
+                                       (static_cast<uint>(option.assume_no_packed_textures) << assume_no_packed_textures_shift),
                                    seed);
         auto name_hash = hash_value(option.name, seed);
         auto native_include_hash = hash_value(option.native_include, seed);
