@@ -222,9 +222,11 @@ void insert_frontier(luisa::vector<PartialPlan> &frontier, PartialPlan candidate
     for (auto &previous : frontier) {
         if (previous.released_bytes >= candidate.released_bytes && previous.cost.score <= candidate.cost.score) { return; }
     }
-    std::erase_if(frontier, [&](const PartialPlan &previous) {
-        return candidate.released_bytes >= previous.released_bytes && candidate.cost.score <= previous.cost.score;
-    });
+        // luisa::vector may be backed by EASTL (no std::erase_if overload), so
+        // use the erase-remove idiom that works for both STL flavours.
+        frontier.erase(std::remove_if(frontier.begin(), frontier.end(), [&](const PartialPlan &previous) {
+            return candidate.released_bytes >= previous.released_bytes && candidate.cost.score <= previous.cost.score;
+        }), frontier.end());
     frontier.emplace_back(std::move(candidate));
 }
 

@@ -47,3 +47,6 @@
 [submodule "src/ext/llvm-downgrade"]
 	path = src/ext/llvm-downgrade
 	url = https://github.com/JuliaLLVM/llvm-downgrade.git
+[submodule "src/ext/tvm"]
+	path = src/ext/tvm
+	url = https://github.com/apache/tvm

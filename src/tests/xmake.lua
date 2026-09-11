@@ -584,6 +584,25 @@ test_proj("test_transient_resource", "integration/runtime/test_transient_resourc
     add_files("integration/runtime/transient_resource_device/*.cpp")
 end)
 
+-- unit/tile/bridge: host-side TIRx bridge tests (mirror the
+-- LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE block in src/tests/CMakeLists.txt).
+-- The bridge is compiled into lc-tile; the tests only need to link lc-tile.
+if has_config("lc_tile_tirx_bridge") then
+    for _, name in ipairs({"test_tile_tirx_layout",
+                           "test_tile_tirx_values",
+                           "test_tile_tirx_execution",
+                           "test_tile_tirx_cooperative",
+                           "test_tile_tirx_memory",
+                           "test_tile_tirx_pipeline",
+                           "test_tile_tirx_matrix",
+                           "test_tile_tirx_planner"}) do
+        local source = "unit/tile/bridge/" .. name:gsub("test_tile_tirx", "test_tirx") .. ".cpp"
+        test_proj(name, source, false, function()
+            add_deps("lc-tile")
+        end)
+    end
+end
+
   -- integration/runtime: CUDA-only tests
   if has_config("lc_cuda_backend") then
       -- Host-only PTX `.version` patcher test; no CUDA device/backend link.

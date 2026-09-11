@@ -931,7 +931,7 @@ DeviceCompilationResult compile_device(tvm::tirx::PrimFunc function, luisa::stri
             result.error = "automatic vectorization requires vectorization";
             return result;
         }
-        tvm::Target target{tvm::ffi::String{options.target}};
+        tvm::Target target{tvm::ffi::String{options.target.data(), options.target.size()}};
         luisa::string_view inspect_source;
         auto format = detail::device_artifact_format(target, inspect_source);
         if (inspect_source.empty()) {
@@ -1058,13 +1058,13 @@ CompilationResult compile(tvm::IRModule module, const CompileOptions &options) n
                 precise_reduction |= detail::requires_precise_reduction(function.value());
             }
         }
-        auto device_target = detail::preserve_reduction_arithmetic(tvm::Target{tvm::ffi::String{options.target}}, precise_reduction);
+        auto device_target = detail::preserve_reduction_arithmetic(tvm::Target{tvm::ffi::String{options.target.data(), options.target.size()}}, precise_reduction);
         // MakePackedAPI replaces a CPU entry's target with its host target,
         // and LLVM codegen uses the module target for every function. Keep
         // both stages on the requested CPU ISA and effective arithmetic mode;
         // GPU wrappers still use the requested host.
         auto host_target = detail::is_host_target(device_target) ? tvm::Target{device_target, tvm::Target{}} :
-                                                                   detail::preserve_reduction_arithmetic(tvm::Target{tvm::ffi::String{options.host}}, precise_reduction);
+                                                                   detail::preserve_reduction_arithmetic(tvm::Target{tvm::ffi::String{options.host.data(), options.host.size()}}, precise_reduction);
         tvm::Target bound_target{device_target, host_target};
         luisa::vector<GroupPlan> plans;
         module = detail::map_execution(std::move(module), device_target, options, plans, diagnostic);
