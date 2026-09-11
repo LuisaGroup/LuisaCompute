@@ -1269,6 +1269,36 @@ luisa::string HIPCodegenLLVMImpl::_generate_code() const noexcept {
     llvm::raw_string_ostream os{code};
     llvm::WriteBitcodeToFile(*_llvm_module, os);
     os.flush();
+    // Keep an exact copy of the binary module consumed by HIPRTC available
+    // for offline ISA experiments. The existing LUISA_DUMP_LLVM_IR files are
+    // diagnostic text and are not guaranteed to round-trip through llvm-as.
+    if (auto dump_dir = std::getenv("LUISA_DUMP_LLVM_BITCODE");
+        dump_dir != nullptr && *dump_dir != '\0') {
+        static std::atomic<uint32_t> dump_counter{0u};
+        auto dump_idx = dump_counter.fetch_add(1u);
+        auto path = fmt::format(
+            "{}/hip_kernel_{}.bc", dump_dir, dump_idx);
+        std::error_code ec;
+        llvm::raw_fd_ostream out{path, ec, llvm::sys::fs::OF_None};
+        if (ec) {
+            LUISA_WARNING_WITH_LOCATION(
+                "Failed to open binary LLVM bitcode dump '{}': {}.",
+                path, ec.message());
+        } else {
+            out.write(code.data(), code.size());
+            out.flush();
+            if (out.has_error()) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Failed to write binary LLVM bitcode dump '{}': {}.",
+                    path, out.error().message());
+                out.clear_error();
+            } else {
+                LUISA_INFO(
+                    "Dumped binary LLVM bitcode ({} bytes) to: {}",
+                    code.size(), path);
+            }
+        }
+    }
     return luisa::string{code};
 }
 
