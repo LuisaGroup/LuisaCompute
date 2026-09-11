@@ -224,6 +224,11 @@ if has_config("lc_tile_tirx_bridge") and os.exists(path.join(lc_tvm_root, "CMake
         if not tvm_use_llvm then
             return
         end
+        -- LLVM 22's Support library references RtlGetLastNtStatus from
+        -- ntdll.dll on Windows.
+        if is_plat("windows") then
+            target:add("syslinks", "ntdll")
+        end
         -- COMPILER_LLVM_SRCS from cmake/modules/LLVM.cmake
         target:add("files", path.join(lc_tvm_root, "src/target/llvm/*.cc"),
                    path.join(lc_tvm_root, "src/backend/cuda/codegen/llvm/*.cc"),

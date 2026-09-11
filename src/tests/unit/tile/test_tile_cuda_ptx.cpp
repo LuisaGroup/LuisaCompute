@@ -63,8 +63,8 @@ void test_elementwise(Device &device, tile::CompileOptions options) {
     auto x = device.create_buffer<float>(n);
     auto r = device.create_buffer<float>(n);
     luisa::vector<float> actual(n);
-    stream << x.copy_from(x_values.data())
-           << shader(x, r).dispatch() << r.copy_to(actual.data()) << synchronize();
+    stream << x.copy_from(luisa::span{x_values})
+           << shader(x, r).dispatch() << r.copy_to(luisa::span{actual}) << synchronize();
     for (auto i = 0u; i < n; i++) {
         expect(close_tolerance(actual[i], 1.25 * x_values[i] + 0.5));
     }
@@ -103,8 +103,8 @@ void test_row_sum(Device &device, tile::CompileOptions options) {
     auto x = device.create_buffer<float>(values.size());
     auto r = device.create_buffer<float>(rows);
     luisa::vector<float> actual(rows);
-    stream << x.copy_from(values.data())
-           << shader(x, r).dispatch() << r.copy_to(actual.data()) << synchronize();
+    stream << x.copy_from(luisa::span{values})
+           << shader(x, r).dispatch() << r.copy_to(luisa::span{actual}) << synchronize();
     for (auto row = 0; row < rows; row++) {
         auto expected = 0.0;
         for (auto column = 0; column < columns; column++) {
@@ -146,9 +146,9 @@ void test_row_extrema(Device &device, tile::CompileOptions options) {
     auto lo = device.create_buffer<float>(rows);
     auto hi = device.create_buffer<float>(rows);
     luisa::vector<float> actual_lo(rows), actual_hi(rows);
-    stream << x.copy_from(values.data())
+    stream << x.copy_from(luisa::span{values})
            << shader(x, lo, hi).dispatch()
-           << lo.copy_to(actual_lo.data()) << hi.copy_to(actual_hi.data()) << synchronize();
+           << lo.copy_to(luisa::span{actual_lo}) << hi.copy_to(luisa::span{actual_hi}) << synchronize();
     for (auto row = 0; row < rows; row++) {
         auto expected_lo = std::numeric_limits<double>::infinity();
         auto expected_hi = -std::numeric_limits<double>::infinity();
@@ -190,8 +190,8 @@ void test_row_softmax(Device &device, tile::CompileOptions options) {
     auto x = device.create_buffer<float>(values.size());
     auto out = device.create_buffer<float>(values.size());
     luisa::vector<float> actual(values.size());
-    stream << x.copy_from(values.data())
-           << shader(x, out).dispatch() << out.copy_to(actual.data()) << synchronize();
+    stream << x.copy_from(luisa::span{values})
+           << shader(x, out).dispatch() << out.copy_to(luisa::span{actual}) << synchronize();
     for (auto row = 0; row < rows; row++) {
         double sum = 0.0;
         for (auto column = 0; column < columns; column++) {
@@ -255,8 +255,8 @@ void test_gemm(Device &device, tile::CompileOptions options, GemmConfig cfg) {
     auto ab = device.create_buffer<float>(a.size());
     auto bb = device.create_buffer<float>(b.size());
     auto cb = device.create_buffer<float>(static_cast<size_t>(c_elements));
-    stream << ab.copy_from(a.data()) << bb.copy_from(b.data())
-           << shader(ab, bb, cb).dispatch() << cb.copy_to(actual.data()) << synchronize();
+    stream << ab.copy_from(luisa::span{a}) << bb.copy_from(luisa::span{b})
+           << shader(ab, bb, cb).dispatch() << cb.copy_to(luisa::span{actual}) << synchronize();
     for (auto m = 0; m < cfg.m; m++) {
         for (auto n = 0; n < cfg.n; n++) {
             double expected = 0.0;
@@ -303,13 +303,13 @@ void test_gemm_ragged_views(Device &device, tile::CompileOptions options) {
             auto ab = device.create_buffer<float>(full_a.size());
             auto bb = device.create_buffer<float>(full_b.size());
             auto cb = device.create_buffer<float>(full_c.size());
-            stream << ab.copy_from(full_a.data())
-                   << bb.copy_from(full_b.data())
-                   << cb.copy_from(full_c.data())
+            stream << ab.copy_from(luisa::span{full_a})
+                   << bb.copy_from(luisa::span{full_b})
+                   << cb.copy_from(luisa::span{full_c})
                    << shader(ab.view(pad, a_elements), bb.view(pad, b_elements),
                              cb.view(pad, c_elements))
                           .dispatch()
-                   << cb.copy_to(full_c.data()) << synchronize();
+                   << cb.copy_to(luisa::span{full_c}) << synchronize();
             for (auto i = 0u; i < pad; i++) {
                 expect(full_c[i] == guard);
                 expect(full_c[pad + c_elements + i] == guard);
@@ -400,8 +400,8 @@ void test_batched_gemm(Device &device, tile::CompileOptions options) {
             auto ab = device.create_buffer<float>(a.size());
             auto bb = device.create_buffer<float>(b.size());
             auto cb = device.create_buffer<float>(c_size);
-            stream << ab.copy_from(a.data()) << bb.copy_from(b.data())
-                   << shader(ab, bb, cb).dispatch() << cb.copy_to(actual.data()) << synchronize();
+            stream << ab.copy_from(luisa::span{a}) << bb.copy_from(luisa::span{b})
+                   << shader(ab, bb, cb).dispatch() << cb.copy_to(luisa::span{actual}) << synchronize();
             auto a_index = [&](int64_t batch, int64_t m, int64_t k) noexcept {
                 return static_cast<size_t>(batch * cfg.m * cfg.k) +
                        static_cast<size_t>(cfg.transpose_a ? k * cfg.m + m : m * cfg.k + k);
@@ -440,10 +440,10 @@ void run_llm_tirx_case(Device &device, tile::CompileOptions options,
     auto out = device.create_buffer<float>(fixture.expected.size());
     auto stream = device.create_stream(StreamTag::COMPUTE);
     luisa::vector<float> actual(fixture.expected.size());
-    stream << a.copy_from(fixture.inputs[0].data())
-           << b.copy_from(fixture.inputs[1].data())
-           << c.copy_from(fixture.inputs[2].data())
-           << shader(a, b, c, out).dispatch() << out.copy_to(actual.data()) << synchronize();
+    stream << a.copy_from(luisa::span{fixture.inputs[0]})
+           << b.copy_from(luisa::span{fixture.inputs[1]})
+           << c.copy_from(luisa::span{fixture.inputs[2]})
+           << shader(a, b, c, out).dispatch() << out.copy_to(luisa::span{actual}) << synchronize();
     for (auto i = 0u; i < fixture.expected.size(); i++) {
         expect(close_tolerance(actual[i], fixture.expected[i]))
             << "element " << i << " actual " << actual[i] << " expected " << fixture.expected[i];
@@ -585,13 +585,13 @@ inline void set_force_patch_env(bool enabled) noexcept {
 
 struct DeviceWithIO {
     compute::DeviceConfig config;
-    std::optional<DeviceContext> owner;
+          std::optional<test::DeviceContext> owner;
 
     explicit DeviceWithIO(MemoryBinaryIO &io) {
         config.binary_io = &io;
-        auto created = test::create_device_from_ut(
-            boost::ut::detail::cfg::largc,
-            boost::ut::detail::cfg::largv, &config, false);
+          auto created = test::create_device_from_ut(
+              boost::ut::detail::cfg::largc,
+              const_cast<char **>(boost::ut::detail::cfg::largv), &config, false);
         expect(created.has_value());
         if (created) { owner.emplace(std::move(*created)); }
     }
@@ -600,22 +600,23 @@ struct DeviceWithIO {
 
 // The elementwise kernel used by the cache and old-driver patch tests. Keep it
 // tiny so repeated compiles through the fake BinaryIO stay cheap.
-struct CacheKernelFixture {
-    tile::Kernel kernel;
-    luisa::vector<float> input;
-    size_t elements{1003u};
-
-    CacheKernelFixture() {
-        auto definition = tile::tile_kernel("cache_roundtrip_axpy", [](tile::TensorView<const float, 1> x,
-                                                                       tile::TensorView<float, 1> result) {
-            auto element = tile::axis("element", 1003);
-            for (auto &item : tile::parallel(tile::shape(element))) {
-                auto index = item.index();
-                result(index).store(1.25f * x(index).load() + 0.5f);
-            }
-        });
-        kernel = definition.capture(tile::tensor_shape(1003), tile::tensor_shape(1003));
-        input.resize(elements);
+  struct CacheKernelFixture {
+      tile::Kernel kernel;
+      luisa::vector<float> input;
+      size_t elements{1003u};
+      [[nodiscard]] static tile::Kernel make_kernel() {
+          auto definition = tile::tile_kernel("cache_roundtrip_axpy", [](tile::TensorView<const float, 1> x,
+                                                                         tile::TensorView<float, 1> result) {
+              auto element = tile::axis("element", 1003);
+              for (auto &item : tile::parallel(tile::shape(element))) {
+                  auto index = item.index();
+                  result(index).store(1.25f * x(index).load() + 0.5f);
+              }
+          });
+          return definition.capture(tile::tensor_shape(1003), tile::tensor_shape(1003));
+      }
+      CacheKernelFixture() : kernel{make_kernel()} {
+          input.resize(elements);
         for (auto i = 0u; i < elements; i++) { input[i] = static_cast<float>(i % 37u) * 0.125f - 2.0f; }
     }
 };
@@ -702,8 +703,8 @@ void verify_elementwise_result(Device &device, const tile::Shader &shader,
     auto x = device.create_buffer<float>(input.size());
     auto r = device.create_buffer<float>(input.size());
     luisa::vector<float> actual(input.size());
-    stream << x.copy_from(input.data())
-           << shader(x, r).dispatch() << r.copy_to(actual.data()) << synchronize();
+    stream << x.copy_from(luisa::span{input})
+           << shader(x, r).dispatch() << r.copy_to(luisa::span{actual}) << synchronize();
     for (auto i = 0u; i < input.size(); i++) {
         expect(close_tolerance(actual[i], 1.25 * input[i] + 0.5));
     }

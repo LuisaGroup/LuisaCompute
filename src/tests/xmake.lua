@@ -597,9 +597,11 @@ if has_config("lc_tile_tirx_bridge") then
                            "test_tile_tirx_matrix",
                            "test_tile_tirx_planner"}) do
         local source = "unit/tile/bridge/" .. name:gsub("test_tile_tirx", "test_tirx") .. ".cpp"
-        test_proj(name, source, false, function()
-            add_deps("lc-tile")
-        end)
+          test_proj(name, source, false, function()
+              add_deps("lc-tile")
+              -- the TIRx headers pull in tvm-ffi, which uses throw
+              on_load(function(target) target:set("exceptions", "cxx") end)
+          end)
     end
 end
 
@@ -618,14 +620,18 @@ end
     -- wiring in src/tests/CMakeLists.txt).
     test_proj("test_tile_cuda_ptx", "unit/tile/test_tile_cuda_ptx.cpp", false, function()
         add_deps("lc-tile")
-        if has_config("lc_tile_tirx_bridge") then
-            add_defines("LUISA_TEST_TILE_CUDA_TIRX=1")
-        end
+          if has_config("lc_tile_tirx_bridge") then
+              add_defines("LUISA_TEST_TILE_CUDA_TIRX=1")
+              -- the TIRx headers pull in tvm-ffi, which uses throw
+              on_load(function(target) target:set("exceptions", "cxx") end)
+          end
     end)
     if has_config("lc_tile_tirx_bridge") then
-        test_proj("test_tirx_device_cuda", "unit/tile/bridge/test_tirx_device_cuda.cpp", false, function()
-            add_deps("lc-tile")
-        end)
+          test_proj("test_tirx_device_cuda", "unit/tile/bridge/test_tirx_device_cuda.cpp", false, function()
+              add_deps("lc-tile")
+              -- the TIRx headers pull in tvm-ffi, which uses throw
+              on_load(function(target) target:set("exceptions", "cxx") end)
+          end)
     end
 end
 

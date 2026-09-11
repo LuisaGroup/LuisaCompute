@@ -24,8 +24,11 @@ add_files("bridge/tirx/**.cpp", {unity_ignored = true})
 add_defines("LUISA_TILE_XIR_BRIDGE_EXPORT_DLL")
 
 on_load(function(target)
-    if has_config("lc_tile_tirx_bridge") then
-        target:add("defines", "LUISA_TILE_TIRX_BRIDGE_EXPORT_DLL")
+      if has_config("lc_tile_tirx_bridge") then
+          target:add("defines", "LUISA_TILE_TIRX_BRIDGE_EXPORT_DLL")
+          -- The bundled TVM/tvm-ffi headers use throw, so this target needs
+          -- C++ exceptions even though the project default disables them.
+          target:set("exceptions", "cxx")
         -- The TVM targets carry the tvm/include, tvm-ffi/include and dlpack
         -- include directories in their public interface, so depending on them
         -- wires up both the headers and the linker inputs.
