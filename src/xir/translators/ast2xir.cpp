@@ -528,6 +528,34 @@ private:
                           std::is_same_v<ResourceOp, ResourceReadOp> ||
                           std::is_same_v<ResourceOp, ResourceWriteOp>);
             LUISA_ASSERT(!expr->arguments().empty(), "Resource call requires at least one argument.");
+            // Coroutine frame accesses are marked by a pending AST comment
+            // emitted immediately before the ByteBuffer expression. Consume
+            // it before translating arguments, so a nested ordinary buffer read
+            // cannot consume the marker belonging to the outer frame write.
+            constexpr luisa::string_view frame_raw_comment =
+                "luisa.coro.frame.raw";
+            auto consume_frame_raw_comment = [&]() noexcept {
+                for (auto iter = _current.comments.begin();
+                     iter != _current.comments.end(); ++iter) {
+                    if ((*iter)->comment() == frame_raw_comment) {
+                        _current.comments.erase(iter);
+                        return true;
+                    }
+                }
+                return false;
+            };
+            auto frame_byte_access = [&]() noexcept {
+                if constexpr (std::is_same_v<ResourceOp, ResourceReadOp>) {
+                    return target_op == ResourceReadOp::BYTE_BUFFER_READ ||
+                           target_op == ResourceReadOp::BYTE_BUFFER_VOLATILE_READ;
+                } else if constexpr (std::is_same_v<ResourceOp, ResourceWriteOp>) {
+                    return target_op == ResourceWriteOp::BYTE_BUFFER_WRITE ||
+                           target_op == ResourceWriteOp::BYTE_BUFFER_VOLATILE_WRITE;
+                } else {
+                    return false;
+                }
+            }();
+            auto frame_raw = frame_byte_access && consume_frame_raw_comment();
             luisa::fixed_vector<Value *, 16u> args;
             args.reserve(expr->arguments().size());
             auto base = _translate_expression(b, expr->arguments()[0], false);
@@ -541,11 +569,16 @@ private:
                 }
                 args.emplace_back(arg);
             }
+            auto mark_if_frame_raw = [frame_raw, frame_raw_comment](auto *inst) noexcept {
+                if (frame_raw) { inst->add_comment(frame_raw_comment); }
+                return inst;
+            };
             if constexpr (std::is_same_v<ResourceOp, ResourceWriteOp>) {
-                return b.call(target_op, args, bindless_access);
+                return mark_if_frame_raw(
+                    b.call(target_op, args, bindless_access));
             } else {
-                return b.call(
-                    expr->type(), target_op, args, bindless_access);
+                return mark_if_frame_raw(b.call(
+                    expr->type(), target_op, args, bindless_access));
             }
         };
         auto rq_call = [&]<typename T>(T target_op) noexcept {

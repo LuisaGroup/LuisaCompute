@@ -7,8 +7,55 @@
 #include "../hip_buffer.h"
 #include "../hip_motion_instance.h"
 #include "../hip_texture.h"
+#include <luisa/xir/metadata/comment.h>
 
 namespace luisa::compute::hip {
+
+namespace {
+
+[[nodiscard]] bool is_frame_raw_scalar_access(
+    const xir::Instruction *inst, const Type *type,
+    llvm::Value *offset) noexcept {
+    if (!offset->getType()->isIntegerTy(32) ||
+        (type->tag() != Type::Tag::INT32 &&
+         type->tag() != Type::Tag::UINT32 &&
+         type->tag() != Type::Tag::FLOAT32)) {
+        return false;
+    }
+    for (auto *md : inst->metadata_list()) {
+        if (md->isa<xir::CommentMD>() &&
+            static_cast<const xir::CommentMD *>(md)->comment() ==
+                "luisa.coro.frame.raw") {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Same gfx11/gfx12 descriptor layout as the raw-buffer atomic lowering.
+[[nodiscard]] llvm::Value *make_frame_buffer_resource_descriptor(
+    llvm::IRBuilder<> &b, llvm::Value *buffer) noexcept {
+    auto *buffer_ptr = b.CreateExtractValue(
+        buffer, HIPCodegenLLVMImpl::llvm_buffer_type_ptr_index);
+    auto *buffer_size = b.CreateExtractValue(
+        buffer, HIPCodegenLLVMImpl::llvm_buffer_type_size_index);
+    auto *addr = b.CreatePtrToInt(buffer_ptr, b.getInt64Ty(), "frame.addr");
+    auto *addr_lo = b.CreateTrunc(addr, b.getInt32Ty());
+    auto *addr_hi = b.CreateTrunc(b.CreateLShr(addr, 32), b.getInt32Ty());
+    auto *size = b.CreateTrunc(
+        b.CreateSelect(b.CreateICmpUGT(buffer_size, b.getInt64(UINT32_MAX)),
+                       b.getInt64(UINT32_MAX), buffer_size),
+        b.getInt32Ty());
+    auto *type = llvm::FixedVectorType::get(b.getInt32Ty(), 4);
+    auto *rsrc = static_cast<llvm::Value *>(llvm::UndefValue::get(type));
+    rsrc = b.CreateInsertElement(rsrc, addr_lo, b.getInt32(0));
+    rsrc = b.CreateInsertElement(rsrc, addr_hi, b.getInt32(1));
+    rsrc = b.CreateInsertElement(rsrc, size, b.getInt32(2));
+    return b.CreateInsertElement(
+        rsrc, b.getInt32(0x31004000), b.getInt32(3), "frame.rsrc");
+}
+
+}// namespace
 
 llvm::Value *HIPCodegenLLVMImpl::_get_direct_texture_descriptor_pointer(
     IB &b, llvm::Value *texture) noexcept {
@@ -1291,6 +1338,17 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_resource_read_inst(IB &b, const Func
             auto llvm_buffer = _get_llvm_value(b, func_ctx, inst->operand(0));
             auto llvm_byte_offset = _get_llvm_value(b, func_ctx, inst->operand(1));
             auto elem_type = inst->type();
+            if (!is_volatile &&
+                is_frame_raw_scalar_access(inst, elem_type, llvm_byte_offset)) {
+                auto llvm_type_info = _get_llvm_type(elem_type);
+                auto *raw_load = llvm::Intrinsic::getOrInsertDeclaration(
+                    _llvm_module.get(), llvm::Intrinsic::amdgcn_raw_buffer_load,
+                    {llvm_type_info->mem_type});
+                auto *value = b.CreateCall(raw_load,
+                    {make_frame_buffer_resource_descriptor(b, llvm_buffer),
+                     llvm_byte_offset, b.getInt32(0), b.getInt32(0)});
+                return _convert_llvm_mem_value_to_reg(b, value, elem_type);
+            }
             auto llvm_elem_ptr = _get_buffer_element_pointer(b, llvm_buffer, llvm_byte_offset, 1, elem_type->size());
             return _load_llvm_value(b, llvm_elem_ptr, elem_type, is_volatile);
         }
@@ -1574,6 +1632,17 @@ void HIPCodegenLLVMImpl::_translate_resource_write_inst(IB &b, FunctionContext &
             auto llvm_byte_offset = _get_llvm_value(b, func_ctx, inst->operand(1));
             auto llvm_value = _get_llvm_value(b, func_ctx, inst->operand(2));
             auto elem_type = inst->operand(2)->type();
+            if (!is_volatile &&
+                is_frame_raw_scalar_access(inst, elem_type, llvm_byte_offset)) {
+                auto *value = _convert_llvm_reg_value_to_mem(b, llvm_value, elem_type);
+                auto *raw_store = llvm::Intrinsic::getOrInsertDeclaration(
+                    _llvm_module.get(), llvm::Intrinsic::amdgcn_raw_buffer_store,
+                    {value->getType()});
+                b.CreateCall(raw_store,
+                    {value, make_frame_buffer_resource_descriptor(b, llvm_buffer),
+                     llvm_byte_offset, b.getInt32(0), b.getInt32(0)});
+                return;
+            }
             auto llvm_elem_ptr = _get_buffer_element_pointer(b, llvm_buffer, llvm_byte_offset, 1, elem_type->size());
             _store_llvm_value(b, llvm_elem_ptr, llvm_value, elem_type, is_volatile);
             if (is_volatile) {
