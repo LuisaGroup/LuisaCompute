@@ -34,7 +34,6 @@
 #include <luisa/ast/type_registry.h>
 #include "hip_codegen_llvm_impl.h"
 #include "hip_private_memory.h"
-#include "hip_switch_table.h"
 #include "hip_inlining_policy.h"
 #include "hip_llvm_pipeline.h"
 #include "hiprt_device_wrapper.hip"
@@ -1221,19 +1220,6 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
         MPM = std::move(canonical_mpm);
     }
     MPM.run(*_llvm_module, MAM);
-
-    // AMDGPU lowers divergent switches with constant merge payloads to long
-    // compare/select chains. Collapse only the proven forwarding pattern into
-    // a bounded constant-address-space lookup while retaining the original
-    // default value for out-of-range selectors.
-    auto switch_table_stats =
-        lower_hip_constant_switch_tables(*_llvm_module);
-    if (switch_table_stats.rewritten_switch_count != 0u) {
-        LUISA_VERBOSE(
-            "Lowered {} constant HIP switch table(s) and {} payload PHI(s).",
-            switch_table_stats.rewritten_switch_count,
-            switch_table_stats.rewritten_phi_count);
-    }
 
     // make hiprt/hiprtc happy
     // Resolve by the stable IR spelling instead of referring to the generated
