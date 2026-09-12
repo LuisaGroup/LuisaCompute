@@ -58,7 +58,7 @@ char32_t NgramTokenizer::decode_utf8(luisa::string_view text, size_t &i) noexcep
     return 0xFFFD;
 }
 
-luisa::vector<luisa::string> NgramTokenizer::split(luisa::string_view text) const {
+luisa::vector<luisa::string> NgramTokenizer::split(luisa::string_view text) {
     luisa::string norm = normalize(text);
     luisa::vector<luisa::string> tokens;
     const auto n = norm.size();

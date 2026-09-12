@@ -15,8 +15,33 @@ inline constexpr uint32_t ngram_invalid_id = 0xFFFFFFFFu;
 // corpus as a single flat stream (cross-document matches are allowed, like
 // vLLM matches within one request stream); "earliest match in corpus wins".
 //
-// The device buffers are created and uploaded by NgramRetriever.
-struct NgramLibrary {
+// The class doubles as its own builder: documents are tokenized and packed
+// incrementally with add_document(), then sealed in place with finalize().
+// Token IDs are dense uint32 starting at 0, assigned in first-seen order
+// and kept stable across add_document() calls. After finalize() the library
+// is immutable: no more documents may be added. The device buffers are
+// created and uploaded by NgramRetriever.
+class NgramLibrary {
+public:
+    NgramLibrary() noexcept = default;
+
+    // Tokenize one document and append its token IDs to the library.
+    void add_document(luisa::string_view text);
+
+    // Seal the accumulated documents in place: append the trailing
+    // doc_offsets entry (end of the last document) and mark the library
+    // finalized. Called exactly once, after the last add_document().
+    void finalize();
+
+    [[nodiscard]] bool finalized() const noexcept { return _finalized; }
+    [[nodiscard]] uint32_t num_docs() const noexcept {
+        return static_cast<uint32_t>(doc_lengths.size());
+    }
+    [[nodiscard]] uint32_t size() const noexcept {
+        return static_cast<uint32_t>(tokens.size());
+    }
+
+    // Host-side corpus, complete after finalize().
     luisa::vector<uint32_t> tokens;       // concatenated corpus token IDs
     luisa::vector<uint32_t> doc_offsets;  // size = num_docs + 1 (starts + end)
     luisa::vector<uint32_t> doc_lengths;  // size = num_docs
@@ -27,40 +52,12 @@ struct NgramLibrary {
     luisa::compute::Buffer<uint32_t> offsets_buf;
     luisa::compute::Buffer<uint32_t> lengths_buf;
 
-    [[nodiscard]] uint32_t num_docs() const noexcept {
-        return static_cast<uint32_t>(doc_lengths.size());
-    }
-    [[nodiscard]] uint32_t size() const noexcept {
-        return static_cast<uint32_t>(tokens.size());
-    }
-};
-
-// Incrementally tokenizes documents and packs them into an NgramLibrary.
-// Token IDs are dense uint32 starting at 0, assigned in first-seen order
-// and kept stable across add_document() calls.
-class NgramLibraryBuilder {
-public:
-    NgramLibraryBuilder() noexcept;
-
-    // Tokenize one document and append its token IDs to the library.
-    void add_document(luisa::string_view text);
-
-    // Move the accumulated library out. The vocabulary is kept so token
-    // IDs of documents added later stay consistent with earlier ones.
-    [[nodiscard]] NgramLibrary finalize();
-
-    [[nodiscard]] uint32_t vocab_size() const noexcept { return _next_id; }
-    [[nodiscard]] size_t num_tokens() const noexcept { return _tokens.size(); }
-    [[nodiscard]] size_t num_docs() const noexcept { return _doc_lengths.size(); }
-
 private:
-    luisa::vector<uint32_t> _tokens;
-    luisa::vector<uint32_t> _doc_offsets;// one start offset per document
-    luisa::vector<uint32_t> _doc_lengths;
     // luisa::unordered_map hashes/compares string CONTENT (vstd::HashMap
     // would hash and compare the string objects bytewise instead).
     luisa::unordered_map<luisa::string, uint32_t> _vocab;
     uint32_t _next_id = 0;
+    bool _finalized = false;
 };
 
 // Host-built n-gram hash index for the `hash` kernel variant: an open

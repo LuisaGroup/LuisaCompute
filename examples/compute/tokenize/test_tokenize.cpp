@@ -40,11 +40,11 @@ namespace {
     NgramLibrary lib;
     lib.tokens.assign(corpus.begin(), corpus.end());
     lib.doc_offsets.push_back(0u);
-    lib.doc_offsets.push_back(static_cast<uint32_t>(corpus.size()));
     lib.doc_lengths.push_back(static_cast<uint32_t>(corpus.size()));
     uint32_t vocab = 0;
     for (auto t : corpus) vocab = std::max(vocab, t + 1u);
     lib.vocab_size = vocab;
+    lib.finalize();
     return lib;
 }
 
@@ -92,7 +92,7 @@ void register_host_tests() {
     };
 
     "tokenizer_split_ascii_runs"_test = [] {
-        auto tokens = NgramTokenizer{}.split("Hello, World! foo-bar");
+        auto tokens = NgramTokenizer::split("Hello, World! foo-bar");
         expect(tokens.size() == 4u);
         expect(tokens[0] == "hello");
         expect(tokens[1] == "world");
@@ -101,7 +101,7 @@ void register_host_tests() {
     };
 
     "tokenizer_split_cjk_per_codepoint"_test = [] {
-        auto tokens = NgramTokenizer{}.split("中文字符 hello");
+        auto tokens = NgramTokenizer::split("中文字符 hello");
         expect(tokens.size() == 5u);
         expect(tokens[0] == "中");
         expect(tokens[1] == "文");
@@ -111,10 +111,11 @@ void register_host_tests() {
     };
 
     "library_builder_invariants"_test = [] {
-        NgramLibraryBuilder builder;
-        builder.add_document("the quick brown fox");
-        builder.add_document("the quick brown cat");
-        auto lib = builder.finalize();
+        NgramLibrary lib;
+        lib.add_document("the quick brown fox");
+        lib.add_document("the quick brown cat");
+        lib.finalize();
+        expect(lib.finalized());
         expect(lib.num_docs() == 2u);
         expect(lib.doc_offsets.size() == 3u);
         expect(lib.doc_lengths.size() == 2u);

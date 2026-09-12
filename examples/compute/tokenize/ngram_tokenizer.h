@@ -12,9 +12,12 @@ namespace tokenize {
 //   - whitespace and punctuation separate tokens;
 //   - CJK codepoints (see is_cjk) become one token each;
 //   - any other (non-CJK) multibyte codepoint becomes one token each.
+//
+// All members are static; the class cannot be instantiated.
 class NgramTokenizer {
 public:
-    NgramTokenizer() noexcept = default;
+    NgramTokenizer() = delete;
+    ~NgramTokenizer() = delete;
 
     static luisa::string normalize(luisa::string_view text);
     static bool is_cjk(char32_t cp) noexcept;
@@ -24,7 +27,7 @@ public:
     static char32_t decode_utf8(luisa::string_view text, size_t &i) noexcept;
 
     // Split text into word tokens following the rules above.
-    [[nodiscard]] luisa::vector<luisa::string> split(luisa::string_view text) const;
+    [[nodiscard]] static luisa::vector<luisa::string> split(luisa::string_view text);
 };
 
 }// namespace tokenize

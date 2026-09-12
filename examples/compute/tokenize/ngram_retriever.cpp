@@ -21,6 +21,7 @@ NgramRetriever::NgramRetriever(luisa::compute::Device &device,
     LUISA_ASSERT(min_n >= 1u, "min_n must be >= 1");
     LUISA_ASSERT(min_n <= max_n, "min_n must be <= max_n");
     LUISA_ASSERT(k >= 1u, "k must be >= 1");
+    LUISA_ASSERT(library.finalized(), "library must be finalized before retrieval");
     LUISA_ASSERT(_lib.size() > 0, "library must not be empty");
     LUISA_ASSERT(_lib.size() <= 0xFFFFFFFFu, "library exceeds uint32 indexing");
     LUISA_ASSERT(batch_capacity > 0, "batch capacity must be >= 1");

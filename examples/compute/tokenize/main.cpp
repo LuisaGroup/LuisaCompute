@@ -4,7 +4,7 @@
 // (vllm/v1/spec_decode/ngram_proposer.py) to a LuisaCompute DSL kernel.
 //
 // A corpus of documents is tokenized into a flat token-ID library
-// (NgramLibraryBuilder) and uploaded to device buffers. Retrieval —
+// (NgramLibrary) and uploaded to device buffers. Retrieval —
 // finding the earliest occurrence of a query's trailing n-gram and
 // extracting the k tokens that follow it — runs ENTIRELY in a DSL kernel;
 // the host only does I/O, buffer management and dispatch.
@@ -53,11 +53,11 @@ int run_demo(int argc, char *argv[]) {
     auto device = context.create_device(argv[1]);
     auto stream = device.create_stream();
 
-    NgramLibraryBuilder builder;
-    builder.add_document("the quick brown fox jumps over the lazy dog");
-    builder.add_document("the quick brown fox runs and the quick brown fox sleeps");
-    builder.add_document("gpu compute shaders are fast and gpu compute shaders are fun");
-    auto library = builder.finalize();
+    NgramLibrary library;
+    library.add_document("the quick brown fox jumps over the lazy dog");
+    library.add_document("the quick brown fox runs and the quick brown fox sleeps");
+    library.add_document("gpu compute shaders are fast and gpu compute shaders are fun");
+    library.finalize();
     LUISA_INFO("library: {} tokens, {} docs, vocab {}",
                library.size(), library.num_docs(), library.vocab_size);
 

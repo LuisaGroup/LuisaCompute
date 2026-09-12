@@ -107,10 +107,10 @@ void parse_options(int argc, char *argv[], BenchOptions &opt) {
     NgramLibrary lib;
     lib.tokens.assign(corpus.begin(), corpus.end());
     lib.doc_offsets.push_back(0u);
-    lib.doc_offsets.push_back(static_cast<uint32_t>(corpus.size()));
     lib.doc_lengths.push_back(static_cast<uint32_t>(corpus.size()));
     lib.vocab_size = 0;
     for (auto t : corpus) lib.vocab_size = std::max(lib.vocab_size, t + 1u);
+    lib.finalize();
     return lib;
 }
 

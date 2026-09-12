@@ -2,17 +2,14 @@
 
 #include <luisa/core/logging.h>
 
-#include <utility>
-
 namespace tokenize {
 
-NgramLibraryBuilder::NgramLibraryBuilder() noexcept = default;
-
-void NgramLibraryBuilder::add_document(luisa::string_view text) {
-    auto words = NgramTokenizer{}.split(text);
-    _doc_offsets.emplace_back(static_cast<uint32_t>(_tokens.size()));
-    _doc_lengths.emplace_back(static_cast<uint32_t>(words.size()));
-    _tokens.reserve(_tokens.size() + words.size());
+void NgramLibrary::add_document(luisa::string_view text) {
+    LUISA_ASSERT(!_finalized, "cannot add documents to a finalized library");
+    auto words = NgramTokenizer::split(text);
+    doc_offsets.emplace_back(static_cast<uint32_t>(tokens.size()));
+    doc_lengths.emplace_back(static_cast<uint32_t>(words.size()));
+    tokens.reserve(tokens.size() + words.size());
     for (auto &w : words) {
         auto it = _vocab.find(w);
         uint32_t id;
@@ -22,20 +19,17 @@ void NgramLibraryBuilder::add_document(luisa::string_view text) {
             id = _next_id++;
             _vocab.emplace(luisa::string{w}, id);
         }
-        _tokens.emplace_back(id);
+        tokens.emplace_back(id);
     }
+    vocab_size = _next_id;
 }
 
-NgramLibrary NgramLibraryBuilder::finalize() {
-    NgramLibrary lib;
-    lib.tokens = std::move(_tokens);
-    lib.doc_offsets = std::move(_doc_offsets);
-    lib.doc_lengths = std::move(_doc_lengths);
-    lib.vocab_size = _next_id;
+void NgramLibrary::finalize() {
+    LUISA_ASSERT(!_finalized, "library already finalized");
     // doc_offsets must have num_docs + 1 entries: the start of every
     // document plus the end of the last one.
-    lib.doc_offsets.emplace_back(static_cast<uint32_t>(lib.tokens.size()));
-    return lib;
+    doc_offsets.emplace_back(static_cast<uint32_t>(tokens.size()));
+    _finalized = true;
 }
 
 namespace {
