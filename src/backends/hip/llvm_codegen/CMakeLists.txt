@@ -47,6 +47,8 @@ if (LUISA_COMPUTE_HIP_LINKED_LLVM)
             hip_callable_abi.cpp
             hip_private_memory.h
             hip_private_memory.cpp
+            hip_switch_table.h
+            hip_switch_table.cpp
             hip_inlining_policy.h
             hip_inlining_policy.cpp
             hip_codegen_llvm_impl_inst.cpp
