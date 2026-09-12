@@ -39,12 +39,21 @@ enum class NgramKernelVariant : uint32_t {
 //   qlen_buf[num_queries]     actual query lengths
 //   draft_buf[num_queries * k]   draft token IDs (ngram_invalid_id padded)
 //   draft_len_buf[num_queries]   number of valid draft tokens per query
+//   req_off_buf[num_requests]   row base of each request: the global query
+//     row processed by a thread is req_off_buf[kernel_id()] + local_row,
+//     where local_row is dispatch_x() (one thread per query) or block_id().x
+//     (one block per query). A single dispatch has kernel_id() == 0, so a
+//     1-entry {0} buffer reproduces the plain flat-batch behavior; a
+//     multi-dispatch (Shader::dispatch(span<const uint3>)) gives every
+//     sub-dispatch its own index and thus its own row range, letting the
+//     device run several requests' grids from ONE command.
 using RetrieveKernel = luisa::compute::Kernel1D<void(
     luisa::compute::Buffer<uint32_t> /*lib_buf*/, uint32_t /*lib_len*/,
     luisa::compute::Buffer<uint32_t> /*query_buf*/, luisa::compute::Buffer<uint32_t> /*qlen_buf*/,
     uint32_t /*query_stride*/,
     luisa::compute::Buffer<uint32_t> /*draft_buf*/, luisa::compute::Buffer<uint32_t> /*draft_len_buf*/,
-    uint32_t /*min_n*/, uint32_t /*max_n*/, uint32_t /*k*/)>;
+    uint32_t /*min_n*/, uint32_t /*max_n*/, uint32_t /*k*/,
+    luisa::compute::Buffer<uint32_t> /*req_off_buf*/)>;
 
 // Compiled form of RetrieveKernel (Shader is templated on the kernel args).
 using RetrieveShader = luisa::compute::Shader<1,
@@ -52,9 +61,10 @@ using RetrieveShader = luisa::compute::Shader<1,
     luisa::compute::Buffer<uint32_t>, luisa::compute::Buffer<uint32_t>,
     uint32_t,
     luisa::compute::Buffer<uint32_t>, luisa::compute::Buffer<uint32_t>,
-    uint32_t, uint32_t, uint32_t>;
+    uint32_t, uint32_t, uint32_t,
+    luisa::compute::Buffer<uint32_t>>;
 
-// K3 signature: RetrieveKernel + the hash index buffers (appended).
+// K3 signature: RetrieveKernel + the hash index buffers (before req_off_buf).
 using RetrieveKernelHash = luisa::compute::Kernel1D<void(
     luisa::compute::Buffer<uint32_t>, uint32_t,
     luisa::compute::Buffer<uint32_t>, luisa::compute::Buffer<uint32_t>,
@@ -62,7 +72,8 @@ using RetrieveKernelHash = luisa::compute::Kernel1D<void(
     luisa::compute::Buffer<uint32_t>, luisa::compute::Buffer<uint32_t>,
     uint32_t, uint32_t, uint32_t,
     luisa::compute::Buffer<uint64_t> /*keys_buf*/,
-    luisa::compute::Buffer<uint32_t> /*pos_buf*/)>;
+    luisa::compute::Buffer<uint32_t> /*pos_buf*/,
+    luisa::compute::Buffer<uint32_t> /*req_off_buf*/)>;
 
 using RetrieveShaderHash = luisa::compute::Shader<1,
     luisa::compute::Buffer<uint32_t>, uint32_t,
@@ -70,7 +81,8 @@ using RetrieveShaderHash = luisa::compute::Shader<1,
     uint32_t,
     luisa::compute::Buffer<uint32_t>, luisa::compute::Buffer<uint32_t>,
     uint32_t, uint32_t, uint32_t,
-    luisa::compute::Buffer<uint64_t>, luisa::compute::Buffer<uint32_t>>;
+    luisa::compute::Buffer<uint64_t>, luisa::compute::Buffer<uint32_t>,
+    luisa::compute::Buffer<uint32_t>>;
 
 // K1: naive baseline. One thread per query scans the whole corpus for
 // every n-gram length. O(lib_len * max_n^2) per query — simple and slow,

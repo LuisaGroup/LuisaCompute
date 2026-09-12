@@ -19,8 +19,9 @@ RetrieveKernel make_retrieve_naive_kernel() noexcept {
               BufferUInt query_buf, BufferUInt qlen_buf,
               Var<uint32_t> query_stride,
               BufferUInt draft_buf, BufferUInt draft_len_buf,
-              Var<uint32_t> min_n, Var<uint32_t> max_n, Var<uint32_t> k) noexcept {
-        Var<uint32_t> qid = dispatch_x();
+              Var<uint32_t> min_n, Var<uint32_t> max_n, Var<uint32_t> k,
+              BufferUInt req_off_buf) noexcept {
+        Var<uint32_t> qid = req_off_buf->read(kernel_id()) + dispatch_x();
         Var<uint32_t> qlen = qlen_buf->read(qid);
 
         // every draft slot starts invalid; every query gets a count
@@ -81,9 +82,10 @@ RetrieveKernel make_retrieve_parallel_kernel(uint32_t block_size) noexcept {
                         BufferUInt query_buf, BufferUInt qlen_buf,
                         Var<uint32_t> query_stride,
                         BufferUInt draft_buf, BufferUInt draft_len_buf,
-                        Var<uint32_t> min_n, Var<uint32_t> max_n, Var<uint32_t> k) noexcept {
+                        Var<uint32_t> min_n, Var<uint32_t> max_n, Var<uint32_t> k,
+                        BufferUInt req_off_buf) noexcept {
         set_block_size(block_size, 1u, 1u);
-        Var<uint32_t> qid = block_id().x;
+        Var<uint32_t> qid = req_off_buf->read(kernel_id()) + block_id().x;
         Var<uint32_t> lane = thread_id().x;
         Var<uint32_t> qlen = qlen_buf->read(qid);
 
@@ -170,8 +172,9 @@ RetrieveKernelHash make_retrieve_hash_kernel(uint32_t cap_log2) noexcept {
                       Var<uint32_t> query_stride,
                       BufferUInt draft_buf, BufferUInt draft_len_buf,
                       Var<uint32_t> min_n, Var<uint32_t> max_n, Var<uint32_t> k,
-                      BufferVar<uint64_t> keys_buf, BufferUInt pos_buf) noexcept {
-        Var<uint32_t> qid = dispatch_x();
+                      BufferVar<uint64_t> keys_buf, BufferUInt pos_buf,
+                      BufferUInt req_off_buf) noexcept {
+        Var<uint32_t> qid = req_off_buf->read(kernel_id()) + dispatch_x();
         Var<uint32_t> qlen = qlen_buf->read(qid);
 
         // every draft slot starts invalid; every query gets a count

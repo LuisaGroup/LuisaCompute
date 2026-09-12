@@ -62,6 +62,55 @@ public:
                           luisa::vector<uint32_t> &draft_lens);
     void synchronize() { _stream << luisa::compute::synchronize(); }
 
+    // ---- multi-request support ----
+    // The retriever's batch capacity can be partitioned into several
+    // requests: disjoint row ranges of the shared query/draft buffers.
+    // Because stream commit is not thread-safe, every method that touches
+    // a stream takes it explicitly; callers running requests on different
+    // fibers must give each request its OWN stream (and never share one
+    // stream between concurrent fibers).
+    //
+    // The compiled kernels resolve a thread's global query row as
+    // req_off_buf[kernel_id()] + local_row, so:
+    //  - a single dispatch needs a 1-entry offsets buffer holding the
+    //    request's row base (upload_request_offsets);
+    //  - dispatch_requests_multi() needs one N-entry buffer with every
+    //    request's row base, and launches ALL requests' grids in ONE
+    //    command (sub-dispatch r reports kernel_id() == r), which the
+    //    device may execute concurrently.
+
+    // Create a 1-entry offsets buffer holding `row_base`, uploaded on `stream`.
+    [[nodiscard]] luisa::compute::Buffer<uint32_t> upload_request_offsets(
+        luisa::compute::Stream &stream, uint32_t row_base);
+    // Create an N-entry offsets buffer (one row base per request), uploaded on `stream`.
+    [[nodiscard]] luisa::compute::Buffer<uint32_t> upload_request_offsets(
+        luisa::compute::Stream &stream, luisa::span<const uint32_t> row_bases);
+
+    // Upload one request's query rows [row_base, row_base + lens.size()).
+    void upload_request(luisa::compute::Stream &stream,
+                        luisa::span<const uint32_t> queries_flat,
+                        luisa::span<const uint32_t> query_lens,
+                        uint32_t row_base);
+
+    // Single dispatch over one request's rows on `stream`.
+    // `off_buf` must hold the request's row base at index 0.
+    void dispatch_request(luisa::compute::Stream &stream,
+                          const luisa::compute::Buffer<uint32_t> &off_buf,
+                          uint32_t row_count);
+
+    // ONE multi-dispatch command over all requests: dispatch_sizes[r] is the
+    // logical thread-grid of request r (row_counts[r], or row_counts[r] *
+    // block_size for the parallel variant). `off_buf` must hold every
+    // request's row base. The caller synchronizes the stream.
+    void dispatch_requests_multi(const luisa::compute::Buffer<uint32_t> &off_buf,
+                                 luisa::span<const luisa::uint3> dispatch_sizes);
+
+    // Download one request's draft rows [row_base, row_base + row_count).
+    void download_request(luisa::compute::Stream &stream, uint32_t row_base,
+                          uint32_t row_count,
+                          luisa::vector<uint32_t> &drafts,
+                          luisa::vector<uint32_t> &draft_lens);
+
 private:
     luisa::compute::Device &_device;
     luisa::compute::Stream &_stream;
@@ -80,6 +129,7 @@ private:
     luisa::compute::Buffer<uint32_t> _qlens_buf;
     luisa::compute::Buffer<uint32_t> _drafts_buf;
     luisa::compute::Buffer<uint32_t> _draft_lens_buf;
+    luisa::compute::Buffer<uint32_t> _req_off_buf;// 1-entry {0}: flat-batch rows
 };
 
 }// namespace tokenize

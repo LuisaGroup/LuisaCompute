@@ -277,6 +277,66 @@ void register_device_tests(Device &device) {
         }
     };
 
+    // One multi-dispatch command serves several "requests" (unequal row
+    // counts); every sub-dispatch finds its row range through kernel_id()
+    // and the shared offsets buffer. Exercises the same path as the
+    // benchmark's 'multi' strategy.
+    "device_multi_dispatch_requests"_test = [&device] {
+        auto stream = device.create_stream();
+        luisa::vector<uint32_t> corpus = {1, 2, 3, 1, 2, 4, 1, 2, 5, 8, 8, 1, 2, 3, 6, 7};
+        auto lib = make_id_library(luisa::span{corpus});
+        constexpr uint32_t min_n = 2u, max_n = 3u, k = 3u;
+        // three requests with 2/1/3 rows (one row is empty, one too short)
+        luisa::vector<luisa::vector<uint32_t>> rows = {
+            {1, 2},          // request 0: trailing 2-gram matches at 0
+            {8, 8, 1, 2, 3}, // request 1: leading 3-gram of the corpus
+            {1, 2, 3, 6, 7}, // request 2
+            {5, 5},          // request 2: no match
+            {},              // request 2: empty
+            {3, 1},          // request 2: too short for min_n = 2... len 2 == min_n ok? {3,1}: trailing 2-gram {3,1} not in corpus -> no match
+        };
+        const uint32_t counts[3] = {2u, 1u, 3u};
+        const uint32_t bases[3] = {0u, 2u, 3u};
+        uint32_t max_query_len = max_n;
+        for (auto &q : rows) max_query_len = std::max(max_query_len, (uint32_t)q.size());
+        const uint32_t total_rows = 6u;
+
+        luisa::vector<uint32_t> lens(total_rows);
+        for (auto i = 0u; i < total_rows; ++i) lens[i] = (uint32_t)rows[i].size();
+        luisa::vector<uint32_t> flat(total_rows * max_query_len, 0u);
+        for (auto i = 0u; i < total_rows; ++i) {
+            std::copy_n(rows[i].begin(), rows[i].size(), flat.begin() + i * max_query_len);
+        }
+        for (auto variant : {NgramKernelVariant::naive, NgramKernelVariant::parallel,
+                            NgramKernelVariant::hash}) {
+            NgramRetriever retriever{device, stream, lib, min_n, max_n, k,
+                                     max_query_len, total_rows, variant};
+            retriever.upload_request(stream, luisa::span{flat}, luisa::span{lens}, 0u);
+            auto off_buf = retriever.upload_request_offsets(
+                stream, luisa::span{bases, 3u});
+            const uint32_t block = variant == NgramKernelVariant::parallel ? 512u : 1u;
+            const luisa::uint3 sizes[3] = {
+                luisa::make_uint3(counts[0] * block, 1u, 1u),
+                luisa::make_uint3(counts[1] * block, 1u, 1u),
+                luisa::make_uint3(counts[2] * block, 1u, 1u)};
+            retriever.dispatch_requests_multi(off_buf, luisa::span{sizes, 3u});
+            luisa::vector<uint32_t> drafts, draft_lens;
+            retriever.download_request(stream, 0u, total_rows, drafts, draft_lens);
+            stream << synchronize();
+            for (auto i = 0u; i < total_rows; ++i) {
+                auto expected = reference_retrieve(luisa::span{lib.tokens},
+                                                   luisa::span{rows[i]}, min_n, max_n, k);
+                expect(draft_lens[i] == expected.size());
+                for (size_t j = 0; j < expected.size(); ++j) {
+                    expect(drafts[i * k + j] == expected[j]);
+                }
+                for (size_t j = expected.size(); j < k; ++j) {
+                    expect(drafts[i * k + j] == ngram_invalid_id);
+                }
+            }
+        }
+    };
+
     "device_fuzz_vs_reference"_test = [&device] {
         auto stream = device.create_stream();
         std::mt19937 rng{1337};

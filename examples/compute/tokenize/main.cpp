@@ -125,7 +125,11 @@ void print_usage(const char *exe) {
                  "    --reps N                      timed repetitions (default: 20)\n"
                  "    --min-n N --max-n N --k N     retrieval parameters (2 / 4 / 5)\n"
                  "    --block-size N                threads per query, parallel kernel\n"
-                 "    --vocab N --seed N            corpus generator knobs\n",
+                 "    --vocab N --seed N            corpus generator knobs\n"
+                 "  benchmark multi-request concurrency (stages of N requests):\n"
+                 "    --requests N                  request count (0 = off, default)\n"
+                 "    --req-queries N               queries per request (default: --queries)\n"
+                 "    --multi-mode seq|pipeline|fiber|multi|all  (default: all)\n",
                  exe, exe, exe);
 }
 

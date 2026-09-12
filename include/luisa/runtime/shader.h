@@ -135,7 +135,7 @@ public:
     static void encode(ShaderDispatchCmdEncoder &encoder, const Accel &accel) noexcept;
     // see definition in runtime/bindless_array.cpp
     static void encode(ShaderDispatchCmdEncoder &encoder, const BindlessArray &array) noexcept;
-    // see definition in runtime/dispatch_buffer.cpp
+    // see definition in runtime/dispatch_buffer.cpp WARNING: Not supported by most backends
     static void encode(ShaderDispatchCmdEncoder &encoder, const IndirectDispatchBuffer &dispatch_buffer) noexcept;
     ShaderInvokeBase &operator<<(const Accel &accel) noexcept {
         encode(_encoder, accel);
@@ -146,7 +146,7 @@ public:
         encode(_encoder, array);
         return *this;
     }
-
+    // WARNING: Not supported by most backends
     ShaderInvokeBase &operator<<(const IndirectDispatchBuffer &dispatch_buffer) noexcept {
         encode(_encoder, dispatch_buffer);
         return *this;
@@ -161,6 +161,7 @@ protected:
         _encoder.set_dispatch_sizes(dispatch_sizes);
         return std::move(_encoder);
     }
+    // WARNING: Not supported by most backends
     [[nodiscard]] auto _parallelize(const IndirectDispatchBuffer &indirect_buffer,
                                     uint32_t offset = 0,
                                     uint32_t max_dispatch_size = std::numeric_limits<uint32_t>::max()) noexcept {
@@ -184,6 +185,7 @@ struct ShaderInvoke<1> : public ShaderInvokeBase {
     [[nodiscard]] auto dispatch(luisa::span<const uint3> dispatch_sizes) && noexcept {
         return this->_parallelize(dispatch_sizes).build();
     }
+    // WARNING: Not supported by most backends
     [[nodiscard]] auto dispatch(const IndirectDispatchBuffer &indirect_buffer,
                                 uint32_t offset = 0,
                                 uint32_t max_dispatch_size = std::numeric_limits<uint32_t>::max()) && noexcept {
@@ -204,6 +206,7 @@ struct ShaderInvoke<2> : public ShaderInvokeBase {
     [[nodiscard]] auto dispatch(luisa::span<const uint3> dispatch_sizes) && noexcept {
         return this->_parallelize(dispatch_sizes).build();
     }
+    // WARNING: Not supported by most backends
     [[nodiscard]] auto dispatch(const IndirectDispatchBuffer &indirect_buffer,
                                 uint32_t offset = 0,
                                 uint32_t max_dispatch_size = std::numeric_limits<uint32_t>::max()) && noexcept {
@@ -221,6 +224,7 @@ struct ShaderInvoke<3> : public ShaderInvokeBase {
     [[nodiscard]] auto dispatch(luisa::span<const uint3> dispatch_sizes) && noexcept {
         return this->_parallelize(dispatch_sizes).build();
     }
+    // WARNING: Not supported by most backends
     [[nodiscard]] auto dispatch(const IndirectDispatchBuffer &indirect_buffer,
                                 uint32_t offset = 0,
                                 uint32_t max_dispatch_size = std::numeric_limits<uint32_t>::max()) && noexcept {

@@ -42,11 +42,14 @@ NgramRetriever::NgramRetriever(luisa::compute::Device &device,
     _qlens_buf = _device.create_buffer<uint32_t>(_capacity);
     _drafts_buf = _device.create_buffer<uint32_t>(_capacity * _k);
     _draft_lens_buf = _device.create_buffer<uint32_t>(_capacity);
+    _req_off_buf = _device.create_buffer<uint32_t>(1u);
 
     // one-shot library upload; retrieval calls chain on the same stream
+    const uint32_t zero_row_base = 0u;
     _stream << _lib.tokens_buf.view().copy_from(luisa::span{_lib.tokens})
             << _lib.offsets_buf.view().copy_from(luisa::span{_lib.doc_offsets})
-            << _lib.lengths_buf.view().copy_from(luisa::span{_lib.doc_lengths});
+            << _lib.lengths_buf.view().copy_from(luisa::span{_lib.doc_lengths})
+            << _req_off_buf.view().copy_from(luisa::span{&zero_row_base, 1u});
 
     switch (_variant) {
         case NgramKernelVariant::naive:
@@ -99,14 +102,14 @@ void NgramRetriever::dispatch_queries(size_t num_queries) {
             _stream << _shader(_lib.tokens_buf, static_cast<uint32_t>(_lib.size()),
                                _queries_buf, _qlens_buf, _query_stride,
                                _drafts_buf, _draft_lens_buf,
-                               _min_n, _max_n, _k)
+                               _min_n, _max_n, _k, _req_off_buf)
                            .dispatch(static_cast<uint32_t>(num_queries));
             break;
         case NgramKernelVariant::parallel:
             _stream << _shader(_lib.tokens_buf, static_cast<uint32_t>(_lib.size()),
                                _queries_buf, _qlens_buf, _query_stride,
                                _drafts_buf, _draft_lens_buf,
-                               _min_n, _max_n, _k)
+                               _min_n, _max_n, _k, _req_off_buf)
                            .dispatch(static_cast<uint32_t>(num_queries) * _block_size);
             break;
         case NgramKernelVariant::hash:
@@ -114,7 +117,8 @@ void NgramRetriever::dispatch_queries(size_t num_queries) {
                                     _queries_buf, _qlens_buf, _query_stride,
                                     _drafts_buf, _draft_lens_buf,
                                     _min_n, _max_n, _k,
-                                    _hash_index.keys_buf, _hash_index.pos_buf)
+                                    _hash_index.keys_buf, _hash_index.pos_buf,
+                                    _req_off_buf)
                            .dispatch(static_cast<uint32_t>(num_queries));
             break;
     }
@@ -152,6 +156,121 @@ void NgramRetriever::retrieve(luisa::span<const luisa::vector<uint32_t>> queries
                     flat.begin() + i * _query_stride);
     }
     retrieve(luisa::span{flat}, luisa::span{lens}, drafts, draft_lens);
+}
+
+luisa::compute::Buffer<uint32_t> NgramRetriever::upload_request_offsets(
+    luisa::compute::Stream &stream, uint32_t row_base) {
+    return upload_request_offsets(stream, luisa::span{&row_base, 1u});
+}
+
+luisa::compute::Buffer<uint32_t> NgramRetriever::upload_request_offsets(
+    luisa::compute::Stream &stream, luisa::span<const uint32_t> row_bases) {
+    LUISA_ASSERT(row_bases.size() > 0, "at least one row base is required");
+    auto buf = _device.create_buffer<uint32_t>(row_bases.size());
+    stream << buf.view().copy_from(row_bases);
+    return buf;
+}
+
+void NgramRetriever::upload_request(luisa::compute::Stream &stream,
+                                    luisa::span<const uint32_t> queries_flat,
+                                    luisa::span<const uint32_t> query_lens,
+                                    uint32_t row_base) {
+    const auto row_count = query_lens.size();
+    LUISA_ASSERT(row_count > 0, "upload_request() requires at least one row");
+    LUISA_ASSERT(row_base + row_count <= _capacity,
+                 "request rows [{}..{}) exceed capacity {}", row_base,
+                 row_base + row_count, _capacity);
+    LUISA_ASSERT(queries_flat.size() == row_count * _query_stride,
+                 "queries_flat size {} != row_count * query_stride {}",
+                 queries_flat.size(), row_count * _query_stride);
+    for (auto len : query_lens) {
+        LUISA_ASSERT(len <= _query_stride,
+                     "query length {} exceeds query_stride {}", len, _query_stride);
+    }
+    stream << _queries_buf.view(row_base * _query_stride, row_count * _query_stride)
+                  .copy_from(queries_flat)
+            << _qlens_buf.view(row_base, row_count).copy_from(query_lens);
+}
+
+void NgramRetriever::dispatch_request(luisa::compute::Stream &stream,
+                                      const luisa::compute::Buffer<uint32_t> &off_buf,
+                                      uint32_t row_count) {
+    LUISA_ASSERT(row_count > 0, "dispatch_request() requires at least one row");
+    switch (_variant) {
+        case NgramKernelVariant::naive:
+            stream << _shader(_lib.tokens_buf, static_cast<uint32_t>(_lib.size()),
+                              _queries_buf, _qlens_buf, _query_stride,
+                              _drafts_buf, _draft_lens_buf,
+                              _min_n, _max_n, _k, off_buf)
+                          .dispatch(row_count);
+            break;
+        case NgramKernelVariant::parallel:
+            stream << _shader(_lib.tokens_buf, static_cast<uint32_t>(_lib.size()),
+                              _queries_buf, _qlens_buf, _query_stride,
+                              _drafts_buf, _draft_lens_buf,
+                              _min_n, _max_n, _k, off_buf)
+                          .dispatch(row_count * _block_size);
+            break;
+        case NgramKernelVariant::hash:
+            stream << _shader_hash(_lib.tokens_buf, static_cast<uint32_t>(_lib.size()),
+                                   _queries_buf, _qlens_buf, _query_stride,
+                                   _drafts_buf, _draft_lens_buf,
+                                   _min_n, _max_n, _k,
+                                   _hash_index.keys_buf, _hash_index.pos_buf,
+                                   off_buf)
+                          .dispatch(row_count);
+            break;
+    }
+}
+
+void NgramRetriever::dispatch_requests_multi(
+    const luisa::compute::Buffer<uint32_t> &off_buf,
+    luisa::span<const luisa::uint3> dispatch_sizes) {
+    LUISA_ASSERT(dispatch_sizes.size() > 0, "at least one request is required");
+    for (auto size : dispatch_sizes) {
+        LUISA_ASSERT(size.x > 0u && size.y == 1u && size.z == 1u,
+                     "invalid multi-request dispatch size ({}, {}, {})",
+                     size.x, size.y, size.z);
+    }
+    switch (_variant) {
+        case NgramKernelVariant::naive:
+            _stream << _shader(_lib.tokens_buf, static_cast<uint32_t>(_lib.size()),
+                               _queries_buf, _qlens_buf, _query_stride,
+                               _drafts_buf, _draft_lens_buf,
+                               _min_n, _max_n, _k, off_buf)
+                           .dispatch(dispatch_sizes);
+            break;
+        case NgramKernelVariant::parallel:
+            _stream << _shader(_lib.tokens_buf, static_cast<uint32_t>(_lib.size()),
+                               _queries_buf, _qlens_buf, _query_stride,
+                               _drafts_buf, _draft_lens_buf,
+                               _min_n, _max_n, _k, off_buf)
+                           .dispatch(dispatch_sizes);
+            break;
+        case NgramKernelVariant::hash:
+            _stream << _shader_hash(_lib.tokens_buf, static_cast<uint32_t>(_lib.size()),
+                                    _queries_buf, _qlens_buf, _query_stride,
+                                    _drafts_buf, _draft_lens_buf,
+                                    _min_n, _max_n, _k,
+                                    _hash_index.keys_buf, _hash_index.pos_buf,
+                                    off_buf)
+                           .dispatch(dispatch_sizes);
+            break;
+    }
+}
+
+void NgramRetriever::download_request(luisa::compute::Stream &stream,
+                                      uint32_t row_base, uint32_t row_count,
+                                      luisa::vector<uint32_t> &drafts,
+                                      luisa::vector<uint32_t> &draft_lens) {
+    LUISA_ASSERT(row_count > 0, "download_request() requires at least one row");
+    LUISA_ASSERT(row_base + row_count <= _capacity,
+                 "request rows [{}..{}) exceed capacity {}", row_base,
+                 row_base + row_count, _capacity);
+    drafts.resize(row_count * _k);
+    draft_lens.resize(row_count);
+    stream << _drafts_buf.view(row_base * _k, row_count * _k).copy_to(luisa::span{drafts})
+            << _draft_lens_buf.view(row_base, row_count).copy_to(luisa::span{draft_lens});
 }
 
 }// namespace tokenize
