@@ -95,7 +95,11 @@ _config_project({
 })
 add_deps("lc-runtime", "lc-vstl", "lc-hlsl-codegen",
          "lc-glslang-standalone", "lc-vk-validate-spirv",
-         "lc-vk-embed-device-lib")
+         "lc-vk-embed-device-lib", "lc-tile")
+-- The shared Tile XIR->AST fallback (../common/tile_xir_kernel.h) reports
+-- backend failures through metadata.error with C++ exceptions, like the CUDA
+-- backend's native Tile compiler.
+set_exceptions("cxx")
 add_headerfiles("*.h")
 add_files("*.cpp")
 lc_set_pcxxheader("lc_vk_pch.h")

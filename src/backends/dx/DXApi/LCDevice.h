@@ -59,6 +59,9 @@ public:
                                  const StreamLogCallback &callback) noexcept override;
     // kernel
     ShaderCreationInfo create_shader(const ShaderOption &option, Function kernel) noexcept override;
+    ShaderCreationInfo create_tile_kernel(const ShaderOption &option, const tile::Function &kernel,
+                                          const tile::CompileOptions &tile_options,
+                                          tile::KernelMetadata &metadata) noexcept override;
     ShaderCreationInfo load_shader(vstd::string_view file_name, vstd::span<Type const *const> types) noexcept override;
     Usage shader_argument_usage(uint64_t handle, size_t index) noexcept override;
     void destroy_shader(uint64_t handle) noexcept override;

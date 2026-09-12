@@ -157,6 +157,10 @@ public:
     [[nodiscard]] virtual ShaderCreationInfo create_shader(const ShaderOption &option, Function kernel) noexcept = 0;
     // Optional native Tile compiler. The runtime owns the ordinary shader and
     // dispatch ABI; it does not depend on the Tile compiler or an external IR.
+    // Backends without a native Tile compiler may instead realize Tile kernels
+    // through the shared XIR->AST fallback helper
+    // (src/backends/common/tile_xir_kernel.h): TileIR -> XIR bridge -> xir2ast
+    // -> the backend's ordinary create_shader entry.
     [[nodiscard]] virtual ShaderCreationInfo create_tile_kernel(
         const ShaderOption &option, const tile::Function &kernel,
         const tile::CompileOptions &tile_options,
