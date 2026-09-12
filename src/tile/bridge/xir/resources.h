@@ -165,7 +165,10 @@ private:
                     }
                     break;
                 case OperationKind::MMA:
-                    if (op->result(0u)->type().scalar_type() == ScalarType::BFLOAT16) {
+                    // BF16 accumulators fold in FP32 under the default
+                    // reassociation policy (wide accumulation); the reference
+                    // order policy keeps requiring an explicit FP32 accumulator.
+                    if (op->result(0u)->type().scalar_type() == ScalarType::BFLOAT16 && !op->mma_policy().allow_reassociation) {
                         return _error("Tile to XIR: BF16 MMA accumulation requires an explicit FP32 accumulator");
                     }
                     break;

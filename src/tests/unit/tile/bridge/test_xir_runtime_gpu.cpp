@@ -37,6 +37,17 @@ namespace {
     });
 }
 
+// Storage-precision comparison for F16/BF16 accumulators: the contraction
+// folds in FP32 (wide accumulation) and rounds once at write-back, so only
+// the final element type's storage precision is observable.
+[[nodiscard]] bool close_storage(span<const float> actual, span<const double> expected) {
+    if (actual.size() != expected.size()) { return false; }
+    for (size_t i = 0u; i < actual.size(); i++) {
+        if (!std::isfinite(actual[i]) || std::abs(actual[i] - expected[i]) > 2e-2 + 2e-2 * std::abs(expected[i])) { return false; }
+    }
+    return true;
+}
+
 void check_metadata_basics(const tile::KernelMetadata &metadata, size_t argument_count) {
     expect(metadata.error.empty());
     expect(eq(metadata.arguments.size(), argument_count));
@@ -179,8 +190,8 @@ void reduction_fold_policies(Device &device) {
             auto input = device.create_buffer<float>(values.size());
             auto output = device.create_buffer<float>(actual.size());
             auto stream = device.create_stream(StreamTag::COMPUTE);
-            stream << input.copy_from(values.data()) << shader(input, output).dispatch()
-                   << output.copy_to(actual.data()) << synchronize();
+            stream << input.copy_from(span{values}) << shader(input, output).dispatch()
+                   << output.copy_to(span{actual}) << synchronize();
             for (auto r = int64_t{0}; r < rows; r++) {
                 auto reference = cases::reference(span<const float>{values}.subspan(r * stride, width), seed);
                 for (auto mode = int64_t{0}; mode < cases::outputs; mode++) {
@@ -389,11 +400,69 @@ void overlapping_writable_views(Device &device) {
     }
 }
 
+// MMA contraction on real hardware: FP32 with a depth beyond the unroll bound
+// (130 = 16 full chunks + a 2-step tail), plus F16/BF16 accumulators, which
+// the XIR bridge realizes as FP32 accumulation with a single rounding at
+// write-back (wide accumulation). Reference values come from a double oracle.
+void mma_accumulation(Device &device) {
+    using namespace tile;
+    constexpr int64_t m = 4, n = 5;
+    auto values_a = [](int64_t i, int64_t l) { return static_cast<float>((i * 7 + l * 3) % 23 - 11) / 16.0f; };
+    auto values_b = [](int64_t l, int64_t j) { return static_cast<float>((l * 5 + j * 11) % 19 - 9) / 8.0f; };
+    auto run = [&](int64_t k, int64_t variant, bool storage_precision) {
+        auto kernel = tile_kernel("gpu_mma", [=](TensorView<const float, 2> A, TensorView<const float, 2> B, TensorView<float, 2> C) {
+            auto i = axis("i", m), j = axis("j", n), l = axis("l", k);
+            for (auto &nest : parallel(shape(1))) {
+                auto a = A.tile(coord(0, 0), shape(i, l)).load();
+                auto b = B.tile(coord(0, 0), shape(l, j)).load();
+                if (variant == 0) {
+                    C(coord(0, 0), shape(i, j)).store(mma(a, b, zeros<float>(shape(i, j))));
+                } else if (variant == 1) {
+                    C(coord(0, 0), shape(i, j)).store(cast<float>(mma(cast<half>(a), cast<half>(b), zeros<half>(shape(i, j)))));
+                } else {
+                    C(coord(0, 0), shape(i, j)).store(cast<float>(mma(cast<bfloat16>(a), cast<bfloat16>(b), zeros<bfloat16>(shape(i, j)))));
+                }
+            }
+        }).capture(tensor_shape(m, k), tensor_shape(k, n), tensor_shape(m, n));
+        auto shader = tile::compile(device, kernel, {}, {.enable_fast_math = false});
+        expect(static_cast<bool>(shader)) << shader.metadata().error;
+        if (!shader) { return; }
+        check_metadata_basics(shader.metadata(), 3u);
+        vector<float> va(static_cast<size_t>(m) * k), vb(static_cast<size_t>(k) * n);
+        vector<double> expected(static_cast<size_t>(m) * n, 0.0);
+        for (int64_t i = 0; i < m; i++) {
+            for (int64_t l = 0; l < k; l++) {
+                va[static_cast<size_t>(i) * k + l] = values_a(i, l);
+                for (int64_t j = 0; j < n; j++) {
+                    if (i == 0) { vb[static_cast<size_t>(l) * n + j] = values_b(l, j); }
+                    expected[static_cast<size_t>(i) * n + j] += static_cast<double>(values_a(i, l)) * values_b(l, j);
+                }
+            }
+        }
+        auto a = device.create_buffer<float>(va.size());
+        auto b = device.create_buffer<float>(vb.size());
+        auto c = device.create_buffer<float>(expected.size());
+        auto stream = device.create_stream(StreamTag::COMPUTE);
+        auto actual = vector<float>(expected.size(), 0.0f);
+        stream << a.copy_from(span{va}) << b.copy_from(span{vb})
+               << shader(a, b, c).dispatch() << c.copy_to(span{actual}) << synchronize();
+        if (storage_precision) {
+            expect(close_storage(span{actual}, span{expected})) << "variant " << variant;
+        } else {
+            expect(close(span{actual}, span{expected})) << "variant " << variant;
+        }
+    };
+    run(130, 0, false);
+    run(32, 1, true);
+    run(32, 2, true);
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     auto [context, device] = test::create_device(argc, argv);
+    "tile_xir_runtime_gpu_mma_accumulation"_test = [&] { mma_accumulation(device); };
     "tile_xir_runtime_gpu_pointwise_map_store"_test = [&] { pointwise_map_store(device); };
     "tile_xir_runtime_gpu_copy_and_transpose"_test = [&] { copy_transpose(device); };
     "tile_xir_runtime_gpu_reduction_fold_policies"_test = [&] { reduction_fold_policies(device); };

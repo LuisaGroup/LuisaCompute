@@ -246,11 +246,20 @@ test_proj("test_tile_types", "unit/tile/test_tile_types.cpp", false, function()
     add_includedirs("$(projectdir)/examples")
 end)
 test_proj("benchmark_tile_migrated", "benchmark/benchmark_tile_migrated.cpp", false, function()
+    add_deps("lc-tile")
     add_includedirs("$(projectdir)/examples")
 end)
 -- TileIR -> XIR -> AST -> create_shader fallback on DX/VK; run with
 -- `xmake run test_tile_xir_runtime_gpu dx` (or vk).
+test_proj("test_tile_xir", "unit/tile/bridge/test_xir.cpp", false, function()
+    add_deps("lc-tile")
+end)
 test_proj("test_tile_xir_runtime_gpu", "unit/tile/bridge/test_xir_runtime_gpu.cpp", false, function()
+    add_deps("lc-tile")
+end)
+-- GEMM benchmark through the same XIR->AST fallback on GPU backends; run with
+-- `xmake run benchmark_tile_xir_gpu -- dx 1024 1024 1024 16 16 128`.
+test_proj("benchmark_tile_xir_gpu", "benchmark/benchmark_tile_xir_gpu.cpp", false, function()
     add_deps("lc-tile")
 end)
 for _, standard in ipairs({20, 23}) do

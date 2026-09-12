@@ -3,6 +3,7 @@
 #include <luisa/tile/bridge/xir/lower.h>
 #include <luisa/tile/bridge/xir/planner.h>
 #include <luisa/tile/verifier.h>
+#include <luisa/ast/type.h>
 #include <luisa/tile/algorithms.h>
 #include <luisa/xir/verifier.h>
 #include <luisa/xir/instructions/alloca.h>
@@ -800,8 +801,112 @@ int main(int argc, char *argv[]) {
             auto options = bridge::xir::PlannerOptions{};
             options.cost.arithmetic = -1.0;
             expect(!bridge::xir::plan(kernel.function(), {8u, 8u}, options));
-            expect(bridge::xir::lower(kernel.function(), {.root_axis_order = result.selected.root_axis_order}).ok());
-            expect(!bridge::xir::lower(kernel.function(), {.root_axis_order = {0u, 0u}}));
-        }
-    };
-}
+              expect(bridge::xir::lower(kernel.function(), {.root_axis_order = result.selected.root_axis_order}).ok());
+              expect(!bridge::xir::lower(kernel.function(), {.root_axis_order = {0u, 0u}}));
+          }
+      };
+      // Bounded MMA contractions emit the legacy k_pack mainloop: one runtime
+      // loop whose body holds 8 unrolled products, plus an unrolled residual
+      // tail. The lexicographic accumulation order is unchanged (muls appear
+      // in the same k order as the serial baseline, only emission changes).
+      "tile_xir_mma_fold_unrolls_by_eight"_test = [] {
+          using namespace tile;
+          auto fixture = [](const char *name, int64_t depth) {
+              constexpr int64_t rows = 1, columns = 1;
+              return tile_kernel(name, [=](TensorView<const float, 2> A, TensorView<const float, 2> B, TensorView<float, 2> C) {
+                         auto i = axis("i", rows), j = axis("j", columns), l = axis("l", depth);
+                         for (auto &nest : parallel(shape(1))) {
+                             auto a = A.tile(coord(0, 0), shape(i, l)).load();
+                             auto b = B.tile(coord(0, 0), shape(l, j)).load();
+                             C(coord(0, 0), shape(i, j)).store(mma(a, b, zeros<float>(shape(i, j))));
+                         }
+                     })
+                  .capture(tensor_shape(rows, depth), tensor_shape(depth, columns), tensor_shape(rows, columns));
+          };
+          auto count_float_muls = [](const bridge::xir::NativeFunction &lowered) {
+              size_t muls = 0u;
+              lowered.function->traverse_instructions([&](xir::Instruction *inst) noexcept {
+                  if (inst->isa<xir::ArithmeticInst>() && inst->type()->is_float32() &&
+                      static_cast<xir::ArithmeticInst *>(inst)->op() == xir::ArithmeticOp::BINARY_MUL) { muls++; }
+              });
+              return muls;
+          };
+          // 128 = 16 full chunks, no tail: the single runtime-loop body holds
+          // exactly 8 products (the serial baseline emitted exactly 1).
+          auto full = bridge::xir::lower(fixture("mma_unroll_full", 128).function());
+          expect(full.ok()) << full.error;
+          if (full) {
+              expect(eq(count_float_muls(full), size_t{8u}));
+              expect(xir::xir_verify_module(full.module.get(), {.require_reachable_blocks = true}).succeeded());
+          }
+          // 130 = 16 chunks + a 2-step unrolled tail after the loop exit.
+          auto tailed = bridge::xir::lower(fixture("mma_unroll_tailed", 130).function());
+          expect(tailed.ok()) << tailed.error;
+          if (tailed) { expect(eq(count_float_muls(tailed), size_t{10u})); }
+          // 64 is the unroll bound itself: still the fully expanded baseline.
+          auto expanded = bridge::xir::lower(fixture("mma_unroll_expanded", 64).function());
+          expect(expanded.ok()) << expanded.error;
+          if (expanded) { expect(eq(count_float_muls(expanded), size_t{64u})); }
+      };
+      // Wide accumulation: F16/BF16 MMA accumulators lower successfully and
+      // fold in FP32 (products are float-typed); the reference order policy
+      // keeps folding in the declared accumulator type instead.
+      "tile_xir_mma_wide_accumulation"_test = [] {
+          using namespace tile;
+          constexpr int64_t rows = 2, columns = 3, depth = 8;
+          auto fixture = [](const char *name, int64_t variant) {
+              return tile_kernel(name, [=](TensorView<const float, 2> A, TensorView<const float, 2> B, TensorView<float, 2> C) {
+                         auto i = axis("i", rows), j = axis("j", columns), l = axis("l", depth);
+                         for (auto &nest : parallel(shape(1))) {
+                             auto a = A.tile(coord(0, 0), shape(i, l)).load();
+                             auto b = B.tile(coord(0, 0), shape(l, j)).load();
+                             if (variant == 0) {
+                                 C(coord(0, 0), shape(i, j)).store(mma(a, b, zeros<float>(shape(i, j))));
+                             } else if (variant == 1) {
+                                 C(coord(0, 0), shape(i, j)).store(cast<float>(mma(cast<half>(a), cast<half>(b), zeros<half>(shape(i, j)))));
+                             } else if (variant == 2) {
+                                 C(coord(0, 0), shape(i, j)).store(cast<float>(mma(cast<bfloat16>(a), cast<bfloat16>(b), zeros<bfloat16>(shape(i, j)))));
+                             } else {
+                                 MmaPolicy policy{};
+                                 policy.allow_reassociation = false;
+                                 C(coord(0, 0), shape(i, j)).store(cast<float>(mma(cast<half>(a), cast<half>(b), zeros<half>(shape(i, j)), policy)));
+                             }
+                         }
+                     })
+                  .capture(tensor_shape(rows, depth), tensor_shape(depth, columns), tensor_shape(rows, columns));
+          };
+          auto count_muls = [](const bridge::xir::NativeFunction &lowered, bool half_precision) {
+              size_t muls = 0u;
+              lowered.function->traverse_instructions([&](xir::Instruction *inst) noexcept {
+                  if (!inst->isa<xir::ArithmeticInst>()) { return; }
+                  auto arithmetic = static_cast<xir::ArithmeticInst *>(inst);
+                  if (arithmetic->op() != xir::ArithmeticOp::BINARY_MUL) { return; }
+                  muls += half_precision ? inst->type()->is_float16() : inst->type()->is_float32();
+              });
+              return muls;
+          };
+          constexpr auto products = static_cast<size_t>(rows * columns * depth);
+          auto control = bridge::xir::lower(fixture("mma_acc_control", 0).function());
+          expect(control.ok()) << control.error;
+          if (control) { expect(eq(count_muls(control, false), products)); }
+          auto f16 = bridge::xir::lower(fixture("mma_acc_f16", 1).function());
+          expect(f16.ok()) << f16.error;
+          if (f16) {
+              expect(eq(count_muls(f16, false), products));
+              expect(eq(count_muls(f16, true), size_t{0u}));
+              expect(xir::xir_verify_module(f16.module.get(), {.require_reachable_blocks = true}).succeeded());
+          }
+          auto bf16 = bridge::xir::lower(fixture("mma_acc_bf16", 2).function());
+          expect(bf16.ok()) << bf16.error;
+          if (bf16) {
+              expect(eq(count_muls(bf16, false), products));
+              expect(xir::xir_verify_module(bf16.module.get(), {.require_reachable_blocks = true}).succeeded());
+          }
+          auto reference = bridge::xir::lower(fixture("mma_acc_reference", 3).function());
+          expect(reference.ok()) << reference.error;
+          if (reference) {
+              expect(eq(count_muls(reference, true), products));
+              expect(eq(count_muls(reference, false), size_t{0u}));
+          }
+      };
+  }

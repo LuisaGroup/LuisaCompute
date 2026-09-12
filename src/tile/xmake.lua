@@ -19,8 +19,12 @@ add_headerfiles("../../include/luisa/tile/**.h", "../../include/luisa/tile.h")
 add_files("*.cpp", "bridge/xir/**.cpp")
 -- The TIRx bridge translation units define same-named anonymous-namespace
 -- helpers (e.g. ElementDomain) that collide when merged by the unity build,
--- so they are always compiled as standalone units.
-add_files("bridge/tirx/**.cpp", {unity_ignored = true})
+-- so they are always compiled as standalone units. The files are only added
+-- when the bridge is enabled: remove_files with a glob does not match inside
+-- on_load, so an else-branch removal cannot exclude them.
+if has_config("lc_tile_tirx_bridge") then
+    add_files("bridge/tirx/**.cpp", {unity_ignored = true})
+end
 add_defines("LUISA_TILE_XIR_BRIDGE_EXPORT_DLL")
 
 on_load(function(target)
@@ -40,8 +44,6 @@ on_load(function(target)
         elseif is_plat("linux") then
             target:add("rpathdirs", "$ORIGIN")
         end
-    else
-        target:add("remove_files", "bridge/tirx/*.cpp")
     end
 end)
 
