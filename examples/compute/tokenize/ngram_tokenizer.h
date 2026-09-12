@@ -4,21 +4,27 @@
 
 namespace tokenize {
 
+// UTF-8 aware word splitter used to build the n-gram token library.
+//
+// Tokenization rules:
+//   - text is normalized with normalize() first;
+//   - ASCII alphanumeric runs become one token each;
+//   - whitespace and punctuation separate tokens;
+//   - CJK codepoints (see is_cjk) become one token each;
+//   - any other (non-CJK) multibyte codepoint becomes one token each.
 class NgramTokenizer {
 public:
-    explicit NgramTokenizer(int n = 2) noexcept : _n(n) {}
+    NgramTokenizer() noexcept = default;
 
     static luisa::string normalize(luisa::string_view text);
     static bool is_cjk(char32_t cp) noexcept;
 
-    int detect_n(luisa::string_view text) const;
-    luisa::vector<luisa::string> tokenize(luisa::string_view text, int n = -1) const;
+    // Decode one UTF-8 codepoint at text[i], advancing i past its bytes.
+    // Malformed bytes are consumed one at a time and decoded as U+FFFD.
+    static char32_t decode_utf8(luisa::string_view text, size_t &i) noexcept;
 
-    // Batch tokenization: embarrassingly parallel over documents
-    luisa::vector<luisa::vector<luisa::string>> tokenize_batch(const luisa::vector<luisa::string> &texts, int n = -1) const;
-
-private:
-    int _n;
+    // Split text into word tokens following the rules above.
+    [[nodiscard]] luisa::vector<luisa::string> split(luisa::string_view text) const;
 };
 
 }// namespace tokenize

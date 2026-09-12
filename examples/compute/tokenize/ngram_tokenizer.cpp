@@ -1,21 +1,14 @@
 #include "ngram_tokenizer.h"
-#include <luisa/vstl/string_utility.h>
-#include <luisa/core/fiber.h>
+
 #include <cctype>
 
 namespace tokenize {
 
 luisa::string NgramTokenizer::normalize(luisa::string_view text) {
     luisa::string s{text};
-    vstd::StringUtil::to_lower(s);
-    bool ascii = true;
-    for (char c : s) {
-        if (static_cast<unsigned char>(c) > 127) {
-            ascii = false;
-            break;
-        }
+    for (auto &c : s) {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     }
-    if (ascii) return s;
     return s;
 }
 
@@ -28,79 +21,75 @@ bool NgramTokenizer::is_cjk(char32_t cp) noexcept {
            (cp >= 0x20000 && cp <= 0x2EBEF);
 }
 
-int NgramTokenizer::detect_n(luisa::string_view text) const {
-    if (text.empty()) return _n;
-    bool ascii = true;
-    for (char c : text) {
-        if (static_cast<unsigned char>(c) > 127) {
-            ascii = false;
-            break;
-        }
+char32_t NgramTokenizer::decode_utf8(luisa::string_view text, size_t &i) noexcept {
+    const auto n = text.size();
+    const auto start = i;
+    const auto byte_at = [&](size_t k) noexcept {
+        return static_cast<unsigned char>(text[k]);
+    };
+    unsigned char c = byte_at(i);
+    if (c < 0x80) {
+        ++i;
+        return static_cast<char32_t>(c);
     }
-    if (ascii) return (_n < 3) ? 3 : _n;
-
-    size_t cjk_count = 0;
-    size_t threshold = text.size() * 3 / 10;
-    for (size_t i = 0; i < text.size();) {
-        unsigned char c = static_cast<unsigned char>(text[i]);
-        char32_t cp = 0;
-        if (c < 0x80) {
-            cp = c;
-            ++i;
-        } else if ((c & 0xE0) == 0xC0 && i + 1 < text.size()) {
-            cp = ((c & 0x1F) << 6) | (static_cast<unsigned char>(text[i + 1]) & 0x3F);
-            i += 2;
-        } else if ((c & 0xF0) == 0xE0 && i + 2 < text.size()) {
-            cp = ((c & 0x0F) << 12) |
-                 ((static_cast<unsigned char>(text[i + 1]) & 0x3F) << 6) |
-                 (static_cast<unsigned char>(text[i + 2]) & 0x3F);
-            i += 3;
-        } else if (i + 3 < text.size()) {
-            cp = ((c & 0x07) << 18) |
-                 ((static_cast<unsigned char>(text[i + 1]) & 0x3F) << 12) |
-                 ((static_cast<unsigned char>(text[i + 2]) & 0x3F) << 6) |
-                 (static_cast<unsigned char>(text[i + 3]) & 0x3F);
-            i += 4;
-        } else {
-            ++i;
-            continue;
-        }
-        if (is_cjk(cp)) {
-            ++cjk_count;
-            if (cjk_count > threshold) return 2;
-        }
+    if ((c & 0xE0) == 0xC0 && i + 1 < n) {
+        char32_t cp = ((c & 0x1F) << 6) | (byte_at(i + 1) & 0x3F);
+        i += 2;
+        return cp;
     }
-    return (_n < 3) ? 3 : _n;
+    if ((c & 0xF0) == 0xE0 && i + 2 < n) {
+        char32_t cp = ((c & 0x0F) << 12) |
+                      ((byte_at(i + 1) & 0x3F) << 6) |
+                      (byte_at(i + 2) & 0x3F);
+        i += 3;
+        return cp;
+    }
+    if ((c & 0xF8) == 0xF0 && i + 3 < n) {
+        char32_t cp = ((c & 0x07) << 18) |
+                      ((byte_at(i + 1) & 0x3F) << 12) |
+                      ((byte_at(i + 2) & 0x3F) << 6) |
+                      (byte_at(i + 3) & 0x3F);
+        i += 4;
+        return cp;
+    }
+    // Malformed sequence: consume one byte and return U+FFFD.
+    ++i;
+    (void)start;
+    return 0xFFFD;
 }
 
-luisa::vector<luisa::string> NgramTokenizer::tokenize(luisa::string_view text, int n) const {
+luisa::vector<luisa::string> NgramTokenizer::split(luisa::string_view text) const {
     luisa::string norm = normalize(text);
-    size_t start = 0;
-    while (start < norm.size() && std::isspace(static_cast<unsigned char>(norm[start]))) ++start;
-    size_t end = norm.size();
-    while (end > start && std::isspace(static_cast<unsigned char>(norm[end - 1]))) --end;
-    luisa::string_view trimmed(norm.data() + start, end - start);
-    if (trimmed.empty()) return {};
-
-    int use_n = (n >= 0) ? n : detect_n(trimmed);
-    luisa::vector<luisa::string> result;
-    if (static_cast<int>(trimmed.size()) < use_n) {
-        result.emplace_back(trimmed);
-        return result;
+    luisa::vector<luisa::string> tokens;
+    const auto n = norm.size();
+    auto is_ascii_delim = [](char c) noexcept {
+        auto uc = static_cast<unsigned char>(c);
+        return std::isspace(uc) || std::ispunct(uc);
+    };
+    size_t i = 0;
+    while (i < n) {
+        unsigned char c = static_cast<unsigned char>(norm[i]);
+        if (c < 0x80) {
+            if (is_ascii_delim(norm[i])) {
+                ++i;
+                continue;
+            }
+            size_t j = i;
+            while (j < n) {
+                unsigned char cj = static_cast<unsigned char>(norm[j]);
+                if (cj >= 0x80 || is_ascii_delim(norm[j])) break;
+                ++j;
+            }
+            tokens.emplace_back(norm.substr(i, j - i));
+            i = j;
+        } else {
+            size_t begin = i;
+            decode_utf8(norm, i);
+            // One token per multibyte codepoint (CJK or not).
+            tokens.emplace_back(norm.substr(begin, i - begin));
+        }
     }
-    for (size_t i = 0; i + use_n <= trimmed.size(); ++i) {
-        result.emplace_back(trimmed.substr(i, use_n));
-    }
-    return result;
-}
-
-luisa::vector<luisa::vector<luisa::string>> NgramTokenizer::tokenize_batch(const luisa::vector<luisa::string> &texts, int n) const {
-    if (texts.empty()) return {};
-    luisa::vector<luisa::vector<luisa::string>> results(texts.size());
-    luisa::fiber::parallel(static_cast<uint32_t>(texts.size()), [&](uint32_t i) noexcept {
-        results[i] = tokenize(texts[i], n);
-    });
-    return results;
+    return tokens;
 }
 
 }// namespace tokenize
