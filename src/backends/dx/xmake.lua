@@ -5,10 +5,6 @@ _config_project({
     batch_size = 8
 })
 add_deps("lc-runtime", "lc-vstl", "lc-hlsl-codegen", "lc-tile")
--- The shared Tile XIR->AST fallback (../common/tile_xir_kernel.h) reports
--- backend failures through metadata.error with C++ exceptions, like the CUDA
--- backend's native Tile compiler.
-set_exceptions("cxx")
 add_files("**.cpp")
 add_headerfiles("**.h")
 add_includedirs("./")
