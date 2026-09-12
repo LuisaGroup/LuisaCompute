@@ -271,11 +271,18 @@ private:
     int64_t _max_mesh_level = -1;
     int64_t _max_accel_read_level = -1;
     int64_t _max_accel_write_level = -1;
+    // Per-layer intrusive lists of reordered commands. Backends walk each
+    // layer from head to tail, so commands must be appended at the tail to
+    // preserve the source commit order within a layer. (Prepending used to
+    // reverse same-layer order, letting a later upload overtake an earlier
+    // in-list consumer of the same resource; see issue #254.)
     struct CommandLink {
         Command const *cmd;
         CommandLink const *p_next;
     };
     vstd::vector<CommandLink const *> _cmd_lists;
+    // Tail pointers for O(1) tail append in add_command(). Indexed exactly
+    // like _cmd_lists: resized together, cleared together.
     vstd::vector<CommandLink *> _cmd_list_tails;
     vstd::vector<std::pair<Range, ResourceHandle *>> _dispatch_read_handle;
     vstd::vector<std::pair<Range, ResourceHandle *>> _dispatch_write_handle;
@@ -372,6 +379,9 @@ private:
     int64_t get_last_layer_read(BindlessHandle *handle) {
         return handle->view.write_layer + 1;
     }
+    // Append at the layer tail so hazard-free commands sharing one layer
+    // still execute in source order. This only pins intra-layer ordering;
+    // layer assignment (and thus the number of layers) is unaffected.
     void add_command(Command const *cmd, int64_t layer) {
         if (static_cast<int64_t>(_cmd_lists.size()) <= layer) {
             _cmd_lists.resize(layer + 1);
@@ -680,13 +690,13 @@ private:
 
     void add_bindless_dispatch_handles(
         uint64_t bindless_handle,
-        bool writes_buffers,
+        bool may_write,
         bool isolate_resource_states = false) {
         struct TraversalContext {
             CommandReorderVisitor *reorder;
-            bool writes_buffers;
+            bool may_write;
             bool isolate_resource_states;
-        } context{this, writes_buffers, isolate_resource_states};
+        } context{this, may_write, isolate_resource_states};
         _func_table.traverse_bindless_resources(
             bindless_handle,
             ReorderBindlessResourceVisitor{
@@ -694,16 +704,24 @@ private:
                 .callback = [](void *opaque, uint64_t resource_handle,
                                bool is_buffer) noexcept {
                     auto &state = *static_cast<TraversalContext *>(opaque);
+                    // A WRITE bindless argument may write ANY snapshot
+                    // resource: the DSL marks the whole array variable as
+                    // WRITE when the shader writes through any slot, and
+                    // tex2d()/tex3d() views support write(). Restricting
+                    // the write mark to buffers (is_buffer && may_write)
+                    // left bindless texture writes unordered, so a later
+                    // direct read could share the dispatch's layer (RAW)
+                    // and repeated write dispatches could share one layer
+                    // (WAW).
                     state.reorder->add_dispatch_handle(
                         resource_handle,
                         is_buffer ? ResourceType::Buffer : ResourceType::Texture,
                         whole_range(),
-                        state.isolate_resource_states ||
-                            (is_buffer && state.writes_buffers));
+                        state.isolate_resource_states || state.may_write);
                 }});
-        // Shader access reads the bindless index/descriptor object itself.
-        // Writes normally apply only to the snapshotted buffer resources
-        // above. A native state contract also serializes the descriptor
+        // Shader access reads the bindless index/descriptor object itself;
+        // resource writes are tracked on the snapshotted resources above.
+        // A native state contract also serializes the descriptor
         // snapshot so no update or other access can share its reorder layer.
         add_dispatch_handle(
             bindless_handle,
