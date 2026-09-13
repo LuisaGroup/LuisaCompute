@@ -126,6 +126,16 @@ default**, while prefill remains about 43% slower. This repairs a representation
 interaction, not a universal speedup or a new Torch/MPS comparison. Default
 policy and the explicit unmodeled-cost status are unchanged.
 
+The {download}`strided-RHS MMA grouping experiment
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260913-attention-mma-strided/notes.md>`
+allows independent output grouping when the left operand broadcasts and the
+right operand has a non-unit stride. In 72 new native-entry visits, R4 reduces
+time by about **3.5% for ragged decode** and **4.3% for cap0 prefill**. Cap8
+prefill improves about 21%, but still trails the expanded-cap configuration;
+MHA gains are small and two ranges cross parity. Capacity and bitwise outputs
+match within each R1/R4 pair. This compares complete grouping choices, not
+old-R4/new-R4 or Torch/MPS. Four relevant CTests pass; defaults stay unchanged.
+
 ### Metal4 XIR route: correctness established, timing not yet stable
 
 The September 10 {download}`target-info checkpoint <../../../../scripts/benchmark/tile_torch/results/m1-max-20260910-xir-target-info/README.md>`
