@@ -379,14 +379,88 @@ struct ReductionProducerFusion {
     return lanes > 1u && function.body().block_count() == 1u && visit(visit, *function.body().block(0u), true, false) && dimension.has_value();
 }
 
+// A saturating potential-work bound, not an emitted instruction count. Loops
+// retain their trip count here because downstream constant propagation/unroll
+// may duplicate their bodies after a surrounding map has been enumerated.
+// Unknown shapes, malformed regions and excessive depth exceed the budget.
+struct MapBodyWork {
+    uint64_t work;
+    bool structured;
+};
+
+[[nodiscard]] inline uint64_t capped_work_product(uint64_t a, uint64_t b, uint64_t cap) noexcept {
+    return b != 0u && a > cap / b ? cap : a * b;
+}
+
+[[nodiscard]] inline uint64_t capped_work_volume(const IndexSpace &space, uint64_t cap) noexcept {
+    for (auto &axis : space.axes()) {
+        if (axis.extent.is_constant() && axis.extent.constant_value() == 0u) { return 0u; }
+    }
+    auto count = uint64_t{1u};
+    for (auto &axis : space.axes()) {
+        if (!axis.extent.is_constant()) { return cap; }
+        count = capped_work_product(count, axis.extent.constant_value(), cap);
+    }
+    return count;
+}
+
+[[nodiscard]] inline MapBodyWork map_body_work(const Block &body, uint64_t cap, uint32_t depth = 0u) noexcept {
+    if (depth >= 64u) { return {cap, true}; }
+    MapBodyWork result{};
+    for (auto op : body.operations()) {
+        auto work = uint64_t{1u};
+        if (op->kind() == OperationKind::YIELD || op->kind() == OperationKind::STAGE) { continue; }
+        if (op->kind() == OperationKind::MMA) {
+            result.structured = true;
+            if (op->result_count() != 1u || !op->result(0u)->type().is_tile() ||
+                op->operand_count() != 3u || !op->operand(0u)->type().is_tile()) { return {cap, true}; }
+            auto &output = *op->result(0u)->type().index_space();
+            work = capped_work_product(2u, capped_work_volume(output, cap), cap);
+            for (auto &axis : op->operand(0u)->type().index_space()->axes()) {
+                if (!output.contains(axis.dimension)) {
+                    if (!axis.extent.is_constant()) { return {cap, true}; }
+                    work = capped_work_product(work, axis.extent.constant_value(), cap);
+                }
+            }
+        } else if (op->region_count() != 0u) {
+            result.structured = true;
+            if (op->region_count() != 1u || op->region(0u)->block_count() != 1u || !op->domain()) { return {cap, true}; }
+            auto nested = map_body_work(*op->region(0u)->block(0u), cap, depth + 1u);
+            work = capped_work_product(capped_work_volume(*op->domain(), cap), nested.work, cap);
+        } else if (op->result_count() == 1u && op->result(0u)->type().is_tile()) {
+            work = capped_work_volume(*op->result(0u)->type().index_space(), cap);
+        }
+        result.work += std::min(work, cap - result.work);
+        if (result.work == cap && result.structured) { break; }
+    }
+    return result;
+}
+
+// This is the single map expansion decision used by storage, coordinate
+// classification, emission and resource/cost analysis. Small simple maps keep
+// their historical expansion. A unit map cannot replicate its nested body.
+[[nodiscard]] inline bool map_runtime_loop(const Operation &op, uint32_t element_limit,
+                                           uint32_t region_budget = LowerOptions{}.max_unrolled_region_work) noexcept {
+    if (element_limit == 0u) { return false; }
+    if (!op.domain() || bounded_domain(*op.domain(), element_limit)) { return true; }
+    if (region_budget == 0u) { return false; }
+    auto cap = static_cast<uint64_t>(region_budget) + 1u;
+    auto count = capped_work_volume(*op.domain(), cap);
+    if (count <= 1u) { return false; }
+    if (op.region_count() != 1u || op.region(0u)->block_count() != 1u) { return true; }
+    auto body = map_body_work(*op.region(0u)->block(0u), cap);
+    return body.structured && capped_work_product(count, body.work, cap) > region_budget;
+}
+
 // Small Tile maps expand their coordinates at lowering time. Bounded maps,
 // loop/parallel coordinates and carried state remain runtime values. This is
 // only a representation choice, never permission to move a memory effect.
-[[nodiscard]] inline bool expanded_index(const Value *value, uint32_t limit = 0u, uint32_t depth = 0u) noexcept {
+[[nodiscard]] inline bool expanded_index(const Value *value, uint32_t limit = 0u,
+                                         uint32_t region_budget = LowerOptions{}.max_unrolled_region_work, uint32_t depth = 0u) noexcept {
     if (depth > 32u) { return false; }
     if (auto block = value->argument_block()) {
         auto owner = block->parent_region()->parent_operation();
-        return owner && owner->kind() == OperationKind::TILE_MAP && value->index() < owner->domain()->rank() && !bounded_domain(*owner->domain(), limit);
+        return owner && owner->kind() == OperationKind::TILE_MAP && value->index() < owner->domain()->rank() && !map_runtime_loop(*owner, limit, region_budget);
     }
     auto op = value->defining_operation();
     if (!op) { return false; }
@@ -395,23 +469,25 @@ struct ReductionProducerFusion {
     switch (op->elementwise_op()) {
         case ElementwiseOp::ADD:
         case ElementwiseOp::SUB:
-        case ElementwiseOp::MUL: return expanded_index(op->operand(0u), limit, depth + 1u) && expanded_index(op->operand(1u), limit, depth + 1u);
+        case ElementwiseOp::MUL: return expanded_index(op->operand(0u), limit, region_budget, depth + 1u) && expanded_index(op->operand(1u), limit, region_budget, depth + 1u);
         default: return false;
     }
 }
 
-[[nodiscard]] inline bool expanded_extract(const Operation &op, uint32_t limit = 0u) noexcept {
+[[nodiscard]] inline bool expanded_extract(const Operation &op, uint32_t limit = 0u,
+                                           uint32_t region_budget = LowerOptions{}.max_unrolled_region_work) noexcept {
     for (size_t i = 1u; i < op.operand_count(); i++) {
-        if (!expanded_index(op.operand(i), limit)) { return false; }
+        if (!expanded_index(op.operand(i), limit, region_budget)) { return false; }
     }
     return true;
 }
 
-[[nodiscard]] inline bool needs_indexable_snapshot(const Value *value, uint32_t limit = 0u) noexcept {
+[[nodiscard]] inline bool needs_indexable_snapshot(const Value *value, uint32_t limit = 0u,
+                                                   uint32_t region_budget = LowerOptions{}.max_unrolled_region_work) noexcept {
     if (!value->type().is_tile()) { return false; }
     for (auto use : value->use_list()) {
         auto op = use->user();
-        if (use->index() == 0u && op->kind() == OperationKind::TILE_EXTRACT && !expanded_extract(*op, limit)) { return true; }
+        if (use->index() == 0u && op->kind() == OperationKind::TILE_EXTRACT && !expanded_extract(*op, limit, region_budget)) { return true; }
         if ((op->kind() == OperationKind::ELEMENTWISE || op->kind() == OperationKind::MMA) && bounded_tile(op->result(0u), limit)) { return true; }
     }
     return false;
@@ -438,7 +514,7 @@ struct ReductionProducerFusion {
 }
 
 [[nodiscard]] inline bool definition_snapshot(const Value *value, uint64_t elements, const LowerOptions &options) noexcept {
-    return elements > 1u && needs_indexable_snapshot(value, options.max_unrolled_tile_elements);
+    return elements > 1u && needs_indexable_snapshot(value, options.max_unrolled_tile_elements, options.max_unrolled_region_work);
 }
 
 enum class ValueRepresentation : uint8_t {
@@ -474,8 +550,9 @@ struct ValueAllocationPlan {
                                                 options.enable_load_reduction_fusion, options.enable_expression_reduction_fusion)) {
         return {ValueRepresentation::REDUCTION_PRODUCER, fusion->retain_snapshot, fusion};
     }
+    auto runtime_map = op && op->kind() == OperationKind::TILE_MAP && map_runtime_loop(*op, options.max_unrolled_tile_elements, options.max_unrolled_region_work);
     return {ValueRepresentation::EMITTED,
-            traversal_snapshot(count, options) || definition_snapshot(value, count, options),
+            runtime_map || traversal_snapshot(count, options) || definition_snapshot(value, count, options),
             {}};
 }
 
@@ -498,6 +575,12 @@ struct TraversalEmissionPlan {
     auto full = count / lanes;
     return {full, lanes, static_cast<uint32_t>(count % lanes),
             serial_runtime_loop(full, options, bounded_count(count, options))};
+}
+
+[[nodiscard]] inline TraversalEmissionPlan map_emission_plan(const Operation &op, uint64_t count, const LowerOptions &options) noexcept {
+    auto plan = traversal_emission_plan(count, options);
+    plan.runtime_loop |= map_runtime_loop(op, options.max_unrolled_tile_elements, options.max_unrolled_region_work);
+    return plan;
 }
 
 struct ReductionEmissionPlan {

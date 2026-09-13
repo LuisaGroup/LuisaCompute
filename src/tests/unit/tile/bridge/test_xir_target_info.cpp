@@ -528,6 +528,95 @@ int main(int argc, char *argv[]) {
         if (analysis) { expect_same_resources(analysis.resources, {uint64_t{UINT32_MAX} * sizeof(float), 1u}); }
     };
 
+    "tile_xir_structured_map_budget_shares_coordinates_storage_and_emission"_test = [] {
+        using namespace tile;
+        constexpr uint32_t width = 33u;
+        auto fixture = [](uint32_t variant, uint64_t iterations = 33u) {
+            return tile_kernel("structured_map_budget", [=](TensorView<const float, 1> input, TensorView<float, 1> output) {
+                       auto n = axis("n", width);
+                       for (auto &root : parallel(shape(1))) {
+                           static_cast<void>(root);
+                           auto x = input.tile(coord(0), shape(n)).load();
+                           auto y = map<float>(shape(n), [&](const Nest &element) {
+                               // This is the input's only use. For an expanded
+                               // map it projects SSA without a snapshot; forcing
+                               // a runtime map must change that classification.
+                               auto base = x.at(coord(element.index()));
+                               if (variant == 0u) { return base * 2.0f + 1.0f; }
+                               if (variant == 3u) {
+                                   auto inner = map<float>(shape(65), [&](const Nest &item) {
+                                       return base + cast<float>(item.index());
+                                   });
+                                   return inner.at(coord(0));
+                               }
+                               if (variant == 4u) {
+                                   auto m = axis("m", 1), k = axis("k", 65), p = axis("p", 1);
+                                   auto product = mma(full<float>(shape(m, k), base), full<float>(shape(k, p), 2.0f), zeros<float>(shape(m, p)));
+                                   return product.at(coord(0, 0));
+                               }
+                               auto sum = Scalar<float>{0.0f};
+                               if (variant == 1u) {
+                                   for (auto &step : element.serial(shape(iterations))) { sum += base * cast<float>(step.index() + 1); }
+                               } else {
+                                   for (auto &step : element.reduce(shape(iterations))) { sum += base * cast<float>(step.index() + 1); }
+                               }
+                               return sum;
+                           });
+                           output(coord(0), shape(n)).store(y);
+                       }
+                   })
+                .capture(tensor_shape(width), tensor_shape(width));
+        };
+        auto instruction_count = [](const bx::NativeFunction &lowered) {
+            auto count = size_t{0u};
+            lowered.function->traverse_instructions([&](xir::Instruction *) noexcept { count++; });
+            return count;
+        };
+        for (auto variant : {0u, 1u, 2u, 3u, 4u}) {
+            auto kernel = fixture(variant);
+            auto bounded = check_resources(kernel);
+            auto expanded = check_resources(kernel, {.max_unrolled_region_work = 0u});
+            if (!bounded || !expanded) { continue; }
+            auto planned = bx::plan(kernel.function(), {8u, 1u}, {.block_size = 64u});
+            auto unbounded_plan = bx::plan(kernel.function(), {8u, 1u}, {.block_size = 64u, .max_unrolled_region_work = 0u});
+            expect(planned.ok()) << planned.error;
+            expect(unbounded_plan.ok()) << unbounded_plan.error;
+            if (planned) { expect_same_resources(planned.selected.resources, bounded.resources); }
+            if (unbounded_plan) { expect_same_resources(unbounded_plan.selected.resources, expanded.resources); }
+            if (variant == 0u) {
+                auto tiny_budget = check_resources(kernel, {.max_unrolled_region_work = 1u});
+                if (tiny_budget) { expect(eq(instruction_count(tiny_budget), instruction_count(expanded))); }
+                expect_same_resources(bounded.resources, {});
+                expect(eq(instruction_count(bounded), instruction_count(expanded)));
+            } else {
+                expect(lt(instruction_count(bounded), instruction_count(expanded)));
+                // full(shape, Scalar) is itself a map, so the MMA variant
+                // also materializes one 65-element input, unlike a constant.
+                auto nested_snapshot = variant == 3u || variant == 4u;
+                auto nested_bytes = nested_snapshot ? uint64_t{65u * sizeof(float)} : uint64_t{0u};
+                expect_same_resources(bounded.resources, {2u * width * sizeof(float) + nested_bytes, nested_snapshot ? 3u : 2u});
+                // Reject a one-byte deficit using the very same allocation plan.
+                expect(!bx::lower(kernel.function(), {.max_local_bytes = bounded.resources.snapshot_bytes_per_worker - 1u}));
+                expect(bx::lower(kernel.function(), {.max_expanded_values = 2048u,
+                                                     .max_local_bytes = bounded.resources.snapshot_bytes_per_worker})
+                           .ok());
+            }
+        }
+        // A saturating work product must select a loop without overflowing or
+        // enumerating billions of contributions during compilation.
+        auto huge = check_resources(fixture(1u, UINT32_MAX));
+        if (huge) { expect_same_resources(huge.resources, {2u * width * sizeof(float), 2u}); }
+        // The original element-limit-zero spelling remains an explicit fully
+        // expanded diagnostic, even when a nonzero region budget is supplied.
+        auto kernel = fixture(1u);
+        auto legacy = check_resources(kernel, {.max_unrolled_tile_elements = 0u, .max_unrolled_region_work = 1u});
+        auto disabled = check_resources(kernel, {.max_unrolled_region_work = 0u});
+        if (legacy && disabled) {
+            expect_same_resources(legacy.resources, disabled.resources);
+            expect(eq(instruction_count(legacy), instruction_count(disabled)));
+        }
+    };
+
     "tile_xir_static_resources_count_carry_storage_not_runtime_iterations"_test = [] {
         using namespace tile;
         for (auto pipelined : {false, true}) {

@@ -197,28 +197,42 @@ int main(int argc, char *argv[]) {
     };
     "tile_xir_deferred_map_depth_budget"_test = [] {
         using namespace tile;
-        for (auto depth_limit : {63u, 64u, 65u, 70u}) {
-            auto kernel = tile_kernel("map_depth", [=](TensorView<const float, 1> input, TensorView<float, 1> output) {
-                              auto n = axis("n", 65);
-                              for (auto &nest : parallel(shape(1))) {
-                                  auto x = input[coord(0), shape(n)];
-                                  for (auto depth = 0u; depth < depth_limit; depth++) {
-                                      x = reindex(x, shape(n), [&](const Nest &element) { return coord(64 - element.index()); });
+        for (auto mixed : {false, true}) {
+            for (auto depth_limit : {63u, 64u, 65u, 70u}) {
+                auto kernel = tile_kernel("map_depth", [=](TensorView<const float, 1> input, TensorView<float, 1> output) {
+                                  auto n = axis("n", 65);
+                                  for (auto &nest : parallel(shape(1))) {
+                                      auto x = input[coord(0), shape(n)];
+                                      for (auto depth = 0u; depth < depth_limit; depth++) {
+                                          if (mixed && depth % 2u == 0u) {
+                                              x = x + 1.0f;
+                                          } else {
+                                              x = reindex(x, shape(n), [&](const Nest &element) { return coord(64 - element.index()); });
+                                          }
+                                      }
+                                      output(coord(0), shape(n)).store(x);
                                   }
-                                  output(coord(0), shape(n)).store(x);
-                              }
-                          }).capture(tensor_shape(65), tensor_shape(65));
-            auto baseline = bridge::xir::lower(kernel.function());
-            auto candidate = bridge::xir::lower(kernel.function(), {.enable_map_fusion = true});
-            auto planning = bridge::xir::plan(kernel.function(), {8u, 1u}, {.enable_map_fusion = true});
-            expect(baseline.ok()) << baseline.error;
-            if (depth_limit <= 64u) {
-                expect(candidate.ok()) << candidate.error;
-                expect(planning.ok()) << planning.error;
-                if (candidate) { expect(xir::xir_verify_module(candidate.module.get(), {.require_reachable_blocks = true}).succeeded()); }
-            } else {
-                expect(!candidate.ok() && candidate.error.find("depth budget") != string::npos);
-                expect(!planning.ok() && planning.error.find("depth budget") != string::npos);
+                              }).capture(tensor_shape(65), tensor_shape(65));
+                auto baseline = bridge::xir::lower(kernel.function());
+                auto analysis = bridge::xir::analyze_resources(kernel.function(), {.enable_map_fusion = true});
+                auto candidate = bridge::xir::lower(kernel.function(), {.enable_map_fusion = true});
+                auto planning = bridge::xir::plan(kernel.function(), {8u, 1u}, {.enable_map_fusion = true});
+                expect(baseline.ok()) << baseline.error;
+                if (depth_limit <= 64u) {
+                    expect(analysis.ok()) << analysis.error;
+                    expect(candidate.ok()) << candidate.error;
+                    expect(planning.ok()) << planning.error;
+                    if (candidate) {
+                        expect(eq(candidate.deferred_maps, mixed ? depth_limit / 2u : depth_limit));
+                        expect(xir::xir_verify_module(candidate.module.get(), {.require_reachable_blocks = true}).succeeded());
+                    }
+                } else {
+                    expect(!analysis.ok() && analysis.error.find("depth budget") != string::npos);
+                    expect(!candidate.ok() && candidate.error.find("depth budget") != string::npos);
+                    expect(candidate.module == nullptr);
+                    expect(!planning.ok() && planning.error.find("depth budget") != string::npos);
+                    expect(planning.candidates.empty());
+                }
             }
         }
     };

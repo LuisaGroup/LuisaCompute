@@ -1,5 +1,6 @@
 #pragma once
 
+#include <luisa/core/stl/unordered_map.h>
 #include <luisa/tile/verifier.h>
 #include <luisa/xir/function.h>
 #include "representation.h"
@@ -16,6 +17,7 @@ private:
     const Function &_function;
     const LowerOptions &_options;
     ResourceAnalysis _result;
+    luisa::unordered_map<const Value *, uint32_t> _recipe_depths;
 
     [[nodiscard]] bool _error(luisa::string_view message) noexcept {
         if (_result.error.empty()) { _result.error = message; }
@@ -206,6 +208,31 @@ private:
         auto bytes = snapshot_elements(count, _options) * scalar_type_size(type.scalar_type());
         return _add(to, ExecutionResources{bytes, 1u}, allocations);
     }
+    [[nodiscard]] bool _recipe(const Value *value, const ValueAllocationPlan &plan) noexcept {
+        if (plan.representation != ValueRepresentation::DEFERRED_MAP &&
+            plan.representation != ValueRepresentation::DEFERRED_EXPRESSION) { return true; }
+        // Verified SSA is visited in definition order. A materialized value or
+        // carried argument terminates a recipe; only deferred physical inputs
+        // contribute to the maximum read depth, not their number of uses.
+        // Preflight both lowering and planning before their recursive readers.
+        auto depth = 0u;
+        auto input = [&](const Value *dependency) noexcept {
+            if (auto found = _recipe_depths.find(dependency); found != _recipe_depths.end()) {
+                depth = std::max(depth, found->second);
+            }
+        };
+        auto op = value->defining_operation();
+        if (plan.representation == ValueRepresentation::DEFERRED_MAP) {
+            for (auto child : op->region(0u)->block(0u)->operations()) {
+                if (child->kind() == OperationKind::TILE_EXTRACT) { input(child->operand(0u)); }
+            }
+        } else {
+            for (size_t i = 0u; i < op->operand_count(); i++) { input(op->operand(i)); }
+        }
+        if (depth >= 64u) { return _error("XIR deferred recipe exceeds the depth budget"); }
+        _recipe_depths.insert_or_assign(value, depth + 1u);
+        return true;
+    }
     [[nodiscard]] bool _operation(const Operation &op, ExecutionResources &resources, bool root) noexcept {
         switch (op.kind()) {
             case OperationKind::PARALLEL:
@@ -244,9 +271,10 @@ private:
         uint64_t count = 1u;
         if (value->type().is_tile() && !_volume(*value->type().index_space(), count)) { return false; }
         auto plan = value_allocation_plan(value, count, _options);
+        if (!_recipe(value, plan)) { return false; }
         if (plan.snapshot && !_snapshot(resources, value->type(), count)) { return false; }
         if (op.kind() == OperationKind::TILE_MAP && plan.representation != ValueRepresentation::DEFERRED_MAP) {
-            auto repetitions = traversal_emission_plan(count, _options).emitted_bodies();
+            auto repetitions = map_emission_plan(op, count, _options).emitted_bodies();
             if (repetitions == 0u) { return true; }
             ExecutionResources body;
             if (!_block(*op.region(0u)->block(0u), body)) { return false; }

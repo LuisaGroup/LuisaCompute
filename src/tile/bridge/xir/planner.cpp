@@ -80,8 +80,10 @@ struct SpatialAxis {
 [[nodiscard]] double local_iterations(uint64_t count, uint32_t lanes) {
     return static_cast<double>(count >= lanes ? ceil_div(count, static_cast<uint64_t>(lanes)) : count);
 }
-[[nodiscard]] bool materialized(const Value *value, uint32_t limit, uint32_t lanes) {
-    return detail::bounded_tile(value, limit) || (lanes > 1u && detail::bounded_tile(value, lanes - 1u));
+[[nodiscard]] bool materialized(const Value *value, uint32_t limit, uint32_t lanes, uint32_t region_budget) {
+    auto op = value->defining_operation();
+    return detail::bounded_tile(value, limit) || (lanes > 1u && detail::bounded_tile(value, lanes - 1u)) ||
+           (op && op->kind() == OperationKind::TILE_MAP && detail::map_runtime_loop(*op, limit, region_budget));
 }
 
 [[nodiscard]] ExecutionWork distribute_thread_pool_work(ExecutionWork work, const ExecutionPlan &candidate, ExecutionTarget target) {
@@ -125,7 +127,7 @@ void read_work(const Value *value, double repetitions, bool dynamic,
             if (child->kind() == OperationKind::ELEMENTWISE) {
                 work.arithmetic += repetitions * cost.arithmetic;
             } else if (child->kind() == OperationKind::TILE_EXTRACT) {
-                read_work(child->operand(0u), repetitions, dynamic || !detail::expanded_extract(*child, limit),
+                read_work(child->operand(0u), repetitions, dynamic || !detail::expanded_extract(*child, limit, options.max_unrolled_region_work),
                           target, cost, limit, lanes, work, options, child, depth + 1u);
                 work.arithmetic += repetitions * (4u + 3u * child->operand(0u)->type().index_space()->rank()) * cost.arithmetic;
             }
@@ -145,13 +147,13 @@ void read_work(const Value *value, double repetitions, bool dynamic,
         // uses that scalar directly, including repeated x*x. No rematerialization.
         return;
     }
-    if (materialized(value, limit, lanes)) {
+    if (materialized(value, limit, lanes, options.max_unrolled_region_work)) {
         auto op = value->defining_operation();
         if (op && op->kind() == OperationKind::CONSTANT) { return; }
         work.memory += repetitions * cost.gathered_lane * target.packet_width;
     } else if (dynamic) {
         auto count = volume(*value->type().index_space());
-        if (count > 1u && detail::needs_indexable_snapshot(value, limit)) {
+        if (count > 1u && detail::needs_indexable_snapshot(value, limit, options.max_unrolled_region_work)) {
             work.memory += repetitions * cost.gathered_lane * target.packet_width;
         } else {
             work.arithmetic += repetitions * count * 2.0 * cost.arithmetic;
@@ -168,14 +170,14 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
         if (auto fusion = detail::reduction_producer_fusion(value, limit, lanes, options.reduction_partitions,
                                                             options.enable_load_reduction_fusion, options.enable_expression_reduction_fusion);
             fusion && !fusion->retain_snapshot) { return; }
-        if (materialized(value, limit, lanes)) {
+        if (materialized(value, limit, lanes, options.max_unrolled_region_work)) {
             auto op = value->defining_operation();
             // Large carries are parallel copies, charged at their loop below.
             if (!op || op->kind() == OperationKind::CONSTANT || op->kind() == OperationKind::SERIAL ||
                 op->kind() == OperationKind::PIPELINE || op->kind() == OperationKind::REDUCE ||
                 detail::deferred_elementwise(value, limit, lanes)) { return; }
             work.memory += repetitions * local_iterations(volume(*value->type().index_space()), lanes) * cost.gathered_lane * target.packet_width;
-        } else if (detail::needs_indexable_snapshot(value, limit)) {
+        } else if (detail::needs_indexable_snapshot(value, limit, options.max_unrolled_region_work)) {
             auto count = volume(*value->type().index_space());
             if (count > 1u) { work.memory += repetitions * count * cost.gathered_lane * target.packet_width; }
         }
@@ -249,7 +251,7 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
             read_work(op->operand(1u), repetitions * volume(output) * contraction, dynamic, target, cost, limit, lanes, work, options, op);
             read_work(op->operand(2u), repetitions * volume(output), detail::bounded_domain(output, limit), target, cost, limit, lanes, work, options, op);
         } else if (kind == OperationKind::TILE_EXTRACT) {
-            auto dynamic = !detail::expanded_extract(*op, limit);
+            auto dynamic = !detail::expanded_extract(*op, limit, options.max_unrolled_region_work);
             read_work(op->operand(0u), repetitions, dynamic, target, cost, limit, lanes, work, options, op);
             if (dynamic) {
                 work.arithmetic += repetitions * (4u + 3u * op->operand(0u)->type().index_space()->rank()) * cost.arithmetic;
@@ -260,7 +262,7 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
             if (!detail::deferred_expression(op->result(0u), limit, lanes, options.enable_map_fusion)) {
                 work.arithmetic += repetitions * count * cost.arithmetic;
                 for (size_t i = 0u; i < op->operand_count(); i++) {
-                    read_work(op->operand(i), repetitions * count, materialized(op->result(0u), limit, lanes), target, cost, limit, lanes, work, options, op);
+                    read_work(op->operand(i), repetitions * count, materialized(op->result(0u), limit, lanes, options.max_unrolled_region_work), target, cost, limit, lanes, work, options, op);
                 }
             }
         } else if (kind != OperationKind::CONSTANT && kind != OperationKind::YIELD && kind != OperationKind::STAGE) {
@@ -367,6 +369,7 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
         }
         auto analysis = analyze_resources(function, {.block_size = widths.front(),
                                                      .max_unrolled_tile_elements = options.max_unrolled_tile_elements,
+                                                     .max_unrolled_region_work = options.max_unrolled_region_work,
                                                      .reduction_partitions = options.reduction_partitions,
                                                      .local_lanes = lanes,
                                                      .enable_load_reduction_fusion = options.enable_load_reduction_fusion,

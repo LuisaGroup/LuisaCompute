@@ -236,10 +236,11 @@ private:
         _at(exit);
     }
     template<typename F>
-    void _for_each(uint64_t count, F &&emit) {
+    void _for_each(uint64_t count, F &&emit, bool force_loop = false) {
         auto plan = detail::traversal_emission_plan(count, _options);
+        plan.runtime_loop |= force_loop;
         if (plan.lanes == 1u) {
-            _serial_for(count, emit);
+            _serial_for(count, emit, plan.runtime_loop);
             return;
         }
         auto lanes = plan.lanes;
@@ -311,9 +312,11 @@ private:
     template<typename F>
     void _emit_tile(const Value *value, F &&emit) {
         auto count = _volume(*value->type().index_space());
-        if (detail::traversal_snapshot(count, _options)) {
+        auto op = value->defining_operation();
+        auto runtime_map = op && op->kind() == OperationKind::TILE_MAP && detail::map_emission_plan(*op, count, _options).runtime_loop;
+        if (runtime_map || detail::traversal_snapshot(count, _options)) {
             auto storage = _allocate(value->type());
-            _for_each(count, [&](x::Value *flat) { _store_local(value->type(), storage, flat, emit(flat)); });
+            _for_each(count, [&](x::Value *flat) { _store_local(value->type(), storage, flat, emit(flat)); }, runtime_map);
             _representation(value)->storage = storage;
         } else {
             Elements elements;

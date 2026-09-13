@@ -185,8 +185,8 @@ the sum of snapshot allocations per physical worker/lane (standalone default 256
 peak liveness or the complete target stack; the packet multiplies this storage
 by W. The existing SSA expansion budget also charges allocation/GEP/store
 construction. Exceeding either bound does not truncate values or silently change
-semantics. The new snapshot-admission path returns a diagnostic; existing deep
-SSA expansion and deferred-recipe depth failures still use fatal Luisa diagnostics,
+semantics. Snapshot admission and deferred-recipe depth preflight return
+diagnostics; existing deep SSA expansion failures still use fatal Luisa diagnostics,
 so this is not a fully recoverable lowering boundary. This does not introduce manual
 Memory requirements or a new execution scope.
 
@@ -212,11 +212,35 @@ that delaying them crosses no mutation or stage boundary. A deferred recipe
 captures immutable physical operand definitions, not mutable entries in the
 lowerer's value lookup table.
 
+Resource analysis computes deferred read depth in SSA definition order using
+the same representation plan as emission. A materialized value terminates the
+chain; a deferred map/expression adds one to its deepest deferred input. Both
+planning and lowering reject depth greater than 64 before recursive emission.
+Pure-map and mixed expression/map tests cover 63/64/65/70; the emitter retains
+its depth guard as a last-resort invariant check.
+
 `max_unrolled_tile_elements` defaults to 64; zero explicitly selects the old
 fully expanded diagnostic form without removing IR/storage budgets. Loop
 instructions no longer grow with a large Tile's element count. This does not
-bound total code size independently of the number of operations or nested
-small expansions. Multi-consumer expressions normally remain materialized; there is
+bound total code size independently of the number of operations. A separate
+`max_unrolled_region_work` (default 4096) limits **potential nested work** when
+enumerating a small map whose body contains loops, nested maps or MMA. It uses
+saturating sums/products of body work and static domain extents, not an
+estimate of native instruction count or cycle cost. Unknown or excessive
+structured work selects a runtime map; simple pointwise maps keep their
+existing element threshold. Zero disables this additional bound, while an
+element threshold of zero retains the historical expanded diagnostic form.
+
+The map decision is shared by coordinate classification, snapshot allocation,
+emission, resource accounting and planner read/write cost extraction. A map
+coordinate that becomes dynamic must also make its source Tile indexable;
+changing only the loop emitter would leave an inconsistent representation.
+The same plan counts a loop body once, rather than once per map element.
+This bounds one source of code growth, not direct MMA/fold expansion or all
+later LLVM transforms. It preserves semantics and does not establish a new
+attention distribution or calibrated profitability model.
+
+Multi-consumer expressions normally remain materialized; there is
 no calibrated recomputation/materialization search yet.
 
 ```text

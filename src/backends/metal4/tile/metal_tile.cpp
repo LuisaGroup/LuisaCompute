@@ -127,6 +127,7 @@ ShaderCreationInfo MetalDevice::create_tile_kernel(
                                           .root_axis_order = plan.root_axis_order,
                                           .max_local_bytes = plan.resource_limits.max_snapshot_bytes_per_worker,
                                           .max_unrolled_tile_elements = planner_options.max_unrolled_tile_elements,
+                                          .max_unrolled_region_work = planner_options.max_unrolled_region_work,
                                           .reduction_partitions = planner_options.reduction_partitions,
                                           .local_lanes = plan.local_lanes,
                                           .enable_load_reduction_fusion = planner_options.enable_load_reduction_fusion,
@@ -222,10 +223,10 @@ ShaderCreationInfo MetalDevice::create_tile_kernel(
             metadata.realization.append("; root_temporal_cache_cost=unmodeled");
         }
         metadata.realization.append(luisa::format(
-            "; private_snapshot_budget={}; max_unrolled_tile_elements={}; unordered_reduction_partitions={}; "
+            "; private_snapshot_budget={}; max_unrolled_tile_elements={}; max_unrolled_region_work={}; unordered_reduction_partitions={}; "
             "fused_reduction_loads={}; fused_reduction_expressions={}; fused_pointwise_regions={}; deferred_maps={}; "
             "custom_cost_policy={}; fast_math={}; ordered_reduction={}",
-            plan.resource_limits.max_snapshot_bytes_per_worker, planner_options.max_unrolled_tile_elements, planner_options.reduction_partitions,
+            plan.resource_limits.max_snapshot_bytes_per_worker, planner_options.max_unrolled_tile_elements, planner_options.max_unrolled_region_work, planner_options.reduction_partitions,
             lowered.fused_reduction_loads, lowered.fused_reduction_expressions, lowered.fused_pointwise_regions,
             lowered.deferred_maps, planner_options.cost_policy != nullptr, option.enable_fast_math, ordered_reduction));
         metadata.realization.append(luisa::format("; static_snapshot_bytes_per_worker={}; static_snapshot_allocations={}; rejected_candidates={}",

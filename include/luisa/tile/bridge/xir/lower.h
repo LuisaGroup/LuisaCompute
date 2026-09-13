@@ -18,6 +18,11 @@ struct LowerOptions {
     // Larger Tile traversals use runtime loops. Zero keeps the fully expanded
     // realization as an explicit diagnostic baseline; it does not remove budgets.
     uint32_t max_unrolled_tile_elements{64u};
+    // Potential scalar work replicated by a map containing nested execution
+    // regions or MMA. Pure pointwise maps keep the element-only threshold.
+    // Zero disables this additional budget; max_unrolled_tile_elements == 0
+    // retains the fully expanded diagnostic baseline regardless of this value.
+    uint32_t max_unrolled_region_work{4096u};
     // Bounded pure unordered reductions may partition contributions among
     // these independent accumulators. One preserves the sequential baseline.
     uint32_t reduction_partitions{4u};

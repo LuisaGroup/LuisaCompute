@@ -38,6 +38,9 @@ struct PlannerOptions {
     // Representation/code-size constraint, shared by cost extraction and
     // lowering. Zero retains the expanded diagnostic baseline.
     uint32_t max_unrolled_tile_elements{64u};
+    // Same structural map-expansion budget as LowerOptions; not a measured
+    // cycle cost or a change to the execution/reduction semantics.
+    uint32_t max_unrolled_region_work{4096u};
     uint32_t reduction_partitions{4u};
     // One preserves the default complete-program mapping. Zero opts into the
     // experimental joint search; packet_width forces a legal local-axis map.
