@@ -79,11 +79,13 @@ int main(int argc, char *argv[]) {
         // Diagnostic candidate control belongs to the benchmark, not a
         // kernel-name or environment special case in production planning.
         auto search_grain = uint32_t{0u};
+        auto mma_2d = uint32_t{0u};
         for (auto [name, value] : {std::pair{"LUISA_TILE_BENCH_XIR_LOCAL_LANES", &planner.local_lanes},
                                    std::pair{"LUISA_TILE_BENCH_XIR_BLOCK_SIZE", &planner.block_size},
                                    std::pair{"LUISA_TILE_BENCH_XIR_BLOCKS_PER_TASK", &planner.blocks_per_task},
                                    std::pair{"LUISA_TILE_BENCH_XIR_REGION_WORK", &planner.max_unrolled_region_work},
                                    std::pair{"LUISA_TILE_BENCH_XIR_MMA_OUTPUT_BLOCK", &planner.mma_output_block},
+                                   std::pair{"LUISA_TILE_BENCH_XIR_MMA_2D_BLOCKING", &mma_2d},
                                    std::pair{"LUISA_TILE_BENCH_XIR_MMA_UNROLL_TERMS", &planner.max_unrolled_mma_terms},
                                    std::pair{"LUISA_TILE_BENCH_XIR_SEARCH_TASK_GRAIN", &search_grain}}) {
             if (auto setting = std::getenv(name)) {
@@ -100,6 +102,11 @@ int main(int argc, char *argv[]) {
             return 1;
         }
         planner.search_task_grain = search_grain != 0u;
+        if (mma_2d > 1u) {
+            std::cerr << "Invalid LUISA_TILE_BENCH_XIR_MMA_2D_BLOCKING (expected 0 or 1)\n";
+            return 1;
+        }
+        planner.enable_mma_2d_blocking = mma_2d != 0u;
         for (auto [name, value] : {std::pair{"LUISA_TILE_BENCH_XIR_WORKER_ACTIVATION", &planner.cost.worker_activation},
                                    std::pair{"LUISA_TILE_BENCH_XIR_TASK_DISPATCH", &planner.cost.task_dispatch}}) {
             if (auto setting = std::getenv(name)) {

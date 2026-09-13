@@ -5,12 +5,14 @@
 #include "ut/ut.hpp"
 #include <luisa/ast/type.h>
 #include <luisa/core/mathematics.h>
+#include <luisa/core/stl/format.h>
 #include <luisa/tile/algorithms.h>
 #include <luisa/tile/bridge/xir/planner.h>
 #include <luisa/tile/dsl.h>
 #include <luisa/xir/instructions/alloca.h>
 #include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/instructions/phi.h>
+#include <luisa/xir/instructions/resource.h>
 #include <luisa/xir/debug_printer.h>
 #include <luisa/xir/verifier.h>
 #include <array>
@@ -942,6 +944,161 @@ int main(int argc, char *argv[]) {
             expect(eq(output.mma_per_packet.seed_reads, 5.0));
             expect(eq(output.mma_per_packet.loop_invocations, 2.0));
             expect(eq(output.mma_per_packet.loop_iterations, 18.0));
+        }
+    };
+
+    "tile_xir_mma_2d_blocking_preserves_work_storage_and_ssa_order"_test = [] {
+        using namespace tile;
+        auto fixture = [](uint32_t batches, uint32_t rows, uint32_t columns, uint32_t terms, bool transpose, bool swap, bool trailing_unit) {
+            return tile_kernel("mma_2d_work", [=](TensorView<const float, 5> a, TensorView<const float, 5> b, TensorView<float, 5> c) {
+                       auto r = axis("program", 1), batch = axis("batch", batches), m = axis("m", rows);
+                       auto n = axis("n", columns), k = axis("k", terms), unit = axis("unit", 1);
+                       auto lhs_space = trailing_unit ? shape(r, batch, m, k, unit) : shape(r, batch, unit, m, k);
+                       auto rhs_space = trailing_unit ? (transpose ? shape(r, batch, n, k, unit) : shape(r, batch, k, n, unit)) :
+                                                        (transpose ? shape(r, batch, unit, n, k) : shape(r, batch, unit, k, n));
+                       auto output_space = trailing_unit ? shape(r, batch, m, n, unit) : shape(r, batch, m, unit, n);
+                       for (auto &nest : parallel(shape(8))) {
+                           auto lhs = a.tile(coord(0, 0, 0, 0, 0), lhs_space).load();
+                           auto rhs = b.tile(coord(0, 0, 0, 0, 0), rhs_space).load();
+                           auto origin = coord(nest.index(), 0, 0, 0, 0);
+                           auto seed = c.tile(origin, output_space).load();
+                           auto value = swap ? mma(rhs, lhs, seed, {.allow_reassociation = false}) :
+                                               mma(lhs, rhs, seed, {.allow_reassociation = false});
+                           c(origin, output_space).store(value);
+                       }
+                   })
+                .capture(trailing_unit ? tensor_shape(1, batches, rows, std::max(terms, 1u), 1) : tensor_shape(1, batches, 1, rows, std::max(terms, 1u)), trailing_unit ? (transpose ? tensor_shape(1, batches, columns, std::max(terms, 1u), 1) : tensor_shape(1, batches, std::max(terms, 1u), columns, 1)) : (transpose ? tensor_shape(1, batches, 1, columns, std::max(terms, 1u)) : tensor_shape(1, batches, 1, std::max(terms, 1u), columns)), trailing_unit ? tensor_shape(8, batches, rows, columns, 1) : tensor_shape(8, batches, rows, 1, columns));
+        };
+        auto text = [](const bx::NativeFunction &value) {
+            string result;
+            xir::XIRDebugPrinter{}.emit_function(result, value.function);
+            return result;
+        };
+        // All outputs fit the small SSA representation. A common batch and
+        // singleton axes must not be mistaken for either blocking direction.
+        // Ninety-six configurations include both row/column tails and the
+        // unchanged one-dimensional M1/N1 fallback, without using its planner
+        // implementation to compute the independent expected work.
+        for (auto size : {std::array<uint32_t, 4>{2u, 1u, 5u, 0u}, {1u, 3u, 1u, 1u}, {1u, 2u, 2u, 1u}, {1u, 3u, 5u, 0u}, {2u, 3u, 5u, 1u}, {2u, 2u, 3u, 0u}}) {
+            auto batches = size[0], rows = size[1], columns = size[2];
+            constexpr uint32_t terms = 9u;
+            auto outputs = batches * rows * columns;
+            auto a_elements = batches * rows * terms, b_elements = batches * columns * terms;
+            for (auto transpose : {false, true}) {
+                for (auto swap : {false, true}) {
+                    auto kernel = fixture(batches, rows, columns, terms, transpose, swap, size[3] != 0u);
+                    for (auto cap : {0u, 8u}) {
+                        auto baseline = check_resources(kernel, {.mma_output_block = 4u, .max_unrolled_mma_terms = cap});
+                        for (auto enabled : {false, true}) {
+                            auto context = format("B={} M={} N={} transpose={} swap={} cap={} 2d={}", batches, rows, columns, transpose, swap, cap, enabled);
+                            RecordingCostPolicy policy;
+                            auto planned = bx::plan(kernel.function(), {8u, 1u}, {.block_size = 32u, .mma_output_block = 4u, .enable_mma_2d_blocking = enabled, .max_unrolled_mma_terms = cap, .cost_policy = &policy});
+                            auto lowered = check_resources(kernel, {.mma_output_block = 4u, .enable_mma_2d_blocking = enabled, .max_unrolled_mma_terms = cap});
+                            expect(planned.ok()) << context << planned.error;
+                            expect(static_cast<bool>(baseline) && static_cast<bool>(lowered)) << context;
+                            if (!planned || !baseline || !lowered || policy.observed_work.empty()) { continue; }
+                            expect(eq(planned.selected.enable_mma_2d_blocking, enabled)) << context;
+                            auto two_dimensional = enabled && rows > 1u && columns > 1u;
+                            auto column_group = !two_dimensional && columns > 1u && !(swap && transpose);
+                            auto row_group = !two_dimensional && columns == 1u && rows > 1u && swap;
+                            auto groups = outputs;
+                            double a_reads = static_cast<double>(outputs * terms), b_reads = a_reads;
+                            if (two_dimensional) {
+                                groups = batches * ceil_div(rows, 2u) * ceil_div(columns, 2u);
+                                a_reads = static_cast<double>(batches * rows * ceil_div(columns, 2u) * terms);
+                                b_reads = static_cast<double>(batches * columns * ceil_div(rows, 2u) * terms);
+                            } else if (column_group) {
+                                groups = batches * rows * ceil_div(columns, 4u);
+                                a_reads = static_cast<double>(groups * terms);
+                            } else if (row_group) {
+                                groups = batches * columns * ceil_div(rows, 4u);
+                                b_reads = static_cast<double>(groups * terms);
+                            }
+                            expect(eq(lowered.two_dimensional_mmas, two_dimensional ? 1u : 0u)) << context;
+                            expect(eq(lowered.blocked_mmas, two_dimensional || column_group || row_group ? 1u : 0u)) << context;
+                            expect_same_resources(lowered.resources, baseline.resources);
+                            expect_same_resources(planned.selected.resources, lowered.resources);
+                            auto a_snapshot = cap != 0u || a_elements > 64u;
+                            auto b_snapshot = cap != 0u || b_elements > 64u;
+                            auto stored = (a_snapshot ? a_elements : 0u) + (b_snapshot ? b_elements : 0u);
+                            expect_same_resources(lowered.resources, {stored * sizeof(float), static_cast<uint64_t>(a_snapshot) + b_snapshot});
+                            if (!two_dimensional) { expect(text(lowered) == text(baseline)) << context; }
+                            const auto &work = policy.observed_work.front();
+                            expect(eq(work.mma_per_packet.multiply_adds, static_cast<double>(outputs * terms))) << context;
+                            expect(eq(work.mma_per_packet.lhs_reads, swap ? b_reads : a_reads)) << context;
+                            expect(eq(work.mma_per_packet.rhs_reads, swap ? a_reads : b_reads)) << context;
+                            expect(eq(work.mma_per_packet.seed_reads, static_cast<double>(outputs))) << context;
+                            expect(eq(work.mma_per_packet.loop_invocations, cap ? static_cast<double>(groups) : 0.0)) << context;
+                            expect(eq(work.mma_per_packet.loop_iterations, cap ? static_cast<double>(groups * terms) : 0.0)) << context;
+                            expect(eq(work.arithmetic_per_packet, static_cast<double>(2u * outputs * terms))) << context;
+                            auto external = static_cast<double>(a_elements + b_elements) + 2.0 * static_cast<double>(outputs) * (outputs == 1u ? 2.0 : 16.0);
+                            auto reads = (a_snapshot ? a_reads : 0.0) + (b_snapshot ? b_reads : 0.0);
+                            expect(eq(work.memory_per_packet, external + (static_cast<double>(stored) + reads) * 16.0)) << context;
+                            uint32_t indices = 0u, accumulators = 0u;
+                            lowered.function->traverse_instructions([&](xir::Instruction *instruction) noexcept {
+                                if (instruction->isa<xir::PhiInst>()) {
+                                    indices += instruction->type()->is_int64();
+                                    accumulators += instruction->type()->is_float32();
+                                }
+                            });
+                            // Large input traversals each have one additional
+                            // induction PHI. Snapshot stores alone add none.
+                            expect(eq(indices, (cap ? groups : 0u) + static_cast<uint32_t>(a_elements > 64u) + static_cast<uint32_t>(b_elements > 64u))) << context;
+                            expect(eq(accumulators, cap ? outputs : 0u)) << context;
+                        }
+                    }
+                }
+            }
+        }
+        auto kernel = fixture(1u, 3u, 5u, 9u, false, false, true);
+        // The flag is not permission to exceed the requested accumulator
+        // budget. R1/R2 retain their byte-identical one-dimensional lowering.
+        for (auto width : {1u, 2u}) {
+            auto baseline = check_resources(kernel, {.mma_output_block = width, .max_unrolled_mma_terms = 8u});
+            auto candidate = check_resources(kernel, {.mma_output_block = width, .enable_mma_2d_blocking = true, .max_unrolled_mma_terms = 8u});
+            if (!baseline || !candidate) { continue; }
+            expect(eq(candidate.two_dimensional_mmas, 0u));
+            expect(text(candidate) == text(baseline));
+            expect_same_resources(candidate.resources, baseline.resources);
+        }
+        RecordingCostPolicy budget_policy;
+        auto budget = bx::plan(kernel.function(), {8u, 1u}, {.block_size = 32u, .max_unrolled_region_work = 1u, .mma_output_block = 4u, .enable_mma_2d_blocking = true, .max_unrolled_mma_terms = 8u, .cost_policy = &budget_policy});
+        auto fallback = check_resources(kernel, {.max_unrolled_region_work = 1u, .mma_output_block = 4u, .max_unrolled_mma_terms = 8u});
+        auto bounded = check_resources(kernel, {.max_unrolled_region_work = 1u, .mma_output_block = 4u, .enable_mma_2d_blocking = true, .max_unrolled_mma_terms = 8u});
+        expect(budget.ok()) << budget.error;
+        if (fallback && bounded) {
+            expect(eq(bounded.two_dimensional_mmas, 0u));
+            expect(eq(bounded.blocked_mmas, 0u));
+            expect(text(bounded) == text(fallback));
+            expect_same_resources(bounded.resources, fallback.resources);
+        }
+        if (!budget_policy.observed_work.empty()) {
+            auto mma = budget_policy.observed_work.front().mma_per_packet;
+            expect(eq(mma.lhs_reads, 135.0));
+            expect(eq(mma.rhs_reads, 135.0));
+            expect(eq(mma.loop_invocations, 15.0));
+        }
+        // A zero contraction is an especially direct layout oracle: each
+        // whole-Tile store must use the same ordered seed read. This catches
+        // microtile-order appends masquerading as row-major SSA elements,
+        // without executing generated code or using the planner as an oracle.
+        for (auto trailing_unit : {false, true}) {
+            auto empty = fixture(2u, 3u, 5u, 0u, false, false, trailing_unit);
+            auto lowered = check_resources(empty, {.mma_output_block = 4u, .enable_mma_2d_blocking = true, .max_unrolled_mma_terms = 8u});
+            if (!lowered) { continue; }
+            expect(eq(lowered.two_dimensional_mmas, 1u));
+            expect(eq(lowered.rolled_mmas, 0u));
+            expect_same_resources(lowered.resources, {});
+            vector<const xir::Value *> seeds, stored;
+            lowered.function->traverse_instructions([&](xir::Instruction *instruction) noexcept {
+                if (instruction->isa<xir::ResourceReadInst>() && static_cast<xir::ResourceReadInst *>(instruction)->op() == xir::ResourceReadOp::BUFFER_READ) { seeds.emplace_back(instruction); }
+                if (instruction->isa<xir::ResourceWriteInst>() && static_cast<xir::ResourceWriteInst *>(instruction)->op() == xir::ResourceWriteOp::BUFFER_WRITE) { stored.emplace_back(instruction->operand(2u)); }
+            });
+            expect(eq(seeds.size(), size_t{30u}));
+            expect(eq(stored.size(), seeds.size()));
+            if (stored.size() == seeds.size()) {
+                for (size_t i = 0u; i < seeds.size(); i++) { expect(stored[i] == seeds[i]) << "zero-K SSA row-major seed index=" << i; }
+            }
         }
     };
 

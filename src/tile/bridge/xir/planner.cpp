@@ -73,6 +73,7 @@ struct Work {
     return {.max_unrolled_tile_elements = options.max_unrolled_tile_elements,
             .max_unrolled_region_work = options.max_unrolled_region_work,
             .mma_output_block = options.mma_output_block,
+            .enable_mma_2d_blocking = options.enable_mma_2d_blocking,
             .max_unrolled_mma_terms = options.max_unrolled_mma_terms,
             .reduction_partitions = options.reduction_partitions,
             .local_lanes = lanes,
@@ -266,13 +267,23 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
             auto common_reads = repetitions * static_cast<double>(groups) * contraction;
             auto lhs_reads = emission.broadcast_lhs ? common_reads : updates;
             auto rhs_reads = emission.broadcast_lhs ? updates : common_reads;
+            if (emission.output_rows > 1u) {
+                auto batches = outputs / emission.columns / emission.row_extent;
+                auto row_groups = ceil_div(emission.row_extent, static_cast<uint64_t>(emission.output_rows));
+                auto column_groups = ceil_div(emission.columns, static_cast<uint64_t>(emission.output_block));
+                groups = batches * row_groups * column_groups;
+                auto row_reads = repetitions * static_cast<double>(batches * emission.row_extent * column_groups) * contraction;
+                auto column_reads = repetitions * static_cast<double>(batches * emission.columns * row_groups) * contraction;
+                lhs_reads = emission.broadcast_lhs ? row_reads : column_reads;
+                rhs_reads = emission.broadcast_lhs ? column_reads : row_reads;
+            }
             work.mma.multiply_adds += updates;
             work.mma.lhs_reads += lhs_reads;
             work.mma.rhs_reads += rhs_reads;
             work.mma.seed_reads += repetitions * static_cast<double>(outputs);
             if (emission.contraction_runtime_loop && contraction != 0.0) {
                 work.mma.loop_invocations += repetitions * static_cast<double>(groups);
-                work.mma.loop_iterations += common_reads;
+                work.mma.loop_iterations += repetitions * static_cast<double>(groups) * contraction;
             }
             work.arithmetic += updates * 2.0 * cost.arithmetic;
             auto dynamic_output = detail::bounded_domain(output, limit);
@@ -433,6 +444,7 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
                     }
                     ExecutionPlan candidate{width, order, static_cast<uint32_t>(physical_count), {}, lanes, grain, options.root_axis_tiles};
                     candidate.mma_output_block = options.mma_output_block;
+                    candidate.enable_mma_2d_blocking = options.enable_mma_2d_blocking;
                     candidate.max_unrolled_mma_terms = options.max_unrolled_mma_terms;
                     if (!info.accepts(candidate)) {
                         result.rejected.emplace_back(ExecutionRejection{std::move(candidate), "XIR target rejected execution geometry"});

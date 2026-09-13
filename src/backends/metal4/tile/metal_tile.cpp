@@ -129,6 +129,7 @@ ShaderCreationInfo MetalDevice::create_tile_kernel(
                                           .max_unrolled_tile_elements = planner_options.max_unrolled_tile_elements,
                                           .max_unrolled_region_work = planner_options.max_unrolled_region_work,
                                           .mma_output_block = plan.mma_output_block,
+                                          .enable_mma_2d_blocking = plan.enable_mma_2d_blocking,
                                           .max_unrolled_mma_terms = plan.max_unrolled_mma_terms,
                                           .reduction_partitions = planner_options.reduction_partitions,
                                           .local_lanes = plan.local_lanes,
@@ -234,6 +235,7 @@ ShaderCreationInfo MetalDevice::create_tile_kernel(
         metadata.realization.append(luisa::format("; static_snapshot_bytes_per_worker={}; static_snapshot_allocations={}; rejected_candidates={}",
                                                   plan.resources.snapshot_bytes_per_worker, plan.resources.snapshot_allocations, planned.rejected.size()));
         metadata.realization.append(luisa::format("; requested_mma_output_block={}; blocked_mmas={}; mma_blocking_cost=unmodeled", planner_options.mma_output_block, lowered.blocked_mmas));
+        metadata.realization.append(luisa::format("; requested_mma_2d_blocking={}; two_dimensional_mmas={}", planner_options.enable_mma_2d_blocking, lowered.two_dimensional_mmas));
         metadata.realization.append(luisa::format("; requested_max_unrolled_mma_terms={}; rolled_mmas={}; mma_unroll_cost=unmodeled", planner_options.max_unrolled_mma_terms, lowered.rolled_mmas));
         auto shader = luisa::new_with_allocator<MetalShader>(
             this, std::move(pipeline), std::move(shader_metadata.argument_usages),

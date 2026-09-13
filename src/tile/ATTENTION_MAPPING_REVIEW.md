@@ -1,6 +1,6 @@
 # Attention execution mapping：现状、缺口与有界实验
 
-记录日期：2026-09-13。范围：当前源码静态审查与已归档实验；初稿为只读审查，后续 CPU 实验见第 8–11 节。**未宣称已完成自动生产优化**。
+记录日期：2026-09-13。范围：当前源码静态审查与已归档实验；初稿为只读审查，后续 CPU 实验与模型修正见第 8–13 节。**未宣称已完成自动生产优化**。
 它是实现侧工作记录，不替代既有设计文档；不改动受保护的 matrix-initializer WIP。
 
 ## 1. 先分清三种状态
@@ -161,3 +161,38 @@ cap 导致的小 Tile 索引快照现在计入定义写入和动态读取。常�
 本轮是模型一致性修复，**没有新增性能测量，也没有开启自动 R/cap 搜索**。四项 CTest 与七项精确筛选的 host 回归通过；新测试含 441 个 planner 配置、零 K/零输出、交换/转置/尾组、重复 scope、常量 SELECT 和 budget fallback。原来的两个 host SSA-budget fatal 问题未在本轮解决，不能声称全仓测试绿色。
 
 下一候选可在不切分 K、最多四个累加器的约束下比较每个 MMA 的 `1×4` 与 `2×2` 输出微块。若两个输出轴分别由左右输入使用、另一侧广播，完整 `2×2` 微块每 K 可用四次投影服务四个输出，`1×4` 则为五次；decode Q=1 仍需要一维候选。此处仅提出候选：小结果必须按原 flat index 回填，保留 carry/alias 与逐输出 K 顺序；还需验证代码规模、mask、真实 stride 和完整 kernel 的时间，不能直接凭投影数自动选定胜者。
+
+## 13. 二维输出分块：已验证的通用候选，尚非自动选择策略
+
+[二维 MMA 实验](../../scripts/benchmark/tile_torch/results/m1-max-20260913-attention-mma-2d/notes.md)已实现上述候选：`enable_mma_2d_blocking` 默认关闭，在 requested R4 的四累加器预算内，允许两个互补广播输出轴使用 `2×2`，否则保留原一维方案。R1/R2 不受影响；不识别 attention/GEMM 名字，不增加 DSL primitive，也不切分或重排 K。前导 batch 和中间/尾部 singleton 不是新的分块轴。
+
+```text
+同一 typed contraction、逐输出相同 K 次序
+                 │
+      输出轴 / 广播 / expansion budget 准入
+                 │
+       ┌─────────┴─────────┐
+       │                   │
+     1×4                 2×2
+  一行四个输出        两行 × 两列输出
+       │                   │
+       └─────────┬─────────┘
+                 │
+  相同 flat 输出 ABI、carry 与 definition-time snapshot
+                 │
+     backend 代码生成 → 完整 native-entry 验证
+```
+
+设输出为 `B×M×N`，贡献数为 K，二维候选的动态组数为
+`G=B×ceil_div(M,2)×ceil_div(N,2)`；行操作数投影为
+`B×M×ceil_div(N,2)×K`，列操作数为
+`B×N×ceil_div(M,2)×K`。交换操作数时交换左右计数，乘加数仍为
+`B×M×N×K`。工作提取与 lowering 共用准入结果，包含尾块；不把请求值当作实际生成方案。
+
+完整微块相对 `1×4` 的投影总数降低20%，但行侧读取增加、列侧减少，访问成本未必对称；静态循环层次和代码生成也不同。因而分别保留 lhs/rhs 计数，不用统一的20%系数预测 kernel 加速，更不把 snapshot 字节当成物理寄存器数。
+
+六组预声明 attention 形状、12 captures、72 ABBA visits、504 samples 全部通过独立 FP64 与 A/B 逐 bit 输出检查。同批固定 R4/cap/P 下，五组 prefill/batch/GQA 的配对时间减少约2.2%–10.6%；decode 对照未准入二维，LLVM/ORC object 逐字节相同，比值范围跨1。五组 prefill 的满包 clone 均未生成，decode 两边均生成，因此本批收益不是由新增满包特化解释。这里是单线程实际 native-entry host-wall，不是 Runtime E2E 或新的 Torch/MPS/Metal4 对照。
+
+四项相关 CTest 和七项精确名称 host 回归通过；新增96组 plan/lower 配置与60个严格数值 runtime dispatch（含负控制，16次实际准入二维），覆盖交换/转置、奇数尾块、零K、budget fallback、small-SSA carry 和较大 snapshot 输出。Metal4 forwarding 通过构建，GPU 执行仍未验证。
+
+默认关闭且未加入自动 R/cap/二维搜索。后续应把这些候选纳入有资源约束、代码量/访存/phase 转换成本的联合选择，并用更多非 attention contraction 和 held-out 尺寸验证；这些局部收益不替代第5节的贡献维 ownership、split-KV 和跨 phase 映射能力。

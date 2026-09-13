@@ -28,6 +28,10 @@ struct LowerOptions {
     // reference emission. Admission uses logical operand strides/broadcasts,
     // preserves each output's contraction order and existing snapshot storage.
     uint32_t mma_output_block{1u};
+    // Fixed opt-in candidate: use a 2x2 microtile within the four-accumulator
+    // budget when two output axes have complementary operand broadcasts.
+    // Other contractions retain the existing one-dimensional realization.
+    bool enable_mma_2d_blocking{false};
     // Additional MMA-only host-unroll cap. Zero inherits the Tile threshold;
     // nonzero may roll the contraction earlier without changing the global
     // Tile threshold or any other reduction. Newly dynamic operand reads get
@@ -106,6 +110,7 @@ struct NativeFunction {
     uint32_t elided_expression_snapshots{0u};
     uint32_t deferred_maps{0u};
     uint32_t blocked_mmas{0u};
+    uint32_t two_dimensional_mmas{0u};
     // MMA operations with at least one emitted runtime contraction loop.
     uint32_t rolled_mmas{0u};
     ExecutionResources resources;

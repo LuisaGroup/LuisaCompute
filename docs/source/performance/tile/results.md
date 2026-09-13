@@ -146,6 +146,20 @@ This is a cost-extraction correction, **not a new timing result or automatic
 R/cap search**. Native mask, code-size and cache effects remain uncalibrated;
 the performance comparisons above are not revised using model scores.
 
+The {download}`two-dimensional MMA experiment
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260913-attention-mma-2d/notes.md>`
+adds an opt-in 2×2 candidate within the same four-accumulator budget as 1×4.
+Admission uses complementary output-axis broadcasts, not operator names;
+each output retains its K order, flat layout and snapshot semantics. In
+72 new native-entry visits, five prefill/batch/GQA configurations reduce
+paired time by **2.2%–10.6%**. The decode control retains byte-identical
+LLVM/ORC code and its ratio range crosses parity. All full outputs pass an
+independent FP64 oracle and bitwise A/B checks; resource capacity and root
+mapping match. Actual full-packet clone availability is unchanged in every
+pair. Four CTests and seven exact-name host checks pass. Default selection
+is unchanged; this is neither automatic cost calibration nor a new
+Torch/MPS/Metal4 performance comparison.
+
 ### Metal4 XIR route: correctness established, timing not yet stable
 
 The September 10 {download}`target-info checkpoint <../../../../scripts/benchmark/tile_torch/results/m1-max-20260910-xir-target-info/README.md>`

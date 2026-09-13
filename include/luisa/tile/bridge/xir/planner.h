@@ -45,6 +45,9 @@ struct PlannerOptions {
     // winner. Cost extraction shares its admitted broadcast-read grouping;
     // this is logical work, not a calibrated native speedup.
     uint32_t mma_output_block{1u};
+    // With a four-accumulator budget, propose 2x2 per admitted contraction.
+    // Projection counts are modeled, not native profitability or search.
+    bool enable_mma_2d_blocking{false};
     // Fixed MMA-only unroll cap; zero inherits the global Tile threshold.
     // The shared resource plan accounts for indexable operand snapshots made
     // necessary by newly dynamic MMA reads. Work extraction prices their
@@ -110,13 +113,15 @@ struct ExecutionPlan {
     // Fixed requested realization, exposed to target admission/cost policies.
     // Individual contractions may retain reference emission after admission.
     uint32_t mma_output_block{1u};
+    bool enable_mma_2d_blocking{false};
     uint32_t max_unrolled_mma_terms{0u};
 };
 
 // Unweighted dynamic contraction work for one complete logical program in
 // each active packet lane, before native optimization. Repeated enclosing
 // scopes are included. Reads are scalar projections, not DRAM transactions;
-// grouped outputs share one broadcast operand per group, including tails.
+// grouped outputs share projections along each admitted broadcast axis,
+// including partial microtiles at either boundary.
 // Loop counters refer only to runtime contraction loops, not output traversal
 // loops or static emitted bodies. Zero-K still reads each accumulator seed.
 // A backend may price these features, but must not double-charge the existing

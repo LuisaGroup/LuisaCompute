@@ -1214,14 +1214,13 @@ void packet_local_reductions(Device &device, int64_t count, int64_t width, uint3
     }
 }
 
-void mma_output_blocks(Device &device, int64_t rows, int64_t columns, int64_t terms, bool swapped, uint32_t max_unrolled_mma_terms = 0u, bool rhs_transposed = false) {
+void mma_output_blocks(Device &device, int64_t rows, int64_t columns, int64_t terms, bool swapped, uint32_t max_unrolled_mma_terms = 0u, bool rhs_transposed = false, bool enable_mma_2d_blocking = false, bool carry_seed = false) {
     using namespace tile;
     // A zero logical contraction still uses valid nonempty Runtime bindings.
     auto physical_terms = std::max(terms, int64_t{1});
     auto kernel = tile_kernel("ordered_mma_blocks", [=](TensorView<float, 2> a, TensorView<const float, 2> b, TensorView<float, 2> c) {
                       auto m = axis("m", rows), n = axis("n", columns), k = axis("k", terms);
                       for (auto &nest : parallel(shape(1))) {
-                          static_cast<void>(nest);
                           auto lhs = a.tile(coord(0, 0), shape(m, k)).load();
                           auto rhs = b.tile(coord(0, 0), rhs_transposed ? shape(n, k) : shape(k, n)).load();
                           auto seed = c.tile(coord(0, 0), shape(m, n)).load();
@@ -1229,9 +1228,21 @@ void mma_output_blocks(Device &device, int64_t rows, int64_t columns, int64_t te
                           // contraction; its output also aliases the seed view.
                           a(coord(0, 0), shape(m, k)).store(full<float>(shape(m, k), 13.0f));
                           c(coord(0, 0), shape(m, n)).store(full<float>(shape(m, n), -7.0f));
-                          auto result = swapped ? mma(rhs, lhs, seed, {.allow_reassociation = false}) :
-                                                  mma(lhs, rhs, seed, {.allow_reassociation = false});
-                          c(coord(0, 0), shape(m, n)).store(result);
+                          if (carry_seed) {
+                              // Exercise the small-SSA carry's canonical flat
+                              // element order without hiding the FMA probe by
+                              // accumulating its product a second time.
+                              for (auto &step : nest.serial(shape(1))) {
+                                  static_cast<void>(step);
+                                  seed = swapped ? mma(rhs, lhs, seed, {.allow_reassociation = false}) :
+                                                   mma(lhs, rhs, seed, {.allow_reassociation = false});
+                              }
+                              c(coord(0, 0), shape(m, n)).store(seed);
+                          } else {
+                              auto result = swapped ? mma(rhs, lhs, seed, {.allow_reassociation = false}) :
+                                                      mma(lhs, rhs, seed, {.allow_reassociation = false});
+                              c(coord(0, 0), shape(m, n)).store(result);
+                          }
                       }
                   }).capture(tensor_shape(rows, physical_terms), rhs_transposed ? tensor_shape(columns, physical_terms) : tensor_shape(physical_terms, columns), tensor_shape(rows, columns));
     expect(kernel.valid());
@@ -1272,12 +1283,14 @@ void mma_output_blocks(Device &device, int64_t rows, int64_t columns, int64_t te
     auto stream = device.create_stream(StreamTag::COMPUTE);
     vector<float> baseline;
     for (auto width : {1u, 2u, 4u}) {
-        auto options = bridge::xir::PlannerOptions{.mma_output_block = width, .max_unrolled_mma_terms = max_unrolled_mma_terms};
+        auto options = bridge::xir::PlannerOptions{.mma_output_block = width, .enable_mma_2d_blocking = enable_mma_2d_blocking, .max_unrolled_mma_terms = max_unrolled_mma_terms};
         auto shader = compile(device, kernel, {.xir = &options});
         expect(static_cast<bool>(shader)) << shader.metadata().error;
         if (!shader) { continue; }
-        auto grouped = width != 1u && (!rhs_transposed || !swapped || terms == 1);
+        auto two_dimensional = enable_mma_2d_blocking && width == 4u && rows > 1 && columns > 1;
+        auto grouped = two_dimensional || (width != 1u && columns > 1 && (!rhs_transposed || !swapped || terms == 1));
         expect(shader.metadata().realization.find(format("requested_mma_output_block={}; blocked_mmas={};", width, grouped ? 1u : 0u)) != string::npos);
+        expect(shader.metadata().realization.find(format("requested_mma_2d_blocking={}; two_dimensional_mmas={}", enable_mma_2d_blocking, two_dimensional ? 1u : 0u)) != string::npos);
         auto rolled = terms > 64 || (max_unrolled_mma_terms != 0u && terms > max_unrolled_mma_terms);
         expect(shader.metadata().realization.find(format("requested_max_unrolled_mma_terms={}; rolled_mmas={}; mma_unroll_cost=unmodeled", max_unrolled_mma_terms, rolled ? 1u : 0u)) != string::npos);
         auto actual_a = input_a, actual_b = input_b, actual_c = input_c;
@@ -1285,7 +1298,7 @@ void mma_output_blocks(Device &device, int64_t rows, int64_t columns, int64_t te
                << shader(a.view(pad, rows * physical_terms), b.view(pad, physical_terms * columns), c.view(pad, rows * columns)).dispatch()
                << a.copy_to(span{actual_a}) << b.copy_to(span{actual_b}) << c.copy_to(span{actual_c}) << synchronize();
         for (size_t i = 0u; i < actual_c.size(); i++) {
-            expect(eq(std::bit_cast<uint32_t>(actual_c[i]), std::bit_cast<uint32_t>(expected[i]))) << "mma block=" << width << " rhs_transposed=" << rhs_transposed << " output=" << i;
+            expect(eq(std::bit_cast<uint32_t>(actual_c[i]), std::bit_cast<uint32_t>(expected[i]))) << "mma block=" << width << " 2d=" << enable_mma_2d_blocking << " rhs_transposed=" << rhs_transposed << " swapped=" << swapped << " carry=" << carry_seed << " output=" << i;
         }
         expect(actual_b == input_b);
         for (size_t i = 0u; i < actual_a.size(); i++) {
@@ -1400,6 +1413,25 @@ int main(int argc, char *argv[]) {
             for (auto [terms, cap] : {std::pair{0, 1u}, {1, 1u}, {8, 8u}, {9, 8u}, {16, 1u}, {64, 8u}}) {
                 mma_output_blocks(device, 1, 5, terms, swapped, cap);
                 mma_output_blocks(device, 1, 5, terms, swapped, cap, true);
+            }
+        }
+    };
+    "tile_xir_runtime_mma_2d_blocks_order_carries_and_snapshots"_test = [&] {
+        for (auto swapped : {false, true}) {
+            for (auto rhs_transposed : {false, true}) {
+                // Odd row/column tails with a small-SSA carried accumulator.
+                // K=0 must return its seed; K=1 keeps the FMA discriminator;
+                // K=9 exercises newly indexable operands and rolled K.
+                for (auto terms : {0, 1, 9}) {
+                    mma_output_blocks(device, 3, 5, terms, swapped, 8u, rhs_transposed, true, true);
+                }
+                // The 81-element output crosses the snapshot boundary. Its
+                // flat layout and original eager alias snapshots must survive
+                // two-dimensional grouping and both output tails.
+                mma_output_blocks(device, 9, 9, 65, swapped, 8u, rhs_transposed, true);
+                // A single nonunit output axis retains the exact old 1D
+                // admission, including the swapped strided-LHS fallback.
+                mma_output_blocks(device, 1, 5, 9, swapped, 8u, rhs_transposed, true, true);
             }
         }
     };

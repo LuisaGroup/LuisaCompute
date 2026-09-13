@@ -571,6 +571,8 @@ struct MmaEmissionPlan {
     uint64_t columns{1u};
     bool broadcast_lhs{true};
     bool contraction_runtime_loop{false};
+    uint32_t output_rows{1u};
+    uint64_t row_extent{1u};
 };
 
 [[nodiscard]] inline MmaEmissionPlan mma_emission_plan(const Operation &op, const LowerOptions &options) noexcept;
@@ -657,6 +659,33 @@ struct TraversalEmissionPlan {
     auto &inner = output.axis(axis - 1u);
     auto columns = inner.extent.constant_value();
     if (columns <= 1u) { return plan; }
+    auto fits_budget = [&](uint64_t outputs) noexcept {
+        if (options.max_unrolled_region_work == 0u) { return true; }
+        auto cap = static_cast<uint64_t>(options.max_unrolled_region_work) + 1u;
+        auto updates = plan.contraction_runtime_loop ? 1u : capped_work_volume(contraction.domain, cap);
+        auto work = capped_work_product(outputs, updates, cap);
+        work = capped_work_product(work, 2u + lhs.rank() + rhs.rank() + output.rank(), cap);
+        return work <= options.max_unrolled_region_work;
+    };
+    if (options.enable_mma_2d_blocking && options.mma_output_block == 4u) {
+        auto outer = axis - 1u;
+        while (outer != 0u && output.axis(outer - 1u).extent.is_constant() && output.axis(outer - 1u).extent.constant_value() == 1u) { outer--; }
+        if (outer != 0u) {
+            auto &row = output.axis(outer - 1u);
+            auto lhs_rows = lhs.contains(row.dimension) && !lhs.contains(inner.dimension) &&
+                            rhs.contains(inner.dimension) && !rhs.contains(row.dimension);
+            auto rhs_rows = rhs.contains(row.dimension) && !rhs.contains(inner.dimension) &&
+                            lhs.contains(inner.dimension) && !lhs.contains(row.dimension);
+            if (row.extent.is_constant() && row.extent.constant_value() > 1u && (lhs_rows || rhs_rows) && fits_budget(4u)) {
+                plan.output_block = 2u;
+                plan.columns = columns;
+                plan.broadcast_lhs = lhs_rows;
+                plan.output_rows = 2u;
+                plan.row_extent = row.extent.constant_value();
+                return plan;
+            }
+        }
+    }
     auto unit_stride = [&](const IndexSpace &space) noexcept {
         auto index = space.axis_index(inner.dimension);
         if (!index) { return false; }
@@ -671,15 +700,8 @@ struct TraversalEmissionPlan {
     // for legality. Retain the existing unit-stride symmetric candidate.
     auto broadcast_lhs = !lhs.contains(inner.dimension) && rhs.contains(inner.dimension);
     if (!broadcast_lhs && (rhs.contains(inner.dimension) || !unit_stride(lhs))) { return plan; }
-    if (options.max_unrolled_region_work != 0u) {
-        // Potential per-block expansion, not an instruction count or a cycle
-        // estimate. A rolled contraction emits one update body per output.
-        auto cap = static_cast<uint64_t>(options.max_unrolled_region_work) + 1u;
-        auto updates = plan.contraction_runtime_loop ? 1u : capped_work_volume(contraction.domain, cap);
-        auto work = capped_work_product(std::min<uint64_t>(options.mma_output_block, columns), updates, cap);
-        work = capped_work_product(work, 2u + lhs.rank() + rhs.rank() + output.rank(), cap);
-        if (work > options.max_unrolled_region_work) { return plan; }
-    }
+    // Potential per-block expansion, not an instruction or cycle estimate.
+    if (!fits_budget(std::min<uint64_t>(options.mma_output_block, columns))) { return plan; }
     plan.output_block = options.mma_output_block;
     plan.columns = columns;
     plan.broadcast_lhs = broadcast_lhs;

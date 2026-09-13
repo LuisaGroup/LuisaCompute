@@ -1124,16 +1124,20 @@ private:
             auto snapshot = detail::traversal_snapshot(count, _options);
             auto storage = snapshot ? _allocate(result->type()) : nullptr;
             Elements elements;
-            auto emit_block = [&](x::Value *base, uint32_t width) {
+            if (!snapshot && plan.output_rows > 1u) { elements.resize(count); }
+            auto emit_block = [&](x::Value *base, uint32_t width, uint32_t height = 1u) {
                 luisa::vector<Elements> coordinates;
                 Elements flats, initial;
-                for (auto j = 0u; j < width; j++) {
-                    uint64_t constant = 0u;
-                    auto flat = x::try_decode_constant_nonnegative_integer(base, constant) ? _index(constant + j) :
-                                                                                             _binary(A::BINARY_ADD, base, _index(j));
-                    flats.emplace_back(flat);
-                    coordinates.emplace_back(_coordinates(space, flat));
-                    initial.emplace_back(_read(_get(op.operand(2u)), flat));
+                for (auto i = 0u; i < height; i++) {
+                    for (auto j = 0u; j < width; j++) {
+                        uint64_t constant = 0u;
+                        auto offset = i * plan.columns + j;
+                        auto flat = x::try_decode_constant_nonnegative_integer(base, constant) ? _index(constant + offset) :
+                                                                                                 _binary(A::BINARY_ADD, base, _index(offset));
+                        flats.emplace_back(flat);
+                        coordinates.emplace_back(_coordinates(space, flat));
+                        initial.emplace_back(_read(_get(op.operand(2u)), flat));
+                    }
                 }
                 auto values = _fold_many(_volume(contraction), std::move(initial), [&](x::Value *k, const Elements &sums) {
                     auto reduced = _coordinates(contraction, k);
@@ -1142,8 +1146,24 @@ private:
                         full.insert(full.end(), reduced.begin(), reduced.end());
                         return _cast(result->type(), op.operand(operand)->type(), _project(_get(op.operand(operand)), domain, full));
                     };
-                    auto common = project(plan.broadcast_lhs ? 0u : 1u, 0u);
                     Elements next;
+                    if (plan.output_rows > 1u) {
+                        // Output axes have complementary operand broadcasts.
+                        // Reuse projections across the microtile, but retain
+                        // each accumulator's exact K order and MUL then ADD.
+                        Elements rows, columns;
+                        for (auto i = 0u; i < height; i++) { rows.emplace_back(project(plan.broadcast_lhs ? 0u : 1u, i * width)); }
+                        for (auto j = 0u; j < width; j++) { columns.emplace_back(project(plan.broadcast_lhs ? 1u : 0u, j)); }
+                        for (auto i = 0u; i < height; i++) {
+                            for (auto j = 0u; j < width; j++) {
+                                auto a = plan.broadcast_lhs ? rows[i] : columns[j];
+                                auto b = plan.broadcast_lhs ? columns[j] : rows[i];
+                                next.emplace_back(_binary(A::BINARY_ADD, sums[i * width + j], _binary(A::BINARY_MUL, a, b)));
+                            }
+                        }
+                        return next;
+                    }
+                    auto common = project(plan.broadcast_lhs ? 0u : 1u, 0u);
                     for (auto j = 0u; j < width; j++) {
                         auto other = project(plan.broadcast_lhs ? 1u : 0u, j);
                         auto a = plan.broadcast_lhs ? common : other;
@@ -1151,16 +1171,56 @@ private:
                         next.emplace_back(_binary(A::BINARY_ADD, sums[j], _binary(A::BINARY_MUL, a, b)));
                     }
                     return next; }, plan.contraction_runtime_loop);
-                for (auto j = 0u; j < width; j++) {
+                for (auto j = 0u; j < width * height; j++) {
                     if (storage) {
                         _store_local(result->type(), storage, flats[j], values[j]);
+                    } else if (plan.output_rows > 1u) {
+                        uint64_t flat = 0u;
+                        LUISA_ASSERT(x::try_decode_constant_nonnegative_integer(flats[j], flat), "Expanded MMA output must have a constant index");
+                        // Microtile visitation is not row-major order. Carries
+                        // and all later consumers retain the original flat ABI.
+                        elements.at(flat) = values[j];
                     } else {
                         elements.emplace_back(values[j]);
                     }
                 }
             };
-            auto rows = count / plan.columns;
-            _serial_for(rows, [&](x::Value *row) {
+            if (plan.output_rows > 1u) {
+                auto batches = count / plan.row_extent / plan.columns;
+                auto base_index = [&](x::Value *batch, x::Value *row, x::Value *column) {
+                    uint64_t b = 0u, r = 0u, c = 0u;
+                    if (x::try_decode_constant_nonnegative_integer(batch, b) &&
+                        x::try_decode_constant_nonnegative_integer(row, r) &&
+                        x::try_decode_constant_nonnegative_integer(column, c)) { return _index((b * plan.row_extent + r) * plan.columns + c); }
+                    auto full_row = _binary(A::BINARY_ADD, _binary(A::BINARY_MUL, batch, _index(plan.row_extent)), row);
+                    return _binary(A::BINARY_ADD, _binary(A::BINARY_MUL, full_row, _index(plan.columns)), column);
+                };
+                auto block_origin = [&](x::Value *block, uint32_t width) {
+                    uint64_t index = 0u;
+                    return x::try_decode_constant_nonnegative_integer(block, index) ? _index(index * width) :
+                                                                                      _binary(A::BINARY_MUL, block, _index(width));
+                };
+                _serial_for(batches, [&](x::Value *batch) {
+                    auto emit_row = [&](x::Value *row, uint32_t height) {
+                        auto full = plan.columns / plan.output_block;
+                        _serial_for(full, [&](x::Value *column) {
+                            emit_block(base_index(batch, row, block_origin(column, plan.output_block)), plan.output_block, height);
+                        }, snapshot && full > 1u);
+                        if (auto tail = static_cast<uint32_t>(plan.columns % plan.output_block)) {
+                            emit_block(base_index(batch, row, _index(full * plan.output_block)), tail, height);
+                        }
+                    };
+                    auto full = plan.row_extent / plan.output_rows;
+                    _serial_for(full, [&](x::Value *row) {
+                        emit_row(block_origin(row, plan.output_rows), plan.output_rows);
+                    }, snapshot && full > 1u);
+                    if (auto tail = static_cast<uint32_t>(plan.row_extent % plan.output_rows)) {
+                        emit_row(_index(full * plan.output_rows), tail);
+                    } }, snapshot && batches > 1u);
+                _output.two_dimensional_mmas++;
+            } else {
+                auto rows = count / plan.columns;
+                _serial_for(rows, [&](x::Value *row) {
                 auto full = plan.columns / plan.output_block;
                 _serial_for(full, [&](x::Value *block) {
                     uint64_t r = 0u, c = 0u;
@@ -1175,6 +1235,7 @@ private:
                                                                                   _binary(A::BINARY_ADD, _binary(A::BINARY_MUL, row, _index(plan.columns)), _index(full * plan.output_block));
                     emit_block(base, tail);
                 } }, snapshot && rows > 1u);
+            }
             if (storage) {
                 _representation(result)->storage = storage;
             } else {
