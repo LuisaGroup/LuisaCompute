@@ -815,6 +815,31 @@ struct LLVMSIMDRayQueryPipelineHandlers {
     bool surface_handler_empty{false};
 };
 
+// Representation-budget diagnostics, not semantic legality or measured cost.
+enum class FullPacketSpecializationDecision : uint8_t {
+    not_requested,
+    disabled,
+    ineligible,
+    source_budget_exceeded,
+    candidate_budget_exceeded,
+    legacy_selected,
+    simplified_selected,
+};
+
+[[nodiscard]] constexpr std::string_view full_packet_specialization_decision_name(
+    FullPacketSpecializationDecision decision) noexcept {
+    switch (decision) {
+        case FullPacketSpecializationDecision::not_requested: return "not_requested";
+        case FullPacketSpecializationDecision::disabled: return "disabled";
+        case FullPacketSpecializationDecision::ineligible: return "ineligible";
+        case FullPacketSpecializationDecision::source_budget_exceeded: return "source_budget_exceeded";
+        case FullPacketSpecializationDecision::candidate_budget_exceeded: return "candidate_budget_exceeded";
+        case FullPacketSpecializationDecision::legacy_selected: return "legacy_selected";
+        case FullPacketSpecializationDecision::simplified_selected: return "simplified_selected";
+    }
+    return "invalid";
+}
+
 // Packet ABI:
 //   void entry(ptr argument_buffer, ptr return_lanes,
 //              ptr launch_config, i32 active_lane_count)
@@ -920,7 +945,19 @@ struct LLVMScheduleCodegenResult {
     size_t linear_1d_block_coalescing_count{0u};
     // Bounded opt-in full-width body cloning; excludes the generic tail body.
     size_t full_packet_specialization_count{0u};
+    // Raw source instructions copied by an accepted candidate, before any
+    // local simplification. This preserves the historical counter's meaning.
     size_t full_packet_cloned_instruction_count{0u};
+    // Exact counts, not early-exit lower bounds. Source is counted only for an
+    // enabled, structurally eligible request; candidate remains zero when no
+    // provisional body was made. Helpers and later LLVM optimization are not
+    // included. A rejected candidate's count is retained after its deletion.
+    size_t full_packet_source_instruction_count{0u};
+    size_t full_packet_candidate_instruction_count{0u};
+    uint32_t full_packet_simplification_round_count{0u};
+    bool full_packet_simplification_requested{false};
+    FullPacketSpecializationDecision full_packet_specialization_decision{
+        FullPacketSpecializationDecision::not_requested};
     size_t shared_memory_size{0u};
     size_t block_barrier_count{0u};
     size_t block_barrier_loop_epoch_count{0u};

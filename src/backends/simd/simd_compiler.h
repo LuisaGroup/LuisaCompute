@@ -136,6 +136,11 @@ struct SIMDCompiledKernel {
     size_t linear_1d_block_coalescing_count{0u};
     size_t full_packet_specialization_count{0u};
     size_t full_packet_cloned_instruction_count{0u};
+    bool full_packet_simplification_requested{false};
+    FullPacketSpecializationDecision full_packet_specialization_decision{FullPacketSpecializationDecision::not_requested};
+    size_t full_packet_source_instruction_count{0u};
+    size_t full_packet_candidate_instruction_count{0u};
+    uint32_t full_packet_simplification_round_count{0u};
     size_t shared_memory_size{0u};
     size_t block_barrier_count{0u};
     size_t block_barrier_loop_epoch_count{0u};

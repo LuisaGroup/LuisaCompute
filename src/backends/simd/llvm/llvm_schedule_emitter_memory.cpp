@@ -175,13 +175,16 @@ void ScheduleEmitter::_find_interleaved_private_arrays() {
             if (!type || !type->is_array() || !type->element()->is_scalar() ||
                 (type->element()->size() != 4u && type->element()->size() != 8u) || escapes[id]) { continue; }
             // A closed, typed address tree: allocation -> element GEP ->
-            // scalar load/store. Reject aggregate access, pointer arithmetic,
-            // PHIs, reference calls and all other address escapes. Thus every
+            // scalar load/store, or a preflighted typed copy destination.
+            // The copy emitter implements the same physical element stride.
+            // Reject other aggregate access, pointer arithmetic, PHIs and
+            // reference calls (including native MMA). Thus every
             // observable byte access participates in the same bijection:
             //   (lane, element) -> (element * W + lane) * sizeof(T).
             auto legal = true;
             for (auto use : users[id]) {
                 auto gep = use.instruction;
+                if (use.operand == 2u && gep->opcode == schedule::Opcode::call && gep->contiguous_copy) { continue; }
                 if (use.operand != 0u || gep->opcode != schedule::Opcode::gep || !gep->result ||
                     gep->operands.size() != 2u || _source.value(*gep->result)->type != type->element() || escapes[gep->result->value]) {
                     legal = false;
@@ -200,6 +203,7 @@ void ScheduleEmitter::_find_interleaved_private_arrays() {
             _interleaved_local_values[id] = 1u;
             for (auto use : users[id]) {
                 auto gep = use.instruction;
+                if (use.operand == 2u && gep->opcode == schedule::Opcode::call && gep->contiguous_copy) { continue; }
                 _interleaved_local_values[gep->result->value] = 1u;
                 if (!_enable_contiguous_private_access) { continue; }
                 auto index = _source.value(gep->operands[1u]);

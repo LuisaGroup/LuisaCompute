@@ -12930,11 +12930,12 @@ void bindless_uniform_gradient_probe(
     return true;
 }
 
-[[nodiscard]] bool run_full_packet_specialization() {
+[[nodiscard]] bool run_full_packet_specialization_mode(bool simplified) {
     // Full and partial wrappers must share the original per-packet resource
     // lifetime. Exercise promoted workspace as well as stack-private storage;
     // odd origins prevent the test from assuming aligned logical packets.
     ScopedEnvironmentVariable enable{"LUISA_SIMD_ENABLE_FULL_PACKET_SPECIALIZATION", "1"};
+    ScopedEnvironmentVariable simplify{"LUISA_SIMD_ENABLE_SIMPLIFIED_FULL_PACKET_SPECIALIZATION", simplified ? "1" : nullptr};
     for (auto width : {2u, 4u, 8u, 16u}) {
         constexpr auto block_size = 32u;
         xir::Module module;
@@ -12974,6 +12975,13 @@ void bindless_uniform_gradient_probe(
                 CHECK(candidate.full_packet_specialization_count == 1u);
                 CHECK(candidate.full_packet_cloned_instruction_count > 0u);
                 CHECK(candidate.full_packet_cloned_instruction_count <= 4096u);
+                CHECK(candidate.full_packet_source_instruction_count == candidate.full_packet_cloned_instruction_count);
+                CHECK(candidate.full_packet_candidate_instruction_count <= candidate.full_packet_source_instruction_count);
+                CHECK(candidate.full_packet_candidate_instruction_count <= 4096u);
+                CHECK(candidate.full_packet_simplification_requested == simplified);
+                CHECK(candidate.full_packet_specialization_decision == (simplified ? FullPacketSpecializationDecision::simplified_selected : FullPacketSpecializationDecision::legacy_selected));
+                CHECK(baseline.full_packet_specialization_decision == FullPacketSpecializationDecision::disabled);
+                CHECK(baseline.full_packet_source_instruction_count == 0u);
                 CHECK(candidate.llvm_ir.find("define internal void @full_packet_probe.full_packet(") != std::string::npos);
                 CHECK(line_containing(candidate.llvm_ir, "define internal void @full_packet_probe.full_packet(").find("active_lane_count") == std::string_view::npos);
                 CHECK(candidate.private_workspace_size == baseline.private_workspace_size);
@@ -13048,8 +13056,13 @@ void bindless_uniform_gradient_probe(
     return true;
 }
 
+[[nodiscard]] bool run_full_packet_specialization() {
+    return run_full_packet_specialization_mode(false) && run_full_packet_specialization_mode(true);
+}
+
 [[nodiscard]] bool run_full_packet_specialization_rejections() {
     ScopedEnvironmentVariable enable{"LUISA_SIMD_ENABLE_FULL_PACKET_SPECIALIZATION", "1"};
+    ScopedEnvironmentVariable simplify{"LUISA_SIMD_ENABLE_SIMPLIFIED_FULL_PACKET_SPECIALIZATION", nullptr};
     for (auto variant : {0u, 1u, 2u}) {
         auto width = variant == 0u ? 1u : 8u;
         auto shape = variant == 1u ? std::array{16u, 2u, 1u} : std::array{32u, 1u, 1u};
@@ -13077,6 +13090,8 @@ void bindless_uniform_gradient_probe(
         CHECK(codegen.full_packet_specialization_count == 0u);
         CHECK(codegen.full_packet_cloned_instruction_count == 0u);
         CHECK(module.getFunction("full_packet_rejection.full_packet") == nullptr);
+        CHECK(!codegen.full_packet_simplification_requested);
+        CHECK(codegen.full_packet_specialization_decision == (variant == 2u ? FullPacketSpecializationDecision::source_budget_exceeded : FullPacketSpecializationDecision::ineligible));
         CHECK(!::llvm::verifyModule(module, &::llvm::errs()));
         if (variant == 2u) {
             auto count = size_t{0u};
@@ -13087,8 +13102,104 @@ void bindless_uniform_gradient_probe(
     return true;
 }
 
-[[nodiscard]] bool run_full_packet_specialization_predicated_memory() {
+[[nodiscard]] bool run_simplified_full_packet_specialization_budgets() {
+    // Deliberately lower Schedule directly, without the production XIR passes:
+    // the removable xor chain must still exist at the LLVM admission boundary.
+    // The live add chain is a negative control, not dead filler that any local
+    // simplification can remove to conceal an ineffective accepted-body gate.
+    for (auto variant : {0u, 1u, 2u}) {
+        auto repetitions = variant == 2u ? 9000u : 5000u;
+        auto removable = variant != 1u;
+        xir::Module source;
+        auto *kernel = source.create_kernel();
+        kernel->set_block_size(luisa::make_uint3(32u, 1u, 1u));
+        auto *output = kernel->create_resource_argument(Type::of<Buffer<uint32_t>>());
+        xir::XIRBuilder builder;
+        builder.set_insertion_point(kernel->create_body_block());
+        auto *zero = source.create_constant_zero(Type::of<uint32_t>());
+        auto *global = builder.call(Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT, {source.create_dispatch_id(), zero});
+        auto *value = global;
+        for (auto i = 0u; i < repetitions; i++) {
+            value = builder.call(Type::of<uint32_t>(), removable ? xir::ArithmeticOp::BINARY_BIT_XOR : xir::ArithmeticOp::BINARY_ADD,
+                                 {value, removable ? static_cast<xir::Value *>(zero) : global});
+        }
+        builder.call(xir::ResourceWriteOp::BUFFER_WRITE, {output, global, value});
+        builder.return_void();
+        auto lowered = schedule::lower_xir_to_schedule(kernel, {.logical_warp_width = 8u});
+        CHECK(lowered.succeeded());
+        std::array<std::string, 5u> original_bodies;
+        std::vector<std::string> baseline_function_names;
+        for (auto mode = 0u; mode < original_bodies.size(); mode++) {
+            // 0: neither; 1: legacy; 2: simplified; 3: disable overrides both;
+            // 4: simplification alone must not enable the full-packet feature.
+            auto requested = mode != 0u && mode != 4u;
+            auto simplified = mode >= 2u;
+            auto disabled = mode == 3u;
+            ScopedEnvironmentVariable enable{"LUISA_SIMD_ENABLE_FULL_PACKET_SPECIALIZATION", requested ? "1" : nullptr};
+            ScopedEnvironmentVariable simplify{"LUISA_SIMD_ENABLE_SIMPLIFIED_FULL_PACKET_SPECIALIZATION", simplified ? "1" : nullptr};
+            ScopedEnvironmentVariable disable{"LUISA_SIMD_DISABLE_FULL_PACKET_SPECIALIZATION", disabled ? "1" : nullptr};
+            ::llvm::LLVMContext context;
+            ::llvm::Module module{"full-packet-budget", context};
+            auto result = lower_schedule_to_llvm(module, *lowered.function, 8u, "budget_probe", false, {32u, 1u, 1u}, true, true, false, 1u, true, true);
+            CHECK(result.succeeded() && result.direct_control_flow);
+            CHECK(result.packet_batch_entry != nullptr);
+            CHECK(result.full_packet_simplification_requested == simplified);
+            auto raw_count = size_t{0u};
+            for (auto &block : *result.entry) { raw_count += block.size(); }
+            CHECK(raw_count > 4096u);
+            CHECK((raw_count > 8192u) == (variant == 2u));
+            auto selected = mode == 2u && variant == 0u;
+            CHECK(result.full_packet_specialization_count == (selected ? 1u : 0u));
+            CHECK((module.getFunction("budget_probe.full_packet") != nullptr) == selected);
+            std::vector<std::string> function_names;
+            for (auto &function : module) { function_names.emplace_back(function.getName().str()); }
+            std::sort(function_names.begin(), function_names.end());
+            if (mode == 0u) { baseline_function_names = function_names; }
+            auto expected_function_names = baseline_function_names;
+            if (selected) {
+                expected_function_names.emplace_back("budget_probe.full_packet");
+                std::sort(expected_function_names.begin(), expected_function_names.end());
+            }
+            CHECK(function_names == expected_function_names);
+            CHECK(result.full_packet_cloned_instruction_count == (selected ? raw_count : 0u));
+            CHECK(result.full_packet_source_instruction_count == (requested && !disabled ? raw_count : 0u));
+            auto decision = FullPacketSpecializationDecision::not_requested;
+            if (disabled) {
+                decision = FullPacketSpecializationDecision::disabled;
+            } else if (requested) {
+                if (!simplified || variant == 2u) {
+                    decision = FullPacketSpecializationDecision::source_budget_exceeded;
+                } else {
+                    decision = selected ? FullPacketSpecializationDecision::simplified_selected : FullPacketSpecializationDecision::candidate_budget_exceeded;
+                }
+            }
+            CHECK(result.full_packet_specialization_decision == decision);
+            CHECK(full_packet_specialization_decision_name(decision) != "invalid");
+            auto attempted = mode == 2u && variant != 2u;
+            CHECK((result.full_packet_simplification_round_count != 0u) == attempted);
+            CHECK(result.full_packet_simplification_round_count <= 4u);
+            if (attempted) {
+                CHECK(result.full_packet_candidate_instruction_count != 0u);
+                CHECK(result.full_packet_candidate_instruction_count <= raw_count);
+                CHECK((result.full_packet_candidate_instruction_count <= 4096u) == selected);
+            } else {
+                CHECK(result.full_packet_candidate_instruction_count == 0u);
+            }
+            ::llvm::raw_string_ostream original{original_bodies[mode]};
+            result.entry->print(original);
+            CHECK(!::llvm::verifyModule(module, &::llvm::errs()));
+        }
+        // Rejected temporary bodies leave no helper/clone residue. Accepted
+        // bodies also never rewrite the authoritative tail even as dead-code
+        // cleanup changes the provisional clone's values and predecessors.
+        for (auto &body : original_bodies) { CHECK(body == original_bodies.front()); }
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_full_packet_specialization_predicated_memory_mode(bool simplified) {
     ScopedEnvironmentVariable enable{"LUISA_SIMD_ENABLE_FULL_PACKET_SPECIALIZATION", "1"};
+    ScopedEnvironmentVariable simplify{"LUISA_SIMD_ENABLE_SIMPLIFIED_FULL_PACKET_SPECIALIZATION", simplified ? "1" : nullptr};
     static constexpr auto width = 8u;
     static constexpr auto block_size = 32u;
     static constexpr auto sentinel = uint32_t{0xdeadbeefu};
@@ -13097,23 +13208,31 @@ void bindless_uniform_gradient_probe(
     struct TestCase {
         bool counted_loop;
         uint32_t iterations;
+        uint32_t row_bound{4u};
     };
-    for (auto [counted_loop, iterations] : {TestCase{false, 1u}, TestCase{true, 0u}, TestCase{true, 1u}, TestCase{true, 3u}}) {
+    for (auto [counted_loop, iterations, row_bound] : {TestCase{false, 1u}, TestCase{true, 0u}, TestCase{true, 1u}, TestCase{true, 3u}, TestCase{false, 1u, 3u}, TestCase{true, 3u, 3u}}) {
         // The standalone diamond uses the default memory-predication rules.
         // A varying branch inside a counted loop conservatively taints the
         // induction PHI; the existing opt-in supplies the header use-site
         // uniformity fact required for direct CFG and full-packet admission.
         ScopedEnvironmentVariable enable_memory_effects{"LUISA_SIMD_ENABLE_PREDICATED_MEMORY_EFFECTS", counted_loop ? "1" : nullptr};
         ScopedEnvironmentVariable disable_memory_effects{"LUISA_SIMD_DISABLE_PREDICATED_MEMORY_EFFECTS", counted_loop ? nullptr : "1"};
-        Kernel1D kernel = [counted_loop, iterations](BufferUInt input, BufferUInt mask, BufferUInt output) noexcept {
+        Kernel1D kernel = [counted_loop, iterations, row_bound](BufferUInt input, BufferUInt mask, BufferUInt output) noexcept {
             set_block_size(block_size, 1u, 1u);
             auto index = dispatch_id().x;
             $uint value = initial_value;
             auto masked_read = [&](auto &&iteration) noexcept {
-                $if (mask.read(index) != 0u) {
+                auto read = [&] {
                     // Lane zero's UINT_MAX address must remain unobserved,
                     // even when the containing packet has all lanes active.
                     value = input.read(index - 1u) + 7u + iteration;
+                };
+                if (row_bound == 4u) {
+                    $if (mask.read(index) != 0u) { read(); };
+                } else {
+                    // This is a logical subview limit, deliberately narrower
+                    // than physical buffer capacity, not an entry-lane mask.
+                    $if ((mask.read(index) != 0u) & (index % 4u < row_bound)) { read(); };
                 };
             };
             if (counted_loop) {
@@ -13145,6 +13264,8 @@ void bindless_uniform_gradient_probe(
         CHECK(baseline.succeeded() && candidate.succeeded());
         CHECK(baseline.full_packet_specialization_count == 0u);
         CHECK(candidate.full_packet_specialization_count == 1u);
+        CHECK(candidate.full_packet_simplification_requested == simplified);
+        CHECK(candidate.full_packet_specialization_decision == (simplified ? FullPacketSpecializationDecision::simplified_selected : FullPacketSpecializationDecision::legacy_selected));
         CHECK(candidate.direct_control_flow);
         CHECK(iterations == 0u || candidate.predicated_memory_diamond_count == 1u);
         CHECK(baseline.packet_batch_entry != nullptr && candidate.packet_batch_entry != nullptr);
@@ -13177,13 +13298,17 @@ void bindless_uniform_gradient_probe(
                 CHECK(input == original_input && mask == original_mask);
                 CHECK(outputs[1].front() == sentinel && outputs[1].back() == sentinel);
                 for (auto i = 0u; i < block_size; i++) {
-                    auto value = iterations != 0u && mask[i] != 0u ? input[i - 1u] + 7u + iterations - 1u : initial_value;
+                    auto value = iterations != 0u && mask[i] != 0u && i % 4u < row_bound ? input[i - 1u] + 7u + iterations - 1u : initial_value;
                     CHECK(outputs[1][i + 1u] == (i < dispatch ? value : sentinel));
                 }
             }
         }
     }
     return true;
+}
+
+[[nodiscard]] bool run_full_packet_specialization_predicated_memory() {
+    return run_full_packet_specialization_predicated_memory_mode(false) && run_full_packet_specialization_predicated_memory_mode(true);
 }
 
 [[nodiscard]] bool run_full_packet_specialization_multidimensional_dispatch() {
@@ -16848,16 +16973,20 @@ template<typename T>
     return true;
 }
 
-// Keep the source XIR ephemeral, just like the MMA test above. An odd-lane
-// branch gives a non-prefix active mask; the final destination element is a
-// sentinel which the fixed-count helper must never overwrite.
+// Keep the source XIR ephemeral, just like the MMA test above. A runtime mask
+// exercises non-prefix cohorts; the final destination element is a sentinel
+// which the fixed-count helper must never overwrite. Optionally consume the
+// snapshot with an identity native MMA, whose reference ABI requires the old
+// lane-major private layout even when interleaving is requested.
 [[nodiscard]] schedule::XIRToScheduleResult make_contiguous_copy_schedule(
-    uint32_t width, uint32_t count, bool uniform_offset) {
+    uint32_t width, uint32_t count, bool uniform_offset,
+    uint32_t packet_width = 8u, bool native_mma = false) {
     xir::Module module;
     auto *kernel = module.create_kernel();
     auto *source = kernel->create_resource_argument(Type::buffer(Type::of<float>()));
     auto *offsets = kernel->create_resource_argument(Type::buffer(Type::of<uint64_t>()));
     auto *output = kernel->create_resource_argument(Type::buffer(Type::of<uint32_t>()));
+    auto *mask = kernel->create_resource_argument(Type::buffer(Type::of<uint32_t>()));
     auto *entry = kernel->create_body_block();
     auto *copy = kernel->create_basic_block();
     auto *merge = kernel->create_basic_block();
@@ -16870,10 +16999,24 @@ template<typename T>
     for (auto i = 0u; i <= count; i++) {
         builder.store(builder.gep(Type::of<float>(), storage, {constant(i)}), initial);
     }
+    constexpr auto mma_width = 4u;
+    std::array<xir::Value *, 3u> mma_storage{};
+    if (native_mma) {
+        mma_storage[0u] = builder.alloca_local(Type::array(Type::of<float>(), 1u));
+        mma_storage[1u] = builder.alloca_local(Type::array(Type::of<float>(), mma_width));
+        mma_storage[2u] = builder.alloca_local(Type::array(Type::of<float>(), mma_width + 1u));
+        builder.store(builder.gep(Type::of<float>(), mma_storage[0u], {constant(0u)}), constant(1.0f));
+        for (auto i = 0u; i < mma_width; i++) {
+            builder.store(builder.gep(Type::of<float>(), mma_storage[1u], {constant(i)}), constant(0.0f));
+        }
+        for (auto i = 0u; i <= mma_width; i++) {
+            builder.store(builder.gep(Type::of<float>(), mma_storage[2u], {constant(i)}), initial);
+        }
+    }
     xir::Value *offset = uniform_offset ? static_cast<xir::Value *>(constant(uint64_t{64u - count})) :
                                           builder.call(Type::of<uint64_t>(), xir::ResourceReadOp::BUFFER_READ, {offsets, lane});
-    auto *odd = builder.call(Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_BIT_AND, {lane, constant(1u)});
-    auto *condition = builder.call(Type::of<bool>(), xir::ArithmeticOp::BINARY_NOT_EQUAL, {odd, constant(0u)});
+    auto *flag = builder.call(Type::of<uint32_t>(), xir::ResourceReadOp::BUFFER_READ, {mask, lane});
+    auto *condition = builder.call(Type::of<bool>(), xir::ArithmeticOp::BINARY_NOT_EQUAL, {flag, constant(0u)});
     builder.cond_br(condition, copy, merge);
     builder.set_insertion_point(copy);
     auto *external = module.create_external_function(nullptr);
@@ -16885,22 +17028,53 @@ template<typename T>
     builder.call(nullptr, external, {source, offset, storage});
     builder.br(merge);
     builder.set_insertion_point(merge);
-    auto *base = builder.call(Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_MUL, {lane, constant(count + 1u)});
+    if (native_mma) {
+        auto *mma = module.create_external_function(nullptr);
+        mma->set_name("copy_snapshot_identity_mma");
+        mma->create_reference_argument(storage->type());
+        for (auto *argument : mma_storage) { mma->create_reference_argument(argument->type()); }
+        mma->create_metadata<xir::StridedMmaMD>()->descriptor = {
+            .output_extents = {mma_width},
+            .lhs_output_strides = {1u},
+            .rhs_output_strides = {0u},
+            .contraction_extent = 1u,
+            .lhs_contraction_stride = 1u,
+            .rhs_contraction_stride = 1u,
+            .vector_width = mma_width,
+            .allow_reassociation = false,
+            .vectorization = xir::StridedMmaVectorization::OUTPUT};
+        builder.call(nullptr, mma, {storage, mma_storage[0u], mma_storage[1u], mma_storage[2u]});
+    }
+    auto output_stride = count + 1u + (native_mma ? mma_width + 1u : 0u);
+    auto *base = builder.call(Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_MUL, {lane, constant(output_stride)});
     for (auto i = 0u; i <= count; i++) {
         auto *value = builder.load(Type::of<float>(), builder.gep(Type::of<float>(), storage, {constant(i)}));
         auto *bits = builder.cast_(Type::of<uint32_t>(), xir::CastOp::BITWISE_CAST, value);
         auto *index = builder.call(Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD, {base, constant(i)});
         builder.call(xir::ResourceWriteOp::BUFFER_WRITE, {output, index, bits});
     }
+    if (native_mma) {
+        for (auto i = 0u; i <= mma_width; i++) {
+            auto *value = builder.load(Type::of<float>(), builder.gep(Type::of<float>(), mma_storage[2u], {constant(i)}));
+            auto *bits = builder.cast_(Type::of<uint32_t>(), xir::CastOp::BITWISE_CAST, value);
+            auto *index = builder.call(Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD, {base, constant(count + 1u + i)});
+            builder.call(xir::ResourceWriteOp::BUFFER_WRITE, {output, index, bits});
+        }
+    }
     builder.return_void();
-    return schedule::lower_xir_to_schedule(kernel, {.logical_warp_width = 8u});
+    return schedule::lower_xir_to_schedule(kernel, {.logical_warp_width = packet_width});
 }
 
 [[nodiscard]] bool run_contiguous_copy_codegen_boundary() {
+    // Packet width W and source-copy width R are independent. This layout
+    // extension does not expand the backend's R = 2/4/8 capability boundary.
+    auto unsupported = make_contiguous_copy_schedule(16u, 17u, false, 16u);
+    CHECK(!unsupported.succeeded());
+    CHECK(!unsupported.diagnostics.empty());
     auto result = make_contiguous_copy_schedule(4u, 9u, false);
     if (!result.succeeded()) { std::cerr << diagnostics_text(result); }
     CHECK(result.succeeded());
-    for (auto malformed = 0u; malformed < 16u; malformed++) {
+    for (auto malformed = 0u; malformed < 17u; malformed++) {
         auto forged = *result.function;
         auto *call = static_cast<schedule::Instruction *>(nullptr);
         for (auto &block : forged.blocks()) {
@@ -16942,6 +17116,7 @@ template<typename T>
                 break;
             case 14u: call->opcode = schedule::Opcode::opaque; break;
             case 15u: call->operands[1u] = destination; break;
+            case 16u: call->contiguous_copy->vector_width = 16u; break;
             default: return false;
         }
         ::llvm::LLVMContext context;
@@ -16954,7 +17129,6 @@ template<typename T>
 }
 
 [[nodiscard]] bool run_contiguous_copy_bitwise_and_masks() {
-    constexpr auto packet_width = 8u;
     constexpr auto source_count = 64u;
     constexpr std::array patterns{
         0x00000000u, 0x80000000u, 0x00000001u, 0x80000001u,
@@ -16979,102 +17153,177 @@ template<typename T>
     CHECK(mprotect(boundary, static_cast<size_t>(page_size), PROT_NONE) == 0);
     source = reinterpret_cast<uint32_t *>(boundary - sizeof(fallback_source));
 #endif
-    for (auto i = 0u; i < source_count; i++) { source[i] = patterns[i % patterns.size()]; }
-    std::array<uint32_t, source_count> original{};
-    std::memcpy(original.data(), source, sizeof(original));
-    for (auto width : {2u, 4u, 8u}) {
-        for (auto count : {1u, width, width + 1u}) {
-            for (auto uniform : {false, true}) {
-                auto result = make_contiguous_copy_schedule(width, count, uniform);
-                if (!result.succeeded()) { std::cerr << diagnostics_text(result); }
-                CHECK(result.succeeded());
-                CHECK(schedule::verify(*result.function).succeeded());
-                auto context = std::make_unique<::llvm::LLVMContext>();
-                auto module = std::make_unique<::llvm::Module>("contiguous-copy-bits", *context);
-                auto codegen = lower_schedule_to_llvm(
-                    *module, *result.function, packet_width, "copy_bits", true,
-                    {}, true, true, false, 1u, true, false, false, false,
-                    {}, 0u, false, false, false, false, 1u, true);
-                if (!codegen.succeeded()) { std::cerr << codegen.error << '\n'; }
-                CHECK(codegen.succeeded());
-                CHECK(codegen.interleaved_private_arrays == 0u);
-                CHECK(codegen.private_workspace_size == packet_width * (count + 1u) * sizeof(float));
-                CHECK(!::llvm::verifyModule(*module, &::llvm::errs()));
-                CHECK(module->getFunction("tile_contiguous_snapshot") == nullptr);
-                auto helpers = 0u;
-                for (auto &function : *module) {
-                    if (!function.getName().contains(".contiguous_copy")) { continue; }
-                    helpers++;
-                    CHECK(function.hasPrivateLinkage() && !function.isDeclaration());
-                    auto vector_loads = 0u;
-                    auto scalar_loads = 0u;
-                    for (auto &argument : function.args()) {
-                        CHECK(!argument.hasNoAliasAttr());
-                        CHECK(!argument.hasAttribute(::llvm::Attribute::ReadOnly));
-                    }
-                    for (auto &block : function) {
-                        for (auto &instruction : block) {
-                            CHECK(!::llvm::isa<::llvm::CallBase>(instruction));
-                            if (auto *load = ::llvm::dyn_cast<::llvm::LoadInst>(&instruction)) {
-                                if (auto *type = ::llvm::dyn_cast<::llvm::FixedVectorType>(load->getType())) {
-                                    CHECK(type->getNumElements() == width && type->getElementType()->isIntegerTy(32u));
-                                    vector_loads++;
-                                } else {
-                                    CHECK(load->getType()->isIntegerTy(32u));
-                                    scalar_loads++;
+    for (auto native_mma : {false, true}) {
+        for (auto i = 0u; i < source_count; i++) {
+            // MMA arithmetic has its own numerical contract; finite nonzero
+            // values make the identity oracle bit-exact without granting it
+            // the copy helper's NaN-payload preservation guarantee.
+            source[i] = native_mma ? std::bit_cast<uint32_t>(static_cast<float>(i + 1u) * 0.25f) : patterns[i % patterns.size()];
+        }
+        std::array<uint32_t, source_count> original{};
+        std::memcpy(original.data(), source, sizeof(original));
+        for (auto packet_width : {2u, 4u, 8u, 16u}) {
+            for (auto width : {2u, 4u, 8u}) {
+                for (auto count : {1u, width, width + 1u}) {
+                    for (auto uniform : {false, true}) {
+                        // Retain the original W8 R/count/offset matrix. Other
+                        // W cover every R with a vector chunk plus exact tail;
+                        // masks and active counts vary without recompilation.
+                        if (native_mma) {
+                            if (width != 4u || count != 5u || uniform) { continue; }
+                        } else if (packet_width != 8u && (count != width + 1u || uniform)) {
+                            continue;
+                        }
+                        auto result = make_contiguous_copy_schedule(width, count, uniform, packet_width, native_mma);
+                        if (!result.succeeded()) { std::cerr << diagnostics_text(result); }
+                        CHECK(result.succeeded());
+                        CHECK(schedule::verify(*result.function).succeeded());
+                        for (auto enable_interleaving : {false, true}) {
+                            auto interleaved = enable_interleaving && !native_mma;
+                            auto context = std::make_unique<::llvm::LLVMContext>();
+                            auto module = std::make_unique<::llvm::Module>("contiguous-copy-bits", *context);
+                            auto codegen = lower_schedule_to_llvm(
+                                *module, *result.function, packet_width, "copy_bits", true,
+                                {}, true, true, false, 1u, true, false, false, false,
+                                {}, 0u, false, false, false, false, 1u, enable_interleaving);
+                            if (!codegen.succeeded()) { std::cerr << codegen.error << '\n'; }
+                            CHECK(codegen.succeeded());
+                            CHECK(codegen.interleaved_private_arrays == (interleaved ? 1u : 0u));
+                            CHECK((codegen.contiguous_private_read_count != 0u) == interleaved);
+                            CHECK((codegen.contiguous_private_write_count != 0u) == interleaved);
+                            CHECK(codegen.private_workspace_size == packet_width * (count + 1u + (native_mma ? 10u : 0u)) * sizeof(float));
+                            CHECK(!::llvm::verifyModule(*module, &::llvm::errs()));
+                            CHECK(module->getFunction("tile_contiguous_snapshot") == nullptr);
+                            CHECK(module->getFunction("copy_snapshot_identity_mma") == nullptr);
+                            auto helpers = 0u;
+                            auto mma_helpers = 0u;
+                            for (auto &function : *module) {
+                                if (function.getName().contains(".strided_mma")) {
+                                    CHECK(function.hasPrivateLinkage() && !function.isDeclaration());
+                                    mma_helpers++;
+                                }
+                                if (!function.getName().contains(".contiguous_copy")) { continue; }
+                                helpers++;
+                                CHECK(function.hasPrivateLinkage() && !function.isDeclaration());
+                                auto vector_loads = 0u;
+                                auto scalar_loads = 0u;
+                                auto vector_stores = 0u;
+                                auto scalar_stores = 0u;
+                                auto vector_extracts = 0u;
+                                for (auto &argument : function.args()) {
+                                    CHECK(!argument.hasNoAliasAttr());
+                                    CHECK(!argument.hasAttribute(::llvm::Attribute::ReadOnly));
+                                }
+                                for (auto &block : function) {
+                                    for (auto &instruction : block) {
+                                        CHECK(!::llvm::isa<::llvm::CallBase>(instruction));
+                                        if (auto *load = ::llvm::dyn_cast<::llvm::LoadInst>(&instruction)) {
+                                            if (auto *type = ::llvm::dyn_cast<::llvm::FixedVectorType>(load->getType())) {
+                                                CHECK(type->getNumElements() == width && type->getElementType()->isIntegerTy(32u));
+                                                vector_loads++;
+                                            } else {
+                                                CHECK(load->getType()->isIntegerTy(32u));
+                                                scalar_loads++;
+                                            }
+                                        }
+                                        if (auto *store = ::llvm::dyn_cast<::llvm::StoreInst>(&instruction)) {
+                                            if (store->getValueOperand()->getType()->isVectorTy()) {
+                                                vector_stores++;
+                                            } else {
+                                                CHECK(store->getValueOperand()->getType()->isIntegerTy(32u));
+                                                scalar_stores++;
+                                            }
+                                        }
+                                        vector_extracts += ::llvm::isa<::llvm::ExtractElementInst>(instruction);
+                                    }
+                                }
+                                CHECK(vector_loads == (count >= width ? 1u : 0u));
+                                CHECK(scalar_loads == (count % width != 0u ? 1u : 0u));
+                                CHECK(vector_stores == (interleaved ? 0u : vector_loads));
+                                CHECK(scalar_stores == scalar_loads + (interleaved ? width * vector_loads : 0u));
+                                CHECK(vector_extracts == (interleaved ? width * vector_loads : 0u));
+                            }
+                            CHECK(helpers == 1u);
+                            CHECK(mma_helpers == (native_mma ? 1u : 0u));
+                            LLVMJIT jit;
+                            CHECK(jit.succeeded());
+                            CHECK(jit.add_module(std::move(module), std::move(context)));
+                            using Entry = void(const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+                            auto *entry = reinterpret_cast<Entry *>(jit.lookup("copy_bits"));
+                            CHECK(entry != nullptr);
+                            struct alignas(64) Chunk {
+                                std::byte bytes[64];
+                            };
+                            std::vector<Chunk> workspace((codegen.private_workspace_size + 63u) / 64u + 2u);
+                            auto *memory = reinterpret_cast<std::byte *>(workspace.data());
+                            auto private_word = [&](size_t index) {
+                                auto bits = uint32_t{0u};
+                                std::memcpy(&bits, memory + 64u + index * sizeof(bits), sizeof(bits));
+                                return bits;
+                            };
+                            for (auto active = 0u; active <= packet_width; active++) {
+                                for (auto pattern = 0u; pattern < 4u; pattern++) {
+                                    std::memset(memory, 0xa5, workspace.size() * sizeof(Chunk));
+                                    std::vector<uint64_t> offsets(packet_width);
+                                    std::vector<uint32_t> mask(packet_width);
+                                    auto any_copy = false;
+                                    for (auto lane = 0u; lane < packet_width; lane++) {
+                                        mask[lane] = pattern == 3u || (pattern == 1u && (lane & 1u)) || (pattern == 2u && !(lane & 1u));
+                                        auto copy_active = lane < active && mask[lane] != 0u;
+                                        any_copy |= copy_active;
+                                        offsets[lane] = copy_active ? source_count - count - lane % 3u : std::numeric_limits<uint64_t>::max();
+                                    }
+                                    auto output_stride = count + 1u + (native_mma ? 5u : 0u);
+                                    auto output_count = packet_width * output_stride;
+                                    std::vector<uint32_t> output(output_count + 2u, 0xdeadbeefu);
+                                    alignas(16) std::array arguments{
+                                        SIMDHostBufferView{any_copy ? source : nullptr, sizeof(original)},
+                                        SIMDHostBufferView{offsets.data(), offsets.size() * sizeof(uint64_t)},
+                                        SIMDHostBufferView{output.data() + 1u, output_count * sizeof(uint32_t)},
+                                        SIMDHostBufferView{mask.data(), mask.size() * sizeof(uint32_t)}};
+                                    auto config = launch_1d(active, packet_width);
+                                    config.private_workspace = memory + 64u;
+                                    entry(arguments.data(), nullptr, &config, active);
+                                    for (auto lane = 0u; lane < packet_width; lane++) {
+                                        auto snapshot_bits = [&](uint32_t i) {
+                                            if (lane < active && mask[lane] != 0u && i < count) {
+                                                auto offset = uniform ? source_count - count : offsets[lane];
+                                                return original[offset + i];
+                                            }
+                                            return 0x4f123456u;
+                                        };
+                                        for (auto i = 0u; i <= count; i++) {
+                                            auto expected = snapshot_bits(i);
+                                            CHECK(output[1u + lane * output_stride + i] == (lane < active ? expected : 0xdeadbeefu));
+                                            auto slot = interleaved ? i * packet_width + lane : lane * (count + 1u) + i;
+                                            CHECK(private_word(slot) == (lane < active ? expected : 0xa5a5a5a5u));
+                                        }
+                                        if (native_mma) {
+                                            // All four native-MMA references retain lane-major
+                                            // storage, including the shared copy destination.
+                                            auto rhs_base = packet_width * (count + 1u);
+                                            auto seed_base = rhs_base + packet_width;
+                                            auto mma_base = seed_base + packet_width * 4u;
+                                            CHECK(private_word(rhs_base + lane) == (lane < active ? 0x3f800000u : 0xa5a5a5a5u));
+                                            for (auto i = 0u; i < 4u; i++) {
+                                                CHECK(private_word(seed_base + lane * 4u + i) == (lane < active ? 0u : 0xa5a5a5a5u));
+                                            }
+                                            for (auto i = 0u; i <= 4u; i++) {
+                                                auto expected = i == 4u ? 0x4f123456u : snapshot_bits(i);
+                                                CHECK(output[1u + lane * output_stride + count + 1u + i] == (lane < active ? expected : 0xdeadbeefu));
+                                                CHECK(private_word(mma_base + lane * 5u + i) == (lane < active ? expected : 0xa5a5a5a5u));
+                                            }
+                                        }
+                                    }
+                                    CHECK(output.front() == 0xdeadbeefu && output.back() == 0xdeadbeefu);
+                                    CHECK(std::memcmp(source, original.data(), sizeof(original)) == 0);
+                                    for (auto i = size_t{0u}; i < 64u; i++) {
+                                        CHECK(memory[i] == std::byte{0xa5});
+                                        CHECK(memory[64u + codegen.private_workspace_size + i] == std::byte{0xa5});
+                                    }
                                 }
                             }
                         }
-                    }
-                    CHECK(vector_loads == (count >= width ? 1u : 0u));
-                    CHECK(scalar_loads == (count % width != 0u ? 1u : 0u));
-                }
-                CHECK(helpers == 1u);
-                LLVMJIT jit;
-                CHECK(jit.succeeded());
-                CHECK(jit.add_module(std::move(module), std::move(context)));
-                using Entry = void(const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
-                auto *entry = reinterpret_cast<Entry *>(jit.lookup("copy_bits"));
-                CHECK(entry != nullptr);
-                struct alignas(64) Chunk {
-                    std::byte bytes[64];
-                };
-                std::vector<Chunk> workspace((codegen.private_workspace_size + 63u) / 64u + 2u);
-                auto *memory = reinterpret_cast<std::byte *>(workspace.data());
-                for (auto active = 0u; active <= packet_width; active++) {
-                    std::memset(memory, 0xa5, workspace.size() * sizeof(Chunk));
-                    std::array<uint64_t, packet_width> offsets{};
-                    for (auto lane = 0u; lane < packet_width; lane++) {
-                        offsets[lane] = lane < active && (lane & 1u) != 0u ? source_count - count - lane % 3u :
-                                                                             std::numeric_limits<uint64_t>::max();
-                    }
-                    auto output_count = packet_width * (count + 1u);
-                    std::vector<uint32_t> output(output_count + 2u, 0xdeadbeefu);
-                    alignas(16) std::array arguments{
-                        SIMDHostBufferView{active <= 1u ? nullptr : source, sizeof(original)},
-                        SIMDHostBufferView{offsets.data(), sizeof(offsets)},
-                        SIMDHostBufferView{output.data() + 1u, output_count * sizeof(uint32_t)}};
-                    auto config = launch_1d(active, packet_width);
-                    config.private_workspace = memory + 64u;
-                    entry(arguments.data(), nullptr, &config, active);
-                    for (auto lane = 0u; lane < packet_width; lane++) {
-                        for (auto i = 0u; i <= count; i++) {
-                            auto expected = uint32_t{0xdeadbeefu};
-                            if (lane < active) {
-                                expected = 0x4f123456u;
-                                if ((lane & 1u) != 0u && i < count) {
-                                    auto offset = uniform ? source_count - count : offsets[lane];
-                                    expected = original[offset + i];
-                                }
-                            }
-                            CHECK(output[1u + lane * (count + 1u) + i] == expected);
-                        }
-                    }
-                    CHECK(output.front() == 0xdeadbeefu && output.back() == 0xdeadbeefu);
-                    CHECK(std::memcmp(source, original.data(), sizeof(original)) == 0);
-                    for (auto i = size_t{0u}; i < 64u; i++) {
-                        CHECK(memory[i] == std::byte{0xa5});
-                        CHECK(memory[64u + codegen.private_workspace_size + i] == std::byte{0xa5});
                     }
                 }
             }
@@ -17225,6 +17474,7 @@ int main() {
         {"AST packet-batch runtime entry", &run_ast_packet_batch_entry},
         {"full-packet specialization and tail isolation", &run_full_packet_specialization},
         {"full-packet specialization rejection bounds", &run_full_packet_specialization_rejections},
+        {"simplified full-packet specialization budgets and rollback", &run_simplified_full_packet_specialization_budgets},
         {"full-packet specialization predicated memory", &run_full_packet_specialization_predicated_memory},
         {"full-packet specialization multidimensional dispatch", &run_full_packet_specialization_multidimensional_dispatch},
         {"full-packet specialization block coalescing", &run_full_packet_specialization_block_coalescing},

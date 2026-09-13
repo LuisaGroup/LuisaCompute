@@ -12,6 +12,7 @@
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Module.h>
 #include <llvm/Transforms/Utils/Cloning.h>
+#include <llvm/Transforms/Utils/Local.h>
 
 #include <luisa/core/logging.h>
 #include <luisa/xir/op.h>
@@ -39,6 +40,32 @@ enum class PacketBatchLowering {
     unrolled_calls,
     inlined_loop,
 };
+
+[[nodiscard]] size_t count_function_instructions(const ::llvm::Function &function) noexcept {
+    auto count = size_t{0u};
+    for (auto &&block : function) { count += block.size(); }
+    return count;
+}
+
+[[nodiscard]] uint32_t simplify_full_packet_candidate(::llvm::Function &function) {
+    // Only simplify the provisional, constant-mask body. Do not inline its
+    // helpers, run a target pipeline, unroll loops, or modify the original
+    // tail. In particular, an all-on entry is not an all-on inner branch:
+    // logical view bounds and data-dependent cohorts remain authoritative.
+    constexpr auto max_rounds = uint32_t{4u};
+    auto rounds = uint32_t{0u};
+    for (; rounds < max_rounds;) {
+        auto changed = false;
+        for (auto &&block : function) {
+            changed |= ::llvm::SimplifyInstructionsInBlock(&block);
+            changed |= ::llvm::ConstantFoldTerminator(&block, true);
+        }
+        changed |= ::llvm::removeUnreachableBlocks(function);
+        rounds++;
+        if (!changed) { break; }
+    }
+    return rounds;
+}
 
 void apply_packet_wrapper_abi_attributes(
     ::llvm::Function *entry) noexcept {
@@ -760,6 +787,17 @@ LLVMScheduleCodegenResult lower_schedule_to_llvm(
         enable_native_half4_texture_packet,
         private_stack_budget_bytes, enable_interleaved_private_arrays, enable_contiguous_private_access}
                       .run();
+    result.full_packet_simplification_requested = luisa::compute::detail::env_flag(
+        "LUISA_SIMD_ENABLE_SIMPLIFIED_FULL_PACKET_SPECIALIZATION");
+    auto full_packet_requested = luisa::compute::detail::env_flag(
+        "LUISA_SIMD_ENABLE_FULL_PACKET_SPECIALIZATION");
+    auto full_packet_disabled = luisa::compute::detail::env_flag(
+        "LUISA_SIMD_DISABLE_FULL_PACKET_SPECIALIZATION");
+    if (full_packet_requested) {
+        result.full_packet_specialization_decision = full_packet_disabled ?
+                                                         FullPacketSpecializationDecision::disabled :
+                                                         FullPacketSpecializationDecision::ineligible;
+    }
     if (result.succeeded() && result.cooperative_block) {
         auto block_thread_count = uint64_t{1u};
         for (auto dimension : static_block_size) {
@@ -844,19 +882,24 @@ LLVMScheduleCodegenResult lower_schedule_to_llvm(
         // tail. Do not apply this to cooperative/coroutine or state-machine
         // entries, or when the wrapper cannot establish the exact 1D range.
         // This is an opt-in codegen candidate, not a calibrated cost model.
+        // The default retains the historical raw-body gate exactly. A second
+        // independent opt-in may inspect a bounded provisional clone after
+        // constant propagation, while retaining the same accepted-body budget.
         constexpr auto max_full_packet_clone_instructions = size_t{4096u};
+        constexpr auto max_full_packet_simplification_source_instructions = size_t{8192u};
         if (enable_linear_1d_packet_tail_narrowing &&
             result.direct_control_flow && static_packet_count != 0u &&
             (specialization_width == 2u || specialization_width == 4u ||
              specialization_width == 8u || specialization_width == 16u) &&
-            luisa::compute::detail::env_flag("LUISA_SIMD_ENABLE_FULL_PACKET_SPECIALIZATION") &&
-            !luisa::compute::detail::env_flag("LUISA_SIMD_DISABLE_FULL_PACKET_SPECIALIZATION")) {
-            auto instruction_count = size_t{0u};
-            for (auto &&block : *result.entry) {
-                instruction_count += block.size();
-                if (instruction_count > max_full_packet_clone_instructions) { break; }
-            }
-            if (instruction_count <= max_full_packet_clone_instructions) {
+            full_packet_requested && !full_packet_disabled) {
+            auto instruction_count = count_function_instructions(*result.entry);
+            result.full_packet_source_instruction_count = instruction_count;
+            auto source_budget = result.full_packet_simplification_requested ?
+                                     max_full_packet_simplification_source_instructions :
+                                     max_full_packet_clone_instructions;
+            if (instruction_count > source_budget) {
+                result.full_packet_specialization_decision = FullPacketSpecializationDecision::source_budget_exceeded;
+            } else {
                 ::llvm::ValueToValueMapTy values;
                 values[result.entry->getArg(3u)] = ::llvm::ConstantInt::get(
                     ::llvm::Type::getInt32Ty(module.getContext()), specialization_width);
@@ -864,8 +907,24 @@ LLVMScheduleCodegenResult lower_schedule_to_llvm(
                 full_packet_entry->setName(result.entry->getName() + ".full_packet");
                 full_packet_entry->setLinkage(::llvm::GlobalValue::InternalLinkage);
                 full_packet_entry->setDSOLocal(true);
-                result.full_packet_specialization_count = 1u;
-                result.full_packet_cloned_instruction_count = instruction_count;
+                if (result.full_packet_simplification_requested) {
+                    result.full_packet_simplification_round_count = simplify_full_packet_candidate(*full_packet_entry);
+                }
+                result.full_packet_candidate_instruction_count = count_function_instructions(*full_packet_entry);
+                if (result.full_packet_candidate_instruction_count > max_full_packet_clone_instructions) {
+                    // The wrapper has not observed this provisional function.
+                    // Rejection must leave the original entry and module free
+                    // of any extra body or dangling candidate call site.
+                    full_packet_entry->eraseFromParent();
+                    full_packet_entry = nullptr;
+                    result.full_packet_specialization_decision = FullPacketSpecializationDecision::candidate_budget_exceeded;
+                } else {
+                    result.full_packet_specialization_count = 1u;
+                    result.full_packet_cloned_instruction_count = instruction_count;
+                    result.full_packet_specialization_decision = result.full_packet_simplification_requested ?
+                                                                     FullPacketSpecializationDecision::simplified_selected :
+                                                                     FullPacketSpecializationDecision::legacy_selected;
+                }
             }
         }
         result.packet_batch_entry = build_packet_batch_entry(

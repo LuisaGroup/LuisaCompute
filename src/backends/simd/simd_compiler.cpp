@@ -886,6 +886,11 @@ SIMDCompiledKernel compile_simd_kernel(
         llvm_result.linear_1d_block_coalescing_count;
     result.full_packet_specialization_count = llvm_result.full_packet_specialization_count;
     result.full_packet_cloned_instruction_count = llvm_result.full_packet_cloned_instruction_count;
+    result.full_packet_simplification_requested = llvm_result.full_packet_simplification_requested;
+    result.full_packet_specialization_decision = llvm_result.full_packet_specialization_decision;
+    result.full_packet_source_instruction_count = llvm_result.full_packet_source_instruction_count;
+    result.full_packet_candidate_instruction_count = llvm_result.full_packet_candidate_instruction_count;
+    result.full_packet_simplification_round_count = llvm_result.full_packet_simplification_round_count;
     result.shared_memory_size = llvm_result.shared_memory_size;
     result.block_barrier_count = llvm_result.block_barrier_count;
     result.block_barrier_loop_epoch_count =

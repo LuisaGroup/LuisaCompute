@@ -261,6 +261,11 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
         metadata.realization.append(luisa::format("; private_workspace_bytes={}", compiled.private_workspace_size));
         metadata.realization.append(luisa::format("; full_packet_specializations={}; full_packet_cloned_instructions={}",
                                                   compiled.full_packet_specialization_count, compiled.full_packet_cloned_instruction_count));
+        metadata.realization.append(luisa::format("; full_packet_simplification_requested={}; full_packet_specialization_decision={}; full_packet_source_instructions={}; full_packet_candidate_instructions={}; full_packet_simplification_rounds={}",
+                                                  compiled.full_packet_simplification_requested,
+                                                  full_packet_specialization_decision_name(compiled.full_packet_specialization_decision),
+                                                  compiled.full_packet_source_instruction_count, compiled.full_packet_candidate_instruction_count,
+                                                  compiled.full_packet_simplification_round_count));
         metadata.realization.append(luisa::format("; fast_math={}; ordered_reduction={}; strict_mma={}", enable_fast_math, ordered_reduction, strict_mma));
         auto &arguments = kernel.body().block(0u)->arguments();
         for (size_t i = 0u; i < arguments.size(); i++) {

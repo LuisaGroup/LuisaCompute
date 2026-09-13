@@ -189,7 +189,7 @@ public:
 // is exported: the destination is independently proven compiler-local.
 [[nodiscard]] ::llvm::Function *emit_contiguous_copy(
     ::llvm::Module &module, const schedule::ContiguousCopyMetadata &descriptor,
-    const std::string &name) {
+    const std::string &name, uint32_t destination_stride) {
     ::llvm::IRBuilder<> builder{module.getContext()};
     auto *function = ::llvm::Function::Create(
         ::llvm::FunctionType::get(builder.getVoidTy(),
@@ -220,10 +220,26 @@ public:
         builder.SetInsertPoint(body);
         auto *element = builder.CreateAdd(builder.getInt64(first), builder.CreateMul(index, builder.getInt64(step)));
         auto *source_address = builder.CreateGEP(builder.getInt32Ty(), source, element);
-        auto *destination_address = builder.CreateGEP(builder.getInt32Ty(), destination, element);
         auto *value = builder.CreateLoad(type, source_address);
         value->setAlignment(::llvm::Align{alignof(float)});
-        builder.CreateStore(value, destination_address)->setAlignment(::llvm::Align{alignof(float)});
+        if (destination_stride == 1u) {
+            auto *destination_address = builder.CreateGEP(builder.getInt32Ty(), destination, element);
+            builder.CreateStore(value, destination_address)->setAlignment(::llvm::Align{alignof(float)});
+        } else {
+            // Preserve the consumer's packet-interleaved realization. The
+            // source is contiguous within this program, but its private
+            // destination elements are W words apart. Only this active
+            // program's words are written; never overwrite adjacent lanes.
+            // Load a complete source chunk once, then transpose its bits into
+            // the private layout without a temporary allocation or a gather.
+            for (auto i = uint32_t{0u}; i < step; i++) {
+                auto *index = builder.CreateAdd(element, builder.getInt64(i));
+                auto *offset = builder.CreateMul(index, builder.getInt64(destination_stride));
+                auto *address = builder.CreateGEP(builder.getInt32Ty(), destination, offset);
+                auto *bits = type->isVectorTy() ? builder.CreateExtractElement(value, i) : value;
+                builder.CreateStore(bits, address)->setAlignment(::llvm::Align{alignof(float)});
+            }
+        }
         auto *increment = builder.CreateAdd(index, builder.getInt64(1u));
         builder.CreateBr(header);
         index->addIncoming(increment, body);
@@ -354,15 +370,12 @@ void ScheduleEmitter::_strided_mma(const schedule::Instruction &instruction) {
 
 void ScheduleEmitter::_contiguous_copy(const schedule::Instruction &instruction) {
     auto destination = instruction.operands[2u];
-    if (_interleaved_local_values[destination.value] != 0u) {
-        _fail("contiguous copy destination cannot use packet-interleaved private arrays");
-        return;
-    }
     auto *buffer = _load_value(instruction.operands[0u]);
     auto *offsets = _load_value(instruction.operands[1u]);
     auto *handle = _load_value(destination);
     if (buffer == nullptr || offsets == nullptr || handle == nullptr) { return; }
-    auto *helper = emit_contiguous_copy(_module, *instruction.contiguous_copy, _entry_name + ".contiguous_copy");
+    auto stride = _interleaved_local_values[destination.value] != 0u ? _width : 1u;
+    auto *helper = emit_contiguous_copy(_module, *instruction.contiguous_copy, _entry_name + ".contiguous_copy", stride);
     auto *base = _builder.CreateExtractValue(buffer, {0u});
     // The contiguous dimension belongs to one program's snapshot, not the
     // packet's execution lanes. No inactive program calls or reads the helper.

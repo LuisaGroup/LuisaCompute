@@ -394,3 +394,48 @@ LLVM helper 在同一 module 中，以整数位模式连续搬运 FP32，向量 
 这给联合求解提出了实际要求：`copy choice × compute choice × physical layout × specialization budget`不能只靠各自独立的加速系数相加。原始逻辑工作相同不代表搬运服务成本相同；连续复制的guard/fallback也会增加特化前IR，必须使用实际生成代码预算验证候选组合。满包收益消失的具体耗时仍需独立控制实验，不能把本次相关性当作已分解的因果成本。
 
 完整选定构建、11项CTest和25个C++ TU的syntax检查通过。该实现不识别算子名称，但性能泛化仍需更大prefill和非attention留出集；目前默认仍关闭、cost仍明确unmodeled。这一轮基线固定native MMA开启，不是前一轮MMA关闭的更快基线，也没有新的Torch/MPS/BLAS配对，整体性能目标尚未完成。
+
+## 18. 特化后预算与联合候选
+
+原有 full-packet 准入只查看尚未代入 `active_lane_count=W` 的原始 LLVM entry。这个计数是复制工作的上界，却不等于特化后需要保留的代码：全包能消掉某些入口 lane mask，不能消掉内部数据依赖、逻辑 view 边界或 causal mask。因此，把原始 entry 的 4096 条门槛直接当作最终候选成本，会在搬运实现改变时产生不必要的准入跳变。
+
+新增独立 opt-in `LUISA_SIMD_ENABLE_SIMPLIFIED_FULL_PACKET_SPECIALIZATION`，仍须显式开启原有 full-packet 候选，原 disable 开关优先。默认行为不变。新路径只在原始 entry 不超过8192条时创建临时候选，固定入口有效lane数；最多四轮本地常量折叠、死指令和不可达块清理，然后检查候选是否仍不超过4096条。没有提高保留代码的预算，也没有加入 inlining、循环展开或新的浮点重结合权限。失败时删除临时函数；原始尾包路径和所有helper均不被修改。
+
+```text
+语义/执行几何准入
+      ↓
+原始代码预算 ── 超限 → 原路径
+      ↓
+临时特化 + 有限局部清理
+      ↓
+候选代码预算 ── 超限 → 删除候选，原路径
+      ↓
+候选可用 ≠ 候选盈利 → 后续目标成本评价/实测选择
+```
+
+`full_packet_specialization_decision` 区分未请求、显式禁用、结构不适用、原始预算超限、候选预算超限与两种实际选中方式；另提供原始/候选指令数和清理轮数。旧 `full_packet_cloned_instructions` 仍表示成功复制的原始指令数，新路径中可能大于4096。新计数仅描述特化前后的entry，不包含helper、目标O1/O2或机器指令，不能解释为cycle成本。
+
+应求解的对象是联合 realization `r=(storage, transfer, compute, packet specialization)`。先满足 Tile 语义和目标能力，再满足资源与编译预算，最后最小化实际服务时间；编译预算不能替代服务时间目标。native MMA会改变操作数是否需要可索引snapshot，copy会改变代码和mask实现，特化又影响这些路径的执行开销，所以不能用三个独立固定折扣相乘进行选择。当前实现提供候选与准入诊断，尚未提供校准后的自动联合选择策略。
+
+## 19. 搬运不能强迫消费者改变 private layout
+
+六尺寸、五个联合候选的首轮捕获暴露了新的组合缺陷。MHA decode 的普通 MMA + native copy 候选达到预先设置的180秒编译超时；另26份捕获成功，余下三份未执行。整轮未通过完整捕获门禁，**没有进入 native replay，也没有新的性能结论**。超时包括汇编捕获与实际 ORC 两遍机器码编译；调用栈采样定位到第二遍的 `LiveVariables` 分析，不能据此声称生产路径的单遍 JIT 必定超过180秒。
+
+静态原因链是：copy 的整数组 reference 原先使 destination 退出 packet-interleaved 准入；普通 MMA 的标量投影随之从相邻 packet vector load 退到 masked gather。此 MHA 基线已生成42529条原始 entry 指令、2050处连续 private load，而且未使用 rolled MMA。因此，这不是减少 copy 自身指令就能保证盈利的组合。采样证明机器码活跃变量分析开销异常，但没有取得失败臂的完整 post-opt IR，不能把预计的 gather 数称作已经测得的目标指令数。
+
+修复将已验证的 typed copy destination 纳入封闭地址使用集合；未知调用、引用逃逸和 native MMA 仍不准入交错布局。设 packet lane 为 `p`、program 内元素为 `e`：
+
+```text
+外部 source[p][e]（e 连续）
+           │  每个 active program：连续整数向量 load
+           ├── native MMA consumer → destination[p][e]，连续 vector store
+           └── packet consumer    → destination[e][p]，固定步长 scalar stores
+                                             │
+                                   后续相邻 packet vector load
+```
+
+交错目的地址为 `base + (e·W+p)·sizeof(float)`。root handle 已含 `p·sizeof(float)`，copy helper 只把元素步长设为 `W`；不是再加一次 lane 偏移。向量 chunk 只读取完整有效区间，余数逐元素处理；每次只写当前 active program 的字，不覆盖其他 lane。现有 snapshot 的容量、定义时机、外部 alias 契约与 carry ABI 均不变，也不需要中转数组。即便没有启用相邻 private 访问优化，GEP/gather 仍使用同一物理双射。
+
+这仍是通用实现候选，不是已经完成的自动成本模型。后续 policy 需区分 `source vector load + destination vector store` 与 `source vector load + strided scalar stores`，并联合考虑消费者连续读/gather以及展开规模；不能继续给二者相同的向量访存折扣。编译预算也需估算 legalization 后的展开压力，而不只统计优化前 LLVM 指令。此次修复保留兼容布局，尚未实现上述成本校准或全局 solver。
+
+修复后的完整选定构建、11项CTest（151.16秒）及六个相关C++ TU语法检查通过。copy测试包含54组独立编译配置和8组copy/native-MMA混合配置：packet W2/4/8/16、source R2/4/8、交错开/关、空/奇/偶/全runtime mask、所有active count、源保护页、精确FP32位模式及逐word workspace检查。混合测试使用独立有限数值oracle，不把MMA算术误当作NaN payload复制；不支持的R16仍显式拒绝。该回归证明这些边界测试通过，不替代完整attention的性能复测。
