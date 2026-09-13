@@ -41,12 +41,14 @@ struct PlannerOptions {
     // Same structural map-expansion budget as LowerOptions; not a measured
     // cycle cost or a change to the execution/reduction semantics.
     uint32_t max_unrolled_region_work{4096u};
-    // Fixed opt-in MMA emission candidate, not a searched or credited speedup.
-    // Shares generic admission and representation budgets with LowerOptions.
+    // Fixed opt-in MMA emission candidate, not an automatically searched
+    // winner. Cost extraction shares its admitted broadcast-read grouping;
+    // this is logical work, not a calibrated native speedup.
     uint32_t mma_output_block{1u};
     // Fixed MMA-only unroll cap; zero inherits the global Tile threshold.
     // The shared resource plan accounts for indexable operand snapshots made
-    // necessary by newly dynamic MMA reads. Native cost is not modeled yet.
+    // necessary by newly dynamic MMA reads. Work extraction prices their
+    // stores/reads; native loop, cache and code-size costs remain uncalibrated.
     uint32_t max_unrolled_mma_terms{0u};
     uint32_t reduction_partitions{4u};
     // One preserves the default complete-program mapping. Zero opts into the
@@ -111,6 +113,23 @@ struct ExecutionPlan {
     uint32_t max_unrolled_mma_terms{0u};
 };
 
+// Unweighted dynamic contraction work for one complete logical program in
+// each active packet lane, before native optimization. Repeated enclosing
+// scopes are included. Reads are scalar projections, not DRAM transactions;
+// grouped outputs share one broadcast operand per group, including tails.
+// Loop counters refer only to runtime contraction loops, not output traversal
+// loops or static emitted bodies. Zero-K still reads each accumulator seed.
+// A backend may price these features, but must not double-charge the existing
+// weighted arithmetic/memory prior. No measured-cycle interpretation is implied.
+struct ExecutionMmaWork {
+    double multiply_adds{0.0};
+    double lhs_reads{0.0};
+    double rhs_reads{0.0};
+    double seed_reads{0.0};
+    double loop_invocations{0.0};
+    double loop_iterations{0.0};
+};
+
 // The bridge extracts work and packet/block counts (including masked tails).
 // Target info supplies scheduling fields. The thread-pool implementation uses
 // static home chunks as a cost prior, not a timing bound on heterogeneous CPUs.
@@ -125,6 +144,7 @@ struct ExecutionWork {
     uint64_t critical_packets{0u};
     uint64_t critical_blocks{0u};
     uint64_t critical_tasks{0u};
+    ExecutionMmaWork mma_per_packet;
 };
 
 class LUISA_TILE_XIR_BRIDGE_API ExecutionCostPolicy {

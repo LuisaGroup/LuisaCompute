@@ -147,3 +147,17 @@ R2 在未特化 decode 上约快 4.7%，特化后增益近于零；R4 使函数�
 [带步幅RHS输出分组](../../scripts/benchmark/tile_torch/results/m1-max-20260913-attention-mma-strided/notes.md)随后实现并通过四项回归。72个新visits显示R4相对同批R1：ragged decode约少3.5%时间，cap0 prefill约少4.3%；cap8 prefill约少21%，但仍慢于展开版本，MHA增益很小。两边容量和逐bit结果一致，不给未校准cost prior虚构折扣。
 
 这些小改进也指向后续的结构性缺口，但不构成性能上限证明：当前 `packet_local_program` 只准入有限的一维程序族，不支持任意MMA phase ownership；`_mma`在bridge中降为标量MUL/ADD循环，后端只剩SIMT/SSA实现。应在这一步之前，以typed contraction保留输出/贡献域、广播/步幅、输入及accumulator类型和 `MmaPolicy`，再选择phase mapping。默认MMA允许reassociation但不允许偷偷降精度；严格策略保留ordered fallback。硬件/BLAS候选还必须计入packing、snapshot alias、转换及调用开销，不能用外部库名字代替合法性和成本分析。
+
+## 12. 成本提取与生成方案对齐，不把工作量下降当作实测加速
+
+[MMA work checkpoint](../../scripts/benchmark/tile_torch/results/m1-max-20260913-attention-mma-cost/notes.md)修正了 XIR planner 仍按旧展开路径计费的问题：现在读取与容量分析共用相同 representation options，并使用实际准入的 `mma_emission_plan`，而非直接相信 requested block。
+
+设一次逻辑程序内输出数为 O、贡献数为 K、沿输出内轴的长度为 N、准入分块宽度为 R，则非空分组的组数 `G=(O/N)×ceil_div(N,R)`。广播侧的投影读取为 `G×K`，另一侧为 `O×K`，乘加仍为 `O×K`；尾组不能用 `O/R` 截断。未准入分组时 G=O，空输出时 G=0。外层 scope 的执行次数乘入所有动态计数；新增快照写入按 SSA 定义执行次数计，不按 consumer 数重复收取。
+
+cap 导致的小 Tile 索引快照现在计入定义写入和动态读取。常量索引仍优先使用原 SSA 元素，即使该值同时有 snapshot；MMA 的动态性按操作数实际依赖的输出/贡献轴区分，不能因为输出循环是动态的，就向与输出轴无关的广播项收取数组读取。小 CONSTANT 列表仍可能在动态索引下生成 SELECT 链，不能与 large-Tile SPLAT 混淆。
+
+`ExecutionWork::mma_per_packet` 向 backend cost policy 提供不带系数的乘加、左右输入/seed 投影、runtime K 循环调用与迭代计数。CPU 单 worker、多 worker 调度均保留这些字段；它们不是硬件 load/DRAM transaction、静态指令数或 ns，也不应和现有 weighted prior 双重收费。普通 GEMV/GEMM 同样适用，没有 attention 名字匹配或新 DSL 实体。
+
+本轮是模型一致性修复，**没有新增性能测量，也没有开启自动 R/cap 搜索**。四项 CTest 与七项精确筛选的 host 回归通过；新测试含 441 个 planner 配置、零 K/零输出、交换/转置/尾组、重复 scope、常量 SELECT 和 budget fallback。原来的两个 host SSA-budget fatal 问题未在本轮解决，不能声称全仓测试绿色。
+
+下一候选可在不切分 K、最多四个累加器的约束下比较每个 MMA 的 `1×4` 与 `2×2` 输出微块。若两个输出轴分别由左右输入使用、另一侧广播，完整 `2×2` 微块每 K 可用四次投影服务四个输出，`1×4` 则为五次；decode Q=1 仍需要一维候选。此处仅提出候选：小结果必须按原 flat index 回填，保留 carry/alias 与逐输出 K 顺序；还需验证代码规模、mask、真实 stride 和完整 kernel 的时间，不能直接凭投影数自动选定胜者。

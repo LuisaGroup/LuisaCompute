@@ -581,8 +581,15 @@ int main(int argc, char *argv[]) {
                     expect_same_resources(candidate.resources, baseline.resources);
                     expect_same_resources(plan.selected.resources, candidate.resources);
                     expect(eq(candidate.blocked_mmas, width == 1u || variant == 4u ? 0u : 1u));
-                    expect(eq(plan.selected.cost.score, baseline_plan.selected.cost.score));// no invented speedup prior
-                    if (width == 1u || variant == 4u) { expect(text(candidate) == text(baseline)); }
+                    // Grouping removes broadcast projections, not MUL/ADDs.
+                    // The prior reflects that work without an assumed native
+                    // speedup (code size and mask realization remain unpriced).
+                    expect(plan.selected.cost.arithmetic_work <= baseline_plan.selected.cost.arithmetic_work);
+                    expect(plan.selected.cost.memory_work <= baseline_plan.selected.cost.memory_work);
+                    if (width == 1u || variant == 4u) {
+                        expect(text(candidate) == text(baseline));
+                        expect(eq(plan.selected.cost.score, baseline_plan.selected.cost.score));
+                    }
                 }
                 auto budget = check_resources(kernel, {.max_unrolled_region_work = 1u, .mma_output_block = 4u});
                 if (budget) {
@@ -629,7 +636,9 @@ int main(int argc, char *argv[]) {
                         expect_same_resources(candidate.resources, expected_resources);
                         expect_same_resources(planned.selected.resources, candidate.resources);
                         expect(eq(planned.selected.max_unrolled_mma_terms, cap));
-                        if (reference_plan) { expect(eq(planned.selected.cost.score, reference_plan.selected.cost.score)); }
+                        if (reference_plan && width == 1u && !additional_roll) {
+                            expect(eq(planned.selected.cost.score, reference_plan.selected.cost.score));
+                        }
                         if (rolled == (terms > 64u)) { expect(text(candidate) == text(baseline)); }
                         if (terms == 9u && cap == 8u) {
                             auto phis = 0u, indices = 0u, selects = 0u;
@@ -793,6 +802,146 @@ int main(int argc, char *argv[]) {
             expect(!rejected && rejected.error.find("BF16 MMA accumulation") != string::npos);
             expect(!bx::analyze_resources(bf16.function(), {.mma_output_block = width}));
             expect(!bx::plan(bf16.function(), {8u, 1u}, {.mma_output_block = width}));
+        }
+    };
+
+    "tile_xir_mma_work_tracks_grouped_reads_snapshots_and_loops"_test = [] {
+        using namespace tile;
+        auto fixture = [](uint32_t terms, uint32_t columns, bool transpose, bool swap, uint32_t repeats) {
+            return tile_kernel("mma_work", [=](TensorView<const float, 2> a, TensorView<const float, 2> b, TensorView<float, 2> c) {
+                       auto m = axis("m", 1), n = axis("n", columns), k = axis("k", terms);
+                       for (auto &nest : parallel(shape(8))) {
+                           auto lhs = a.tile(coord(0, 0), shape(m, k)).load();
+                           auto rhs = b.tile(coord(0, 0), transpose ? shape(n, k) : shape(k, n)).load();
+                           auto seed = c.tile(coord(nest.index(), 0), shape(m, n)).load();
+                           for (auto &step : nest.serial(shape(repeats))) {
+                               static_cast<void>(step);
+                               seed = swap ? mma(rhs, lhs, seed, {.allow_reassociation = false}) :
+                                             mma(lhs, rhs, seed, {.allow_reassociation = false});
+                           }
+                           c(coord(nest.index(), 0), shape(m, n)).store(seed);
+                       }
+                   })
+                .capture(tensor_shape(1, std::max(terms, 1u)), transpose ? tensor_shape(std::max(columns, 1u), std::max(terms, 1u)) : tensor_shape(std::max(terms, 1u), std::max(columns, 1u)), tensor_shape(8, std::max(columns, 1u)));
+        };
+        for (auto terms : {0u, 1u, 9u}) {
+            for (auto columns : {0u, 1u, 5u}) {
+                for (auto transpose : {false, true}) {
+                    for (auto swap : {false, true}) {
+                        for (auto repeats : {1u, 3u}) {
+                            auto kernel = fixture(terms, columns, transpose, swap, repeats);
+                            for (auto width : {1u, 2u, 4u}) {
+                                for (auto cap : {0u, 8u}) {
+                                    RecordingCostPolicy policy;
+                                    auto options = bx::PlannerOptions{.block_size = 32u, .mma_output_block = width, .max_unrolled_mma_terms = cap, .cost_policy = &policy};
+                                    auto planned = bx::plan(kernel.function(), {8u, 1u}, options);
+                                    expect(planned.ok()) << planned.error;
+                                    if (!planned || policy.observed_work.empty()) { continue; }
+                                    const auto &work = policy.observed_work.front();
+                                    const auto &mma = work.mma_per_packet;
+                                    auto admitted = columns > 1u && !(swap && transpose && terms != 1u);
+                                    auto groups = ceil_div(columns, admitted ? width : 1u);
+                                    auto updates = static_cast<double>(columns * terms * repeats);
+                                    auto common = static_cast<double>(groups * terms * repeats);
+                                    auto rolled = cap != 0u && terms > cap;
+                                    expect(eq(mma.multiply_adds, updates));
+                                    expect(eq(mma.lhs_reads, swap ? updates : common));
+                                    expect(eq(mma.rhs_reads, swap ? common : updates));
+                                    expect(eq(mma.seed_reads, static_cast<double>(columns * repeats)));
+                                    expect(eq(mma.loop_invocations, rolled ? static_cast<double>(groups * repeats) : 0.0));
+                                    expect(eq(mma.loop_iterations, rolled ? common : 0.0));
+                                    expect(eq(work.arithmetic_per_packet, 2.0 * updates));
+                                    // A/B view loads are uniform across programs;
+                                    // C loads/stores have stride N. Cap8
+                                    // adds exactly A+B snapshot stores, once outside
+                                    // the repeated MMA; each dynamic read then uses
+                                    // those arrays. Expanded reads keep their SSA
+                                    // elements even when the same definition has storage.
+                                    auto external = static_cast<double>(terms + terms * columns) +
+                                                    2.0 * static_cast<double>(columns) * (columns == 1u ? 2.0 : 16.0);
+                                    auto snapshots = rolled && columns != 0u ? static_cast<double>(terms + terms * columns) * 16.0 : 0.0;
+                                    auto reads = rolled && columns != 0u ? (updates + common) * 16.0 : 0.0;
+                                    expect(eq(work.memory_per_packet, external + snapshots + reads));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // A [1,K] is still read through constant SSA elements when only the
+        // output traversal is dynamic. Its definition snapshot is required
+        // by the large-output consumer, but R4 must not claim saved array
+        // reads until K itself is dynamic.
+        auto large = fixture(9u, 65u, false, false, 1u);
+        for (auto cap : {0u, 8u}) {
+            RecordingCostPolicy r1, r4;
+            auto baseline = bx::plan(large.function(), {8u, 1u}, {.block_size = 32u, .max_unrolled_mma_terms = cap, .cost_policy = &r1});
+            auto candidate = bx::plan(large.function(), {8u, 1u}, {.block_size = 32u, .mma_output_block = 4u, .max_unrolled_mma_terms = cap, .cost_policy = &r4});
+            expect(baseline.ok() && candidate.ok());
+            if (r1.observed_work.empty() || r4.observed_work.empty()) { continue; }
+            auto a = r1.observed_work.front(), b = r4.observed_work.front();
+            expect(eq(a.arithmetic_per_packet, b.arithmetic_per_packet));
+            expect(eq(a.mma_per_packet.lhs_reads, 585.0));
+            expect(eq(b.mma_per_packet.lhs_reads, 153.0));
+            expect(eq(a.memory_per_packet - b.memory_per_packet, cap ? (585.0 - 153.0) * 16.0 : 0.0));
+        }
+        // A requested width is not an admitted width: the expansion budget
+        // can keep the reference contraction, and costs must do the same.
+        RecordingCostPolicy budget_policy;
+        auto budget = bx::plan(large.function(), {8u, 1u}, {.block_size = 32u, .max_unrolled_region_work = 1u, .mma_output_block = 4u, .max_unrolled_mma_terms = 8u, .cost_policy = &budget_policy});
+        expect(budget.ok());
+        if (!budget_policy.observed_work.empty()) {
+            const auto &mma = budget_policy.observed_work.front().mma_per_packet;
+            expect(eq(mma.lhs_reads, 585.0));
+            expect(eq(mma.rhs_reads, 585.0));
+            expect(eq(mma.loop_invocations, 65.0));
+        }
+        // Small constants remain SSA lists, not the large-Tile SPLAT path.
+        // Rolled reads currently emit SELECT/CMP chains. Verify that fact in
+        // pre-cleanup XIR as well as its dynamic arithmetic work estimate.
+        auto constants = tile_kernel("mma_constant_work", [](TensorView<float, 2> c) {
+                             auto m = axis("m", 1), n = axis("n", 5), k = axis("k", 9);
+                             for (auto &nest : parallel(shape(8))) {
+                                 auto seed = c.tile(coord(nest.index(), 0), shape(m, n)).load();
+                                 auto value = mma(full<float>(shape(m, k), 2.0f), full<float>(shape(k, n), 3.0f), seed);
+                                 c(coord(nest.index(), 0), shape(m, n)).store(value);
+                             }
+                         }).capture(tensor_shape(8, 5));
+        for (auto width : {1u, 4u}) {
+            for (auto cap : {0u, 8u}) {
+                RecordingCostPolicy policy;
+                auto planned = bx::plan(constants.function(), {8u, 1u}, {.block_size = 32u, .mma_output_block = width, .max_unrolled_mma_terms = cap, .cost_policy = &policy});
+                auto lowered = check_resources(constants, {.mma_output_block = width, .max_unrolled_mma_terms = cap});
+                expect(planned.ok());
+                if (!lowered || policy.observed_work.empty()) { continue; }
+                auto selects = 0u;
+                lowered.function->traverse_instructions([&](xir::Instruction *instruction) noexcept {
+                    if (instruction->isa<xir::ArithmeticInst>()) {
+                        selects += static_cast<xir::ArithmeticInst *>(instruction)->op() == xir::ArithmeticOp::SELECT;
+                    }
+                });
+                auto expected_selects = cap ? ceil_div(5u, width) * 9u + 5u * 45u : 0u;
+                expect(eq(selects, expected_selects));
+                expect_same_resources(lowered.resources, {});
+                const auto &work = policy.observed_work.front();
+                expect(eq(work.arithmetic_per_packet, 90.0 + 9.0 * 2.0 * expected_selects));
+                expect(eq(work.memory_per_packet, 160.0));
+            }
+        }
+        // CPU scheduling must preserve unweighted features in both caller-
+        // thread and multi-worker schedules; a GPU uses its own schedule.
+        for (auto workers : {1u, 4u}) {
+            bx::ThreadPoolExecutionTargetInfo info{{8u, workers}};
+            bx::ExecutionWork input{.packet_count = 32u, .block_count = 8u};
+            input.mma_per_packet = {45.0, 18.0, 45.0, 5.0, 2.0, 18.0};
+            auto output = info.schedule({.block_size = 32u}, input);
+            expect(eq(output.mma_per_packet.multiply_adds, 45.0));
+            expect(eq(output.mma_per_packet.lhs_reads, 18.0));
+            expect(eq(output.mma_per_packet.rhs_reads, 45.0));
+            expect(eq(output.mma_per_packet.seed_reads, 5.0));
+            expect(eq(output.mma_per_packet.loop_invocations, 2.0));
+            expect(eq(output.mma_per_packet.loop_iterations, 18.0));
         }
     };
 

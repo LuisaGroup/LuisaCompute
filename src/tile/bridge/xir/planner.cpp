@@ -66,7 +66,21 @@ namespace {
 struct Work {
     double arithmetic{0.0};
     double memory{0.0};
+    ExecutionMmaWork mma;
 };
+
+[[nodiscard]] LowerOptions representation_options(const PlannerOptions &options, uint32_t lanes) {
+    return {.max_unrolled_tile_elements = options.max_unrolled_tile_elements,
+            .max_unrolled_region_work = options.max_unrolled_region_work,
+            .mma_output_block = options.mma_output_block,
+            .max_unrolled_mma_terms = options.max_unrolled_mma_terms,
+            .reduction_partitions = options.reduction_partitions,
+            .local_lanes = lanes,
+            .enable_load_reduction_fusion = options.enable_load_reduction_fusion,
+            .enable_pointwise_fusion = options.enable_pointwise_fusion,
+            .enable_expression_reduction_fusion = options.enable_expression_reduction_fusion,
+            .enable_map_fusion = options.enable_map_fusion};
+}
 
 struct SpatialAxis {
     const Value *value;
@@ -98,7 +112,7 @@ struct SpatialAxis {
     // only one worker can run, regardless of the requested subdivision.
     if (workers == 1u) {
         return {work.arithmetic_per_packet, work.memory_per_packet, packets, blocks, 1u, 1u,
-                static_cast<uint32_t>(blocks), packets, blocks, 1u};
+                static_cast<uint32_t>(blocks), packets, blocks, 1u, work.mma_per_packet};
     }
     // Round-robin home chunks: every chunk but the last is full. Compute the
     // maximum load without iterating over the launch or the worker count.
@@ -111,7 +125,7 @@ struct SpatialAxis {
     return {work.arithmetic_per_packet, work.memory_per_packet, packets, blocks, tasks,
             static_cast<uint32_t>(workers), static_cast<uint32_t>(grain),
             critical(packets, grain * candidate.block_size / target.packet_width),
-            critical(blocks, grain), ceil_div(tasks, workers)};
+            critical(blocks, grain), ceil_div(tasks, workers), work.mma_per_packet};
 }
 
 void read_work(const Value *value, double repetitions, bool dynamic,
@@ -153,7 +167,7 @@ void read_work(const Value *value, double repetitions, bool dynamic,
         work.memory += repetitions * cost.gathered_lane * target.packet_width;
     } else if (dynamic) {
         auto count = volume(*value->type().index_space());
-        if (count > 1u && detail::needs_indexable_snapshot(value, limit, options.max_unrolled_region_work)) {
+        if (detail::definition_snapshot(value, count, representation_options(options, lanes))) {
             work.memory += repetitions * cost.gathered_lane * target.packet_width;
         } else {
             work.arithmetic += repetitions * count * 2.0 * cost.arithmetic;
@@ -165,6 +179,7 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
              ExecutionTarget target, const ExecutionCostModel &cost,
              luisa::vector<const Value *> indices, uint32_t limit, uint32_t lanes, Work &work, const PlannerOptions &options) {
     auto snapshot = [&](const Value *value) {
+        if (!value->type().is_tile()) { return; }
         if (detail::deferred_map(value, options.enable_map_fusion, lanes) ||
             detail::deferred_expression(value, limit, lanes, options.enable_map_fusion)) { return; }
         if (auto fusion = detail::reduction_producer_fusion(value, limit, lanes, options.reduction_partitions,
@@ -177,7 +192,7 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
                 op->kind() == OperationKind::PIPELINE || op->kind() == OperationKind::REDUCE ||
                 detail::deferred_elementwise(value, limit, lanes)) { return; }
             work.memory += repetitions * local_iterations(volume(*value->type().index_space()), lanes) * cost.gathered_lane * target.packet_width;
-        } else if (detail::needs_indexable_snapshot(value, limit, options.max_unrolled_region_work)) {
+        } else if (detail::definition_snapshot(value, volume(*value->type().index_space()), representation_options(options, lanes))) {
             auto count = volume(*value->type().index_space());
             if (count > 1u) { work.memory += repetitions * count * cost.gathered_lane * target.packet_width; }
         }
@@ -241,15 +256,36 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
             }
         } else if (kind == OperationKind::MMA) {
             auto &output = *op->result(0u)->type().index_space();
-            double contraction = 1.0;
-            for (auto &dimension : op->operand(0u)->type().index_space()->axes()) {
-                if (!output.contains(dimension.dimension)) { contraction *= dimension.extent.constant_value(); }
+            auto realization = representation_options(options, lanes);
+            auto emission = detail::mma_emission_plan(*op, realization);
+            auto contraction = static_cast<double>(volume(detail::mma_contraction_plan(*op, realization).domain));
+            auto outputs = volume(output);
+            auto groups = emission.output_block == 1u ? outputs :
+                                                        outputs / emission.columns * ceil_div(emission.columns, static_cast<uint64_t>(emission.output_block));
+            auto updates = repetitions * static_cast<double>(outputs) * contraction;
+            auto common_reads = repetitions * static_cast<double>(groups) * contraction;
+            auto lhs_reads = emission.broadcast_lhs ? common_reads : updates;
+            auto rhs_reads = emission.broadcast_lhs ? updates : common_reads;
+            work.mma.multiply_adds += updates;
+            work.mma.lhs_reads += lhs_reads;
+            work.mma.rhs_reads += rhs_reads;
+            work.mma.seed_reads += repetitions * static_cast<double>(outputs);
+            if (emission.contraction_runtime_loop && contraction != 0.0) {
+                work.mma.loop_invocations += repetitions * static_cast<double>(groups);
+                work.mma.loop_iterations += common_reads;
             }
-            work.arithmetic += repetitions * volume(output) * contraction * 2.0 * cost.arithmetic;
-            auto dynamic = detail::bounded_domain(output, limit) || (limit && contraction > limit);
-            read_work(op->operand(0u), repetitions * volume(output) * contraction, dynamic, target, cost, limit, lanes, work, options, op);
-            read_work(op->operand(1u), repetitions * volume(output) * contraction, dynamic, target, cost, limit, lanes, work, options, op);
-            read_work(op->operand(2u), repetitions * volume(output), detail::bounded_domain(output, limit), target, cost, limit, lanes, work, options, op);
+            work.arithmetic += updates * 2.0 * cost.arithmetic;
+            auto dynamic_output = detail::bounded_domain(output, limit);
+            auto dynamic_projection = [&](uint32_t operand) {
+                for (const auto &dimension : op->operand(operand)->type().index_space()->axes()) {
+                    if (dimension.extent.constant_value() > 1u &&
+                        (output.contains(dimension.dimension) ? dynamic_output : emission.contraction_runtime_loop)) { return true; }
+                }
+                return false;
+            };
+            read_work(op->operand(0u), lhs_reads, dynamic_projection(0u), target, cost, limit, lanes, work, options, op);
+            read_work(op->operand(1u), rhs_reads, dynamic_projection(1u), target, cost, limit, lanes, work, options, op);
+            read_work(op->operand(2u), repetitions * static_cast<double>(outputs), dynamic_output, target, cost, limit, lanes, work, options, op);
         } else if (kind == OperationKind::TILE_EXTRACT) {
             auto dynamic = !detail::expanded_extract(*op, limit, options.max_unrolled_region_work);
             read_work(op->operand(0u), repetitions, dynamic, target, cost, limit, lanes, work, options, op);
@@ -367,17 +403,9 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
         for (auto &entry : resource_cache) {
             if (entry.first == lanes) { return entry.second; }
         }
-        auto analysis = analyze_resources(function, {.block_size = widths.front(),
-                                                     .max_unrolled_tile_elements = options.max_unrolled_tile_elements,
-                                                     .max_unrolled_region_work = options.max_unrolled_region_work,
-                                                     .mma_output_block = options.mma_output_block,
-                                                     .max_unrolled_mma_terms = options.max_unrolled_mma_terms,
-                                                     .reduction_partitions = options.reduction_partitions,
-                                                     .local_lanes = lanes,
-                                                     .enable_load_reduction_fusion = options.enable_load_reduction_fusion,
-                                                     .enable_pointwise_fusion = options.enable_pointwise_fusion,
-                                                     .enable_expression_reduction_fusion = options.enable_expression_reduction_fusion,
-                                                     .enable_map_fusion = options.enable_map_fusion});
+        auto realization = representation_options(options, lanes);
+        realization.block_size = widths.front();
+        auto analysis = analyze_resources(function, realization);
         resource_cache.emplace_back(lanes, std::move(analysis));
         return resource_cache.back().second;
     };
@@ -449,6 +477,7 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
                     }
                     ExecutionWork execution_work{work.arithmetic, work.memory,
                                                  ceil_div(physical_count, static_cast<uint64_t>(target.packet_width)), blocks};
+                    execution_work.mma_per_packet = work.mma;
                     auto cost = policy.evaluate(target, candidate, info.schedule(candidate, execution_work), model);
                     for (auto component : {cost.arithmetic_work, cost.memory_work, cost.dispatch_work, cost.imbalance_work,
                                            cost.score, cost.task_dispatch_work, cost.activation_work}) {

@@ -136,6 +136,16 @@ MHA gains are small and two ranges cross parity. Capacity and bitwise outputs
 match within each R1/R4 pair. This compares complete grouping choices, not
 old-R4/new-R4 or Torch/MPS. Four relevant CTests pass; defaults stay unchanged.
 
+The subsequent {download}`MMA work-model checkpoint
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260913-attention-mma-cost/notes.md>`
+aligns the planner with admitted grouping and cap-dependent snapshots. It
+distinguishes constant SSA projections from dynamic indexed reads and exposes
+unweighted contraction/loop work to backend cost policies. Four CTests and
+seven exact-name host checks pass, including 441 planner configurations.
+This is a cost-extraction correction, **not a new timing result or automatic
+R/cap search**. Native mask, code-size and cache effects remain uncalibrated;
+the performance comparisons above are not revised using model scores.
+
 ### Metal4 XIR route: correctness established, timing not yet stable
 
 The September 10 {download}`target-info checkpoint <../../../../scripts/benchmark/tile_torch/results/m1-max-20260910-xir-target-info/README.md>`
