@@ -116,6 +116,16 @@ not a global cap8 default. All negative results are archived. Separate small
 GPU correctness probes pass, but alternating E2E stalls still disqualify the
 TIRx/MPS diagnostic cohort from stable performance comparison or cost fitting.
 
+The {download}`indexable-operand follow-up
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260913-attention-mma-indexable/notes.md>`
+couples newly rolled K loops to definition-time operand storage in the shared
+resource plan. MHA adds 256 B per worker; all six default-cap LLVM/ORC objects
+remain byte-identical to the previous checkpoint. Seventy-two new balanced
+visits reduce the MHA regression to about **7%–10% versus the same-cohort
+default**, while prefill remains about 43% slower. This repairs a representation
+interaction, not a universal speedup or a new Torch/MPS comparison. Default
+policy and the explicit unmodeled-cost status are unchanged.
+
 ### Metal4 XIR route: correctness established, timing not yet stable
 
 The September 10 {download}`target-info checkpoint <../../../../scripts/benchmark/tile_torch/results/m1-max-20260910-xir-target-info/README.md>`

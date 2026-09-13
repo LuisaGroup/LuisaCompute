@@ -141,3 +141,5 @@ R2 在未特化 decode 上约快 4.7%，特化后增益近于零；R4 使函数�
 一个直接的 representation 缺口是：新保留的动态 K 循环仍从旧的小 SSA Tile 读取，可能生成线性 SELECT 链；MHA/PV 的小输出域又可展开成很多独立循环。静态代码支持这些机制，但不能把全部耗时分别归因给某一机制，也不能用原先不变的 snapshot 容量推断物理寄存器或 spill 不变。
 
 因此合法候选不只是 `K_unroll`，而是 `(K_loop, output_block, operand_representation, packet_realization)`：动态访问需要选择可索引 snapshot 或其他合法实现；新增数组在 SSA 定义处捕获，不能延迟到消费端重新读外部 memory。资源容量先准入，随后由 backend policy 评价存储访问、循环/代码增长及满包/尾包路径的组合成本。相同 primitive 与 access layout 的普通 GEMV/GEMM 也适用，不需要 attention 名字或额外 DSL 实体。
+
+[联合 snapshot 实现与后续实测](../../scripts/benchmark/tile_torch/results/m1-max-20260913-attention-mma-indexable/notes.md)已落到共享plan：MHA每worker新增Q64的256 B（P已有snapshot），默认六个LLVM/ORC对象逐字节不变。新72个visits中，MHA cap8只比同批默认慢约7%–10%，prefill仍慢约43%；两批不构成同轮V1/V2配对。下一步是已有输出分组的合法候选扩展：broadcast-LHS配上strided-RHS也能保持各输出K顺序，步幅应进入成本而不是被当作不合法。任何候选仍须以完整程序测量，而非只看循环数量。

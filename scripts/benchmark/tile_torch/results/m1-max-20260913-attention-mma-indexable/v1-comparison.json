@@ -1,0 +1,1836 @@
+{
+  "status": "passed",
+  "scope": "Frozen V1/V2 source and actual ORC byte comparison; no timing comparisons across cohorts",
+  "v1_root_name": "luisa-attention-mma-roll.LHgRyP",
+  "v2_root_name": "luisa-attention-mma-indexable.w2qP2u",
+  "v1_audit_sha256": "d109cfa4d0d035eaa28e7889aed2bb58902f7da806472b06d5725ce958d8015b",
+  "v1_audit_result_sha256": "1c2d74fa8ef11b8337e439089787cd24a7a10f9df358ef4615dcf1bfe0b8f21c",
+  "v2_audit_sha256": "95cd83b6a536172011fbd2b54bff7f825b80dfcb47965ba045285ee348048075",
+  "v2_audit_result_sha256": "1ce42c3b23dce515ee23cee7d79afd574297e0cbd56efd91d56642cf1e74fca1",
+  "v1_provenance_sha256": "abc10e6918db8f3724af1661ffe801ef18d53c974eae6dc8fbb1abf1ccc02112",
+  "v2_provenance_sha256": "1fb4a4c39435df959dbc40076608c611464c3c9dd970b4383b7d8177dfd41a8e",
+  "all_six_cap0_llvm_and_orc_identical": true,
+  "comparisons": [
+    {
+      "case": "decode-r4-off",
+      "dimensions": [
+        1,
+        8,
+        2,
+        1,
+        2053,
+        80,
+        96
+      ],
+      "variants": {
+        "u0": {
+          "evidence": {
+            "v1": {
+              "prepared_manifest_sha256": "ba2a7eb44f1ef1ef4615be2e8cdb176efaaaaf83b424a96a7df259e0b528fd44",
+              "artifacts": {
+                "kernel.ll": {
+                  "sha256": "3fec88471ad541e467ead7be791256552d212ec871b5da359ae37fe01a5bea10",
+                  "bytes": 298466,
+                  "actual_path": "decode-r4-off-u0/output.f32.source.txt",
+                  "prepared_path": "prepared-decode-r4-off-u0/kernel.ll"
+                },
+                "kernel.o": {
+                  "sha256": "1336b62fb570318dcda2b0d36589effdad56ce73d188a8a58ae7459779aae3e9",
+                  "bytes": 18616,
+                  "actual_path": "decode-r4-off-u0/objects/tile_xir_w8_34111_1789292576355024_0.o",
+                  "prepared_path": "prepared-decode-r4-off-u0/kernel.o"
+                }
+              },
+              "realization": {
+                "static_snapshot_bytes_per_worker": 12864,
+                "static_snapshot_allocations": 8,
+                "snapshot_budget": 2097152,
+                "private_workspace_bytes": 102912,
+                "local_lanes": 1,
+                "max_unrolled_tile_elements": 64,
+                "max_unrolled_region_work": 4096,
+                "unordered_reduction_partitions": 4,
+                "requested_mma_output_block": 4,
+                "blocked_mmas": 1,
+                "full_packet_specializations": 0,
+                "full_packet_cloned_instructions": 0,
+                "contiguous_private_reads": 105,
+                "contiguous_private_writes": 42,
+                "requested_max_unrolled_mma_terms": 0,
+                "rolled_mmas": 1,
+                "interleaved_private_arrays": 8,
+                "schedule_blocks": 86,
+                "direct_cfg": true
+              },
+              "llvm_statistics": {
+                "llm_attention": {
+                  "utf8_bytes": 286190,
+                  "text_lines": 4855,
+                  "instruction_start_lines": 4560,
+                  "basic_block_labels": 147,
+                  "branch_or_switch_starts": 145
+                },
+                "__luisa_cpu_native_exp_f32_v8_u10": {
+                  "utf8_bytes": 2399,
+                  "text_lines": 51,
+                  "instruction_start_lines": 48,
+                  "basic_block_labels": 1,
+                  "branch_or_switch_starts": 0
+                },
+                "llm_attention.packet_batch": {
+                  "utf8_bytes": 5833,
+                  "text_lines": 88,
+                  "instruction_start_lines": 71,
+                  "basic_block_labels": 8,
+                  "branch_or_switch_starts": 7
+                },
+                "llm_attention.packet_batch.blocks": {
+                  "utf8_bytes": 2782,
+                  "text_lines": 43,
+                  "instruction_start_lines": 36,
+                  "basic_block_labels": 3,
+                  "branch_or_switch_starts": 2
+                }
+              }
+            },
+            "v2": {
+              "prepared_manifest_sha256": "f5b918adeef9d8e34ec174c11d102e80638541d85d12fd00de63a42de66cdee4",
+              "artifacts": {
+                "kernel.ll": {
+                  "sha256": "3fec88471ad541e467ead7be791256552d212ec871b5da359ae37fe01a5bea10",
+                  "bytes": 298466,
+                  "actual_path": "decode-r4-off-u0/output.f32.source.txt",
+                  "prepared_path": "prepared-decode-r4-off-u0/kernel.ll"
+                },
+                "kernel.o": {
+                  "sha256": "1336b62fb570318dcda2b0d36589effdad56ce73d188a8a58ae7459779aae3e9",
+                  "bytes": 18616,
+                  "actual_path": "decode-r4-off-u0/objects/tile_xir_w8_37793_1789293525930253_0.o",
+                  "prepared_path": "prepared-decode-r4-off-u0/kernel.o"
+                }
+              },
+              "realization": {
+                "static_snapshot_bytes_per_worker": 12864,
+                "static_snapshot_allocations": 8,
+                "snapshot_budget": 2097152,
+                "private_workspace_bytes": 102912,
+                "local_lanes": 1,
+                "max_unrolled_tile_elements": 64,
+                "max_unrolled_region_work": 4096,
+                "unordered_reduction_partitions": 4,
+                "requested_mma_output_block": 4,
+                "blocked_mmas": 1,
+                "full_packet_specializations": 0,
+                "full_packet_cloned_instructions": 0,
+                "contiguous_private_reads": 105,
+                "contiguous_private_writes": 42,
+                "requested_max_unrolled_mma_terms": 0,
+                "rolled_mmas": 1,
+                "interleaved_private_arrays": 8,
+                "schedule_blocks": 86,
+                "direct_cfg": true
+              },
+              "llvm_statistics": {
+                "llm_attention": {
+                  "utf8_bytes": 286190,
+                  "text_lines": 4855,
+                  "instruction_start_lines": 4560,
+                  "basic_block_labels": 147,
+                  "branch_or_switch_starts": 145
+                },
+                "__luisa_cpu_native_exp_f32_v8_u10": {
+                  "utf8_bytes": 2399,
+                  "text_lines": 51,
+                  "instruction_start_lines": 48,
+                  "basic_block_labels": 1,
+                  "branch_or_switch_starts": 0
+                },
+                "llm_attention.packet_batch": {
+                  "utf8_bytes": 5833,
+                  "text_lines": 88,
+                  "instruction_start_lines": 71,
+                  "basic_block_labels": 8,
+                  "branch_or_switch_starts": 7
+                },
+                "llm_attention.packet_batch.blocks": {
+                  "utf8_bytes": 2782,
+                  "text_lines": 43,
+                  "instruction_start_lines": 36,
+                  "basic_block_labels": 3,
+                  "branch_or_switch_starts": 2
+                }
+              }
+            }
+          },
+          "llvm_bytes_identical": true,
+          "orc_bytes_identical": true
+        },
+        "u8": {
+          "evidence": {
+            "v1": {
+              "prepared_manifest_sha256": "ba3ab40a9dac04f5446303f82ff71a234d203d96f0b60ad924b09f5e7f091f2d",
+              "artifacts": {
+                "kernel.ll": {
+                  "sha256": "396e2e7ce911d58ef58b8bacc8566d65313e88de53145bf2918e9f358f718f01",
+                  "bytes": 211529,
+                  "actual_path": "decode-r4-off-u8/output.f32.source.txt",
+                  "prepared_path": "prepared-decode-r4-off-u8/kernel.ll"
+                },
+                "kernel.o": {
+                  "sha256": "ce1a1f9c7b8f8d8011dd6ed205d908c91a473c421ca813a57f87b3acdcd213fc",
+                  "bytes": 16808,
+                  "actual_path": "decode-r4-off-u8/objects/tile_xir_w8_34124_1789292577863141_0.o",
+                  "prepared_path": "prepared-decode-r4-off-u8/kernel.o"
+                }
+              },
+              "realization": {
+                "static_snapshot_bytes_per_worker": 12864,
+                "static_snapshot_allocations": 8,
+                "snapshot_budget": 2097152,
+                "private_workspace_bytes": 102912,
+                "local_lanes": 1,
+                "max_unrolled_tile_elements": 64,
+                "max_unrolled_region_work": 4096,
+                "unordered_reduction_partitions": 4,
+                "requested_mma_output_block": 4,
+                "blocked_mmas": 1,
+                "full_packet_specializations": 0,
+                "full_packet_cloned_instructions": 0,
+                "contiguous_private_reads": 46,
+                "contiguous_private_writes": 42,
+                "requested_max_unrolled_mma_terms": 8,
+                "rolled_mmas": 2,
+                "interleaved_private_arrays": 8,
+                "schedule_blocks": 89,
+                "direct_cfg": true
+              },
+              "llvm_statistics": {
+                "llm_attention": {
+                  "utf8_bytes": 199253,
+                  "text_lines": 3500,
+                  "instruction_start_lines": 3195,
+                  "basic_block_labels": 152,
+                  "branch_or_switch_starts": 150
+                },
+                "__luisa_cpu_native_exp_f32_v8_u10": {
+                  "utf8_bytes": 2399,
+                  "text_lines": 51,
+                  "instruction_start_lines": 48,
+                  "basic_block_labels": 1,
+                  "branch_or_switch_starts": 0
+                },
+                "llm_attention.packet_batch": {
+                  "utf8_bytes": 5833,
+                  "text_lines": 88,
+                  "instruction_start_lines": 71,
+                  "basic_block_labels": 8,
+                  "branch_or_switch_starts": 7
+                },
+                "llm_attention.packet_batch.blocks": {
+                  "utf8_bytes": 2782,
+                  "text_lines": 43,
+                  "instruction_start_lines": 36,
+                  "basic_block_labels": 3,
+                  "branch_or_switch_starts": 2
+                }
+              }
+            },
+            "v2": {
+              "prepared_manifest_sha256": "4b0142b9616fe8047af0d92ae0135efcc63a37436b0b6bc8bd1841cff7b3c4b7",
+              "artifacts": {
+                "kernel.ll": {
+                  "sha256": "396e2e7ce911d58ef58b8bacc8566d65313e88de53145bf2918e9f358f718f01",
+                  "bytes": 211529,
+                  "actual_path": "decode-r4-off-u8/output.f32.source.txt",
+                  "prepared_path": "prepared-decode-r4-off-u8/kernel.ll"
+                },
+                "kernel.o": {
+                  "sha256": "ce1a1f9c7b8f8d8011dd6ed205d908c91a473c421ca813a57f87b3acdcd213fc",
+                  "bytes": 16808,
+                  "actual_path": "decode-r4-off-u8/objects/tile_xir_w8_37812_1789293527226329_0.o",
+                  "prepared_path": "prepared-decode-r4-off-u8/kernel.o"
+                }
+              },
+              "realization": {
+                "static_snapshot_bytes_per_worker": 12864,
+                "static_snapshot_allocations": 8,
+                "snapshot_budget": 2097152,
+                "private_workspace_bytes": 102912,
+                "local_lanes": 1,
+                "max_unrolled_tile_elements": 64,
+                "max_unrolled_region_work": 4096,
+                "unordered_reduction_partitions": 4,
+                "requested_mma_output_block": 4,
+                "blocked_mmas": 1,
+                "full_packet_specializations": 0,
+                "full_packet_cloned_instructions": 0,
+                "contiguous_private_reads": 46,
+                "contiguous_private_writes": 42,
+                "requested_max_unrolled_mma_terms": 8,
+                "rolled_mmas": 2,
+                "interleaved_private_arrays": 8,
+                "schedule_blocks": 89,
+                "direct_cfg": true
+              },
+              "llvm_statistics": {
+                "llm_attention": {
+                  "utf8_bytes": 199253,
+                  "text_lines": 3500,
+                  "instruction_start_lines": 3195,
+                  "basic_block_labels": 152,
+                  "branch_or_switch_starts": 150
+                },
+                "__luisa_cpu_native_exp_f32_v8_u10": {
+                  "utf8_bytes": 2399,
+                  "text_lines": 51,
+                  "instruction_start_lines": 48,
+                  "basic_block_labels": 1,
+                  "branch_or_switch_starts": 0
+                },
+                "llm_attention.packet_batch": {
+                  "utf8_bytes": 5833,
+                  "text_lines": 88,
+                  "instruction_start_lines": 71,
+                  "basic_block_labels": 8,
+                  "branch_or_switch_starts": 7
+                },
+                "llm_attention.packet_batch.blocks": {
+                  "utf8_bytes": 2782,
+                  "text_lines": 43,
+                  "instruction_start_lines": 36,
+                  "basic_block_labels": 3,
+                  "branch_or_switch_starts": 2
+                }
+              }
+            }
+          },
+          "llvm_bytes_identical": true,
+          "orc_bytes_identical": true
+        }
+      }
+    },
+    {
+      "case": "decode-r4-on",
+      "dimensions": [
+        1,
+        8,
+        2,
+        1,
+        2053,
+        80,
+        96
+      ],
+      "variants": {
+        "u0": {
+          "evidence": {
+            "v1": {
+              "prepared_manifest_sha256": "1187fd33dc403b323b9db9658992fafdefd26ecdbdb02b6fc41adbcc19e8666f",
+              "artifacts": {
+                "kernel.ll": {
+                  "sha256": "3fec88471ad541e467ead7be791256552d212ec871b5da359ae37fe01a5bea10",
+                  "bytes": 298466,
+                  "actual_path": "decode-r4-on-u0/output.f32.source.txt",
+                  "prepared_path": "prepared-decode-r4-on-u0/kernel.ll"
+                },
+                "kernel.o": {
+                  "sha256": "1336b62fb570318dcda2b0d36589effdad56ce73d188a8a58ae7459779aae3e9",
+                  "bytes": 18616,
+                  "actual_path": "decode-r4-on-u0/objects/tile_xir_w8_34134_1789292579164122_0.o",
+                  "prepared_path": "prepared-decode-r4-on-u0/kernel.o"
+                }
+              },
+              "realization": {
+                "static_snapshot_bytes_per_worker": 12864,
+                "static_snapshot_allocations": 8,
+                "snapshot_budget": 2097152,
+                "private_workspace_bytes": 102912,
+                "local_lanes": 1,
+                "max_unrolled_tile_elements": 64,
+                "max_unrolled_region_work": 4096,
+                "unordered_reduction_partitions": 4,
+                "requested_mma_output_block": 4,
+                "blocked_mmas": 1,
+                "full_packet_specializations": 0,
+                "full_packet_cloned_instructions": 0,
+                "contiguous_private_reads": 105,
+                "contiguous_private_writes": 42,
+                "requested_max_unrolled_mma_terms": 0,
+                "rolled_mmas": 1,
+                "interleaved_private_arrays": 8,
+                "schedule_blocks": 86,
+                "direct_cfg": true
+              },
+              "llvm_statistics": {
+                "llm_attention": {
+                  "utf8_bytes": 286190,
+                  "text_lines": 4855,
+                  "instruction_start_lines": 4560,
+                  "basic_block_labels": 147,
+                  "branch_or_switch_starts": 145
+                },
+                "__luisa_cpu_native_exp_f32_v8_u10": {
+                  "utf8_bytes": 2399,
+                  "text_lines": 51,
+                  "instruction_start_lines": 48,
+                  "basic_block_labels": 1,
+                  "branch_or_switch_starts": 0
+                },
+                "llm_attention.packet_batch": {
+                  "utf8_bytes": 5833,
+                  "text_lines": 88,
+                  "instruction_start_lines": 71,
+                  "basic_block_labels": 8,
+                  "branch_or_switch_starts": 7
+                },
+                "llm_attention.packet_batch.blocks": {
+                  "utf8_bytes": 2782,
+                  "text_lines": 43,
+                  "instruction_start_lines": 36,
+                  "basic_block_labels": 3,
+                  "branch_or_switch_starts": 2
+                }
+              }
+            },
+            "v2": {
+              "prepared_manifest_sha256": "da242f9fb7521d1a7709d9b2ccc1bacc94994effc23d18e4d6ad80b98f3fbea1",
+              "artifacts": {
+                "kernel.ll": {
+                  "sha256": "3fec88471ad541e467ead7be791256552d212ec871b5da359ae37fe01a5bea10",
+                  "bytes": 298466,
+                  "actual_path": "decode-r4-on-u0/output.f32.source.txt",
+                  "prepared_path": "prepared-decode-r4-on-u0/kernel.ll"
+                },
+                "kernel.o": {
+                  "sha256": "1336b62fb570318dcda2b0d36589effdad56ce73d188a8a58ae7459779aae3e9",
+                  "bytes": 18616,
+                  "actual_path": "decode-r4-on-u0/objects/tile_xir_w8_37867_1789293528527241_0.o",
+                  "prepared_path": "prepared-decode-r4-on-u0/kernel.o"
+                }
+              },
+              "realization": {
+                "static_snapshot_bytes_per_worker": 12864,
+                "static_snapshot_allocations": 8,
+                "snapshot_budget": 2097152,
+                "private_workspace_bytes": 102912,
+                "local_lanes": 1,
+                "max_unrolled_tile_elements": 64,
+                "max_unrolled_region_work": 4096,
+                "unordered_reduction_partitions": 4,
+                "requested_mma_output_block": 4,
+                "blocked_mmas": 1,
+                "full_packet_specializations": 0,
+                "full_packet_cloned_instructions": 0,
+                "contiguous_private_reads": 105,
+                "contiguous_private_writes": 42,
+                "requested_max_unrolled_mma_terms": 0,
+                "rolled_mmas": 1,
+                "interleaved_private_arrays": 8,
+                "schedule_blocks": 86,
+                "direct_cfg": true
+              },
+              "llvm_statistics": {
+                "llm_attention": {
+                  "utf8_bytes": 286190,
+                  "text_lines": 4855,
+                  "instruction_start_lines": 4560,
+                  "basic_block_labels": 147,
+                  "branch_or_switch_starts": 145
+                },
+                "__luisa_cpu_native_exp_f32_v8_u10": {
+                  "utf8_bytes": 2399,
+                  "text_lines": 51,
+                  "instruction_start_lines": 48,
+                  "basic_block_labels": 1,
+                  "branch_or_switch_starts": 0
+                },
+                "llm_attention.packet_batch": {
+                  "utf8_bytes": 5833,
+                  "text_lines": 88,
+                  "instruction_start_lines": 71,
+                  "basic_block_labels": 8,
+                  "branch_or_switch_starts": 7
+                },
+                "llm_attention.packet_batch.blocks": {
+                  "utf8_bytes": 2782,
+                  "text_lines": 43,
+                  "instruction_start_lines": 36,
+                  "basic_block_labels": 3,
+                  "branch_or_switch_starts": 2
+                }
+              }
+            }
+          },
+          "llvm_bytes_identical": true,
+          "orc_bytes_identical": true
+        },
+        "u8": {
+          "evidence": {
+            "v1": {
+              "prepared_manifest_sha256": "cfc2cd3b873b56c21a30b52cdc7572e32a826226c5e1444fc19f7214c6ce9dc6",
+              "artifacts": {
+                "kernel.ll": {
+                  "sha256": "0451c2c93b432a4037865279ad0414928c93e2a05c377ba4b1bd3fd76c8f2f5e",
+                  "bytes": 410780,
+                  "actual_path": "decode-r4-on-u8/output.f32.source.txt",
+                  "prepared_path": "prepared-decode-r4-on-u8/kernel.ll"
+                },
+                "kernel.o": {
+                  "sha256": "40a71e11e37b6ae937557e28dfa9bc890135be266a147acff7d17dbedc964629",
+                  "bytes": 28320,
+                  "actual_path": "decode-r4-on-u8/objects/tile_xir_w8_34144_1789292580645692_0.o",
+                  "prepared_path": "prepared-decode-r4-on-u8/kernel.o"
+                }
+              },
+              "realization": {
+                "static_snapshot_bytes_per_worker": 12864,
+                "static_snapshot_allocations": 8,
+                "snapshot_budget": 2097152,
+                "private_workspace_bytes": 102912,
+                "local_lanes": 1,
+                "max_unrolled_tile_elements": 64,
+                "max_unrolled_region_work": 4096,
+                "unordered_reduction_partitions": 4,
+                "requested_mma_output_block": 4,
+                "blocked_mmas": 1,
+                "full_packet_specializations": 1,
+                "full_packet_cloned_instructions": 3195,
+                "contiguous_private_reads": 46,
+                "contiguous_private_writes": 42,
+                "requested_max_unrolled_mma_terms": 8,
+                "rolled_mmas": 2,
+                "interleaved_private_arrays": 8,
+                "schedule_blocks": 89,
+                "direct_cfg": true
+              },
+              "llvm_statistics": {
+                "llm_attention": {
+                  "utf8_bytes": 199253,
+                  "text_lines": 3500,
+                  "instruction_start_lines": 3195,
+                  "basic_block_labels": 152,
+                  "branch_or_switch_starts": 150
+                },
+                "__luisa_cpu_native_exp_f32_v8_u10": {
+                  "utf8_bytes": 2399,
+                  "text_lines": 51,
+                  "instruction_start_lines": 48,
+                  "basic_block_labels": 1,
+                  "branch_or_switch_starts": 0
+                },
+                "llm_attention.full_packet": {
+                  "utf8_bytes": 199224,
+                  "text_lines": 3500,
+                  "instruction_start_lines": 3195,
+                  "basic_block_labels": 152,
+                  "branch_or_switch_starts": 150
+                },
+                "llm_attention.packet_batch": {
+                  "utf8_bytes": 5858,
+                  "text_lines": 88,
+                  "instruction_start_lines": 71,
+                  "basic_block_labels": 8,
+                  "branch_or_switch_starts": 7
+                },
+                "llm_attention.packet_batch.blocks": {
+                  "utf8_bytes": 2782,
+                  "text_lines": 43,
+                  "instruction_start_lines": 36,
+                  "basic_block_labels": 3,
+                  "branch_or_switch_starts": 2
+                }
+              }
+            },
+            "v2": {
+              "prepared_manifest_sha256": "e58683f3cac6a6cb55796fe7183dd789a8e1cb4f974c947f29b703f6e9c6f1ad",
+              "artifacts": {
+                "kernel.ll": {
+                  "sha256": "0451c2c93b432a4037865279ad0414928c93e2a05c377ba4b1bd3fd76c8f2f5e",
+                  "bytes": 410780,
+                  "actual_path": "decode-r4-on-u8/output.f32.source.txt",
+                  "prepared_path": "prepared-decode-r4-on-u8/kernel.ll"
+                },
+                "kernel.o": {
+                  "sha256": "40a71e11e37b6ae937557e28dfa9bc890135be266a147acff7d17dbedc964629",
+                  "bytes": 28320,
+                  "actual_path": "decode-r4-on-u8/objects/tile_xir_w8_37879_1789293529954923_0.o",
+                  "prepared_path": "prepared-decode-r4-on-u8/kernel.o"
+                }
+              },
+              "realization": {
+                "static_snapshot_bytes_per_worker": 12864,
+                "static_snapshot_allocations": 8,
+                "snapshot_budget": 2097152,
+                "private_workspace_bytes": 102912,
+                "local_lanes": 1,
+                "max_unrolled_tile_elements": 64,
+                "max_unrolled_region_work": 4096,
+                "unordered_reduction_partitions": 4,
+                "requested_mma_output_block": 4,
+                "blocked_mmas": 1,
+                "full_packet_specializations": 1,
+                "full_packet_cloned_instructions": 3195,
+                "contiguous_private_reads": 46,
+                "contiguous_private_writes": 42,
+                "requested_max_unrolled_mma_terms": 8,
+                "rolled_mmas": 2,
+                "interleaved_private_arrays": 8,
+                "schedule_blocks": 89,
+                "direct_cfg": true
+              },
+              "llvm_statistics": {
+                "llm_attention": {
+                  "utf8_bytes": 199253,
+                  "text_lines": 3500,
+                  "instruction_start_lines": 3195,
+                  "basic_block_labels": 152,
+                  "branch_or_switch_starts": 150
+                },
+                "__luisa_cpu_native_exp_f32_v8_u10": {
+                  "utf8_bytes": 2399,
+                  "text_lines": 51,
+                  "instruction_start_lines": 48,
+                  "basic_block_labels": 1,
+                  "branch_or_switch_starts": 0
+                },
+                "llm_attention.full_packet": {
+                  "utf8_bytes": 199224,
+                  "text_lines": 3500,
+                  "instruction_start_lines": 3195,
+                  "basic_block_labels": 152,
+                  "branch_or_switch_starts": 150
+                },
+                "llm_attention.packet_batch": {
+                  "utf8_bytes": 5858,
+                  "text_lines": 88,
+                  "instruction_start_lines": 71,
+                  "basic_block_labels": 8,
+                  "branch_or_switch_starts": 7
+                },
+                "llm_attention.packet_batch.blocks": {
+                  "utf8_bytes": 2782,
+                  "text_lines": 43,
+                  "instruction_start_lines": 36,
+                  "basic_block_labels": 3,
+                  "branch_or_switch_starts": 2
+                }
+              }
+            }
+          },
+          "llvm_bytes_identical": true,
+          "orc_bytes_identical": true
+        }
+      }
+    },
+    {
+      "case": "mha-r1-off",
+      "dimensions": [
+        1,
+        8,
+        8,
+        1,
+        2048,
+        64,
+        64
+      ],
+      "variants": {
+        "u0": {
+          "evidence": {
+            "v1": {
+              "prepared_manifest_sha256": "b1ccc2cb70a1775fc7ef604b05d09995dc30898c62d9c6b796bd893ad060e544",
+              "artifacts": {
+                "kernel.ll": {
+                  "sha256": "36566a0f3889d3c56e5f6af16885fef7dddfb39cc4e9721b31e321da5d394c9b",
+                  "bytes": 2775733,
+                  "actual_path": "mha-r1-off-u0/output.f32.source.txt",
+                  "prepared_path": "prepared-mha-r1-off-u0/kernel.ll"
+                },
+                "kernel.o": {
+                  "sha256": "c61f1dd84f8f89fd4f38273d90988b79879b604734427f61981f40f884ded23f",
+                  "bytes": 135200,
+                  "actual_path": "mha-r1-off-u0/objects/tile_xir_w8_34154_1789292585730043_0.o",
+                  "prepared_path": "prepared-mha-r1-off-u0/kernel.o"
+                }
+              },
+              "realization": {
+                "static_snapshot_bytes_per_worker": 8320,
+                "static_snapshot_allocations": 4,
+                "snapshot_budget": 2097152,
+                "private_workspace_bytes": 66560,
+                "local_lanes": 1,
+                "max_unrolled_tile_elements": 64,
+                "max_unrolled_region_work": 4096,
+                "unordered_reduction_partitions": 4,
+                "requested_mma_output_block": 1,
+                "blocked_mmas": 0,
+                "full_packet_specializations": 0,
+                "full_packet_cloned_instructions": 0,
+                "contiguous_private_reads": 2050,
+                "contiguous_private_writes": 34,
+                "requested_max_unrolled_mma_terms": 0,
+                "rolled_mmas": 0,
+                "interleaved_private_arrays": 4,
+                "schedule_blocks": 16,
+                "direct_cfg": true
+              },
+              "llvm_statistics": {
+                "llm_attention": {
+                  "utf8_bytes": 2763457,
+                  "text_lines": 42588,
+                  "instruction_start_lines": 42529,
+                  "basic_block_labels": 29,
+                  "branch_or_switch_starts": 27
+                },
+                "__luisa_cpu_native_exp_f32_v8_u10": {
+                  "utf8_bytes": 2399,
+                  "text_lines": 51,
+                  "instruction_start_lines": 48,
+                  "basic_block_labels": 1,
+                  "branch_or_switch_starts": 0
+                },
+                "llm_attention.packet_batch": {
+                  "utf8_bytes": 5833,
+                  "text_lines": 88,
+                  "instruction_start_lines": 71,
+                  "basic_block_labels": 8,
+                  "branch_or_switch_starts": 7
+                },
+                "llm_attention.packet_batch.blocks": {
+                  "utf8_bytes": 2782,
+                  "text_lines": 43,
+                  "instruction_start_lines": 36,
+                  "basic_block_labels": 3,
+                  "branch_or_switch_starts": 2
+                }
+              }
+            },
+            "v2": {
+              "prepared_manifest_sha256": "bcf242c7ddbc390d754e34cb904886f409c456bd2a3ffc082dc53a2a94db6e18",
+              "artifacts": {
+                "kernel.ll": {
+                  "sha256": "36566a0f3889d3c56e5f6af16885fef7dddfb39cc4e9721b31e321da5d394c9b",
+                  "bytes": 2775733,
+                  "actual_path": "mha-r1-off-u0/output.f32.source.txt",
+                  "prepared_path": "prepared-mha-r1-off-u0/kernel.ll"
+                },
+                "kernel.o": {
+                  "sha256": "c61f1dd84f8f89fd4f38273d90988b79879b604734427f61981f40f884ded23f",
+                  "bytes": 135200,
+                  "actual_path": "mha-r1-off-u0/objects/tile_xir_w8_37890_1789293534916661_0.o",
+                  "prepared_path": "prepared-mha-r1-off-u0/kernel.o"
+                }
+              },
+              "realization": {
+                "static_snapshot_bytes_per_worker": 8320,
+                "static_snapshot_allocations": 4,
+                "snapshot_budget": 2097152,
+                "private_workspace_bytes": 66560,
+                "local_lanes": 1,
+                "max_unrolled_tile_elements": 64,
+                "max_unrolled_region_work": 4096,
+                "unordered_reduction_partitions": 4,
+                "requested_mma_output_block": 1,
+                "blocked_mmas": 0,
+                "full_packet_specializations": 0,
+                "full_packet_cloned_instructions": 0,
+                "contiguous_private_reads": 2050,
+                "contiguous_private_writes": 34,
+                "requested_max_unrolled_mma_terms": 0,
+                "rolled_mmas": 0,
+                "interleaved_private_arrays": 4,
+                "schedule_blocks": 16,
+                "direct_cfg": true
+              },
+              "llvm_statistics": {
+                "llm_attention": {
+                  "utf8_bytes": 2763457,
+                  "text_lines": 42588,
+                  "instruction_start_lines": 42529,
+                  "basic_block_labels": 29,
+                  "branch_or_switch_starts": 27
+                },
+                "__luisa_cpu_native_exp_f32_v8_u10": {
+                  "utf8_bytes": 2399,
+                  "text_lines": 51,
+                  "instruction_start_lines": 48,
+                  "basic_block_labels": 1,
+                  "branch_or_switch_starts": 0
+                },
+                "llm_attention.packet_batch": {
+                  "utf8_bytes": 5833,
+                  "text_lines": 88,
+                  "instruction_start_lines": 71,
+                  "basic_block_labels": 8,
+                  "branch_or_switch_starts": 7
+                },
+                "llm_attention.packet_batch.blocks": {
+                  "utf8_bytes": 2782,
+                  "text_lines": 43,
+                  "instruction_start_lines": 36,
+                  "basic_block_labels": 3,
+                  "branch_or_switch_starts": 2
+                }
+              }
+            }
+          },
+          "llvm_bytes_identical": true,
+          "orc_bytes_identical": true
+        },
+        "u8": {
+          "evidence": {
+            "v1": {
+              "prepared_manifest_sha256": "7309521e68f32e0360f30563faa389183491b9f9ec896e755be4926dc6b9ce8e",
+              "artifacts": {
+                "kernel.ll": {
+                  "sha256": "3a90074aa7e28880cee6d119a612d610c08a89b7b4a2e6b92ac7a9e80136fdf4",
+                  "bytes": 926824,
+                  "actual_path": "mha-r1-off-u8/output.f32.source.txt",
+                  "prepared_path": "prepared-mha-r1-off-u8/kernel.ll"
+                },
+                "kernel.o": {
+                  "sha256": "426d563d42513bb4e0b3fd3e9afc59c8003deb7bd300cfed81b9a3fe3b49c5fe",
+                  "bytes": 97840,
+                  "actual_path": "mha-r1-off-u8/objects/tile_xir_w8_34166_1789292588363541_0.o",
+                  "prepared_path": "prepared-mha-r1-off-u8/kernel.o"
+                }
+              },
+              "realization": {
+                "static_snapshot_bytes_per_worker": 8320,
+                "static_snapshot_allocations": 4,
+                "snapshot_budget": 2097152,
+                "private_workspace_bytes": 66560,
+                "local_lanes": 1,
+                "max_unrolled_tile_elements": 64,
+                "max_unrolled_region_work": 4096,
+                "unordered_reduction_partitions": 4,
+                "requested_mma_output_block": 1,
+                "blocked_mmas": 0,
+                "full_packet_specializations": 0,
+                "full_packet_cloned_instructions": 0,
+                "contiguous_private_reads": 146,
+                "contiguous_private_writes": 34,
+                "requested_max_unrolled_mma_terms": 8,
+                "rolled_mmas": 2,
+                "interleaved_private_arrays": 4,
+                "schedule_blocks": 256,
+                "direct_cfg": true
+              },
+              "llvm_statistics": {
+                "llm_attention": {
+                  "utf8_bytes": 914548,
+                  "text_lines": 14954,
+                  "instruction_start_lines": 14095,
+                  "basic_block_labels": 429,
+                  "branch_or_switch_starts": 427
+                },
+                "__luisa_cpu_native_exp_f32_v8_u10": {
+                  "utf8_bytes": 2399,
+                  "text_lines": 51,
+                  "instruction_start_lines": 48,
+                  "basic_block_labels": 1,
+                  "branch_or_switch_starts": 0
+                },
+                "llm_attention.packet_batch": {
+                  "utf8_bytes": 5833,
+                  "text_lines": 88,
+                  "instruction_start_lines": 71,
+                  "basic_block_labels": 8,
+                  "branch_or_switch_starts": 7
+                },
+                "llm_attention.packet_batch.blocks": {
+                  "utf8_bytes": 2782,
+                  "text_lines": 43,
+                  "instruction_start_lines": 36,
+                  "basic_block_labels": 3,
+                  "branch_or_switch_starts": 2
+                }
+              }
+            },
+            "v2": {
+              "prepared_manifest_sha256": "71fe02e599c22b0d59b93a0419e387859a92eb5325d81f0084a11d4cc732021c",
+              "artifacts": {
+                "kernel.ll": {
+                  "sha256": "2aed4fc66fbf5c622beacb1333aec66f11d656dec8fba9d1a25df59a25035bbd",
+                  "bytes": 632768,
+                  "actual_path": "mha-r1-off-u8/output.f32.source.txt",
+                  "prepared_path": "prepared-mha-r1-off-u8/kernel.ll"
+                },
+                "kernel.o": {
+                  "sha256": "737d27b6963e14679c57679f14e05039b3c18636a753e98cc8a3169d82f80a14",
+                  "bytes": 60192,
+                  "actual_path": "mha-r1-off-u8/objects/tile_xir_w8_37965_1789293536926242_0.o",
+                  "prepared_path": "prepared-mha-r1-off-u8/kernel.o"
+                }
+              },
+              "realization": {
+                "static_snapshot_bytes_per_worker": 8576,
+                "static_snapshot_allocations": 5,
+                "snapshot_budget": 2097152,
+                "private_workspace_bytes": 68608,
+                "local_lanes": 1,
+                "max_unrolled_tile_elements": 64,
+                "max_unrolled_region_work": 4096,
+                "unordered_reduction_partitions": 4,
+                "requested_mma_output_block": 1,
+                "blocked_mmas": 0,
+                "full_packet_specializations": 0,
+                "full_packet_cloned_instructions": 0,
+                "contiguous_private_reads": 162,
+                "contiguous_private_writes": 98,
+                "requested_max_unrolled_mma_terms": 8,
+                "rolled_mmas": 2,
+                "interleaved_private_arrays": 5,
+                "schedule_blocks": 256,
+                "direct_cfg": true
+              },
+              "llvm_statistics": {
+                "llm_attention": {
+                  "utf8_bytes": 620492,
+                  "text_lines": 10861,
+                  "instruction_start_lines": 10002,
+                  "basic_block_labels": 429,
+                  "branch_or_switch_starts": 427
+                },
+                "__luisa_cpu_native_exp_f32_v8_u10": {
+                  "utf8_bytes": 2399,
+                  "text_lines": 51,
+                  "instruction_start_lines": 48,
+                  "basic_block_labels": 1,
+                  "branch_or_switch_starts": 0
+                },
+                "llm_attention.packet_batch": {
+                  "utf8_bytes": 5833,
+                  "text_lines": 88,
+                  "instruction_start_lines": 71,
+                  "basic_block_labels": 8,
+                  "branch_or_switch_starts": 7
+                },
+                "llm_attention.packet_batch.blocks": {
+                  "utf8_bytes": 2782,
+                  "text_lines": 43,
+                  "instruction_start_lines": 36,
+                  "basic_block_labels": 3,
+                  "branch_or_switch_starts": 2
+                }
+              }
+            }
+          },
+          "llvm_bytes_identical": false,
+          "orc_bytes_identical": false
+        }
+      }
+    },
+    {
+      "case": "mha-r1-on",
+      "dimensions": [
+        1,
+        8,
+        8,
+        1,
+        2048,
+        64,
+        64
+      ],
+      "variants": {
+        "u0": {
+          "evidence": {
+            "v1": {
+              "prepared_manifest_sha256": "5fda00613c17cd90c51a3bcd3598c1f8fa22386d93ab18425492d5468393cb4a",
+              "artifacts": {
+                "kernel.ll": {
+                  "sha256": "36566a0f3889d3c56e5f6af16885fef7dddfb39cc4e9721b31e321da5d394c9b",
+                  "bytes": 2775733,
+                  "actual_path": "mha-r1-on-u0/output.f32.source.txt",
+                  "prepared_path": "prepared-mha-r1-on-u0/kernel.ll"
+                },
+                "kernel.o": {
+                  "sha256": "c61f1dd84f8f89fd4f38273d90988b79879b604734427f61981f40f884ded23f",
+                  "bytes": 135200,
+                  "actual_path": "mha-r1-on-u0/objects/tile_xir_w8_34178_1789292593531874_0.o",
+                  "prepared_path": "prepared-mha-r1-on-u0/kernel.o"
+                }
+              },
+              "realization": {
+                "static_snapshot_bytes_per_worker": 8320,
+                "static_snapshot_allocations": 4,
+                "snapshot_budget": 2097152,
+                "private_workspace_bytes": 66560,
+                "local_lanes": 1,
+                "max_unrolled_tile_elements": 64,
+                "max_unrolled_region_work": 4096,
+                "unordered_reduction_partitions": 4,
+                "requested_mma_output_block": 1,
+                "blocked_mmas": 0,
+                "full_packet_specializations": 0,
+                "full_packet_cloned_instructions": 0,
+                "contiguous_private_reads": 2050,
+                "contiguous_private_writes": 34,
+                "requested_max_unrolled_mma_terms": 0,
+                "rolled_mmas": 0,
+                "interleaved_private_arrays": 4,
+                "schedule_blocks": 16,
+                "direct_cfg": true
+              },
+              "llvm_statistics": {
+                "llm_attention": {
+                  "utf8_bytes": 2763457,
+                  "text_lines": 42588,
+                  "instruction_start_lines": 42529,
+                  "basic_block_labels": 29,
+                  "branch_or_switch_starts": 27
+                },
+                "__luisa_cpu_native_exp_f32_v8_u10": {
+                  "utf8_bytes": 2399,
+                  "text_lines": 51,
+                  "instruction_start_lines": 48,
+                  "basic_block_labels": 1,
+                  "branch_or_switch_starts": 0
+                },
+                "llm_attention.packet_batch": {
+                  "utf8_bytes": 5833,
+                  "text_lines": 88,
+                  "instruction_start_lines": 71,
+                  "basic_block_labels": 8,
+                  "branch_or_switch_starts": 7
+                },
+                "llm_attention.packet_batch.blocks": {
+                  "utf8_bytes": 2782,
+                  "text_lines": 43,
+                  "instruction_start_lines": 36,
+                  "basic_block_labels": 3,
+                  "branch_or_switch_starts": 2
+                }
+              }
+            },
+            "v2": {
+              "prepared_manifest_sha256": "57d5984d34221b3d8a270f5f7d30320f228b24dd77742cd3ddb03fdf7d73c79c",
+              "artifacts": {
+                "kernel.ll": {
+                  "sha256": "36566a0f3889d3c56e5f6af16885fef7dddfb39cc4e9721b31e321da5d394c9b",
+                  "bytes": 2775733,
+                  "actual_path": "mha-r1-on-u0/output.f32.source.txt",
+                  "prepared_path": "prepared-mha-r1-on-u0/kernel.ll"
+                },
+                "kernel.o": {
+                  "sha256": "c61f1dd84f8f89fd4f38273d90988b79879b604734427f61981f40f884ded23f",
+                  "bytes": 135200,
+                  "actual_path": "mha-r1-on-u0/objects/tile_xir_w8_37975_1789293541891285_0.o",
+                  "prepared_path": "prepared-mha-r1-on-u0/kernel.o"
+                }
+              },
+              "realization": {
+                "static_snapshot_bytes_per_worker": 8320,
+                "static_snapshot_allocations": 4,
+                "snapshot_budget": 2097152,
+                "private_workspace_bytes": 66560,
+                "local_lanes": 1,
+                "max_unrolled_tile_elements": 64,
+                "max_unrolled_region_work": 4096,
+                "unordered_reduction_partitions": 4,
+                "requested_mma_output_block": 1,
+                "blocked_mmas": 0,
+                "full_packet_specializations": 0,
+                "full_packet_cloned_instructions": 0,
+                "contiguous_private_reads": 2050,
+                "contiguous_private_writes": 34,
+                "requested_max_unrolled_mma_terms": 0,
+                "rolled_mmas": 0,
+                "interleaved_private_arrays": 4,
+                "schedule_blocks": 16,
+                "direct_cfg": true
+              },
+              "llvm_statistics": {
+                "llm_attention": {
+                  "utf8_bytes": 2763457,
+                  "text_lines": 42588,
+                  "instruction_start_lines": 42529,
+                  "basic_block_labels": 29,
+                  "branch_or_switch_starts": 27
+                },
+                "__luisa_cpu_native_exp_f32_v8_u10": {
+                  "utf8_bytes": 2399,
+                  "text_lines": 51,
+                  "instruction_start_lines": 48,
+                  "basic_block_labels": 1,
+                  "branch_or_switch_starts": 0
+                },
+                "llm_attention.packet_batch": {
+                  "utf8_bytes": 5833,
+                  "text_lines": 88,
+                  "instruction_start_lines": 71,
+                  "basic_block_labels": 8,
+                  "branch_or_switch_starts": 7
+                },
+                "llm_attention.packet_batch.blocks": {
+                  "utf8_bytes": 2782,
+                  "text_lines": 43,
+                  "instruction_start_lines": 36,
+                  "basic_block_labels": 3,
+                  "branch_or_switch_starts": 2
+                }
+              }
+            }
+          },
+          "llvm_bytes_identical": true,
+          "orc_bytes_identical": true
+        },
+        "u8": {
+          "evidence": {
+            "v1": {
+              "prepared_manifest_sha256": "ca02beb1ca0d3b52df49749c24ba0b9325dfadc7366e23ccc9ec9633da91b021",
+              "artifacts": {
+                "kernel.ll": {
+                  "sha256": "3a90074aa7e28880cee6d119a612d610c08a89b7b4a2e6b92ac7a9e80136fdf4",
+                  "bytes": 926824,
+                  "actual_path": "mha-r1-on-u8/output.f32.source.txt",
+                  "prepared_path": "prepared-mha-r1-on-u8/kernel.ll"
+                },
+                "kernel.o": {
+                  "sha256": "426d563d42513bb4e0b3fd3e9afc59c8003deb7bd300cfed81b9a3fe3b49c5fe",
+                  "bytes": 97840,
+                  "actual_path": "mha-r1-on-u8/objects/tile_xir_w8_34190_1789292596166623_0.o",
+                  "prepared_path": "prepared-mha-r1-on-u8/kernel.o"
+                }
+              },
+              "realization": {
+                "static_snapshot_bytes_per_worker": 8320,
+                "static_snapshot_allocations": 4,
+                "snapshot_budget": 2097152,
+                "private_workspace_bytes": 66560,
+                "local_lanes": 1,
+                "max_unrolled_tile_elements": 64,
+                "max_unrolled_region_work": 4096,
+                "unordered_reduction_partitions": 4,
+                "requested_mma_output_block": 1,
+                "blocked_mmas": 0,
+                "full_packet_specializations": 0,
+                "full_packet_cloned_instructions": 0,
+                "contiguous_private_reads": 146,
+                "contiguous_private_writes": 34,
+                "requested_max_unrolled_mma_terms": 8,
+                "rolled_mmas": 2,
+                "interleaved_private_arrays": 4,
+                "schedule_blocks": 256,
+                "direct_cfg": true
+              },
+              "llvm_statistics": {
+                "llm_attention": {
+                  "utf8_bytes": 914548,
+                  "text_lines": 14954,
+                  "instruction_start_lines": 14095,
+                  "basic_block_labels": 429,
+                  "branch_or_switch_starts": 427
+                },
+                "__luisa_cpu_native_exp_f32_v8_u10": {
+                  "utf8_bytes": 2399,
+                  "text_lines": 51,
+                  "instruction_start_lines": 48,
+                  "basic_block_labels": 1,
+                  "branch_or_switch_starts": 0
+                },
+                "llm_attention.packet_batch": {
+                  "utf8_bytes": 5833,
+                  "text_lines": 88,
+                  "instruction_start_lines": 71,
+                  "basic_block_labels": 8,
+                  "branch_or_switch_starts": 7
+                },
+                "llm_attention.packet_batch.blocks": {
+                  "utf8_bytes": 2782,
+                  "text_lines": 43,
+                  "instruction_start_lines": 36,
+                  "basic_block_labels": 3,
+                  "branch_or_switch_starts": 2
+                }
+              }
+            },
+            "v2": {
+              "prepared_manifest_sha256": "ee005c19c752a5cfb34c0a6ff9a44b5d7966a7b707360847624a4ed0f2c720a4",
+              "artifacts": {
+                "kernel.ll": {
+                  "sha256": "2aed4fc66fbf5c622beacb1333aec66f11d656dec8fba9d1a25df59a25035bbd",
+                  "bytes": 632768,
+                  "actual_path": "mha-r1-on-u8/output.f32.source.txt",
+                  "prepared_path": "prepared-mha-r1-on-u8/kernel.ll"
+                },
+                "kernel.o": {
+                  "sha256": "737d27b6963e14679c57679f14e05039b3c18636a753e98cc8a3169d82f80a14",
+                  "bytes": 60192,
+                  "actual_path": "mha-r1-on-u8/objects/tile_xir_w8_38002_1789293543919294_0.o",
+                  "prepared_path": "prepared-mha-r1-on-u8/kernel.o"
+                }
+              },
+              "realization": {
+                "static_snapshot_bytes_per_worker": 8576,
+                "static_snapshot_allocations": 5,
+                "snapshot_budget": 2097152,
+                "private_workspace_bytes": 68608,
+                "local_lanes": 1,
+                "max_unrolled_tile_elements": 64,
+                "max_unrolled_region_work": 4096,
+                "unordered_reduction_partitions": 4,
+                "requested_mma_output_block": 1,
+                "blocked_mmas": 0,
+                "full_packet_specializations": 0,
+                "full_packet_cloned_instructions": 0,
+                "contiguous_private_reads": 162,
+                "contiguous_private_writes": 98,
+                "requested_max_unrolled_mma_terms": 8,
+                "rolled_mmas": 2,
+                "interleaved_private_arrays": 5,
+                "schedule_blocks": 256,
+                "direct_cfg": true
+              },
+              "llvm_statistics": {
+                "llm_attention": {
+                  "utf8_bytes": 620492,
+                  "text_lines": 10861,
+                  "instruction_start_lines": 10002,
+                  "basic_block_labels": 429,
+                  "branch_or_switch_starts": 427
+                },
+                "__luisa_cpu_native_exp_f32_v8_u10": {
+                  "utf8_bytes": 2399,
+                  "text_lines": 51,
+                  "instruction_start_lines": 48,
+                  "basic_block_labels": 1,
+                  "branch_or_switch_starts": 0
+                },
+                "llm_attention.packet_batch": {
+                  "utf8_bytes": 5833,
+                  "text_lines": 88,
+                  "instruction_start_lines": 71,
+                  "basic_block_labels": 8,
+                  "branch_or_switch_starts": 7
+                },
+                "llm_attention.packet_batch.blocks": {
+                  "utf8_bytes": 2782,
+                  "text_lines": 43,
+                  "instruction_start_lines": 36,
+                  "basic_block_labels": 3,
+                  "branch_or_switch_starts": 2
+                }
+              }
+            }
+          },
+          "llvm_bytes_identical": false,
+          "orc_bytes_identical": false
+        }
+      }
+    },
+    {
+      "case": "prefill-r1-on",
+      "dimensions": [
+        1,
+        4,
+        2,
+        32,
+        65,
+        32,
+        32
+      ],
+      "variants": {
+        "u0": {
+          "evidence": {
+            "v1": {
+              "prepared_manifest_sha256": "afdebfc7c8859b9cc3262bbcfb856c40b1efad7b22cb0ec3f0722017809e8f38",
+              "artifacts": {
+                "kernel.ll": {
+                  "sha256": "f04d4277ae2c01e23a408e3116cd24ccfa1b36c54f680b6c2a658e02965a1b4a",
+                  "bytes": 1238006,
+                  "actual_path": "prefill-r1-on-u0/output.f32.source.txt",
+                  "prepared_path": "prepared-prefill-r1-on-u0/kernel.ll"
+                },
+                "kernel.o": {
+                  "sha256": "5d2679117960556e326b155d48575ee4816c39a4c69de05714744633125dff18",
+                  "bytes": 124952,
+                  "actual_path": "prefill-r1-on-u0/objects/tile_xir_w8_34200_1789292602138075_0.o",
+                  "prepared_path": "prepared-prefill-r1-on-u0/kernel.o"
+                }
+              },
+              "realization": {
+                "static_snapshot_bytes_per_worker": 6688,
+                "static_snapshot_allocations": 10,
+                "snapshot_budget": 2097152,
+                "private_workspace_bytes": 0,
+                "local_lanes": 1,
+                "max_unrolled_tile_elements": 64,
+                "max_unrolled_region_work": 4096,
+                "unordered_reduction_partitions": 4,
+                "requested_mma_output_block": 1,
+                "blocked_mmas": 0,
+                "full_packet_specializations": 0,
+                "full_packet_cloned_instructions": 0,
+                "contiguous_private_reads": 686,
+                "contiguous_private_writes": 143,
+                "requested_max_unrolled_mma_terms": 0,
+                "rolled_mmas": 0,
+                "interleaved_private_arrays": 10,
+                "schedule_blocks": 56,
+                "direct_cfg": true
+              },
+              "llvm_statistics": {
+                "llm_attention": {
+                  "utf8_bytes": 1225730,
+                  "text_lines": 20325,
+                  "instruction_start_lines": 20130,
+                  "basic_block_labels": 97,
+                  "branch_or_switch_starts": 95
+                },
+                "__luisa_cpu_native_exp_f32_v8_u10": {
+                  "utf8_bytes": 2399,
+                  "text_lines": 51,
+                  "instruction_start_lines": 48,
+                  "basic_block_labels": 1,
+                  "branch_or_switch_starts": 0
+                },
+                "llm_attention.packet_batch": {
+                  "utf8_bytes": 5833,
+                  "text_lines": 88,
+                  "instruction_start_lines": 71,
+                  "basic_block_labels": 8,
+                  "branch_or_switch_starts": 7
+                },
+                "llm_attention.packet_batch.blocks": {
+                  "utf8_bytes": 2782,
+                  "text_lines": 43,
+                  "instruction_start_lines": 36,
+                  "basic_block_labels": 3,
+                  "branch_or_switch_starts": 2
+                }
+              }
+            },
+            "v2": {
+              "prepared_manifest_sha256": "31689e327aa4dca27f5d04109a3c18957118342c0a00b2c79f6400e15c6ca543",
+              "artifacts": {
+                "kernel.ll": {
+                  "sha256": "f04d4277ae2c01e23a408e3116cd24ccfa1b36c54f680b6c2a658e02965a1b4a",
+                  "bytes": 1238006,
+                  "actual_path": "prefill-r1-on-u0/output.f32.source.txt",
+                  "prepared_path": "prepared-prefill-r1-on-u0/kernel.ll"
+                },
+                "kernel.o": {
+                  "sha256": "5d2679117960556e326b155d48575ee4816c39a4c69de05714744633125dff18",
+                  "bytes": 124952,
+                  "actual_path": "prefill-r1-on-u0/objects/tile_xir_w8_38012_1789293549696322_0.o",
+                  "prepared_path": "prepared-prefill-r1-on-u0/kernel.o"
+                }
+              },
+              "realization": {
+                "static_snapshot_bytes_per_worker": 6688,
+                "static_snapshot_allocations": 10,
+                "snapshot_budget": 2097152,
+                "private_workspace_bytes": 0,
+                "local_lanes": 1,
+                "max_unrolled_tile_elements": 64,
+                "max_unrolled_region_work": 4096,
+                "unordered_reduction_partitions": 4,
+                "requested_mma_output_block": 1,
+                "blocked_mmas": 0,
+                "full_packet_specializations": 0,
+                "full_packet_cloned_instructions": 0,
+                "contiguous_private_reads": 686,
+                "contiguous_private_writes": 143,
+                "requested_max_unrolled_mma_terms": 0,
+                "rolled_mmas": 0,
+                "interleaved_private_arrays": 10,
+                "schedule_blocks": 56,
+                "direct_cfg": true
+              },
+              "llvm_statistics": {
+                "llm_attention": {
+                  "utf8_bytes": 1225730,
+                  "text_lines": 20325,
+                  "instruction_start_lines": 20130,
+                  "basic_block_labels": 97,
+                  "branch_or_switch_starts": 95
+                },
+                "__luisa_cpu_native_exp_f32_v8_u10": {
+                  "utf8_bytes": 2399,
+                  "text_lines": 51,
+                  "instruction_start_lines": 48,
+                  "basic_block_labels": 1,
+                  "branch_or_switch_starts": 0
+                },
+                "llm_attention.packet_batch": {
+                  "utf8_bytes": 5833,
+                  "text_lines": 88,
+                  "instruction_start_lines": 71,
+                  "basic_block_labels": 8,
+                  "branch_or_switch_starts": 7
+                },
+                "llm_attention.packet_batch.blocks": {
+                  "utf8_bytes": 2782,
+                  "text_lines": 43,
+                  "instruction_start_lines": 36,
+                  "basic_block_labels": 3,
+                  "branch_or_switch_starts": 2
+                }
+              }
+            }
+          },
+          "llvm_bytes_identical": true,
+          "orc_bytes_identical": true
+        },
+        "u8": {
+          "evidence": {
+            "v1": {
+              "prepared_manifest_sha256": "69fe199fb38bd5b765702d14a2f59c46753c37b33c38f8d085725871b324e367",
+              "artifacts": {
+                "kernel.ll": {
+                  "sha256": "e0f045b0af835330cd5666d0e4416a5aef1d10e91860aeba5470e888f87d943f",
+                  "bytes": 615116,
+                  "actual_path": "prefill-r1-on-u8/output.f32.source.txt",
+                  "prepared_path": "prepared-prefill-r1-on-u8/kernel.ll"
+                },
+                "kernel.o": {
+                  "sha256": "6033d71e90327bad770c9521d3d205ebfb55a9ec8875c6c5fec6820f1a81984d",
+                  "bytes": 57656,
+                  "actual_path": "prefill-r1-on-u8/objects/tile_xir_w8_34210_1789292603944688_0.o",
+                  "prepared_path": "prepared-prefill-r1-on-u8/kernel.o"
+                }
+              },
+              "realization": {
+                "static_snapshot_bytes_per_worker": 6688,
+                "static_snapshot_allocations": 10,
+                "snapshot_budget": 2097152,
+                "private_workspace_bytes": 0,
+                "local_lanes": 1,
+                "max_unrolled_tile_elements": 64,
+                "max_unrolled_region_work": 4096,
+                "unordered_reduction_partitions": 4,
+                "requested_mma_output_block": 1,
+                "blocked_mmas": 0,
+                "full_packet_specializations": 0,
+                "full_packet_cloned_instructions": 0,
+                "contiguous_private_reads": 144,
+                "contiguous_private_writes": 143,
+                "requested_max_unrolled_mma_terms": 8,
+                "rolled_mmas": 2,
+                "interleaved_private_arrays": 10,
+                "schedule_blocks": 251,
+                "direct_cfg": true
+              },
+              "llvm_statistics": {
+                "llm_attention": {
+                  "utf8_bytes": 602840,
+                  "text_lines": 10324,
+                  "instruction_start_lines": 9479,
+                  "basic_block_labels": 422,
+                  "branch_or_switch_starts": 420
+                },
+                "__luisa_cpu_native_exp_f32_v8_u10": {
+                  "utf8_bytes": 2399,
+                  "text_lines": 51,
+                  "instruction_start_lines": 48,
+                  "basic_block_labels": 1,
+                  "branch_or_switch_starts": 0
+                },
+                "llm_attention.packet_batch": {
+                  "utf8_bytes": 5833,
+                  "text_lines": 88,
+                  "instruction_start_lines": 71,
+                  "basic_block_labels": 8,
+                  "branch_or_switch_starts": 7
+                },
+                "llm_attention.packet_batch.blocks": {
+                  "utf8_bytes": 2782,
+                  "text_lines": 43,
+                  "instruction_start_lines": 36,
+                  "basic_block_labels": 3,
+                  "branch_or_switch_starts": 2
+                }
+              }
+            },
+            "v2": {
+              "prepared_manifest_sha256": "5707a54501e0802ff521585196653a1d1fe8c2b3b768f5b14254b1376af2f3d9",
+              "artifacts": {
+                "kernel.ll": {
+                  "sha256": "e0f045b0af835330cd5666d0e4416a5aef1d10e91860aeba5470e888f87d943f",
+                  "bytes": 615116,
+                  "actual_path": "prefill-r1-on-u8/output.f32.source.txt",
+                  "prepared_path": "prepared-prefill-r1-on-u8/kernel.ll"
+                },
+                "kernel.o": {
+                  "sha256": "6033d71e90327bad770c9521d3d205ebfb55a9ec8875c6c5fec6820f1a81984d",
+                  "bytes": 57656,
+                  "actual_path": "prefill-r1-on-u8/objects/tile_xir_w8_38042_1789293551456250_0.o",
+                  "prepared_path": "prepared-prefill-r1-on-u8/kernel.o"
+                }
+              },
+              "realization": {
+                "static_snapshot_bytes_per_worker": 6688,
+                "static_snapshot_allocations": 10,
+                "snapshot_budget": 2097152,
+                "private_workspace_bytes": 0,
+                "local_lanes": 1,
+                "max_unrolled_tile_elements": 64,
+                "max_unrolled_region_work": 4096,
+                "unordered_reduction_partitions": 4,
+                "requested_mma_output_block": 1,
+                "blocked_mmas": 0,
+                "full_packet_specializations": 0,
+                "full_packet_cloned_instructions": 0,
+                "contiguous_private_reads": 144,
+                "contiguous_private_writes": 143,
+                "requested_max_unrolled_mma_terms": 8,
+                "rolled_mmas": 2,
+                "interleaved_private_arrays": 10,
+                "schedule_blocks": 251,
+                "direct_cfg": true
+              },
+              "llvm_statistics": {
+                "llm_attention": {
+                  "utf8_bytes": 602840,
+                  "text_lines": 10324,
+                  "instruction_start_lines": 9479,
+                  "basic_block_labels": 422,
+                  "branch_or_switch_starts": 420
+                },
+                "__luisa_cpu_native_exp_f32_v8_u10": {
+                  "utf8_bytes": 2399,
+                  "text_lines": 51,
+                  "instruction_start_lines": 48,
+                  "basic_block_labels": 1,
+                  "branch_or_switch_starts": 0
+                },
+                "llm_attention.packet_batch": {
+                  "utf8_bytes": 5833,
+                  "text_lines": 88,
+                  "instruction_start_lines": 71,
+                  "basic_block_labels": 8,
+                  "branch_or_switch_starts": 7
+                },
+                "llm_attention.packet_batch.blocks": {
+                  "utf8_bytes": 2782,
+                  "text_lines": 43,
+                  "instruction_start_lines": 36,
+                  "basic_block_labels": 3,
+                  "branch_or_switch_starts": 2
+                }
+              }
+            }
+          },
+          "llvm_bytes_identical": true,
+          "orc_bytes_identical": true
+        }
+      }
+    },
+    {
+      "case": "decode-tail-r4-on",
+      "dimensions": [
+        1,
+        6,
+        2,
+        1,
+        2053,
+        80,
+        96
+      ],
+      "variants": {
+        "u0": {
+          "evidence": {
+            "v1": {
+              "prepared_manifest_sha256": "82fb8fe18e5d1b3dc3b685b5031289d020a9ed43a777a11a454f782a20620b28",
+              "artifacts": {
+                "kernel.ll": {
+                  "sha256": "a512c75309cb8b1624aba9be821c19eb16cf812588ea37edaea67f28f9acf94c",
+                  "bytes": 298466,
+                  "actual_path": "decode-tail-r4-on-u0/output.f32.source.txt",
+                  "prepared_path": "prepared-decode-tail-r4-on-u0/kernel.ll"
+                },
+                "kernel.o": {
+                  "sha256": "9fc3ed82fc85b27e18996329b8d9a8c15bdc29b59d79ea87bdab732598f9d972",
+                  "bytes": 18680,
+                  "actual_path": "decode-tail-r4-on-u0/objects/tile_xir_w8_34220_1789292605211279_0.o",
+                  "prepared_path": "prepared-decode-tail-r4-on-u0/kernel.o"
+                }
+              },
+              "realization": {
+                "static_snapshot_bytes_per_worker": 12864,
+                "static_snapshot_allocations": 8,
+                "snapshot_budget": 2097152,
+                "private_workspace_bytes": 102912,
+                "local_lanes": 1,
+                "max_unrolled_tile_elements": 64,
+                "max_unrolled_region_work": 4096,
+                "unordered_reduction_partitions": 4,
+                "requested_mma_output_block": 4,
+                "blocked_mmas": 1,
+                "full_packet_specializations": 0,
+                "full_packet_cloned_instructions": 0,
+                "contiguous_private_reads": 105,
+                "contiguous_private_writes": 42,
+                "requested_max_unrolled_mma_terms": 0,
+                "rolled_mmas": 1,
+                "interleaved_private_arrays": 8,
+                "schedule_blocks": 86,
+                "direct_cfg": true
+              },
+              "llvm_statistics": {
+                "llm_attention": {
+                  "utf8_bytes": 286190,
+                  "text_lines": 4855,
+                  "instruction_start_lines": 4560,
+                  "basic_block_labels": 147,
+                  "branch_or_switch_starts": 145
+                },
+                "__luisa_cpu_native_exp_f32_v8_u10": {
+                  "utf8_bytes": 2399,
+                  "text_lines": 51,
+                  "instruction_start_lines": 48,
+                  "basic_block_labels": 1,
+                  "branch_or_switch_starts": 0
+                },
+                "llm_attention.packet_batch": {
+                  "utf8_bytes": 5833,
+                  "text_lines": 88,
+                  "instruction_start_lines": 71,
+                  "basic_block_labels": 8,
+                  "branch_or_switch_starts": 7
+                },
+                "llm_attention.packet_batch.blocks": {
+                  "utf8_bytes": 2782,
+                  "text_lines": 43,
+                  "instruction_start_lines": 36,
+                  "basic_block_labels": 3,
+                  "branch_or_switch_starts": 2
+                }
+              }
+            },
+            "v2": {
+              "prepared_manifest_sha256": "1e624f4a4cec74884f5015e8cb74a4a489658f2c73097d3394bb0912dedadc76",
+              "artifacts": {
+                "kernel.ll": {
+                  "sha256": "a512c75309cb8b1624aba9be821c19eb16cf812588ea37edaea67f28f9acf94c",
+                  "bytes": 298466,
+                  "actual_path": "decode-tail-r4-on-u0/output.f32.source.txt",
+                  "prepared_path": "prepared-decode-tail-r4-on-u0/kernel.ll"
+                },
+                "kernel.o": {
+                  "sha256": "9fc3ed82fc85b27e18996329b8d9a8c15bdc29b59d79ea87bdab732598f9d972",
+                  "bytes": 18680,
+                  "actual_path": "decode-tail-r4-on-u0/objects/tile_xir_w8_38055_1789293552684502_0.o",
+                  "prepared_path": "prepared-decode-tail-r4-on-u0/kernel.o"
+                }
+              },
+              "realization": {
+                "static_snapshot_bytes_per_worker": 12864,
+                "static_snapshot_allocations": 8,
+                "snapshot_budget": 2097152,
+                "private_workspace_bytes": 102912,
+                "local_lanes": 1,
+                "max_unrolled_tile_elements": 64,
+                "max_unrolled_region_work": 4096,
+                "unordered_reduction_partitions": 4,
+                "requested_mma_output_block": 4,
+                "blocked_mmas": 1,
+                "full_packet_specializations": 0,
+                "full_packet_cloned_instructions": 0,
+                "contiguous_private_reads": 105,
+                "contiguous_private_writes": 42,
+                "requested_max_unrolled_mma_terms": 0,
+                "rolled_mmas": 1,
+                "interleaved_private_arrays": 8,
+                "schedule_blocks": 86,
+                "direct_cfg": true
+              },
+              "llvm_statistics": {
+                "llm_attention": {
+                  "utf8_bytes": 286190,
+                  "text_lines": 4855,
+                  "instruction_start_lines": 4560,
+                  "basic_block_labels": 147,
+                  "branch_or_switch_starts": 145
+                },
+                "__luisa_cpu_native_exp_f32_v8_u10": {
+                  "utf8_bytes": 2399,
+                  "text_lines": 51,
+                  "instruction_start_lines": 48,
+                  "basic_block_labels": 1,
+                  "branch_or_switch_starts": 0
+                },
+                "llm_attention.packet_batch": {
+                  "utf8_bytes": 5833,
+                  "text_lines": 88,
+                  "instruction_start_lines": 71,
+                  "basic_block_labels": 8,
+                  "branch_or_switch_starts": 7
+                },
+                "llm_attention.packet_batch.blocks": {
+                  "utf8_bytes": 2782,
+                  "text_lines": 43,
+                  "instruction_start_lines": 36,
+                  "basic_block_labels": 3,
+                  "branch_or_switch_starts": 2
+                }
+              }
+            }
+          },
+          "llvm_bytes_identical": true,
+          "orc_bytes_identical": true
+        },
+        "u8": {
+          "evidence": {
+            "v1": {
+              "prepared_manifest_sha256": "1ec49506d385921b7e738d62e50e511359e8a439d1d737738affaa30387a4b80",
+              "artifacts": {
+                "kernel.ll": {
+                  "sha256": "5d177cc77bf2d109250bf33bf291a5ed1f74793cca06922eb9dbaba4d677ee9d",
+                  "bytes": 410780,
+                  "actual_path": "decode-tail-r4-on-u8/output.f32.source.txt",
+                  "prepared_path": "prepared-decode-tail-r4-on-u8/kernel.ll"
+                },
+                "kernel.o": {
+                  "sha256": "52daf1bdb205810b18ede533bb1b950662713bbcd459b59506475bf584c466d9",
+                  "bytes": 28352,
+                  "actual_path": "decode-tail-r4-on-u8/objects/tile_xir_w8_34232_1789292606678576_0.o",
+                  "prepared_path": "prepared-decode-tail-r4-on-u8/kernel.o"
+                }
+              },
+              "realization": {
+                "static_snapshot_bytes_per_worker": 12864,
+                "static_snapshot_allocations": 8,
+                "snapshot_budget": 2097152,
+                "private_workspace_bytes": 102912,
+                "local_lanes": 1,
+                "max_unrolled_tile_elements": 64,
+                "max_unrolled_region_work": 4096,
+                "unordered_reduction_partitions": 4,
+                "requested_mma_output_block": 4,
+                "blocked_mmas": 1,
+                "full_packet_specializations": 1,
+                "full_packet_cloned_instructions": 3195,
+                "contiguous_private_reads": 46,
+                "contiguous_private_writes": 42,
+                "requested_max_unrolled_mma_terms": 8,
+                "rolled_mmas": 2,
+                "interleaved_private_arrays": 8,
+                "schedule_blocks": 89,
+                "direct_cfg": true
+              },
+              "llvm_statistics": {
+                "llm_attention": {
+                  "utf8_bytes": 199253,
+                  "text_lines": 3500,
+                  "instruction_start_lines": 3195,
+                  "basic_block_labels": 152,
+                  "branch_or_switch_starts": 150
+                },
+                "__luisa_cpu_native_exp_f32_v8_u10": {
+                  "utf8_bytes": 2399,
+                  "text_lines": 51,
+                  "instruction_start_lines": 48,
+                  "basic_block_labels": 1,
+                  "branch_or_switch_starts": 0
+                },
+                "llm_attention.full_packet": {
+                  "utf8_bytes": 199224,
+                  "text_lines": 3500,
+                  "instruction_start_lines": 3195,
+                  "basic_block_labels": 152,
+                  "branch_or_switch_starts": 150
+                },
+                "llm_attention.packet_batch": {
+                  "utf8_bytes": 5858,
+                  "text_lines": 88,
+                  "instruction_start_lines": 71,
+                  "basic_block_labels": 8,
+                  "branch_or_switch_starts": 7
+                },
+                "llm_attention.packet_batch.blocks": {
+                  "utf8_bytes": 2782,
+                  "text_lines": 43,
+                  "instruction_start_lines": 36,
+                  "basic_block_labels": 3,
+                  "branch_or_switch_starts": 2
+                }
+              }
+            },
+            "v2": {
+              "prepared_manifest_sha256": "48bfe2475a3e2d7a825d52623fc43a595380444efbff94fa6ca63ff6d6045974",
+              "artifacts": {
+                "kernel.ll": {
+                  "sha256": "5d177cc77bf2d109250bf33bf291a5ed1f74793cca06922eb9dbaba4d677ee9d",
+                  "bytes": 410780,
+                  "actual_path": "decode-tail-r4-on-u8/output.f32.source.txt",
+                  "prepared_path": "prepared-decode-tail-r4-on-u8/kernel.ll"
+                },
+                "kernel.o": {
+                  "sha256": "52daf1bdb205810b18ede533bb1b950662713bbcd459b59506475bf584c466d9",
+                  "bytes": 28352,
+                  "actual_path": "decode-tail-r4-on-u8/objects/tile_xir_w8_38065_1789293554112758_0.o",
+                  "prepared_path": "prepared-decode-tail-r4-on-u8/kernel.o"
+                }
+              },
+              "realization": {
+                "static_snapshot_bytes_per_worker": 12864,
+                "static_snapshot_allocations": 8,
+                "snapshot_budget": 2097152,
+                "private_workspace_bytes": 102912,
+                "local_lanes": 1,
+                "max_unrolled_tile_elements": 64,
+                "max_unrolled_region_work": 4096,
+                "unordered_reduction_partitions": 4,
+                "requested_mma_output_block": 4,
+                "blocked_mmas": 1,
+                "full_packet_specializations": 1,
+                "full_packet_cloned_instructions": 3195,
+                "contiguous_private_reads": 46,
+                "contiguous_private_writes": 42,
+                "requested_max_unrolled_mma_terms": 8,
+                "rolled_mmas": 2,
+                "interleaved_private_arrays": 8,
+                "schedule_blocks": 89,
+                "direct_cfg": true
+              },
+              "llvm_statistics": {
+                "llm_attention": {
+                  "utf8_bytes": 199253,
+                  "text_lines": 3500,
+                  "instruction_start_lines": 3195,
+                  "basic_block_labels": 152,
+                  "branch_or_switch_starts": 150
+                },
+                "__luisa_cpu_native_exp_f32_v8_u10": {
+                  "utf8_bytes": 2399,
+                  "text_lines": 51,
+                  "instruction_start_lines": 48,
+                  "basic_block_labels": 1,
+                  "branch_or_switch_starts": 0
+                },
+                "llm_attention.full_packet": {
+                  "utf8_bytes": 199224,
+                  "text_lines": 3500,
+                  "instruction_start_lines": 3195,
+                  "basic_block_labels": 152,
+                  "branch_or_switch_starts": 150
+                },
+                "llm_attention.packet_batch": {
+                  "utf8_bytes": 5858,
+                  "text_lines": 88,
+                  "instruction_start_lines": 71,
+                  "basic_block_labels": 8,
+                  "branch_or_switch_starts": 7
+                },
+                "llm_attention.packet_batch.blocks": {
+                  "utf8_bytes": 2782,
+                  "text_lines": 43,
+                  "instruction_start_lines": 36,
+                  "basic_block_labels": 3,
+                  "branch_or_switch_starts": 2
+                }
+              }
+            }
+          },
+          "llvm_bytes_identical": true,
+          "orc_bytes_identical": true
+        }
+      }
+    }
+  ],
+  "limitations": [
+    "Each identity was recomputed from the original captured source/object and matching prepared artifact, not just copied from a manifest.",
+    "No live build was read or executed. V1 and V2 results retain separate producer and timing identities.",
+    "This identity receipt records both cohorts; re-verifying V1 bytes requires its separately retained evidence bundle, not a live producer."
+  ]
+}
