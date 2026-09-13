@@ -173,6 +173,25 @@ quiescent. They motivate separate contribution/output-axis realizations and
 explicit layout/call/packing costs; no automatic policy, Torch/MPS result or
 production default changes in this checkpoint.
 
+The {download}`compiler-generated native MMA experiment
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260913-attention-native-mma/notes.md>`
+implements typed XIR contraction metadata and same-module private SIMD vector
+helpers, using contribution-axis vectors for QK and output-axis vectors for PV.
+Unlike the handwritten references, this is actual Tile compiler code. In six
+matched native-entry cohorts, batch GQA reduces paired time by **25.8%**, but
+the other five increase it by **6.2%–60.4%**. All 72 visits / 504 samples pass
+complete FP64, input/guard and own-capture bitwise checks. Authorized QK
+reassociation means A/B outputs need not be bitwise equal.
+
+All on candidates increase snapshots and reduce packet-interleaved arrays;
+prefill-q8 additionally acquires a full-packet clone. These are complete
+realization comparisons, not isolated arithmetic speedups. The costs of
+layout transitions, snapshots and code remain uncalibrated, so the candidate
+stays opt-in with `native_mma_cost=unmodeled`. Eleven selected CTests and
+23 changed-TU syntax checks pass after a full selected build; historical
+failed attempts remain archived. There is no new Torch/MPS/Metal performance
+claim or automatic policy promotion.
+
 ### Metal4 XIR route: correctness established, timing not yet stable
 
 The September 10 {download}`target-info checkpoint <../../../../scripts/benchmark/tile_torch/results/m1-max-20260910-xir-target-info/README.md>`

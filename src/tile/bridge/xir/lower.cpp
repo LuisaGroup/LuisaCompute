@@ -1107,6 +1107,39 @@ private:
         }
     }
     void _mma(const Operation &op) {
+        if (auto descriptor = detail::native_mma_plan(op, _options)) {
+            auto result = op.result(0u);
+            auto storage = _allocate(result->type());
+            auto callee = _output.module->create_external_function(nullptr);
+            callee->set_name("tile_strided_mma");
+            callee->create_metadata<x::StridedMmaMD>()->descriptor = *descriptor;
+            Elements arguments;
+            for (size_t i = 0u; i < 3u; i++) {
+                auto input = _get(op.operand(i))->storage;
+                LUISA_ASSERT(input != nullptr, "Native MMA requires a definition-time operand snapshot");
+                callee->create_reference_argument(input->type());
+                arguments.emplace_back(input);
+            }
+            callee->create_reference_argument(storage->type());
+            arguments.emplace_back(storage);
+            _charge();
+            _builder.call(nullptr, callee, arguments);
+            auto data = _representation(result);
+            data->storage = storage;
+            // Small values retain ordinary SSA carry/projection semantics in
+            // addition to their intrinsic-required storage. Read only after
+            // the call; a later write must not change this definition.
+            auto count = _volume(*result->type().index_space());
+            if (!detail::traversal_snapshot(count, _options)) {
+                Elements elements;
+                for (auto i = uint64_t{0u}; i < count; i++) { elements.emplace_back(_read(data, _index(i))); }
+                data->elements = std::move(elements);
+            }
+            _output.native_mmas++;
+            _output.native_output_mmas += descriptor->vectorization == x::StridedMmaVectorization::OUTPUT;
+            _output.native_contraction_mmas += descriptor->vectorization == x::StridedMmaVectorization::CONTRACTION;
+            return;
+        }
         auto result = op.result(0u);
         auto &space = *result->type().index_space();
         auto contraction = IndexSpace{};
@@ -1269,6 +1302,9 @@ private:
                     auto data = _representation(result);
                     data->splat = true;
                     data->elements.emplace_back(_literal(op));
+                } else if (plan.snapshot && detail::traversal_snapshot(count, _options)) {
+                    auto literal = _literal(op);
+                    _emit_tile(result, [&](x::Value *) { return literal; });
                 } else {
                     _charge(count);
                     _define(result, Elements(count, _literal(op)));

@@ -31,6 +31,7 @@
 #include <luisa/xir/instructions/switch.h>
 #include <luisa/xir/instructions/thread_group.h>
 #include <luisa/xir/module.h>
+#include <luisa/xir/metadata/strided_mma.h>
 #include <luisa/xir/special_register.h>
 #include <luisa/xir/undefined.h>
 #include <luisa/xir/verifier.h>
@@ -1161,11 +1162,39 @@ public:
                 XIRVerificationResult &result) noexcept
         : _options{options}, _result{result} {}
 
+    // This tag carries executable semantics. Unlike diagnostic metadata, it
+    // must not migrate to an owner where backends would silently ignore it.
+    void verify_strided_mma_metadata(
+        const MetadataListMixin &owner, const Function *function = nullptr,
+        const BasicBlock *block = nullptr, const Instruction *instruction = nullptr,
+        bool external_function = false) noexcept {
+        auto count = size_t{0u};
+        for (auto metadata : owner.metadata_list()) {
+            if (!metadata->isa<StridedMmaMD>()) { continue; }
+            ++count;
+            if (!external_function) {
+                _error(function, block, instruction,
+                       "Strided-MMA metadata is only valid on an external function.");
+            }
+            auto mma = static_cast<const StridedMmaMD *>(metadata);
+            if (!is_valid_strided_mma_descriptor(mma->descriptor)) {
+                _error(function, block, instruction,
+                       "Strided-MMA metadata has an invalid descriptor.");
+            }
+        }
+        if (count > 1u) {
+            _error(function, block, instruction,
+                   "Strided-MMA metadata must occur at most once per external function.");
+        }
+    }
+
     void verify(const Function *function) noexcept {
         if (function == nullptr) {
             _error(nullptr, nullptr, nullptr, "Function is null.");
             return;
         }
+        verify_strided_mma_metadata(*function, function, nullptr, nullptr,
+                                    function->isa<ExternalFunction>());
         auto *module = function->parent_module();
         if (function->isa<KernelFunction>()) {
             auto block_size =
@@ -1185,6 +1214,7 @@ public:
             }
         }
         for (auto *argument : function->arguments()) {
+            verify_strided_mma_metadata(*argument, function);
             if (argument->parent_function() != function ||
                 !argument_kind_matches_type(argument)) {
                 _error(function, nullptr, nullptr,
@@ -1192,6 +1222,16 @@ public:
             }
         }
         auto *definition = function->definition();
+        if (definition == nullptr || definition->body_block() == nullptr) {
+            // Malformed/declaration owners can still own blocks. Do not let
+            // the early return hide a misplaced mandatory semantic contract.
+            for (auto block : function->basic_blocks()) {
+                verify_strided_mma_metadata(*block, function, block);
+                for (auto instruction : block->instructions()) {
+                    verify_strided_mma_metadata(*instruction, function, block, instruction);
+                }
+            }
+        }
         if (definition == nullptr) { return; }
         if (definition->body_block() == nullptr) {
             _error(function, nullptr, nullptr, "Function definition has no body block.");
@@ -1201,6 +1241,7 @@ public:
         luisa::vector<const BasicBlock *> blocks;
         BlockSet block_set;
         for (auto *block : definition->basic_blocks()) {
+            verify_strided_mma_metadata(*block, function, block);
             blocks.emplace_back(block);
             block_set.emplace(block);
             if (block->parent_function() != function) {
@@ -1238,6 +1279,7 @@ public:
             auto saw_non_phi = false;
             size_t order = 0u;
             for (auto *instruction : block->instructions()) {
+                verify_strided_mma_metadata(*instruction, function, block, instruction);
                 ++_result.statistics.instruction_tag_queries;
                 auto tag = instruction->derived_instruction_tag();
                 auto opcode_valid =
@@ -1946,6 +1988,10 @@ XIRVerificationResult xir_verify_module(
         return result;
     }
     detail::XIRVerifier verifier{options, result};
+    verifier.verify_strided_mma_metadata(*module);
+    for (auto value : module->constant_list()) { verifier.verify_strided_mma_metadata(*value); }
+    for (auto value : module->undefined_list()) { verifier.verify_strided_mma_metadata(*value); }
+    for (auto value : module->special_register_list()) { verifier.verify_strided_mma_metadata(*value); }
     for (auto *function : module->function_list()) {
         verifier.verify(function);
     }

@@ -4,6 +4,7 @@
 #include <luisa/core/mathematics.h>
 #include <luisa/tile/bridge/xir/lower.h>
 #include <luisa/tile/ir.h>
+#include "native_mma.h"
 
 namespace luisa::compute::tile::bridge::xir::detail {
 
@@ -554,8 +555,9 @@ struct MmaContractionPlan {
 }
 
 [[nodiscard]] inline bool definition_snapshot(const Value *value, uint64_t elements, const LowerOptions &options) noexcept {
-    return elements > 1u && (needs_indexable_snapshot(value, options.max_unrolled_tile_elements, options.max_unrolled_region_work) ||
-                             mma_operand_snapshot(value, options));
+    return native_mma_snapshot(value, options) ||
+           (elements > 1u && (needs_indexable_snapshot(value, options.max_unrolled_tile_elements, options.max_unrolled_region_work) ||
+                              mma_operand_snapshot(value, options)));
 }
 
 enum class ValueRepresentation : uint8_t {
@@ -591,6 +593,12 @@ struct ValueAllocationPlan {
     const Value *value, uint64_t count, const LowerOptions &options) noexcept {
     if (!value->type().is_tile()) { return {}; }
     auto op = value->defining_operation();
+    // A native call consumes references to definition-time snapshots, never
+    // deferred recipes or a re-read of mutable input memory. Include constants
+    // and singleton seeds; the result is always a separate writable array.
+    if (native_mma_snapshot(value, options)) {
+        return {ValueRepresentation::EMITTED, true, {}, op && op->kind() == OperationKind::MMA ? mma_emission_plan(*op, options) : MmaEmissionPlan{}};
+    }
     if (op && op->kind() == OperationKind::CONSTANT && traversal_snapshot(count, options)) {
         return {ValueRepresentation::SPLAT, false, {}};
     }

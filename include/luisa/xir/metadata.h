@@ -15,6 +15,7 @@ enum struct DerivedMetadataTag {
     SIGNATURE_CONSTRAINT,
     REG2MEM_SPILL,
     NO_INLINE,
+    STRIDED_MMA,
 };
 
 class LUISA_XIR_API Metadata : public ManagedIntrusiveForwardNode<Metadata> {

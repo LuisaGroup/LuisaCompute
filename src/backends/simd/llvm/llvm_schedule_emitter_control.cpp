@@ -24,6 +24,9 @@ void ScheduleEmitter::_emit_instruction(
         case schedule::Opcode::store:
             _local_store(instruction);
             break;
+        case schedule::Opcode::call:
+            _strided_mma(instruction);
+            break;
         case schedule::Opcode::gep:
             value = _local_gep(instruction);
             break;

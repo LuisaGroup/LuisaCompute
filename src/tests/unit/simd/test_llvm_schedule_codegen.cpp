@@ -34,13 +34,16 @@
 #endif
 
 #include <llvm/IR/LLVMContext.h>
+#include <llvm/IR/Instructions.h>
 #include <llvm/IR/Module.h>
+#include <llvm/IR/Operator.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Support/raw_ostream.h>
 
 #include <luisa/ast/type_registry.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/xir/builder.h>
+#include <luisa/xir/metadata/strided_mma.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/verifier.h>
 
@@ -16698,6 +16701,151 @@ template<typename T>
     return true;
 }
 
+// Return an owned Schedule after destroying the source XIR module. The native
+// boundary must copy semantic metadata, not retain compiler object pointers.
+[[nodiscard]] schedule::XIRToScheduleResult make_strided_mma_schedule(
+    uint32_t width, bool contraction, bool strict, unsigned malformed = 0u) {
+    xir::Module module;
+    auto kernel = module.create_kernel();
+    auto entry = kernel->create_body_block();
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry);
+    auto external = module.create_external_function(nullptr);
+    external->set_name("tile_strided_mma");// The name alone is never authority.
+    auto terms = contraction ? 2u * width + 1u : width + 1u;
+    xir::StridedMmaDescriptor descriptor{
+        .output_extents = {width + 1u},
+        .lhs_output_strides = {contraction ? terms : 0u},
+        .rhs_output_strides = {contraction ? terms : 1u},
+        .contraction_extent = terms,
+        .lhs_contraction_stride = 1u,
+        .rhs_contraction_stride = contraction ? 1u : width + 1u,
+        .vector_width = width,
+        .allow_reassociation = !strict,
+        .vectorization = contraction ? xir::StridedMmaVectorization::CONTRACTION : xir::StridedMmaVectorization::OUTPUT};
+    switch (malformed) {
+        case 2u: descriptor.vector_width = 3u; break;
+        case 5u: descriptor.rhs_output_strides[0u] = 0u; break;
+        case 6u: descriptor.output_extents[0u] = 0u; break;
+        case 7u: descriptor.lhs_output_strides.clear(); break;
+        case 8u: descriptor.vectorization = static_cast<xir::StridedMmaVectorization>(255u); break;
+        case 9u: descriptor.vectorization = xir::StridedMmaVectorization::CONTRACTION; break;
+        case 13u: descriptor.lhs_contraction_stride = std::numeric_limits<uint64_t>::max(); break;
+        default: break;
+    }
+    if (malformed != 1u) { external->create_metadata<xir::StridedMmaMD>()->descriptor = descriptor; }
+    if (malformed == 15u) { external->create_metadata<xir::StridedMmaMD>()->descriptor = descriptor; }
+    std::array<xir::Value *, 4u> arguments{};
+    for (auto i = size_t{0u}; i < arguments.size(); i++) {
+        auto scalar = malformed == 3u && i == 0u ? Type::of<int32_t>() : Type::of<float>();
+        auto capacity = malformed == 4u && i == 0u ? 1u : malformed == 14u && i == 3u ? 1u :
+                                                                                        256u;
+        auto type = Type::array(scalar, capacity);
+        if (malformed == 12u && i == 0u) {
+            external->create_value_argument(type);
+        } else {
+            external->create_reference_argument(type);
+        }
+        arguments[i] = malformed == 11u && i == 0u ? builder.alloca_shared(type) : builder.alloca_local(type);
+    }
+    if (malformed == 10u) { arguments[3u] = arguments[2u]; }
+    builder.call(nullptr, external, arguments);
+    builder.return_void();
+    return schedule::lower_xir_to_schedule(kernel, {.logical_warp_width = 8u});
+}
+
+[[nodiscard]] bool run_strided_mma_projection_boundary() {
+    for (auto malformed = 1u; malformed <= 15u; malformed++) {
+        auto result = make_strided_mma_schedule(4u, false, true, malformed);
+        if (result.succeeded()) { std::cerr << "unexpected MMA admission: " << malformed << '\n'; }
+        CHECK(!result.succeeded());
+        CHECK(!result.diagnostics.empty());
+        CHECK(diagnostics_text(result).find("strided MMA") != std::string::npos);
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_strided_mma_codegen_boundary() {
+    for (auto width : {2u, 4u, 8u}) {
+        for (auto mode : {0u, 1u, 2u}) {
+            auto contraction = mode == 2u;
+            auto strict = mode == 0u;
+            auto result = make_strided_mma_schedule(width, contraction, strict);
+            if (!result.succeeded()) { std::cerr << diagnostics_text(result); }
+            CHECK(result.succeeded());
+            CHECK(schedule::verify(*result.function).succeeded());
+            auto context = std::make_unique<::llvm::LLVMContext>();
+            auto module = std::make_unique<::llvm::Module>("strided-mma-boundary", *context);
+            auto codegen = lower_schedule_to_llvm(*module, *result.function, 8u, "strided_mma_entry");
+            if (!codegen.succeeded()) { std::cerr << codegen.error << '\n'; }
+            CHECK(codegen.succeeded());
+            CHECK(!::llvm::verifyModule(*module, &::llvm::errs()));
+            CHECK(module->getFunction("tile_strided_mma") == nullptr);
+            auto helpers = size_t{0u};
+            for (auto &function : *module) {
+                if (!function.getName().contains(".strided_mma")) { continue; }
+                helpers++;
+                CHECK(function.hasPrivateLinkage());
+                CHECK(!function.isDeclaration());
+                auto vector_multiply = false;
+                auto vector_add = false;
+                for (auto &block : function) {
+                    for (auto &instruction : block) {
+                        if (instruction.getOpcode() == ::llvm::Instruction::FMul ||
+                            instruction.getOpcode() == ::llvm::Instruction::FAdd) {
+                            CHECK(!instruction.getFastMathFlags().allowContract());
+                            CHECK(!instruction.getFastMathFlags().allowReassoc());
+                            if (instruction.getType()->isVectorTy()) {
+                                vector_multiply |= instruction.getOpcode() == ::llvm::Instruction::FMul;
+                                vector_add |= instruction.getOpcode() == ::llvm::Instruction::FAdd;
+                            }
+                        }
+                    }
+                }
+                CHECK(vector_multiply && vector_add);
+            }
+            CHECK(helpers == 1u);
+            // Revalidate independently at the Schedule -> LLVM boundary. An
+            // intervening Schedule transform cannot forge the trusted XIR call.
+            if (width != 4u || mode != 0u) { continue; }
+            for (auto malformed = 0u; malformed < 9u; malformed++) {
+                auto forged = *result.function;
+                auto call = static_cast<schedule::Instruction *>(nullptr);
+                for (auto &block : forged.blocks()) {
+                    for (auto &instruction : block.instructions) {
+                        if (instruction.opcode == schedule::Opcode::call) { call = &instruction; }
+                    }
+                }
+                CHECK(call != nullptr);
+                switch (malformed) {
+                    case 0u: call->strided_mma.reset(); break;
+                    case 1u: call->strided_mma->vector_width = 3u; break;
+                    case 2u: call->strided_mma->vectorization = schedule::StridedMmaVectorization::contraction; break;
+                    case 3u: call->operands[3u] = call->operands[0u]; break;
+                    case 4u: forged.value(call->operands[0u])->type = Type::array(Type::of<int32_t>(), 256u); break;
+                    case 5u: forged.value(call->operands[3u])->type = Type::array(Type::of<float>(), 1u); break;
+                    case 6u: call->strided_mma->rhs_output_strides[0u] = 0u; break;
+                    case 7u: call->strided_mma->lhs_contraction_stride = std::numeric_limits<uint64_t>::max(); break;
+                    case 8u:
+                        for (auto &block : forged.blocks()) {
+                            for (auto &instruction : block.instructions) {
+                                if (instruction.result == call->operands[0u]) {
+                                    instruction.source_op = static_cast<uint32_t>(xir::AllocaOp::SHARED);
+                                }
+                            }
+                        }
+                        break;
+                }
+                auto rejected_module = std::make_unique<::llvm::Module>("forged-strided-mma", *context);
+                auto rejected = lower_schedule_to_llvm(*rejected_module, forged, 8u, "forged_mma_entry");
+                CHECK(!rejected.succeeded());
+                CHECK(!rejected.error.empty());
+            }
+        }
+    }
+    return true;
+}
+
 }// namespace
 
 int main() {
@@ -16706,6 +16854,8 @@ int main() {
         bool (*run)();
     };
     constexpr Test tests[]{
+        {"typed strided MMA XIR admission boundary", &run_strided_mma_projection_boundary},
+        {"typed strided MMA owned metadata and private vector codegen", &run_strided_mma_codegen_boundary},
         {"cohort private 32-bit loop indices and exit epochs", &run_cohort_private_loop_accesses<uint32_t>},
         {"cohort private 64-bit loop indices and exit epochs", &run_cohort_private_loop_accesses<uint64_t>},
         {"predicated private memory triangles and counted loops", &run_predicated_private_memory_effects},

@@ -152,7 +152,8 @@ ShaderCreationInfo MetalDevice::create_tile_kernel(
         }
         auto option = requested_option;
         auto ordered_reduction = tile::OrderedReductionAnalysis::run(kernel);
-        option.enable_fast_math &= !ordered_reduction;
+        auto strict_mma = tile::StrictMmaAnalysis::run(kernel);
+        option.enable_fast_math &= !ordered_reduction && !strict_mma;
         // Tile lowering already produces plain CFG/SSA. Do not run the AST
         // destructuring/inlining pipeline again, or invent a separate pass list.
         auto cleanup = xir::create_ssa_optimization_pipeline({.enable_fast_math = option.enable_fast_math});
@@ -228,10 +229,10 @@ ShaderCreationInfo MetalDevice::create_tile_kernel(
         metadata.realization.append(luisa::format(
             "; private_snapshot_budget={}; max_unrolled_tile_elements={}; max_unrolled_region_work={}; unordered_reduction_partitions={}; "
             "fused_reduction_loads={}; fused_reduction_expressions={}; fused_pointwise_regions={}; deferred_maps={}; "
-            "custom_cost_policy={}; fast_math={}; ordered_reduction={}",
+            "custom_cost_policy={}; fast_math={}; ordered_reduction={}; strict_mma={}",
             plan.resource_limits.max_snapshot_bytes_per_worker, planner_options.max_unrolled_tile_elements, planner_options.max_unrolled_region_work, planner_options.reduction_partitions,
             lowered.fused_reduction_loads, lowered.fused_reduction_expressions, lowered.fused_pointwise_regions,
-            lowered.deferred_maps, planner_options.cost_policy != nullptr, option.enable_fast_math, ordered_reduction));
+            lowered.deferred_maps, planner_options.cost_policy != nullptr, option.enable_fast_math, ordered_reduction, strict_mma));
         metadata.realization.append(luisa::format("; static_snapshot_bytes_per_worker={}; static_snapshot_allocations={}; rejected_candidates={}",
                                                   plan.resources.snapshot_bytes_per_worker, plan.resources.snapshot_allocations, planned.rejected.size()));
         metadata.realization.append(luisa::format("; requested_mma_output_block={}; blocked_mmas={}; mma_blocking_cost=unmodeled", planner_options.mma_output_block, lowered.blocked_mmas));

@@ -13,6 +13,8 @@
 #include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/resource.h>
+#include <luisa/xir/instructions/call.h>
+#include <luisa/xir/metadata/strided_mma.h>
 #include <luisa/xir/debug_printer.h>
 #include <luisa/xir/verifier.h>
 #include <array>
@@ -158,6 +160,13 @@ struct MockGpuTargetInfo final : bx::ExecutionTargetInfo {
     [[nodiscard]] const bx::ExecutionCostPolicy &cost_policy() const noexcept override { return policy; }
 };
 
+struct NativeCpuTargetInfo final : bx::ThreadPoolExecutionTargetInfo {
+    NativeCpuTargetInfo() noexcept : ThreadPoolExecutionTargetInfo{{8u, 1u}} {}
+    [[nodiscard]] bool supports_native_mma_vector_width(uint32_t width) const noexcept override {
+        return width == 2u || width == 4u || width == 8u;
+    }
+};
+
 void expect_same_plan(const bx::ExecutionPlan &a, const bx::ExecutionPlan &b) {
     expect(eq(a.block_size, b.block_size));
     expect(a.root_axis_order == b.root_axis_order);
@@ -167,6 +176,7 @@ void expect_same_plan(const bx::ExecutionPlan &a, const bx::ExecutionPlan &b) {
     expect(eq(a.blocks_per_task, b.blocks_per_task));
     expect(eq(a.mma_output_block, b.mma_output_block));
     expect(eq(a.max_unrolled_mma_terms, b.max_unrolled_mma_terms));
+    expect(eq(a.native_mma_vector_width, b.native_mma_vector_width));
     expect_same_resources(a.resources, b.resources);
     expect(eq(a.resource_limits.max_snapshot_bytes_per_worker, b.resource_limits.max_snapshot_bytes_per_worker));
     auto same_cost = [](double x, double y) { expect(std::abs(x - y) < 1e-12); };
@@ -182,6 +192,92 @@ void expect_same_plan(const bx::ExecutionPlan &a, const bx::ExecutionPlan &b) {
 
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
+
+    "tile_xir_native_mma_capabilities_snapshots_and_work"_test = [] {
+        using namespace tile;
+        NativeCpuTargetInfo info;
+        for (auto width : {2u, 4u, 8u}) {
+            for (auto terms : {0u, 1u, 5u, 9u}) {
+                for (auto columns : {1u, 5u}) {
+                    for (auto transpose : {false, true}) {
+                        for (auto strict : {false, true}) {
+                            auto kernel = tile_kernel("native_mma_geometry", [=](TensorView<float, 3> output) {
+                                              auto m = axis("m", 2), n = axis("n", columns), k = axis("k", terms);
+                                              for (auto &nest : parallel(shape(17))) {
+                                                  auto b = axis("b", 1);
+                                                  auto lhs = full<float>(shape(b, m, k), 2.0f);
+                                                  auto rhs = full<float>(transpose ? shape(b, n, k) : shape(b, k, n), 3.0f);
+                                                  auto seed = full<float>(shape(b, m, n), 1.0f);
+                                                  auto value = mma(lhs, rhs, seed, {.allow_reassociation = !strict});
+                                                  output(coord(nest.index(), 0, 0), shape(b, m, n)).store(value);
+                                              }
+                                          }).capture(tensor_shape(17, 2, columns));
+                            auto lowered = check_resources(kernel, {.block_size = 32u, .native_mma_vector_width = width});
+                            if (!lowered) { continue; }
+                            // Degenerate dimensions still use physical stride:
+                            // K=1 makes either RHS order unit-stride; N=1 makes
+                            // M the innermost output axis (with RHS broadcast).
+                            auto inner_extent = columns > 1u ? columns : 2u;
+                            auto output_mode = terms != 0u && inner_extent >= width &&
+                                               (columns > 1u ? !transpose || terms == 1u : terms == 1u);
+                            auto contraction_mode = !output_mode && !strict && terms >= width && (transpose || columns == 1u);
+                            auto admitted = output_mode || contraction_mode;
+                            expect(eq(lowered.native_mmas, admitted ? 1u : 0u));
+                            expect(eq(lowered.native_output_mmas, output_mode ? 1u : 0u));
+                            expect(eq(lowered.native_contraction_mmas, contraction_mode ? 1u : 0u));
+                            auto calls = 0u;
+                            lowered.function->traverse_instructions([&](xir::Instruction *instruction) noexcept {
+                                if (instruction->isa<xir::CallInst>()) {
+                                    auto call = static_cast<xir::CallInst *>(instruction);
+                                    auto md = call->callee()->find_metadata<xir::StridedMmaMD>();
+                                    expect(md != nullptr);
+                                    if (md) {
+                                        calls++;
+                                        expect(eq(md->descriptor.vector_width, width));
+                                        expect(eq(md->descriptor.allow_reassociation, !strict));
+                                        expect(md->descriptor.output_extents == vector<uint64_t>{1u, 2u, columns});
+                                    }
+                                }
+                            });
+                            expect(eq(calls, lowered.native_mmas));
+                            RecordingCostPolicy policy;
+                            auto options = bx::PlannerOptions{.block_size = 32u, .native_mma_vector_width = width, .cost_policy = &policy};
+                            auto planned = bx::plan(kernel.function(), info, options);
+                            expect(planned.ok()) << planned.error;
+                            if (!planned || policy.observed_work.empty()) { continue; }
+                            expect_same_resources(planned.selected.resources, lowered.resources);
+                            expect(eq(planned.selected.native_mma_vector_width, width));
+                            auto &work = policy.observed_work.front().mma_per_packet;
+                            expect(eq(work.native_calls, admitted ? 1.0 : 0.0));
+                            expect(eq(work.native_output_vector_updates, output_mode ? static_cast<double>(2u * columns / inner_extent * (inner_extent / width) * terms) : 0.0));
+                            expect(eq(work.native_contraction_vector_updates, contraction_mode ? static_cast<double>(2u * columns * (terms / width)) : 0.0));
+                            expect(eq(work.multiply_adds, static_cast<double>(2u * columns * terms)));
+                            if (output_mode) {
+                                auto groups = 2u * columns / inner_extent * (inner_extent / width + inner_extent % width);
+                                expect(eq(work.loop_invocations, static_cast<double>(groups)));
+                                expect(eq(work.loop_iterations, static_cast<double>(groups * terms)));
+                            } else if (contraction_mode) {
+                                auto chunks = terms / width, tail = terms % width;
+                                expect(eq(work.loop_invocations, static_cast<double>(2u * columns * ((chunks > 1u) + (tail != 0u)))));
+                                expect(eq(work.loop_iterations, static_cast<double>(2u * columns * (chunks - 1u + tail))));
+                            }
+                            if (admitted) {
+                                expect(eq(lowered.resources.snapshot_allocations, uint64_t{4u}));
+                                expect(eq(lowered.resources.snapshot_bytes_per_worker, static_cast<uint64_t>(2u * terms + terms * columns + 4u * columns) * sizeof(float)));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        auto kernel = row_fixture(5u, false);
+        MockGpuTargetInfo gpu;
+        auto rejected = bx::plan(kernel.function(), gpu, {.native_mma_vector_width = 4u});
+        expect(!rejected.ok());
+        expect(rejected.error.find("native MMA vector width") != string::npos);
+        expect(gpu.admission_checks.empty());
+        expect(!bx::plan(kernel.function(), info, {.native_mma_vector_width = 3u}).ok());
+    };
 
     "tile_xir_gpu_physical_packet_abi_and_ragged_rows"_test = [] {
         for (auto packet : {32u, 64u}) {

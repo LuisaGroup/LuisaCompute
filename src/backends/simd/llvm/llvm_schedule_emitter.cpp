@@ -730,6 +730,8 @@ void ScheduleEmitter::_preflight() {
     }
     _analyze_local_lvalues();
     if (_failed()) { return; }
+    _preflight_strided_mmas();
+    if (_failed()) { return; }
     _analyze_ray_query_scratch();
     if (_source.blocks().size() >
         static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
@@ -884,6 +886,7 @@ void ScheduleEmitter::_preflight() {
                 }
             }
             if (instruction.opcode != schedule::Opcode::arithmetic &&
+                instruction.opcode != schedule::Opcode::call &&
                 instruction.opcode != schedule::Opcode::cast &&
                 instruction.opcode != schedule::Opcode::alloca &&
                 instruction.opcode != schedule::Opcode::load &&

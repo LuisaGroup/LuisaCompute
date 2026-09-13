@@ -31,6 +31,30 @@ struct OrderedReductionAnalysis {
     }
 };
 
+// Strict MMA retains each accumulator's reference contraction order and
+// separate multiply/add rounding. Output-axis vectorization is still legal:
+// it does not merge or reassociate contributions to one accumulator. A
+// backend with only a kernel-wide fast-math switch must also honor this
+// local restriction, independently of any REDUCE operations in the kernel.
+struct StrictMmaAnalysis {
+    using Result = bool;
+    [[nodiscard]] static Result run(const Function &function) noexcept {
+        auto visit = [](auto &&self, const Region &region) -> bool {
+            for (auto block : region.blocks()) {
+                for (auto operation : block->operations()) {
+                    if (operation->kind() == OperationKind::MMA &&
+                        !operation->mma_policy().allow_reassociation) { return true; }
+                    for (auto &&child : operation->regions()) {
+                        if (self(self, *child)) { return true; }
+                    }
+                }
+            }
+            return false;
+        };
+        return visit(visit, function.body());
+    }
+};
+
 class AnalysisManager final {
 
 private:
@@ -117,6 +141,13 @@ public:
     [[nodiscard]] bool set_reduction_policy(Operation *operation, ReductionPolicy policy) noexcept {
         if (operation == nullptr || operation->kind() != OperationKind::REDUCE) { return false; }
         operation->set_reduction_policy(policy);
+        _invalidate();
+        return true;
+    }
+
+    [[nodiscard]] bool set_mma_policy(Operation *operation, MmaPolicy policy) noexcept {
+        if (operation == nullptr || operation->kind() != OperationKind::MMA) { return false; }
+        operation->set_mma_policy(policy);
         _invalidate();
         return true;
     }

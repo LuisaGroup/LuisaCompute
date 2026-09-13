@@ -18,6 +18,7 @@
 #include <luisa/xir/metadata/no_inline.h>
 #include <luisa/xir/metadata/reg2mem_spill.h>
 #include <luisa/xir/metadata/signature_constraint.h>
+#include <luisa/xir/metadata/strided_mma.h>
 #include <luisa/xir/translators/xir_interchange.h>
 #include <luisa/xir/verifier.h>
 
@@ -1544,9 +1545,11 @@ struct MetadataRecord {
                        CURVE_BASIS,
                        SIGNATURE_CONSTRAINT,
                        REG2MEM_SPILL,
-                       NO_INLINE } kind;
+                       NO_INLINE,
+                       STRIDED_MMA } kind;
     luisa::string text;
     int64_t number{0};
+    StridedMmaDescriptor strided_mma;
 };
 
 constexpr uint64_t reg2mem_spill_phi_wire_kind = 0u;
@@ -1572,6 +1575,25 @@ decode_reg2mem_spill_wire_kind(uint64_t kind) noexcept {
             return Reg2MemSpillKind::CROSS_BLOCK;
         default:
             return luisa::nullopt;
+    }
+}
+
+// Stable wire values are independent of the C++ enum representation.
+[[nodiscard]] constexpr luisa::optional<uint64_t>
+encode_strided_mma_vectorization(StridedMmaVectorization value) noexcept {
+    switch (value) {
+        case StridedMmaVectorization::OUTPUT: return 0u;
+        case StridedMmaVectorization::CONTRACTION: return 1u;
+    }
+    return luisa::nullopt;
+}
+
+[[nodiscard]] constexpr luisa::optional<StridedMmaVectorization>
+decode_strided_mma_vectorization(uint64_t value) noexcept {
+    switch (value) {
+        case 0u: return StridedMmaVectorization::OUTPUT;
+        case 1u: return StridedMmaVectorization::CONTRACTION;
+        default: return luisa::nullopt;
     }
 }
 
@@ -1637,6 +1659,46 @@ decode_reg2mem_spill_wire_kind(uint64_t kind) noexcept {
             }
         } else if (kind == "no_inline") {
             record.kind = MetadataRecord::Kind::NO_INLINE;
+        } else if (kind == "strided_mma") {
+            record.kind = MetadataRecord::Kind::STRIDED_MMA;
+            auto &d = record.strided_mma;
+            luisa::string mode;
+            uint64_t width = 0u;
+            uint64_t reassociation = 0u;
+            size_t rank = 0u;
+            if (!parser.word(mode) || !parser.unsigned_integer(width) ||
+                !parser.unsigned_integer(reassociation) ||
+                !parser.unsigned_integer(d.contraction_extent) ||
+                !parser.unsigned_integer(d.lhs_contraction_stride) ||
+                !parser.unsigned_integer(d.rhs_contraction_stride) ||
+                !parser.count(rank) || !budget.consume(parser, rank)) {
+                return false;
+            }
+            if (mode == "output") {
+                d.vectorization = StridedMmaVectorization::OUTPUT;
+            } else if (mode == "contraction") {
+                d.vectorization = StridedMmaVectorization::CONTRACTION;
+            } else {
+                return parser.fail("Unknown XIR strided-MMA vectorization.");
+            }
+            if (width > std::numeric_limits<uint32_t>::max() || reassociation > 1u) {
+                return parser.fail("Invalid XIR strided-MMA scalar fields.");
+            }
+            d.vector_width = static_cast<uint32_t>(width);
+            d.allow_reassociation = reassociation != 0u;
+            d.output_extents.resize(rank);
+            d.lhs_output_strides.resize(rank);
+            d.rhs_output_strides.resize(rank);
+            for (auto j = size_t{0u}; j < rank; j++) {
+                if (!parser.unsigned_integer(d.output_extents[j]) ||
+                    !parser.unsigned_integer(d.lhs_output_strides[j]) ||
+                    !parser.unsigned_integer(d.rhs_output_strides[j])) {
+                    return false;
+                }
+            }
+            if (!is_valid_strided_mma_descriptor(d)) {
+                return parser.fail("Invalid XIR strided-MMA descriptor.");
+            }
         } else {
             return parser.fail("Unknown XIR metadata kind.");
         }
@@ -1672,6 +1734,9 @@ void apply_metadata_records(
                 break;
             case MetadataRecord::Kind::NO_INLINE:
                 metadata = luisa::make_managed<NoInlineMD>();
+                break;
+            case MetadataRecord::Kind::STRIDED_MMA:
+                metadata = luisa::make_managed<StridedMmaMD>(iter->strided_mma);
                 break;
         }
         owner.metadata_list().push_front(std::move(metadata));
@@ -1742,6 +1807,25 @@ void apply_metadata_records(
             case DerivedMetadataTag::NO_INLINE:
                 text.append("no_inline");
                 break;
+            case DerivedMetadataTag::STRIDED_MMA: {
+                auto &&d = static_cast<const StridedMmaMD *>(metadata)->descriptor;
+                if (!is_valid_strided_mma_descriptor(d) || d.output_extents.size() > max_record_count) {
+                    error = "XIR strided-MMA metadata has an invalid descriptor.";
+                    return false;
+                }
+                luisa::format_to(std::back_inserter(text),
+                                 "strided_mma {} {} {} {} {} {} {}",
+                                 to_string(d.vectorization), d.vector_width,
+                                 static_cast<uint32_t>(d.allow_reassociation),
+                                 d.contraction_extent, d.lhs_contraction_stride,
+                                 d.rhs_contraction_stride, d.output_extents.size());
+                for (auto i = size_t{0u}; i < d.output_extents.size(); i++) {
+                    luisa::format_to(std::back_inserter(text), " {} {} {}",
+                                     d.output_extents[i], d.lhs_output_strides[i],
+                                     d.rhs_output_strides[i]);
+                }
+                break;
+            }
             default:
                 error = "XIR contains an unknown metadata kind.";
                 return false;
@@ -2301,6 +2385,7 @@ binary_instruction_tag(uint64_t id) noexcept {
                 case MetadataRecord::Kind::SIGNATURE_CONSTRAINT:
                 case MetadataRecord::Kind::REG2MEM_SPILL:
                 case MetadataRecord::Kind::NO_INLINE:
+                case MetadataRecord::Kind::STRIDED_MMA:
                     break;
             }
         }
@@ -2440,6 +2525,28 @@ public:
                 case MetadataRecord::Kind::NO_INLINE:
                     integer(6u);
                     break;
+                case MetadataRecord::Kind::STRIDED_MMA: {
+                    auto &&d = record.strided_mma;
+                    auto mode = encode_strided_mma_vectorization(d.vectorization);
+                    if (!mode || !is_valid_strided_mma_descriptor(d)) {
+                        _error = "XIR binary strided-MMA metadata has an invalid descriptor.";
+                        return false;
+                    }
+                    integer(7u);
+                    integer(*mode);
+                    integer(d.vector_width);
+                    integer(static_cast<uint64_t>(d.allow_reassociation));
+                    integer(d.contraction_extent);
+                    integer(d.lhs_contraction_stride);
+                    integer(d.rhs_contraction_stride);
+                    if (!count(d.output_extents.size())) { return false; }
+                    for (auto i = size_t{0u}; i < d.output_extents.size(); i++) {
+                        integer(d.output_extents[i]);
+                        integer(d.lhs_output_strides[i]);
+                        integer(d.rhs_output_strides[i]);
+                    }
+                    break;
+                }
             }
         }
         return true;
@@ -2686,6 +2793,40 @@ public:
                 case 6u:
                     record.kind = MetadataRecord::Kind::NO_INLINE;
                     break;
+                case 7u: {
+                    record.kind = MetadataRecord::Kind::STRIDED_MMA;
+                    auto &d = record.strided_mma;
+                    uint64_t mode = 0u;
+                    uint64_t width = 0u;
+                    uint64_t reassociation = 0u;
+                    size_t rank = 0u;
+                    if (!integer(mode) || !integer(width) || !integer(reassociation) ||
+                        !integer(d.contraction_extent) || !integer(d.lhs_contraction_stride) ||
+                        !integer(d.rhs_contraction_stride) ||
+                        !count<std::array<uint64_t, 3u>>(rank)) {
+                        return false;
+                    }
+                    auto vectorization = decode_strided_mma_vectorization(mode);
+                    if (!vectorization || width > std::numeric_limits<uint32_t>::max() || reassociation > 1u) {
+                        return _reader.fail("Invalid XIR binary strided-MMA scalar fields.");
+                    }
+                    d.vectorization = *vectorization;
+                    d.vector_width = static_cast<uint32_t>(width);
+                    d.allow_reassociation = reassociation != 0u;
+                    d.output_extents.resize(rank);
+                    d.lhs_output_strides.resize(rank);
+                    d.rhs_output_strides.resize(rank);
+                    for (auto j = size_t{0u}; j < rank; j++) {
+                        if (!integer(d.output_extents[j]) || !integer(d.lhs_output_strides[j]) ||
+                            !integer(d.rhs_output_strides[j])) {
+                            return false;
+                        }
+                    }
+                    if (!is_valid_strided_mma_descriptor(d)) {
+                        return _reader.fail("Invalid XIR binary strided-MMA descriptor.");
+                    }
+                    break;
+                }
                 default: return _reader.fail("Unknown XIR binary metadata kind.");
             }
             records.emplace_back(std::move(record));
@@ -5348,6 +5489,12 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
     };
     auto append_metadata = [&](const MetadataListMixin &owner, luisa::string_view indentation) noexcept {
         if (!consume_writer_records(owner.metadata_list().count_size())) { return false; }
+        for (auto metadata : owner.metadata_list()) {
+            if (metadata->isa<StridedMmaMD>()) {
+                auto mma = static_cast<const StridedMmaMD *>(metadata);
+                if (!consume_writer_records(mma->descriptor.output_extents.size())) { return false; }
+            }
+        }
         luisa::string error;
         if (append_metadata_records(result.text, owner, indentation, error)) { return true; }
         fail(std::move(error));

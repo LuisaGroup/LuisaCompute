@@ -199,6 +199,8 @@ cap 导致的小 Tile 索引快照现在计入定义写入和动态读取。常�
 
 ## 14. 原生参照量化了更大的 phase realization 缺口
 
+本节记录原生参照实验结束时的诊断与提案；后续编译器候选见第15节。
+
 [六尺寸原生参照实验](../../scripts/benchmark/tile_torch/results/m1-max-20260913-attention-native-reference/notes.md)将当前实际 Tile ORC 对象与两种**手写、benchmark-only** CPU 实现放入同一原生计时器：KV16 online NEON，以及整头 dense Accelerate GEMV/GEMM。144 visits / 1008 samples 全量保留，输入、独立 FP64 oracle、guard 和线程协议逐次检查。它们不是新的 Tile lowering，也不是 Torch/MPS 成绩。
 
 三组 decode 的 NEON/Tile 配对时间比为0.189、0.151、0.237；Accelerate/Tile 为0.172、0.114、0.168，含 KV=8193。三组 prefill/batch 的差距也存在，完整数值见实验表。仅从这些数据不能把总差距归因于某个局部循环：两种参照都改变数据表示和求值顺序，online 还跳过全 masked 工作，dense 则物化完整 score。主机仍有用户/系统背景活动，不能用这批数值直接拟合微小成本系数。
@@ -248,3 +250,43 @@ s.t. coverage / dependencies / math permissions / live-memory capacities
 这是待实现的成本分解，不是已校准公式；pack 与 transition 的归属须唯一，避免重复计数。backend policy 提供实现能力与系数，solver 只负责合法候选的枚举/剪枝/组合。现有 `ExecutionMmaWork` 可继续提供工作量，但需补每 MMA 的 shape/stride、call 数、packing bytes、实际实现 ID。
 
 尤其不能把本实验的“整头 BLAS attention”比率直接赋给每个 KV16 小 MMA：后者调用更频繁，输入/seed/snapshot 边界更多，可能完全抵消算术收益。下一步是先实现窄范围、可拒绝的 typed leaf/vector candidate，验证普通 GEMV/strided contraction 与 attention 的 held-out 尺寸，再测完整 attention 的实际 native-entry；自动选择与 Metal phase 映射仍是后续工作。
+
+## 15. 每 program 的 native MMA 向量候选
+
+首版实现采用同一 LLVM module 内的私有 helper，而不是 Runtime callback、外部 BLAS 符号或 whole-attention rewrite。DSL 仍使用现有 `mma`；选择依据是输出轴、贡献轴、快照 stride 和局部数学权限，不识别 attention、QK、PV 或 dimension 名称。
+
+```text
+Tile MMA：axes + MmaPolicy
+            │
+     native_mma_plan（共享、纯分析）
+       ┌────┴───────────────────┐
+     不准入                    准入
+  原 _fold/_fold_many      定义时 A/B/seed snapshots + 新 output
+                               │
+               typed XIR external + StridedMmaMD
+                               │
+               Schedule 内持有 descriptor 副本
+                               │
+          同 module 私有 LLVM helper；逐 active program 调用
+                  ┌────────────┴────────────┐
+            连续输出轴向量化           连续贡献轴向量化
+            保持每输出 K 次序         要求允许 reassociation
+```
+
+候选暂限静态 FP32、一个贡献轴、`local_lanes=1`，由 backend target info 明确接受内部向量宽度。SIMD 首版提供2/4/8，默认 `native_mma_vector_width=0` 关闭；它不是 program packet width，也不是执行 hierarchy 的固定 lane 上限。该选项为固定实验候选，不是已经校准、自动求解出的最优选择。
+
+输出轴需要一个输入广播、另一个及输出 unit stride；优先采用此方向，保持各输出 ascending K、separate MUL/ADD。否则在两个输入均 unit K stride 且 `MmaPolicy.allow_reassociation=true` 时沿贡献轴向量化，分组部分和再合并。部分和以真实乘积初始化，不能凭空插入改变 signed zero 的 `+0`。不启用 FMA、`nnan/ninf/nsz` 或低精度输入。贡献为空、尺寸太小或布局不匹配则回退。
+
+快照仍在 SSA 定义处物化，不延迟重读用户内存；强制 storage 会覆盖 constant splat/deferred recipe 的选择，并进入同一资源分析。小结果在 helper 完成后读取为 SSA，保留现有 implicit carry 与常量投影路径；大结果保留 bounded storage。输出不得与输入别名。调用引用使对应数组退出 packet-interleaved private-array 准入，所以这项布局代价是真实候选的一部分，不是假定免费传入指针。
+
+`StridedMmaMD` 是必需语义而非可忽略 hint：只允许位于 external function，clone、文本和 bitcode 保留所有字段；未知/丢失 metadata、错误模式、容量、引用类型或非本地 root allocation 均拒绝。Schedule 持有副本，不依赖原 XIR module 的生命周期。普通 external call 仍不被 SIMD 打开。`StrictMmaAnalysis` 与 REDUCE 分析独立，使后端的全 kernel fast-math 开关不能覆盖局部 strict MMA。
+
+工作提取新增 native call、输出向量组和贡献向量组计数，保留 scalar-equivalent 乘加数及左右独立投影；输出标量尾部与首组乘积初始化单独影响循环计数。当前 prior **没有**标定 helper call、水平合并、private-layout 转换或代码膨胀成本；不能从这些工作量声称预测了 native 周期，更不能把第14节 BLAS 整体比率作为奖励系数。
+
+完整选定构建、11项CTest和23个修改的C++ translation units的syntax检查通过。[六组实际编译器候选实验](../../scripts/benchmark/tile_torch/results/m1-max-20260913-attention-native-mma/notes.md)的12 captures、72 ABBA visits、504 samples均通过完整FP64、输入/guard和本臂capture逐bit检查；两个臂之间不强求逐bit相同。
+
+结果没有形成普遍的加速：batch GQA配对时间减少25.8%，其他五组增加6.2%–60.4%。所有on候选快照增加、packet-interleaved arrays减少；prefill-q8还从无满包clone变为一个。已生成正确的向量MUL/ADD，不代表完整phase的layout转换和快照代价可忽略。这是完整realization对照，不是单独算术方向的因果实验；各开销占比仍需profile，不能凭容量相关性当作已证明瓶颈。
+
+因此继续保持默认关闭及`native_mma_cost=unmodeled`。下一步应联合比较phase realization与physical layout，明确producer/consumer转换、定义时snapshot、call与代码量的成本归属；重点验证能否保留packet布局或让相邻phase共用布局，再用非attention及held-out尺寸检查泛化性。此次没有新的Torch/MPS/Metal性能比较，也没有完成自动求解或整体性能目标。
+
+MHA-on的实际反汇编已确认helper内联，kernel body内无调用指令；但16-output QK循环仍逐score重载同一Q。由此得到更具体的候选：把贡献向量化与有寄存器预算的输出分组组合，同时保留快照/布局边界的成本。仅凭私有函数出现在优化前LLVM中，不能把慢归因于调用；仅凭最终重复load，也不能跳过profile就宣称它解释了全部差距。

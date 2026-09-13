@@ -21,7 +21,9 @@
 #include <luisa/xir/metadata/no_inline.h>
 #include <luisa/xir/metadata/reg2mem_spill.h>
 #include <luisa/xir/metadata/signature_constraint.h>
+#include <luisa/xir/metadata/strided_mma.h>
 #include <luisa/xir/module.h>
+#include <luisa/xir/translators/xir2text.h>
 #include <luisa/xir/translators/xir_interchange.h>
 #include <luisa/xir/verifier.h>
 
@@ -2418,6 +2420,188 @@ globals 0 functions 0
     };
 }
 
+void reg_strided_mma_metadata() {
+    "xir_interchange_strided_mma_metadata_clone_and_round_trip"_test = [] {
+        for (auto mode : {StridedMmaVectorization::OUTPUT, StridedMmaVectorization::CONTRACTION}) {
+            for (auto k : {0u, 9u}) {
+                for (auto reassociation : {false, true}) {
+                    if (mode == StridedMmaVectorization::CONTRACTION && !reassociation) { continue; }
+                    Module module;
+                    attach_all_metadata(module, "unchanged");
+                    auto external = module.create_external_function(nullptr);
+                    for (auto i = 0u; i < 4u; i++) {
+                        (void)external->create_reference_argument(Type::array(Type::of<float>(), 256u));
+                    }
+                    external->set_name("arbitrary_external_identifier");
+                    external->add_comment("semantic descriptor is not encoded in the name");
+                    auto metadata = external->create_metadata<StridedMmaMD>();
+                    metadata->descriptor = {
+                        .output_extents = {2u, 3u, 1u, 5u},
+                        .lhs_output_strides = {99u, 9u, 777u, 0u},
+                        .rhs_output_strides = {150u, 0u, 888u, 1u},
+                        .contraction_extent = k,
+                        .lhs_contraction_stride = 1u,
+                        .rhs_contraction_stride = mode == StridedMmaVectorization::OUTPUT ? 5u : 1u,
+                        .vector_width = 4u,
+                        .allow_reassociation = reassociation,
+                        .vectorization = mode};
+                    auto expected = metadata->descriptor;
+                    auto expect_descriptor = [&](const StridedMmaDescriptor &actual) noexcept {
+                        expect(actual.output_extents == expected.output_extents);
+                        expect(actual.lhs_output_strides == expected.lhs_output_strides);
+                        expect(actual.rhs_output_strides == expected.rhs_output_strides);
+                        expect(actual.contraction_extent == expected.contraction_extent);
+                        expect(actual.lhs_contraction_stride == expected.lhs_contraction_stride);
+                        expect(actual.rhs_contraction_stride == expected.rhs_contraction_stride);
+                        expect(actual.vector_width == expected.vector_width);
+                        expect(actual.allow_reassociation == expected.allow_reassociation);
+                        expect(actual.vectorization == expected.vectorization);
+                    };
+                    expect(is_valid_strided_mma_descriptor(expected));
+                    expect(external->find_metadata<StridedMmaMD>() == metadata);
+                    auto cloned = metadata->clone();
+                    expect(cloned->isa<StridedMmaMD>());
+                    auto clone = static_cast<StridedMmaMD *>(cloned.get());
+                    expect_descriptor(clone->descriptor);
+                    clone->descriptor.output_extents[0u] = 7u;
+                    clone->descriptor.lhs_output_strides[0u] = 8u;
+                    clone->descriptor.rhs_output_strides[0u] = 9u;
+                    expect_descriptor(metadata->descriptor);
+                    auto debug = xir_to_text_translate(&module, false);
+                    expect(debug.find("strided_mma = {vectorization = ") != luisa::string::npos);
+
+                    auto encoded = xir_to_interchange_text(&module);
+                    expect(encoded.succeeded());
+                    if (!encoded.succeeded()) { continue; }
+                    expect(encoded.text.find(luisa::format(
+                               "md strided_mma {} 4 {} {} 1 {} 4 2 99 150 3 9 0 1 777 888 5 0 1",
+                               to_string(mode), static_cast<uint32_t>(reassociation), k,
+                               expected.rhs_contraction_stride)) != luisa::string::npos);
+                    auto inspect = [&](const XIRInterchangeParseResult &decoded) noexcept {
+                        expect(decoded.succeeded());
+                        if (!decoded.succeeded()) { return; }
+                        expect_all_metadata(*decoded.module, "unchanged");
+                        auto function = decoded.module->function_list().front();
+                        expect(function->isa<ExternalFunction>());
+                        auto preserved = function->find_metadata<StridedMmaMD>();
+                        expect(preserved != nullptr);
+                        if (preserved != nullptr) { expect_descriptor(preserved->descriptor); }
+                        auto canonical = xir_to_interchange_text(decoded.module.get());
+                        expect(canonical.succeeded());
+                        expect(canonical.text == encoded.text);
+                    };
+                    inspect(xir_from_interchange_text(encoded.text));
+                    auto bitcode = xir_to_bitcode(&module);
+                    expect(bitcode.succeeded());
+                    if (bitcode.succeeded()) {
+                        auto decoded = xir_from_bitcode(bitcode.bitcode);
+                        inspect(decoded);
+                        if (decoded.succeeded()) {
+                            auto repeated = xir_to_bitcode(decoded.module.get());
+                            expect(repeated.succeeded());
+                            expect(static_cast<bool>(repeated.bitcode == bitcode.bitcode));
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    "xir_interchange_strided_mma_invalid_descriptors_fail_closed"_test = [] {
+        constexpr auto limit = std::numeric_limits<uint64_t>::max();
+        for (auto variant = 0u; variant < 10u; variant++) {
+            Module module;
+            auto external = module.create_external_function(nullptr);
+            for (auto i = 0u; i < 4u; i++) {
+                (void)external->create_reference_argument(Type::array(Type::of<float>(), 64u));
+            }
+            auto &d = external->create_metadata<StridedMmaMD>()->descriptor;
+            d = {.output_extents = {2u, 5u},
+                 .lhs_output_strides = {9u, 0u},
+                 .rhs_output_strides = {0u, 1u},
+                 .contraction_extent = 9u,
+                 .lhs_contraction_stride = 1u,
+                 .rhs_contraction_stride = 5u,
+                 .vector_width = 4u};
+            switch (variant) {
+                case 0u: d.output_extents.clear(); break;
+                case 1u: d.lhs_output_strides.pop_back(); break;
+                case 2u: d.rhs_output_strides.emplace_back(0u); break;
+                case 3u: d.output_extents[1u] = 0u; break;
+                case 4u: d.output_extents[0u] = limit; break;
+                case 5u: d.lhs_contraction_stride = limit; break;
+                case 6u: d.rhs_output_strides[0u] = limit; break;
+                case 7u: d.vector_width = 0u; break;
+                case 8u: d.vectorization = static_cast<StridedMmaVectorization>(2u); break;
+                case 9u: d.vectorization = StridedMmaVectorization::CONTRACTION; break;
+            }
+            expect(!is_valid_strided_mma_descriptor(d)) << variant;
+            auto text = xir_to_interchange_text(&module);
+            expect(!text.succeeded()) << variant;
+            expect(text.text.empty()) << variant;
+            auto bitcode = xir_to_bitcode(&module);
+            expect(!bitcode.succeeded()) << variant;
+            expect(bitcode.bitcode.empty()) << variant;
+        }
+        // Zero K ignores even overflowing operand address recipes, but the
+        // output shape must still have a representable volume.
+        StridedMmaDescriptor empty{
+            .output_extents = {2u, 5u},
+            .lhs_output_strides = {limit, limit},
+            .rhs_output_strides = {limit, limit},
+            .contraction_extent = 0u,
+            .lhs_contraction_stride = limit,
+            .rhs_contraction_stride = limit,
+            .vector_width = 4u};
+        expect(is_valid_strided_mma_descriptor(empty));
+        empty.output_extents[0u] = limit;
+        expect(!is_valid_strided_mma_descriptor(empty));
+
+        for (auto fields : {
+                 "mystery 4 0 9 1 5 1 5 0 1",
+                 "output 0 0 9 1 5 1 5 0 1",
+                 "output 4294967296 0 9 1 5 1 5 0 1",
+                 "output 4 2 9 1 5 1 5 0 1",
+                 "contraction 4 0 9 1 1 1 5 0 1",
+                 "output 4 0 9 1 5 0",
+                 "output 4 0 9 1 5 1 0 0 1",
+                 "output 4 0 9 18446744073709551615 5 1 5 0 1",
+                 "output 4 0 9 1 5 2 18446744073709551615 0 0 2 0 1",
+                 "output 4 0 9 1 5 2 5 0 1"}) {
+            expect_interchange_rejected(luisa::format(
+                "xir.text 1 module {{ metadata 1 md strided_mma {} globals 0 functions 0 }}", fields));
+        }
+        // Build checksummed binary records directly, so malformed fields reach
+        // the binary metadata reader instead of the text writer's validation.
+        for (auto variant = 0u; variant < 7u; variant++) {
+            luisa::vector<uint64_t> fields{0u, 4u, 0u, 9u, 1u, 5u, 1u, 5u, 0u, 1u};
+            switch (variant) {
+                case 0u: fields[0u] = 2u; break;
+                case 1u: fields[1u] = uint64_t{1u} << 32u; break;
+                case 2u: fields[2u] = 2u; break;
+                case 3u: fields[4u] = limit; break;
+                case 4u: fields[7u] = 0u; break;
+                case 5u: fields[0u] = 1u; break;
+                case 6u: fields[6u] = 1048577u; break;
+            }
+            luisa::vector<std::byte> payload;
+            test_append_uleb(payload, 0u);// strings
+            test_append_uleb(payload, 1u);// module metadata count
+            test_append_uleb(payload, 7u);// strided-MMA wire tag
+            for (auto value : fields) { test_append_uleb(payload, value); }
+            test_append_uleb(payload, 0u);// globals
+            test_append_uleb(payload, 0u);// functions
+            auto decoded = xir_from_bitcode(make_test_bitcode(payload));
+            expect(!decoded.succeeded()) << variant;
+            expect(decoded.module == nullptr) << variant;
+            expect(!decoded.diagnostics.empty()) << variant;
+            if (!decoded.diagnostics.empty() && variant != 6u) {
+                expect(decoded.diagnostics.front().message.find("strided-MMA") != luisa::string::npos) << variant;
+            }
+        }
+    };
+}
+
 void reg_canonical_constant_payloads() {
     "xir_interchange_canonical_packed_little_endian_constants"_test = [] {
         Module module;
@@ -2691,6 +2875,7 @@ int main(int argc, char *argv[]) {
     reg_autodiff_and_outline_round_trip();
     reg_ray_query_instruction_round_trip();
     reg_metadata_round_trip();
+    reg_strided_mma_metadata();
     reg_canonical_constant_payloads();
     reg_compact_binary_codec();
     return 0;

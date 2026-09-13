@@ -136,6 +136,25 @@ struct Value {
     ValueMetadata metadata{};
 };
 
+enum struct StridedMmaVectorization : uint8_t {
+    output,
+    contraction,
+};
+
+// Owned semantic descriptor for the only admitted private matrix leaf call.
+// No source XIR object or runtime callback survives this boundary.
+struct StridedMmaMetadata {
+    std::vector<uint64_t> output_extents{};
+    std::vector<uint64_t> lhs_output_strides{};
+    std::vector<uint64_t> rhs_output_strides{};
+    uint64_t contraction_extent{0u};
+    uint64_t lhs_contraction_stride{0u};
+    uint64_t rhs_contraction_stride{0u};
+    uint32_t vector_width{1u};
+    bool allow_reassociation{false};
+    StridedMmaVectorization vectorization{StridedMmaVectorization::output};
+};
+
 struct Instruction {
     Opcode opcode{Opcode::opaque};
     std::optional<ValueId> result{};
@@ -161,6 +180,8 @@ struct Instruction {
     // on static block geometry, so it must not change the ValueClass of the
     // backing SSA value.
     std::optional<uint32_t> lane_consecutive_operand_index{};
+    // void(lhs, rhs, seed, output), all fixed-array<float> local references.
+    std::optional<StridedMmaMetadata> strided_mma{};
 };
 
 struct EdgeAssignment {

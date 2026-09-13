@@ -20,6 +20,7 @@
 #include <luisa/xir/instructions/assert.h>
 #include <luisa/xir/instructions/atomic.h>
 #include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/call.h>
 #include <luisa/xir/instructions/cast.h>
 #include <luisa/xir/instructions/indexed_branch.h>
 #include <luisa/xir/instructions/phi.h>
@@ -28,12 +29,14 @@
 #include <luisa/xir/instructions/resource.h>
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/instructions/thread_group.h>
+#include <luisa/xir/metadata/strided_mma.h>
 #include <luisa/xir/passes/dom_tree.h>
 #include <luisa/xir/passes/post_dom_tree.h>
 #include <luisa/xir/special_register.h>
 
 #include "../../../xir/passes/natural_loop.h"
 #include "warp_uniformity.h"
+#include "strided_mma_types.h"
 
 namespace luisa::compute::simd::schedule {
 
@@ -150,6 +153,61 @@ struct CFGEdgeHash {
         }
         default: return false;
     }
+}
+
+[[nodiscard]] StridedMmaMetadata copy_strided_mma(const xir::StridedMmaDescriptor &d) {
+    return {
+        .output_extents = {d.output_extents.begin(), d.output_extents.end()},
+        .lhs_output_strides = {d.lhs_output_strides.begin(), d.lhs_output_strides.end()},
+        .rhs_output_strides = {d.rhs_output_strides.begin(), d.rhs_output_strides.end()},
+        .contraction_extent = d.contraction_extent,
+        .lhs_contraction_stride = d.lhs_contraction_stride,
+        .rhs_contraction_stride = d.rhs_contraction_stride,
+        .vector_width = d.vector_width,
+        .allow_reassociation = d.allow_reassociation,
+        .vectorization = d.vectorization == xir::StridedMmaVectorization::OUTPUT ?
+                             StridedMmaVectorization::output :
+                             StridedMmaVectorization::contraction,
+    };
+}
+
+[[nodiscard]] std::string_view validate_strided_mma_call(const xir::CallInst *call) {
+    auto *callee = call->callee();
+    if (callee == nullptr || !callee->isa<xir::ExternalFunction>()) {
+        return "SIMD only admits compiler-owned strided MMA external calls; inline other calls first";
+    }
+    auto descriptor_count = size_t{0u};
+    for (auto *metadata : callee->metadata_list()) {
+        descriptor_count += metadata->derived_metadata_tag() == xir::DerivedMetadataTag::STRIDED_MMA;
+    }
+    if (descriptor_count != 1u) { return "external call requires exactly one strided MMA semantic descriptor"; }
+    auto *metadata = callee->find_metadata<xir::StridedMmaMD>();
+    if (metadata == nullptr || !xir::is_valid_strided_mma_descriptor(metadata->descriptor)) {
+        return "external call lacks valid strided MMA semantic metadata";
+    }
+    if (call->type() != nullptr || callee->type() != nullptr || call->argument_count() != 4u) {
+        return "strided MMA requires a void call with four reference arguments";
+    }
+    std::array<const Type *, 4u> types{};
+    auto index = size_t{0u};
+    for (auto *argument : callee->arguments()) {
+        if (index == types.size() || !argument->is_reference() || call->argument(index) == nullptr || argument->type() != call->argument(index)->type()) {
+            return "strided MMA formal/actual reference signatures disagree";
+        }
+        types[index++] = argument->type();
+    }
+    if (index != types.size()) { return "strided MMA requires four formal reference arguments"; }
+    if (auto error = validate_strided_mma(copy_strided_mma(metadata->descriptor), types); !error.empty()) { return error; }
+    for (auto i = size_t{0u}; i < types.size(); i++) {
+        auto *argument = call->argument(i);
+        if (!argument->isa<xir::AllocaInst>() || !static_cast<const xir::AllocaInst *>(argument)->is_local()) {
+            return "strided MMA arguments must be complete root thread-local allocations";
+        }
+        if (i < 3u && argument == call->argument(3u)) {
+            return "strided MMA output must not alias an input snapshot";
+        }
+    }
+    return {};
 }
 
 [[nodiscard]] bool is_collective(xir::ThreadGroupOp op) noexcept {
@@ -374,6 +432,13 @@ private:
                     continue;
                 }
                 if (instruction->isa<xir::RayQueryPipelineInst>()) {
+                    continue;
+                }
+                if (instruction->isa<xir::CallInst>()) {
+                    if (auto error = validate_strided_mma_call(static_cast<const xir::CallInst *>(instruction)); !error.empty()) {
+                        _diagnose(XIRToScheduleDiagnosticCode::unsupported_instruction,
+                                  std::string{error}, block, instruction);
+                    }
                     continue;
                 }
                 if (is_supported_non_terminator(instruction)) { continue; }
@@ -974,6 +1039,7 @@ private:
         const xir::Instruction *instruction) const noexcept {
         using Tag = xir::DerivedInstructionTag;
         switch (instruction->derived_instruction_tag()) {
+            case Tag::CALL: return Opcode::call;
             case Tag::ALLOCA: return Opcode::alloca;
             case Tag::LOAD: return Opcode::load;
             case Tag::STORE: return Opcode::store;
@@ -1353,7 +1419,15 @@ private:
                     source_instruction->parent_block(), source_instruction);
             }
         }
-        if (ray_query_pipeline == nullptr) {
+        if (source_instruction->isa<xir::CallInst>()) {
+            auto *call = static_cast<const xir::CallInst *>(source_instruction);
+            instruction.strided_mma = copy_strided_mma(call->callee()->find_metadata<xir::StridedMmaMD>()->descriptor);
+            for (auto *use : call->argument_uses()) {
+                if (auto operand = _map_value(use->value(), source_instruction->parent_block(), source_instruction)) {
+                    instruction.operands.emplace_back(*operand);
+                }
+            }
+        } else if (ray_query_pipeline == nullptr) {
             for (auto *operand_use : source_instruction->operand_uses()) {
                 if (auto operand = _map_value(
                         operand_use->value(),

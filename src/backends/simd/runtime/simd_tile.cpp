@@ -27,6 +27,11 @@ class SIMDTileTargetInfo final : public tile::bridge::xir::ThreadPoolExecutionTa
 public:
     explicit SIMDTileTargetInfo(tile::bridge::xir::ExecutionTarget target) noexcept
         : ThreadPoolExecutionTargetInfo{target} {}
+    [[nodiscard]] bool supports_native_mma_vector_width(uint32_t width) const noexcept override {
+        // Bounded experimental native vector family; independent of program
+        // packet width. LLVM legalizes each inner vector for the host target.
+        return width == 2u || width == 4u || width == 8u;
+    }
     [[nodiscard]] tile::bridge::xir::ExecutionResourceLimits resource_limits(const tile::bridge::xir::ExecutionPlan &) const noexcept override {
         // The workspace ABI is packet-wide, including complete-program lanes.
         // Native codegen still checks alignment and its final workspace size.
@@ -63,6 +68,21 @@ public:
     return true;
 }
 
+[[nodiscard]] bool native_mma_from_environment(tile::bridge::xir::PlannerOptions &options, luisa::string &error) {
+    auto text = std::getenv("LUISA_SIMD_NATIVE_MMA_VECTOR_WIDTH");
+    if (text == nullptr) { return true; }
+    auto token = std::string_view{text};
+    auto width = uint32_t{0u};
+    auto parsed = std::from_chars(token.data(), token.data() + token.size(), width);
+    if (token.empty() || parsed.ec != std::errc{} || parsed.ptr != token.data() + token.size() ||
+        (options.native_mma_vector_width != 0u && options.native_mma_vector_width != width)) {
+        error = "Invalid or conflicting LUISA_SIMD_NATIVE_MMA_VECTOR_WIDTH constraint";
+        return false;
+    }
+    options.native_mma_vector_width = width;
+    return true;
+}
+
 }// namespace
 
 ShaderCreationInfo SIMDDevice::create_tile_kernel(
@@ -83,7 +103,7 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
         planner_options.enable_expression_reduction_fusion &= !detail::env_flag("LUISA_SIMD_DISABLE_EXPRESSION_REDUCTION_FUSION");
         planner_options.enable_map_fusion |= detail::env_flag("LUISA_SIMD_ENABLE_MAP_FUSION");
         planner_options.enable_map_fusion &= !detail::env_flag("LUISA_SIMD_DISABLE_MAP_FUSION");
-        if (!root_axis_tiles_from_environment(planner_options, metadata.error)) {
+        if (!root_axis_tiles_from_environment(planner_options, metadata.error) || !native_mma_from_environment(planner_options, metadata.error)) {
             return ShaderCreationInfo::make_invalid();
         }
         if (tile_options.threads_per_group != 0u) {
@@ -109,6 +129,7 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
                                                          .mma_output_block = plan.mma_output_block,
                                                          .enable_mma_2d_blocking = plan.enable_mma_2d_blocking,
                                                          .max_unrolled_mma_terms = plan.max_unrolled_mma_terms,
+                                                         .native_mma_vector_width = plan.native_mma_vector_width,
                                                          .reduction_partitions = planner_options.reduction_partitions,
                                                          .local_lanes = plan.local_lanes,
                                                          .enable_load_reduction_fusion = planner_options.enable_load_reduction_fusion,
@@ -130,7 +151,8 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
             return ShaderCreationInfo::make_invalid();
         }
         auto ordered_reduction = tile::OrderedReductionAnalysis::run(kernel);
-        auto enable_fast_math = option.enable_fast_math && !ordered_reduction;
+        auto strict_mma = tile::StrictMmaAnalysis::run(kernel);
+        auto enable_fast_math = option.enable_fast_math && !ordered_reduction && !strict_mma;
         // The bridge has already produced plain CFG/SSA. Reuse the shared
         // SSA factory; do not rerun AST destructuring/inlining or invent a
         // different pass list. Resource reads are not declared noalias.
@@ -200,6 +222,8 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
         metadata.realization.append(luisa::format("; requested_mma_output_block={}; blocked_mmas={}; mma_blocking_cost=unmodeled", planner_options.mma_output_block, lowered.blocked_mmas));
         metadata.realization.append(luisa::format("; requested_mma_2d_blocking={}; two_dimensional_mmas={}", planner_options.enable_mma_2d_blocking, lowered.two_dimensional_mmas));
         metadata.realization.append(luisa::format("; requested_max_unrolled_mma_terms={}; rolled_mmas={}; mma_unroll_cost=unmodeled", planner_options.max_unrolled_mma_terms, lowered.rolled_mmas));
+        metadata.realization.append(luisa::format("; native_mma_vector_width={}; native_mmas={}; native_output_mmas={}; native_contraction_mmas={}; native_mma_cost=unmodeled",
+                                                  plan.native_mma_vector_width, lowered.native_mmas, lowered.native_output_mmas, lowered.native_contraction_mmas));
         metadata.realization.append(luisa::format("; unordered_reduction_partitions={}", planner_options.reduction_partitions));
         metadata.realization.append(luisa::format("; load_reduction_fusion={}; fused_reduction_loads={}; elided_load_snapshots={}",
                                                   planner_options.enable_load_reduction_fusion, lowered.fused_reduction_loads, lowered.elided_load_snapshots));
@@ -215,7 +239,7 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
         metadata.realization.append(luisa::format("; private_workspace_bytes={}", compiled.private_workspace_size));
         metadata.realization.append(luisa::format("; full_packet_specializations={}; full_packet_cloned_instructions={}",
                                                   compiled.full_packet_specialization_count, compiled.full_packet_cloned_instruction_count));
-        metadata.realization.append(luisa::format("; fast_math={}; ordered_reduction={}", enable_fast_math, ordered_reduction));
+        metadata.realization.append(luisa::format("; fast_math={}; ordered_reduction={}; strict_mma={}", enable_fast_math, ordered_reduction, strict_mma));
         auto &arguments = kernel.body().block(0u)->arguments();
         for (size_t i = 0u; i < arguments.size(); i++) {
             metadata.arguments.emplace_back(tile::KernelArgument{arguments[i]->type().scalar_type(), lowered.argument_sizes_bytes[i], lowered.argument_usages[i]});

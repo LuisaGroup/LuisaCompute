@@ -1,4 +1,5 @@
 #include "schedule_ir.h"
+#include "strided_mma.h"
 
 #include <algorithm>
 #include <iomanip>
@@ -413,6 +414,17 @@ VerificationResult verify(const Function &function) {
                         "non-debug instruction unexpectedly carries a message",
                     block.id);
             }
+            if (instruction.opcode == Opcode::call) {
+                if (!instruction.strided_mma || instruction.result || instruction.operands.size() != 4u) {
+                    add_error(result, "call requires a void strided MMA descriptor and four references", block.id);
+                } else {
+                    if (auto error = validate_strided_mma_descriptor(*instruction.strided_mma); !error.empty()) {
+                        add_error(result, std::string{error}, block.id);
+                    }
+                }
+            } else if (instruction.strided_mma) {
+                add_error(result, "non-call instruction unexpectedly carries strided MMA semantics", block.id);
+            }
             if (instruction.opcode == Opcode::warp_collective &&
                 !instruction.collective_id) {
                 add_error(result,
@@ -796,6 +808,15 @@ std::string to_string(const Function &function) {
             if (instruction.lane_consecutive_operand_index) {
                 out << " lane_consecutive_operand="
                     << *instruction.lane_consecutive_operand_index;
+            }
+            if (instruction.strided_mma) {
+                auto &&d = *instruction.strided_mma;
+                out << " strided_mma=" << (d.vectorization == StridedMmaVectorization::output ? "output" : "contraction")
+                    << " width=" << d.vector_width << " reassociation=" << d.allow_reassociation
+                    << " k=" << d.contraction_extent << " k_strides=" << d.lhs_contraction_stride << ',' << d.rhs_contraction_stride;
+                for (auto i = size_t{0u}; i < d.output_extents.size(); i++) {
+                    out << " axis=" << d.output_extents[i] << ':' << d.lhs_output_strides[i] << ':' << d.rhs_output_strides[i];
+                }
             }
             for (auto operand : instruction.operands) {
                 out << " %" << operand.value;

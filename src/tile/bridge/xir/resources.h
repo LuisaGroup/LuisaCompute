@@ -306,6 +306,8 @@ public:
                    !compute::xir::KernelFunction::is_valid_block_size(luisa::make_uint3(_options.block_size, 1u, 1u)) ||
                    _options.max_expanded_values == 0u || _options.reduction_partitions == 0u || _options.reduction_partitions > 16u ||
                    (_options.mma_output_block != 1u && _options.mma_output_block != 2u && _options.mma_output_block != 4u) ||
+                   (_options.native_mma_vector_width != 0u &&
+                    (_options.native_mma_vector_width < 2u || (_options.native_mma_vector_width & (_options.native_mma_vector_width - 1u)) != 0u)) ||
                    _options.local_lanes == 0u || (_options.local_lanes & (_options.local_lanes - 1u)) != 0u ||
                    _options.block_size % _options.local_lanes != 0u) {
             static_cast<void>(_error("invalid XIR realization options or entry region"));

@@ -196,6 +196,7 @@ void test_reduction_policies() {
         expect(operation->reduction_policy() == policy);
         AnalysisManager analyses{&kernel.function()};
         expect(eq(*analyses.get<OrderedReductionAnalysis>(), policy != reduction::unordered_tree));
+        expect(!*analyses.get<StrictMmaAnalysis>());
         IRRewriter rewriter{&analyses};
         expect(rewriter.set_reduction_policy(operation, reduction::fold_right));
         expect(*analyses.get<OrderedReductionAnalysis>());
@@ -209,6 +210,57 @@ void test_reduction_policies() {
         root->operation(0u)->set_reduction_policy(reduction::fold_left);
         expect(!verify(kernel.module()).ok());
     }
+}
+
+void test_strict_mma_analysis_and_rewriter() {
+    auto kernel = tile_kernel("nested_mma_policy", [](TensorView<const float, 2> a,
+                                                      TensorView<const float, 2> b,
+                                                      TensorView<float, 2> c) {
+                      auto m = axis("m", 2), n = axis("n", 3), k = axis("k", 4);
+                      for (auto &root : parallel(shape(1))) {
+                          for (auto &outer : root.serial(shape(1))) {
+                              for (auto &step : outer.pipeline(shape(1))) {
+                                  step.stage("compute");
+                                  auto lhs = a.tile(coord(0, 0), shape(m, k)).load();
+                                  auto rhs = b.tile(coord(0, 0), shape(k, n)).load();
+                                  auto first = mma(lhs, rhs, zeros<float>(shape(m, n)));
+                                  auto second = mma(lhs, rhs, first);
+                                  c(coord(0, 0), shape(m, n)).store(second);
+                              }
+                          }
+                      }
+                  }).capture(tensor_shape(2, 4), tensor_shape(4, 3), tensor_shape(2, 3));
+    expect(kernel.valid());
+    if (!kernel.valid()) { return; }
+    vector<Operation *> contractions;
+    auto collect = [&](auto &&self, Region &region) -> void {
+        for (auto block : region.blocks()) {
+            for (auto operation : block->operations()) {
+                if (operation->kind() == OperationKind::MMA) { contractions.emplace_back(operation); }
+                for (auto &&child : operation->regions()) { self(self, *child); }
+            }
+        }
+    };
+    collect(collect, kernel.function().body());
+    expect(eq(contractions.size(), 2u));
+    if (contractions.size() != 2u) { return; }
+    AnalysisManager analyses{&kernel.function()};
+    IRRewriter rewriter{&analyses};
+    expect(!*analyses.get<StrictMmaAnalysis>());// Both default MMA policies permit reassociation.
+    expect(!*analyses.get<OrderedReductionAnalysis>());
+    expect(rewriter.set_mma_policy(contractions[0], {.allow_reassociation = false}));
+    expect(*analyses.get<StrictMmaAnalysis>());        // Cached false must be invalidated.
+    expect(!*analyses.get<OrderedReductionAnalysis>());// Do not relabel MMA as an ordered REDUCE.
+    expect(rewriter.set_mma_policy(contractions[1], {.allow_reassociation = false}));
+    expect(rewriter.set_mma_policy(contractions[0], {.allow_reassociation = true}));
+    expect(*analyses.get<StrictMmaAnalysis>());// A second nested strict op still constrains the kernel.
+    expect(rewriter.set_mma_policy(contractions[1], {.allow_reassociation = true}));
+    expect(!*analyses.get<StrictMmaAnalysis>());// Cached true must also be invalidated.
+    auto root = kernel.function().body().block(0u)->operations().front();
+    expect(!rewriter.set_mma_policy(root, {.allow_reassociation = false}));
+    expect(!rewriter.set_mma_policy(nullptr, {.allow_reassociation = false}));
+    expect(!*analyses.get<StrictMmaAnalysis>());
+    expect(verify(kernel.module()).ok());
 }
 
 void test_parallel_cannot_capture_scalar_carry() {
@@ -297,6 +349,7 @@ int main(int argc, char *argv[]) {
     "tile_dsl_elementwise_capture"_test = test_elementwise_capture;
     "tile_dsl_reduction_capture"_test = test_reduction_capture_and_implicit_carry;
     "tile_dsl_reduction_policy_validation"_test = test_reduction_policies;
+    "tile_dsl_strict_mma_analysis_and_rewriter"_test = test_strict_mma_analysis_and_rewriter;
     "tile_dsl_rejects_parallel_scalar_carry"_test = test_parallel_cannot_capture_scalar_carry;
     "tile_dsl_logical_and_masked_view_capture"_test = test_logical_and_masked_view_capture;
     "tile_dsl_pipeline_policy_validation"_test = test_pipeline_policy;

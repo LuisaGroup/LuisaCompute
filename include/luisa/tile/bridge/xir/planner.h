@@ -53,6 +53,10 @@ struct PlannerOptions {
     // necessary by newly dynamic MMA reads. Work extraction prices their
     // stores/reads; native loop, cache and code-size costs remain uncalibrated.
     uint32_t max_unrolled_mma_terms{0u};
+    // Fixed experimental per-program native contraction width. Legality is
+    // shared with lowering and gated by target info. No measured speedup is
+    // credited to this candidate by the default cost prior.
+    uint32_t native_mma_vector_width{0u};
     uint32_t reduction_partitions{4u};
     // One preserves the default complete-program mapping. Zero opts into the
     // experimental joint search; packet_width forces a legal local-axis map.
@@ -115,6 +119,7 @@ struct ExecutionPlan {
     uint32_t mma_output_block{1u};
     bool enable_mma_2d_blocking{false};
     uint32_t max_unrolled_mma_terms{0u};
+    uint32_t native_mma_vector_width{0u};
 };
 
 // Unweighted dynamic contraction work for one complete logical program in
@@ -133,6 +138,12 @@ struct ExecutionMmaWork {
     double seed_reads{0.0};
     double loop_invocations{0.0};
     double loop_iterations{0.0};
+    // Dynamic helper invocations and vector updates per complete logical
+    // program. Scalar tail updates remain in multiply_adds. These are exposed
+    // to backend policies, not interpreted as hardware cycles or speedups.
+    double native_calls{0.0};
+    double native_output_vector_updates{0.0};
+    double native_contraction_vector_updates{0.0};
 };
 
 // The bridge extracts work and packet/block counts (including masked tails).
@@ -180,6 +191,9 @@ public:
     [[nodiscard]] virtual luisa::vector<uint32_t> block_sizes() const noexcept = 0;
     [[nodiscard]] virtual bool supports_local_distribution() const noexcept { return true; }
     [[nodiscard]] virtual bool supports_task_grain() const noexcept { return false; }
+    // Narrow, typed intrinsic capability, separate from execution packet
+    // widths. Generic and GPU targets must explicitly opt in to consume it.
+    [[nodiscard]] virtual bool supports_native_mma_vector_width(uint32_t) const noexcept { return false; }
     [[nodiscard]] virtual bool accepts(const ExecutionPlan &candidate) const noexcept = 0;
     // Called after geometry admission, with the candidate's shared static
     // resource analysis attached. The returned budget is retained in the plan

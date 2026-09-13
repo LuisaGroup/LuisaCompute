@@ -19,7 +19,8 @@ ShaderCreationInfo MetalDevice::create_tile_kernel(const ShaderOption &requested
         metadata = {};
         auto option = requested_option;
         auto ordered_reduction = tile::OrderedReductionAnalysis::run(kernel);
-        option.enable_fast_math &= !ordered_reduction;
+        auto strict_mma = tile::StrictMmaAnalysis::run(kernel);
+        option.enable_fast_math &= !ordered_reduction && !strict_mma;
         if (tile_options.xir != nullptr) {
             metadata.error = "Metal cannot use the CPU XIR execution planner";
             return ShaderCreationInfo::make_invalid();
@@ -116,7 +117,7 @@ ShaderCreationInfo MetalDevice::create_tile_kernel(const ShaderOption &requested
             metadata.source = std::move(artifact.source);
             metadata.realization = luisa::format("TIRx -> Metal source -> Luisa Runtime; {} threads/group; {} group plans; direct-buffer ABI; fast_math={}; mpp={}",
                                                  threads, compiled.plans.size(), option.enable_fast_math, artifact.requires_metal4);
-            metadata.realization.append(luisa::format("; ordered_reduction={}", ordered_reduction));
+            metadata.realization.append(luisa::format("; ordered_reduction={}; strict_mma={}", ordered_reduction, strict_mma));
             auto codegen_ms = codegen_clock.toc();
             MetalShaderMetadata shader_metadata{};
             shader_metadata.block_size = block_size;

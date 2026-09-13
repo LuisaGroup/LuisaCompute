@@ -10,6 +10,7 @@
 #include <luisa/xir/metadata/name.h>
 #include <luisa/xir/metadata/curve_basis.h>
 #include <luisa/xir/metadata/reg2mem_spill.h>
+#include <luisa/xir/metadata/strided_mma.h>
 #include <luisa/xir/debug_printer.h>
 
 namespace luisa::compute::xir {
@@ -483,6 +484,27 @@ void XIRDebugPrinter::emit_metadata_list(luisa::string &s, const MetadataList &m
                 }
                 case DerivedMetadataTag::NO_INLINE: {
                     s.append("no_inline, "sv);
+                    break;
+                }
+                case DerivedMetadataTag::STRIDED_MMA: {
+                    auto &&d = static_cast<const StridedMmaMD *>(md)->descriptor;
+                    luisa::format_to(std::back_inserter(s),
+                                     "strided_mma = (vectorization = {}, width = {}, reassociation = {}, k = {}, lhs_k_stride = {}, rhs_k_stride = {}",
+                                     to_string(d.vectorization), d.vector_width,
+                                     d.allow_reassociation, d.contraction_extent,
+                                     d.lhs_contraction_stride, d.rhs_contraction_stride);
+                    auto emit_array = [&](luisa::string_view name, const auto &values) noexcept {
+                        luisa::format_to(std::back_inserter(s), ", {} = [", name);
+                        for (auto i = size_t{0u}; i < values.size(); i++) {
+                            if (i != 0u) { s.append(", "); }
+                            luisa::format_to(std::back_inserter(s), "{}", values[i]);
+                        }
+                        s.push_back(']');
+                    };
+                    emit_array("output_extents", d.output_extents);
+                    emit_array("lhs_output_strides", d.lhs_output_strides);
+                    emit_array("rhs_output_strides", d.rhs_output_strides);
+                    s.append("), ");
                     break;
                 }
             }

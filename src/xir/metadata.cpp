@@ -6,7 +6,19 @@
 #include <luisa/xir/metadata/signature_constraint.h>
 #include <luisa/xir/metadata/reg2mem_spill.h>
 #include <luisa/xir/metadata/no_inline.h>
+#include <luisa/xir/metadata/strided_mma.h>
 #include <luisa/xir/metadata.h>
+
+namespace luisa::compute::xir {
+
+StridedMmaMD::StridedMmaMD(StridedMmaDescriptor value) noexcept
+    : descriptor{std::move(value)} {}
+
+ManagedPtr<Metadata> StridedMmaMD::clone() const noexcept {
+    return luisa::make_managed<StridedMmaMD>(descriptor);
+}
+
+}// namespace luisa::compute::xir
 
 namespace luisa::compute::xir::detail {
 
@@ -31,6 +43,7 @@ Metadata *luisa_xir_metadata_list_mixin_create_metadata(MetadataList &list, Deri
         LUISA_XIR_MAKE_METADATA_CREATE_CASE(SignatureConstraint)
         LUISA_XIR_MAKE_METADATA_CREATE_CASE(Reg2MemSpill)
         LUISA_XIR_MAKE_METADATA_CREATE_CASE(NoInline)
+        LUISA_XIR_MAKE_METADATA_CREATE_CASE(StridedMma)
 #undef LUISA_XIR_MAKE_METADATA_CREATE_CASE
     }
     LUISA_ERROR_WITH_LOCATION("Unknown derived metadata tag 0x{:x}.",

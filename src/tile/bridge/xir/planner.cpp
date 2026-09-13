@@ -75,6 +75,7 @@ struct Work {
             .mma_output_block = options.mma_output_block,
             .enable_mma_2d_blocking = options.enable_mma_2d_blocking,
             .max_unrolled_mma_terms = options.max_unrolled_mma_terms,
+            .native_mma_vector_width = options.native_mma_vector_width,
             .reduction_partitions = options.reduction_partitions,
             .local_lanes = lanes,
             .enable_load_reduction_fusion = options.enable_load_reduction_fusion,
@@ -134,6 +135,13 @@ void read_work(const Value *value, double repetitions, bool dynamic,
                const PlannerOptions &options, const Operation *consumer, uint32_t depth = 0u) {
     if (!value->type().is_tile()) { return; }
     auto producer = value->defining_operation();
+    auto realization = representation_options(options, lanes);
+    if (detail::native_mma_snapshot(value, realization)) {
+        if (dynamic || materialized(value, limit, lanes, options.max_unrolled_region_work) || detail::native_mma_plan(*consumer, realization)) {
+            work.memory += repetitions * cost.gathered_lane * target.packet_width;
+        }
+        return;
+    }
     if (detail::deferred_map(value, options.enable_map_fusion, lanes)) {
         if (depth >= 64u) { fail("XIR deferred recipe exceeds the depth budget"); }
         // Charge the scalar recipe at every actual consumer read. Broadcasting
@@ -181,6 +189,18 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
              luisa::vector<const Value *> indices, uint32_t limit, uint32_t lanes, Work &work, const PlannerOptions &options) {
     auto snapshot = [&](const Value *value) {
         if (!value->type().is_tile()) { return; }
+        if (detail::native_mma_snapshot(value, representation_options(options, lanes))) {
+            auto op = value->defining_operation();
+            // Buffered carries use their already charged parallel copies.
+            if (materialized(value, limit, lanes, options.max_unrolled_region_work) &&
+                (!op || op->kind() == OperationKind::SERIAL || op->kind() == OperationKind::PIPELINE || op->kind() == OperationKind::REDUCE)) { return; }
+            work.memory += repetitions * local_iterations(volume(*value->type().index_space()), lanes) * cost.gathered_lane * target.packet_width;
+            if (op && detail::native_mma_plan(*op, representation_options(options, lanes)) &&
+                !detail::traversal_snapshot(volume(*value->type().index_space()), representation_options(options, lanes))) {
+                work.memory += repetitions * static_cast<double>(volume(*value->type().index_space())) * cost.gathered_lane * target.packet_width;
+            }
+            return;
+        }
         if (detail::deferred_map(value, options.enable_map_fusion, lanes) ||
             detail::deferred_expression(value, limit, lanes, options.enable_map_fusion)) { return; }
         if (auto fusion = detail::reduction_producer_fusion(value, limit, lanes, options.reduction_partitions,
@@ -229,7 +249,7 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
                 work.arithmetic += repetitions * (2.0 * std::log2(lanes) + 2.0) * cost.arithmetic;
             }
         } else if (kind == OperationKind::TILE_MAP) {
-            if (!detail::deferred_map(op->result(0u), options.enable_map_fusion, lanes)) {
+            if (detail::value_allocation_plan(op->result(0u), volume(*op->result(0u)->type().index_space()), representation_options(options, lanes)).representation != detail::ValueRepresentation::DEFERRED_MAP) {
                 measure(*op->region(0u)->block(0u), axis, repetitions * local_iterations(volume(*op->domain()), lanes), target, cost, indices, limit, lanes, work, options);
             }
         } else if (kind == OperationKind::VIEW_LOAD || kind == OperationKind::VIEW_STORE) {
@@ -259,10 +279,31 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
             auto &output = *op->result(0u)->type().index_space();
             auto realization = representation_options(options, lanes);
             auto emission = detail::mma_emission_plan(*op, realization);
+            auto native = detail::native_mma_plan(*op, realization);
+            if (native) {
+                emission = {};
+                emission.contraction_runtime_loop = true;
+                work.mma.native_calls += repetitions;
+                if (native->vectorization == compute::xir::StridedMmaVectorization::OUTPUT) {
+                    auto inner = native->output_extents.size();
+                    while (inner > 1u && native->output_extents[inner - 1u] == 1u) { inner--; }
+                    emission.columns = native->output_extents[inner - 1u];
+                    emission.output_block = native->vector_width;
+                    emission.broadcast_lhs = native->lhs_output_strides[inner - 1u] == 0u;
+                    work.mma.native_output_vector_updates += repetitions * static_cast<double>(volume(output) / emission.columns * (emission.columns / native->vector_width)) * static_cast<double>(native->contraction_extent);
+                } else {
+                    work.mma.native_contraction_vector_updates += repetitions * static_cast<double>(volume(output)) * static_cast<double>(native->contraction_extent / native->vector_width);
+                }
+            }
             auto contraction = static_cast<double>(volume(detail::mma_contraction_plan(*op, realization).domain));
             auto outputs = volume(output);
             auto groups = emission.output_block == 1u ? outputs :
                                                         outputs / emission.columns * ceil_div(emission.columns, static_cast<uint64_t>(emission.output_block));
+            if (native && native->vectorization == compute::xir::StridedMmaVectorization::OUTPUT) {
+                // The helper's ragged output tail is scalar, not a partially
+                // active vector update with one shared broadcast projection.
+                groups = outputs / emission.columns * (emission.columns / native->vector_width + emission.columns % native->vector_width);
+            }
             auto updates = repetitions * static_cast<double>(outputs) * contraction;
             auto common_reads = repetitions * static_cast<double>(groups) * contraction;
             auto lhs_reads = emission.broadcast_lhs ? common_reads : updates;
@@ -282,8 +323,18 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
             work.mma.rhs_reads += rhs_reads;
             work.mma.seed_reads += repetitions * static_cast<double>(outputs);
             if (emission.contraction_runtime_loop && contraction != 0.0) {
-                work.mma.loop_invocations += repetitions * static_cast<double>(groups);
-                work.mma.loop_iterations += repetitions * static_cast<double>(groups) * contraction;
+                auto invocations = 1.0;
+                auto iterations = contraction;
+                if (native && native->vectorization == compute::xir::StridedMmaVectorization::CONTRACTION) {
+                    auto chunks = native->contraction_extent / native->vector_width;
+                    auto tail = native->contraction_extent % native->vector_width;
+                    // First vector products initialize partials without an
+                    // inserted +0. Only subsequent chunks enter the fold.
+                    invocations = static_cast<double>((chunks > 1u) + (tail != 0u));
+                    iterations = static_cast<double>((chunks == 0u ? 0u : chunks - 1u) + tail);
+                }
+                work.mma.loop_invocations += repetitions * static_cast<double>(groups) * invocations;
+                work.mma.loop_iterations += repetitions * static_cast<double>(groups) * iterations;
             }
             work.arithmetic += updates * 2.0 * cost.arithmetic;
             auto dynamic_output = detail::bounded_domain(output, limit);
@@ -306,7 +357,8 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
         } else if (kind == OperationKind::ELEMENTWISE) {
             auto &type = op->result(0u)->type();
             auto count = type.is_tile() ? local_iterations(volume(*type.index_space()), lanes) : 1.0;
-            if (!detail::deferred_expression(op->result(0u), limit, lanes, options.enable_map_fusion)) {
+            if (detail::native_mma_snapshot(op->result(0u), representation_options(options, lanes)) ||
+                !detail::deferred_expression(op->result(0u), limit, lanes, options.enable_map_fusion)) {
                 work.arithmetic += repetitions * count * cost.arithmetic;
                 for (size_t i = 0u; i < op->operand_count(); i++) {
                     read_work(op->operand(i), repetitions * count, materialized(op->result(0u), limit, lanes, options.max_unrolled_region_work), target, cost, limit, lanes, work, options, op);
@@ -328,6 +380,9 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
     }
     if (!info.supports_task_grain() && (options.blocks_per_task || options.search_task_grain)) {
         return reject("XIR target does not support CPU task-grain constraints");
+    }
+    if (options.native_mma_vector_width != 0u && !info.supports_native_mma_vector_width(options.native_mma_vector_width)) {
+        return reject("XIR target does not support the requested native MMA vector width");
     }
     if (info.supports_task_grain() && (!target.worker_count || !target.task_chunks_per_worker)) {
         return reject("invalid XIR thread-pool scheduling parameters");
@@ -446,6 +501,7 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
                     candidate.mma_output_block = options.mma_output_block;
                     candidate.enable_mma_2d_blocking = options.enable_mma_2d_blocking;
                     candidate.max_unrolled_mma_terms = options.max_unrolled_mma_terms;
+                    candidate.native_mma_vector_width = options.native_mma_vector_width;
                     if (!info.accepts(candidate)) {
                         result.rejected.emplace_back(ExecutionRejection{std::move(candidate), "XIR target rejected execution geometry"});
                         continue;

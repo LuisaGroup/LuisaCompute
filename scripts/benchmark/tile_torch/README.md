@@ -232,6 +232,17 @@ with complete stdout/stderr capture and process-group timeouts. These references
 change reduction order/storage and are **not new Tile lowering paths**; see the
 [six-shape comparison and boundaries](results/m1-max-20260913-attention-native-reference/notes.md).
 
+For the experimental **compiler-generated** per-program SIMD MMA realization,
+set `LUISA_SIMD_NATIVE_MMA_VECTOR_WIDTH=2|4|8` when capturing the Tile kernel;
+`0` (the default) preserves the existing lowering. This is an inner vector
+width, independent of the program packet width. Admission uses typed MMA
+axes, snapshot strides and the operation's math permissions, not operator
+names. The realization reports native call counts and actual snapshot costs;
+it is not yet an automatically cost-selected policy. Compare actual captured
+ORC objects with `native_tile.py`; storage/interleaving and authorized reduction
+order can change, so validate each arm against FP64 and require each replay to
+match its own capture instead of imposing bitwise equality between arms.
+
 `--baseline FROZEN/bin/benchmark_tile_native --rounds 6` balances all six
 orders of old/new/Torch. Freeze all adjacent Luisa libraries together; the
 driver prepends that directory to the baseline process's loader path. Pass

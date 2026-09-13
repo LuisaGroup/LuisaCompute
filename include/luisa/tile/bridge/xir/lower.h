@@ -39,6 +39,11 @@ struct LowerOptions {
     // max_unrolled_tile_elements == 0 takes precedence and retains fully
     // expanded diagnostic emission.
     uint32_t max_unrolled_mma_terms{0u};
+    // Backend opt-in: preserve admitted FP32 contractions as a typed XIR
+    // intrinsic with private snapshots. This vector width is within one
+    // logical program, independent of packet/local distribution. Zero keeps
+    // reference emission; the consuming backend must support the intrinsic.
+    uint32_t native_mma_vector_width{0u};
     // Bounded pure unordered reductions may partition contributions among
     // these independent accumulators. One preserves the sequential baseline.
     uint32_t reduction_partitions{4u};
@@ -111,6 +116,9 @@ struct NativeFunction {
     uint32_t deferred_maps{0u};
     uint32_t blocked_mmas{0u};
     uint32_t two_dimensional_mmas{0u};
+    uint32_t native_mmas{0u};
+    uint32_t native_output_mmas{0u};
+    uint32_t native_contraction_mmas{0u};
     // MMA operations with at least one emitted runtime contraction loop.
     uint32_t rolled_mmas{0u};
     ExecutionResources resources;

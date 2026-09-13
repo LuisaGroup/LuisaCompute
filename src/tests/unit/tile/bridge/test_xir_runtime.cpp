@@ -1313,6 +1313,139 @@ void mma_output_blocks(Device &device, int64_t rows, int64_t columns, int64_t te
     }
 }
 
+void native_mma_policy(Device &device, int64_t terms, bool rhs_transposed, bool strict, bool fast_math = true) {
+    using namespace tile;
+    constexpr auto programs = int64_t{19};// Several W8 packets and an incomplete final packet.
+    auto rows = rhs_transposed ? int64_t{2} : int64_t{3};
+    auto columns = rhs_transposed ? int64_t{3} : int64_t{5};
+    auto physical_terms = std::max(terms, int64_t{1});
+    auto kernel = tile_kernel(strict ? "strict_native_mma_policy" : "default_native_mma_policy",
+                              [=](TensorView<float, 3> a, TensorView<const float, 3> b,
+                                  TensorView<float, 3> c, TensorView<float, 3> saved) {
+                                  auto p = axis("p", 1), m = axis("m", rows), n = axis("n", columns), k = axis("k", terms);
+                                  for (auto &nest : parallel(shape(programs))) {
+                                      auto origin = coord(nest.index(), 0, 0);
+                                      auto lhs = a.tile(origin, shape(p, m, k)).load();
+                                      auto rhs = b.tile(origin, rhs_transposed ? shape(p, n, k) : shape(p, k, n)).load();
+                                      auto seed = c.tile(origin, shape(p, m, n)).load();
+                                      auto old_seed = seed;
+                                      // All native operands are definition-time snapshots. The
+                                      // result must be fresh even when the seed remains live.
+                                      a(origin, shape(p, m, k)).store(full<float>(shape(p, m, k), 13.0f));
+                                      c(origin, shape(p, m, n)).store(full<float>(shape(p, m, n), -7.0f));
+                                      for (auto &step : nest.serial(shape(1))) {
+                                          static_cast<void>(step);
+                                          seed = mma(lhs, rhs, seed, strict ? MmaPolicy{.allow_reassociation = false} : MmaPolicy{});
+                                      }
+                                      c(origin, shape(p, m, n)).store(seed);
+                                      saved(origin, shape(p, m, n)).store(old_seed);
+                                  }
+                              })
+                      .capture(tensor_shape(programs, rows, physical_terms),
+                               rhs_transposed ? tensor_shape(programs, columns, physical_terms) : tensor_shape(programs, physical_terms, columns),
+                               tensor_shape(programs, rows, columns), tensor_shape(programs, rows, columns));
+    expect(kernel.valid());
+    if (!kernel.valid()) { return; }
+    constexpr size_t pad = 17u;
+    constexpr float guard = -731.25f;
+    vector<float> input_a(programs * rows * physical_terms + 2u * pad, guard);
+    vector<float> input_b(programs * physical_terms * columns + 2u * pad, guard);
+    vector<float> input_c(programs * rows * columns + 2u * pad, guard);
+    auto a_index = [&](int64_t p, int64_t m, int64_t k) { return pad + (p * rows + m) * physical_terms + k; };
+    auto b_index = [&](int64_t p, int64_t k, int64_t n) {
+        return pad + p * physical_terms * columns + (rhs_transposed ? n * physical_terms + k : k * columns + n);
+    };
+    auto c_index = [&](int64_t p, int64_t m, int64_t n) { return pad + (p * rows + m) * columns + n; };
+    for (auto p = int64_t{0}; p < programs; p++) {
+        for (auto m = int64_t{0}; m < rows; m++) {
+            for (auto k = int64_t{0}; k < physical_terms; k++) {
+                constexpr float cancellation[]{16777216.0f, 1.0f, 1.0f, -16777216.0f, 3.0f};
+                input_a[a_index(p, m, k)] = strict ? cancellation[k % 5] : static_cast<float>((p + m + k) % 7 - 3) * .25f;
+            }
+            for (auto n = int64_t{0}; n < columns; n++) {
+                input_c[c_index(p, m, n)] = strict ? 0.0f : static_cast<float>((p + m + n) % 5 - 2) * .125f;
+            }
+        }
+        for (auto k = int64_t{0}; k < physical_terms; k++) {
+            for (auto n = int64_t{0}; n < columns; n++) {
+                input_b[b_index(p, k, n)] = strict ? 1.0f : static_cast<float>((p + k + n) % 5 - 2) * .5f;
+            }
+        }
+        if (strict) {
+            // (row 0,col 0): separate MUL+ADD gives +0, FMA gives -2^-46.
+            // (row 1,col 1), K=4: ordered gives 0, pairwise gives 1.
+            input_a[a_index(p, 0, 0)] = std::bit_cast<float>(0x3f800001u);
+            input_b[b_index(p, 0, 0)] = std::bit_cast<float>(0x3f7ffffeu);
+            for (auto k = int64_t{1}; k < terms; k++) { input_b[b_index(p, k, 0)] = 0.0f; }
+            input_c[c_index(p, 0, 0)] = terms == 0 ? -0.0f : -1.0f;
+        } else if (p == programs - 1) {
+            // Reassociation does not permit injecting +0 or ignoring zero's
+            // sign. Every product and seed in this row is negative zero.
+            for (auto k = int64_t{0}; k < physical_terms; k++) {
+                input_a[a_index(p, 0, k)] = -0.0f;
+                for (auto n = int64_t{0}; n < columns; n++) { input_b[b_index(p, k, n)] = 1.0f; }
+            }
+            for (auto n = int64_t{0}; n < columns; n++) { input_c[c_index(p, 0, n)] = -0.0f; }
+        }
+    }
+    auto expected = input_c;
+    for (auto p = int64_t{0}; p < programs; p++) {
+        for (auto m = int64_t{0}; m < rows; m++) {
+            for (auto n = int64_t{0}; n < columns; n++) {
+                auto sum = input_c[c_index(p, m, n)];
+                for (auto k = int64_t{0}; k < terms; k++) {
+                    volatile float product = input_a[a_index(p, m, k)] * input_b[b_index(p, k, n)];
+                    volatile float next = sum + product;
+                    sum = next;
+                }
+                expected[c_index(p, m, n)] = sum;
+            }
+        }
+    }
+    auto a = device.create_buffer<float>(input_a.size()), b = device.create_buffer<float>(input_b.size());
+    auto c = device.create_buffer<float>(input_c.size()), saved = device.create_buffer<float>(input_c.size());
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    for (auto width : {0u, 4u}) {
+        auto options = bridge::xir::PlannerOptions{};
+        options.block_size = 32u;
+        options.mma_output_block = 4u;
+        options.native_mma_vector_width = width;
+        auto shader = compile(device, kernel, {.xir = &options}, {.enable_fast_math = fast_math});
+        expect(static_cast<bool>(shader)) << shader.metadata().error;
+        if (!shader) { continue; }
+        auto native_output = width != 0u && terms != 0 && !rhs_transposed;
+        auto native_contraction = width != 0u && terms >= 4 && rhs_transposed && !strict;
+        auto &text = shader.metadata().realization;
+        expect(text.find(format("native_mmas={};", native_output || native_contraction ? 1u : 0u)) != string::npos);
+        expect(text.find(format("native_output_mmas={};", native_output ? 1u : 0u)) != string::npos);
+        expect(text.find(format("native_contraction_mmas={}", native_contraction ? 1u : 0u)) != string::npos);
+        expect(text.find(format("fast_math={};", fast_math && !strict)) != string::npos);
+        expect(text.find(format("strict_mma={}", strict)) != string::npos);
+        auto actual_a = input_a, actual_b = input_b, actual_c = input_c;
+        vector<float> actual_saved(input_c.size(), guard);
+        stream << a.copy_from(span{input_a}) << b.copy_from(span{input_b}) << c.copy_from(span{input_c})
+               << saved.copy_from(span{actual_saved})
+               << shader(a.view(pad, input_a.size() - 2u * pad), b.view(pad, input_b.size() - 2u * pad),
+                         c.view(pad, input_c.size() - 2u * pad), saved.view(pad, input_c.size() - 2u * pad))
+                      .dispatch()
+               << a.copy_to(span{actual_a}) << b.copy_to(span{actual_b}) << c.copy_to(span{actual_c})
+               << saved.copy_to(span{actual_saved}) << synchronize();
+        // Default-policy inputs are small dyadics: all admitted evaluation
+        // trees give the same exactly representable result. This checks the
+        // native math without imposing a particular authorized tree.
+        for (size_t i = 0u; i < actual_c.size(); i++) {
+            expect(eq(std::bit_cast<uint32_t>(actual_c[i]), std::bit_cast<uint32_t>(expected[i])))
+                << "native MMA width=" << width << " strict=" << strict << " transposed=" << rhs_transposed << " K=" << terms << " index=" << i;
+            expect(eq(std::bit_cast<uint32_t>(actual_saved[i]), std::bit_cast<uint32_t>(input_c[i])));
+        }
+        expect(actual_b == input_b);
+        for (size_t i = 0u; i < actual_a.size(); i++) {
+            auto unchanged = terms == 0 || i < pad || i >= actual_a.size() - pad;
+            expect(eq(std::bit_cast<uint32_t>(actual_a[i]), std::bit_cast<uint32_t>(unchanged ? input_a[i] : 13.0f)));
+        }
+    }
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -1405,6 +1538,16 @@ int main(int argc, char *argv[]) {
             mma_output_blocks(device, 2, 35, 17, swapped);
             mma_output_blocks(device, 1, 7, 65, swapped);
         }
+    };
+    "tile_xir_runtime_native_mma_policy_and_snapshots"_test = [&] {
+        for (auto terms : {0, 1, 3, 4, 5}) {
+            for (auto strict : {false, true}) {
+                native_mma_policy(device, terms, false, strict);
+                native_mma_policy(device, terms, true, strict);
+            }
+        }
+        native_mma_policy(device, 5, false, true, false);
+        native_mma_policy(device, 5, true, false, false);
     };
     "tile_xir_runtime_mma_unroll_caps_order_and_snapshots"_test = [&] {
         for (auto swapped : {false, true}) {
