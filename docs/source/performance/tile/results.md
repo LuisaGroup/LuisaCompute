@@ -103,6 +103,19 @@ the requested-specialized decode by about 54%. All rows are retained. Four
 relevant CTests pass, including strict bitwise accumulation and alias/snapshot
 checks; this is not automatic cost calibration or measured Metal4 performance.
 
+The separate {download}`MMA contraction-unroll experiment
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260913-attention-mma-roll/notes.md>`
+keeps the global Tile/storage threshold fixed and adds an opt-in MMA-only cap.
+Across 72 native-entry visits, cap8 restores the R4 decode full-packet clone
+and reduces time by about 36%, but MHA D64 becomes about **4.8× slower** and
+prefill about **43% slower**. The comparison is against the same requested
+R4/R1 baseline, not Torch/MPS or the previously faster R1 decode. Dynamic
+indexing of small SSA operands and output-loop replication are visible in
+generated code; these observations motivate joint loop/representation planning,
+not a global cap8 default. All negative results are archived. Separate small
+GPU correctness probes pass, but alternating E2E stalls still disqualify the
+TIRx/MPS diagnostic cohort from stable performance comparison or cost fitting.
+
 ### Metal4 XIR route: correctness established, timing not yet stable
 
 The September 10 {download}`target-info checkpoint <../../../../scripts/benchmark/tile_torch/results/m1-max-20260910-xir-target-info/README.md>`
