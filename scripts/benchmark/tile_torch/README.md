@@ -144,6 +144,13 @@ candidate, not an operator-name rule or a calibrated automatic policy. The
 [attention interaction experiment](results/m1-max-20260913-attention-mma-block/notes.md)
 retains both gains and a code-size/full-packet-specialization regression.
 
+`LUISA_TILE_BENCH_XIR_MMA_UNROLL_TERMS` sets the additional MMA-only unroll
+cap (`PlannerOptions::max_unrolled_mma_terms`, default 0 inherits the existing
+Tile threshold). It can keep K as a runtime loop without changing the global
+Tile traversal threshold or other reductions. Metadata reports the requested
+cap and actual `rolled_mmas`; this remains an opt-in, uncalibrated candidate.
+Smaller generated code is not sufficient evidence of faster execution.
+
 ## Common LLM captures across SIMD and Metal
 
 `compare_llm.py` reuses the unit tests' Tile kernels, exports the exact native

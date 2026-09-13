@@ -28,6 +28,11 @@ struct LowerOptions {
     // reference emission. Admission uses logical operand strides/broadcasts,
     // preserves each output's contraction order and existing snapshot storage.
     uint32_t mma_output_block{1u};
+    // Additional MMA-only host-unroll cap. Zero inherits the Tile threshold;
+    // nonzero may roll the contraction earlier without changing snapshots or
+    // any other reduction. max_unrolled_tile_elements == 0 takes precedence
+    // and retains fully expanded diagnostic emission.
+    uint32_t max_unrolled_mma_terms{0u};
     // Bounded pure unordered reductions may partition contributions among
     // these independent accumulators. One preserves the sequential baseline.
     uint32_t reduction_partitions{4u};
@@ -99,6 +104,8 @@ struct NativeFunction {
     uint32_t elided_expression_snapshots{0u};
     uint32_t deferred_maps{0u};
     uint32_t blocked_mmas{0u};
+    // MMA operations with at least one emitted runtime contraction loop.
+    uint32_t rolled_mmas{0u};
     ExecutionResources resources;
     luisa::string error;
     [[nodiscard]] bool ok() const noexcept { return module != nullptr && function != nullptr && error.empty(); }

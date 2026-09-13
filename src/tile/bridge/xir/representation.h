@@ -529,6 +529,7 @@ struct MmaEmissionPlan {
     uint32_t output_block{1u};
     uint64_t columns{1u};
     bool broadcast_lhs{true};
+    bool contraction_runtime_loop{false};
 };
 
 [[nodiscard]] inline MmaEmissionPlan mma_emission_plan(const Operation &op, const LowerOptions &options) noexcept;
@@ -599,16 +600,27 @@ struct TraversalEmissionPlan {
 // operand broadcasts that direction. This admits ordinary row-major GEMM and
 // many weighted sums, without recognizing an operator or dimension name.
 [[nodiscard]] inline MmaEmissionPlan mma_emission_plan(const Operation &op, const LowerOptions &options) noexcept {
-    if (options.mma_output_block == 1u || options.local_lanes != 1u || options.max_unrolled_tile_elements == 0u) { return {}; }
     auto &output = *op.result(0u)->type().index_space();
     auto &lhs = *op.operand(0u)->type().index_space();
     auto &rhs = *op.operand(1u)->type().index_space();
+    IndexSpace contraction;
+    for (auto &a : lhs.axes()) {
+        if (!output.contains(a.dimension)) { static_cast<void>(contraction.add(a.dimension, a.extent)); }
+    }
+    MmaEmissionPlan plan;
+    // Decide contraction emission before output-block admission: R1 and
+    // strided output layouts have the same independent MMA unroll control.
+    // The zero Tile threshold remains the fully expanded diagnostic override.
+    plan.contraction_runtime_loop = options.max_unrolled_tile_elements != 0u &&
+                                    (bounded_domain(contraction, options.max_unrolled_tile_elements) ||
+                                     bounded_domain(contraction, options.max_unrolled_mma_terms));
+    if (options.mma_output_block == 1u || options.local_lanes != 1u || options.max_unrolled_tile_elements == 0u) { return plan; }
     auto axis = output.rank();
     while (axis != 0u && output.axis(axis - 1u).extent.is_constant() && output.axis(axis - 1u).extent.constant_value() == 1u) { axis--; }
-    if (axis == 0u || !output.axis(axis - 1u).extent.is_constant()) { return {}; }
+    if (axis == 0u || !output.axis(axis - 1u).extent.is_constant()) { return plan; }
     auto &inner = output.axis(axis - 1u);
     auto columns = inner.extent.constant_value();
-    if (columns <= 1u) { return {}; }
+    if (columns <= 1u) { return plan; }
     auto unit_stride = [&](const IndexSpace &space) noexcept {
         auto index = space.axis_index(inner.dimension);
         if (!index) { return false; }
@@ -618,21 +630,20 @@ struct TraversalEmissionPlan {
         return true;
     };
     auto broadcast_lhs = !lhs.contains(inner.dimension) && unit_stride(rhs);
-    if (!broadcast_lhs && (rhs.contains(inner.dimension) || !unit_stride(lhs))) { return {}; }
+    if (!broadcast_lhs && (rhs.contains(inner.dimension) || !unit_stride(lhs))) { return plan; }
     if (options.max_unrolled_region_work != 0u) {
         // Potential per-block expansion, not an instruction count or a cycle
         // estimate. A rolled contraction emits one update body per output.
-        IndexSpace contraction;
-        for (auto &a : lhs.axes()) {
-            if (!output.contains(a.dimension)) { static_cast<void>(contraction.add(a.dimension, a.extent)); }
-        }
         auto cap = static_cast<uint64_t>(options.max_unrolled_region_work) + 1u;
-        auto updates = bounded_domain(contraction, options.max_unrolled_tile_elements) ? 1u : capped_work_volume(contraction, cap);
+        auto updates = plan.contraction_runtime_loop ? 1u : capped_work_volume(contraction, cap);
         auto work = capped_work_product(std::min<uint64_t>(options.mma_output_block, columns), updates, cap);
         work = capped_work_product(work, 2u + lhs.rank() + rhs.rank() + output.rank(), cap);
-        if (work > options.max_unrolled_region_work) { return {}; }
+        if (work > options.max_unrolled_region_work) { return plan; }
     }
-    return {options.mma_output_block, columns, broadcast_lhs};
+    plan.output_block = options.mma_output_block;
+    plan.columns = columns;
+    plan.broadcast_lhs = broadcast_lhs;
+    return plan;
 }
 
 struct ReductionEmissionPlan {

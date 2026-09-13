@@ -9,6 +9,7 @@
 #include <luisa/tile/bridge/xir/planner.h>
 #include <luisa/tile/dsl.h>
 #include <luisa/xir/instructions/alloca.h>
+#include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/debug_printer.h>
 #include <luisa/xir/verifier.h>
 #include <array>
@@ -125,6 +126,7 @@ struct MockGpuTargetInfo final : bx::ExecutionTargetInfo {
     uint32_t constrained_block{0u};
     uint64_t constrained_block_budget{0u};
     mutable vector<uint32_t> admission_checks;
+    mutable vector<bx::ExecutionPlan> admission_candidates;
     mutable vector<bx::ExecutionWork> schedule_inputs;
     RecordingCostPolicy policy;
 
@@ -135,6 +137,7 @@ struct MockGpuTargetInfo final : bx::ExecutionTargetInfo {
     [[nodiscard]] bool supports_local_distribution() const noexcept override { return local_distribution; }
     [[nodiscard]] bool accepts(const bx::ExecutionPlan &candidate) const noexcept override {
         admission_checks.emplace_back(candidate.block_size);
+        admission_candidates.emplace_back(candidate);
         return !reject_all && candidate.block_size != rejected_block;
     }
     [[nodiscard]] bx::ExecutionResourceLimits resource_limits(const bx::ExecutionPlan &candidate) const noexcept override {
@@ -159,6 +162,8 @@ void expect_same_plan(const bx::ExecutionPlan &a, const bx::ExecutionPlan &b) {
     expect(eq(a.dispatch_size, b.dispatch_size));
     expect(eq(a.local_lanes, b.local_lanes));
     expect(eq(a.blocks_per_task, b.blocks_per_task));
+    expect(eq(a.mma_output_block, b.mma_output_block));
+    expect(eq(a.max_unrolled_mma_terms, b.max_unrolled_mma_terms));
     expect_same_resources(a.resources, b.resources);
     expect(eq(a.resource_limits.max_snapshot_bytes_per_worker, b.resource_limits.max_snapshot_bytes_per_worker));
     auto same_cost = [](double x, double y) { expect(std::abs(x - y) < 1e-12); };
@@ -552,7 +557,7 @@ int main(int argc, char *argv[]) {
                            }
                        }
                    })
-                .capture(tensor_shape(rows, terms), variant == 2u ? tensor_shape(columns, terms) : tensor_shape(terms, columns), tensor_shape(rows, columns));
+                .capture(tensor_shape(rows, std::max(terms, 1u)), variant == 2u ? tensor_shape(columns, std::max(terms, 1u)) : tensor_shape(std::max(terms, 1u), columns), tensor_shape(rows, columns));
         };
         auto text = [](const bx::NativeFunction &value) {
             string result;
@@ -584,6 +589,84 @@ int main(int argc, char *argv[]) {
                 }
             }
         }
+        // MMA K uses an additional unroll cap, independently of input/output
+        // snapshot storage and even when output-block admission falls back.
+        for (auto variant : {0u, 2u, 3u}) {
+            for (auto terms : {0u, 1u, 8u, 9u, 16u, 64u, 65u}) {
+                auto kernel = fixture(1u, 5u, terms, variant);
+                auto reference_plan = bx::plan(kernel.function(), {8u, 1u}, {.block_size = 64u});
+                expect(reference_plan.ok()) << reference_plan.error;
+                for (auto width : {1u, 2u, 4u}) {
+                    auto baseline = check_resources(kernel, {.mma_output_block = width});
+                    if (!baseline) { continue; }
+                    for (auto cap : {0u, 1u, 8u, 64u, 128u}) {
+                        auto candidate = check_resources(kernel, {.mma_output_block = width, .max_unrolled_mma_terms = cap});
+                        auto options = bx::PlannerOptions{.block_size = 64u, .mma_output_block = width, .max_unrolled_mma_terms = cap};
+                        auto planned = bx::plan(kernel.function(), {8u, 1u}, options);
+                        expect(planned.ok()) << planned.error;
+                        if (!candidate || !planned) { continue; }
+                        auto rolled = terms > 64u || (cap != 0u && terms > cap);
+                        expect(eq(candidate.rolled_mmas, rolled ? 1u : 0u));
+                        // A trailing singleton K leaves transposed RHS unit-stride.
+                        auto strided = variant == 2u && terms != 1u;
+                        expect(eq(candidate.blocked_mmas, width == 1u || strided ? 0u : 1u));
+                        expect_same_resources(candidate.resources, baseline.resources);
+                        expect_same_resources(planned.selected.resources, candidate.resources);
+                        expect(eq(planned.selected.max_unrolled_mma_terms, cap));
+                        if (reference_plan) { expect(eq(planned.selected.cost.score, reference_plan.selected.cost.score)); }
+                        if (rolled == (terms > 64u)) { expect(text(candidate) == text(baseline)); }
+                        if (terms == 9u && cap == 8u) {
+                            auto phis = 0u;
+                            candidate.function->traverse_instructions([&](xir::Instruction *instruction) noexcept {
+                                phis += instruction->isa<xir::PhiInst>();
+                            });
+                            expect(phis >= 2u);// Runtime K index and accumulator, not counter-only metadata.
+                            expect(text(candidate) != text(baseline));
+                        }
+                    }
+                }
+            }
+        }
+        // The register-block work guard must price the same rolled K body as
+        // emission. R4 * K16 * 8 exceeds 100, whereas R4 * 1 * 8 does not.
+        auto work_kernel = fixture(1u, 5u, 16u, 0u);
+        auto expanded_work = check_resources(work_kernel, {.max_unrolled_region_work = 100u, .mma_output_block = 4u});
+        auto rolled_work = check_resources(work_kernel, {.max_unrolled_region_work = 100u, .mma_output_block = 4u, .max_unrolled_mma_terms = 8u});
+        if (expanded_work && rolled_work) {
+            expect(eq(expanded_work.blocked_mmas, 0u));
+            expect(eq(rolled_work.blocked_mmas, 1u));
+            expect(eq(rolled_work.rolled_mmas, 1u));
+            expect_same_resources(expanded_work.resources, rolled_work.resources);
+        }
+        MockGpuTargetInfo target_info;
+        auto policy_plan = bx::plan(work_kernel.function(), target_info, {.mma_output_block = 4u, .max_unrolled_mma_terms = 8u});
+        expect(policy_plan.ok()) << policy_plan.error;
+        expect(!target_info.admission_candidates.empty());
+        expect(!target_info.policy.observed_candidates.empty());
+        for (const auto &candidate : target_info.admission_candidates) {
+            expect(eq(candidate.mma_output_block, 4u));
+            expect(eq(candidate.max_unrolled_mma_terms, 8u));
+        }
+        for (const auto &candidate : target_info.policy.observed_candidates) {
+            expect(eq(candidate.mma_output_block, 4u));
+            expect(eq(candidate.max_unrolled_mma_terms, 8u));
+        }
+        // Explicit fully expanded diagnostics override both MMA controls.
+        auto diagnostic = check_resources(work_kernel, {.max_unrolled_tile_elements = 0u});
+        for (auto width : {1u, 2u, 4u}) {
+            auto candidate = check_resources(work_kernel, {.max_unrolled_tile_elements = 0u, .mma_output_block = width, .max_unrolled_mma_terms = 1u});
+            if (diagnostic && candidate) {
+                expect(eq(candidate.rolled_mmas, 0u));
+                expect(eq(candidate.blocked_mmas, 0u));
+                expect_same_resources(candidate.resources, diagnostic.resources);
+                expect(text(candidate) == text(diagnostic));
+            }
+        }
+        // No change to ordinary reductions, including their partition choice.
+        auto ordinary = row_fixture(65u);
+        auto ordinary_default = check_resources(ordinary);
+        auto ordinary_cap = check_resources(ordinary, {.max_unrolled_mma_terms = 1u});
+        if (ordinary_default && ordinary_cap) { expect(text(ordinary_default) == text(ordinary_cap)); }
         auto kernel = fixture(2u, 5u, 3u, 0u);
         for (auto width : {0u, 3u, 8u}) {
             expect(!bx::analyze_resources(kernel.function(), {.mma_output_block = width}));

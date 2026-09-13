@@ -371,6 +371,7 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
                                                      .max_unrolled_tile_elements = options.max_unrolled_tile_elements,
                                                      .max_unrolled_region_work = options.max_unrolled_region_work,
                                                      .mma_output_block = options.mma_output_block,
+                                                     .max_unrolled_mma_terms = options.max_unrolled_mma_terms,
                                                      .reduction_partitions = options.reduction_partitions,
                                                      .local_lanes = lanes,
                                                      .enable_load_reduction_fusion = options.enable_load_reduction_fusion,
@@ -404,6 +405,7 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
                     }
                     ExecutionPlan candidate{width, order, static_cast<uint32_t>(physical_count), {}, lanes, grain, options.root_axis_tiles};
                     candidate.mma_output_block = options.mma_output_block;
+                    candidate.max_unrolled_mma_terms = options.max_unrolled_mma_terms;
                     if (!info.accepts(candidate)) {
                         result.rejected.emplace_back(ExecutionRejection{std::move(candidate), "XIR target rejected execution geometry"});
                         continue;

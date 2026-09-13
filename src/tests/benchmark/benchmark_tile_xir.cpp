@@ -84,6 +84,7 @@ int main(int argc, char *argv[]) {
                                    std::pair{"LUISA_TILE_BENCH_XIR_BLOCKS_PER_TASK", &planner.blocks_per_task},
                                    std::pair{"LUISA_TILE_BENCH_XIR_REGION_WORK", &planner.max_unrolled_region_work},
                                    std::pair{"LUISA_TILE_BENCH_XIR_MMA_OUTPUT_BLOCK", &planner.mma_output_block},
+                                   std::pair{"LUISA_TILE_BENCH_XIR_MMA_UNROLL_TERMS", &planner.max_unrolled_mma_terms},
                                    std::pair{"LUISA_TILE_BENCH_XIR_SEARCH_TASK_GRAIN", &search_grain}}) {
             if (auto setting = std::getenv(name)) {
                 auto text = std::string_view{setting};

@@ -297,6 +297,26 @@ class LlmProcessDiagnosticTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(gpu_failure_diagnostics(text, "ordinary warning: unused argument"), [])
 
+    def test_gpu_hang_spelling_separators_and_normal_json(self):
+        for first in ("", " ", "_", "-", "\t", " _- "):
+            for second in ("", " ", "_", "-", "\t", " _- "):
+                diagnostic = f"Caused gPu{first}hAnG{second}eRrOr (0x3)"
+                for channel in ("stdout", "stderr"):
+                    streams = {"stdout": "", "stderr": ""}
+                    streams[channel] = diagnostic
+                    with self.subTest(first=first, second=second, channel=channel):
+                        found = gpu_failure_diagnostics(**streams)
+                        self.assertTrue(found)
+                        self.assertEqual(found[0]["channel"], channel)
+        for text in ('{"backend":"metal","max_abs_error":0,"error":""}',
+                     '{"backend":"mps","max_abs_error":1e-7,"error":null}',
+                     '{"backend":"metal","error":false}',
+                     '{"backend":"mps","error":0}',
+                     'GPUHangError_count=0; GPU validation passed',
+                     'prefixGPUHangErrorSuffix is an identifier'):
+            with self.subTest(normal=text):
+                self.assertEqual(gpu_failure_diagnostics(text, text), [])
+
     def test_diagnostic_evidence_is_bounded(self):
         found = gpu_failure_diagnostics(b"", (("prefix " * 100) + "GPU Hang Error\n").encode() * 100)
         self.assertEqual(len(found), 16)
@@ -332,6 +352,36 @@ class LlmProcessDiagnosticTests(unittest.TestCase):
                         self.assertEqual(result.stdout, b'{"valid":true}')
                 self.assertEqual(row["gpu_failure_diagnostics"], [])
                 self.assertEqual((directory / "visit.stderr.log").read_bytes(), b"ordinary informational message")
+
+    def test_compact_hang_zero_exit_fd_output_is_rejected(self):
+        # Exercise both OS fd channels, not only a mocked process or the regex.
+        for diagnostic in (b"GPUHangError (0x3)\n", b"GPU_Hang_Error (0x3)\n",
+                           b"GPU-Hang-Error (0x3)\n", b"GPUHang_Error (0x3)\n"):
+            for channel in ("stdout", "stderr"):
+                with self.subTest(diagnostic=diagnostic, channel=channel), tempfile.TemporaryDirectory() as temporary:
+                    directory, row = Path(temporary), dict(valid=False)
+                    streams = {"stdout": b'{"valid":true}', "stderr": b""}
+                    streams[channel] += diagnostic
+                    command = [sys.executable, "-c", f"import os; os.write(1,{streams['stdout']!r}); os.write(2,{streams['stderr']!r})"]
+                    with self.assertRaisesRegex(RuntimeError, "entire cohort invalid"):
+                        capture_benchmark(command, dict(os.environ), 5, directory, "visit", row)
+                    self.assertEqual(row["process"]["exit_code"], 0)
+                    self.assertFalse(row["valid"])
+                    for name, payload in streams.items():
+                        self.assertEqual((directory / f"visit.{name}.log").read_bytes(), payload)
+                    receipt = json.loads((directory / "visit.process.json").read_text())
+                    self.assertEqual(receipt["gpu_failure_diagnostics"][0]["channel"], channel)
+
+    def test_zero_exit_normal_json_fd_output_is_accepted(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory, row = Path(temporary), {}
+            stdout = b'{"backend":"metal","max_abs_error":0,"error":""}'
+            stderr = b'{"backend":"mps","max_abs_error":1e-7,"error":null}\n'
+            command = [sys.executable, "-c", f"import os; os.write(1,{stdout!r}); os.write(2,{stderr!r})"]
+            result = capture_benchmark(command, dict(os.environ), 5, directory, "visit", row)
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual((result.stdout, result.stderr), (stdout, stderr))
+            self.assertEqual(row["gpu_failure_diagnostics"], [])
 
     def test_timeout_keeps_full_output_diagnostic_and_process_group_cleanup(self):
         with tempfile.TemporaryDirectory() as temporary:

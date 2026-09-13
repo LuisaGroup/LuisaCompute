@@ -34,7 +34,8 @@ OPERATIONS = {"swiglu", "rope", "rmsnorm", "layernorm", "gelu_residual", "masked
 # (e.g. max_abs_error in a successful JSON record). This is a conservative
 # safety guard, not an exhaustive decoder for every driver/version message.
 GPU_FAILURE_PATTERNS = tuple(re.compile(pattern, re.IGNORECASE) for pattern in (
-    r"\bGPU\s+(?:Hang|Address Fault|Page Fault|Timeout|Internal)\s+Error\b",
+    r"\bGPU[\s_-]*Hang[\s_-]*Error\b",
+    r"\bGPU\s+(?:Address Fault|Page Fault|Timeout|Internal)\s+Error\b",
     r"\bMTLCommandBuffer(?:ErrorDomain|StatusError)\b",
     r"\bError\s+Domain=(?:MTL|AGX|Metal|MPS)\w*",
     r"\bexecution of the command buffer was aborted\b",

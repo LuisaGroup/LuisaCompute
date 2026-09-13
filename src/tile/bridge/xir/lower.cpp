@@ -263,8 +263,8 @@ private:
         }
     }
     template<typename F>
-    [[nodiscard]] x::Value *_fold(uint64_t count, x::Value *initial, F &&emit) {
-        if (!_bounded(count)) {
+    [[nodiscard]] x::Value *_fold(uint64_t count, x::Value *initial, F &&emit, bool force_loop = false) {
+        if (count == 0u || (!force_loop && !_bounded(count))) {
             for (uint64_t i = 0u; i < count; i++) { initial = emit(_index(i), initial); }
             return initial;
         }
@@ -286,8 +286,8 @@ private:
         return sum;
     }
     template<typename F>
-    [[nodiscard]] Elements _fold_many(uint64_t count, Elements initial, F &&emit) {
-        if (!_bounded(count)) {
+    [[nodiscard]] Elements _fold_many(uint64_t count, Elements initial, F &&emit, bool force_loop = false) {
+        if (count == 0u || (!force_loop && !_bounded(count))) {
             for (uint64_t i = 0u; i < count; i++) { initial = emit(_index(i), initial); }
             return initial;
         }
@@ -1118,6 +1118,7 @@ private:
             }
         }
         auto plan = detail::value_allocation_plan(result, _volume(space), _options).mma;
+        if (plan.contraction_runtime_loop && _volume(space) != 0u) { _output.rolled_mmas++; }
         if (plan.output_block != 1u) {
             auto count = _volume(space);
             auto snapshot = detail::traversal_snapshot(count, _options);
@@ -1149,8 +1150,7 @@ private:
                         auto b = plan.broadcast_lhs ? other : common;
                         next.emplace_back(_binary(A::BINARY_ADD, sums[j], _binary(A::BINARY_MUL, a, b)));
                     }
-                    return next;
-                });
+                    return next; }, plan.contraction_runtime_loop);
                 for (auto j = 0u; j < width; j++) {
                     if (storage) {
                         _store_local(result->type(), storage, flats[j], values[j]);
@@ -1194,8 +1194,7 @@ private:
                 if (result->type().scalar_type() == ScalarType::BFLOAT16) {
                     _fail("Tile to XIR: BF16 MMA accumulation requires an explicit FP32 accumulator");
                 }
-                return _binary(A::BINARY_ADD, sum, _binary(A::BINARY_MUL, a, b));
-            });
+                return _binary(A::BINARY_ADD, sum, _binary(A::BINARY_MUL, a, b)); }, plan.contraction_runtime_loop);
         });
     }
     void _operation(const Operation &op) {
