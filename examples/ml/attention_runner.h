@@ -58,13 +58,11 @@ void run_attention(luisa::compute::Device &device,
                    bool use_mla,
                    bool cooperative_vector);
 
-// vLLM-style paged attention path. Backs the KV cache with two
-// SparseBuffer<float> pools (one sparse tile per physical KV page) fed by
-// SparseBufferHeaps, scatters the dense K/V through a shuffled block table,
-// and runs the block-table-indirected online-softmax kernel. All sparse
-// resources are function-local: heaps are declared before the buffers they
-// back, and every tile is explicitly unmapped before teardown (Vulkan
-// requires no active mappings when destroying a sparse resource or heap).
+// vLLM-style paged attention path, driven by the `PagedAttention` class
+// (paged_attention.h): heap-pool backed custom page allocation over sparse
+// buffers, element-offset page indexing, prepare/compute split, pool
+// re-allocation with deferred old-buffer destruction via
+// CommandList::add_callback, and an eviction/reuse churn demo.
 // Returns false if the backend lacks sparse-buffer support so the caller can
 // fall back to the dense MHA path.
 bool run_paged_attention(luisa::compute::Device &device,

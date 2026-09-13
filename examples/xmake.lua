@@ -78,7 +78,7 @@ example_proj("example_win_hdr", "gui/win_hdr.cpp", true)
         end)
     end
     example_proj("example_multi_head_attention", "ml/multi_head_attention.cpp", false, function()
-        add_files("ml/attention_kernels.cpp", "ml/attention_host_data.cpp", "ml/attention_cpu_reference.cpp", "ml/attention_runner.cpp")
+        add_files("ml/attention_kernels.cpp", "ml/attention_host_data.cpp", "ml/attention_cpu_reference.cpp", "ml/attention_runner.cpp", "ml/paged_attention.cpp")
     end)
     includes("compute/tokenize")
     includes("compute/compact")

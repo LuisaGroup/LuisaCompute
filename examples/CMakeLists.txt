@@ -128,6 +128,7 @@ luisa_compute_add_example(example_multi_head_attention
         ml/attention_host_data.cpp
         ml/attention_cpu_reference.cpp
         ml/attention_runner.cpp
+        ml/paged_attention.cpp
         MIRROR_AS_TEST)
 
 # coroutine (headless)
