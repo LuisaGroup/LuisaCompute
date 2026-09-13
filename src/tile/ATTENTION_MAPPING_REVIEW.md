@@ -439,3 +439,26 @@ LLVM helper 在同一 module 中，以整数位模式连续搬运 FP32，向量 
 这仍是通用实现候选，不是已经完成的自动成本模型。后续 policy 需区分 `source vector load + destination vector store` 与 `source vector load + strided scalar stores`，并联合考虑消费者连续读/gather以及展开规模；不能继续给二者相同的向量访存折扣。编译预算也需估算 legalization 后的展开压力，而不只统计优化前 LLVM 指令。此次修复保留兼容布局，尚未实现上述成本校准或全局 solver。
 
 修复后的完整选定构建、11项CTest（151.16秒）及六个相关C++ TU语法检查通过。copy测试包含54组独立编译配置和8组copy/native-MMA混合配置：packet W2/4/8/16、source R2/4/8、交错开/关、空/奇/偶/全runtime mask、所有active count、源保护页、精确FP32位模式及逐word workspace检查。混合测试使用独立有限数值oracle，不把MMA算术误当作NaN payload复制；不支持的R16仍显式拒绝。该回归证明这些边界测试通过，不替代完整attention的性能复测。
+
+## 20. 联合实验：收益方向取决于相邻实现
+
+[修复后的完整实验](../../scripts/benchmark/tile_torch/results/m1-max-20260913-attention-joint-repack/notes.md)完成30份实际ORC capture、30组独立配对、360 visits与2520 samples，离线审计通过全部240条编译/准备/计时命令及完整FP64/位模式/guard检查。失败旧轮单独保留，未把其中成功的26份对象混入新轮。此前MHA普通MMA+copy的180秒捕获超时，本次相同双编译流程的编译阶段为4588.59 ms；交错数组仍为4块、连续private读取仍为2050处。
+
+下表各格是独立ABBA边的候选/基线耗时比，小于1为候选更快。M0/M4表示普通/native MMA，C0/C4表示原/native copy；不是从不同时段的表格时间相除。
+
+| case | copy：M0下 C4/C0 | copy：M4下 C4/C0 | MMA：C0下 M4/M0 | MMA：C4下 M4/M0 | M4C4：简化特化/原特化 |
+|---|---:|---:|---:|---:|---:|
+| MHA decode | 0.614 | 0.285 | 1.535 | 0.718 | 1.000 |
+| GQA D80 decode | 0.396 | 0.213 | 1.469 | 0.790 | 0.998 |
+| KV8193 decode | 0.656 | 0.300 | 1.606 | 0.734 | 0.991 |
+| prefill-q4 | 0.865 | 0.742 | 1.420 | 1.222 | 0.741 |
+| prefill-q8 | 0.885 | 1.026 | 1.064 | 1.233 | 0.869 |
+| batch GQA | 0.629 | 0.496 | 0.741 | 0.585 | 0.995 |
+
+三个decode的native MMA在原copy下更慢，在native copy下更快，支持联合选择而非独立乘固定折扣。这里不能对不同边继续做比值之比并称为因果交互系数。prefill-q4/q8的简化特化分别减少25.9%/13.1%耗时：原始entry为6495/4146条，简化后的候选为3182/2425条，均在原4096条保留预算内。MHA虽然也得到clone，耗时基本不变；因此“能特化”仍不等于“值得特化”。这是有限五臂实验，未穷举所有组合，也未证明某臂全局最优。
+
+运行收益并非没有代价：q4/q8的实际对象分别由121952/35976 B增至211752/63544 B；捕获中的编译阶段分别由3498.50/443.01 ms增至6489.06/1074.93 ms。它们仍是包含汇编导出的双编译流程，不能直接拟合生产单次JIT成本。未来若优化端到端生命周期，目标还需包含真实生产编译成本及预期调用次数，而不能只最小化单次kernel时间。4096只是局部候选的LLVM指令准入预算，不是最终机器码字节上限。
+
+另一个预声明补充实验固定`M4C4-simplified`，对MHA、KV8193、prefill-q8分别比较手写online NEON与dense Accelerate BLAS，共72 visits、504 samples。22项协议测试、24项validation-only检查及补充离线审计均通过。**目标仍未达成**：固定Tile候选约为NEON耗时的2.0–2.3倍、BLAS的2.5–4.2倍。参照使用FP32但允许不同的求和顺序；BLAS还允许内部FMA和dense score物化，不能直接当作strict MMA的合法替换。它们使用相同原生计时器并确认BLAS同线程模式；不包含Runtime/Python/JIT/调用者分配，却包含完整入口、launch reset、block traversal和BLAS内部工作。没有新的Torch、MPS、Metal或多线程Runtime结果。
+
+后续优化应先profile当前copy-on产物，重新确认剩余copy、private traffic、Q复用与exp/reduction占比；不能沿用copy-off时的热点百分比。再扩展通用phase候选：保留正确effect顺序的snapshot消除/复用、受寄存器预算约束的输出分组，以及跨相邻阶段的布局选择。大prefill和非attention留出集仍需补测。当前已实现候选与合法性/编译预算门禁，默认仍opt-in，自动成本校准与联合solver尚未完成。
