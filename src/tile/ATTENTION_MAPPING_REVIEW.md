@@ -1,6 +1,6 @@
 # Attention execution mapping：现状、缺口与有界实验
 
-记录日期：2026-09-13。范围：当前源码静态审查与已归档实验；初稿为只读审查，后续 CPU 实验与模型修正见第 8–14 节。**未宣称已完成自动生产优化**。
+记录日期：2026-09-13。范围：当前源码静态审查与已归档实验；初稿为只读审查，后续 CPU 实验与模型修正见第 8–16 节。**未宣称已完成自动生产优化**。
 它是实现侧工作记录，不替代既有设计文档；不改动受保护的 matrix-initializer WIP。
 
 ## 1. 先分清三种状态
@@ -290,3 +290,53 @@ Tile MMA：axes + MmaPolicy
 因此继续保持默认关闭及`native_mma_cost=unmodeled`。下一步应联合比较phase realization与physical layout，明确producer/consumer转换、定义时snapshot、call与代码量的成本归属；重点验证能否保留packet布局或让相邻phase共用布局，再用非attention及held-out尺寸检查泛化性。此次没有新的Torch/MPS/Metal性能比较，也没有完成自动求解或整体性能目标。
 
 MHA-on的实际反汇编已确认helper内联，kernel body内无调用指令；但16-output QK循环仍逐score重载同一Q。由此得到更具体的候选：把贡献向量化与有寄存器预算的输出分组组合，同时保留快照/布局边界的成本。仅凭私有函数出现在优化前LLVM中，不能把慢归因于调用；仅凭最终重复load，也不能跳过profile就宣称它解释了全部差距。
+
+## 16. 原生采样：先优化搬运的执行映射，而不只优化 MMA
+
+[独立采样记录](../../scripts/benchmark/tile_torch/results/m1-max-20260913-attention-phase-profile/notes.md)复用第15节冻结的实际 ORC object/dylib，没有重编译 LLVM 文本，也没有修改 kernel 或数学策略。MHA decode、长 KV decode、batch GQA prefill 各采样 off/on；每次均在独立进程内检查完整输出、FP64 reference、guard、输入和 launch metadata，要求逐 bit 复现本臂 capture。采样是热点诊断，不替换之前的 ABBA 性能数据。
+
+MHA-on 的 K/V 定义快照搬运是明确的热点。关联到完整生成代码的两个循环分别为每个active program拷贝16×64个 FP32 元素，先沿 program packet 构造地址，执行逐 lane 的掩码标量 gather，再写逐 program 连续的快照。即使源 tile 沿 feature 连续，当前搬运也没有沿这个方向做连续向量访问。CPU 时间采样不是内存带宽/cache计数器，不能把热点直接称作 DRAM 带宽瓶颈；精确比例、未匹配样本及反汇编区间见记录。
+
+长KV-on 的实际满包函数也保留了沿 element→program 的 K/V scalar copy。满包特化能消除这里的 lane mask，却不会自动把循环改成沿 tile 内连续元素向量搬运；两项候选应组合评估，而非把连续copy当作原满包特化的替代品。
+
+### 16.1 相同的 Memory，搬运阶段也可以选择不同的 Execution
+
+令 `p` 为独立 program，`e` 为该 program 内的 tile 元素。本例 source 中 `e` 连续、不同 `p` 的地址间距大；native MMA 要求的 snapshot 是 `[p][e]`。
+
+```text
+当前搬运：for e                         候选搬运：for p（保持 active 条件）
+            packet(p): masked gather                 for contiguous e-vector
+                       masked scatter                    guarded vector load
+                              │                          vector snapshot store
+                         snapshot[p][e]  ◀───────────────┘
+                              │
+                 QK / PV 的 per-program native vectors
+```
+
+这是 `(program, element)` 执行方向及访存实现的选择，不是让 memory 决定逻辑 hierarchy。沿 program 的 packet SIMD 对某些算术/交错快照很好，但不能机械套到每个 producer/consumer 边界；同一语义快照允许不同搬运计划。GQA 多个 program 共享 KV 还可能增加广播/复用候选，不能假定 cache 已免费完成。
+
+下一项优先候选是**封闭 view-load → 定义时 snapshot 的连续块搬运**。它依据域、stride、bounds、dtype 和使用点，不识别 attention 名称；可适用于 GEMV、转置读取中的连续内层以及其他要物化 tile 的算子。没有合法连续片段则保留原逐元素实现，不新增用户 DSL primitive。随后再组合 QK 的有限输出寄存器分组；不能用 QK 局部收益代替完整 kernel 计时。
+
+### 16.2 语义和准入必须一起保留
+
+- `parallel` 已提供 program 间独立性契约，不再要求用户额外证明这一点。但跨 phase 移动读写仍须尊重同一 program 的 effect 顺序；此次候选在原 load 定义点完成，不把读取延迟到 MMA。
+- destination 是该 SSA 值的新鲜私有 snapshot。输入 buffer 可以与其他用户参数别名；不由此给所有输入加 `noalias`。之后覆写用户 buffer 不得改变已捕获的值。
+- 每个 active program 及每个有效元素只观察原来的读；inactive program 不访问用户地址。边界零填充、ragged row、非连续外层和小尾块必须保持，不能凭内部私有 padding 允许越界读取用户 buffer。
+- 首版仅选择类型/表示一致的非 volatile 读取与可证明连续片段；量化转换、动态 gather、不匹配 layout 保留 fallback。复制不授予新的浮点重结合/FMA权限。
+- 如用 typed XIR bulk-transfer 描述保存信息，必须是 compiler-owned 的可验证语义，保留 snapshot 定义点、完整 bounds 和类型；不能按函数名称匹配、任意开放 external call，或在后端临时增加未计入资源计划的数组。该描述尚未实现。
+
+### 16.3 对 cost policy / solver 的直接要求
+
+候选的成本要取决于实际访问实现，而不仅是逻辑元素数：
+
+```text
+transfer plan = (program grouping, element grouping, source/destination layout,
+                 residual masks, vector width, full/tail handling)
+
+cost = address/mask issue + scalar/vector load/store service
+     + layout conversion + live-state/code-size effects
+```
+
+共享计划至少需区分 logical bytes、生成的标量/向量访存组、残留mask与循环次数；它们都不是已测的DRAM流量或物理寄存器数。将 transfer 归属到 producer 节点或转换边，二者不可重复计费。backend policy 提供目标能力和成本，solver 联合选择 load/compute/consumer 的实现；不要从一次 MHA 采样拟合一个全局系数。
+
+验证次序是：先在封闭拷贝上检查有/无mask、尾块、inactive program、别名与定义时快照，再检查实际对象是否出现连续访问，最后冻结未采样的完整 attention 与非attention对照。保留现有快照容量、程序次序和MMA算法作为控制；若实际packet/clone/ABI随候选变化，报告必须显式披露。**当前只有定位与设计依据，没有新编译器加速、自动policy或新的MPS/Torch/BLAS胜利。**

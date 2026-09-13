@@ -192,6 +192,19 @@ stays opt-in with `native_mma_cost=unmodeled`. Eleven selected CTests and
 failed attempts remain archived. There is no new Torch/MPS/Metal performance
 claim or automatic policy promotion.
 
+The subsequent {download}`native attention phase profile
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260913-attention-phase-profile/notes.md>`
+samples the same frozen native images, separately from performance timing.
+MHA-on's two K/V definition-snapshot copy loops account for about **84.9%**
+of raw timer observations; the long-KV-on copy loops account for **81.5%**.
+The MHA-on loops perform
+masked scalar gathers/scatters across programs despite contiguous elements
+within each tile. This prioritizes a generic contiguous snapshot-transfer
+realization coupled to the MMA layout, ahead of arithmetic-only tuning.
+The six sampled runs pass pre/post numerical and guard checks; samples have
+incomplete unwinding and are not new speedup measurements, memory-bandwidth
+counters or evidence that the attributed cost can all be eliminated.
+
 ### Metal4 XIR route: correctness established, timing not yet stable
 
 The September 10 {download}`target-info checkpoint <../../../../scripts/benchmark/tile_torch/results/m1-max-20260910-xir-target-info/README.md>`

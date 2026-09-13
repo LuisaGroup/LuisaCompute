@@ -1,0 +1,112 @@
+{
+  "status": "passed",
+  "archive_sha256": "0d1f9d58577286f667d3a0af0afa19577b1e1b0d4ec258b7d58e8e855fcaf7c8",
+  "verified_members": 319,
+  "extracted_to": "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-profile-offline-orj8dju5",
+  "parser_recomputations": [
+    {
+      "label": "decode-mha-d64-off",
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-B",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-profile-offline-orj8dju5/profile/parse_profile.py",
+        "--trace-dir",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-profile-offline-orj8dju5/profile/trace-decode-mha-d64-off",
+        "--image-root",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-profile-offline-orj8dju5/native/prepared-decode-mha-d64-off",
+        "--clock-anchor",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-profile-offline-orj8dju5/profile/trace-decode-mha-d64-off/analysis-v3/clock-anchor.json",
+        "--output",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-profile-offline-orj8dju5/profile/trace-decode-mha-d64-off/offline-recomputed"
+      ],
+      "status": "byte_identical"
+    },
+    {
+      "label": "decode-mha-d64-on",
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-B",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-profile-offline-orj8dju5/profile/parse_profile.py",
+        "--trace-dir",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-profile-offline-orj8dju5/profile/trace-decode-mha-d64-on",
+        "--image-root",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-profile-offline-orj8dju5/native/prepared-decode-mha-d64-on",
+        "--clock-anchor",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-profile-offline-orj8dju5/profile/trace-decode-mha-d64-on/analysis-v3/clock-anchor.json",
+        "--output",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-profile-offline-orj8dju5/profile/trace-decode-mha-d64-on/offline-recomputed"
+      ],
+      "status": "byte_identical"
+    },
+    {
+      "label": "decode-long-kv-off",
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-B",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-profile-offline-orj8dju5/profile/parse_profile.py",
+        "--trace-dir",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-profile-offline-orj8dju5/profile/trace-decode-long-kv-off",
+        "--image-root",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-profile-offline-orj8dju5/native/prepared-decode-long-kv-off",
+        "--clock-anchor",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-profile-offline-orj8dju5/profile/trace-decode-long-kv-off/analysis-v3/clock-anchor.json",
+        "--output",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-profile-offline-orj8dju5/profile/trace-decode-long-kv-off/offline-recomputed"
+      ],
+      "status": "byte_identical"
+    },
+    {
+      "label": "decode-long-kv-on",
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-B",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-profile-offline-orj8dju5/profile/parse_profile.py",
+        "--trace-dir",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-profile-offline-orj8dju5/profile/trace-decode-long-kv-on",
+        "--image-root",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-profile-offline-orj8dju5/native/prepared-decode-long-kv-on",
+        "--clock-anchor",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-profile-offline-orj8dju5/profile/trace-decode-long-kv-on/analysis-v3/clock-anchor.json",
+        "--output",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-profile-offline-orj8dju5/profile/trace-decode-long-kv-on/offline-recomputed"
+      ],
+      "status": "byte_identical"
+    },
+    {
+      "label": "batch-gqa-q4-off",
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-B",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-profile-offline-orj8dju5/profile/parse_profile.py",
+        "--trace-dir",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-profile-offline-orj8dju5/profile/trace-batch-gqa-q4-off",
+        "--image-root",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-profile-offline-orj8dju5/native/prepared-batch-gqa-q4-off",
+        "--clock-anchor",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-profile-offline-orj8dju5/profile/trace-batch-gqa-q4-off/analysis-v3/clock-anchor.json",
+        "--output",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-profile-offline-orj8dju5/profile/trace-batch-gqa-q4-off/offline-recomputed"
+      ],
+      "status": "byte_identical"
+    },
+    {
+      "label": "batch-gqa-q4-on",
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-B",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-profile-offline-orj8dju5/profile/parse_profile.py",
+        "--trace-dir",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-profile-offline-orj8dju5/profile/trace-batch-gqa-q4-on",
+        "--image-root",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-profile-offline-orj8dju5/native/prepared-batch-gqa-q4-on",
+        "--clock-anchor",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-profile-offline-orj8dju5/profile/trace-batch-gqa-q4-on/analysis-v3/clock-anchor.json",
+        "--output",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-profile-offline-orj8dju5/profile/trace-batch-gqa-q4-on/offline-recomputed"
+      ],
+      "status": "byte_identical"
+    }
+  ],
+  "synthetic_tests_returncode": 0,
+  "scope": "Exact inventory and raw-XML extraction/statistics. No native code, new timing, compiler build or reconstruction of omitted attention inputs."
+}

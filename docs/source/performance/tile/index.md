@@ -43,6 +43,9 @@ The latest compiler-generated native MMA candidate improves one batch-GQA
 case by 25.8% but regresses the other five attention cases by 6.2%–60.4%; it
 remains opt-in. See the [attention experiments](results.md#attention-priority-contribution-mapping-with-device-failures-retained)
 for the matched native-entry results and remaining layout-transition costs.
+Follow-up native profiling identifies K/V snapshot copy loops as the dominant
+sampled MHA-on hotspot; the next candidate targets the transfer mapping as well
+as the MMA. This is diagnosis, not another measured speedup or default change.
 
 ## How to read the performance evidence
 
