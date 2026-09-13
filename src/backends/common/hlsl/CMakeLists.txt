@@ -18,6 +18,8 @@ if (LUISA_COMPUTE_ENABLE_DX OR LUISA_COMPUTE_ENABLE_VULKAN)
             accel_header.bytes
             copy_sign.bytes
             bindless_common.bytes
+            oob_runtime.bytes
+            oob_flush.bytes
             auto_diff.bytes
             reduce.bytes
             bindless_upload.bytes

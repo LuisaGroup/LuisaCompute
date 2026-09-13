@@ -51,6 +51,15 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     bool enable_debug_info : 1 = false;
     bool enable_fast_math : 1 = false;
     bool use_8bit : 1 = false;
+    // Out-of-range access detection with abort semantics (manual multiple
+    // return). Host-debug builds only (`#ifndef NDEBUG`), DX (non-SPIR-V)
+    // compute path only. When enabled, the generated source defines
+    // `_LC_OOB_CHECK`, emits the `oob_runtime` / `oob_flush` builtins
+    // (per-thread error state, `_lc_oob_guard` / `_lc_oob_record` /
+    // `_lc_oob_exit`) and binds the device-printer UAVs, and the statement
+    // visitor appends `if(_lc_oob_err) return;` guards so a violation quits
+    // every function call instead of continuing with corrupted data.
+    bool oob_check : 1 = false;
     // Key: pair of (function hash, variable uid) → validate index in _validate_N array
     struct ValidateKey {
         uint64_t func_hash;

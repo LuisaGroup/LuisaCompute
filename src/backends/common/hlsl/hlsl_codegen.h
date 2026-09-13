@@ -132,6 +132,7 @@ private:
     };
     size_t accessCount = 0;
     size_t printCount = 0;
+    bool oobGuardEnabled = false;
     // size_t rayQuery = 0;
     bool literalBrace = false;
     struct VarHash {
@@ -140,6 +141,15 @@ private:
         }
     };
     luisa::unordered_set<Variable, VarHash> lazyDeclVars;
+
+    // Debug-only (`#ifndef NDEBUG` host gate on CodegenStackData::oob_check):
+    // emit the out-of-range early-exit guard after a statement. HLSL has no
+    // exceptions, so "quit and return from all function calls" is implemented
+    // as a manual multiple return: every statement of every generated function
+    // is followed by `if(_lc_oob_err){ return; }` (typed callables return a
+    // zero-initialized value; the kernel entry flushes the violation into the
+    // device print buffer so the host can report it).
+    void EmitOobGuard();
 
 public:
     SharedVarSet *sharedVariables = nullptr;

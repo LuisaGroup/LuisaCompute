@@ -109,10 +109,20 @@ float16_t4 _Mul(float16_t4x4 b,float16_t4 a){return mul(a,b);}
 float16_t3 _Mul(float16_t3x4 b,float16_t3 a){return mul(a,b).xyz;}
 float16_t2 _Mul(float16_t2x2 b,float16_t2 a){return mul(a,b);}
 #ifdef LUISA_DEBUG_INFO
+#ifdef _LC_OOB_CHECK
+// Debug + OOB-check: every access goes through _lc_oob_guard/_lc_oob_record so
+// an out-of-range index never touches invalid memory (which would silently
+// remove the D3D12 device) and is reported + aborted (manual multiple return).
+#define _bfreadMat(bf,idx,bound) bf[_lc_oob_guard((idx),(bound),1u)].m
+#define _bfwriteMat(bf,idx,value,bound) { if((idx)<(bound)){bf[idx].m=value;}else{_lc_oob_record(1u,(idx),(bound));} }
+#define _bytebfreadMat(bf,type,idx,bound) bf.template Load<type>(_lc_oob_guard((idx),(bound),1u)).m
+#define _bytebfwriteMat(bf,type,idx,value,bound) { if((idx)<(bound)){type _tempm;_tempm.m=value;bf.template Store<type>(idx,_tempm);}else{_lc_oob_record(1u,(idx),(bound));} }
+#else
 	#define _bfreadMat(bf,idx,bound) (((idx) < (bound)) ? bf[idx].m : (bf[0].m * 0) - 1)
 	#define _bfwriteMat(bf,idx,value,bound) { if ((idx) < (bound)) { bf[idx].m = value; } }
 	#define _bytebfreadMat(bf,type,idx,bound) (((idx) < (bound)) ? bf.template Load<type>(idx).m : (bf.template Load<type>(0).m * 0) - 1)
 	#define _bytebfwriteMat(bf,type,idx,value,bound) { if ((idx) < (bound)) { type _tempm;_tempm.m=value;bf.template Store<type>(idx,_tempm); } }
+#endif
 #else
 	#define _bfreadMat(bf,idx) bf[idx].m
 	#define _bfwriteMat(bf,idx,value) bf[idx].m=value
@@ -149,6 +159,19 @@ float4x4 m;
 };
 #ifdef LUISA_DEBUG_INFO
 // Debug: range-checked buffer read/write macros with an explicit bound.
+#ifdef _LC_OOB_CHECK
+// OOB-check build: clamp through _lc_oob_guard so an invalid index never
+// reaches the GPU memory system; the violation is recorded per thread and the
+// codegen returns from every function (manual multiple return).
+#define _bfread(bf,idx,bound) \
+    bf[_lc_oob_guard((idx),(bound),1u)]
+#define _bfreadVec3(bf,idx,bound) \
+    bf[_lc_oob_guard((idx),(bound),1u)].xyz
+#define _bfwrite(bf,idx,value,bound) \
+    { if ((idx) < (bound)) { bf[idx] = value; } else { _lc_oob_record(1u,(idx),(bound)); } }
+#define _bfwriteVec3(bf,idx,value,type,bound) \
+    { if ((idx) < (bound)) { bf[idx] = type##4(value, 0); } else { _lc_oob_record(1u,(idx),(bound)); } }
+#else
 	#define _bfread(bf,idx,bound) \
 	    (((idx) < (bound)) ? bf[idx] : (bf[0] * 0) - 1)
 	#define _bfreadVec3(bf,idx,bound) \
@@ -157,6 +180,7 @@ float4x4 m;
 	    { if ((idx) < (bound)) { bf[idx] = value; } }
 	#define _bfwriteVec3(bf,idx,value,type,bound) \
 	    { if ((idx) < (bound)) { bf[idx] = type##4(value, 0); } }
+#endif
 #else
 #define _bfread(bf,idx) bf[idx]
 #define _bfreadVec3(bf,idx) bf[idx].xyz
@@ -188,6 +212,16 @@ return b.template Load<BufferElem>(idx).xyz;
 #define _volatile_bfwrite(bf,idx,value) {bf[idx]=value; DeviceMemoryBarrier();}
 #define _volatile_bfwriteVec3(bf,idx,value,type) {bf[idx]=type##4(value,0); DeviceMemoryBarrier();}
 #ifdef LUISA_DEBUG_INFO
+#ifdef _LC_OOB_CHECK
+	#define _bytebfread(bf,type,idx,bound) \
+	    bf.template Load<type>(_lc_oob_guard((idx),(bound),1u))
+	#define _bytebfreadVec3(bf,type,idx,bound) \
+	    bf.template Load<type##4>(_lc_oob_guard((idx),(bound),1u)).xyz
+	#define _bytebfwrite(bf,idx,value,bound) \
+	    { if ((idx) < (bound)) { bf.Store(idx, value); } else { _lc_oob_record(1u,(idx),(bound)); } }
+	#define _bytebfwriteVec3(bf,type,idx,value,bound) \
+	    { if ((idx) < (bound)) { bf.template Store<type##4>(idx, type##4(value, 0)); } else { _lc_oob_record(1u,(idx),(bound)); } }
+#else
 	#define _bytebfread(bf,type,idx,bound) \
 	    (((idx) < (bound)) ? bf.template Load<type>(idx) : (bf.template Load<type>(0) * 0) - 1)
 	#define _bytebfreadVec3(bf,type,idx,bound) \
@@ -196,6 +230,7 @@ return b.template Load<BufferElem>(idx).xyz;
 	    { if ((idx) < (bound)) { bf.Store(idx, value); } }
 	#define _bytebfwriteVec3(bf,type,idx,value,bound) \
 	    { if ((idx) < (bound)) { bf.template Store<type##4>(idx, type##4(value, 0)); } }
+#endif
 #else
 	#define _bytebfread(bf,type,idx) bf.template Load<type>(idx)
 	#define _bytebfreadVec3(bf,type,idx) bf.template Load<type##4>(idx).xyz

@@ -57,7 +57,17 @@ public:
     bool operator!=(AccessChain const &node) const { return !operator==(node); }
 
     void gen_func_impl(Function f, CodegenUtility *util, TemplateFunction const &tmp, luisa::span<Expression const *const> args, vstd::StringBuilder &builder);
-    void call_this_func(luisa::span<Expression const *const> args, vstd::StringBuilder &builder, ExprVisitor &visitor) const;
+    // Debug out-of-range detection: `node_bounds` carries one bound expression
+    // (and resource kind) per access node of the chain, applied at the call
+    // site by wrapping each index argument with `_lc_oob_guard`. An empty view
+    // means "no guard". Bounds are supplied by the caller because a buffer
+    // root's bound depends on the concrete variable (its cbuffer validation
+    // slot), which is not part of the chain identity.
+    struct NodeBound {
+        vstd::string_view bound;
+        uint kind;
+    };
+    void call_this_func(luisa::span<Expression const *const> args, vstd::StringBuilder &builder, ExprVisitor &visitor, vstd::span<NodeBound const> node_bounds = {}) const;
 };
 struct AccessHash {
     size_t operator()(AccessChain const &c) const {

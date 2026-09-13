@@ -162,6 +162,26 @@ void StringStateVisitor::visit(const MemberExpr *expr) {
 }
 void StringStateVisitor::visit(const AccessExpr *expr) {
     auto t = expr->range()->type();
+    // Debug-only out-of-range detection (`#ifndef NDEBUG` on the host gates
+    // CodegenStackData::oob_check, and the emitted HLSL is additionally wrapped
+    // in `#ifdef _LC_OOB_CHECK`). `_lc_oob_guard` records the violation,
+    // clamps the index to 0 so the GPU never touches invalid memory (which
+    // would silently remove the D3D12 device), and the statement-level guards
+    // emitted by visit(const ScopeStmt *) then return from every function.
+    auto oob_check = util->opt->oob_check;
+    auto emit_index = [&](uint kind, uint bound) {
+        if (oob_check) {
+            str << "_lc_oob_guard(("sv;
+            expr->index()->accept(*this);
+            str << "),"sv;
+            vstd::to_string(static_cast<int64_t>(bound), str);
+            str << ',';
+            vstd::to_string(static_cast<int64_t>(kind), str);
+            str << "u)"sv;
+        } else {
+            expr->index()->accept(*this);
+        }
+    };
     auto basicAccess = [&]() {
         accessCount++;
         expr->range()->accept(*this);
@@ -177,7 +197,9 @@ void StringStateVisitor::visit(const AccessExpr *expr) {
             expr->range()->accept(*this);
             accessCount--;
             str << '[';
-            expr->index()->accept(*this);
+            // Shared arrays are always declared as `T name[N]`, so the bound is
+            // the compile-time element count of the shared variable.
+            emit_index(4u /* shared array */, variable.type()->dimension());
             str << ']';
             if (accessCount == 0 && t->is_matrix() && t->dimension() == 3u) {
                 str << ".xyz"sv;
@@ -220,7 +242,12 @@ void StringStateVisitor::visit(const AccessExpr *expr) {
             expr->range()->accept(*this);
             accessCount--;
             str << ".v[";
-            expr->index()->accept(*this);
+            if (t->tag() == Type::Tag::ARRAY) {
+                // Local / struct-member arrays have a compile-time element count.
+                emit_index(3u /* array */, t->dimension());
+            } else {
+                expr->index()->accept(*this);
+            }
             str << ']';
             if (t->element()->is_vector() && t->element()->dimension() == 3) {
                 str << ".v"sv;
@@ -352,6 +379,29 @@ void StringStateVisitor::visit(const ConstantExpr *expr) {
     util->GetConstName(expr->data().hash(), expr->data(), str);
 }
 
+// Debug-only out-of-range early exit. See EmitOobGuard declaration in
+// hlsl_codegen.h: HLSL has no exceptions, so the "quit on out-of-range
+// access" semantic is a manually generated multiple return. The host-side
+// gate (`#ifndef NDEBUG` in CodegenUtility::Codegen) is what enables
+// CodegenStackData::oob_check, so nothing is emitted in release builds.
+void StringStateVisitor::EmitOobGuard() {
+    if (!oobGuardEnabled) { return; }
+    str << "if(_lc_oob_err){"sv;
+    if (util->opt->funcType == CodegenStackData::FuncType::Kernel) {
+        // The kernel entry owns reporting: publish the violation through the
+        // device printer (read back by the host) and then quit the invocation.
+        str << "_lc_oob_exit();"sv;
+        str << "return;}\n"sv;
+        return;
+    }
+    if (auto ret = f.return_type()) {
+        vstd::StringBuilder typeName;
+        util->GetTypeName(*ret, typeName, Usage::READ);
+        str << "return ("sv << typeName << ")0;}\n"sv;
+    } else {
+        str << "return;}\n"sv;
+    }
+}
 void StringStateVisitor::visit(const BreakStmt *state) {
     str << "break;\n";
 }
@@ -360,6 +410,39 @@ void StringStateVisitor::visit(const ContinueStmt *state) {
     str << "continue;\n";
 }
 void StringStateVisitor::visit(const ReturnStmt *state) {
+    if (oobGuardEnabled) {
+        // A returned expression may itself perform the out-of-range access, so
+        // the value has to be materialized before the check can run. This is
+        // the "manual multiple return" for the return statement itself.
+        if (util->opt->funcType == CodegenStackData::FuncType::Kernel) {
+            if (state->expression()) {
+                state->expression()->accept(*this);
+                str << ";\n"sv;
+            }
+            str << "_lc_oob_exit();\n"sv;
+            str << "return;\n"sv;
+            return;
+        }
+        if (auto ret = f.return_type()) {
+            if (state->expression()) {
+                vstd::StringBuilder typeName;
+                util->GetTypeName(*ret, typeName, Usage::READ);
+                str << "{\n"sv;
+                str << typeName << " _lc_oob_r="sv;
+                state->expression()->accept(*this);
+                str << ";\n"sv;
+                str << "if(_lc_oob_err){return ("sv << typeName << ")0;}\n"sv;
+                str << "return _lc_oob_r;\n}\n"sv;
+            } else {
+                str << "if(_lc_oob_err){"sv;
+                vstd::StringBuilder typeName;
+                util->GetTypeName(*ret, typeName, Usage::READ);
+                str << "return ("sv << typeName << ")0;}\n"sv;
+                str << "return;\n"sv;
+            }
+            return;
+        }
+    }
     if (state->expression()) {
         str << "return ";
         state->expression()->accept(*this);
@@ -378,6 +461,9 @@ void StringStateVisitor::visit(const ScopeStmt *state) {
                 return;
             default: break;
         }
+        // Manual multiple return: bail out of every enclosing function as soon
+        // as an out-of-range access has been recorded (debug builds only).
+        EmitOobGuard();
     }
 }
 void StringStateVisitor::visit(const AutoDiffStmt *stmt) {
@@ -654,6 +740,7 @@ StringStateVisitor::StringStateVisitor(
     vstd::StringBuilder &str,
     CodegenUtility *util)
     : f(f), util(util), str(str), switchCount{}, lazyDeclVars{} {
+    oobGuardEnabled = util->opt->oob_check;
 }
 void StringStateVisitor::VisitFunction(Function func) {
     lazyDeclVars.clear();
