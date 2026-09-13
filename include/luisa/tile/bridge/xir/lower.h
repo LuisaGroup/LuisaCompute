@@ -29,9 +29,11 @@ struct LowerOptions {
     // preserves each output's contraction order and existing snapshot storage.
     uint32_t mma_output_block{1u};
     // Additional MMA-only host-unroll cap. Zero inherits the Tile threshold;
-    // nonzero may roll the contraction earlier without changing snapshots or
-    // any other reduction. max_unrolled_tile_elements == 0 takes precedence
-    // and retains fully expanded diagnostic emission.
+    // nonzero may roll the contraction earlier without changing the global
+    // Tile threshold or any other reduction. Newly dynamic operand reads get
+    // indexable definition snapshots through the shared resource plan.
+    // max_unrolled_tile_elements == 0 takes precedence and retains fully
+    // expanded diagnostic emission.
     uint32_t max_unrolled_mma_terms{0u};
     // Bounded pure unordered reductions may partition contributions among
     // these independent accumulators. One preserves the sequential baseline.

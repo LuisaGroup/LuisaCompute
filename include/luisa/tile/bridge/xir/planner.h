@@ -44,8 +44,9 @@ struct PlannerOptions {
     // Fixed opt-in MMA emission candidate, not a searched or credited speedup.
     // Shares generic admission and representation budgets with LowerOptions.
     uint32_t mma_output_block{1u};
-    // Fixed MMA-only unroll cap; zero inherits the Tile threshold. This does
-    // not change snapshot choices and its native cost is not modeled yet.
+    // Fixed MMA-only unroll cap; zero inherits the global Tile threshold.
+    // The shared resource plan accounts for indexable operand snapshots made
+    // necessary by newly dynamic MMA reads. Native cost is not modeled yet.
     uint32_t max_unrolled_mma_terms{0u};
     uint32_t reduction_partitions{4u};
     // One preserves the default complete-program mapping. Zero opts into the

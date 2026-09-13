@@ -9,6 +9,7 @@
 #include <luisa/tile/bridge/xir/planner.h>
 #include <luisa/tile/dsl.h>
 #include <luisa/xir/instructions/alloca.h>
+#include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/debug_printer.h>
 #include <luisa/xir/verifier.h>
@@ -589,8 +590,9 @@ int main(int argc, char *argv[]) {
                 }
             }
         }
-        // MMA K uses an additional unroll cap, independently of input/output
-        // snapshot storage and even when output-block admission falls back.
+        // MMA K uses an additional unroll cap without changing the global
+        // Tile threshold. Newly dynamic reads require explicit resource-plan
+        // snapshots, even when output-block admission falls back.
         for (auto variant : {0u, 2u, 3u}) {
             for (auto terms : {0u, 1u, 8u, 9u, 16u, 64u, 65u}) {
                 auto kernel = fixture(1u, 5u, terms, variant);
@@ -610,17 +612,33 @@ int main(int argc, char *argv[]) {
                         // A trailing singleton K leaves transposed RHS unit-stride.
                         auto strided = variant == 2u && terms != 1u;
                         expect(eq(candidate.blocked_mmas, width == 1u || strided ? 0u : 1u));
-                        expect_same_resources(candidate.resources, baseline.resources);
+                        auto expected_resources = baseline.resources;
+                        auto additional_roll = rolled && terms <= 64u;
+                        if (additional_roll) {
+                            // A is [1,K], B is [K,5] or [5,K]. Each newly
+                            // indexable small input adds one array, never C.
+                            for (auto elements : {terms, 5u * terms}) {
+                                if (elements > 1u && elements <= 64u) {
+                                    expected_resources.snapshot_bytes_per_worker += elements * sizeof(float);
+                                    expected_resources.snapshot_allocations++;
+                                }
+                            }
+                        }
+                        expect_same_resources(candidate.resources, expected_resources);
                         expect_same_resources(planned.selected.resources, candidate.resources);
                         expect(eq(planned.selected.max_unrolled_mma_terms, cap));
                         if (reference_plan) { expect(eq(planned.selected.cost.score, reference_plan.selected.cost.score)); }
                         if (rolled == (terms > 64u)) { expect(text(candidate) == text(baseline)); }
                         if (terms == 9u && cap == 8u) {
-                            auto phis = 0u;
+                            auto phis = 0u, selects = 0u;
                             candidate.function->traverse_instructions([&](xir::Instruction *instruction) noexcept {
                                 phis += instruction->isa<xir::PhiInst>();
+                                if (instruction->isa<xir::ArithmeticInst>()) {
+                                    selects += static_cast<xir::ArithmeticInst *>(instruction)->op() == xir::ArithmeticOp::SELECT;
+                                }
                             });
-                            expect(phis >= 2u);// Runtime K index and accumulator, not counter-only metadata.
+                            expect(phis >= 2u);     // Runtime K index and accumulator, not counter-only metadata.
+                            expect(eq(selects, 0u));// Dynamic operands use indexed loads, not an SSA SELECT chain.
                             expect(text(candidate) != text(baseline));
                         }
                     }
@@ -636,7 +654,87 @@ int main(int argc, char *argv[]) {
             expect(eq(expanded_work.blocked_mmas, 0u));
             expect(eq(rolled_work.blocked_mmas, 1u));
             expect(eq(rolled_work.rolled_mmas, 1u));
-            expect_same_resources(expanded_work.resources, rolled_work.resources);
+            auto expected_resources = expanded_work.resources;
+            expected_resources.snapshot_bytes_per_worker += 16u * sizeof(float);// Only A was below the global threshold.
+            expected_resources.snapshot_allocations++;
+            expect_same_resources(rolled_work.resources, expected_resources);
+        }
+        auto shared_fixture = [](uint32_t variant) {
+            return tile_kernel("mma_indexable_operands", [=](TensorView<const float, 2> a, TensorView<const float, 2> b, TensorView<float, 2> c) {
+                       auto m = axis("m", 1), n = axis("n", 5), k = axis("k", 9);
+                       for (auto &nest : parallel(shape(1))) {
+                           auto lhs = a.tile(coord(0, 0), shape(m, k)).load();
+                           auto rhs = b.tile(coord(0, 0), shape(k, n)).load();
+                           auto seed = c.tile(coord(0, 0), shape(m, n)).load();
+                           if (variant == 1u) {
+                               // Constant operands retain their current representation.
+                               lhs = full<float>(shape(m, k), 2.0f);
+                               rhs = full<float>(shape(k, n), 3.0f);
+                           }
+                           if (variant == 2u) {
+                               for (auto &step : nest.serial(shape(2))) {
+                                   static_cast<void>(step);
+                                   seed = mma(lhs, rhs, seed, {.allow_reassociation = false});
+                                   lhs = lhs + 1.0f;
+                               }
+                           } else {
+                               if (variant == 3u) {
+                                   // Existing dynamic extraction already requires A's
+                                   // snapshot; the newly rolled MMA must not duplicate it.
+                                   for (auto &step : nest.serial(shape(1))) {
+                                       c(coord(0, 0), shape(1, 1)).store(full<float>(shape(1, 1), lhs.at(coord(0, step.index()))));
+                                   }
+                               }
+                               seed = mma(lhs, rhs, seed, {.allow_reassociation = false});
+                               seed = mma(lhs, rhs, seed, {.allow_reassociation = false});
+                           }
+                           c(coord(0, 0), shape(m, n)).store(seed);
+                       }
+                   })
+                .capture(tensor_shape(1, 9), tensor_shape(9, 5), tensor_shape(1, 5));
+        };
+        for (auto variant : {0u, 1u, 2u, 3u}) {
+            auto shared = shared_fixture(variant);
+            auto baseline = check_resources(shared);
+            auto candidate = check_resources(shared, {.max_unrolled_mma_terms = 8u});
+            if (!baseline || !candidate) { continue; }
+            auto baseline_bytes = variant == 3u ? 9u * sizeof(float) : 0u;
+            expect_same_resources(baseline.resources, {baseline_bytes, variant == 3u ? 1u : 0u});
+            // Direct inputs or a small carried argument each get one array;
+            // repeated uses, intermediate seeds and final outputs add none.
+            auto expected = variant == 1u ? bx::ExecutionResources{} : bx::ExecutionResources{54u * sizeof(float), 2u};
+            expect_same_resources(candidate.resources, expected);
+            expect(eq(candidate.rolled_mmas, variant == 2u ? 1u : 2u));
+        }
+        for (auto budget : {215u, 216u}) {
+            MockGpuTargetInfo limited;
+            limited.snapshot_budget = budget;
+            auto candidate = bx::plan(shared_fixture(0u).function(), limited, {.block_size = 64u, .max_unrolled_mma_terms = 8u});
+            expect(eq(candidate.ok(), budget == 216u));
+            if (candidate) {
+                expect_same_resources(candidate.selected.resources, {216u, 2u});
+            } else {
+                expect(limited.policy.observed_candidates.empty());// Capacity rejection precedes cost evaluation.
+            }
+        }
+        // A large deferred expression remains lazy. Only the emitted small A
+        // gets new storage; B's pre-existing array is not replicated through
+        // its recipe. This policy intentionally does not recurse into recipes.
+        auto lazy = tile_kernel("mma_lazy_operand", [](TensorView<const float, 2> a, TensorView<const float, 2> b, TensorView<float, 2> c) {
+                        auto m = axis("m", 1), n = axis("n", 9), k = axis("k", 9);
+                        for (auto &nest : parallel(shape(1))) {
+                            static_cast<void>(nest);
+                            auto lhs = a.tile(coord(0, 0), shape(m, k)).load();
+                            auto rhs = b.tile(coord(0, 0), shape(k, n)).load() + 1.0f;
+                            auto seed = c.tile(coord(0, 0), shape(m, n)).load();
+                            c(coord(0, 0), shape(m, n)).store(mma(lhs, rhs, seed));
+                        }
+                    }).capture(tensor_shape(1, 9), tensor_shape(9, 9), tensor_shape(1, 9));
+        auto lazy_baseline = check_resources(lazy);
+        auto lazy_candidate = check_resources(lazy, {.max_unrolled_mma_terms = 8u});
+        if (lazy_baseline && lazy_candidate) {
+            expect_same_resources(lazy_baseline.resources, {81u * sizeof(float), 1u});
+            expect_same_resources(lazy_candidate.resources, {90u * sizeof(float), 2u});
         }
         MockGpuTargetInfo target_info;
         auto policy_plan = bx::plan(work_kernel.function(), target_info, {.mma_output_block = 4u, .max_unrolled_mma_terms = 8u});

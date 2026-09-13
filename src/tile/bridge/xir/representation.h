@@ -513,8 +513,49 @@ struct MapBodyWork {
     return bounded_count(count, options) || distributed_count(count, options);
 }
 
+struct MmaContractionPlan {
+    IndexSpace domain;
+    bool runtime_loop{false};
+    bool additional_runtime_loop{false};
+};
+
+// Pure domain analysis: never inspect another Value's allocation plan. Both
+// contraction emission and its operands' definition-time storage use this
+// decision, including when the operand is a carried block argument.
+[[nodiscard]] inline MmaContractionPlan mma_contraction_plan(const Operation &op, const LowerOptions &options) noexcept {
+    MmaContractionPlan plan;
+    auto &output = *op.result(0u)->type().index_space();
+    for (auto &axis : op.operand(0u)->type().index_space()->axes()) {
+        if (!output.contains(axis.dimension)) { static_cast<void>(plan.domain.add(axis.dimension, axis.extent)); }
+    }
+    auto inherited = bounded_domain(plan.domain, options.max_unrolled_tile_elements);
+    plan.runtime_loop = options.max_unrolled_tile_elements != 0u &&
+                        (inherited || bounded_domain(plan.domain, options.max_unrolled_mma_terms));
+    plan.additional_runtime_loop = plan.runtime_loop && !inherited;
+    return plan;
+}
+
+[[nodiscard]] inline bool mma_operand_snapshot(const Value *value, const LowerOptions &options) noexcept {
+    if (options.max_unrolled_mma_terms == 0u || options.max_unrolled_tile_elements == 0u ||
+        !value->type().is_tile() || bounded_tile(value, options.max_unrolled_tile_elements)) { return false; }
+    // Constants do not need indexable storage for newly dynamic MMA reads.
+    // Existing snapshot requirements remain intact in definition_snapshot.
+    if (auto op = value->defining_operation(); op && op->kind() == OperationKind::CONSTANT) { return false; }
+    for (auto use : value->use_list()) {
+        auto consumer = use->user();
+        if (consumer->kind() != OperationKind::MMA || use->index() >= 2u) { continue; }
+        auto &output = *consumer->result(0u)->type().index_space();
+        if (capped_work_volume(output, 1u) == 0u || !mma_contraction_plan(*consumer, options).additional_runtime_loop) { continue; }
+        for (auto &axis : value->type().index_space()->axes()) {
+            if (!output.contains(axis.dimension) && axis.extent.is_constant() && axis.extent.constant_value() > 1u) { return true; }
+        }
+    }
+    return false;
+}
+
 [[nodiscard]] inline bool definition_snapshot(const Value *value, uint64_t elements, const LowerOptions &options) noexcept {
-    return elements > 1u && needs_indexable_snapshot(value, options.max_unrolled_tile_elements, options.max_unrolled_region_work);
+    return elements > 1u && (needs_indexable_snapshot(value, options.max_unrolled_tile_elements, options.max_unrolled_region_work) ||
+                             mma_operand_snapshot(value, options));
 }
 
 enum class ValueRepresentation : uint8_t {
@@ -603,17 +644,12 @@ struct TraversalEmissionPlan {
     auto &output = *op.result(0u)->type().index_space();
     auto &lhs = *op.operand(0u)->type().index_space();
     auto &rhs = *op.operand(1u)->type().index_space();
-    IndexSpace contraction;
-    for (auto &a : lhs.axes()) {
-        if (!output.contains(a.dimension)) { static_cast<void>(contraction.add(a.dimension, a.extent)); }
-    }
+    auto contraction = mma_contraction_plan(op, options);
     MmaEmissionPlan plan;
     // Decide contraction emission before output-block admission: R1 and
     // strided output layouts have the same independent MMA unroll control.
     // The zero Tile threshold remains the fully expanded diagnostic override.
-    plan.contraction_runtime_loop = options.max_unrolled_tile_elements != 0u &&
-                                    (bounded_domain(contraction, options.max_unrolled_tile_elements) ||
-                                     bounded_domain(contraction, options.max_unrolled_mma_terms));
+    plan.contraction_runtime_loop = contraction.runtime_loop;
     if (options.mma_output_block == 1u || options.local_lanes != 1u || options.max_unrolled_tile_elements == 0u) { return plan; }
     auto axis = output.rank();
     while (axis != 0u && output.axis(axis - 1u).extent.is_constant() && output.axis(axis - 1u).extent.constant_value() == 1u) { axis--; }
@@ -635,7 +671,7 @@ struct TraversalEmissionPlan {
         // Potential per-block expansion, not an instruction count or a cycle
         // estimate. A rolled contraction emits one update body per output.
         auto cap = static_cast<uint64_t>(options.max_unrolled_region_work) + 1u;
-        auto updates = plan.contraction_runtime_loop ? 1u : capped_work_volume(contraction, cap);
+        auto updates = plan.contraction_runtime_loop ? 1u : capped_work_volume(contraction.domain, cap);
         auto work = capped_work_product(std::min<uint64_t>(options.mma_output_block, columns), updates, cap);
         work = capped_work_product(work, 2u + lhs.rank() + rhs.rank() + output.rank(), cap);
         if (work > options.max_unrolled_region_work) { return plan; }
