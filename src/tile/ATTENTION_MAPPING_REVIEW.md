@@ -540,3 +540,20 @@ uniform contraction iteration k
 实现应由 bridge 内同一份 typed representation plan 描述 team、每值分布、read transition、reduction 和 carry，并供 resource analysis、cost extraction 和 emitter 共用；以 `Operation*`/`Value*` 和 enum 关联，不使用操作名称字符串。变换 TileIR 后重建计划。跨 stage 的值仍保持定义时刻 snapshot，不能为广播方便而重新加载可能已改变的输入；incoming/argument/yield/result 的 carry 分布须一致或有明确 conversion plan。先暂存所有 incoming，再同时更新 current，不能在交叉 carry 更新中覆盖尚未读取的旧 snapshot。replicated storage 不能错误地除以 W。
 
 首轮验证除数值 oracle 外，至少包括：同 shape 不同分布轴、短/ragged/empty reduction、非 identity init、ordered fallback、MMA 输出尾部的完整 collective 参与、两个 carry 交叉更新、输入覆盖后的旧 snapshot，以及两种 target packet width。性能再分别比较 team 划分、逐值分布和 collective 实现，不能把这三个变化合成一个不透明开关。
+
+### 21.5 实现分片：短贡献域与逐值布局几何
+
+本次先完成两个可独立验证的基础部分，**没有宣称第21.4节的完整跨 phase emitter 已落地**。
+
+1. 原公共轴 packet realization 不再要求轴长至少为 W。长度 `2..W-1` 使用一个 masked local slot；`_partial_reduction` 只在有效 owner 上计算贡献，汇合后由 `_packet_reduction` 同时交换 payload 与有效位，再广播 canonical root。不存在的贡献不使用加法/乘法 identity 补齐；合法的 view fill 仍属于贡献。长度1保持复制求值、leader store，长度至少 W 的原 partial-chain/tree 顺序不变。
+2. 内部 [`program_team.h`](bridge/xir/program_team.h) 提供独立的 team geometry 和 `ValueLayout`：Replicated/Cyclic、逐轴 local extents、checked owner/slot 双向映射，以及显式 projection fact 对应的 read transition。它不猜测硬件宽度上限，也不把相同 shape 或相同 axis 当作访问证明。该层只是几何与读取分类基础，尚未生成覆盖所有 SSA 值、循环 carry 和通信位置的 whole-program plan。
+
+资源分析与现有 emitter 仍共用短轴的 snapshot/traversal/reduction emission 决策。规约无完整 chunk 时 `partitions=0`，静态贡献 body 只生成一次，资源计数不得做 `count % partitions`。planner 的 tree prior 额外计算短域的有效位 shuffle、比较、选择与类型转换；这是未校准的相对操作数，不是硬件周期，也不表示短域协作必然更快。
+
+验证用例覆盖非 identity 初值、signed zero、定义后覆盖输入仍读取旧 snapshot、buffer-view guards，以及 `logical width=7 / physical width=1` 的合法零填充。特别要求 `product(init=2, [1,0,...])=0`、`sum(init=2.5, x+3)=24.5`，用来区分“无贡献 lane”和“填充后的真实贡献”。host 检查还独立统计实际 XIR Alloca，并检查 W32/W64 短规约中存在整数有效位 shuffle。
+
+边界仍然明确：ordered fold、任意跨 owner 索引、空贡献域继续保留完整 program fallback，不进入这次新协作分片；多轴 attention 的 pipeline、MMA、carry 和 uniform-broadcast 调度仍待接入。几何层允许表示空 shape，不等于当前 emitter 已接收它。后续的关键验收仍是 row reduction → broadcast → MMA，尤其是 probability 的 source lane 没有有效输出列时，仍须参与全 team collective。
+
+实测与验证见[短域协作规约检查点](../../scripts/benchmark/tile_torch/results/m1-max-20260914-short-packet-reduction/notes.md)：新host两套通过，原host18通过/2个基线同现的预算abort；隔离测试中的双LLVM依赖后SIMD26套通过，Metal六套逐例通过。完整Metal CTest的240秒超时及三次汇总解析失败仍保留，不合并为全绿。
+
+固定block256、同一新版二进制的48个visit显示，宽度7的RMSNorm/softmax在插桩GPU吞吐口径上使用local32分别为local1的2.041/2.406倍，宽度65则为0.343/0.197倍。后者是原本支持的对照映射，不是本次代码相对旧版的收益；host wall及无计数器CB的波动也独立列出。这提示后续需要搜索logical team大小/packet内program打包与逐值分布，不能将“可协作”当作“协作更快”，也不能把目标函数只写成总工作量除以lane数。更小team仍须实现明确的物理shuffle索引与参与契约，尚未开放。

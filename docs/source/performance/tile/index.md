@@ -14,7 +14,7 @@ migration
 
 ## Current conclusion
 
-As of September 13, 2026, development is on `next`:
+As of September 14, 2026, development is on `next`:
 **the architecture runs, but the general MPS/Torch performance goal is not
 complete.** Several bounded FP32 cohorts on Apple M1 Max beat eager Torch;
 large GEMM and direct XIR/SIMD still have substantial gaps. These results do
@@ -50,6 +50,14 @@ prefill-q4 by **25.8%**, and batch GQA by **50.4%**. Prefill-q8 loses its
 full-packet clone and regresses **2.6%**; all six pairs preserve capacity and
 bitwise outputs. This is an opt-in transfer-mapping improvement, not a new
 Torch/MPS comparison or calibrated automatic policy.
+
+The September 14
+{download}`short-packet reduction checkpoint <../../../../scripts/benchmark/tile_torch/results/m1-max-20260914-short-packet-reduction/notes.md>`
+adds generic short-domain XIR cooperation and checked per-value layout geometry,
+not complete attention distribution. Its fixed-block Metal probe finds that
+width-seven cooperation can be slower; the existing width-65 cooperative path
+is faster in GPU intervals. Host and GPU metrics disagree in several cases,
+so this is not an automatic policy or a new MPS/Torch parity claim.
 
 ## How to read the performance evidence
 

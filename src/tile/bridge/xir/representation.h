@@ -290,13 +290,16 @@ struct ReductionProducerFusion {
 [[nodiscard]] inline bool packet_local_program(const Function &function, uint32_t lanes) noexcept {
     luisa::optional<Dim> dimension;
     uint64_t extent = 0u;
+    bool parallel_seen = false;
     auto shape = [&](const IndexSpace &space) {
         uint32_t nonunit = 0u;
         for (auto &axis : space.axes()) {
             if (!axis.extent.is_constant() || axis.extent.constant_value() == 0u) { return false; }
             auto count = axis.extent.constant_value();
             if (count == 1u) { continue; }
-            if (++nonunit > 1u || count < lanes || count > UINT32_MAX) { return false; }
+            // A short common axis has one masked owner slot per lane, not
+            // replicated elements. Empty shapes still fail closed above.
+            if (++nonunit > 1u || count > UINT32_MAX) { return false; }
             if (!dimension) {
                 dimension = axis.dimension;
                 extent = count;
@@ -312,6 +315,7 @@ struct ReductionProducerFusion {
             if (auto binding = op->execution_scope_constraint(); binding && *binding != "auto") { return false; }
             if (op->kind() == OperationKind::PARALLEL) {
                 if (!root || !self(self, *op->region(0u)->block(0u), false, false)) { return false; }
+                parallel_seen = true;
                 continue;
             }
             if (root) {
@@ -377,7 +381,9 @@ struct ReductionProducerFusion {
         }
         return true;
     };
-    return lanes > 1u && function.body().block_count() == 1u && visit(visit, *function.body().block(0u), true, false) && dimension.has_value();
+    // A unit-only program is also legal: values remain replicated and its
+    // unit Tile stores are leader-only. Require an actual execution root.
+    return lanes > 1u && function.body().block_count() == 1u && visit(visit, *function.body().block(0u), true, false) && parallel_seen;
 }
 
 // A saturating potential-work bound, not an emitted instruction count. Loops
@@ -503,7 +509,7 @@ struct MapBodyWork {
 }
 
 [[nodiscard]] inline bool distributed_count(uint64_t count, const LowerOptions &options) noexcept {
-    return options.local_lanes > 1u && count >= options.local_lanes;
+    return options.local_lanes > 1u && count > 1u;
 }
 
 [[nodiscard]] inline uint64_t snapshot_elements(uint64_t count, const LowerOptions &options) noexcept {
@@ -725,7 +731,25 @@ struct ReductionEmissionPlan {
     [[nodiscard]] uint64_t emitted_bodies() const noexcept {
         // One seed and one emitted runtime body per partition, followed by
         // unrolled residuals and a separately emitted masked packet tail.
-        return partitions * 2u + count % partitions + (tail_lanes != 0u);
+        // A short axis has no full chunks/partitions and exactly one tail.
+        return (partitions == 0u ? 0u : partitions * 2u + count % partitions) + (tail_lanes != 0u);
+    }
+    [[nodiscard]] uint64_t packet_tree_work() const noexcept {
+        if (lanes <= 1u) { return 0u; }
+        uint64_t levels = 0u;
+        for (auto width = lanes; width > 1u; width >>= 1u) { levels++; }
+        // Relative selected-operation count, not latency or final LLVM size.
+        // Keep the full-packet prior: payload shuffle + combine per level,
+        // then the canonical-root broadcast and the user's initial combine.
+        auto full_packet_work = levels * 2u + 2u;
+        if (count != 0u || tail_lanes == 0u) { return full_packet_work; }
+        // The short-only validity tree additionally emits one integer
+        // shuffle, one comparison, two selects, AND/OR and bool-to-u32 cast
+        // per level, plus the initial lane < tail predicate. Common peer
+        // addressing and CFG/PHI costs remain outside this uncalibrated prior.
+        constexpr uint64_t kValidityPerLevel = 1u + 1u + 2u + 2u + 1u;
+        constexpr uint64_t kTailPredicate = 1u;
+        return full_packet_work + levels * kValidityPerLevel + kTailPredicate;
     }
 };
 

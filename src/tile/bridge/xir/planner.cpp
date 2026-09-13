@@ -97,11 +97,11 @@ struct SpatialAxis {
 };
 
 [[nodiscard]] double local_iterations(uint64_t count, uint32_t lanes) {
-    return static_cast<double>(count >= lanes ? ceil_div(count, static_cast<uint64_t>(lanes)) : count);
+    return static_cast<double>(lanes > 1u && count > 1u ? ceil_div(count, static_cast<uint64_t>(lanes)) : count);
 }
 [[nodiscard]] bool materialized(const Value *value, uint32_t limit, uint32_t lanes, uint32_t region_budget) {
     auto op = value->defining_operation();
-    return detail::bounded_tile(value, limit) || (lanes > 1u && detail::bounded_tile(value, lanes - 1u)) ||
+    return detail::bounded_tile(value, limit) || (lanes > 1u && detail::bounded_tile(value, 1u)) ||
            (op && op->kind() == OperationKind::TILE_MAP && detail::map_runtime_loop(*op, limit, region_budget));
 }
 
@@ -246,10 +246,11 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
                 }
             }
             measure(*body, axis, iterations, target, cost, std::move(child_indices), limit, lanes, work, options);
-            if (lanes > 1u && kind == OperationKind::REDUCE && volume(*op->domain()) >= lanes) {
-                // Local partials converge through a fixed tree and one root
-                // broadcast. This is a relative prior, not measured cycles.
-                work.arithmetic += repetitions * (2.0 * std::log2(lanes) + 2.0) * cost.arithmetic;
+            if (auto plan = detail::reduction_emission_plan(*op, volume(*op->domain()), representation_options(options, lanes));
+                plan && plan->lanes > 1u) {
+                // The shared plan includes short-axis validity propagation;
+                // these operation units are a relative prior, not cycles.
+                work.arithmetic += repetitions * static_cast<double>(plan->packet_tree_work()) * cost.arithmetic;
             }
         } else if (kind == OperationKind::TILE_MAP) {
             if (detail::value_allocation_plan(op->result(0u), volume(*op->result(0u)->type().index_space()), representation_options(options, lanes)).representation != detail::ValueRepresentation::DEFERRED_MAP) {

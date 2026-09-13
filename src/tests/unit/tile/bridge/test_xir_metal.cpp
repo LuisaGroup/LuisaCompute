@@ -4,6 +4,7 @@
 #include "ut/ut.hpp"
 #include "test_device.h"
 #include "tile_llm_test_utils.h"
+#include "tile_packet_reduction_test_utils.h"
 #include <luisa/runtime/stream.h>
 #include <luisa/tile/bridge/xir/planner.h>
 #include <luisa/tile/runtime.h>
@@ -35,8 +36,8 @@ void run(Device &device, const test::tile_llm::Case &fixture, uint32_t lanes, ui
     expect(static_cast<bool>(shader)) << shader.metadata().error;
     if (!shader) { return; }
     const auto &metadata = shader.metadata();
-    // Narrow automatic fixtures cannot span a packet. Resource-admission
-    // fixtures explicitly require the surviving packet-local realization.
+    // Resource-admission fixtures explicitly require the surviving
+    // packet-local realization; the other calls pin their lane count.
     if (expected_lanes == 0u) { expected_lanes = lanes == 0u ? 1u : lanes; }
     expect(metadata.realization.find("TileIR -> XIR SSA -> LLVM AIR -> Metal4 Runtime") != string::npos) << metadata.realization;
     expect(metadata.realization.find("source_format=XIR") != string::npos) << metadata.realization;
@@ -95,15 +96,17 @@ int main(int argc, char *argv[]) {
             for (auto width : {7, 32, 65}) {
                 auto fixture = test::tile_llm::rows(op, 17, width);
                 run(device, fixture, 1u);
-                run(device, fixture, width < 32 ? 0u : 32u);
-                if (width < 32) {
-                    tile::bridge::xir::PlannerOptions planner{.block_size = 64u, .local_lanes = 32u};
-                    auto rejected = tile::compile(device, fixture.kernel, {.threads_per_group = 64u, .xir = &planner});
-                    expect(!static_cast<bool>(rejected));
-                    expect(rejected.metadata().error.find("local-axis distribution") != string::npos) << rejected.metadata().error;
-                }
+                run(device, fixture, 32u);
             }
         }
+    };
+    "tile_xir_metal4_short_packet_reductions_seeds_and_snapshots"_test = [&] {
+        for (auto width : {1, 2, 7, 16, 31, 32, 33, 65}) {
+            test::tile_xir::packet_local_reductions(device, 17, width, 4u);
+        }
+    };
+    "tile_xir_metal4_packet_fill_is_a_valid_contribution"_test = [&] {
+        test::tile_xir::packet_local_reductions(device, 17, 7, 4u, true);
     };
     "tile_xir_metal4_bounded_wide_reduction_tails"_test = [&] {
         for (auto width : {128, 129}) {

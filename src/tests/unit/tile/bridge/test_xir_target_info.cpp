@@ -14,6 +14,7 @@
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/resource.h>
 #include <luisa/xir/instructions/call.h>
+#include <luisa/xir/instructions/thread_group.h>
 #include <luisa/xir/metadata/strided_mma.h>
 #include <luisa/xir/metadata/contiguous_copy.h>
 #include <luisa/xir/debug_printer.h>
@@ -92,15 +93,12 @@ void expect_same_resources(const bx::ExecutionResources &actual, const bx::Execu
 template<typename T>
 void test_scalar_snapshot_sizes() {
     for (auto lanes : {1u, 32u, 64u}) {
-        for (auto width : {31u, 65u, 129u}) {
-            // Current packet admission requires a nonunit local axis at least
-            // one packet wide. Small complete-program Tiles remain covered.
-            if (lanes > 1u && width < lanes) { continue; }
+        for (auto width : {1u, 7u, 31u, 65u, 129u}) {
             auto kernel = copy_fixture<T>(width);
             auto lowered = check_resources(kernel, {.block_size = 128u, .local_lanes = lanes});
             if (!lowered) { continue; }
-            auto materialized = width > 64u || (lanes > 1u && width >= lanes);
-            auto count = lanes > 1u && width >= lanes ? ceil_div(width, lanes) : width;
+            auto materialized = width > 64u || (lanes > 1u && width > 1u);
+            auto count = lanes > 1u && width > 1u ? ceil_div(width, lanes) : width;
             expect(eq(lowered.resources.snapshot_allocations, materialized ? uint64_t{1u} : uint64_t{0u}));
             expect(eq(lowered.resources.snapshot_bytes_per_worker, materialized ? static_cast<uint64_t>(count) * sizeof(T) : uint64_t{0u}));
         }
@@ -425,7 +423,7 @@ int main(int argc, char *argv[]) {
 
     "tile_xir_gpu_physical_packet_abi_and_ragged_rows"_test = [] {
         for (auto packet : {32u, 64u}) {
-            for (auto width : {65u, 129u}) {
+            for (auto width : {1u, 2u, 7u, 16u, 31u, 32u, 33u, 65u, 129u}) {
                 for (auto reduction : {false, true}) {
                     auto kernel = row_fixture(width, reduction);
                     MockGpuTargetInfo info;
@@ -459,6 +457,68 @@ int main(int argc, char *argv[]) {
                     }
                 }
             }
+        }
+    };
+
+    "tile_xir_packet_mapping_preserves_unsupported_reduction_fallbacks"_test = [] {
+        using namespace tile;
+        // Short domains are supported now, but arbitrary cross-owner reads,
+        // ordered folds and zero domains are not part of this executable slice.
+        for (auto variant : {0u, 1u, 2u}) {
+            auto kernel = tile_kernel("packet_reduction_fallback", [=](TensorView<const float, 2> input, TensorView<float, 2> output) {
+                              auto m = axis("m", 1), n = axis("n", 33);
+                              for (auto &nest : parallel(shape(17))) {
+                                  auto origin = coord(nest.index(), 0);
+                                  auto x = input.tile(origin, shape(m, n)).load();
+                                  auto sum = Scalar<float>{2.5f};
+                                  auto domain = variant == 2u ? shape(0) : shape(n);
+                                  auto policy = variant == 0u ? reduction::fold_left : reduction::unordered_tree;
+                                  for (auto &step : nest.reduce(domain, policy)) {
+                                      auto index = variant == 1u ? (step.index() + 1) % 33 : step.index();
+                                      sum += x.at(coord(0, index));
+                                  }
+                                  output(origin, shape(m, n)).store(x + sum);
+                              }
+                          }).capture(tensor_shape(17, 33), tensor_shape(17, 33));
+            expect(kernel.valid());
+            if (!kernel.valid()) { continue; }
+            for (auto packet : {32u, 64u}) {
+                MockGpuTargetInfo info;
+                info.physical_width = packet;
+                info.proposed_blocks = {packet, 2u * packet};
+                auto forced = bx::plan(kernel.function(), info, {.local_lanes = packet});
+                expect(!forced.ok()) << "variant=" << variant << " packet=" << packet;
+                expect(forced.error.find("local-axis distribution") != string::npos) << forced.error;
+                auto automatic = bx::plan(kernel.function(), info, {.local_lanes = 0u});
+                expect(automatic.ok()) << automatic.error;
+                if (automatic) {
+                    for (const auto &candidate : automatic.candidates) { expect(eq(candidate.local_lanes, 1u)); }
+                    auto fallback = check_resources(kernel, {.block_size = automatic.selected.block_size});
+                    expect(fallback.ok()) << fallback.error;
+                }
+            }
+        }
+    };
+
+    "tile_xir_short_packet_reduction_validity_and_storage_are_explicit"_test = [] {
+        for (auto packet : {32u, 64u}) {
+            auto kernel = row_fixture(7u);
+            auto lowered = check_resources(kernel, {.block_size = 2u * packet, .local_lanes = packet});
+            if (!lowered) { continue; }
+            uint32_t validity_shuffles = 0u;
+            lowered.function->traverse_instructions([&](xir::Instruction *instruction) noexcept {
+                if (!instruction->isa<xir::ThreadGroupInst>()) { return; }
+                auto op = static_cast<xir::ThreadGroupInst *>(instruction);
+                if (op->op() == xir::ThreadGroupOp::WARP_READ_LANE && op->type()->is_uint32()) { validity_shuffles++; }
+            });
+            auto tree_levels = 0u;
+            for (auto distance = 1u; distance < packet; distance *= 2u) { tree_levels++; }
+            // One reduction, with payload plus integer has_value exchanged
+            // at every tree level. A payload-only zero-padded tree fails here.
+            expect(validity_shuffles >= tree_levels) << "packet=" << packet << " validity_shuffles=" << validity_shuffles;
+            expect(lowered.resources.snapshot_allocations > 0u);
+            // check_resources independently compares every actual Alloca type
+            // against both the static estimator and lowerer's accounting.
         }
     };
 

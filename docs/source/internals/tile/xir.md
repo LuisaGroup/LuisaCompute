@@ -3,7 +3,7 @@
 Status: CPU realization with bounded packet-index proofs and
 compiler-owned snapshots, bounded Tile traversal, closed unordered partials and
 an opt-in packet-local mapping; backend-provided execution target info and a
-Metal4 XIR/AIR Runtime adapter, September 10, 2026. The finite solver below is implemented. General Tile distribution, packed
+Metal4 XIR/AIR Runtime adapter, September 14, 2026. The finite solver below is implemented. General Tile distribution, packed
 matrix atoms, software pipelining and measured cost calibration are not.
 Shared static snapshot analysis and backend-owned pre-cost resource admission are
 implemented and regression-tested. Their verification is recorded separately from
@@ -595,7 +595,7 @@ must be assessed separately from successful large-kernel compilation.
 
 ### Packet-local distribution preserves the split coordinate
 
-For an admitted common local axis of extent `N >= W`, the bridge can assign
+For an admitted common local axis of extent `N > 1`, the bridge can assign
 one root program to a complete packet:
 
 ```text
@@ -631,6 +631,22 @@ each lane's partials from real contributions, merges them with a fixed
 source initial value exactly once. Every lane reconverges before a shuffle;
 unit output stores execute only on the packet leader. No new zero/one identity
 or global fast-math permission is introduced.
+
+Short domains (`1 < N < W`) use one masked slot per lane. After valid owners
+evaluate their contributions, all lanes exchange both payload and validity.
+An absent lane is not padded with an invented identity or another copy of the
+user's initial value. A bounds-filled point inside the logical domain is still
+a real contribution, including after elementwise transformation. Extent one
+retains replicated evaluation and leader-only stores; empty domains retain the
+whole-program fallback. Resource accounting and the relative tree-work prior
+share this short-domain emission decision; the latter is not calibrated latency.
+
+The internal `program_team.h` additionally defines checked per-value
+Replicated/Cyclic geometry and owner/slot mappings. This is a tested foundation,
+not yet an integrated multi-axis distribution plan. In particular, attention's
+key-distributed reduction followed by a value-distributed MMA still needs
+per-SSA layouts, carry compatibility and converged broadcast placement. The
+common-axis admission boundary above has not been removed.
 
 The output metadata carries `required_packet_width`: zero for whole-program
 lanes, exactly `W` for packet-local programs. The SIMD adapter checks this

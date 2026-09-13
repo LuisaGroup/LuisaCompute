@@ -944,6 +944,32 @@ private:
         }
         return {};
     }
+    template<typename F>
+    [[nodiscard]] x::Value *_packet_reduction(x::Value *value, uint32_t lanes, F &&combine, x::Value *has_value = nullptr) {
+        auto lane = _builder.static_cast_if_necessary(XType::of<uint32_t>(), _lane);
+        for (uint32_t distance = 1u; distance < lanes; distance *= 2u) {
+            auto peer = _binary(A::BINARY_BIT_XOR, lane, _constant(distance));
+            auto other = _builder.call(value->type(), x::ThreadGroupOp::WARP_READ_LANE, {value, peer});
+            auto combined = combine(value, other);
+            if (has_value) {
+                // Shuffle validity as an integer, using the same participating
+                // team as the payload. An absent lane has initialized storage,
+                // but its payload must never become a mathematical contribution.
+                auto valid = _builder.static_cast_if_necessary(XType::of<uint32_t>(), has_value);
+                auto other_valid = _builder.call(XType::of<uint32_t>(), x::ThreadGroupOp::WARP_READ_LANE, {valid, peer});
+                auto other_has_value = _compare(A::BINARY_NOT_EQUAL, other_valid, _constant(uint32_t{0u}));
+                auto either = _alu(value->type(), A::SELECT, {other, value, has_value});
+                auto both = _binary(A::BINARY_BIT_AND, has_value, other_has_value);
+                value = _alu(value->type(), A::SELECT, {either, combined, both});
+                has_value = _binary(A::BINARY_BIT_OR, has_value, other_has_value);
+            } else {
+                value = combined;
+            }
+        }
+        // All consumers use one canonical tree root. Different butterfly
+        // operand orders in other lanes must not leak different FP results.
+        return _builder.call(value->type(), x::ThreadGroupOp::WARP_READ_LANE, {value, _constant(uint32_t{0u})});
+    }
     [[nodiscard]] bool _partial_reduction(const Operation &op) {
         auto total = _volume(*op.domain());
         auto plan = detail::reduction_emission_plan(op, total, _options);
@@ -995,6 +1021,28 @@ private:
         auto combine = [&](x::Value *a, x::Value *b) {
             return _elementwise(*update, left ? Elements{a, b} : Elements{b, a});
         };
+        if (distributed && count == 0u) {
+            // A short logical domain has no full packet. Only actual owners
+            // evaluate the contribution (including any legal view fill), then
+            // the entire team reconverges before communicating. Do not pad the
+            // reduction with zero/one or duplicate the user's initial value.
+            auto valid = _compare(A::BINARY_LESS, _lane, _index(plan->tail_lanes));
+            auto before = _block;
+            auto active = _output.function->create_basic_block();
+            auto merge = _output.function->create_basic_block();
+            _builder.cond_br(valid, active, merge);
+            _at(active);
+            auto contribution = evaluate(_index(0u));
+            auto after = _block;
+            _builder.br(merge);
+            _at(merge);
+            // The inactive payload is defined, not an identity. Its validity
+            // flag prevents it from contributing even for product/min/max.
+            auto seed = _builder.phi(type, {{initial, before}, {contribution, after}});
+            auto root = _packet_reduction(seed, lanes, combine, valid);
+            _define(op.result(0u), Elements{combine(initial, root)});
+            return true;
+        }
         Elements seeds;
         for (uint64_t p = 0u; p < partitions; p++) { seeds.emplace_back(evaluate(_index(p))); }
         // Seed each nonempty partition from its first actual contribution.
@@ -1040,15 +1088,7 @@ private:
             }
             auto value = results[0u];
             for (size_t p = 1u; p < results.size(); p++) { value = combine(value, results[p]); }
-            auto lane = _builder.static_cast_if_necessary(XType::of<uint32_t>(), _lane);
-            for (uint32_t distance = 1u; distance < lanes; distance *= 2u) {
-                auto peer = _binary(A::BINARY_BIT_XOR, lane, _constant(distance));
-                auto other = _builder.call(type, x::ThreadGroupOp::WARP_READ_LANE, {value, peer});
-                value = combine(value, other);
-            }
-            // Every lane consumes the exact same tree root, even when its own
-            // butterfly operand ordering would produce a different FP value.
-            auto root = _builder.call(type, x::ThreadGroupOp::WARP_READ_LANE, {value, _constant(uint32_t{0u})});
+            auto root = _packet_reduction(value, lanes, combine);
             initial = combine(initial, root);
         } else {
             for (auto partial : results) { initial = combine(initial, partial); }
