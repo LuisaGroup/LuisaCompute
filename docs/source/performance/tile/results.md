@@ -71,6 +71,18 @@ TIRx already has cooperative reductions, so this is not a claim that all Metal
 routes lack warp intrinsics. See the mapping review's section 21 for the source
 diagnosis and remaining implementation work; no measured MPS victory is claimed.
 
+The subsequent {download}`fixed-BQ block-mapping experiment
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260914-metal-block-mapping/notes.md>`
+completes 48 visits at fixed local1/math/representation, comparing automatic
+grouping with block32. Prefill-q1 instrumented throughput ratios are
+0.940–0.945, whereas small-q1 ratios are 1.040–1.044; prefill-q4 spans both
+directions. RMSNorm's throughput improves, but that case changes padding as
+well as group packing. Wide-grid SwiGLU has no consistent instrumented win
+and all four host-throughput pairs regress. The same-geometry control also
+retains timing variation. No universal block32 policy or calibrated GPU
+completion model is promoted; this experiment does not implement cooperative
+attention reductions or establish a new cross-framework ranking.
+
 The {download}`Chinese attention mapping review
 <../../../../src/tile/ATTENTION_MAPPING_REVIEW.md>`
 separates existing cooperative/collective lowering, unmeasured matrix-initializer

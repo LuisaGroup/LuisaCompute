@@ -5,6 +5,7 @@ import copy
 from contextlib import redirect_stderr, redirect_stdout
 import io
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -39,7 +40,7 @@ def payload_for(op="rope", dims=(2, 4), block=(1, 1), samples=2, repetitions=8):
         attention_block=list(block), attention_qk="mma" if op == "attention" else "not_applicable",
         attention_pv="mma" if op == "attention" else "not_applicable",
         input_shapes=[list(s) for s in inputs], output_shape=list(output),
-        realization="test-only; local_lanes=1", dispatch=[32, 1, 1],
+        realization="test-only; 32 threads/group; local_lanes=1", dispatch=[32, 1, 1],
         correctness=dict(checks=2, elements_per_check=timing.math.prod(output), guard_elements_per_check=34,
                          max_abs_error=0., atol=5e-5, rtol=5e-5),
         throughput_us=[2.] * samples, latency_us=[3.] * samples)
@@ -98,6 +99,7 @@ class Metal4AttentionProtocolTests(unittest.TestCase):
             args = timing.parse_arguments(common)
             self.assertEqual(args.case, [(op, (128, 1024)) for op in ("rmsnorm", "masked_softmax", "swiglu")])
             self.assertEqual(args.local_lanes, [1, 32, 0])
+            self.assertEqual(args.block_size, 0)
             self.assertEqual(args.attention_block, (16, 32))
             args = timing.parse_arguments(common + ["--case", "attention:1,2,1,3,5,7,9", "--attention-block", "3", "7"])
             self.assertEqual(args.attention_block, [3, 7])
@@ -181,6 +183,44 @@ class Metal4AttentionProtocolTests(unittest.TestCase):
 
 
 class Metal4TimingAccountingTests(unittest.TestCase):
+    def test_explicit_block_parser_leaves_device_limit_to_backend(self):
+        common = ["--binary", "unused", "--output", "unused"]
+        for size in (0, 32, 64, 256, 1024, 65536, 0xffffffe0):
+            with self.subTest(size=size):
+                self.assertEqual(timing.parse_arguments(common + ["--block-size", str(size)]).block_size, size)
+        for size in (-32, 1, 31, 33, 0xffffffff, 0x100000000):
+            with self.subTest(size=size), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                timing.parse_arguments(common + ["--block-size", str(size)])
+
+    def test_actual_block_acknowledgment_and_forged_metadata(self):
+        good = payload_for()
+        self.assertEqual(timing.validate_block_size(good, 0), 32)
+        self.assertEqual(timing.validate_block_size(good, 32), 32)
+        with self.assertRaisesRegex(ValueError, "explicit request"):
+            timing.validate_block_size(good, 64)
+        for block in ([64, 1, 1], [16, 2, 1], [31, 1, 1], [32, True, 1], [32., 1, 1]):
+            for control in (False, True):
+                bad = copy.deepcopy(good)
+                owner = bad["device_timing"]["control"] if control else bad["device_timing"]
+                owner["latency"][0]["dispatches"][0]["block_size"] = block
+                with self.subTest(block=block, control=control), self.assertRaises(ValueError):
+                    timing.validate_block_size(bad, 32)
+        for realization in ("test-only; local_lanes=1", "32 threads/group; 32 threads/group; local_lanes=1",
+                            "64 threads/group; local_lanes=1", "32.0 threads/group; local_lanes=1"):
+            with self.subTest(realization=realization), self.assertRaises(ValueError):
+                timing.validate_block_size(good | {"realization": realization}, 0)
+        # A wider legal aligned request is not clamped to the bootstrap
+        # search list or a hardcoded device maximum by the Python checker.
+        wide = copy.deepcopy(good)
+        for owner in (wide["device_timing"], wide["device_timing"]["control"]):
+            for phase in ("throughput", "latency"):
+                for sample in owner[phase]:
+                    for dispatch in sample["dispatches"]:
+                        dispatch["block_size"] = [2048, 1, 1]
+        wide["realization"] = "2048 threads/group; local_lanes=1"
+        self.assertEqual(timing.validate_block_size(wide, 2048), 2048)
+        self.assertEqual(timing.validate_block_size(wide, 0), 2048)
+
     def test_local_lanes_are_unique_and_acknowledge_explicit_requests(self):
         for lanes in (1, 32, 64, 128, 65536):
             for request in (0, lanes):
@@ -251,6 +291,54 @@ class Metal4TimingAccountingTests(unittest.TestCase):
 
 
 class Metal4FailureStopTests(unittest.TestCase):
+    def test_block_override_environment_and_recorded_actual(self):
+        for requested, actual, expected_status in ((0, 32, "OK"), (64, 64, "OK"), (64, 32, "Error")):
+            with self.subTest(requested=requested, actual=actual), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                binary = root / "benchmark_tile_xir"
+                binary.write_bytes(b"mocked")
+                binary.chmod(0o700)
+                (root / "libluisa-backend-metal4.dylib").write_bytes(b"mocked")
+                tensors = root / "tensors"
+                tensors.mkdir()
+                args = timing.parse_arguments(["--binary", str(binary), "--output", str(root / "report"),
+                                               "--case", "rope:2,4", "--block-size", str(requested), "--local-lanes", "1",
+                                               "--samples", "1", "--repetitions", "2", "--rounds", "1"])
+
+                def capture(command, environment, timeout, stdout, stderr):
+                    if requested:
+                        self.assertEqual(environment["LUISA_TILE_BENCH_XIR_BLOCK_SIZE"], str(requested))
+                    else:
+                        self.assertNotIn("LUISA_TILE_BENCH_XIR_BLOCK_SIZE", environment)
+                    payload = payload_for("rope", (2, 4), samples=1, repetitions=2)
+                    payload["realization"] = f"{actual} threads/group; local_lanes=1"
+                    for owner in (payload["device_timing"], payload["device_timing"]["control"]):
+                        for phase in ("throughput", "latency"):
+                            for sample in owner[phase]:
+                                for dispatch in sample["dispatches"]:
+                                    dispatch["block_size"] = [actual, 1, 1]
+                    write_exports(Path(command[-1]), "rope", (2, 4))
+                    stdout.write_text(json.dumps(payload))
+                    stderr.write_text("")
+                    return dict(status="OK", exit_code=0)
+
+                with patch("metal4_timing.parse_arguments", return_value=args), \
+                        patch("metal4_timing.tempfile.mkdtemp", return_value=str(tensors)), \
+                        patch.dict(os.environ, {"LUISA_TILE_BENCH_XIR_BLOCK_SIZE": "128"}), \
+                        patch("metal4_timing.capture", side_effect=capture), redirect_stdout(io.StringIO()):
+                    self.assertEqual(timing.main(), 0 if expected_status == "OK" else 1)
+                report = json.loads((root / "report" / "results.json").read_text())
+                row = report["results"][0]
+                self.assertEqual(report["protocol"]["requested_block_size"], requested)
+                self.assertEqual(row["requested_block_size"], requested)
+                self.assertEqual(row["status"], expected_status)
+                self.assertEqual(report["removed_environment"]["LUISA_TILE_BENCH_XIR_BLOCK_SIZE"], "128")
+                if expected_status == "OK":
+                    self.assertEqual(row["actual_block_size"], actual)
+                else:
+                    self.assertNotIn("metrics", row)
+                    self.assertFalse(report["cohort_valid"])
+
     def test_known_driver_diagnostics_are_shared_and_not_normal_json(self):
         for diagnostic in ("GPUHangError", "GPU_Hang_Error", "GPU-Hang-Error", "MTLCommandBufferErrorDomain Code=2",
                            "execution of the command buffer was aborted", "GPU Address Fault Error"):

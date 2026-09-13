@@ -68,6 +68,38 @@ def validate_local_lanes(realization, requested):
     return actual
 
 
+def valid_block_size(value):
+    # This is the uint32 + SIMD-group alignment contract, not a guessed
+    # device limit. MetalTileTargetInfo and the created pipeline check the
+    # actual device/PSO maximum for an explicit request.
+    return integer(value) and value <= 0xffffffff and value % 32 == 0
+
+
+def validate_block_size(payload, requested):
+    require(valid_block_size(requested), "invalid requested block size")
+    timing = payload["device_timing"]
+    blocks = set()
+    for owner in (timing, timing["control"]):
+        for phase in ("throughput", "latency"):
+            for sample in owner[phase]:
+                for dispatch in sample["dispatches"]:
+                    block = dispatch["block_size"]
+                    require(isinstance(block, list) and len(block) == 3 and
+                            all(integer(value, 1) for value in block), "invalid captured block size")
+                    blocks.add(tuple(block))
+    require(len(blocks) == 1, "captured block sizes differ between sampled phases")
+    actual, y, z = next(iter(blocks))
+    require(y == z == 1 and actual > 0 and valid_block_size(actual), "expected a 1D SIMD-aligned block")
+    require(requested == 0 or actual == requested, "captured block size denies explicit request")
+    realization = payload["realization"]
+    require(isinstance(realization, str), "missing block realization")
+    fields = [field.strip().removesuffix(" threads/group") for field in realization.split(";")
+              if field.strip().endswith(" threads/group")]
+    require(len(fields) == 1 and fields[0].isascii() and fields[0].isdecimal() and int(fields[0]) == actual,
+            "realization threads/group differs from captured block size")
+    return actual
+
+
 def validate_sample(sample, expected, counters, frequency):
     require(integer(expected, 1) and (not counters or integer(frequency, 1)), "invalid timing denominator")
     require(sample["error"] == "" and sample["overflow"] is False, "sample error or overflow")
@@ -237,6 +269,8 @@ def parse_arguments(argv=None):
     parser.add_argument("--attention-block", type=int, nargs=2, default=(16, 32), metavar=("BQ", "BK"),
                         help="attention tile shape; row kernels always use 1,1")
     parser.add_argument("--local-lanes", type=int, nargs="+", default=[1, 32, 0])
+    parser.add_argument("--block-size", type=int, default=0,
+                        help="0 keeps automatic grouping; explicit 1D threads/group must be a multiple of 32; device limits are checked by the backend")
     parser.add_argument("--rounds", type=int, default=2)
     parser.add_argument("--samples", type=int, default=3)
     parser.add_argument("--repetitions", type=int, default=8)
@@ -247,6 +281,8 @@ def parse_arguments(argv=None):
         parser.error("invalid rounds, samples, repetitions, timeout, or local lanes")
     if not (1 <= args.attention_block[0] <= 128 and 1 <= args.attention_block[1] <= 256):
         parser.error("invalid attention block")
+    if not valid_block_size(args.block_size):
+        parser.error("--block-size must be 0 or a uint32 multiple of 32; the backend checks device limits")
     args.case = args.case or [parse_case(f"{op}:128,1024") for op in ("rmsnorm", "masked_softmax", "swiglu")]
     return args
 
@@ -274,6 +310,8 @@ def main():
     environment = {key: value for key, value in os.environ.items() if key not in removed}
     declared = {"LUISA_TILE_BENCH_METAL4_TIMING": "1", "LUISA_TILE_BENCH_FIXED_REPETITIONS": str(args.repetitions),
                 "LUISA_TILE_BENCH_XIR_BACKEND": "metal4"}
+    if args.block_size != 0:
+        declared["LUISA_TILE_BENCH_XIR_BLOCK_SIZE"] = str(args.block_size)
     dependencies = [args.binary.parent / name for name in
                     ("libluisa-tile-bridge-xir.dylib", "libluisa-tile.dylib", "libluisa-xir.dylib",
                      "libluisa-runtime.dylib", "libluisa-core.dylib")]
@@ -292,6 +330,7 @@ def main():
                            "device_repetitions": min(args.repetitions, 64), "target_ms": 20, "warmup_ms": 10,
                            "timeout_seconds": args.timeout, "zero_overhead_kernel_time": False,
                            "attention_block": list(args.attention_block), "attention_qk": "mma", "attention_pv": "mma",
+                           "requested_block_size": args.block_size,
                            "external_caffeinate_required": True, "external_caffeinate_verified": False},
               "cohort_valid": False, "gpu_diagnostics_valid": True, "results": []}
     for round_index in range(args.rounds):
@@ -299,7 +338,8 @@ def main():
         for op, shape in args.case:
             for lanes in variants:
                 report["results"].append({"round": round_index, "operation": op, "dimensions": list(shape),
-                                          "requested_local_lanes": lanes, "status": "NotRun", "valid": False})
+                                          "requested_local_lanes": lanes, "requested_block_size": args.block_size,
+                                          "status": "NotRun", "valid": False})
     report_path = args.output / "results.json"
     write_report(report_path, report)
     matching_inputs = {}
@@ -325,6 +365,7 @@ def main():
             require(row["status"] == "OK", row.get("error", f"process exited with {row['exit_code']}"))
             payload = json.loads(stdout.read_text())
             row["actual_local_lanes"] = validate_local_lanes(payload["realization"], lanes)
+            row["actual_block_size"] = validate_block_size(payload, args.block_size)
             row["metrics"] = validate(payload, op, shape, args.samples, args.repetitions, block)
             require(all(row["tensor_receipts"].values()), "missing tensor export")
             row["independent_correctness"] = validate_exports(output, op, shape)

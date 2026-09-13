@@ -507,3 +507,36 @@ QK output ownership → 按 row 的局部 partial + subgroup tree
 该图是待实现目标，不是已存在的 arbitrary-phase emitter。候选需要共同规划参与 lane、每 lane 元素、尾部有效性、结果 ownership 和相邻 phase 的转换；保留用户初值只合并一次、ordered fallback、snapshot/effect 时机等语义。沿 KV 的 online recurrence 也不能仅凭内部 max/sum 是 unordered 就任意重排；split-KV 需要完整状态的合法合并。
 
 先以 softmax/RMSNorm/dot 的独立输出域、非32倍数贡献长度和 ordered 反例验证，再组合 attention 的 QK→softmax→PV。性能诊断应分离“输出分布不变，只换 reduction 实现”和“整程序联合重新映射”，分别记录实际 collective、layout transition、barrier 与容量。TIRx 的 initializer/PV tensorization 隔离实验仍是独立候选；它不替代 XIR 的上述结构修复，也不能混入一次无法归因的整体开关。
+
+### 21.4 最小协作实现：program team 与逐值分布分开
+
+以下是代码审查后的**待实现方案**，不表示当前 emitter 已支持它，也不增加用户 DSL 实体。第一步仍可让一个完整 target packet 执行一个逻辑 program；需要去掉的限制是“这个 program 的所有值必须共用同一个非平凡分布轴”，不是完整 team 参与 collective 的要求。
+
+```text
+root program index（team 内一致）
+  └─ program team：W 个 lanes，W 由 backend 提供
+       ├─ score[row,key]  → Cyclic(key,W)
+       ├─ row max/sum    → Replicated
+       └─ output[row,v]   → Cyclic(v,W)
+```
+
+两种最小内部表示为 `Replicated` 和 `Cyclic(axis,W)`。后一种表示沿所选轴计算 `owner = coord[axis] % W`、`local_coord[axis] = coord[axis] / W`，其余坐标不变，再按该值的本地 layout 求 slot。分布属于 SSA 定义；即使两个值 shape 相同，也不能假设它们的 owner 相同。当前 `_storage_index` 只依赖全局 `_local_slot`，`_read` 不描述跨 owner 读取，pipeline carry 也没有分布身份，因此不能直接放宽 `packet_local_program`。
+
+首版准入可限定为 uniform pipeline/row map 中的 closed unordered reduction，保留旧完整 program 路径作为 fallback。访问只支持：replicated 本地读、owner-preserving cyclic 本地读，以及**完整投影坐标在整个 team 内一致**的 cyclic→broadcast；只证明 owner 轴一致还不够。varying cross-owner gather、无法闭合的 carry 分布转换和不支持的显式 Memory 拒绝这个候选，不拒绝原 Tile 程序。不能识别 kernel 名称或给 attention 开后门。
+
+短规约和尾部需要显式有效性：每 lane 持有 `(has_value, partial)`，只收集真正存在的贡献；tree 交换有效位和 payload，双方有效才合并，单方有效则保留它。这里的不存在指逻辑贡献域之外，不能跳过域内由 `bounds` fill 或 `ite` 产生的合法贡献。无贡献 lane 的安全初始化 payload 不是数学 identity。所有 lanes 重收敛后执行 collective，广播 canonical root，用户 init 只合并一次；空贡献域原样返回 init。由此覆盖长度 0/1/7/16/31/32/33/65，而不是沿用旧 `count >= W` 门槛或偷偷补零。
+
+跨 MMA 边界也必须安排通信的执行位置。例如输出按 value 分布，而 contraction 中的 `probability[row,k]` 坐标对 team 一致时，可广播其 owner 的本地 snapshot，不需要先支持任意 gather 或 shared-memory 全 Tile 转置。但广播必须在**所有 team lanes 都执行**的位置：
+
+```text
+uniform contraction iteration k
+  all-team probability[row,k] broadcast
+  if output_lane_valid:
+      local input read + accumulator update
+```
+
+当前 `_for_each` 的 ragged 输出 guard 不能直接包住新 collective，否则概率的 source lane 可能未参与。若第一版尚未完成这个调度，应显式拒绝相应 ragged MMA 候选。这里仍是普通逐输出 contraction，不等于接上 tensor atom。
+
+实现应由 bridge 内同一份 typed representation plan 描述 team、每值分布、read transition、reduction 和 carry，并供 resource analysis、cost extraction 和 emitter 共用；以 `Operation*`/`Value*` 和 enum 关联，不使用操作名称字符串。变换 TileIR 后重建计划。跨 stage 的值仍保持定义时刻 snapshot，不能为广播方便而重新加载可能已改变的输入；incoming/argument/yield/result 的 carry 分布须一致或有明确 conversion plan。先暂存所有 incoming，再同时更新 current，不能在交叉 carry 更新中覆盖尚未读取的旧 snapshot。replicated storage 不能错误地除以 W。
+
+首轮验证除数值 oracle 外，至少包括：同 shape 不同分布轴、短/ragged/empty reduction、非 identity init、ordered fallback、MMA 输出尾部的完整 collective 参与、两个 carry 交叉更新、输入覆盖后的旧 snapshot，以及两种 target packet width。性能再分别比较 team 划分、逐值分布和 collective 实现，不能把这三个变化合成一个不透明开关。
