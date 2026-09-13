@@ -1177,6 +1177,17 @@ bool luisa_compute_metal_codegen_llvm_supported(
         }
     }
     for (auto function : xir_module.function_list()) {
+        // These descriptors define required call semantics. Until this target
+        // realizes them, native_include must not replace them by named externs.
+        for (auto metadata : function->metadata_list()) {
+            auto tag = metadata->derived_metadata_tag();
+            if (tag == xir::DerivedMetadataTag::STRIDED_MMA ||
+                tag == xir::DerivedMetadataTag::CONTIGUOUS_COPY) {
+                auto name = tag == xir::DerivedMetadataTag::STRIDED_MMA ?
+                                "strided_mma" : "contiguous_copy";
+                return fail(luisa::string{"unsupported required native call semantics '"} + name + "'");
+            }
+        }
         if (function->derived_function_tag() == xir::DerivedFunctionTag::EXTERNAL &&
             (!function->name().has_value() || function->name()->empty())) {
             return fail("module contains an unnamed external function");

@@ -363,7 +363,7 @@ private:
         const schedule::BasicBlock &block,
         const std::function<void(schedule::EdgeAssignment)> &visit);
     void _analyze_local_lvalues();
-    void _preflight_strided_mmas();
+    void _preflight_typed_calls();
     void _analyze_ray_query_scratch();
     void _preflight_edge(const schedule::ControlEdge &edge,
                          bool split_edge);
@@ -455,6 +455,7 @@ private:
         const schedule::Instruction &instruction);
     void _local_store(const schedule::Instruction &instruction);
     void _strided_mma(const schedule::Instruction &instruction);
+    void _contiguous_copy(const schedule::Instruction &instruction);
     [[nodiscard]] ::llvm::Value *_atomic_lanes(
         xir::AtomicOp op, const schedule::Value &result,
         ::llvm::Value *base, ::llvm::Value *offsets,

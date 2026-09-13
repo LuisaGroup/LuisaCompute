@@ -11,9 +11,13 @@
 #include <luisa/dsl/rtx/ray_query.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/call.h>
+#include <luisa/xir/instructions/alloca.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/ray_query.h>
 #include <luisa/xir/module.h>
+#include <luisa/xir/metadata/contiguous_copy.h>
+#include <luisa/xir/metadata/strided_mma.h>
 #include <luisa/xir/passes/dce.h>
 
 #include "block_barrier.h"
@@ -57,6 +61,74 @@ namespace {
 }
 
 void register_diamond_tests() {
+    "simd_xir_contiguous_copy_projection_contract"_test = [] {
+        for (auto variant = 0u; variant < 18u; variant++) {
+            Module module;
+            auto kernel = module.create_kernel();
+            auto buffer_type = Type::buffer(variant == 4u ? Type::of<int>() : Type::of<float>());
+            auto offset_type = variant == 5u ? Type::of<uint32_t>() : Type::of<uint64_t>();
+            auto array_type = Type::array(variant == 6u ? Type::of<int>() : Type::of<float>(), variant == 7u ? 4u : 8u);
+            // Construct intentionally malformed arguments directly: the
+            // public factory rejects these before projection is reached.
+            xir::Argument *source = variant == 12u ?
+                                        kernel->arguments().push_back(luisa::make_managed<xir::ValueArgument>(kernel, buffer_type)) :
+                                        static_cast<xir::Argument *>(kernel->create_resource_argument(buffer_type));
+            auto offset = kernel->create_value_argument(offset_type);
+            auto external = module.create_external_function(nullptr);
+            external->set_name("tile_contiguous_copy_name_does_not_grant_admission");
+            if (variant == 10u) {
+                external->arguments().push_back(luisa::make_managed<xir::ValueArgument>(external, buffer_type));
+            } else {
+                (void)external->create_resource_argument(buffer_type);
+            }
+            if (variant == 11u) {
+                (void)external->create_reference_argument(offset_type);
+            } else {
+                (void)external->create_value_argument(offset_type);
+            }
+            (void)external->create_reference_argument(array_type);
+            auto metadata = variant == 0u ? nullptr : external->create_metadata<ContiguousCopyMD>();
+            if (metadata != nullptr) {
+                metadata->descriptor = {variant == 16u ? 1u : 5u, variant == 17u ? 8u : 4u};
+                if (variant == 1u) { metadata->descriptor.element_count = 0u; }
+                if (variant == 2u) { metadata->descriptor.vector_width = 3u; }
+                if (variant == 3u) { metadata->descriptor.element_count = uint64_t{1u} << 61u; }
+                if (variant == 8u) { external->metadata_list().push_front(metadata->clone()); }
+                if (variant == 9u) {
+                    external->create_metadata<StridedMmaMD>()->descriptor = {
+                        .output_extents = {1u}, .lhs_output_strides = {0u}, .rhs_output_strides = {0u}};
+                }
+            }
+            XIRBuilder builder;
+            builder.set_insertion_point(kernel->create_body_block());
+            xir::Value *destination = variant == 13u ? builder.alloca_shared(array_type) : builder.alloca_local(array_type);
+            if (variant == 14u) { destination = kernel->create_reference_argument(array_type); }
+            auto call = builder.call(nullptr, external, {source, offset, destination});
+            builder.return_void();
+            auto result = lower_xir_to_schedule(kernel, {.logical_warp_width = 8u});
+            auto valid = variant >= 15u;
+            expect(result.succeeded() == valid) << variant << diagnostics_text(result);
+            if (!result.succeeded()) { continue; }
+            expect(verify(*result.function).succeeded());
+            auto found = size_t{0u};
+            for (auto &&block : result.function->blocks()) {
+                for (auto &&instruction : block.instructions) {
+                    if (instruction.opcode != Opcode::call) { continue; }
+                    ++found;
+                    expect(instruction.contiguous_copy.has_value());
+                    expect(!instruction.strided_mma.has_value());
+                    expect(instruction.operands.size() == 3u);
+                    if (instruction.contiguous_copy) {
+                        expect(instruction.contiguous_copy->element_count == metadata->descriptor.element_count);
+                        expect(instruction.contiguous_copy->vector_width == metadata->descriptor.vector_width);
+                    }
+                }
+            }
+            expect(found == 1u);
+            (void)call;
+        }
+    };
+
     "simd_xir_lowering_projects_divergent_phi_and_collective"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();

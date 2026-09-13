@@ -11,6 +11,7 @@
 #include <luisa/tile/runtime.h>
 #include <luisa/tile/bridge/xir/planner.h>
 #include <luisa/tile/algorithms.h>
+#include <luisa/backends/ext/simd_config_ext.h>
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -1313,7 +1314,98 @@ void mma_output_blocks(Device &device, int64_t rows, int64_t columns, int64_t te
     }
 }
 
-void native_mma_policy(Device &device, int64_t terms, bool rhs_transposed, bool strict, bool fast_math = true) {
+void native_copy_snapshots(Device &device, int64_t width) {
+    using namespace tile;
+    constexpr auto programs = int64_t{17}, rows = int64_t{2}, stride = int64_t{11};
+    auto kernel = tile_kernel("native_copy_snapshot_bits", [=](TensorView<float, 3> a,
+                                                               TensorView<const float, 3> b,
+                                                               TensorView<float, 3> output) {
+                      auto program = axis("program", 1), row = axis("row", 1), column = axis("column", width);
+                      for (auto &nest : parallel(shape(programs))) {
+                          // One packet mixes full views, negative origins and
+                          // cross-row tails. Flat buffer capacity is NOT the
+                          // logical bound of a row. Each program owns two rows.
+                          auto offset = nest.index() % 5 * 3 - 3;
+                          auto row_offset = (nest.index() + 1) % 4 - 1;
+                          auto origin = coord(nest.index(), row_offset, offset);
+                          auto x = a.tile(origin, shape(program, row, column), bounds::zero).load();
+                          auto y = b.tile(origin, shape(program, row, column), bounds::zero).load();
+                          // b may alias a. Both loads must already be complete,
+                          // including the scalar fallback's zero-filled lanes.
+                          a(coord(nest.index(), 0, 0), shape(1, rows, stride)).store(full<float>(shape(1, rows, stride), 13.0f));
+                          output(coord(nest.index(), 0, 0), shape(program, row, column)).store(x);
+                          output(coord(nest.index(), 1, 0), shape(program, row, column)).store(y);
+                      }
+                  }).capture(tensor_shape(programs, rows, stride), tensor_shape(programs, rows, stride), tensor_shape(programs, 2, width));
+    expect(kernel.valid());
+    if (!kernel.valid()) { return; }
+    constexpr size_t pad = 17u;
+    constexpr auto guard = uint32_t{0xc436d000u};
+    constexpr uint32_t bits[]{0x00000000u, 0x80000000u, 0x7fc00001u, 0xffc01234u,
+                              0x7f800000u, 0xff800000u, 0x00000001u, 0x80000001u,
+                              0x3f800001u, 0xbf000003u, 0x41200000u};
+    vector<float> input_a(programs * rows * stride + 2u * pad, std::bit_cast<float>(guard));
+    auto input_b = input_a;
+    vector<float> initial(programs * 2 * width + 2u * pad, std::bit_cast<float>(guard));
+    for (auto p = int64_t{0}; p < programs; p++) {
+        for (auto i = int64_t{0}; i < rows * stride; i++) {
+            input_a[pad + p * rows * stride + i] = std::bit_cast<float>(bits[(p + i) % std::size(bits)]);
+            input_b[pad + p * rows * stride + i] = std::bit_cast<float>(bits[(p + i + 4) % std::size(bits)]);
+        }
+    }
+    auto a = device.create_buffer<float>(input_a.size()), b = device.create_buffer<float>(input_b.size());
+    auto output = device.create_buffer<float>(initial.size());
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    for (auto vector_width : {0u, 2u, 4u, 8u}) {
+        auto options = bridge::xir::PlannerOptions{};
+        options.block_size = 32u;
+        options.local_lanes = 1u;
+        options.max_unrolled_tile_elements = 4u;
+        options.native_copy_vector_width = vector_width;
+        auto shader = compile(device, kernel, {.xir = &options}, {.enable_fast_math = false});
+        expect(static_cast<bool>(shader)) << shader.metadata().error;
+        if (!shader) { continue; }
+        auto &metadata = shader.metadata().realization;
+        expect(metadata.find(format("native_copy_vector_width={}; native_copies={};", vector_width, vector_width == 0u ? 0u : 2u)) != string::npos)
+            << metadata;
+        expect(metadata.find(format("static_snapshot_bytes_per_worker={}; static_snapshot_allocations=2;", 2u * width * sizeof(float))) != string::npos)
+            << metadata;
+        for (auto alias : {false, true}) {
+            auto expected = initial;
+            for (auto p = int64_t{0}; p < programs; p++) {
+                auto offset = p % 5 * 3 - 3;
+                auto row_offset = (p + 1) % 4 - 1;
+                for (auto i = int64_t{0}; i < width; i++) {
+                    auto valid = row_offset >= 0 && row_offset < rows && offset + i >= 0 && offset + i < stride;
+                    auto source = (p * rows + row_offset) * stride + offset + i;
+                    expected[pad + (2 * p) * width + i] = valid ? input_a[pad + source] : 0.0f;
+                    expected[pad + (2 * p + 1) * width + i] = valid ? (alias ? input_a : input_b)[pad + source] : 0.0f;
+                }
+            }
+            auto actual_a = input_a, actual_b = input_b, actual_output = initial;
+            auto a_view = a.view(pad, programs * rows * stride);
+            auto b_view = alias ? a_view : b.view(pad, programs * rows * stride);
+            stream << a.copy_from(span{input_a}) << b.copy_from(span{input_b}) << output.copy_from(span{initial})
+                   << shader(a_view, b_view, output.view(pad, programs * 2 * width)).dispatch()
+                   << a.copy_to(span{actual_a}) << b.copy_to(span{actual_b})
+                   << output.copy_to(span{actual_output}) << synchronize();
+            // No floating-point comparison may canonicalize NaN payloads or
+            // hide -0: this transfer performs no arithmetic on the payload.
+            for (size_t i = 0u; i < actual_output.size(); i++) {
+                expect(eq(std::bit_cast<uint32_t>(actual_output[i]), std::bit_cast<uint32_t>(expected[i])))
+                    << "copy=" << vector_width << " packet=" << device.compute_warp_size()
+                    << " width=" << width << " alias=" << alias << " index=" << i;
+            }
+            for (size_t i = 0u; i < actual_a.size(); i++) {
+                auto unchanged = i < pad || i >= actual_a.size() - pad;
+                expect(eq(std::bit_cast<uint32_t>(actual_a[i]), unchanged ? guard : std::bit_cast<uint32_t>(13.0f)));
+                expect(eq(std::bit_cast<uint32_t>(actual_b[i]), std::bit_cast<uint32_t>(input_b[i])));
+            }
+        }
+    }
+}
+
+void native_mma_policy(Device &device, int64_t terms, bool rhs_transposed, bool strict, bool fast_math = true, uint32_t native_copy_width = 0u) {
     using namespace tile;
     constexpr auto programs = int64_t{19};// Several W8 packets and an incomplete final packet.
     auto rows = rhs_transposed ? int64_t{2} : int64_t{3};
@@ -1410,6 +1502,7 @@ void native_mma_policy(Device &device, int64_t terms, bool rhs_transposed, bool 
         options.block_size = 32u;
         options.mma_output_block = 4u;
         options.native_mma_vector_width = width;
+        options.native_copy_vector_width = native_copy_width;
         auto shader = compile(device, kernel, {.xir = &options}, {.enable_fast_math = fast_math});
         expect(static_cast<bool>(shader)) << shader.metadata().error;
         if (!shader) { continue; }
@@ -1419,6 +1512,13 @@ void native_mma_policy(Device &device, int64_t terms, bool rhs_transposed, bool 
         expect(text.find(format("native_mmas={};", native_output || native_contraction ? 1u : 0u)) != string::npos);
         expect(text.find(format("native_output_mmas={};", native_output ? 1u : 0u)) != string::npos);
         expect(text.find(format("native_contraction_mmas={}", native_contraction ? 1u : 0u)) != string::npos);
+        if (native_copy_width != 0u) {
+            // This focused arm uses K=5 and small full contiguous A/B views.
+            // Only the native MMA makes those two snapshots indexable. The
+            // seed enters through the SSA loop carry, not a direct MMA use;
+            // its original load and still-live old_seed must remain intact.
+            expect(text.find(format("native_copies={};", native_output || native_contraction ? 2u : 0u)) != string::npos) << text;
+        }
         expect(text.find(format("fast_math={};", fast_math && !strict)) != string::npos);
         expect(text.find(format("strict_mma={}", strict)) != string::npos);
         auto actual_a = input_a, actual_b = input_b, actual_c = input_c;
@@ -1548,6 +1648,18 @@ int main(int argc, char *argv[]) {
         }
         native_mma_policy(device, 5, false, true, false);
         native_mma_policy(device, 5, true, false, false);
+    };
+    "tile_xir_runtime_native_copy_bits_bounds_alias_and_packet_tails"_test = [&] {
+        for (auto packet : {1u, 4u, 8u}) {
+            DeviceConfig config{};
+            config.extension = luisa::make_unique<SIMDDeviceConfigExt>(packet, 1u);
+            auto copy_device = context.create_device("simd", &config);
+            expect(eq(copy_device.compute_warp_size(), packet));
+            for (auto width : {8, 9}) { native_copy_snapshots(copy_device, width); }
+        }
+    };
+    "tile_xir_runtime_native_copy_small_mma_snapshots_and_carries"_test = [&] {
+        native_mma_policy(device, 5, false, true, false, 4u);
     };
     "tile_xir_runtime_mma_unroll_caps_order_and_snapshots"_test = [&] {
         for (auto swapped : {false, true}) {

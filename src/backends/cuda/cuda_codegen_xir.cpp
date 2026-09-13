@@ -911,6 +911,9 @@ void CUDACodegenXIR::_emit_metadata(const xir::MetadataList &md_list, int indent
             case xir::DerivedMetadataTag::NO_INLINE:
                 _scratch << "no inline";
                 break;
+            case xir::DerivedMetadataTag::STRIDED_MMA:
+            case xir::DerivedMetadataTag::CONTIGUOUS_COPY:
+                LUISA_ERROR_WITH_LOCATION("CUDA XIR codegen does not support required native call semantics.");
         }
         _scratch << "\n";
     }

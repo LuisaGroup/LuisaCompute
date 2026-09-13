@@ -19,6 +19,7 @@
 #include <luisa/xir/metadata/reg2mem_spill.h>
 #include <luisa/xir/metadata/signature_constraint.h>
 #include <luisa/xir/metadata/strided_mma.h>
+#include <luisa/xir/metadata/contiguous_copy.h>
 #include <luisa/xir/translators/xir_interchange.h>
 #include <luisa/xir/verifier.h>
 
@@ -1546,10 +1547,12 @@ struct MetadataRecord {
                        SIGNATURE_CONSTRAINT,
                        REG2MEM_SPILL,
                        NO_INLINE,
-                       STRIDED_MMA } kind;
+                       STRIDED_MMA,
+                       CONTIGUOUS_COPY } kind;
     luisa::string text;
     int64_t number{0};
     StridedMmaDescriptor strided_mma;
+    ContiguousCopyDescriptor contiguous_copy;
 };
 
 constexpr uint64_t reg2mem_spill_phi_wire_kind = 0u;
@@ -1659,6 +1662,18 @@ decode_strided_mma_vectorization(uint64_t value) noexcept {
             }
         } else if (kind == "no_inline") {
             record.kind = MetadataRecord::Kind::NO_INLINE;
+        } else if (kind == "contiguous_copy") {
+            record.kind = MetadataRecord::Kind::CONTIGUOUS_COPY;
+            auto &d = record.contiguous_copy;
+            uint64_t width = 0u;
+            if (!parser.unsigned_integer(d.element_count) || !parser.unsigned_integer(width)) { return false; }
+            if (width > std::numeric_limits<uint32_t>::max()) {
+                return parser.fail("Invalid XIR contiguous-copy vector width.");
+            }
+            d.vector_width = static_cast<uint32_t>(width);
+            if (!is_valid_contiguous_copy_descriptor(d)) {
+                return parser.fail("Invalid XIR contiguous-copy descriptor.");
+            }
         } else if (kind == "strided_mma") {
             record.kind = MetadataRecord::Kind::STRIDED_MMA;
             auto &d = record.strided_mma;
@@ -1737,6 +1752,9 @@ void apply_metadata_records(
                 break;
             case MetadataRecord::Kind::STRIDED_MMA:
                 metadata = luisa::make_managed<StridedMmaMD>(iter->strided_mma);
+                break;
+            case MetadataRecord::Kind::CONTIGUOUS_COPY:
+                metadata = luisa::make_managed<ContiguousCopyMD>(iter->contiguous_copy);
                 break;
         }
         owner.metadata_list().push_front(std::move(metadata));
@@ -1824,6 +1842,15 @@ void apply_metadata_records(
                                      d.output_extents[i], d.lhs_output_strides[i],
                                      d.rhs_output_strides[i]);
                 }
+                break;
+            }
+            case DerivedMetadataTag::CONTIGUOUS_COPY: {
+                auto &&d = static_cast<const ContiguousCopyMD *>(metadata)->descriptor;
+                if (!is_valid_contiguous_copy_descriptor(d)) {
+                    error = "XIR contiguous-copy metadata has an invalid descriptor.";
+                    return false;
+                }
+                luisa::format_to(std::back_inserter(text), "contiguous_copy {} {}", d.element_count, d.vector_width);
                 break;
             }
             default:
@@ -2386,6 +2413,7 @@ binary_instruction_tag(uint64_t id) noexcept {
                 case MetadataRecord::Kind::REG2MEM_SPILL:
                 case MetadataRecord::Kind::NO_INLINE:
                 case MetadataRecord::Kind::STRIDED_MMA:
+                case MetadataRecord::Kind::CONTIGUOUS_COPY:
                     break;
             }
         }
@@ -2545,6 +2573,17 @@ public:
                         integer(d.lhs_output_strides[i]);
                         integer(d.rhs_output_strides[i]);
                     }
+                    break;
+                }
+                case MetadataRecord::Kind::CONTIGUOUS_COPY: {
+                    auto &&d = record.contiguous_copy;
+                    if (!is_valid_contiguous_copy_descriptor(d)) {
+                        _error = "XIR binary contiguous-copy metadata has an invalid descriptor.";
+                        return false;
+                    }
+                    integer(8u);
+                    integer(d.element_count);
+                    integer(d.vector_width);
                     break;
                 }
             }
@@ -2824,6 +2863,20 @@ public:
                     }
                     if (!is_valid_strided_mma_descriptor(d)) {
                         return _reader.fail("Invalid XIR binary strided-MMA descriptor.");
+                    }
+                    break;
+                }
+                case 8u: {
+                    record.kind = MetadataRecord::Kind::CONTIGUOUS_COPY;
+                    auto &d = record.contiguous_copy;
+                    uint64_t width = 0u;
+                    if (!integer(d.element_count) || !integer(width)) { return false; }
+                    if (width > std::numeric_limits<uint32_t>::max()) {
+                        return _reader.fail("Invalid XIR binary contiguous-copy vector width.");
+                    }
+                    d.vector_width = static_cast<uint32_t>(width);
+                    if (!is_valid_contiguous_copy_descriptor(d)) {
+                        return _reader.fail("Invalid XIR binary contiguous-copy descriptor.");
                     }
                     break;
                 }

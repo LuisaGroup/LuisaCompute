@@ -44,6 +44,7 @@
 #include <luisa/xir/metadata/curve_basis.h>
 #include <luisa/xir/metadata/reg2mem_spill.h>
 #include <luisa/xir/metadata/strided_mma.h>
+#include <luisa/xir/metadata/contiguous_copy.h>
 #include <luisa/xir/passes/dom_tree.h>
 #include <luisa/xir/translators/xir2text.h>
 
@@ -1073,6 +1074,11 @@ private:
                 case DerivedMetadataTag::STRIDED_MMA:
                     _emit_strided_mma_metadata(s, static_cast<const StridedMmaMD *>(item));
                     break;
+                case DerivedMetadataTag::CONTIGUOUS_COPY: {
+                    auto &&d = static_cast<const ContiguousCopyMD *>(item)->descriptor;
+                    s << luisa::format("contiguous_copy = {{count = {}, width = {}}}", d.element_count, d.vector_width);
+                    break;
+                }
             }
             s << ", ";
         }

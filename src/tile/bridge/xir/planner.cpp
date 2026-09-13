@@ -9,6 +9,7 @@
 #include <luisa/tile/verifier.h>
 #include "representation.h"
 #include "root_mapping.h"
+#include "native_copy.h"
 
 namespace luisa::compute::tile::bridge::xir {
 namespace {
@@ -67,6 +68,7 @@ struct Work {
     double arithmetic{0.0};
     double memory{0.0};
     ExecutionMmaWork mma;
+    ExecutionNativeCopyWork native_copy;
 };
 
 [[nodiscard]] LowerOptions representation_options(const PlannerOptions &options, uint32_t lanes) {
@@ -76,6 +78,7 @@ struct Work {
             .enable_mma_2d_blocking = options.enable_mma_2d_blocking,
             .max_unrolled_mma_terms = options.max_unrolled_mma_terms,
             .native_mma_vector_width = options.native_mma_vector_width,
+            .native_copy_vector_width = options.native_copy_vector_width,
             .reduction_partitions = options.reduction_partitions,
             .local_lanes = lanes,
             .enable_load_reduction_fusion = options.enable_load_reduction_fusion,
@@ -114,7 +117,7 @@ struct SpatialAxis {
     // only one worker can run, regardless of the requested subdivision.
     if (workers == 1u) {
         return {work.arithmetic_per_packet, work.memory_per_packet, packets, blocks, 1u, 1u,
-                static_cast<uint32_t>(blocks), packets, blocks, 1u, work.mma_per_packet};
+                static_cast<uint32_t>(blocks), packets, blocks, 1u, work.mma_per_packet, work.native_copy_per_program};
     }
     // Round-robin home chunks: every chunk but the last is full. Compute the
     // maximum load without iterating over the launch or the worker count.
@@ -127,7 +130,7 @@ struct SpatialAxis {
     return {work.arithmetic_per_packet, work.memory_per_packet, packets, blocks, tasks,
             static_cast<uint32_t>(workers), static_cast<uint32_t>(grain),
             critical(packets, grain * candidate.block_size / target.packet_width),
-            critical(blocks, grain), ceil_div(tasks, workers), work.mma_per_packet};
+            critical(blocks, grain), ceil_div(tasks, workers), work.mma_per_packet, work.native_copy_per_program};
 }
 
 void read_work(const Value *value, double repetitions, bool dynamic,
@@ -254,6 +257,16 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
             }
         } else if (kind == OperationKind::VIEW_LOAD || kind == OperationKind::VIEW_STORE) {
             auto &space = *op->operand(0u)->type().index_space();
+            if (kind == OperationKind::VIEW_LOAD && op->domain()) {
+                auto realization = representation_options(options, lanes);
+                auto allocation = detail::value_allocation_plan(op->result(0u), volume(*op->domain()), realization);
+                if (auto copy = detail::native_copy_plan(*op, realization, allocation.snapshot && !allocation.fusion)) {
+                    work.native_copy.invocations += repetitions;
+                    work.native_copy.fastpath_vector_groups += repetitions * static_cast<double>(copy->element_count / copy->vector_width);
+                    work.native_copy.fastpath_tail_elements += repetitions * static_cast<double>(copy->element_count % copy->vector_width);
+                    work.native_copy.fallback_elements += repetitions * static_cast<double>(copy->element_count);
+                }
+            }
             luisa::optional<double> stride{0.0};
             for (size_t i = 0u; i < space.rank(); i++) {
                 auto coefficient = lanes == 1u ? (axis.coherent ? slope(op->operand(i + 1u), axis.value, indices) : luisa::optional<double>{}) :
@@ -384,6 +397,9 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
     if (options.native_mma_vector_width != 0u && !info.supports_native_mma_vector_width(options.native_mma_vector_width)) {
         return reject("XIR target does not support the requested native MMA vector width");
     }
+    if (options.native_copy_vector_width != 0u && !info.supports_native_copy_vector_width(options.native_copy_vector_width)) {
+        return reject("XIR target does not support the requested native copy vector width");
+    }
     if (info.supports_task_grain() && (!target.worker_count || !target.task_chunks_per_worker)) {
         return reject("invalid XIR thread-pool scheduling parameters");
     }
@@ -502,6 +518,7 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
                     candidate.enable_mma_2d_blocking = options.enable_mma_2d_blocking;
                     candidate.max_unrolled_mma_terms = options.max_unrolled_mma_terms;
                     candidate.native_mma_vector_width = options.native_mma_vector_width;
+                    candidate.native_copy_vector_width = options.native_copy_vector_width;
                     if (!info.accepts(candidate)) {
                         result.rejected.emplace_back(ExecutionRejection{std::move(candidate), "XIR target rejected execution geometry"});
                         continue;
@@ -546,6 +563,7 @@ void measure(const Block &block, SpatialAxis axis, double repetitions,
                     ExecutionWork execution_work{work.arithmetic, work.memory,
                                                  ceil_div(physical_count, static_cast<uint64_t>(target.packet_width)), blocks};
                     execution_work.mma_per_packet = work.mma;
+                    execution_work.native_copy_per_program = work.native_copy;
                     auto cost = policy.evaluate(target, candidate, info.schedule(candidate, execution_work), model);
                     for (auto component : {cost.arithmetic_work, cost.memory_work, cost.dispatch_work, cost.imbalance_work,
                                            cost.score, cost.task_dispatch_work, cost.activation_work}) {

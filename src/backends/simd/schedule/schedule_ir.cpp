@@ -1,5 +1,6 @@
 #include "schedule_ir.h"
 #include "strided_mma.h"
+#include "contiguous_copy.h"
 
 #include <algorithm>
 #include <iomanip>
@@ -415,15 +416,25 @@ VerificationResult verify(const Function &function) {
                     block.id);
             }
             if (instruction.opcode == Opcode::call) {
-                if (!instruction.strided_mma || instruction.result || instruction.operands.size() != 4u) {
-                    add_error(result, "call requires a void strided MMA descriptor and four references", block.id);
-                } else {
+                if (instruction.strided_mma.has_value() == instruction.contiguous_copy.has_value() || instruction.result) {
+                    add_error(result, "call requires exactly one supported void semantic descriptor", block.id);
+                } else if (instruction.strided_mma) {
+                    if (instruction.operands.size() != 4u) {
+                        add_error(result, "strided MMA call requires four references", block.id);
+                    }
                     if (auto error = validate_strided_mma_descriptor(*instruction.strided_mma); !error.empty()) {
                         add_error(result, std::string{error}, block.id);
                     }
+                } else {
+                    if (instruction.operands.size() != 3u) {
+                        add_error(result, "contiguous copy call requires three operands", block.id);
+                    }
+                    if (auto error = validate_contiguous_copy_descriptor(*instruction.contiguous_copy); !error.empty()) {
+                        add_error(result, std::string{error}, block.id);
+                    }
                 }
-            } else if (instruction.strided_mma) {
-                add_error(result, "non-call instruction unexpectedly carries strided MMA semantics", block.id);
+            } else if (instruction.strided_mma || instruction.contiguous_copy) {
+                add_error(result, "non-call instruction unexpectedly carries native call semantics", block.id);
             }
             if (instruction.opcode == Opcode::warp_collective &&
                 !instruction.collective_id) {
@@ -817,6 +828,10 @@ std::string to_string(const Function &function) {
                 for (auto i = size_t{0u}; i < d.output_extents.size(); i++) {
                     out << " axis=" << d.output_extents[i] << ':' << d.lhs_output_strides[i] << ':' << d.rhs_output_strides[i];
                 }
+            }
+            if (instruction.contiguous_copy) {
+                out << " contiguous_copy=" << instruction.contiguous_copy->element_count
+                    << " width=" << instruction.contiguous_copy->vector_width;
             }
             for (auto operand : instruction.operands) {
                 out << " %" << operand.value;

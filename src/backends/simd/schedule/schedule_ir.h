@@ -155,6 +155,12 @@ struct StridedMmaMetadata {
     StridedMmaVectorization vectorization{StridedMmaVectorization::output};
 };
 
+// Owned call-site copy semantics; no XIR lifetime or runtime callback ABI.
+struct ContiguousCopyMetadata {
+    uint64_t element_count{0u};
+    uint32_t vector_width{1u};
+};
+
 struct Instruction {
     Opcode opcode{Opcode::opaque};
     std::optional<ValueId> result{};
@@ -182,6 +188,8 @@ struct Instruction {
     std::optional<uint32_t> lane_consecutive_operand_index{};
     // void(lhs, rhs, seed, output), all fixed-array<float> local references.
     std::optional<StridedMmaMetadata> strided_mma{};
+    // void(buffer<float>, uint64 element_offset, local array<float> reference).
+    std::optional<ContiguousCopyMetadata> contiguous_copy{};
 };
 
 struct EdgeAssignment {

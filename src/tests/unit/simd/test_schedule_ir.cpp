@@ -1,4 +1,5 @@
 #include "schedule_ir.h"
+#include "contiguous_copy.h"
 
 #include <iostream>
 #include <string_view>
@@ -335,12 +336,48 @@ namespace {
 
 }// namespace
 
+[[nodiscard]] bool test_contiguous_copy_semantics() {
+    Function function{"copy", 8u};
+    auto entry = function.add_block("entry");
+    function.set_entry(entry);
+    function.block(entry)->terminator = ReturnTerminator{};
+    auto resource = function.add_value(ValueClass::warp_uniform, nullptr, ValueOrigin::parameter);
+    auto offset = function.add_value(ValueClass::varying, nullptr, ValueOrigin::parameter);
+    auto destination = function.add_value(ValueClass::varying, nullptr, ValueOrigin::parameter);
+    auto &instruction = function.block(entry)->instructions.emplace_back(Instruction{
+        .opcode = Opcode::call,
+        .operands = {resource, offset, destination},
+        .contiguous_copy = ContiguousCopyMetadata{5u, 4u},
+    });
+    CHECK(verify(function).succeeded());
+    CHECK(validate_contiguous_copy(*instruction.contiguous_copy, 5u).empty());
+    CHECK(!validate_contiguous_copy(*instruction.contiguous_copy, 4u).empty());
+    instruction.contiguous_copy->element_count = 1u;
+    CHECK(verify(function).succeeded());// valid scalar-tail-only realization
+    instruction.contiguous_copy->element_count = 0u;
+    CHECK(!verify(function).succeeded());
+    instruction.contiguous_copy->element_count = 5u;
+    instruction.contiguous_copy->vector_width = 3u;
+    CHECK(!verify(function).succeeded());
+    instruction.contiguous_copy->vector_width = 4u;
+    instruction.strided_mma = StridedMmaMetadata{};
+    CHECK(contains_error(verify(function), "exactly one"));
+    instruction.strided_mma.reset();
+    instruction.operands.pop_back();
+    CHECK(!verify(function).succeeded());
+    instruction.operands.emplace_back(destination);
+    instruction.opcode = Opcode::store;
+    CHECK(contains_error(verify(function), "non-call"));
+    return true;
+}
+
 int main() {
     struct Test {
         std::string_view name;
         bool (*run)();
     };
     constexpr Test tests[]{
+        {"contiguous copy semantics", &test_contiguous_copy_semantics},
         {"cohort GEP annotation", &test_cohort_gep_annotation},
         {"valid diamond", &test_valid_diamond},
         {"symbolic width", &test_symbolic_width},

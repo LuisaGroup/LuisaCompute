@@ -205,6 +205,26 @@ The six sampled runs pass pre/post numerical and guard checks; samples have
 incomplete unwinding and are not new speedup measurements, memory-bandwidth
 counters or evidence that the attributed cost can all be eliminated.
 
+The follow-up {download}`contiguous snapshot-copy experiment
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260913-attention-native-copy/notes.md>`
+implements generic layout-based admission, typed XIR transfer semantics and
+same-module SIMD vector copies at the original load definition. It preserves
+logical bounds/fallback and snapshot semantics without adding a DSL primitive.
+With native MMA fixed on, three decode cases reduce paired native-entry time
+by **70.2%–78.8%**, prefill-q4 by **25.8%**, and batch GQA by **50.4%**.
+Prefill-q8 instead regresses **2.6%**, accompanied by loss of its full-packet
+clone. All 72 visits / 504 samples pass complete FP64, input/guard and
+bitwise A/B checks. Snapshot capacity, allocation count, private interleaving,
+workspace, root order, task grain and entry ABI match within every pair.
+
+Eleven selected CTests and 25-TU syntax checks pass after the complete selected
+build. The copy capability and conditional full-path/fallback work are exposed
+to backend policies, but the candidate remains off by default with unmodeled
+cost. Joint transfer/compute/layout/code-budget selection and held-out
+non-attention performance remain unfinished. These whole-realization ratios
+do not isolate vector-load latency, compare against the earlier MMA-off
+baseline, or establish fresh Torch/MPS/BLAS parity.
+
 ### Metal4 XIR route: correctness established, timing not yet stable
 
 The September 10 {download}`target-info checkpoint <../../../../scripts/benchmark/tile_torch/results/m1-max-20260910-xir-target-info/README.md>`

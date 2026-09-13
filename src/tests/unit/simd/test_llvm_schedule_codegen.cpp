@@ -28,6 +28,7 @@
 #include <vector>
 
 #if defined(__unix__) || defined(__APPLE__)
+#include <sys/mman.h>
 #include <sys/resource.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -44,6 +45,7 @@
 #include <luisa/dsl/sugar.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/metadata/strided_mma.h>
+#include <luisa/xir/metadata/contiguous_copy.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/verifier.h>
 
@@ -16846,6 +16848,241 @@ template<typename T>
     return true;
 }
 
+// Keep the source XIR ephemeral, just like the MMA test above. An odd-lane
+// branch gives a non-prefix active mask; the final destination element is a
+// sentinel which the fixed-count helper must never overwrite.
+[[nodiscard]] schedule::XIRToScheduleResult make_contiguous_copy_schedule(
+    uint32_t width, uint32_t count, bool uniform_offset) {
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    auto *source = kernel->create_resource_argument(Type::buffer(Type::of<float>()));
+    auto *offsets = kernel->create_resource_argument(Type::buffer(Type::of<uint64_t>()));
+    auto *output = kernel->create_resource_argument(Type::buffer(Type::of<uint32_t>()));
+    auto *entry = kernel->create_body_block();
+    auto *copy = kernel->create_basic_block();
+    auto *merge = kernel->create_basic_block();
+    xir::XIRBuilder builder;
+    auto constant = [&](auto value) { return module.create_constant(Type::of<decltype(value)>(), &value); };
+    builder.set_insertion_point(entry);
+    auto *lane = module.create_warp_lane_id();
+    auto *storage = builder.alloca_local(Type::array(Type::of<float>(), count + 1u));
+    auto *initial = constant(std::bit_cast<float>(uint32_t{0x4f123456u}));
+    for (auto i = 0u; i <= count; i++) {
+        builder.store(builder.gep(Type::of<float>(), storage, {constant(i)}), initial);
+    }
+    xir::Value *offset = uniform_offset ? static_cast<xir::Value *>(constant(uint64_t{64u - count})) :
+                                          builder.call(Type::of<uint64_t>(), xir::ResourceReadOp::BUFFER_READ, {offsets, lane});
+    auto *odd = builder.call(Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_BIT_AND, {lane, constant(1u)});
+    auto *condition = builder.call(Type::of<bool>(), xir::ArithmeticOp::BINARY_NOT_EQUAL, {odd, constant(0u)});
+    builder.cond_br(condition, copy, merge);
+    builder.set_insertion_point(copy);
+    auto *external = module.create_external_function(nullptr);
+    external->set_name("tile_contiguous_snapshot");
+    external->create_resource_argument(source->type());
+    external->create_value_argument(Type::of<uint64_t>());
+    external->create_reference_argument(storage->type());
+    external->create_metadata<xir::ContiguousCopyMD>()->descriptor = {.element_count = count, .vector_width = width};
+    builder.call(nullptr, external, {source, offset, storage});
+    builder.br(merge);
+    builder.set_insertion_point(merge);
+    auto *base = builder.call(Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_MUL, {lane, constant(count + 1u)});
+    for (auto i = 0u; i <= count; i++) {
+        auto *value = builder.load(Type::of<float>(), builder.gep(Type::of<float>(), storage, {constant(i)}));
+        auto *bits = builder.cast_(Type::of<uint32_t>(), xir::CastOp::BITWISE_CAST, value);
+        auto *index = builder.call(Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD, {base, constant(i)});
+        builder.call(xir::ResourceWriteOp::BUFFER_WRITE, {output, index, bits});
+    }
+    builder.return_void();
+    return schedule::lower_xir_to_schedule(kernel, {.logical_warp_width = 8u});
+}
+
+[[nodiscard]] bool run_contiguous_copy_codegen_boundary() {
+    auto result = make_contiguous_copy_schedule(4u, 9u, false);
+    if (!result.succeeded()) { std::cerr << diagnostics_text(result); }
+    CHECK(result.succeeded());
+    for (auto malformed = 0u; malformed < 16u; malformed++) {
+        auto forged = *result.function;
+        auto *call = static_cast<schedule::Instruction *>(nullptr);
+        for (auto &block : forged.blocks()) {
+            for (auto &instruction : block.instructions) {
+                if (instruction.contiguous_copy) { call = &instruction; }
+            }
+        }
+        CHECK(call != nullptr);
+        auto destination = call->operands[2u];
+        switch (malformed) {
+            case 0u: call->contiguous_copy.reset(); break;
+            case 1u: call->strided_mma.emplace(); break;
+            case 2u: call->contiguous_copy->vector_width = 3u; break;
+            case 3u: call->contiguous_copy->element_count = 0u; break;
+            case 4u: call->contiguous_copy->element_count = 11u; break;
+            case 5u: call->contiguous_copy->element_count = std::numeric_limits<uint64_t>::max(); break;
+            case 6u: forged.value(call->operands[0u])->type = Type::buffer(Type::of<uint32_t>()); break;
+            case 7u: forged.value(call->operands[1u])->type = Type::of<uint32_t>(); break;
+            case 8u: forged.value(destination)->type = Type::array(Type::of<uint32_t>(), 10u); break;
+            case 9u:
+            case 10u:
+                for (auto &block : forged.blocks()) {
+                    for (auto &instruction : block.instructions) {
+                        if (instruction.result != destination) { continue; }
+                        if (malformed == 9u) {
+                            instruction.source_op = static_cast<uint32_t>(xir::AllocaOp::SHARED);
+                        } else {
+                            instruction.opcode = schedule::Opcode::gep;
+                            instruction.operands = {call->operands[0u], call->operands[1u]};
+                        }
+                    }
+                }
+                break;
+            case 11u: call->result = destination; break;
+            case 12u: call->operands.emplace_back(destination); break;
+            case 13u:
+                std::get<schedule::ParameterValueMetadata>(forged.value(call->operands[0u])->metadata).argument_tag =
+                    static_cast<uint32_t>(xir::DerivedArgumentTag::VALUE);
+                break;
+            case 14u: call->opcode = schedule::Opcode::opaque; break;
+            case 15u: call->operands[1u] = destination; break;
+            default: return false;
+        }
+        ::llvm::LLVMContext context;
+        ::llvm::Module module{"forged-contiguous-copy", context};
+        auto rejected = lower_schedule_to_llvm(module, forged, 8u, "forged_copy");
+        CHECK(!rejected.succeeded());
+        CHECK(!rejected.error.empty());
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_contiguous_copy_bitwise_and_masks() {
+    constexpr auto packet_width = 8u;
+    constexpr auto source_count = 64u;
+    constexpr std::array patterns{
+        0x00000000u, 0x80000000u, 0x00000001u, 0x80000001u,
+        0x7f800000u, 0xff800000u, 0x7fc12345u, 0x7f812345u,
+        0xffc54321u, 0xff854321u, 0x3f800000u, 0xbf800000u};
+    std::array<uint32_t, source_count> fallback_source{};
+    auto *source = fallback_source.data();
+#if defined(__unix__) || defined(__APPLE__)
+    struct GuardedPages {
+        void *pointer{MAP_FAILED};
+        size_t bytes{0u};
+        ~GuardedPages() noexcept {
+            if (pointer != MAP_FAILED) { munmap(pointer, bytes); }
+        }
+    } pages;
+    auto page_size = sysconf(_SC_PAGESIZE);
+    CHECK(page_size > static_cast<int64_t>(sizeof(fallback_source)));
+    pages.bytes = 2u * static_cast<size_t>(page_size);
+    pages.pointer = mmap(nullptr, pages.bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    CHECK(pages.pointer != MAP_FAILED);
+    auto *boundary = static_cast<std::byte *>(pages.pointer) + page_size;
+    CHECK(mprotect(boundary, static_cast<size_t>(page_size), PROT_NONE) == 0);
+    source = reinterpret_cast<uint32_t *>(boundary - sizeof(fallback_source));
+#endif
+    for (auto i = 0u; i < source_count; i++) { source[i] = patterns[i % patterns.size()]; }
+    std::array<uint32_t, source_count> original{};
+    std::memcpy(original.data(), source, sizeof(original));
+    for (auto width : {2u, 4u, 8u}) {
+        for (auto count : {1u, width, width + 1u}) {
+            for (auto uniform : {false, true}) {
+                auto result = make_contiguous_copy_schedule(width, count, uniform);
+                if (!result.succeeded()) { std::cerr << diagnostics_text(result); }
+                CHECK(result.succeeded());
+                CHECK(schedule::verify(*result.function).succeeded());
+                auto context = std::make_unique<::llvm::LLVMContext>();
+                auto module = std::make_unique<::llvm::Module>("contiguous-copy-bits", *context);
+                auto codegen = lower_schedule_to_llvm(
+                    *module, *result.function, packet_width, "copy_bits", true,
+                    {}, true, true, false, 1u, true, false, false, false,
+                    {}, 0u, false, false, false, false, 1u, true);
+                if (!codegen.succeeded()) { std::cerr << codegen.error << '\n'; }
+                CHECK(codegen.succeeded());
+                CHECK(codegen.interleaved_private_arrays == 0u);
+                CHECK(codegen.private_workspace_size == packet_width * (count + 1u) * sizeof(float));
+                CHECK(!::llvm::verifyModule(*module, &::llvm::errs()));
+                CHECK(module->getFunction("tile_contiguous_snapshot") == nullptr);
+                auto helpers = 0u;
+                for (auto &function : *module) {
+                    if (!function.getName().contains(".contiguous_copy")) { continue; }
+                    helpers++;
+                    CHECK(function.hasPrivateLinkage() && !function.isDeclaration());
+                    auto vector_loads = 0u;
+                    auto scalar_loads = 0u;
+                    for (auto &argument : function.args()) {
+                        CHECK(!argument.hasNoAliasAttr());
+                        CHECK(!argument.hasAttribute(::llvm::Attribute::ReadOnly));
+                    }
+                    for (auto &block : function) {
+                        for (auto &instruction : block) {
+                            CHECK(!::llvm::isa<::llvm::CallBase>(instruction));
+                            if (auto *load = ::llvm::dyn_cast<::llvm::LoadInst>(&instruction)) {
+                                if (auto *type = ::llvm::dyn_cast<::llvm::FixedVectorType>(load->getType())) {
+                                    CHECK(type->getNumElements() == width && type->getElementType()->isIntegerTy(32u));
+                                    vector_loads++;
+                                } else {
+                                    CHECK(load->getType()->isIntegerTy(32u));
+                                    scalar_loads++;
+                                }
+                            }
+                        }
+                    }
+                    CHECK(vector_loads == (count >= width ? 1u : 0u));
+                    CHECK(scalar_loads == (count % width != 0u ? 1u : 0u));
+                }
+                CHECK(helpers == 1u);
+                LLVMJIT jit;
+                CHECK(jit.succeeded());
+                CHECK(jit.add_module(std::move(module), std::move(context)));
+                using Entry = void(const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+                auto *entry = reinterpret_cast<Entry *>(jit.lookup("copy_bits"));
+                CHECK(entry != nullptr);
+                struct alignas(64) Chunk {
+                    std::byte bytes[64];
+                };
+                std::vector<Chunk> workspace((codegen.private_workspace_size + 63u) / 64u + 2u);
+                auto *memory = reinterpret_cast<std::byte *>(workspace.data());
+                for (auto active = 0u; active <= packet_width; active++) {
+                    std::memset(memory, 0xa5, workspace.size() * sizeof(Chunk));
+                    std::array<uint64_t, packet_width> offsets{};
+                    for (auto lane = 0u; lane < packet_width; lane++) {
+                        offsets[lane] = lane < active && (lane & 1u) != 0u ? source_count - count - lane % 3u :
+                                                                             std::numeric_limits<uint64_t>::max();
+                    }
+                    auto output_count = packet_width * (count + 1u);
+                    std::vector<uint32_t> output(output_count + 2u, 0xdeadbeefu);
+                    alignas(16) std::array arguments{
+                        SIMDHostBufferView{active <= 1u ? nullptr : source, sizeof(original)},
+                        SIMDHostBufferView{offsets.data(), sizeof(offsets)},
+                        SIMDHostBufferView{output.data() + 1u, output_count * sizeof(uint32_t)}};
+                    auto config = launch_1d(active, packet_width);
+                    config.private_workspace = memory + 64u;
+                    entry(arguments.data(), nullptr, &config, active);
+                    for (auto lane = 0u; lane < packet_width; lane++) {
+                        for (auto i = 0u; i <= count; i++) {
+                            auto expected = uint32_t{0xdeadbeefu};
+                            if (lane < active) {
+                                expected = 0x4f123456u;
+                                if ((lane & 1u) != 0u && i < count) {
+                                    auto offset = uniform ? source_count - count : offsets[lane];
+                                    expected = original[offset + i];
+                                }
+                            }
+                            CHECK(output[1u + lane * (count + 1u) + i] == expected);
+                        }
+                    }
+                    CHECK(output.front() == 0xdeadbeefu && output.back() == 0xdeadbeefu);
+                    CHECK(std::memcmp(source, original.data(), sizeof(original)) == 0);
+                    for (auto i = size_t{0u}; i < 64u; i++) {
+                        CHECK(memory[i] == std::byte{0xa5});
+                        CHECK(memory[64u + codegen.private_workspace_size + i] == std::byte{0xa5});
+                    }
+                }
+            }
+        }
+    }
+    return true;
+}
+
 }// namespace
 
 int main() {
@@ -16854,6 +17091,8 @@ int main() {
         bool (*run)();
     };
     constexpr Test tests[]{
+        {"typed contiguous copy Schedule admission boundary", &run_contiguous_copy_codegen_boundary},
+        {"typed contiguous copy exact bits, tails and active lanes", &run_contiguous_copy_bitwise_and_masks},
         {"typed strided MMA XIR admission boundary", &run_strided_mma_projection_boundary},
         {"typed strided MMA owned metadata and private vector codegen", &run_strided_mma_codegen_boundary},
         {"cohort private 32-bit loop indices and exit epochs", &run_cohort_private_loop_accesses<uint32_t>},

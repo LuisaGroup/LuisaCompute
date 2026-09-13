@@ -44,6 +44,10 @@ struct LowerOptions {
     // logical program, independent of packet/local distribution. Zero keeps
     // reference emission; the consuming backend must support the intrinsic.
     uint32_t native_mma_vector_width{0u};
+    // Opt-in contiguous resource-to-snapshot transfer within one program.
+    // Does not change snapshot allocation or load timing. Ineligible views
+    // and partial logical bounds retain the original elementwise traversal.
+    uint32_t native_copy_vector_width{0u};
     // Bounded pure unordered reductions may partition contributions among
     // these independent accumulators. One preserves the sequential baseline.
     uint32_t reduction_partitions{4u};
@@ -119,6 +123,7 @@ struct NativeFunction {
     uint32_t native_mmas{0u};
     uint32_t native_output_mmas{0u};
     uint32_t native_contraction_mmas{0u};
+    uint32_t native_copies{0u};
     // MMA operations with at least one emitted runtime contraction loop.
     uint32_t rolled_mmas{0u};
     ExecutionResources resources;

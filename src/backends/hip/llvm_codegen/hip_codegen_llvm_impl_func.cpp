@@ -114,6 +114,13 @@ llvm::Function *HIPCodegenLLVMImpl::_declare_llvm_callable_function(const xir::C
 }
 
 llvm::Function *HIPCodegenLLVMImpl::_declare_llvm_external_function(const xir::ExternalFunction *func) noexcept {
+    for (auto metadata : func->metadata_list()) {
+        auto tag = metadata->derived_metadata_tag();
+        if (tag == xir::DerivedMetadataTag::STRIDED_MMA ||
+            tag == xir::DerivedMetadataTag::CONTIGUOUS_COPY) {
+            LUISA_ERROR_WITH_LOCATION("HIP XIR codegen does not support required native call semantics.");
+        }
+    }
     auto name = func->name();
     LUISA_ASSERT(name.has_value() && !name->empty(),
                  "HIP external functions must have a non-empty symbol name.");

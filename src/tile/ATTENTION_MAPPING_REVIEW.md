@@ -293,6 +293,8 @@ MHA-on的实际反汇编已确认helper内联，kernel body内无调用指令；
 
 ## 16. 原生采样：先优化搬运的执行映射，而不只优化 MMA
 
+本节保留实现前的诊断检查点；连续快照复制的后续实现与测量见第17节。
+
 [独立采样记录](../../scripts/benchmark/tile_torch/results/m1-max-20260913-attention-phase-profile/notes.md)复用第15节冻结的实际 ORC object/dylib，没有重编译 LLVM 文本，也没有修改 kernel 或数学策略。MHA decode、长 KV decode、batch GQA prefill 各采样 off/on；每次均在独立进程内检查完整输出、FP64 reference、guard、输入和 launch metadata，要求逐 bit 复现本臂 capture。采样是热点诊断，不替换之前的 ABBA 性能数据。
 
 MHA-on 的 K/V 定义快照搬运是明确的热点。关联到完整生成代码的两个循环分别为每个active program拷贝16×64个 FP32 元素，先沿 program packet 构造地址，执行逐 lane 的掩码标量 gather，再写逐 program 连续的快照。即使源 tile 沿 feature 连续，当前搬运也没有沿这个方向做连续向量访问。CPU 时间采样不是内存带宽/cache计数器，不能把热点直接称作 DRAM 带宽瓶颈；精确比例、未匹配样本及反汇编区间见记录。
@@ -340,3 +342,55 @@ cost = address/mask issue + scalar/vector load/store service
 共享计划至少需区分 logical bytes、生成的标量/向量访存组、残留mask与循环次数；它们都不是已测的DRAM流量或物理寄存器数。将 transfer 归属到 producer 节点或转换边，二者不可重复计费。backend policy 提供目标能力和成本，solver 联合选择 load/compute/consumer 的实现；不要从一次 MHA 采样拟合一个全局系数。
 
 验证次序是：先在封闭拷贝上检查有/无mask、尾块、inactive program、别名与定义时快照，再检查实际对象是否出现连续访问，最后冻结未采样的完整 attention 与非attention对照。保留现有快照容量、程序次序和MMA算法作为控制；若实际packet/clone/ABI随候选变化，报告必须显式披露。**当前只有定位与设计依据，没有新编译器加速、自动policy或新的MPS/Torch/BLAS胜利。**
+
+## 17. 连续定义快照搬运候选
+
+第16节的首个实现采用静态 FP32、完整 program、已有私有快照的窄范围方案。`native_copy_vector_width=0` 默认关闭；SIMD target info 独立接受2/4/8，其他后端默认拒绝非零请求。用户 DSL、TileIR 的 `VIEW_LOAD` 语义以及 snapshot allocation plan 均不变。load/reduction producer fusion 优先；它没有被重复物化来凑一个 copy 候选。
+
+### 17.1 准入是布局等式，不是 attention 特判
+
+设源 shape 为 `s`、tile shape 为 `t`，二者的 row-major strides 为 `S_i=∏_{j>i}s_j`、`T_i=∏_{j>i}t_j`。首版要求每个非单位 tile 轴满足 `S_i=T_i`，源/tile 容积有限且不会溢出。单位轴没有变化坐标，因而不要求它的 stride 相等。
+
+于是对于所有 tile 内坐标 `e`：
+
+```text
+source_address(o + e) = source_address(o) + Σ e_i S_i
+                      = source_address(o) + Σ e_i T_i
+                      = source_address(o) + tile_flat(e)
+```
+
+这给出一个完整连续区间。原 load 定义处再检查 `0 ≤ o_i ≤ s_i−t_i`；使用减法上界避免 `o_i+t_i` 溢出。所有轴都满足时才使用 fast path，不能只检查 flatten 后的 buffer 容量。边界不满足时，仍对原 tile 做逐元素 bounds/fill，包括负 origin、跨行与 ragged 尾块。第一版不切分任意非连续外层，相关 view 保留原路径。
+
+```text
+VIEW_LOAD 定义点 ── 既有 allocation/fusion plan
+                         │ snapshot 且连续
+                  整个逻辑 view 有效？
+                    /              \
+             typed bulk copy    原逐元素 bounds/fill
+                    \              /
+                     同一个 snapshot
+                            │
+                 后续 effects / MMA / consumers
+```
+
+### 17.2 必需的中间层语义
+
+XIR `ContiguousCopyMD` 附在 compiler-owned external declaration，保存 element count 与内部向量宽度；三个实参分别为 typed `buffer<float>` resource、`uint64` element offset、完整 root-local `array<float>` destination reference。名字仅用于调试。clone、text、bitcode、verifier 以及 Schedule 的拥有型副本都要保留此语义；普通 external calls 仍拒绝，错误类型/容量/目标存储或混合 semantic tags 均不可默默接受。
+
+LLVM helper 在同一 module 中，以整数位模式连续搬运 FP32，向量 full chunks 之后是精确 scalar tail。每个 active program 独立调用，inactive program 不求值用户内存访问。它沿用 buffer read 的有效资源区间前提，不为非法宿主指针编造零值，也不声明所有用户资源 `noalias`。新鲜私有 destination 与资源不别名，但源 buffer 仍可与其他用户参数别名。整个 copy 在定义处完成，小 tile 从已完成的 snapshot 读取为 SSA，不能延迟到 consumer 或改变 carry ABI。
+
+### 17.3 成本边界
+
+`ExecutionNativeCopyWork` 向 backend policy 提供每完整 program 的候选调用数、full-path 向量访存组、scalar tail 元素与 fallback 元素。这两条路径互斥，不能把它们相加当作动态工作；逻辑 bytes 和 snapshot capacity 也不能重复收费。默认 prior 暂不提供 native copy 加速奖励，保留 `native_copy_cost=unmodeled`。
+
+完整 attention 对照固定 native MMA width4、W8/block32/local1、MMA block/unroll 策略，只改变 copy width0/4。两臂要求输入、数学策略、snapshot capacity 和输出 bit pattern 相同；interleaving、native code、clone admission、workspace/entry ABI 仍须逐项记录。
+
+### 17.4 实测：搬运映射有收益，但必须联合代码预算选择
+
+[六尺寸连续复制实验](../../scripts/benchmark/tile_torch/results/m1-max-20260913-attention-native-copy/notes.md)完成12次实际ORC capture、72次ABBA visits和504个样本。三组decode（包括KV=8193）的配对时间减少70.2%–78.8%，prefill-q4减少25.8%，batch GQA减少50.4%；prefill-q8增加2.6%。全部输出通过完整FP64、guard、输入不变与A/B逐bit检查。
+
+这次六对的snapshot容量、allocation数、交错数组数、workspace、root order、task grain及入口ABI均不变。实际MHA/long对象确认K/V是连续NEON搬运且helper已内联；prefill-q8的原始entry却从3786增至4146条LLVM指令，跨过4096门槛，从一个full-packet clone变成没有clone，其他五组的clone存在性不变。因此完整实现虽只开关copy候选，最终代码特化仍会改变，不能把时间差都归因于单独一条向量load/store。
+
+这给联合求解提出了实际要求：`copy choice × compute choice × physical layout × specialization budget`不能只靠各自独立的加速系数相加。原始逻辑工作相同不代表搬运服务成本相同；连续复制的guard/fallback也会增加特化前IR，必须使用实际生成代码预算验证候选组合。满包收益消失的具体耗时仍需独立控制实验，不能把本次相关性当作已分解的因果成本。
+
+完整选定构建、11项CTest和25个C++ TU的syntax检查通过。该实现不识别算子名称，但性能泛化仍需更大prefill和非attention留出集；目前默认仍关闭、cost仍明确unmodeled。这一轮基线固定native MMA开启，不是前一轮MMA关闭的更快基线，也没有新的Torch/MPS/BLAS配对，整体性能目标尚未完成。

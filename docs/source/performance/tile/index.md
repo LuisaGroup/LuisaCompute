@@ -39,13 +39,17 @@ algorithm gaps; they do not establish ranking parity. Attention remains a
 priority, especially [phase-specific decode distributions](results.md#composed-reductions-need-phase-specific-contraction-distributions).
 Historical prefill/decode gaps must not be presented as measurements of the
 unfinished matrix-initializer work in the current working tree.
-The latest compiler-generated native MMA candidate improves one batch-GQA
+The compiler-generated native MMA candidate improves one batch-GQA
 case by 25.8% but regresses the other five attention cases by 6.2%–60.4%; it
 remains opt-in. See the [attention experiments](results.md#attention-priority-contribution-mapping-with-device-failures-retained)
 for the matched native-entry results and remaining layout-transition costs.
-Follow-up native profiling identifies K/V snapshot copy loops as the dominant
-sampled MHA-on hotspot; the next candidate targets the transfer mapping as well
-as the MMA. This is diagnosis, not another measured speedup or default change.
+Follow-up native profiling identifies K/V snapshot copies as the dominant
+sampled MHA-on hotspot. The subsequent generic contiguous-copy candidate,
+with native MMA held on, reduces paired decode time by **70.2%–78.8%**,
+prefill-q4 by **25.8%**, and batch GQA by **50.4%**. Prefill-q8 loses its
+full-packet clone and regresses **2.6%**; all six pairs preserve capacity and
+bitwise outputs. This is an opt-in transfer-mapping improvement, not a new
+Torch/MPS comparison or calibrated automatic policy.
 
 ## How to read the performance evidence
 

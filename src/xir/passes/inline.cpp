@@ -570,7 +570,8 @@ public:
         case DerivedMetadataTag::SIGNATURE_CONSTRAINT:
         case DerivedMetadataTag::REG2MEM_SPILL:
         case DerivedMetadataTag::NO_INLINE:
-        case DerivedMetadataTag::STRIDED_MMA: return false;
+        case DerivedMetadataTag::STRIDED_MMA:
+        case DerivedMetadataTag::CONTIGUOUS_COPY: return false;
     }
     return false;
 }

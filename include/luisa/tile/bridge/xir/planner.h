@@ -57,6 +57,9 @@ struct PlannerOptions {
     // shared with lowering and gated by target info. No measured speedup is
     // credited to this candidate by the default cost prior.
     uint32_t native_mma_vector_width{0u};
+    // Fixed transfer candidate, separately gated by the target. The default
+    // prior does not claim a calibrated speedup for native copy geometry.
+    uint32_t native_copy_vector_width{0u};
     uint32_t reduction_partitions{4u};
     // One preserves the default complete-program mapping. Zero opts into the
     // experimental joint search; packet_width forces a legal local-axis map.
@@ -120,6 +123,7 @@ struct ExecutionPlan {
     bool enable_mma_2d_blocking{false};
     uint32_t max_unrolled_mma_terms{0u};
     uint32_t native_mma_vector_width{0u};
+    uint32_t native_copy_vector_width{0u};
 };
 
 // Unweighted dynamic contraction work for one complete logical program in
@@ -146,6 +150,18 @@ struct ExecutionMmaWork {
     double native_contraction_vector_updates{0.0};
 };
 
+// Conditional transfer geometry for one complete logical program. Each
+// invocation takes either the full-view fast path or the original fallback;
+// these are alternatives, not additive work or measured memory transactions.
+// A vector group is one source vector load plus one private vector store.
+// Logical bytes and snapshot storage are already charged by the base prior.
+struct ExecutionNativeCopyWork {
+    double invocations{0.0};
+    double fastpath_vector_groups{0.0};
+    double fastpath_tail_elements{0.0};
+    double fallback_elements{0.0};
+};
+
 // The bridge extracts work and packet/block counts (including masked tails).
 // Target info supplies scheduling fields. The thread-pool implementation uses
 // static home chunks as a cost prior, not a timing bound on heterogeneous CPUs.
@@ -161,6 +177,7 @@ struct ExecutionWork {
     uint64_t critical_blocks{0u};
     uint64_t critical_tasks{0u};
     ExecutionMmaWork mma_per_packet;
+    ExecutionNativeCopyWork native_copy_per_program;
 };
 
 class LUISA_TILE_XIR_BRIDGE_API ExecutionCostPolicy {
@@ -194,6 +211,7 @@ public:
     // Narrow, typed intrinsic capability, separate from execution packet
     // widths. Generic and GPU targets must explicitly opt in to consume it.
     [[nodiscard]] virtual bool supports_native_mma_vector_width(uint32_t) const noexcept { return false; }
+    [[nodiscard]] virtual bool supports_native_copy_vector_width(uint32_t) const noexcept { return false; }
     [[nodiscard]] virtual bool accepts(const ExecutionPlan &candidate) const noexcept = 0;
     // Called after geometry admission, with the candidate's shared static
     // resource analysis attached. The returned budget is retained in the plan

@@ -32,6 +32,7 @@
 #include <luisa/xir/instructions/thread_group.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/metadata/strided_mma.h>
+#include <luisa/xir/metadata/contiguous_copy.h>
 #include <luisa/xir/special_register.h>
 #include <luisa/xir/undefined.h>
 #include <luisa/xir/verifier.h>
@@ -1169,7 +1170,46 @@ public:
         const BasicBlock *block = nullptr, const Instruction *instruction = nullptr,
         bool external_function = false) noexcept {
         auto count = size_t{0u};
+        auto copy_count = size_t{0u};
         for (auto metadata : owner.metadata_list()) {
+            if (metadata->isa<ContiguousCopyMD>()) {
+                ++copy_count;
+                if (!external_function) {
+                    _error(function, block, instruction,
+                           "Contiguous-copy metadata is only valid on an external function.");
+                }
+                if (!is_valid_contiguous_copy_descriptor(static_cast<const ContiguousCopyMD *>(metadata)->descriptor)) {
+                    _error(function, block, instruction,
+                           "Contiguous-copy metadata has an invalid descriptor.");
+                }
+                if (external_function && function != nullptr) {
+                    auto valid_signature = function->type() == nullptr;
+                    auto index = size_t{0u};
+                    for (auto argument : function->arguments()) {
+                        auto type = argument->type();
+                        switch (index++) {
+                            case 0u:
+                                valid_signature &= argument->is_resource() && type != nullptr && type->is_buffer() &&
+                                                   type->element() != nullptr && type->element()->tag() == Type::Tag::FLOAT32;
+                                break;
+                            case 1u:
+                                valid_signature &= argument->is_value() && type != nullptr && type->tag() == Type::Tag::UINT64;
+                                break;
+                            case 2u:
+                                valid_signature &= argument->is_reference() && type != nullptr && type->is_array() &&
+                                                   type->element() != nullptr && type->element()->tag() == Type::Tag::FLOAT32 &&
+                                                   type->dimension() >= static_cast<const ContiguousCopyMD *>(metadata)->descriptor.element_count;
+                                break;
+                            default: valid_signature = false; break;
+                        }
+                    }
+                    if (!valid_signature || index != 3u) {
+                        _error(function, block, instruction,
+                               "Contiguous-copy external signature must be void(buffer<float> resource, uint64 value, sufficiently sized array<float> reference).");
+                    }
+                }
+                continue;
+            }
             if (!metadata->isa<StridedMmaMD>()) { continue; }
             ++count;
             if (!external_function) {
@@ -1185,6 +1225,14 @@ public:
         if (count > 1u) {
             _error(function, block, instruction,
                    "Strided-MMA metadata must occur at most once per external function.");
+        }
+        if (copy_count > 1u) {
+            _error(function, block, instruction,
+                   "Contiguous-copy metadata must occur at most once per external function.");
+        }
+        if (count != 0u && copy_count != 0u) {
+            _error(function, block, instruction,
+                   "An external function cannot combine strided-MMA and contiguous-copy semantics.");
         }
     }
 

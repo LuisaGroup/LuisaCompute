@@ -730,7 +730,7 @@ void ScheduleEmitter::_preflight() {
     }
     _analyze_local_lvalues();
     if (_failed()) { return; }
-    _preflight_strided_mmas();
+    _preflight_typed_calls();
     if (_failed()) { return; }
     _analyze_ray_query_scratch();
     if (_source.blocks().size() >

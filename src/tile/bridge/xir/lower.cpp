@@ -14,6 +14,7 @@
 #include "resources.h"
 #include "pointwise.h"
 #include "root_mapping.h"
+#include "native_copy.h"
 
 namespace luisa::compute::tile::bridge::xir {
 namespace {
@@ -707,6 +708,68 @@ private:
         }
         return nullptr;
     }
+    [[nodiscard]] bool _native_view_copy(const ViewAccess &access, const detail::ValueAllocationPlan &plan) {
+        auto &op = *access.operation;
+        auto descriptor = detail::native_copy_plan(op, _options, plan.snapshot && !plan.fusion);
+        if (!descriptor) { return false; }
+        auto result = op.result(0u);
+        auto &space = *op.operand(0u)->type().index_space();
+        auto storage = _allocate(result->type());
+        x::Value *valid = _constant(true);
+        auto guarded = false;
+        for (auto i = size_t{0u}; i < space.rank(); i++) {
+            auto max_origin = _extent(space, i) - _extent(*op.domain(), i);
+            if (auto range = access.ranges[i]; range && range->lo >= 0 &&
+                                               range->hi <= static_cast<int64_t>(max_origin)) { continue; }
+            guarded = true;
+            valid = _binary(A::BINARY_BIT_AND, valid, _compare(A::BINARY_GREATER_EQUAL, access.origins[i], _index(0u)));
+            valid = _binary(A::BINARY_BIT_AND, valid, _compare(A::BINARY_LESS_EQUAL, access.origins[i], _index(max_origin)));
+        }
+        auto copy = [&] {
+            x::Value *address = _index(0u);
+            for (auto i = size_t{0u}; i < space.rank(); i++) {
+                address = _binary(A::BINARY_ADD, _binary(A::BINARY_MUL, address, _index(_extent(space, i))), access.origins[i]);
+            }
+            auto callee = _output.module->create_external_function(nullptr);
+            callee->set_name("tile_contiguous_copy");
+            callee->create_metadata<x::ContiguousCopyMD>()->descriptor = *descriptor;
+            callee->create_resource_argument(access.buffer->type());
+            callee->create_value_argument(XType::of<uint64_t>());
+            callee->create_reference_argument(storage->type());
+            _charge();
+            _builder.call(nullptr, callee, {access.buffer, _builder.static_cast_if_necessary(XType::of<uint64_t>(), address), storage});
+        };
+        if (guarded) {
+            auto fast = _output.function->create_basic_block();
+            auto fallback = _output.function->create_basic_block();
+            auto merge = _output.function->create_basic_block();
+            _builder.cond_br(valid, fast, fallback);
+            _at(fast);
+            copy();
+            _builder.br(merge);
+            _at(fallback);
+            _for_each(descriptor->element_count, [&](x::Value *flat) {
+                _store_local(result->type(), storage, flat, _view_element(access, flat));
+            });
+            _builder.br(merge);
+            _at(merge);
+        } else {
+            copy();
+        }
+        auto data = _representation(result);
+        data->storage = storage;
+        // Preserve small-value SSA carry ABI without allocating a second
+        // snapshot. Both branches complete the load before any later effect.
+        if (!detail::traversal_snapshot(descriptor->element_count, _options)) {
+            Elements elements;
+            for (auto i = uint64_t{0u}; i < descriptor->element_count; i++) {
+                elements.emplace_back(_read(data, _index(i)));
+            }
+            data->elements = std::move(elements);
+        }
+        _output.native_copies++;
+        return true;
+    }
     void _view_access(const Operation &op) {
         auto captured = _capture_view_access(op);
         auto count = op.domain() ? _volume(*op.domain()) : 1u;
@@ -723,6 +786,7 @@ private:
                 return;
             }
             if (op.result(0u)->type().is_tile()) {
+                if (_native_view_copy(captured, plan)) { return; }
                 _emit_tile(op.result(0u), access);
             } else {
                 _define(op.result(0u), Elements{access(_index(0u))});

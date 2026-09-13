@@ -30,6 +30,7 @@
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/instructions/thread_group.h>
 #include <luisa/xir/metadata/strided_mma.h>
+#include <luisa/xir/metadata/contiguous_copy.h>
 #include <luisa/xir/passes/dom_tree.h>
 #include <luisa/xir/passes/post_dom_tree.h>
 #include <luisa/xir/special_register.h>
@@ -37,6 +38,7 @@
 #include "../../../xir/passes/natural_loop.h"
 #include "warp_uniformity.h"
 #include "strided_mma_types.h"
+#include "contiguous_copy_types.h"
 
 namespace luisa::compute::simd::schedule {
 
@@ -208,6 +210,64 @@ struct CFGEdgeHash {
         }
     }
     return {};
+}
+
+[[nodiscard]] std::string_view validate_contiguous_copy_call(const xir::CallInst *call) {
+    auto *callee = call->callee();
+    auto *metadata = callee->find_metadata<xir::ContiguousCopyMD>();
+    if (metadata == nullptr || !xir::is_valid_contiguous_copy_descriptor(metadata->descriptor)) {
+        return "external call lacks valid contiguous copy semantic metadata";
+    }
+    if (call->type() != nullptr || callee->type() != nullptr || call->argument_count() != 3u) {
+        return "contiguous copy requires a void call with three arguments";
+    }
+    std::array<const Type *, 3u> types{};
+    auto index = size_t{0u};
+    for (auto *argument : callee->arguments()) {
+        if (index == types.size() || call->argument(index) == nullptr ||
+            argument->type() != call->argument(index)->type() ||
+            (index == 0u && !argument->is_resource()) ||
+            (index == 1u && (!argument->is_value() || call->argument(index)->is_lvalue())) ||
+            (index == 2u && !argument->is_reference())) {
+            return "contiguous copy formal/actual resource, offset or destination signatures disagree";
+        }
+        types[index++] = argument->type();
+    }
+    if (index != types.size()) { return "contiguous copy requires three formal arguments"; }
+    ContiguousCopyMetadata descriptor{metadata->descriptor.element_count, metadata->descriptor.vector_width};
+    if (auto error = validate_contiguous_copy(descriptor, types); !error.empty()) { return error; }
+    auto *source = call->argument(0u);
+    if (!source->isa<xir::Argument>() || !static_cast<const xir::Argument *>(source)->is_resource()) {
+        return "contiguous copy source must be a root resource argument";
+    }
+    auto *destination = call->argument(2u);
+    if (!destination->isa<xir::AllocaInst>() || !static_cast<const xir::AllocaInst *>(destination)->is_local()) {
+        return "contiguous copy destination must be a complete root thread-local allocation";
+    }
+    return {};
+}
+
+[[nodiscard]] std::string_view validate_native_call(const xir::CallInst *call) {
+    auto *callee = call->callee();
+    if (callee == nullptr || !callee->isa<xir::ExternalFunction>()) {
+        return "SIMD only admits compiler-owned native external calls; inline other calls first";
+    }
+    for (auto *metadata : call->metadata_list()) {
+        if (metadata->derived_metadata_tag() == xir::DerivedMetadataTag::STRIDED_MMA ||
+            metadata->derived_metadata_tag() == xir::DerivedMetadataTag::CONTIGUOUS_COPY) {
+            return "native semantic descriptors belong on the external function, not the call instruction";
+        }
+    }
+    auto mma_count = size_t{0u};
+    auto copy_count = size_t{0u};
+    for (auto *metadata : callee->metadata_list()) {
+        mma_count += metadata->derived_metadata_tag() == xir::DerivedMetadataTag::STRIDED_MMA;
+        copy_count += metadata->derived_metadata_tag() == xir::DerivedMetadataTag::CONTIGUOUS_COPY;
+    }
+    if (mma_count + copy_count != 1u) {
+        return "external call requires exactly one strided MMA or contiguous copy semantic descriptor";
+    }
+    return copy_count == 1u ? validate_contiguous_copy_call(call) : validate_strided_mma_call(call);
 }
 
 [[nodiscard]] bool is_collective(xir::ThreadGroupOp op) noexcept {
@@ -435,7 +495,7 @@ private:
                     continue;
                 }
                 if (instruction->isa<xir::CallInst>()) {
-                    if (auto error = validate_strided_mma_call(static_cast<const xir::CallInst *>(instruction)); !error.empty()) {
+                    if (auto error = validate_native_call(static_cast<const xir::CallInst *>(instruction)); !error.empty()) {
                         _diagnose(XIRToScheduleDiagnosticCode::unsupported_instruction,
                                   std::string{error}, block, instruction);
                     }
@@ -1421,7 +1481,12 @@ private:
         }
         if (source_instruction->isa<xir::CallInst>()) {
             auto *call = static_cast<const xir::CallInst *>(source_instruction);
-            instruction.strided_mma = copy_strided_mma(call->callee()->find_metadata<xir::StridedMmaMD>()->descriptor);
+            if (auto metadata = call->callee()->find_metadata<xir::StridedMmaMD>()) {
+                instruction.strided_mma = copy_strided_mma(metadata->descriptor);
+            } else if (auto metadata = call->callee()->find_metadata<xir::ContiguousCopyMD>()) {
+                instruction.contiguous_copy = ContiguousCopyMetadata{
+                    metadata->descriptor.element_count, metadata->descriptor.vector_width};
+            }
             for (auto *use : call->argument_uses()) {
                 if (auto operand = _map_value(use->value(), source_instruction->parent_block(), source_instruction)) {
                     instruction.operands.emplace_back(*operand);

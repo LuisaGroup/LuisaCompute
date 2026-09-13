@@ -15,6 +15,7 @@
 #include <luisa/xir/instructions/resource.h>
 #include <luisa/xir/instructions/call.h>
 #include <luisa/xir/metadata/strided_mma.h>
+#include <luisa/xir/metadata/contiguous_copy.h>
 #include <luisa/xir/debug_printer.h>
 #include <luisa/xir/verifier.h>
 #include <array>
@@ -165,6 +166,9 @@ struct NativeCpuTargetInfo final : bx::ThreadPoolExecutionTargetInfo {
     [[nodiscard]] bool supports_native_mma_vector_width(uint32_t width) const noexcept override {
         return width == 2u || width == 4u || width == 8u;
     }
+    [[nodiscard]] bool supports_native_copy_vector_width(uint32_t width) const noexcept override {
+        return width == 2u || width == 4u || width == 8u;
+    }
 };
 
 void expect_same_plan(const bx::ExecutionPlan &a, const bx::ExecutionPlan &b) {
@@ -177,6 +181,7 @@ void expect_same_plan(const bx::ExecutionPlan &a, const bx::ExecutionPlan &b) {
     expect(eq(a.mma_output_block, b.mma_output_block));
     expect(eq(a.max_unrolled_mma_terms, b.max_unrolled_mma_terms));
     expect(eq(a.native_mma_vector_width, b.native_mma_vector_width));
+    expect(eq(a.native_copy_vector_width, b.native_copy_vector_width));
     expect_same_resources(a.resources, b.resources);
     expect(eq(a.resource_limits.max_snapshot_bytes_per_worker, b.resource_limits.max_snapshot_bytes_per_worker));
     auto same_cost = [](double x, double y) { expect(std::abs(x - y) < 1e-12); };
@@ -192,6 +197,145 @@ void expect_same_plan(const bx::ExecutionPlan &a, const bx::ExecutionPlan &b) {
 
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
+
+    "tile_xir_native_copy_geometry_resources_and_policy_work"_test = [] {
+        using namespace tile;
+        NativeCpuTargetInfo info;
+        for (auto rows : {1u, 2u}) {
+            for (auto columns : {1u, 8u, 9u, 11u, 13u}) {
+                auto kernel = tile_kernel("native_copy_geometry", [=](TensorView<const float, 3> input,
+                                                                      TensorView<float, 3> output) {
+                                  auto p = axis("p", 1), m = axis("m", rows), n = axis("n", columns);
+                                  for (auto &nest : parallel(shape(17))) {
+                                      // Dynamic logical row bounds cannot be replaced by
+                                      // a flat buffer-range check, even for dense strides.
+                                      auto offset = nest.index() % 5 * 3 - 3;
+                                      auto value = input.tile(coord(nest.index(), 0, offset), shape(p, m, n), bounds::zero).load();
+                                      output(coord(nest.index(), 0, 0), shape(p, m, n)).store(value);
+                                  }
+                              }).capture(tensor_shape(17, 2, 11), tensor_shape(17, rows, columns));
+                auto count = static_cast<uint64_t>(rows) * columns;
+                auto options = bx::LowerOptions{.block_size = 32u, .max_unrolled_tile_elements = 4u};
+                auto baseline = check_resources(kernel, options);
+                if (!baseline) { continue; }
+                expect(eq(baseline.native_copies, 0u));
+                expect_same_resources(baseline.resources, {count > 4u ? count * sizeof(float) : 0u, count > 4u ? 1u : 0u});
+                RecordingCostPolicy baseline_policy;
+                auto planner = bx::PlannerOptions{.block_size = 32u, .max_unrolled_tile_elements = 4u, .cost_policy = &baseline_policy};
+                auto baseline_plan = bx::plan(kernel.function(), info, planner);
+                expect(baseline_plan.ok()) << baseline_plan.error;
+                expect(!baseline_policy.observed_work.empty());
+                if (!baseline_plan || baseline_policy.observed_work.empty()) { continue; }
+                expect(eq(baseline_plan.selected.native_copy_vector_width, 0u));
+                expect(eq(baseline_policy.observed_work.front().native_copy_per_program.invocations, 0.0));
+                for (auto width : {2u, 4u, 8u}) {
+                    options.native_copy_vector_width = width;
+                    auto candidate = check_resources(kernel, options);
+                    if (!candidate) { continue; }
+                    // The two-row subview is contiguous only when it spans
+                    // whole physical rows. Oversize domains keep the fallback.
+                    auto admitted = count > 4u && count >= width && columns <= 11u && (rows == 1u || columns == 11u);
+                    expect(eq(candidate.native_copies, admitted ? 1u : 0u)) << "rows=" << rows << " columns=" << columns << " vector=" << width;
+                    expect_same_resources(candidate.resources, baseline.resources);
+                    expect(eq(candidate.required_packet_width, 0u));
+                    expect(eq(candidate.dispatch_size, baseline.dispatch_size));
+                    expect(static_cast<bool>(candidate.argument_usages == baseline.argument_usages));
+                    auto calls = 0u;
+                    candidate.function->traverse_instructions([&](xir::Instruction *instruction) noexcept {
+                        if (!instruction->isa<xir::CallInst>()) { return; }
+                        auto call = static_cast<xir::CallInst *>(instruction);
+                        auto md = call->callee()->find_metadata<xir::ContiguousCopyMD>();
+                        expect(md != nullptr);
+                        if (!md) { return; }
+                        calls++;
+                        expect(eq(md->descriptor.element_count, count));
+                        expect(eq(md->descriptor.vector_width, width));
+                        expect(eq(call->argument_count(), size_t{3u}));
+                        if (call->argument_count() != 3u) { return; }
+                        expect(call->argument(0u)->type()->is_buffer());
+                        expect(call->argument(1u)->type()->is_uint64());
+                        expect(call->argument(2u)->isa<xir::AllocaInst>());
+                        expect(call->argument(2u)->type()->is_array());
+                        expect(eq(call->argument(2u)->type()->size(), count * sizeof(float)));
+                    });
+                    expect(eq(calls, candidate.native_copies));
+                    RecordingCostPolicy policy;
+                    planner.native_copy_vector_width = width;
+                    planner.cost_policy = &policy;
+                    auto planned = bx::plan(kernel.function(), info, planner);
+                    expect(planned.ok()) << planned.error;
+                    expect(!policy.observed_work.empty());
+                    if (!planned || policy.observed_work.empty()) { continue; }
+                    expect(eq(planned.selected.native_copy_vector_width, width));
+                    expect_same_resources(planned.selected.resources, candidate.resources);
+                    auto &work = policy.observed_work.front();
+                    auto &copy = work.native_copy_per_program;
+                    // Conditional alternatives per logical program, not W8
+                    // replicated bytes, additive cycles or a measured speedup.
+                    expect(eq(copy.invocations, admitted ? 1.0 : 0.0));
+                    expect(eq(copy.fastpath_vector_groups, admitted ? static_cast<double>(count / width) : 0.0));
+                    expect(eq(copy.fastpath_tail_elements, admitted ? static_cast<double>(count % width) : 0.0));
+                    expect(eq(copy.fallback_elements, admitted ? static_cast<double>(count) : 0.0));
+                    expect(eq(work.arithmetic_per_packet, baseline_policy.observed_work.front().arithmetic_per_packet));
+                    expect(eq(work.memory_per_packet, baseline_policy.observed_work.front().memory_per_packet));
+                }
+            }
+        }
+    };
+
+    "tile_xir_native_copy_capability_and_materialization_exclusions"_test = [] {
+        using namespace tile;
+        auto kernel = copy_fixture<float>(9u);
+        NativeCpuTargetInfo cpu;
+        MockGpuTargetInfo gpu;
+        auto rejected = bx::plan(kernel.function(), gpu, {.native_copy_vector_width = 4u});
+        expect(!rejected.ok());
+        expect(rejected.error.find("native copy vector width") != string::npos) << rejected.error;
+        expect(gpu.admission_checks.empty());
+        expect(gpu.policy.observed_work.empty());
+        for (auto width : {1u, 3u, 16u, UINT32_MAX}) {
+            RecordingCostPolicy policy;
+            expect(!bx::plan(kernel.function(), cpu, {.native_copy_vector_width = width, .cost_policy = &policy}).ok());
+            expect(policy.observed_work.empty());
+        }
+        // A width request cannot create an otherwise-unneeded allocation.
+        auto expanded = check_resources(kernel, {.max_unrolled_tile_elements = 0u, .native_copy_vector_width = 4u});
+        if (expanded) {
+            expect(eq(expanded.native_copies, 0u));
+            expect_same_resources(expanded.resources, {});
+        }
+        auto local = check_resources(copy_fixture<float>(65u), {.block_size = 32u, .native_copy_vector_width = 4u, .local_lanes = 8u});
+        if (local) {
+            expect(eq(local.native_copies, 0u));
+            expect(eq(local.required_packet_width, 8u));
+            expect_same_resources(local.resources, {ceil_div(uint64_t{65u}, uint64_t{8u}) * sizeof(float), 1u});
+        }
+        auto half_copy = check_resources(copy_fixture<half>(9u), {.max_unrolled_tile_elements = 4u, .native_copy_vector_width = 4u});
+        if (half_copy) {
+            expect(eq(half_copy.native_copies, 0u));
+            expect_same_resources(half_copy.resources, {9u * sizeof(half), 1u});
+        }
+        auto reduced = tile_kernel("native_copy_producer_fusion", [](TensorView<const float, 2> input, TensorView<float, 2> output) {
+                           auto m = axis("m", 1), n = axis("n", 65);
+                           for (auto &nest : parallel(shape(17))) {
+                               auto value = input.tile(coord(nest.index(), 0), shape(m, n)).load();
+                               auto sum = Scalar<float>{0.0f};
+                               for (auto &element : nest.reduce(shape(n))) { sum += value.at(coord(0, element.index())); }
+                               output(coord(nest.index(), 0), shape(m, n)).store(full<float>(shape(m, n), sum));
+                           }
+                       }).capture(tensor_shape(17, 65), tensor_shape(17, 65));
+        auto fused_baseline = check_resources(reduced, {.enable_load_reduction_fusion = true});
+        auto fused = check_resources(reduced, {.native_copy_vector_width = 4u, .enable_load_reduction_fusion = true});
+        if (fused) {
+            expect(eq(fused.fused_reduction_loads, 1u));
+            expect(eq(fused.elided_load_snapshots, 1u));
+            expect(eq(fused.native_copies, 0u));
+            // Dynamic full(shape, sum) is a materialized output map, not a
+            // constant splat. The load snapshot alone has been eliminated.
+            expect_same_resources(fused.resources, {65u * sizeof(float), 1u});
+            if (fused_baseline) { expect_same_resources(fused.resources, fused_baseline.resources); }
+        }
+    };
 
     "tile_xir_native_mma_capabilities_snapshots_and_work"_test = [] {
         using namespace tile;

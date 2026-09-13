@@ -11,6 +11,7 @@
 #include <luisa/xir/builder.h>
 #include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/metadata/strided_mma.h>
+#include <luisa/xir/metadata/contiguous_copy.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/special_register.h>
 #include <luisa/xir/translators/xir_interchange.h>
@@ -43,6 +44,62 @@ namespace {
 }// namespace
 
 void reg_xir_verifier() {
+    "xir_verifier_contiguous_copy_required_semantics"_test = [] {
+        for (auto variant = 0u; variant < 16u; variant++) {
+            Module module;
+            auto kernel = module.create_kernel();
+            auto argument = kernel->create_value_argument(Type::of<float>());
+            auto body = kernel->create_body_block();
+            XIRBuilder builder;
+            builder.set_insertion_point(body);
+            auto storage = builder.alloca_local(Type::of<float>());
+            builder.return_void();
+            auto callable = module.create_callable(nullptr);
+            builder.set_insertion_point(callable->create_body_block());
+            builder.return_void();
+            auto external = module.create_external_function(nullptr);
+            (void)external->create_resource_argument(Type::buffer(Type::of<float>()));
+            (void)external->create_value_argument(Type::of<uint64_t>());
+            (void)external->create_reference_argument(Type::array(Type::of<float>(), 8u));
+            MetadataListMixin *owner = external;
+            switch (variant) {
+                case 0u: owner = &module; break;
+                case 1u: owner = module.create_constant_zero(Type::of<float>()); break;
+                case 2u: owner = module.create_undefined(Type::of<float>()); break;
+                case 3u: owner = module.create_dispatch_id(); break;
+                case 4u: owner = kernel; break;
+                case 5u: owner = callable; break;
+                case 6u: owner = argument; break;
+                case 7u: owner = body; break;
+                case 8u: owner = storage; break;
+                case 9u: owner = external->create_basic_block(); break;
+                default: break;
+            }
+            auto metadata = owner->create_metadata<ContiguousCopyMD>();
+            metadata->descriptor = {5u, 4u};
+            if (variant == 10u) { metadata->descriptor.element_count = 0u; }
+            if (variant == 11u) { metadata->descriptor.vector_width = 0u; }
+            if (variant == 12u) { metadata->descriptor.element_count = uint64_t{1u} << 61u; }
+            if (variant == 13u) { owner->metadata_list().push_front(metadata->clone()); }
+            if (variant == 14u) {
+                owner->create_metadata<StridedMmaMD>()->descriptor = {
+                    .output_extents = {1u}, .lhs_output_strides = {0u}, .rhs_output_strides = {0u}, .contraction_extent = 1u, .vector_width = 4u};
+            }
+            auto valid = variant == 15u;
+            auto result = xir_verify_module(&module);
+            expect(result.succeeded() == valid) << variant;
+            auto text = xir_to_interchange_text(&module);
+            auto bitcode = xir_to_bitcode(&module);
+            expect(text.succeeded() == valid) << variant;
+            expect(bitcode.succeeded() == valid) << variant;
+            if (!valid) {
+                expect(!result.errors.empty()) << variant;
+                expect(text.text.empty()) << variant;
+                expect(bitcode.bitcode.empty()) << variant;
+            }
+        }
+    };
+
     "xir_verifier_strided_mma_required_metadata_placement"_test = [] {
         for (auto variant = 0u; variant < 10u; variant++) {
             Module module;

@@ -1,6 +1,7 @@
 #include "llvm_schedule_emitter.h"
 
 #include "../schedule/strided_mma_types.h"
+#include "../schedule/contiguous_copy_types.h"
 
 namespace luisa::compute::simd::detail {
 
@@ -182,9 +183,63 @@ public:
     }
 };
 
+// This helper copies representation bits only. Integer-vector loads/stores
+// also preserve signaling NaNs, payloads, infinities and signed zero under
+// the caller's numerical policy. No resource alias or read-only annotation
+// is exported: the destination is independently proven compiler-local.
+[[nodiscard]] ::llvm::Function *emit_contiguous_copy(
+    ::llvm::Module &module, const schedule::ContiguousCopyMetadata &descriptor,
+    const std::string &name) {
+    ::llvm::IRBuilder<> builder{module.getContext()};
+    auto *function = ::llvm::Function::Create(
+        ::llvm::FunctionType::get(builder.getVoidTy(),
+                                  {builder.getPtrTy(), builder.getInt64Ty(), builder.getPtrTy()}, false),
+        ::llvm::GlobalValue::PrivateLinkage, name, module);
+    function->addFnAttr(::llvm::Attribute::NoUnwind);
+    function->addFnAttr(::llvm::Attribute::WillReturn);
+    auto *entry = ::llvm::BasicBlock::Create(module.getContext(), "entry", function);
+    builder.SetInsertPoint(entry);
+    // Like the existing non-volatile BUFFER_READ, the live source interval
+    // must be valid. Logical view bounds are guarded by the Tile producer;
+    // this helper must not invent zero-fill or silently leave a snapshot
+    // uninitialized on an invalid resource binding.
+    auto *offset = function->getArg(1u);
+    auto *source = builder.CreateGEP(builder.getInt32Ty(), function->getArg(0u), offset);
+    auto *destination = function->getArg(2u);
+    auto emit_loop = [&](uint64_t count, uint64_t first, uint32_t step, ::llvm::Type *type) {
+        if (count == 0u) { return; }
+        auto *preheader = builder.GetInsertBlock();
+        auto *header = ::llvm::BasicBlock::Create(module.getContext(), "copy.loop", function);
+        auto *body = ::llvm::BasicBlock::Create(module.getContext(), "copy.chunk", function);
+        auto *next = ::llvm::BasicBlock::Create(module.getContext(), "copy.next", function);
+        builder.CreateBr(header);
+        builder.SetInsertPoint(header);
+        auto *index = builder.CreatePHI(builder.getInt64Ty(), 2u, "copy.index");
+        index->addIncoming(builder.getInt64(0u), preheader);
+        builder.CreateCondBr(builder.CreateICmpULT(index, builder.getInt64(count)), body, next);
+        builder.SetInsertPoint(body);
+        auto *element = builder.CreateAdd(builder.getInt64(first), builder.CreateMul(index, builder.getInt64(step)));
+        auto *source_address = builder.CreateGEP(builder.getInt32Ty(), source, element);
+        auto *destination_address = builder.CreateGEP(builder.getInt32Ty(), destination, element);
+        auto *value = builder.CreateLoad(type, source_address);
+        value->setAlignment(::llvm::Align{alignof(float)});
+        builder.CreateStore(value, destination_address)->setAlignment(::llvm::Align{alignof(float)});
+        auto *increment = builder.CreateAdd(index, builder.getInt64(1u));
+        builder.CreateBr(header);
+        index->addIncoming(increment, body);
+        builder.SetInsertPoint(next);
+    };
+    auto width = descriptor.vector_width;
+    auto chunks = descriptor.element_count / width;
+    emit_loop(chunks, 0u, width, ::llvm::FixedVectorType::get(builder.getInt32Ty(), width));
+    emit_loop(descriptor.element_count % width, chunks * width, 1u, builder.getInt32Ty());
+    builder.CreateRetVoid();
+    return function;
+}
+
 }// namespace
 
-void ScheduleEmitter::_preflight_strided_mmas() {
+void ScheduleEmitter::_preflight_typed_calls() {
     std::vector<uint8_t> root_local(_source.values().size(), uint8_t{0u});
     for (auto &&block : _source.blocks()) {
         for (auto &&instruction : block.instructions) {
@@ -196,7 +251,50 @@ void ScheduleEmitter::_preflight_strided_mmas() {
     }
     for (auto &&block : _source.blocks()) {
         for (auto &&instruction : block.instructions) {
-            if (instruction.opcode != schedule::Opcode::call) { continue; }
+            if (instruction.opcode != schedule::Opcode::call) {
+                if (instruction.strided_mma || instruction.contiguous_copy) {
+                    _fail("typed call metadata requires a call instruction");
+                    return;
+                }
+                continue;
+            }
+            if (instruction.strided_mma && instruction.contiguous_copy) {
+                _fail("typed call requires exactly one strided MMA or contiguous copy descriptor");
+                return;
+            }
+            if (instruction.contiguous_copy) {
+                if (instruction.result || instruction.operands.size() != 3u) {
+                    _fail("contiguous copy requires a void descriptor and three operands");
+                    return;
+                }
+                std::array<const Type *, 3u> types{};
+                for (auto i = size_t{0u}; i < types.size(); i++) {
+                    auto *value = _source.value(instruction.operands[i]);
+                    if (value == nullptr) {
+                        _fail("contiguous copy has an invalid operand");
+                        return;
+                    }
+                    types[i] = value->type;
+                }
+                auto *resource = _source.value(instruction.operands[0u]);
+                auto *offset = _source.value(instruction.operands[1u]);
+                auto *parameter = std::get_if<schedule::ParameterValueMetadata>(&resource->metadata);
+                auto destination = instruction.operands[2u];
+                if (resource->origin != schedule::ValueOrigin::parameter || parameter == nullptr ||
+                    parameter->argument_tag != static_cast<uint32_t>(xir::DerivedArgumentTag::RESOURCE) ||
+                    resource->value_class != schedule::ValueClass::warp_uniform ||
+                    (!schedule::is_uniform(offset->value_class) && offset->value_class != schedule::ValueClass::varying) ||
+                    _is_local_lvalue(instruction.operands[0u]) || _is_local_lvalue(instruction.operands[1u]) ||
+                    !root_local[destination.value] || !_is_local_lvalue(destination) || _is_shared_lvalue(destination)) {
+                    _fail("contiguous copy requires a resource parameter, value offset and complete root thread-local destination");
+                    return;
+                }
+                if (auto error = schedule::validate_contiguous_copy(*instruction.contiguous_copy, types); !error.empty()) {
+                    _fail(std::string{error});
+                    return;
+                }
+                continue;
+            }
             if (!instruction.strided_mma || instruction.result || instruction.operands.size() != 4u) {
                 _fail("SIMD call requires a void strided MMA descriptor and four references");
                 return;
@@ -249,6 +347,35 @@ void ScheduleEmitter::_strided_mma(const schedule::Instruction &instruction) {
             pointers[i] = _builder.CreateGEP(_builder.getInt8Ty(), base, offset);
         }
         _builder.CreateCall(helper, pointers);
+        _builder.CreateBr(next);
+        _builder.SetInsertPoint(next);
+    }
+}
+
+void ScheduleEmitter::_contiguous_copy(const schedule::Instruction &instruction) {
+    auto destination = instruction.operands[2u];
+    if (_interleaved_local_values[destination.value] != 0u) {
+        _fail("contiguous copy destination cannot use packet-interleaved private arrays");
+        return;
+    }
+    auto *buffer = _load_value(instruction.operands[0u]);
+    auto *offsets = _load_value(instruction.operands[1u]);
+    auto *handle = _load_value(destination);
+    if (buffer == nullptr || offsets == nullptr || handle == nullptr) { return; }
+    auto *helper = emit_contiguous_copy(_module, *instruction.contiguous_copy, _entry_name + ".contiguous_copy");
+    auto *base = _builder.CreateExtractValue(buffer, {0u});
+    // The contiguous dimension belongs to one program's snapshot, not the
+    // packet's execution lanes. No inactive program calls or reads the helper.
+    for (auto lane = uint32_t{0u}; lane < _width; lane++) {
+        auto *call_block = ::llvm::BasicBlock::Create(_module.getContext(), "copy.active", _entry);
+        auto *next = ::llvm::BasicBlock::Create(_module.getContext(), "copy.continue", _entry);
+        _builder.CreateCondBr(_builder.CreateExtractElement(_active_mask, lane), call_block, next);
+        _builder.SetInsertPoint(call_block);
+        auto *local_base = _builder.CreateExtractElement(_local_base(_builder, handle), lane);
+        auto *local_offset = _builder.CreateExtractElement(_local_offsets(_builder, handle), lane);
+        auto *pointer = _builder.CreateGEP(_builder.getInt8Ty(), local_base, local_offset);
+        auto *offset = offsets->getType()->isVectorTy() ? _builder.CreateExtractElement(offsets, lane) : offsets;
+        _builder.CreateCall(helper, {base, offset, pointer});
         _builder.CreateBr(next);
         _builder.SetInsertPoint(next);
     }

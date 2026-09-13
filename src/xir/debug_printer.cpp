@@ -11,6 +11,7 @@
 #include <luisa/xir/metadata/curve_basis.h>
 #include <luisa/xir/metadata/reg2mem_spill.h>
 #include <luisa/xir/metadata/strided_mma.h>
+#include <luisa/xir/metadata/contiguous_copy.h>
 #include <luisa/xir/debug_printer.h>
 
 namespace luisa::compute::xir {
@@ -505,6 +506,12 @@ void XIRDebugPrinter::emit_metadata_list(luisa::string &s, const MetadataList &m
                     emit_array("lhs_output_strides", d.lhs_output_strides);
                     emit_array("rhs_output_strides", d.rhs_output_strides);
                     s.append("), ");
+                    break;
+                }
+                case DerivedMetadataTag::CONTIGUOUS_COPY: {
+                    auto &&d = static_cast<const ContiguousCopyMD *>(md)->descriptor;
+                    luisa::format_to(std::back_inserter(s), "contiguous_copy = (count = {}, width = {}), ",
+                                     d.element_count, d.vector_width);
                     break;
                 }
             }

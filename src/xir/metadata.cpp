@@ -7,9 +7,17 @@
 #include <luisa/xir/metadata/reg2mem_spill.h>
 #include <luisa/xir/metadata/no_inline.h>
 #include <luisa/xir/metadata/strided_mma.h>
+#include <luisa/xir/metadata/contiguous_copy.h>
 #include <luisa/xir/metadata.h>
 
 namespace luisa::compute::xir {
+
+ContiguousCopyMD::ContiguousCopyMD(ContiguousCopyDescriptor value) noexcept
+    : descriptor{value} {}
+
+ManagedPtr<Metadata> ContiguousCopyMD::clone() const noexcept {
+    return luisa::make_managed<ContiguousCopyMD>(descriptor);
+}
 
 StridedMmaMD::StridedMmaMD(StridedMmaDescriptor value) noexcept
     : descriptor{std::move(value)} {}
@@ -44,6 +52,7 @@ Metadata *luisa_xir_metadata_list_mixin_create_metadata(MetadataList &list, Deri
         LUISA_XIR_MAKE_METADATA_CREATE_CASE(Reg2MemSpill)
         LUISA_XIR_MAKE_METADATA_CREATE_CASE(NoInline)
         LUISA_XIR_MAKE_METADATA_CREATE_CASE(StridedMma)
+        LUISA_XIR_MAKE_METADATA_CREATE_CASE(ContiguousCopy)
 #undef LUISA_XIR_MAKE_METADATA_CREATE_CASE
     }
     LUISA_ERROR_WITH_LOCATION("Unknown derived metadata tag 0x{:x}.",

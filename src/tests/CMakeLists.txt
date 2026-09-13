@@ -447,6 +447,13 @@ if (APPLE)
     luisa_compute_add_test(test_metal_shared_ptr unit/ext/test_metal_shared_ptr.cpp
             LABELS "unit;unit_ext;unit_metal")
 endif ()
+if (TARGET luisa-compute-metal4-air-codegen)
+    luisa_compute_add_test(test_metal4_xir_preflight
+            unit/ext/test_metal4_xir_preflight.cpp
+            LABELS "unit;unit_ext;unit_metal4")
+    target_link_libraries(test_metal4_xir_preflight PRIVATE
+            luisa-compute-metal4-air-codegen)
+endif ()
 if (TARGET luisa-compute-backend-metal4)
     luisa_compute_add_test(benchmark_metal4
             benchmark/benchmark_metal4.cpp)

@@ -22,6 +22,7 @@
 #include <luisa/xir/metadata/reg2mem_spill.h>
 #include <luisa/xir/metadata/signature_constraint.h>
 #include <luisa/xir/metadata/strided_mma.h>
+#include <luisa/xir/metadata/contiguous_copy.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/translators/xir2text.h>
 #include <luisa/xir/translators/xir_interchange.h>
@@ -2421,6 +2422,81 @@ globals 0 functions 0
 }
 
 void reg_strided_mma_metadata() {
+    "xir_interchange_contiguous_copy_clone_and_round_trip"_test = [] {
+        for (auto width : {2u, 4u, 8u}) {
+            for (auto count : {1u, 5u, 1024u}) {
+                Module module;
+                auto external = module.create_external_function(nullptr);
+                external->set_name("arbitrary_copy_identifier");
+                (void)external->create_resource_argument(Type::buffer(Type::of<float>()));
+                (void)external->create_value_argument(Type::of<uint64_t>());
+                (void)external->create_reference_argument(Type::array(Type::of<float>(), 1024u));
+                auto md = external->create_metadata<ContiguousCopyMD>();
+                md->descriptor = {count, width};
+                auto clone = md->clone();
+                expect(clone->isa<ContiguousCopyMD>());
+                auto copied = static_cast<ContiguousCopyMD *>(clone.get());
+                expect(copied->descriptor.element_count == count);
+                copied->descriptor.element_count++;
+                expect(md->descriptor.element_count == count);
+                auto encoded = xir_to_interchange_text(&module);
+                expect(encoded.succeeded());
+                if (!encoded.succeeded()) { continue; }
+                expect(encoded.text.find(luisa::format("md contiguous_copy {} {}", count, width)) != luisa::string::npos);
+                auto debug = xir_to_text_translate(&module, false);
+                expect(debug.find("contiguous_copy = {count = ") != luisa::string::npos);
+                auto inspect = [&](const XIRInterchangeParseResult &decoded) noexcept {
+                    expect(decoded.succeeded());
+                    if (!decoded.succeeded()) { return; }
+                    auto preserved = decoded.module->function_list().front()->find_metadata<ContiguousCopyMD>();
+                    expect(preserved != nullptr);
+                    if (preserved != nullptr) {
+                        expect(preserved->descriptor.element_count == count);
+                        expect(preserved->descriptor.vector_width == width);
+                    }
+                    auto canonical = xir_to_interchange_text(decoded.module.get());
+                    expect(canonical.succeeded());
+                    expect(canonical.text == encoded.text);
+                };
+                inspect(xir_from_interchange_text(encoded.text));
+                auto binary = xir_to_bitcode(&module);
+                expect(binary.succeeded());
+                if (binary.succeeded()) {
+                    auto decoded = xir_from_bitcode(binary.bitcode);
+                    inspect(decoded);
+                    if (decoded.succeeded()) {
+                        auto repeated = xir_to_bitcode(decoded.module.get());
+                        expect(repeated.succeeded());
+                        expect(static_cast<bool>(repeated.bitcode == binary.bitcode));
+                    }
+                }
+            }
+        }
+    };
+
+    "xir_interchange_contiguous_copy_invalid_wire_fields"_test = [] {
+        for (auto fields : {"0 4", "5 0", "2305843009213693952 4", "5 4294967296", "5"}) {
+            expect_interchange_rejected(luisa::format(
+                "xir.text 1 module {{ metadata 1 md contiguous_copy {} globals 0 functions 0 }}", fields));
+        }
+        for (auto fields : {std::array<uint64_t, 2u>{0u, 4u}, {5u, 0u}, {uint64_t{1u} << 61u, 4u}, {5u, uint64_t{1u} << 32u}}) {
+            luisa::vector<std::byte> payload;
+            test_append_uleb(payload, 0u);// strings
+            test_append_uleb(payload, 1u);// metadata count
+            test_append_uleb(payload, 8u);// contiguous-copy wire tag
+            for (auto field : fields) { test_append_uleb(payload, field); }
+            test_append_uleb(payload, 0u);// globals
+            test_append_uleb(payload, 0u);// functions
+            auto decoded = xir_from_bitcode(make_test_bitcode(payload));
+            expect(!decoded.succeeded());
+            expect(decoded.module == nullptr);
+            expect(!decoded.diagnostics.empty());
+            if (!decoded.diagnostics.empty()) {
+                expect(decoded.diagnostics.front().message.find("contiguous-copy") != luisa::string::npos);
+            }
+        }
+    };
+
     "xir_interchange_strided_mma_metadata_clone_and_round_trip"_test = [] {
         for (auto mode : {StridedMmaVectorization::OUTPUT, StridedMmaVectorization::CONTRACTION}) {
             for (auto k : {0u, 9u}) {

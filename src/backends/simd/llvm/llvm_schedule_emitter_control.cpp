@@ -25,7 +25,11 @@ void ScheduleEmitter::_emit_instruction(
             _local_store(instruction);
             break;
         case schedule::Opcode::call:
-            _strided_mma(instruction);
+            if (instruction.contiguous_copy) {
+                _contiguous_copy(instruction);
+            } else {
+                _strided_mma(instruction);
+            }
             break;
         case schedule::Opcode::gep:
             value = _local_gep(instruction);
