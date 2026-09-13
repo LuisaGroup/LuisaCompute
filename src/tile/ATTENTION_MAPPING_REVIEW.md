@@ -1,6 +1,6 @@
 # Attention execution mapping：现状、缺口与有界实验
 
-记录日期：2026-09-13。范围：当前源码静态审查与已归档实验；初稿为只读审查，后续 CPU 实验与模型修正见第 8–16 节。**未宣称已完成自动生产优化**。
+更新日期：2026-09-14。范围：源码静态审查与已归档实验；初稿为只读审查，后续 CPU 实验与模型修正见第 8–20 节，Metal 复测与 reduction 诊断见第 21 节。**未宣称已完成自动生产优化**。
 它是实现侧工作记录，不替代既有设计文档；不改动受保护的 matrix-initializer WIP。
 
 ## 1. 先分清三种状态
@@ -462,3 +462,48 @@ LLVM helper 在同一 module 中，以整数位模式连续搬运 FP32，向量 
 另一个预声明补充实验固定`M4C4-simplified`，对MHA、KV8193、prefill-q8分别比较手写online NEON与dense Accelerate BLAS，共72 visits、504 samples。22项协议测试、24项validation-only检查及补充离线审计均通过。**目标仍未达成**：固定Tile候选约为NEON耗时的2.0–2.3倍、BLAS的2.5–4.2倍。参照使用FP32但允许不同的求和顺序；BLAS还允许内部FMA和dense score物化，不能直接当作strict MMA的合法替换。它们使用相同原生计时器并确认BLAS同线程模式；不包含Runtime/Python/JIT/调用者分配，却包含完整入口、launch reset、block traversal和BLAS内部工作。没有新的Torch、MPS、Metal或多线程Runtime结果。
 
 后续优化应先profile当前copy-on产物，重新确认剩余copy、private traffic、Q复用与exp/reduction占比；不能沿用copy-off时的热点百分比。再扩展通用phase候选：保留正确effect顺序的snapshot消除/复用、受寄存器预算约束的输出分组，以及跨相邻阶段的布局选择。大prefill和非attention留出集仍需补测。当前已实现候选与合法性/编译预算门禁，默认仍opt-in，自动成本校准与联合solver尚未完成。
+
+## 21. Metal：问题是 contribution 的协作映射，不只是 intrinsic
+
+[Metal attention 复测](../../scripts/benchmark/tile_torch/results/m1-max-20260914-metal-attention/notes.md)保留两条路径的不同结论。TIRx/Torch-MPS 小尺寸对照数值通过，但相邻 round 的 GPU control 时间比从 3.391 变成 0.205，拒绝性能验收。XIR→Metal4 的固定批次完整 attention 中，插桩 dispatch 达到约 1.9–2.0 ms，确认存在大量 kernel 内工作；两种计时口径及不同 cohort 不混为跨路径排名。本轮使用有指纹的 selected build，不包含受保护 TIRx WIP，也不声称代表完整当前 HEAD。
+
+### 21.1 已确认的 reduction 缺口
+
+这批 XIR attention 的实际计划都是 `local_lanes=1`。32/64/256 threads/group 描述独立 programs 的打包，不表示一个 program 的 reduction 已由这么多线程协作。
+
+- [`packet_local_program`](bridge/xir/representation.h) 的准入范围是有限的一维 map/closed-reduction 程序族；它尚不接收 attention 的 pipeline、MMA 和跨 phase ownership。这个 guard 表达 emitter 的能力边界，不是在否认 `parallel` 的无依赖语义。直接删除 guard 不能生成缺失的数据重分布与 carry。
+- [`reduction_emission_plan`](bridge/xir/representation.h) 只有实际分布到多 lane 时才进入跨 lane 分支。`unordered_reduction_partitions=4` 是线程内独立 partial chains 的选项，**不是四个 warp，也不保证每个 reduction 都启用它**。本次 BK16、展开阈值64、local1 下，max/sum 走普通线程内 carry loop；默认 unordered 许可允许这种求值顺序，但没有自动得到并行 tree。
+- [`_partial_reduction`](bridge/xir/lower.cpp) 已有 `WARP_READ_LANE` butterfly 与 root broadcast，服务于准入的分布式 closed reduction。缺口不是整个 bridge 没写 shuffle，而是当前完整 attention 到不了这个实现。
+- QK/PV 也由 [`_mma`](bridge/xir/lower.cpp) 的普通标量 MUL/ADD contraction 路径处理，而不是本轮已经接上 GPU 协作矩阵 atom。max/sum、dot/contraction 和跨 KV 的 online carry 不能混称成一个 reduction 热点。静态源码不能给出三者实际耗时占比。
+
+TIRx 不能套用上述“没有 collective”的结论：第4节的历史生成 Metal 已有 `simd_sum`，同时仍有串行 PV、少量 active lanes 和 shared/barrier 往返。**使用 warp intrinsic 是实现条件之一，不是完整程序高性能的充分条件。**
+
+### 21.2 粒度实验支持结构诊断，但不证明归因
+
+两种形状分别做两组 ABBA，共16 visits；每 visit 固定8次吞吐 dispatch、3个样本，BK16、local1、QK/PV MMA、FP32与数学策略固定。BQ4→BQ1 改变完整 realization：
+
+| shape `B,Hq,Hkv,Q,K,D,Dv` | dispatch threads：BQ4→BQ1 | threads/group：BQ4→BQ1 | 静态 snapshot B/worker：BQ4→BQ1 | 四个相邻配对的插桩吞吐时间比 BQ1/BQ4 |
+|---|---:|---:|---:|---|
+| 1,4,2,16,33,32,32 | 16→64 | 32→64 | 6688→4224 | 0.415、0.433、0.418、0.434 |
+| 1,4,2,64,128,64,64 | 64→256 | 64→256 | 12832→8320 | 0.715、1.287、1.394、0.990 |
+
+小尺寸有一致的 dispatch 改善；较大点的插桩时间方向不稳定，尽管其 feedback-only 吞吐控制全部改善。不能合并不同口径宣称稳定的纯 kernel 收益。BQ 改动同时影响程序数、group 宽度、SSA/数组表示和静态临时容量，不能把小点收益全部归因于 reduction、寄存器占用或某一个 layout。静态 snapshot 字节也不是实测 spill/寄存器数；本轮没有据此改变生产默认或拟合 cost 系数。
+
+实际 timestamp 记录还揭示四种 realization **都只有一个 threadgroup**：`ceil_div(dispatch.x, block.x)=1`。BQ1 增加的是组内独立 programs，不是已增加跨 group 并行。当前 [`MetalTileCostPolicy`](../backends/metal4/tile/metal_tile.cpp) 使用总 packet arithmetic/memory work 加 block dispatch prior；固定相同 packet work 时，减少 block 数只会减少 dispatch 项，没有同时建模可并发 group、资源驻留与完成时间。这是可确认的目标函数缺项，不是测得的 GPU occupancy 百分比。后续必须同时测固定 BQ 下的 block32/64/128/256，先确认改变实际 group 数的效果；不能把较大 block 当作普遍更高的并行度。
+
+### 21.3 下一步应修一般性映射能力
+
+沿用第5节的分阶段计划，先为 row-wise reduction 保留两个独立域：输出域 `O` 与贡献域 `R`，由候选把它们映射到 programs/subgroups/lanes，而不是把全 kernel 的 `local_lanes` 当成唯一开关。
+同时，group 划分的成本应近似资源受限完成时间，而不只是总工作量加正的 group 数惩罚；所需并发/驻留信息由 backend policy 提供。固定 BQ 的 group-size 对照和输出/贡献维的协作扩展是两项独立实验，不应合成一次无法归因的变更。
+
+```text
+QK output ownership → 按 row 的局部 partial + subgroup tree
+                                       ↓ max/sum 的广播或重分布
+                               PV output/contribution ownership
+                                       ↓
+                            同步更新 online (m, l, acc)
+```
+
+该图是待实现目标，不是已存在的 arbitrary-phase emitter。候选需要共同规划参与 lane、每 lane 元素、尾部有效性、结果 ownership 和相邻 phase 的转换；保留用户初值只合并一次、ordered fallback、snapshot/effect 时机等语义。沿 KV 的 online recurrence 也不能仅凭内部 max/sum 是 unordered 就任意重排；split-KV 需要完整状态的合法合并。
+
+先以 softmax/RMSNorm/dot 的独立输出域、非32倍数贡献长度和 ordered 反例验证，再组合 attention 的 QK→softmax→PV。性能诊断应分离“输出分布不变，只换 reduction 实现”和“整程序联合重新映射”，分别记录实际 collective、layout transition、barrier 与容量。TIRx 的 initializer/PV tensorization 隔离实验仍是独立候选；它不替代 XIR 的上述结构修复，也不能混入一次无法归因的整体开关。

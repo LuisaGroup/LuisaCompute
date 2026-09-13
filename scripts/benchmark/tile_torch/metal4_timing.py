@@ -23,25 +23,16 @@ import subprocess
 import tempfile
 import time
 
-
-OPERATIONS = {"rmsnorm", "layernorm", "masked_softmax", "swiglu", "gelu_residual", "rope"}
+# These helpers import only the standard library; NumPy is loaded lazily for
+# the complete oracle, and no Torch/device/build work happens at import time.
+# Share the dimensions, causal mask and driver diagnostic contracts rather
+# than maintaining a second, subtly different attention implementation.
+from compare_llm import gpu_failure_diagnostics, parse_case, reference, shapes_for, validate_output
 
 
 def require(condition, message):
     if not condition:
         raise ValueError(message)
-
-
-def parse_case(text):
-    try:
-        op, shape = text.split(":")
-        rows, width = map(int, shape.split(","))
-        require(op in OPERATIONS and 0 < rows <= 65536 and 0 < width <= 65536,
-                "unknown operation or invalid dimensions")
-        require(rows * width <= 2**26 and (op != "rope" or width % 2 == 0), "invalid tensor extent")
-        return op, (rows, width)
-    except ValueError:
-        raise argparse.ArgumentTypeError("expected supported row operation:rows,width within benchmark limits") from None
 
 
 def digest(path):
@@ -62,7 +53,23 @@ def finite(value, positive=False):
     return type(value) in (int, float) and math.isfinite(value) and (not positive or value > 0)
 
 
+def validate_local_lanes(realization, requested):
+    require(isinstance(realization, str) and integer(requested) and requested <= 0xffffffff,
+            "invalid local-lane request or realization")
+    fields = [field.partition("=") for field in realization.split(";")
+              if field.partition("=")[0].strip() == "local_lanes"]
+    require(len(fields) == 1, "realization must contain exactly one local_lanes field")
+    _, separator, text = fields[0]
+    text = text.strip()
+    require(separator == "=" and text.isascii() and text.isdecimal(), "invalid realized local_lanes")
+    actual = int(text)
+    require(0 < actual <= 0xffffffff, "invalid realized local_lanes")
+    require(requested == 0 or actual == requested, "realized local_lanes denies explicit request")
+    return actual
+
+
 def validate_sample(sample, expected, counters, frequency):
+    require(integer(expected, 1) and (not counters or integer(frequency, 1)), "invalid timing denominator")
     require(sample["error"] == "" and sample["overflow"] is False, "sample error or overflow")
     require(sample["dispatch_timestamps_enabled"] is counters, "wrong timestamp mode")
     require(integer(sample["timestamp_frequency_hz"]) and
@@ -111,16 +118,34 @@ def validate_sample(sample, expected, counters, frequency):
     return statistics.median(elapsed) if counters else feedback_ns / expected
 
 
-def validate(payload, op, shape, samples, repetitions):
+def validate(payload, op, shape, samples, repetitions, block=(1, 1)):
+    inputs, output = shapes_for(op, shape)
+    require(integer(samples, 1) and integer(repetitions, 1), "invalid sample/repetition request")
+    dispatch_size = payload["dispatch"]
+    require(isinstance(dispatch_size, list) and len(dispatch_size) == 3 and
+            all(integer(value, 1) for value in dispatch_size), "invalid benchmark dispatch geometry")
     for key, expected in {"implementation": "tile_xir_metal4", "backend": "metal4", "operation": op,
                           "dimensions": list(shape), "precision": "fp32", "fast_math": False,
                           "relaxed_precision": False, "runtime": "luisa", "repetitions": repetitions,
                           "repetition_policy": "fixed", "timing": "synchronized_host_wall",
-                          "batch_policy": "one_runtime_command_list_per_batch"}.items():
-        require(payload[key] == expected, f"unexpected benchmark field {key}")
+                          "batch_policy": "one_runtime_command_list_per_batch",
+                          "attention_block": list(block), "input_shapes": [list(s) for s in inputs],
+                          "output_shape": list(output)}.items():
+        require(type(payload[key]) is type(expected) and payload[key] == expected, f"unexpected benchmark field {key}")
+    for dimensions in [payload["dimensions"], payload["attention_block"], payload["output_shape"], *payload["input_shapes"]]:
+        require(all(integer(value, 1) for value in dimensions), "noninteger tensor/block dimensions")
+    for key in ("attention_qk", "attention_pv"):
+        # Current attention captures must explicitly acknowledge their source
+        # modes. Preserve old row artifacts that predate these metadata fields.
+        if op == "attention" or key in payload:
+            require(payload.get(key) == ("mma" if op == "attention" else "not_applicable"),
+                    f"unexpected benchmark field {key}")
     correctness = payload["correctness"]
-    require(correctness["checks"] == 2 and correctness["elements_per_check"] == math.prod(shape) and
-            correctness["guard_elements_per_check"] == 34 and finite(correctness["max_abs_error"]),
+    require(integer(correctness["checks"]) and correctness["checks"] == 2 and
+            integer(correctness["elements_per_check"]) and correctness["elements_per_check"] == math.prod(output) and
+            integer(correctness["guard_elements_per_check"]) and correctness["guard_elements_per_check"] == 34 and
+            correctness["atol"] == correctness["rtol"] == 5e-5 and
+            finite(correctness["max_abs_error"]) and correctness["max_abs_error"] >= 0,
             "missing complete benchmark oracle/guard checks")
     timing, expected_repetitions = payload["device_timing"], min(repetitions, 64)
     require(timing["method"] == "metal4_precise_dispatch_timestamps_v1" and
@@ -144,6 +169,8 @@ def validate(payload, op, shape, samples, repetitions):
                 require(integer(sample_id, 1) and sample_id not in sample_ids, "duplicate/invalid sample ID")
                 sample_ids.add(sample_id)
                 values.append(validate_sample(record, count, counters, frequency))
+                require(all(dispatch["dispatch_size"] == dispatch_size for dispatch in record["dispatches"]),
+                        "sample dispatch geometry differs from benchmark dispatch")
                 dispatch_identities.update((dispatch["shader_checksum"], tuple(dispatch["dispatch_size"]),
                                             tuple(dispatch["block_size"])) for dispatch in record["dispatches"])
             metrics[f"{phase}_{label}"] = {"samples": values, "median": statistics.median(values),
@@ -154,6 +181,26 @@ def validate(payload, op, shape, samples, repetitions):
         metrics[f"{phase}_host_wall_us_per_dispatch"] = {"samples": wall, "median": statistics.median(wall)}
     require(len(dispatch_identities) == 1, "shader checksum or dispatch/block geometry differs across sampled phases")
     return metrics
+
+
+def validate_exports(output, op, shape):
+    """Validate every FP32 value against an independently recomputed FP64 oracle.
+
+    The producer's .expected.f64 is intentionally not used as the reference.
+    Seven attention dimensions are a problem description, not an output shape.
+    """
+    import numpy as np
+    inputs, output_shape = shapes_for(op, shape)
+    paths = [*(Path(str(output) + f".input{i}.f32") for i in range(3)), output]
+    arrays = []
+    for path, dimensions in zip(paths, [*inputs, output_shape]):
+        require(path.is_file() and path.stat().st_size == math.prod(dimensions) * 4,
+                f"wrong tensor export size: {path.name}")
+        array = np.fromfile(path, dtype=np.float32).reshape(dimensions)
+        require(bool(np.isfinite(array).all()), f"non-finite tensor export: {path.name}")
+        arrays.append(array)
+    expected = reference(op, shape, arrays[:3])
+    return validate_output(arrays[3], expected)
 
 
 def capture(command, environment, timeout, stdout_path, stderr_path):
@@ -182,21 +229,31 @@ def write_report(path, report):
     temporary.replace(path)
 
 
-def main():
+def parse_arguments(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True, help="new, nonexistent results directory")
     parser.add_argument("--case", type=parse_case, action="append")
+    parser.add_argument("--attention-block", type=int, nargs=2, default=(16, 32), metavar=("BQ", "BK"),
+                        help="attention tile shape; row kernels always use 1,1")
     parser.add_argument("--local-lanes", type=int, nargs="+", default=[1, 32, 0])
     parser.add_argument("--rounds", type=int, default=2)
     parser.add_argument("--samples", type=int, default=3)
     parser.add_argument("--repetitions", type=int, default=8)
     parser.add_argument("--timeout", type=float, default=120)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if not (1 <= args.rounds <= 1000 and 1 <= args.samples <= 101 and 1 <= args.repetitions <= 100000 and
             finite(args.timeout, True) and all(0 <= value <= 0xffffffff for value in args.local_lanes)):
         parser.error("invalid rounds, samples, repetitions, timeout, or local lanes")
+    if not (1 <= args.attention_block[0] <= 128 and 1 <= args.attention_block[1] <= 256):
+        parser.error("invalid attention block")
     args.case = args.case or [parse_case(f"{op}:128,1024") for op in ("rmsnorm", "masked_softmax", "swiglu")]
+    return args
+
+
+def main():
+    args = parse_arguments()
+    parser = argparse.ArgumentParser(description=__doc__)
     args.binary = args.binary.resolve()
     args.output = args.output.resolve()
     if not args.binary.is_file() or not os.access(args.binary, os.X_OK):
@@ -220,7 +277,8 @@ def main():
     dependencies = [args.binary.parent / name for name in
                     ("libluisa-tile-bridge-xir.dylib", "libluisa-tile.dylib", "libluisa-xir.dylib",
                      "libluisa-runtime.dylib", "libluisa-core.dylib")]
-    artifact_paths = [args.binary, *backends, Path(__file__).resolve(),
+    helpers = [Path(__file__).resolve().with_name(name) for name in ("compare_llm.py", "repeat.py", "run.py")]
+    artifact_paths = [args.binary, *backends, Path(__file__).resolve(), *helpers,
                       *(path.resolve() for path in dependencies if path.is_file())]
     artifacts = receipts(artifact_paths)
     report = {"schema": "metal4_serial_timing_v1", "started_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
@@ -233,40 +291,43 @@ def main():
                            "samples": args.samples, "host_repetitions": args.repetitions,
                            "device_repetitions": min(args.repetitions, 64), "target_ms": 20, "warmup_ms": 10,
                            "timeout_seconds": args.timeout, "zero_overhead_kernel_time": False,
-                           "external_caffeinate_required": True, "external_caffeinate_verified": False}, "results": []}
+                           "attention_block": list(args.attention_block), "attention_qk": "mma", "attention_pv": "mma",
+                           "external_caffeinate_required": True, "external_caffeinate_verified": False},
+              "cohort_valid": False, "gpu_diagnostics_valid": True, "results": []}
     for round_index in range(args.rounds):
         variants = args.local_lanes if round_index % 2 == 0 else list(reversed(args.local_lanes))
         for op, shape in args.case:
             for lanes in variants:
                 report["results"].append({"round": round_index, "operation": op, "dimensions": list(shape),
-                                          "requested_local_lanes": lanes, "status": "NotRun"})
+                                          "requested_local_lanes": lanes, "status": "NotRun", "valid": False})
     report_path = args.output / "results.json"
     write_report(report_path, report)
     matching_inputs = {}
     for index, row in enumerate(report["results"]):
         op, shape, lanes = row["operation"], row["dimensions"], row["requested_local_lanes"]
-        stem = f"{index:04d}-r{row['round']}-{op}-{shape[0]}x{shape[1]}-lanes{lanes}"
+        block = args.attention_block if op == "attention" else (1, 1)
+        stem = f"{index:04d}-r{row['round']}-{op}-{'x'.join(map(str, shape))}-lanes{lanes}"
         output = tensor_root / f"{stem}.f32"
         stdout, stderr = args.output / f"{stem}.stdout.json", args.output / f"{stem}.stderr.log"
-        command = [str(args.binary), "llm", op, ",".join(map(str, shape)), "1", "1", str(args.samples), "20", "10", str(output)]
+        command = [str(args.binary), "llm", op, ",".join(map(str, shape)), *map(str, block), str(args.samples), "20", "10", str(output)]
         overrides = {**declared, "LUISA_TILE_BENCH_XIR_LOCAL_LANES": str(lanes)}
         row.update(command=command, environment=overrides, stdout=stdout.name, stderr=stderr.name,
                    started_utc=dt.datetime.now(dt.timezone.utc).isoformat())
         started = time.monotonic()
         row.update(capture(command, {**environment, **overrides}, args.timeout, stdout, stderr))
         row["process_wall_seconds"] = time.monotonic() - started
+        row["gpu_failure_diagnostics"] = gpu_failure_diagnostics(stdout.read_bytes(), stderr.read_bytes())
+        gpu_stop = row["status"] in {"Timeout", "Interrupted"} or bool(row["gpu_failure_diagnostics"])
         exports = [output, *(Path(str(output) + f".input{i}.f32") for i in range(3))]
         row["tensor_receipts"] = receipts(exports)
         try:
+            require(not row["gpu_failure_diagnostics"], "GPU failure diagnostic; entire cohort invalid")
             require(row["status"] == "OK", row.get("error", f"process exited with {row['exit_code']}"))
             payload = json.loads(stdout.read_text())
-            row["metrics"] = validate(payload, op, shape, args.samples, args.repetitions)
+            row["actual_local_lanes"] = validate_local_lanes(payload["realization"], lanes)
+            row["metrics"] = validate(payload, op, shape, args.samples, args.repetitions, block)
             require(all(row["tensor_receipts"].values()), "missing tensor export")
-            require(output.stat().st_size == math.prod(shape) * 4, "wrong output tensor size")
-            require(len(payload["input_shapes"]) == 3, "wrong input shape count")
-            for path, dimensions in zip(exports[1:], payload["input_shapes"]):
-                require(dimensions and all(integer(value, 1) for value in dimensions) and
-                        path.stat().st_size == math.prod(dimensions) * 4, "wrong input tensor size")
+            row["independent_correctness"] = validate_exports(output, op, shape)
             hashes = [row["tensor_receipts"][str(path)]["sha256"] for path in exports[1:]]
             key = op, tuple(shape)
             require(matching_inputs.setdefault(key, hashes) == hashes, "inputs differ between variants/rounds")
@@ -278,15 +339,23 @@ def main():
                 row["status"] = "Error"
             row["error"] = str(error)
             row.pop("metrics", None)
+        if gpu_stop:
+            report["gpu_diagnostics_valid"] = False
+            report["stop_reason"] = "GPU failure or interrupted/timed-out capture; queue health is not established"
+            for remaining in report["results"][index + 1:]:
+                remaining["error"] = "not launched: " + report["stop_reason"]
         write_report(report_path, report)
         print(f"{stem}: {row['status']}", flush=True)
-        if row["status"] == "Interrupted":
+        if gpu_stop:
             break
     report["finished_utc"] = dt.datetime.now(dt.timezone.utc).isoformat()
     report["artifacts_after"] = receipts(artifact_paths)
     report["artifacts_unchanged"] = report["artifacts_after"] == artifacts
+    report["cohort_valid"] = report["artifacts_unchanged"] and report["gpu_diagnostics_valid"] and all(row["status"] == "OK" for row in report["results"])
+    for row in report["results"]:
+        row["valid"] = report["cohort_valid"]
     write_report(report_path, report)
-    return 0 if report["artifacts_unchanged"] and all(row["status"] == "OK" for row in report["results"]) else 1
+    return 0 if report["cohort_valid"] else 1
 
 
 if __name__ == "__main__":

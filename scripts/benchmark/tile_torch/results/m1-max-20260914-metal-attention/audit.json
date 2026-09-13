@@ -1,0 +1,1489 @@
+{
+  "status": "passed",
+  "fixed_visits": 4,
+  "query_visits": 16,
+  "tensor_receipts": 80,
+  "query_samples": 288,
+  "query": [
+    {
+      "case": "small",
+      "dimensions": [
+        1,
+        4,
+        2,
+        16,
+        33,
+        32,
+        32
+      ],
+      "visits": [
+        {
+          "operation": "attention",
+          "dimensions": [
+            1,
+            4,
+            2,
+            16,
+            33,
+            32,
+            32
+          ],
+          "block": [
+            4,
+            16
+          ],
+          "round": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                1816854.1666666667,
+                2004729.1666666665,
+                1782083.3333333335
+              ],
+              "median": 1816854.1666666667,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                2105395.8334960043,
+                2116760.4136280715,
+                2090546.8700220808
+              ],
+              "median": 2105395.8334960043,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                6276.296875,
+                2404.921875,
+                2212.99475
+              ],
+              "median": 2404.921875
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                2014125,
+                2460625,
+                2608958.3333333335
+              ],
+              "median": 2460625,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                1747583.2719355822,
+                2210083.301179111,
+                1993958.2562074065
+              ],
+              "median": 1993958.2562074065,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                2811.291,
+                2995.292,
+                5539.792
+              ],
+              "median": 2995.292
+            }
+          },
+          "threads_per_group": 32,
+          "snapshot_bytes": 6688,
+          "snapshot_allocations": 10,
+          "local_lanes": 1,
+          "oracle": {
+            "elements": 2048,
+            "max_abs_error": 1.9351825155354552e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "9f0675362a69cc5f0746be9875d6beab5ca64f46d22ca3cc76f0ca621ab2f4c7"
+        },
+        {
+          "operation": "attention",
+          "dimensions": [
+            1,
+            4,
+            2,
+            16,
+            33,
+            32,
+            32
+          ],
+          "block": [
+            1,
+            16
+          ],
+          "round": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                753979.1666666666,
+                754250.0,
+                788083.3333333333
+              ],
+              "median": 754250.0,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                1079526.0459417477,
+                843859.3649771065,
+                914812.4954663217
+              ],
+              "median": 914812.4954663217,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                1485.63025,
+                1555.224,
+                1006.697875
+              ],
+              "median": 1485.63025
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                781875,
+                773750,
+                786333.3333333334
+              ],
+              "median": 781875,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                1105750.0960305333,
+                1191125.0185221434,
+                1103249.960578978
+              ],
+              "median": 1105750.0960305333,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                8969.292,
+                51133.291,
+                1727.333
+              ],
+              "median": 8969.292
+            }
+          },
+          "threads_per_group": 64,
+          "snapshot_bytes": 4224,
+          "snapshot_allocations": 4,
+          "local_lanes": 1,
+          "oracle": {
+            "elements": 2048,
+            "max_abs_error": 1.9351825155354552e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "9f0675362a69cc5f0746be9875d6beab5ca64f46d22ca3cc76f0ca621ab2f4c7"
+        },
+        {
+          "operation": "attention",
+          "dimensions": [
+            1,
+            4,
+            2,
+            16,
+            33,
+            32,
+            32
+          ],
+          "block": [
+            1,
+            16
+          ],
+          "round": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                756437.5,
+                785583.3333333334,
+                771770.8333333334
+              ],
+              "median": 771770.8333333334,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                854359.3867216259,
+                2034286.459092982,
+                1796093.7548195943
+              ],
+              "median": 1796093.7548195943,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                1220.09375,
+                1632.552,
+                4040.921875
+              ],
+              "median": 1632.552
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                994833.3333333334,
+                782875,
+                975708.3333333334
+              ],
+              "median": 975708.3333333334,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                1362625.0438392162,
+                785666.7507439852,
+                1200666.6511297226
+              ],
+              "median": 1200666.6511297226,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                25139.333,
+                17347.834,
+                16732.75
+              ],
+              "median": 17347.834
+            }
+          },
+          "threads_per_group": 64,
+          "snapshot_bytes": 4224,
+          "snapshot_allocations": 4,
+          "local_lanes": 1,
+          "oracle": {
+            "elements": 2048,
+            "max_abs_error": 1.9351825155354552e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "9f0675362a69cc5f0746be9875d6beab5ca64f46d22ca3cc76f0ca621ab2f4c7"
+        },
+        {
+          "operation": "attention",
+          "dimensions": [
+            1,
+            4,
+            2,
+            16,
+            33,
+            32,
+            32
+          ],
+          "block": [
+            4,
+            16
+          ],
+          "round": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                1781208.3333333335,
+                1953250.0,
+                1746708.3333333335
+              ],
+              "median": 1781208.3333333335,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                2443359.378958121,
+                2061828.1268980354,
+                2099218.749208376
+              ],
+              "median": 2099218.749208376,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                2355.90625,
+                4207.192625,
+                3134.765625
+              ],
+              "median": 3134.765625
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                1707833.3333333333,
+                1803875,
+                2606666.6666666665
+              ],
+              "median": 1803875,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                2365499.9677091837,
+                2433749.963529408,
+                1762250.0890865922
+              ],
+              "median": 2365499.9677091837,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                27222.542,
+                3441.042,
+                7218.792
+              ],
+              "median": 7218.792
+            }
+          },
+          "threads_per_group": 32,
+          "snapshot_bytes": 6688,
+          "snapshot_allocations": 10,
+          "local_lanes": 1,
+          "oracle": {
+            "elements": 2048,
+            "max_abs_error": 1.9351825155354552e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "9f0675362a69cc5f0746be9875d6beab5ca64f46d22ca3cc76f0ca621ab2f4c7"
+        },
+        {
+          "operation": "attention",
+          "dimensions": [
+            1,
+            4,
+            2,
+            16,
+            33,
+            32,
+            32
+          ],
+          "block": [
+            4,
+            16
+          ],
+          "round": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                1827083.3333333333,
+                1934854.1666666665,
+                1807208.3333333335
+              ],
+              "median": 1827083.3333333333,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                3533744.7916390374,
+                2040015.6354298815,
+                2084468.7387580052
+              ],
+              "median": 2084468.7387580052,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                3210.359375,
+                3142.703125,
+                2203.474
+              ],
+              "median": 3142.703125
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                1859541.6666666667,
+                2199958.3333333335,
+                1752125
+              ],
+              "median": 1859541.6666666667,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                2789708.4364667535,
+                1753833.2613185048,
+                1754708.3552926779
+              ],
+              "median": 1754708.3552926779,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                6714.25,
+                10673.75,
+                3456.208
+              ],
+              "median": 6714.25
+            }
+          },
+          "threads_per_group": 32,
+          "snapshot_bytes": 6688,
+          "snapshot_allocations": 10,
+          "local_lanes": 1,
+          "oracle": {
+            "elements": 2048,
+            "max_abs_error": 1.9351825155354552e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "9f0675362a69cc5f0746be9875d6beab5ca64f46d22ca3cc76f0ca621ab2f4c7"
+        },
+        {
+          "operation": "attention",
+          "dimensions": [
+            1,
+            4,
+            2,
+            16,
+            33,
+            32,
+            32
+          ],
+          "block": [
+            1,
+            16
+          ],
+          "round": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                771458.3333333334,
+                762812.5,
+                754541.6666666666
+              ],
+              "median": 762812.5,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                842031.2369707972,
+                1792187.4969033524,
+                1940281.2467887998
+              ],
+              "median": 1792187.4969033524,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                2230.828125,
+                1579.9115,
+                1032.552125
+              ],
+              "median": 1579.9115
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                1152208.3333333333,
+                1320541.6666666667,
+                781125
+              ],
+              "median": 1152208.3333333333,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                1177583.3554565907,
+                782124.9309927225,
+                1084416.639059782
+              ],
+              "median": 1084416.639059782,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                2610.084,
+                1561,
+                18014.167
+              ],
+              "median": 2610.084
+            }
+          },
+          "threads_per_group": 64,
+          "snapshot_bytes": 4224,
+          "snapshot_allocations": 4,
+          "local_lanes": 1,
+          "oracle": {
+            "elements": 2048,
+            "max_abs_error": 1.9351825155354552e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "9f0675362a69cc5f0746be9875d6beab5ca64f46d22ca3cc76f0ca621ab2f4c7"
+        },
+        {
+          "operation": "attention",
+          "dimensions": [
+            1,
+            4,
+            2,
+            16,
+            33,
+            32,
+            32
+          ],
+          "block": [
+            1,
+            16
+          ],
+          "round": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                804416.6666666667,
+                761312.5,
+                756812.5
+              ],
+              "median": 761312.5,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                873171.8844501302,
+                920114.5876431838,
+                923406.2454197556
+              ],
+              "median": 920114.5876431838,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                3040.4375,
+                3087.765625,
+                1014.171875
+              ],
+              "median": 3040.4375
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                796500,
+                774375,
+                1150500
+              ],
+              "median": 796500,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                1065333.3738446236,
+                1140374.9231249094,
+                777791.6034683585
+              ],
+              "median": 1065333.3738446236,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                17084.291,
+                6087.75,
+                9011.375
+              ],
+              "median": 9011.375
+            }
+          },
+          "threads_per_group": 64,
+          "snapshot_bytes": 4224,
+          "snapshot_allocations": 4,
+          "local_lanes": 1,
+          "oracle": {
+            "elements": 2048,
+            "max_abs_error": 1.9351825155354552e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "9f0675362a69cc5f0746be9875d6beab5ca64f46d22ca3cc76f0ca621ab2f4c7"
+        },
+        {
+          "operation": "attention",
+          "dimensions": [
+            1,
+            4,
+            2,
+            16,
+            33,
+            32,
+            32
+          ],
+          "block": [
+            4,
+            16
+          ],
+          "round": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                1741708.3333333335,
+                1840604.1666666667,
+                1752750.0
+              ],
+              "median": 1752750.0,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                2126234.379829839,
+                2101390.6225562096,
+                1984531.2490360811
+              ],
+              "median": 2101390.6225562096,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                2308.197875,
+                2149.885375,
+                2243.8125
+              ],
+              "median": 2243.8125
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                2339916.6666666665,
+                2117000,
+                1781958.3333333333
+              ],
+              "median": 2117000,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                2184083.336032927,
+                1972416.6486412287,
+                1748958.369717002
+              ],
+              "median": 1972416.6486412287,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                4917.167,
+                18995.958,
+                10351.667
+              ],
+              "median": 10351.667
+            }
+          },
+          "threads_per_group": 32,
+          "snapshot_bytes": 6688,
+          "snapshot_allocations": 10,
+          "local_lanes": 1,
+          "oracle": {
+            "elements": 2048,
+            "max_abs_error": 1.9351825155354552e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "9f0675362a69cc5f0746be9875d6beab5ca64f46d22ca3cc76f0ca621ab2f4c7"
+        }
+      ],
+      "bq1_over_bq4": {
+        "throughput_instrumented_dispatch_ns": {
+          "pairs": [
+            0.41514063915421573,
+            0.43328498912255253,
+            0.417502850627138,
+            0.4343531593210669
+          ],
+          "median": 0.42539391987484526,
+          "minimum": 0.41514063915421573,
+          "maximum": 0.4343531593210669
+        },
+        "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+          "pairs": [
+            0.4345085522218774,
+            0.8556010446728854,
+            0.8597814222779836,
+            0.43785985231242835
+          ],
+          "median": 0.6467304484926569,
+          "minimum": 0.4345085522218774,
+          "maximum": 0.8597814222779836
+        },
+        "throughput_host_wall_us_per_dispatch": {
+          "pairs": [
+            0.6177457427801059,
+            0.5207891738317757,
+            0.5027237499564964,
+            1.3550318932620262
+          ],
+          "median": 0.5692674583059407,
+          "minimum": 0.5027237499564964,
+          "maximum": 1.3550318932620262
+        },
+        "latency_instrumented_dispatch_ns": {
+          "pairs": [
+            0.317754635509271,
+            0.5408957568198093,
+            0.6196195299020816,
+            0.37623996221067546
+          ],
+          "median": 0.45856785951524237,
+          "minimum": 0.317754635509271,
+          "maximum": 0.6196195299020816
+        },
+        "latency_feedback_only_command_buffer_ns_per_dispatch": {
+          "pairs": [
+            0.5545502733511167,
+            0.5075741566348368,
+            0.6180039183086388,
+            0.5401157887095089
+          ],
+          "median": 0.5473330310303128,
+          "minimum": 0.5075741566348368,
+          "maximum": 0.6180039183086388
+        },
+        "latency_host_wall_us_per_dispatch": {
+          "pairs": [
+            2.9944633110895365,
+            2.4031491695563467,
+            0.38873798264884385,
+            0.8705240421663487
+          ],
+          "median": 1.6368366058613477,
+          "minimum": 0.38873798264884385,
+          "maximum": 2.9944633110895365
+        }
+      },
+      "output_bitwise_equal": true
+    },
+    {
+      "case": "prefill",
+      "dimensions": [
+        1,
+        4,
+        2,
+        64,
+        128,
+        64,
+        64
+      ],
+      "visits": [
+        {
+          "operation": "attention",
+          "dimensions": [
+            1,
+            4,
+            2,
+            64,
+            128,
+            64,
+            64
+          ],
+          "block": [
+            4,
+            16
+          ],
+          "round": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                9870250.0,
+                8098583.333333333,
+                11062958.333333334
+              ],
+              "median": 9870250.0,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                21348921.87314108,
+                17242369.79498528,
+                19445177.09489446
+              ],
+              "median": 19445177.09489446,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                29946.50525,
+                23837.458375,
+                27548.474
+              ],
+              "median": 27548.474
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                12849625,
+                12705500,
+                12839916.666666666
+              ],
+              "median": 12839916.666666666,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                12661083.368584514,
+                42441500.00158697,
+                26858833.385631442
+              ],
+              "median": 26858833.385631442,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                22677.167,
+                44020,
+                29549.708
+              ],
+              "median": 29549.708
+            }
+          },
+          "threads_per_group": 64,
+          "snapshot_bytes": 12832,
+          "snapshot_allocations": 10,
+          "local_lanes": 1,
+          "oracle": {
+            "elements": 16384,
+            "max_abs_error": 2.1782151514784798e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "682ba7bf135b643e9ff15d9b17a8e11834998523f6d4b2a1d6bbbe7dbd4b835a"
+        },
+        {
+          "operation": "attention",
+          "dimensions": [
+            1,
+            4,
+            2,
+            64,
+            128,
+            64,
+            64
+          ],
+          "block": [
+            1,
+            16
+          ],
+          "round": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                7048125.0,
+                7059166.666666667,
+                7067062.5
+              ],
+              "median": 7059166.666666667,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                8201203.134376556,
+                7086406.243615784,
+                10397880.22171706
+              ],
+              "median": 8201203.134376556,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                8179.104125,
+                10400.171875,
+                12767.583375
+              ],
+              "median": 10400.171875
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                1630166.6666666667,
+                2597041.6666666665,
+                7133541.666666667
+              ],
+              "median": 2597041.6666666665,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                7186333.299614489,
+                7014083.326794207,
+                7301333.243958652
+              ],
+              "median": 7186333.299614489,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                8339,
+                32415.875,
+                23655.25
+              ],
+              "median": 23655.25
+            }
+          },
+          "threads_per_group": 256,
+          "snapshot_bytes": 8320,
+          "snapshot_allocations": 4,
+          "local_lanes": 1,
+          "oracle": {
+            "elements": 16384,
+            "max_abs_error": 2.1782151514784798e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "682ba7bf135b643e9ff15d9b17a8e11834998523f6d4b2a1d6bbbe7dbd4b835a"
+        },
+        {
+          "operation": "attention",
+          "dimensions": [
+            1,
+            4,
+            2,
+            64,
+            128,
+            64,
+            64
+          ],
+          "block": [
+            1,
+            16
+          ],
+          "round": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                7131208.333333334,
+                6008312.5,
+                7144645.833333334
+              ],
+              "median": 7131208.333333334,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                7085953.126079403,
+                7143625.000026077,
+                11186968.753463589
+              ],
+              "median": 7143625.000026077,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                9124.599,
+                19175.880125,
+                7462.401
+              ],
+              "median": 9124.599
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                7256541.666666667,
+                7313708.333333333,
+                7135375
+              ],
+              "median": 7256541.666666667,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                7203333.312645555,
+                43342749.937437475,
+                7303583.319298923
+              ],
+              "median": 7303583.319298923,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                18719.375,
+                28255.417,
+                11230.041
+              ],
+              "median": 18719.375
+            }
+          },
+          "threads_per_group": 256,
+          "snapshot_bytes": 8320,
+          "snapshot_allocations": 4,
+          "local_lanes": 1,
+          "oracle": {
+            "elements": 16384,
+            "max_abs_error": 2.1782151514784798e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "682ba7bf135b643e9ff15d9b17a8e11834998523f6d4b2a1d6bbbe7dbd4b835a"
+        },
+        {
+          "operation": "attention",
+          "dimensions": [
+            1,
+            4,
+            2,
+            64,
+            128,
+            64,
+            64
+          ],
+          "block": [
+            4,
+            16
+          ],
+          "round": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                4196833.333333333,
+                5541812.5,
+                12152875.0
+              ],
+              "median": 5541812.5,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                15071515.619638376,
+                22480411.45503521,
+                25560057.30002653
+              ],
+              "median": 22480411.45503521,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                19492.067625,
+                22420.40625,
+                24612.1615
+              ],
+              "median": 22420.40625
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                4859791.666666667,
+                4975208.333333333,
+                12413750
+              ],
+              "median": 4975208.333333333,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                12597250.053659081,
+                12175750.103779137,
+                13365541.701205075
+              ],
+              "median": 12597250.053659081,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                33435.042,
+                33832.75,
+                30319.209
+              ],
+              "median": 33435.042
+            }
+          },
+          "threads_per_group": 64,
+          "snapshot_bytes": 12832,
+          "snapshot_allocations": 10,
+          "local_lanes": 1,
+          "oracle": {
+            "elements": 16384,
+            "max_abs_error": 2.1782151514784798e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "682ba7bf135b643e9ff15d9b17a8e11834998523f6d4b2a1d6bbbe7dbd4b835a"
+        },
+        {
+          "operation": "attention",
+          "dimensions": [
+            1,
+            4,
+            2,
+            64,
+            128,
+            64,
+            64
+          ],
+          "block": [
+            4,
+            16
+          ],
+          "round": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                5096604.166666666,
+                3850000.0,
+                12387291.666666668
+              ],
+              "median": 5096604.166666666,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                27824374.99263324,
+                21713875.0012964,
+                21317598.962923512
+              ],
+              "median": 21713875.0012964,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                17938.823,
+                22511.895875,
+                20140.640625
+              ],
+              "median": 20140.640625
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                3610583.3333333335,
+                12374291.666666666,
+                12827083.333333334
+              ],
+              "median": 12374291.666666666,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                12389791.663736105,
+                13048000.051639974,
+                12930374.941788614
+              ],
+              "median": 12930374.941788614,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                37760.833,
+                63559.25,
+                29463.583
+              ],
+              "median": 37760.833
+            }
+          },
+          "threads_per_group": 64,
+          "snapshot_bytes": 12832,
+          "snapshot_allocations": 10,
+          "local_lanes": 1,
+          "oracle": {
+            "elements": 16384,
+            "max_abs_error": 2.1782151514784798e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "682ba7bf135b643e9ff15d9b17a8e11834998523f6d4b2a1d6bbbe7dbd4b835a"
+        },
+        {
+          "operation": "attention",
+          "dimensions": [
+            1,
+            4,
+            2,
+            64,
+            128,
+            64,
+            64
+          ],
+          "block": [
+            1,
+            16
+          ],
+          "round": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                7144958.333333333,
+                6994520.833333334,
+                7104229.166666666
+              ],
+              "median": 7104229.166666666,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                7187817.711383104,
+                7825510.416296311,
+                13351046.873140149
+              ],
+              "median": 7825510.416296311,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                8026.6875,
+                7826.385375,
+                8402.802125
+              ],
+              "median": 8026.6875
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                1001958.3333333334,
+                7382583.333333333,
+                7193083.333333333
+              ],
+              "median": 7193083.333333333,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                21080166.683532298,
+                7286750.013008714,
+                10353125.049732625
+              ],
+              "median": 10353125.049732625,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                17314.958,
+                23120.625,
+                7574.5
+              ],
+              "median": 17314.958
+            }
+          },
+          "threads_per_group": 256,
+          "snapshot_bytes": 8320,
+          "snapshot_allocations": 4,
+          "local_lanes": 1,
+          "oracle": {
+            "elements": 16384,
+            "max_abs_error": 2.1782151514784798e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "682ba7bf135b643e9ff15d9b17a8e11834998523f6d4b2a1d6bbbe7dbd4b835a"
+        },
+        {
+          "operation": "attention",
+          "dimensions": [
+            1,
+            4,
+            2,
+            64,
+            128,
+            64,
+            64
+          ],
+          "block": [
+            1,
+            16
+          ],
+          "round": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                7088541.666666666,
+                2548666.6666666665,
+                7058625.0
+              ],
+              "median": 7058625.0,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                10516687.500057742,
+                8330630.211276002,
+                7118906.243704259
+              ],
+              "median": 8330630.211276002,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                8225.79175,
+                20017.38025,
+                7271.869875
+              ],
+              "median": 8225.79175
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                7238208.333333333,
+                7191500,
+                7300958.333333333
+              ],
+              "median": 7238208.333333333,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                7224124.972708523,
+                16545000.02041459,
+                20937000.052072108
+              ],
+              "median": 16545000.02041459,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                15556.208,
+                65645.084,
+                8521.25
+              ],
+              "median": 15556.208
+            }
+          },
+          "threads_per_group": 256,
+          "snapshot_bytes": 8320,
+          "snapshot_allocations": 4,
+          "local_lanes": 1,
+          "oracle": {
+            "elements": 16384,
+            "max_abs_error": 2.1782151514784798e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "682ba7bf135b643e9ff15d9b17a8e11834998523f6d4b2a1d6bbbe7dbd4b835a"
+        },
+        {
+          "operation": "attention",
+          "dimensions": [
+            1,
+            4,
+            2,
+            64,
+            128,
+            64,
+            64
+          ],
+          "block": [
+            4,
+            16
+          ],
+          "round": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                10334250.0,
+                5201770.833333333,
+                7128833.333333334
+              ],
+              "median": 7128833.333333334,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                20123281.254200265,
+                26261182.298185304,
+                19525302.093825303
+              ],
+              "median": 20123281.254200265,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                32788.166625,
+                18003.078125,
+                20755.739625
+              ],
+              "median": 20755.739625
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                12673166.666666666,
+                12663166.666666666,
+                12294000
+              ],
+              "median": 12663166.666666666,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                12567749.945446849,
+                12905249.954201281,
+                55686958.25058967
+              ],
+              "median": 12905249.954201281,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                14390.834,
+                15900.291,
+                14263.75
+              ],
+              "median": 14390.834
+            }
+          },
+          "threads_per_group": 64,
+          "snapshot_bytes": 12832,
+          "snapshot_allocations": 10,
+          "local_lanes": 1,
+          "oracle": {
+            "elements": 16384,
+            "max_abs_error": 2.1782151514784798e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "682ba7bf135b643e9ff15d9b17a8e11834998523f6d4b2a1d6bbbe7dbd4b835a"
+        }
+      ],
+      "bq1_over_bq4": {
+        "throughput_instrumented_dispatch_ns": {
+          "pairs": [
+            0.7151963391673632,
+            1.286800723289237,
+            1.3939142484579192,
+            0.9901514974399738
+          ],
+          "median": 1.1384761103646053,
+          "minimum": 0.7151963391673632,
+          "maximum": 1.3939142484579192
+        },
+        "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+          "pairs": [
+            0.4217602696212969,
+            0.317771096597346,
+            0.3603921647255084,
+            0.4139797136481993
+          ],
+          "median": 0.38718593918685384,
+          "minimum": 0.317771096597346,
+          "maximum": 0.4217602696212969
+        },
+        "throughput_host_wall_us_per_dispatch": {
+          "pairs": [
+            0.37752261250477975,
+            0.40697741594222897,
+            0.3985318863212674,
+            0.39631407497963356
+          ],
+          "median": 0.39742298065045045,
+          "minimum": 0.37752261250477975,
+          "maximum": 0.40697741594222897
+        },
+        "latency_instrumented_dispatch_ns": {
+          "pairs": [
+            0.2022631247606747,
+            1.4585402621330767,
+            0.5812925318957651,
+            0.5715954408454967
+          ],
+          "median": 0.576443986370631,
+          "minimum": 0.2022631247606747,
+          "maximum": 1.4585402621330767
+        },
+        "latency_feedback_only_command_buffer_ns_per_dispatch": {
+          "pairs": [
+            0.2675593982968349,
+            0.5797760057305106,
+            0.8006825089250285,
+            1.2820363866744322
+          ],
+          "median": 0.6902292573277695,
+          "minimum": 0.2675593982968349,
+          "maximum": 1.2820363866744322
+        },
+        "latency_host_wall_us_per_dispatch": {
+          "pairs": [
+            0.8005239848732177,
+            0.5598729321171482,
+            0.4585427975066122,
+            1.080980296207989
+          ],
+          "median": 0.680198458495183,
+          "minimum": 0.4585427975066122,
+          "maximum": 1.080980296207989
+        }
+      },
+      "output_bitwise_equal": true
+    }
+  ],
+  "maximum_abs_error": 2.2304376212645138e-07,
+  "boundary": "Full independent FP64 outputs and retained input/artifact receipts checked; no native execution or loader-closure claim. Ratios are adjacent BQ1/BQ4 within two ABBA cycles, not a cross-framework ranking."
+}

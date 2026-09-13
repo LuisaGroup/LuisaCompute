@@ -1,6 +1,6 @@
 # Tile performance by compiler route
 
-Saved comparisons and validation checkpoints through September 13, 2026. These are separate experiments,
+Saved comparisons and validation checkpoints through September 14, 2026. These are separate experiments,
 not a cross-route leaderboard with one matched timing and math policy.
 See [current status](index.md) for the conclusion and remaining goal.
 
@@ -50,6 +50,26 @@ still abort rather than returning an error. The complete host suite is not
 green, and no repaired ranking performance table is claimed.
 
 ### Attention priority: contribution mapping, with device failures retained
+
+The September 14 {download}`Metal attention checkpoint
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260914-metal-attention/notes.md>`
+adds full-output attention validation to the Metal4 timing harness and retains
+instrumented dispatch, feedback-only command-buffer and synchronized host times
+separately. Sixteen fixed-batch BQ4/BQ1 visits show a small-shape dispatch-time
+ratio of 0.415–0.434, but the larger prefill ratio spans 0.715–1.394. Group width
+and private representation change with BQ; this is a whole-realization probe,
+not a reduction-only speedup or a new default planner policy. The separate fresh
+TIRx/MPS comparison is rejected for timing drift despite correct outputs.
+
+The sampled XIR/Metal4 attention plans remain `local_lanes=1`: max/sum and
+QK/PV contraction stay within each independent worker. The bridge has shuffle
+lowering for its admitted one-dimensional distributed reductions, but not the
+phase-specific ownership transitions needed by this complete attention program.
+All four query-tile realizations also launch only one threadgroup: the current
+total-work prior rewards fewer groups without modeling GPU residency/makespan.
+TIRx already has cooperative reductions, so this is not a claim that all Metal
+routes lack warp intrinsics. See the mapping review's section 21 for the source
+diagnosis and remaining implementation work; no measured MPS victory is claimed.
 
 The {download}`Chinese attention mapping review
 <../../../../src/tile/ATTENTION_MAPPING_REVIEW.md>`
