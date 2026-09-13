@@ -106,6 +106,7 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
                                                          .max_local_bytes = plan.resource_limits.max_snapshot_bytes_per_worker,
                                                          .max_unrolled_tile_elements = planner_options.max_unrolled_tile_elements,
                                                          .max_unrolled_region_work = planner_options.max_unrolled_region_work,
+                                                         .mma_output_block = plan.mma_output_block,
                                                          .reduction_partitions = planner_options.reduction_partitions,
                                                          .local_lanes = plan.local_lanes,
                                                          .enable_load_reduction_fusion = planner_options.enable_load_reduction_fusion,
@@ -194,6 +195,7 @@ ShaderCreationInfo SIMDDevice::create_tile_kernel(
                                                   plan.blocks_per_task, plan.cost.task_dispatch_work, plan.cost.activation_work, planner_options.cost_policy != nullptr));
         metadata.realization.append(luisa::format("; max_unrolled_tile_elements={}", planner_options.max_unrolled_tile_elements));
         metadata.realization.append(luisa::format("; max_unrolled_region_work={}", planner_options.max_unrolled_region_work));
+        metadata.realization.append(luisa::format("; requested_mma_output_block={}; blocked_mmas={}; mma_blocking_cost=unmodeled", planner_options.mma_output_block, lowered.blocked_mmas));
         metadata.realization.append(luisa::format("; unordered_reduction_partitions={}", planner_options.reduction_partitions));
         metadata.realization.append(luisa::format("; load_reduction_fusion={}; fused_reduction_loads={}; elided_load_snapshots={}",
                                                   planner_options.enable_load_reduction_fusion, lowered.fused_reduction_loads, lowered.elided_load_snapshots));

@@ -9,7 +9,9 @@
 #include <luisa/tile/bridge/xir/planner.h>
 #include <luisa/tile/dsl.h>
 #include <luisa/xir/instructions/alloca.h>
+#include <luisa/xir/debug_printer.h>
 #include <luisa/xir/verifier.h>
+#include <array>
 #include <cmath>
 #include <limits>
 
@@ -526,6 +528,84 @@ int main(int argc, char *argv[]) {
         auto analysis = bx::analyze_resources(huge.function());
         expect(analysis.ok()) << analysis.error;
         if (analysis) { expect_same_resources(analysis.resources, {uint64_t{UINT32_MAX} * sizeof(float), 1u}); }
+    };
+
+    "tile_xir_mma_output_blocking_preserves_storage_and_cost_admission"_test = [] {
+        using namespace tile;
+        auto fixture = [](uint32_t rows, uint32_t columns, uint32_t terms, uint32_t variant) {
+            return tile_kernel("mma_output_blocks", [=](TensorView<const float, 2> a, TensorView<const float, 2> b, TensorView<float, 2> c) {
+                       auto m = axis("m", rows), n = axis("n", columns), k = axis("k", terms);
+                       for (auto &nest : parallel(shape(1))) {
+                           static_cast<void>(nest);
+                           auto lhs = a.tile(coord(0, 0), shape(m, k)).load();
+                           auto rhs = b.tile(coord(0, 0), variant == 2u ? shape(n, k) : shape(k, n)).load();
+                           auto seed = c.tile(coord(0, 0), shape(m, n)).load();
+                           auto value = variant == 1u ? mma(rhs, lhs, seed, {.allow_reassociation = false}) :
+                                                        mma(lhs, rhs, seed, {.allow_reassociation = false});
+                           if (variant == 3u) {
+                               for (auto &element : nest.serial(shape(rows * columns))) {
+                                   auto row = element.index() / columns, column = element.index() % columns;
+                                   c(coord(row, column), shape(1, 1)).store(full<float>(shape(1, 1), value.at(coord(row, column))));
+                               }
+                           } else {
+                               c(coord(0, 0), shape(m, n)).store(value);
+                           }
+                       }
+                   })
+                .capture(tensor_shape(rows, terms), variant == 2u ? tensor_shape(columns, terms) : tensor_shape(terms, columns), tensor_shape(rows, columns));
+        };
+        auto text = [](const bx::NativeFunction &value) {
+            string result;
+            xir::XIRDebugPrinter{}.emit_function(result, value.function);
+            return result;
+        };
+        for (auto variant : {0u, 1u, 2u, 3u}) {
+            for (auto size : {std::array<uint32_t, 3>{2u, 5u, 3u}, {2u, 35u, 17u}, {1u, 7u, 65u}}) {
+                auto kernel = fixture(size[0], size[1], size[2], variant);
+                auto baseline = check_resources(kernel);
+                auto baseline_plan = bx::plan(kernel.function(), {8u, 1u}, {.block_size = 64u});
+                if (!baseline || !baseline_plan) { continue; }
+                for (auto width : {1u, 2u, 4u}) {
+                    auto candidate = check_resources(kernel, {.mma_output_block = width});
+                    auto plan = bx::plan(kernel.function(), {8u, 1u}, {.block_size = 64u, .mma_output_block = width});
+                    expect(plan.ok()) << plan.error;
+                    if (!candidate || !plan) { continue; }
+                    expect(eq(plan.selected.mma_output_block, width));
+                    expect_same_resources(candidate.resources, baseline.resources);
+                    expect_same_resources(plan.selected.resources, candidate.resources);
+                    expect(eq(candidate.blocked_mmas, width == 1u || variant == 2u ? 0u : 1u));
+                    expect(eq(plan.selected.cost.score, baseline_plan.selected.cost.score));// no invented speedup prior
+                    if (width == 1u || variant == 2u) { expect(text(candidate) == text(baseline)); }
+                }
+                auto budget = check_resources(kernel, {.max_unrolled_region_work = 1u, .mma_output_block = 4u});
+                if (budget) {
+                    expect(eq(budget.blocked_mmas, 0u));
+                    expect(text(budget) == text(baseline));
+                }
+            }
+        }
+        auto kernel = fixture(2u, 5u, 3u, 0u);
+        for (auto width : {0u, 3u, 8u}) {
+            expect(!bx::analyze_resources(kernel.function(), {.mma_output_block = width}));
+            expect(!bx::lower(kernel.function(), {.mma_output_block = width}));
+            expect(!bx::plan(kernel.function(), {8u, 1u}, {.mma_output_block = width}));
+        }
+        auto bf16 = tile_kernel("unsupported_mma_accumulator", [](TensorView<const float, 2> a, TensorView<const float, 2> b, TensorView<float, 2> c) {
+                        auto m = axis("m", 1), n = axis("n", 2), k = axis("k", 3);
+                        for (auto &nest : parallel(shape(1))) {
+                            static_cast<void>(nest);
+                            auto seed = cast<tile::bfloat16>(c.tile(coord(0, 0), shape(m, n)).load());
+                            auto value = mma(a.tile(coord(0, 0), shape(m, k)).load(), b.tile(coord(0, 0), shape(k, n)).load(), seed);
+                            c(coord(0, 0), shape(m, n)).store(cast<float>(value));
+                        }
+                    }).capture(tensor_shape(1, 3), tensor_shape(3, 2), tensor_shape(1, 2));
+        expect(bf16.valid());
+        for (auto width : {1u, 4u}) {
+            auto rejected = bx::lower(bf16.function(), {.mma_output_block = width});
+            expect(!rejected && rejected.error.find("BF16 MMA accumulation") != string::npos);
+            expect(!bx::analyze_resources(bf16.function(), {.mma_output_block = width}));
+            expect(!bx::plan(bf16.function(), {8u, 1u}, {.mma_output_block = width}));
+        }
     };
 
     "tile_xir_structured_map_budget_shares_coordinates_storage_and_emission"_test = [] {

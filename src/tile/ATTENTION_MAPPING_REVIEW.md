@@ -1,6 +1,6 @@
 # Attention execution mapping：现状、缺口与有界实验
 
-记录日期：2026-09-13。范围：当前源码静态审查与已归档实验；**本记录没有新性能测量，也不宣称已完成生产优化**。
+记录日期：2026-09-13。范围：当前源码静态审查与已归档实验；初稿为只读审查，后续 CPU 实验见第 8–10 节。**未宣称已完成自动生产优化**。
 它是实现侧工作记录，不替代既有设计文档；不改动受保护的 matrix-initializer WIP。
 
 ## 1. 先分清三种状态
@@ -85,7 +85,7 @@ GQA 还暴露跨 query-head 的 KV 复用机会，但语义上的同一 KV head 
 先检查 generated source 是否确实多一个 PV tensorized contraction，再检查新增 initializer/shared 流量和容量 fallback；“成功匹配”不等于“执行更快”。
 
 **Decode：QK/PV 独立分解 probe。** 在固定 threads、block、forwarding、closed-collective 和数学策略下，先固定 QK，只切 PV；随后补齐 `(mma,mma)/(reduce,mma)/(mma,reduce)/(reduce,reduce)` 四格检查交互。
-当前 `--attention-pv reduce` 刚加入，**没有新性能结果**；默认仍走 MMA，metadata 必须确认开关确实生效，不能只信命令行。
+初稿时 `--attention-pv reduce` 刚加入、没有性能结果；同日 CPU 结果见第 8 节，GPU arm 仍未完成。默认仍走 MMA，metadata 必须确认开关确实生效，不能只信命令行。
 补充执行状态：四个新增 SIMD 数值检查已通过；同日长 KV 的既有 QK-reduce/PV-MMA control 出现两次超时和 MPS command-buffer GPU Hang，整轮性能不接受，PV-reduce GPU arm 未运行。见 [独立执行检查点](../../scripts/benchmark/tile_torch/results/m1-max-20260913-attention-pv/notes.md)，不能用部分 PASS 消除驱动错误。
 先看 PV 是否成为贡献维 collective、product 是否被内联而非巨大中间 tile，再测完整程序。
 若 probe 变快，说明候选空间值得扩展，但不能证明所有 contraction 都适用；若变慢，区分未触发、访存步幅恶化、输出分批过多、重分布/同步增加。
@@ -119,3 +119,17 @@ GQA 还暴露跨 query-head 的 KV 复用机会，但语义上的同一 KV head 
 可分两步：先为保留 MMA annotation 的 canonical scalar contraction 记录 `O × E × (1 + product(K))` 初始化/更新工作 prior，同时保持输出并行度为 O，防止 double-count 与溢出；再引入真正的分阶段输出/贡献维候选及 transition cost。第一步只修成本信息，不应声称改变 emitter 或达到性能提升。接入点与现有 protected WIP 重叠，本轮未改。
 
 初稿只读；本节补充同日独立实验，生产代码与 protected WIP 仍保持不动。
+
+## 9. SIMD：实际 mask realization 比抽象 work count 更重要
+
+[十配置纯 native-entry 实验](../../scripts/benchmark/tile_torch/results/m1-max-20260913-attention-full-packet/notes.md)把已有 full-packet 特化候选独立应用于 attention：固定 DSL、QK/PV MMA、W8/block32/local1，五个有效特化配置的配对时间减少 24%–72%，包括 8193 KV、batch/MQA 和 mixed tail。其余五个未生成 clone／没有满包的控制也完整保留，没有新的 Torch/MPS 对照。
+
+这是代码生成候选的效果，不是自动 planner 优化：当前 prior 无法区分 P0/P1。未来需把 `full/tail packet × residual mask × memory realization × code-size budget` 接入 target policy，不能只按 Tile 算术和逻辑流量排名，也不能把满包误认为内部访问均无 bounds mask。
+
+下一项通用候选是沿连续输出维的 MMA 寄存器分块：若一个输入对该维广播、另一个输入连续，交错多个独立输出的累积可共享广播项；保持每个输出的贡献顺序与 MUL→ADD，不等同于归约重排。PV 与普通 row-major GEMM 可符合，QK 的输出 key 通常有通道步幅，应由访问分析决定而非函数名。其同日实现与实验见下一节。
+
+## 10. 输出分块已落，但收益不能独立相加
+
+[实现与 96 个 native-entry visits](../../scripts/benchmark/tile_torch/results/m1-max-20260913-attention-mma-block/notes.md)提供 opt-in R1/2/4，默认 R1 不变。共享 admission／resource plan，逐输出 K 顺序和原 snapshot 不变；选择字段传入 `ExecutionPlan`，backend cost policy 可查看，默认 prior 暂不降价。SIMD 已执行，Metal4 forwarding 已编译但 GPU 尚未测量。
+
+R2 在未特化 decode 上约快 4.7%，特化后增益近于零；R4 使函数超过原 clone 预算，P-on 也不能生成满包路径，整程序反而慢约 54%。静态 snapshot 容量未增加。这是实测的候选交互，不是算子特判或完备 cost model 的证明：求解器需要同时评价代码规模、mask realization 和数据访问，不应把多个局部收益系数相乘。

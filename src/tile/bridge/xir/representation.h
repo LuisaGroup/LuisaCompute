@@ -525,10 +525,21 @@ enum class ValueRepresentation : uint8_t {
     REDUCTION_PRODUCER
 };
 
+struct MmaEmissionPlan {
+    uint32_t output_block{1u};
+    uint64_t columns{1u};
+    bool broadcast_lhs{true};
+};
+
+[[nodiscard]] inline MmaEmissionPlan mma_emission_plan(const Operation &op, const LowerOptions &options) noexcept;
+
 struct ValueAllocationPlan {
     ValueRepresentation representation{ValueRepresentation::EMITTED};
     bool snapshot{false};
     luisa::optional<ReductionProducerFusion> fusion;
+    // Register blocking changes scalar recurrence emission, never the chosen
+    // result snapshot or its size. Analysis and emission consume this plan.
+    MmaEmissionPlan mma{};
 };
 
 // count is the already validated static Tile volume (one for a scalar).
@@ -553,7 +564,8 @@ struct ValueAllocationPlan {
     auto runtime_map = op && op->kind() == OperationKind::TILE_MAP && map_runtime_loop(*op, options.max_unrolled_tile_elements, options.max_unrolled_region_work);
     return {ValueRepresentation::EMITTED,
             runtime_map || traversal_snapshot(count, options) || definition_snapshot(value, count, options),
-            {}};
+            {},
+            op && op->kind() == OperationKind::MMA ? mma_emission_plan(*op, options) : MmaEmissionPlan{}};
 }
 
 struct TraversalEmissionPlan {
@@ -581,6 +593,46 @@ struct TraversalEmissionPlan {
     auto plan = traversal_emission_plan(count, options);
     plan.runtime_loop |= map_runtime_loop(op, options.max_unrolled_tile_elements, options.max_unrolled_region_work);
     return plan;
+}
+
+// Block only the contiguous output direction of a contraction whose other
+// operand broadcasts that direction. This admits ordinary row-major GEMM and
+// many weighted sums, without recognizing an operator or dimension name.
+[[nodiscard]] inline MmaEmissionPlan mma_emission_plan(const Operation &op, const LowerOptions &options) noexcept {
+    if (options.mma_output_block == 1u || options.local_lanes != 1u || options.max_unrolled_tile_elements == 0u) { return {}; }
+    auto &output = *op.result(0u)->type().index_space();
+    auto &lhs = *op.operand(0u)->type().index_space();
+    auto &rhs = *op.operand(1u)->type().index_space();
+    auto axis = output.rank();
+    while (axis != 0u && output.axis(axis - 1u).extent.is_constant() && output.axis(axis - 1u).extent.constant_value() == 1u) { axis--; }
+    if (axis == 0u || !output.axis(axis - 1u).extent.is_constant()) { return {}; }
+    auto &inner = output.axis(axis - 1u);
+    auto columns = inner.extent.constant_value();
+    if (columns <= 1u) { return {}; }
+    auto unit_stride = [&](const IndexSpace &space) noexcept {
+        auto index = space.axis_index(inner.dimension);
+        if (!index) { return false; }
+        for (auto i = *index + 1u; i < space.rank(); i++) {
+            if (!space.axis(i).extent.is_constant() || space.axis(i).extent.constant_value() != 1u) { return false; }
+        }
+        return true;
+    };
+    auto broadcast_lhs = !lhs.contains(inner.dimension) && unit_stride(rhs);
+    if (!broadcast_lhs && (rhs.contains(inner.dimension) || !unit_stride(lhs))) { return {}; }
+    if (options.max_unrolled_region_work != 0u) {
+        // Potential per-block expansion, not an instruction count or a cycle
+        // estimate. A rolled contraction emits one update body per output.
+        IndexSpace contraction;
+        for (auto &a : lhs.axes()) {
+            if (!output.contains(a.dimension)) { static_cast<void>(contraction.add(a.dimension, a.extent)); }
+        }
+        auto cap = static_cast<uint64_t>(options.max_unrolled_region_work) + 1u;
+        auto updates = bounded_domain(contraction, options.max_unrolled_tile_elements) ? 1u : capped_work_volume(contraction, cap);
+        auto work = capped_work_product(std::min<uint64_t>(options.mma_output_block, columns), updates, cap);
+        work = capped_work_product(work, 2u + lhs.rank() + rhs.rank() + output.rank(), cap);
+        if (work > options.max_unrolled_region_work) { return {}; }
+    }
+    return {options.mma_output_block, columns, broadcast_lhs};
 }
 
 struct ReductionEmissionPlan {

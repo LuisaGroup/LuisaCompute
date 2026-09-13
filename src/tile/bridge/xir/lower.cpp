@@ -285,6 +285,35 @@ private:
         _at(exit);
         return sum;
     }
+    template<typename F>
+    [[nodiscard]] Elements _fold_many(uint64_t count, Elements initial, F &&emit) {
+        if (!_bounded(count)) {
+            for (uint64_t i = 0u; i < count; i++) { initial = emit(_index(i), initial); }
+            return initial;
+        }
+        auto preheader = _block;
+        auto header = _output.function->create_basic_block();
+        auto body = _output.function->create_basic_block();
+        auto exit = _output.function->create_basic_block();
+        _builder.br(header);
+        _at(header);
+        auto index = _builder.phi(XType::of<int64_t>(), {{_index(0u), preheader}});
+        luisa::vector<x::PhiInst *> sums;
+        Elements current;
+        for (auto value : initial) {
+            auto phi = _builder.phi(value->type(), {{value, preheader}});
+            sums.emplace_back(phi);
+            current.emplace_back(phi);
+        }
+        _builder.cond_br(_compare(A::BINARY_LESS, index, _index(count)), body, exit);
+        _at(body);
+        auto next = emit(index, current);
+        for (size_t i = 0u; i < sums.size(); i++) { sums[i]->add_incoming(next[i], _block); }
+        index->add_incoming(_binary(A::BINARY_ADD, index, _index(1u)), _block);
+        _builder.br(header);
+        _at(exit);
+        return current;
+    }
     [[nodiscard]] Elements _coordinates(const IndexSpace &space, x::Value *flat) {
         Elements result(space.rank());
         uint64_t constant = 0u;
@@ -1087,6 +1116,72 @@ private:
                 static_cast<void>(contraction.add(axis.dimension, axis.extent));
                 static_cast<void>(domain.add(axis.dimension, axis.extent));
             }
+        }
+        auto plan = detail::value_allocation_plan(result, _volume(space), _options).mma;
+        if (plan.output_block != 1u) {
+            auto count = _volume(space);
+            auto snapshot = detail::traversal_snapshot(count, _options);
+            auto storage = snapshot ? _allocate(result->type()) : nullptr;
+            Elements elements;
+            auto emit_block = [&](x::Value *base, uint32_t width) {
+                luisa::vector<Elements> coordinates;
+                Elements flats, initial;
+                for (auto j = 0u; j < width; j++) {
+                    uint64_t constant = 0u;
+                    auto flat = x::try_decode_constant_nonnegative_integer(base, constant) ? _index(constant + j) :
+                                                                                             _binary(A::BINARY_ADD, base, _index(j));
+                    flats.emplace_back(flat);
+                    coordinates.emplace_back(_coordinates(space, flat));
+                    initial.emplace_back(_read(_get(op.operand(2u)), flat));
+                }
+                auto values = _fold_many(_volume(contraction), std::move(initial), [&](x::Value *k, const Elements &sums) {
+                    auto reduced = _coordinates(contraction, k);
+                    auto project = [&](uint32_t operand, uint32_t output) {
+                        auto full = coordinates[output];
+                        full.insert(full.end(), reduced.begin(), reduced.end());
+                        return _cast(result->type(), op.operand(operand)->type(), _project(_get(op.operand(operand)), domain, full));
+                    };
+                    auto common = project(plan.broadcast_lhs ? 0u : 1u, 0u);
+                    Elements next;
+                    for (auto j = 0u; j < width; j++) {
+                        auto other = project(plan.broadcast_lhs ? 1u : 0u, j);
+                        auto a = plan.broadcast_lhs ? common : other;
+                        auto b = plan.broadcast_lhs ? other : common;
+                        next.emplace_back(_binary(A::BINARY_ADD, sums[j], _binary(A::BINARY_MUL, a, b)));
+                    }
+                    return next;
+                });
+                for (auto j = 0u; j < width; j++) {
+                    if (storage) {
+                        _store_local(result->type(), storage, flats[j], values[j]);
+                    } else {
+                        elements.emplace_back(values[j]);
+                    }
+                }
+            };
+            auto rows = count / plan.columns;
+            _serial_for(rows, [&](x::Value *row) {
+                auto full = plan.columns / plan.output_block;
+                _serial_for(full, [&](x::Value *block) {
+                    uint64_t r = 0u, c = 0u;
+                    auto base = x::try_decode_constant_nonnegative_integer(row, r) && x::try_decode_constant_nonnegative_integer(block, c) ?
+                                    _index(r * plan.columns + c * plan.output_block) :
+                                    _binary(A::BINARY_ADD, _binary(A::BINARY_MUL, row, _index(plan.columns)), _binary(A::BINARY_MUL, block, _index(plan.output_block)));
+                    emit_block(base, plan.output_block);
+                }, snapshot && full > 1u);
+                if (auto tail = static_cast<uint32_t>(plan.columns % plan.output_block)) {
+                    uint64_t r = 0u;
+                    auto base = x::try_decode_constant_nonnegative_integer(row, r) ? _index(r * plan.columns + full * plan.output_block) :
+                                                                                  _binary(A::BINARY_ADD, _binary(A::BINARY_MUL, row, _index(plan.columns)), _index(full * plan.output_block));
+                    emit_block(base, tail);
+                } }, snapshot && rows > 1u);
+            if (storage) {
+                _representation(result)->storage = storage;
+            } else {
+                _define(result, std::move(elements));
+            }
+            _output.blocked_mmas++;
+            return;
         }
         _emit_tile(result, [&](x::Value *flat) {
             auto coordinates = _coordinates(space, flat);

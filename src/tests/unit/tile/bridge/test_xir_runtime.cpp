@@ -1214,6 +1214,77 @@ void packet_local_reductions(Device &device, int64_t count, int64_t width, uint3
     }
 }
 
+void mma_output_blocks(Device &device, int64_t rows, int64_t columns, int64_t terms, bool swapped) {
+    using namespace tile;
+    auto kernel = tile_kernel("ordered_mma_blocks", [=](TensorView<float, 2> a, TensorView<const float, 2> b, TensorView<float, 2> c) {
+                      auto m = axis("m", rows), n = axis("n", columns), k = axis("k", terms);
+                      for (auto &nest : parallel(shape(1))) {
+                          static_cast<void>(nest);
+                          auto lhs = a.tile(coord(0, 0), shape(m, k)).load();
+                          auto rhs = b.tile(coord(0, 0), shape(k, n)).load();
+                          auto seed = c.tile(coord(0, 0), shape(m, n)).load();
+                          // Eager snapshots must survive writes before the
+                          // contraction; its output also aliases the seed view.
+                          a(coord(0, 0), shape(m, k)).store(full<float>(shape(m, k), 13.0f));
+                          c(coord(0, 0), shape(m, n)).store(full<float>(shape(m, n), -7.0f));
+                          auto result = swapped ? mma(rhs, lhs, seed, {.allow_reassociation = false}) :
+                                                  mma(lhs, rhs, seed, {.allow_reassociation = false});
+                          c(coord(0, 0), shape(m, n)).store(result);
+                      }
+                  }).capture(tensor_shape(rows, terms), tensor_shape(terms, columns), tensor_shape(rows, columns));
+    expect(kernel.valid());
+    constexpr size_t pad = 17u;
+    constexpr float guard = -731.25f;
+    vector<float> input_a(rows * terms + 2u * pad, guard), input_b(terms * columns + 2u * pad, guard), input_c(rows * columns + 2u * pad, guard);
+    for (int64_t i = 0; i < rows * terms; i++) { input_a[pad + i] = i % 3 == 0 ? 1048576.0f : i % 3 == 1 ? 0.125f :
+                                                                                                           -1048576.0f; }
+    for (int64_t i = 0; i < terms * columns; i++) { input_b[pad + i] = static_cast<float>((i * 5 + 3) % 13 - 6) * 0.125f; }
+    for (int64_t i = 0; i < rows * columns; i++) { input_c[pad + i] = static_cast<float>(i % 7 - 3) * 0.25f; }
+    // Output (0, 0) distinguishes separate MUL + ADD (0) from FMA (-2^-46).
+    // Keep the other columns' cancellation patterns to detect reassociation.
+    input_a[pad] = std::bit_cast<float>(0x3f800001u);// 1 + 2^-23
+    input_b[pad] = std::bit_cast<float>(0x3f7ffffeu);// 1 - 2^-23
+    input_c[pad] = -1.0f;
+    for (int64_t k = 1; k < terms; k++) { input_b[pad + k * columns] = 0.0f; }
+    auto expected = input_c;
+    for (int64_t row = 0; row < rows; row++) {
+        for (int64_t column = 0; column < columns; column++) {
+            auto sum = input_c[pad + row * columns + column];
+            for (int64_t k = 0; k < terms; k++) {
+                auto lhs = input_a[pad + row * terms + k], rhs = input_b[pad + k * columns + column];
+                volatile float product = swapped ? rhs * lhs : lhs * rhs;
+                volatile float next = sum + product;// explicit noncontracted FP32 reference order
+                sum = next;
+            }
+            expected[pad + row * columns + column] = sum;
+        }
+    }
+    auto a = device.create_buffer<float>(input_a.size()), b = device.create_buffer<float>(input_b.size()), c = device.create_buffer<float>(input_c.size());
+    auto stream = device.create_stream(StreamTag::COMPUTE);
+    vector<float> baseline;
+    for (auto width : {1u, 2u, 4u}) {
+        auto options = bridge::xir::PlannerOptions{.mma_output_block = width};
+        auto shader = compile(device, kernel, {.xir = &options});
+        expect(static_cast<bool>(shader)) << shader.metadata().error;
+        if (!shader) { continue; }
+        expect(shader.metadata().realization.find(format("requested_mma_output_block={}; blocked_mmas={};", width, width == 1u ? 0u : 1u)) != string::npos);
+        auto actual_a = input_a, actual_b = input_b, actual_c = input_c;
+        stream << a.copy_from(span{input_a}) << b.copy_from(span{input_b}) << c.copy_from(span{input_c})
+               << shader(a.view(pad, rows * terms), b.view(pad, terms * columns), c.view(pad, rows * columns)).dispatch()
+               << a.copy_to(span{actual_a}) << b.copy_to(span{actual_b}) << c.copy_to(span{actual_c}) << synchronize();
+        for (size_t i = 0u; i < actual_c.size(); i++) {
+            expect(eq(std::bit_cast<uint32_t>(actual_c[i]), std::bit_cast<uint32_t>(expected[i]))) << "mma block=" << width << " output=" << i;
+        }
+        expect(actual_b == input_b);
+        for (size_t i = 0u; i < actual_a.size(); i++) { expect(actual_a[i] == (i < pad || i >= actual_a.size() - pad ? guard : 13.0f)); }
+        if (width == 1u) {
+            baseline = actual_c;
+        } else {
+            expect(actual_c == baseline);
+        }
+    }
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -1298,6 +1369,13 @@ int main(int argc, char *argv[]) {
     "tile_xir_runtime_partitioned_closed_reductions"_test = [&] {
         for (auto partitions : {1u, 3u, 4u, 16u}) {
             for (auto width : {0, 1, 65, 66, 67, 128}) { partitioned_reductions(device, width, partitions); }
+        }
+    };
+    "tile_xir_runtime_mma_output_blocks_order_and_snapshots"_test = [&] {
+        for (auto swapped : {false, true}) {
+            mma_output_blocks(device, 2, 5, 3, swapped);
+            mma_output_blocks(device, 2, 35, 17, swapped);
+            mma_output_blocks(device, 1, 7, 65, swapped);
         }
     };
     "tile_xir_runtime_gemm"_test = [&] {

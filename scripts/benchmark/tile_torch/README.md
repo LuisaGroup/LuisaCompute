@@ -136,6 +136,14 @@ default; zero preserves the old element-only decision). Record this separately
 from algorithmic complexity or performance: it bounds duplicated map-body work,
 not native instructions, kernel cycles or the quadratic reference algorithm.
 
+The XIR `llm`/`rank` diagnostic also accepts
+`LUISA_TILE_BENCH_XIR_MMA_OUTPUT_BLOCK=1|2|4` (default 1). Normal API callers
+set `PlannerOptions::mma_output_block`; metadata distinguishes the request
+from admitted `blocked_mmas`. This is an opt-in contiguous-output contraction
+candidate, not an operator-name rule or a calibrated automatic policy. The
+[attention interaction experiment](results/m1-max-20260913-attention-mma-block/notes.md)
+retains both gains and a code-size/full-packet-specialization regression.
+
 ## Common LLM captures across SIMD and Metal
 
 `compare_llm.py` reuses the unit tests' Tile kernels, exports the exact native

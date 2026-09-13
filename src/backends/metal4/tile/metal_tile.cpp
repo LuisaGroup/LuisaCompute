@@ -128,6 +128,7 @@ ShaderCreationInfo MetalDevice::create_tile_kernel(
                                           .max_local_bytes = plan.resource_limits.max_snapshot_bytes_per_worker,
                                           .max_unrolled_tile_elements = planner_options.max_unrolled_tile_elements,
                                           .max_unrolled_region_work = planner_options.max_unrolled_region_work,
+                                          .mma_output_block = plan.mma_output_block,
                                           .reduction_partitions = planner_options.reduction_partitions,
                                           .local_lanes = plan.local_lanes,
                                           .enable_load_reduction_fusion = planner_options.enable_load_reduction_fusion,
@@ -231,6 +232,7 @@ ShaderCreationInfo MetalDevice::create_tile_kernel(
             lowered.deferred_maps, planner_options.cost_policy != nullptr, option.enable_fast_math, ordered_reduction));
         metadata.realization.append(luisa::format("; static_snapshot_bytes_per_worker={}; static_snapshot_allocations={}; rejected_candidates={}",
                                                   plan.resources.snapshot_bytes_per_worker, plan.resources.snapshot_allocations, planned.rejected.size()));
+        metadata.realization.append(luisa::format("; requested_mma_output_block={}; blocked_mmas={}; mma_blocking_cost=unmodeled", planner_options.mma_output_block, lowered.blocked_mmas));
         auto shader = luisa::new_with_allocator<MetalShader>(
             this, std::move(pipeline), std::move(shader_metadata.argument_usages),
             std::move(shader_metadata.argument_sampled), luisa::vector<MetalShader::Argument>{},

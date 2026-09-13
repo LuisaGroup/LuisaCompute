@@ -20,9 +20,14 @@ struct LowerOptions {
     uint32_t max_unrolled_tile_elements{64u};
     // Potential scalar work replicated by a map containing nested execution
     // regions or MMA. Pure pointwise maps keep the element-only threshold.
+    // Also bounds each opt-in MMA register block's potential expansion.
     // Zero disables this additional budget; max_unrolled_tile_elements == 0
     // retains the fully expanded diagnostic baseline regardless of this value.
     uint32_t max_unrolled_region_work{4096u};
+    // Opt-in contiguous-output MMA register blocking (1, 2 or 4). One keeps
+    // reference emission. Admission uses logical operand strides/broadcasts,
+    // preserves each output's contraction order and existing snapshot storage.
+    uint32_t mma_output_block{1u};
     // Bounded pure unordered reductions may partition contributions among
     // these independent accumulators. One preserves the sequential baseline.
     uint32_t reduction_partitions{4u};
@@ -93,6 +98,7 @@ struct NativeFunction {
     uint32_t fused_reduction_expressions{0u};
     uint32_t elided_expression_snapshots{0u};
     uint32_t deferred_maps{0u};
+    uint32_t blocked_mmas{0u};
     ExecutionResources resources;
     luisa::string error;
     [[nodiscard]] bool ok() const noexcept { return module != nullptr && function != nullptr && error.empty(); }

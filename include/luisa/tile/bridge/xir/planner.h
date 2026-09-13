@@ -41,6 +41,9 @@ struct PlannerOptions {
     // Same structural map-expansion budget as LowerOptions; not a measured
     // cycle cost or a change to the execution/reduction semantics.
     uint32_t max_unrolled_region_work{4096u};
+    // Fixed opt-in MMA emission candidate, not a searched or credited speedup.
+    // Shares generic admission and representation budgets with LowerOptions.
+    uint32_t mma_output_block{1u};
     uint32_t reduction_partitions{4u};
     // One preserves the default complete-program mapping. Zero opts into the
     // experimental joint search; packet_width forces a legal local-axis map.
@@ -98,6 +101,9 @@ struct ExecutionPlan {
     luisa::vector<uint32_t> root_axis_tiles;
     ExecutionResources resources;
     ExecutionResourceLimits resource_limits;
+    // Fixed requested realization, exposed to target admission/cost policies.
+    // Individual contractions may retain reference emission after admission.
+    uint32_t mma_output_block{1u};
 };
 
 // The bridge extracts work and packet/block counts (including masked tails).

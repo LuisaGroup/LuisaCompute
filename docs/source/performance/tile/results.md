@@ -83,6 +83,26 @@ captured even if Python reports success. Known GPU failure diagnostics invalidat
 the entire cohort and leave subsequent GPU visits NotRun. This closes the
 observed reporting loophole; it does not establish device recovery.
 
+The separate {download}`full-packet attention experiment
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260913-attention-full-packet/notes.md>`
+checks ten configurations and 120 balanced native-entry visits. With the DSL,
+QK/PV MMA and W8/block32/local1 fixed, the existing opt-in constant-width clone
+reduces paired time by **24%–72%** in five effective cases, including batch/MQA,
+mixed tails and KV=8193. The other five no-clone/tail-only controls are retained.
+This is backend-codegen evidence, not an automatic planner result or a fresh
+Torch/MPS comparison. The unchanged abstract work prior misses full/tail masks
+and code-size admission; production defaults remain unchanged.
+
+The follow-up {download}`generic MMA output-block experiment
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260913-attention-mma-block/notes.md>`
+implements opt-in contiguous-output register blocks in the shared XIR bridge,
+preserving each output's K order and snapshot storage. Ninety-six native visits
+show about 4.7% gain for R2 on unspecialized decode, but almost no extra gain
+after full-packet specialization. R4 exceeds the clone budget and regresses
+the requested-specialized decode by about 54%. All rows are retained. Four
+relevant CTests pass, including strict bitwise accumulation and alias/snapshot
+checks; this is not automatic cost calibration or measured Metal4 performance.
+
 ### Metal4 XIR route: correctness established, timing not yet stable
 
 The September 10 {download}`target-info checkpoint <../../../../scripts/benchmark/tile_torch/results/m1-max-20260910-xir-target-info/README.md>`

@@ -13082,6 +13082,248 @@ void bindless_uniform_gradient_probe(
     return true;
 }
 
+[[nodiscard]] bool run_full_packet_specialization_predicated_memory() {
+    ScopedEnvironmentVariable enable{"LUISA_SIMD_ENABLE_FULL_PACKET_SPECIALIZATION", "1"};
+    static constexpr auto width = 8u;
+    static constexpr auto block_size = 32u;
+    static constexpr auto sentinel = uint32_t{0xdeadbeefu};
+    static constexpr auto initial_value = uint32_t{0x12345678u};
+    using Entry = void(const void *, void *, SIMDPacketLaunchConfig *, uint32_t);
+    struct TestCase {
+        bool counted_loop;
+        uint32_t iterations;
+    };
+    for (auto [counted_loop, iterations] : {TestCase{false, 1u}, TestCase{true, 0u}, TestCase{true, 1u}, TestCase{true, 3u}}) {
+        // The standalone diamond uses the default memory-predication rules.
+        // A varying branch inside a counted loop conservatively taints the
+        // induction PHI; the existing opt-in supplies the header use-site
+        // uniformity fact required for direct CFG and full-packet admission.
+        ScopedEnvironmentVariable enable_memory_effects{"LUISA_SIMD_ENABLE_PREDICATED_MEMORY_EFFECTS", counted_loop ? "1" : nullptr};
+        ScopedEnvironmentVariable disable_memory_effects{"LUISA_SIMD_DISABLE_PREDICATED_MEMORY_EFFECTS", counted_loop ? nullptr : "1"};
+        Kernel1D kernel = [counted_loop, iterations](BufferUInt input, BufferUInt mask, BufferUInt output) noexcept {
+            set_block_size(block_size, 1u, 1u);
+            auto index = dispatch_id().x;
+            $uint value = initial_value;
+            auto masked_read = [&](auto &&iteration) noexcept {
+                $if (mask.read(index) != 0u) {
+                    // Lane zero's UINT_MAX address must remain unobserved,
+                    // even when the containing packet has all lanes active.
+                    value = input.read(index - 1u) + 7u + iteration;
+                };
+            };
+            if (counted_loop) {
+                $for (iteration, iterations) { masked_read(iteration); };
+            } else {
+                masked_read(0u);
+            }
+            output.write(index, value);
+        };
+        auto compile = [&](bool specialize) {
+            ScopedEnvironmentVariable disable{"LUISA_SIMD_DISABLE_FULL_PACKET_SPECIALIZATION", specialize ? nullptr : "1"};
+            return compile_simd_kernel(kernel.function()->function(), width, "full_packet_predicated_memory", false, false, 1u, true);
+        };
+        auto baseline = compile(false);
+        auto candidate = compile(true);
+        if (!baseline.succeeded() || !candidate.succeeded() ||
+            !candidate.direct_control_flow || candidate.full_packet_specialization_count != 1u ||
+            (iterations != 0u && candidate.predicated_memory_diamond_count != 1u)) {
+            std::cerr << "full-packet predicated memory: counted_loop=" << counted_loop
+                      << ", iterations=" << iterations
+                      << ", direct=" << candidate.direct_control_flow
+                      << ", diamonds=" << candidate.predicated_memory_diamond_count
+                      << ", clones=" << candidate.full_packet_specialization_count
+                      << ", cloned_instructions=" << candidate.full_packet_cloned_instruction_count
+                      << ", schedule_blocks=" << candidate.schedule_block_count << '\n';
+            for (auto &&diagnostic : baseline.diagnostics) { std::cerr << "baseline: " << diagnostic << '\n'; }
+            for (auto &&diagnostic : candidate.diagnostics) { std::cerr << "candidate: " << diagnostic << '\n'; }
+        }
+        CHECK(baseline.succeeded() && candidate.succeeded());
+        CHECK(baseline.full_packet_specialization_count == 0u);
+        CHECK(candidate.full_packet_specialization_count == 1u);
+        CHECK(candidate.direct_control_flow);
+        CHECK(iterations == 0u || candidate.predicated_memory_diamond_count == 1u);
+        CHECK(baseline.packet_batch_entry != nullptr && candidate.packet_batch_entry != nullptr);
+        std::array<uint32_t, block_size> input{};
+        for (auto i = 0u; i < block_size; i++) { input[i] = i * 11u + 5u; }
+        auto original_input = input;
+        for (auto dispatch : {0u, width - 1u, width, width + 1u, 2u * width + 1u}) {
+            for (auto pattern : {0u, 1u, 2u}) {
+                std::array<uint32_t, block_size> mask{};
+                for (auto i = 1u; i < block_size; i++) {
+                    mask[i] = pattern == 2u || (pattern == 1u && i % 3u == 0u);
+                }
+                auto original_mask = mask;
+                std::array<uint32_t, block_size + 2u> outputs[2];
+                auto initial = launch_1d(dispatch, block_size);
+                SIMDPacketLaunchConfig configs[2] = {initial, initial};
+                SIMDCompiledKernel *compiled[2] = {&baseline, &candidate};
+                for (auto variant = 0u; variant < 2u; variant++) {
+                    outputs[variant].fill(sentinel);
+                    // An empty inner read arm must not touch a null input.
+                    alignas(16) std::array<SIMDHostBufferView, 3u> arguments{
+                        SIMDHostBufferView{pattern == 0u ? nullptr : input.data(), pattern == 0u ? 0u : sizeof(input)},
+                        SIMDHostBufferView{mask.data(), sizeof(mask)},
+                        SIMDHostBufferView{outputs[variant].data() + 1u, block_size * sizeof(uint32_t)},
+                    };
+                    reinterpret_cast<Entry *>(compiled[variant]->packet_batch_entry)(arguments.data(), nullptr, &configs[variant], block_size / width);
+                }
+                CHECK(outputs[0] == outputs[1]);
+                CHECK(std::memcmp(&configs[0], &configs[1], sizeof(initial)) == 0);
+                CHECK(input == original_input && mask == original_mask);
+                CHECK(outputs[1].front() == sentinel && outputs[1].back() == sentinel);
+                for (auto i = 0u; i < block_size; i++) {
+                    auto value = iterations != 0u && mask[i] != 0u ? input[i - 1u] + 7u + iterations - 1u : initial_value;
+                    CHECK(outputs[1][i + 1u] == (i < dispatch ? value : sentinel));
+                }
+            }
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_full_packet_specialization_multidimensional_dispatch() {
+    ScopedEnvironmentVariable enable{"LUISA_SIMD_ENABLE_FULL_PACKET_SPECIALIZATION", "1"};
+    static constexpr auto width = 8u;
+    static constexpr auto block_size = 32u;
+    static constexpr auto size_x = 35u, size_y = 3u, max_size_z = 2u;
+    static constexpr auto capacity = size_x * size_y * max_size_z;
+    static constexpr auto grid_x = 2u;
+    static constexpr auto sentinel = uint32_t{0xdeadbeefu};
+    Kernel3D kernel = [](BufferUInt output) noexcept {
+        set_block_size(block_size, 1u, 1u);
+        auto dispatch = dispatch_id();
+        auto block = block_id();
+        auto thread = thread_id();
+        auto index = (dispatch.z * size_y + dispatch.y) * size_x + dispatch.x;
+        output.write(index, index + block.x * 11u + block.y * 19u + block.z * 23u + thread.x * 7u);
+    };
+    auto compile = [&](bool specialize) {
+        ScopedEnvironmentVariable disable{"LUISA_SIMD_DISABLE_FULL_PACKET_SPECIALIZATION", specialize ? nullptr : "1"};
+        return compile_simd_kernel(kernel.function()->function(), width, "full_packet_multidimensional_dispatch", false, false, 1u, true, true);
+    };
+    auto baseline = compile(false);
+    auto candidate = compile(true);
+    CHECK(baseline.succeeded() && candidate.succeeded());
+    CHECK(baseline.full_packet_specialization_count == 0u);
+    CHECK(candidate.full_packet_specialization_count == 1u);
+    CHECK(baseline.block_batch_entry != nullptr && candidate.block_batch_entry != nullptr);
+    CHECK(baseline.linear_1d_block_coalescing_count == 0u && candidate.linear_1d_block_coalescing_count == 0u);
+    using Entry = void(const void *, void *, SIMDPacketLaunchConfig *, uint32_t);
+    // The admission condition requires a one-dimensional block, not a
+    // one-dimensional dispatch. Cross row/plane boundaries with ragged X.
+    for (auto size_z : {1u, max_size_z}) {
+        for (auto first : {0u, 1u}) {
+            for (auto count : {0u, grid_x * size_y * size_z - first}) {
+                auto initial = launch_1d(size_x, block_size);
+                initial.dispatch_size[1u] = size_y;
+                initial.dispatch_size[2u] = size_z;
+                initial.grid_size[0u] = grid_x;
+                initial.grid_size[1u] = size_y;
+                initial.grid_size[2u] = size_z;
+                initial.block_id[0u] = first;
+                initial.thread_index = 13u;
+                SIMDPacketLaunchConfig configs[2] = {initial, initial};
+                std::array<uint32_t, capacity + 2u> outputs[2];
+                SIMDCompiledKernel *compiled[2] = {&baseline, &candidate};
+                for (auto variant = 0u; variant < 2u; variant++) {
+                    outputs[variant].fill(sentinel);
+                    alignas(16) SIMDHostBufferView argument{outputs[variant].data() + 1u, capacity * sizeof(uint32_t)};
+                    reinterpret_cast<Entry *>(compiled[variant]->block_batch_entry)(&argument, nullptr, &configs[variant], count);
+                }
+                CHECK(outputs[0] == outputs[1]);
+                CHECK(std::memcmp(&configs[0], &configs[1], sizeof(initial)) == 0);
+                CHECK(outputs[1].front() == sentinel && outputs[1].back() == sentinel);
+                if (count == 0u) {
+                    CHECK(std::memcmp(&configs[1], &initial, sizeof(initial)) == 0);
+                } else {
+                    auto last = first + count - 1u;
+                    CHECK(configs[1].block_id[0u] == last % grid_x);
+                    CHECK(configs[1].block_id[1u] == (last / grid_x) % size_y);
+                    CHECK(configs[1].block_id[2u] == last / (grid_x * size_y));
+                    CHECK(configs[1].thread_index == block_size - width);
+                }
+                for (auto i = 0u; i < capacity; i++) {
+                    auto x = i % size_x, y = (i / size_x) % size_y, z = i / (size_x * size_y);
+                    auto linear_block = (z * size_y + y) * grid_x + x / block_size;
+                    auto visited = z < size_z && linear_block >= first && linear_block < first + count;
+                    auto value = i + x / block_size * 11u + y * 19u + z * 23u + x % block_size * 7u;
+                    CHECK(outputs[1][i + 1u] == (visited ? value : sentinel));
+                }
+            }
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_full_packet_specialization_block_coalescing() {
+    ScopedEnvironmentVariable enable{"LUISA_SIMD_ENABLE_FULL_PACKET_SPECIALIZATION", "1"};
+    static constexpr auto width = 8u;
+    static constexpr auto block_size = 32u;
+    static constexpr auto dispatch = 2u * block_size + 1u;
+    static constexpr auto sentinel = uint32_t{0xdeadbeefu};
+    Kernel1D kernel = [](BufferUInt output) noexcept {
+        set_block_size(block_size, 1u, 1u);
+        auto index = dispatch_id().x;
+        auto value = index * 11u + 5u;
+        value = value ^ (index * 3u + 7u);
+        output.write(index, value + index * index);
+    };
+    LLVMJIT target_capabilities;
+    CHECK(target_capabilities.succeeded());
+    using Entry = void(const void *, void *, SIMDPacketLaunchConfig *, uint32_t);
+    for (auto coalesce : {false, true}) {
+        ScopedEnvironmentVariable disable_coalescing{"LUISA_SIMD_DISABLE_LINEAR_1D_BLOCK_COALESCING", coalesce ? nullptr : "1"};
+        auto compile = [&](bool specialize) {
+            ScopedEnvironmentVariable disable{"LUISA_SIMD_DISABLE_FULL_PACKET_SPECIALIZATION", specialize ? nullptr : "1"};
+            return compile_simd_kernel(kernel.function()->function(), width, "full_packet_block_coalescing", false, false, 1u, true, true);
+        };
+        auto baseline = compile(false);
+        auto candidate = compile(true);
+        CHECK(baseline.succeeded() && candidate.succeeded());
+        CHECK(baseline.full_packet_specialization_count == 0u);
+        CHECK(candidate.full_packet_specialization_count == 1u);
+        CHECK(baseline.block_batch_entry != nullptr && candidate.block_batch_entry != nullptr);
+        auto expected_coalescing = coalesce && target_capabilities.supports_inlined_packet_batch(width) ? 1u : 0u;
+        CHECK(baseline.linear_1d_block_coalescing_count == expected_coalescing);
+        CHECK(candidate.linear_1d_block_coalescing_count == expected_coalescing);
+        // Two full blocks followed by one live tail lane; also begin in the
+        // middle of the grid to exercise the nonzero block-origin contract.
+        for (auto first : {0u, 1u}) {
+            for (auto count : {0u, 3u - first}) {
+                auto initial = launch_1d(dispatch, block_size);
+                initial.grid_size[0u] = 3u;
+                initial.grid_size[1u] = initial.grid_size[2u] = 1u;
+                initial.block_id[0u] = first;
+                initial.thread_index = 3u;
+                SIMDPacketLaunchConfig configs[2] = {initial, initial};
+                std::array<uint32_t, dispatch + 2u> outputs[2];
+                SIMDCompiledKernel *compiled[2] = {&baseline, &candidate};
+                for (auto variant = 0u; variant < 2u; variant++) {
+                    outputs[variant].fill(sentinel);
+                    alignas(16) SIMDHostBufferView argument{outputs[variant].data() + 1u, dispatch * sizeof(uint32_t)};
+                    reinterpret_cast<Entry *>(compiled[variant]->block_batch_entry)(&argument, nullptr, &configs[variant], count);
+                }
+                CHECK(outputs[0] == outputs[1]);
+                CHECK(std::memcmp(&configs[0], &configs[1], sizeof(initial)) == 0);
+                CHECK(outputs[1].front() == sentinel && outputs[1].back() == sentinel);
+                if (count == 0u) {
+                    CHECK(std::memcmp(&configs[1], &initial, sizeof(initial)) == 0);
+                } else {
+                    CHECK(configs[1].block_id[0u] == first + count - 1u);
+                    CHECK(configs[1].block_id[1u] == 0u && configs[1].block_id[2u] == 0u);
+                    CHECK(configs[1].thread_index == block_size - width);
+                }
+                for (auto i = 0u; i < dispatch; i++) {
+                    auto value = ((i * 11u + 5u) ^ (i * 3u + 7u)) + i * i;
+                    auto visited = i >= first * block_size && i < (first + count) * block_size;
+                    CHECK(outputs[1][i + 1u] == (visited ? value : sentinel));
+                }
+            }
+        }
+    }
+    return true;
+}
+
 [[nodiscard]] bool run_ast_packet_batch_entry() {
     static constexpr auto width = 8u;
     static constexpr auto count = 22u;
@@ -16594,6 +16836,9 @@ int main() {
         {"AST packet-batch runtime entry", &run_ast_packet_batch_entry},
         {"full-packet specialization and tail isolation", &run_full_packet_specialization},
         {"full-packet specialization rejection bounds", &run_full_packet_specialization_rejections},
+        {"full-packet specialization predicated memory", &run_full_packet_specialization_predicated_memory},
+        {"full-packet specialization multidimensional dispatch", &run_full_packet_specialization_multidimensional_dispatch},
+        {"full-packet specialization block coalescing", &run_full_packet_specialization_block_coalescing},
         {"AST cooperative block codegen",
          &run_ast_cooperative_block_codegen},
         {"AST block-batch runtime entry", &run_ast_block_batch_entry},
