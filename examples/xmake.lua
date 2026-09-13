@@ -55,6 +55,12 @@ end
 example_proj("example_swapchain", "gui/swapchain.cpp", true)
 example_proj("example_swapchain_static", "gui/swapchain_static.cpp", true)
 example_proj("example_win_hdr", "gui/win_hdr.cpp", true)
+example_proj("example_image_process", "gui/image_process/main.cpp", true, function()
+    add_files("gui/image_process/image_process.cpp", "gui/image_process/headless_test.cpp")
+    if is_plat("windows") then
+        add_syslinks("comdlg32")
+    end
+end)
 
     -- compute
     example_proj("example_helloworld", "compute/helloworld.cpp", false)
