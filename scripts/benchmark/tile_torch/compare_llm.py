@@ -152,7 +152,7 @@ def validate_output(actual, expected):
     return dict(elements=expected.size, max_abs_error=float(difference.max()), atol=5e-5, rtol=5e-5)
 
 
-def check_metadata(result, backend, op, dims, block, samples, reduction_tree=False, group_threads=0, forward_input_views=False, attention_qk="mma"):
+def check_metadata(result, backend, op, dims, block, samples, reduction_tree=False, group_threads=0, forward_input_views=False, attention_qk="mma", attention_pv="mma"):
     inputs, output = shapes_for(op, dims)
     fields = dict(implementation="tile_tirx_metal" if backend == "metal" else "tile_xir_simd", backend=backend,
                   precision="fp32", fast_math=False, relaxed_precision=False, runtime="luisa",
@@ -164,8 +164,9 @@ def check_metadata(result, backend, op, dims, block, samples, reduction_tree=Fal
     for key, value in (("reduction_tree", reduction_tree), ("requested_group_threads", group_threads), ("requested_input_views", forward_input_views)):
         if value or key in result:
             fields[key] = value
-    if attention_qk != "mma" or "attention_qk" in result:
-        fields["attention_qk"] = attention_qk if op == "attention" else "not_applicable"
+    for key, mode in (("attention_qk", attention_qk), ("attention_pv", attention_pv)):
+        if mode != "mma" or key in result:
+            fields[key] = mode if op == "attention" else "not_applicable"
     if "source_reduction_policy" in result:
         fields["source_reduction_policy"] = "unordered_tree"
     if "reduction_candidate_setting" in result:
@@ -217,7 +218,7 @@ def make_summary(rows, rounds):
     return result
 
 
-def main():
+def parse_arguments(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--native", type=Path, required=True)
     parser.add_argument("--baseline", type=Path, help="frozen old binary and adjacent ABI-coherent libraries; requires all six orders")
@@ -237,8 +238,9 @@ def main():
     parser.add_argument("--subgroup-reductions", action="store_true", help="enable the FP32 subgroup candidate family; source reduce already defaults to unordered tree; requires the TIRx llm entry")
     parser.add_argument("--forward-input-views", action="store_true", help="explicitly request immutable input views; the subgroup family already attempts forwarding, so enable this for both controls when isolating collective emission")
     parser.add_argument("--attention-qk", choices=("mma", "reduce"), default="mma", help="benchmark-only QK decomposition probe using existing DSL; not a production planner optimization; requires the TIRx llm entry")
+    parser.add_argument("--attention-pv", choices=("mma", "reduce"), default="mma", help="benchmark-only PV decomposition probe using existing DSL; not a production planner optimization; requires the TIRx llm entry")
     parser.add_argument("--group-threads", type=int, default=0, help="exact Metal group width; zero uses the planner")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.rounds < 2 or args.rounds % 2 or len(set(args.case)) != len(args.case) or min(args.samples, args.sample_ms, args.warmup_ms, args.threads, args.timeout) <= 0:
         parser.error("unique cases, positive settings and an even number of rounds >= 2 required")
     if not (0 < args.attention_block[0] <= 128 and 0 < args.attention_block[1] <= 256):
@@ -247,18 +249,15 @@ def main():
         parser.error("GPU timing cannot be used for CPU")
     if not 0 <= args.group_threads <= 1024 or args.backend != "metal" and (args.subgroup_reductions or args.group_threads or args.forward_input_views):
         parser.error("subgroup candidates/group constraints/input views require Metal; group width must be 0..1024")
-    if args.attention_qk != "mma" and (args.backend != "metal" or not any(op == "attention" for op, _ in args.case)):
-        parser.error("QK decomposition probe requires Metal and an attention case")
-    args.native = args.native.resolve(strict=True)
-    if args.baseline:
-        args.baseline = args.baseline.resolve(strict=True)
-        if args.baseline == args.native or args.rounds % 6:
-            parser.error("distinct frozen baseline and a multiple of six rounds required")
-    args.output = args.output.resolve()
-    args.output.mkdir(parents=True, exist_ok=False)
-    build = subprocess.run(["cmake", "--build", str(args.build_dir.resolve(strict=True)), "--parallel", "8"], capture_output=True, text=True)
-    (args.output / "build.log").write_text(build.stdout + build.stderr)
-    build.check_returncode()
+    for label, mode in (("QK", args.attention_qk), ("PV", args.attention_pv)):
+        if mode != "mma" and (args.backend != "metal" or not any(op == "attention" for op, _ in args.case)):
+            parser.error(f"{label} decomposition probe requires Metal and an attention case")
+    if args.baseline and (args.baseline.resolve() == args.native.resolve() or args.rounds % 6):
+        parser.error("distinct frozen baseline and a multiple of six rounds required")
+    return args
+
+
+def configure_probe_environment(args):
     for key in ("TVM_NUM_THREADS", "OMP_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "LUISA_SIMD_WORKER_COUNT"):
         os.environ[key] = str(args.threads)
     removed = {}
@@ -272,8 +271,24 @@ def main():
         os.environ["LUISA_TILE_BENCH_INPUT_VIEWS"] = "1"
     if args.attention_qk != "mma":
         os.environ["LUISA_TILE_BENCH_ATTENTION_QK"] = args.attention_qk
+    if args.attention_pv != "mma":
+        os.environ["LUISA_TILE_BENCH_ATTENTION_PV"] = args.attention_pv
     if args.group_threads:
         os.environ["LUISA_TILE_BENCH_GROUP_THREADS"] = str(args.group_threads)
+    return removed
+
+
+def main():
+    args = parse_arguments()
+    args.native = args.native.resolve(strict=True)
+    if args.baseline:
+        args.baseline = args.baseline.resolve(strict=True)
+    args.output = args.output.resolve()
+    args.output.mkdir(parents=True, exist_ok=False)
+    build = subprocess.run(["cmake", "--build", str(args.build_dir.resolve(strict=True)), "--parallel", "8"], capture_output=True, text=True)
+    (args.output / "build.log").write_text(build.stdout + build.stderr)
+    build.check_returncode()
+    removed = configure_probe_environment(args)
     if args.metal_device_timing:
         args.metal_device_timing = args.metal_device_timing.resolve(strict=True)
         os.environ["LUISA_TILE_BENCH_METAL_TIMING"] = str(args.metal_device_timing)
@@ -299,6 +314,7 @@ def main():
                                 reduction_tree=args.subgroup_reductions, requested_group_threads=args.group_threads,
                                 requested_input_views=args.forward_input_views,
                                 attention_qk=args.attention_qk,
+                                attention_pv=args.attention_pv,
                                 selection="fixed capture; source unordered-tree policy; recorded candidate/group/input-view constraints; no timing-based tuning"), results=[])
     failed = False
     for op, dims in args.case:
@@ -333,7 +349,7 @@ def main():
                                 row.update(source=source.name, source_sha256=digest(source))
                             completed.check_returncode()
                             measurement = json.loads(completed.stdout)
-                            check_metadata(measurement, args.backend, op, dims, block, args.samples, args.subgroup_reductions, args.group_threads, args.forward_input_views, args.attention_qk)
+                            check_metadata(measurement, args.backend, op, dims, block, args.samples, args.subgroup_reductions, args.group_threads, args.forward_input_views, args.attention_qk, args.attention_pv)
                             actual = np.fromfile(output, dtype=np.float32).reshape(output_shape)
                         else:
                             if arrays is None:

@@ -14,7 +14,7 @@ migration
 
 ## Current conclusion
 
-As of September 10, 2026, development is on `next`:
+As of September 13, 2026, development is on `next`:
 **the architecture runs, but the general MPS/Torch performance goal is not
 complete.** Several bounded FP32 cohorts on Apple M1 Max beat eager Torch;
 large GEMM and direct XIR/SIMD still have substantial gaps. These results do
@@ -31,6 +31,14 @@ The [legacy migration / low-precision checkpoint](migration.md) adds reusable
 examples and FP16/BF16 coverage. Its diagnostic comparisons retain unstable
 FP16 wins/regressions and large scan regressions; they do not replace the qualified
 Torch/MPS scoreboard below.
+
+The [Top-K/sort extension](results.md#top-k-and-sort-now-have-multi-output-cross-route-coverage)
+adds five-route, two-output correctness and timing coverage through width
+1025. Its first 60 records pass numerical checks but expose large reference-
+algorithm gaps; they do not establish ranking parity. Attention remains a
+priority, especially [phase-specific decode distributions](results.md#composed-reductions-need-phase-specific-contraction-distributions).
+Historical prefill/decode gaps must not be presented as measurements of the
+unfinished matrix-initializer work in the current working tree.
 
 ## How to read the performance evidence
 

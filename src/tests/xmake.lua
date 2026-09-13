@@ -249,6 +249,14 @@ test_proj("benchmark_tile_migrated", "benchmark/benchmark_tile_migrated.cpp", fa
     add_deps("lc-tile")
     add_includedirs("$(projectdir)/examples")
 end)
+-- Backend selection is explicit at runtime. xmake does not build the SIMD or
+-- Metal4 plugins yet; no dependency on their CMake-only target names is added.
+test_proj("test_tile_xir_ranking", "unit/tile/bridge/test_xir_ranking.cpp", false, function()
+    add_deps("lc-tile")
+end)
+test_proj("benchmark_tile_xir", "benchmark/benchmark_tile_xir.cpp", false, function()
+    add_deps("lc-tile")
+end)
 for _, standard in ipairs({20, 23}) do
     test_proj("test_tile_values_cpp" .. standard, "unit/tile/test_tile_values.cpp", false, function()
         add_deps("lc-tile")

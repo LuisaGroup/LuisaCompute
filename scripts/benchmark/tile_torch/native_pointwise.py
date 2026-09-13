@@ -6,7 +6,8 @@ provide its log. That log is an external gate receipt, not a proof inferred from
 its contents. Source, binary closure, baseline inputs, ABI/helper and actual
 Inductor source/library identities are checked and frozen separately.
 
-Only pointwise fusion changes between off/on. Static snapshot totals include
+The comparison changes either pointwise fusion, or cold-tail outlining with
+pointwise fusion and full-packet specialization held on. Static snapshot totals include
 the retained alias fallback; inspect the disjoint hot path, not alloca counts
 alone. Replay compares fixed candidates, not automatic planner performance;
 background load is recorded, never assumed absent.
@@ -35,6 +36,7 @@ import native_rows as nr
 HERE = Path(__file__).resolve().parent
 ABI_HEADER = Path('src/backends/simd/llvm/llvm_schedule_codegen.h')
 VARIANTS = ('off', 'on', 'inductor')
+COMPARISONS = ('pointwise', 'outlined-tail')
 ORDERS = tuple(itertools.permutations(VARIANTS))
 ALLOWED_IMPORTS = {'_memcpy', '_memset', '_bzero', '___chkstk_darwin'}
 SOURCE_SUFFIXES = {'.c', '.cc', '.cpp', '.cxx', '.h', '.hh', '.hpp', '.hxx', '.m', '.mm',
@@ -57,6 +59,74 @@ FIXED_ENV = dict(
 def require(condition, message):
     if not condition:
         raise ValueError(message)
+
+
+def comparison_contract(comparison='pointwise'):
+    require(comparison in COMPARISONS, 'unknown comparison: ' + str(comparison))
+    if comparison == 'outlined-tail':
+        require(FIXED_ENV.get('LUISA_SIMD_ENABLE_FULL_PACKET_SPECIALIZATION') == '1' and
+                FIXED_ENV.get('LUISA_SIMD_DISABLE_FULL_PACKET_SPECIALIZATION') != '1',
+                'outlined-tail requires full-packet specialization on both sides')
+    return dict(comparison=comparison, variant_semantics={
+        'off': dict(pointwise_fusion=comparison == 'outlined-tail', outlined_packet_tail=False),
+        'on': dict(pointwise_fusion=True, outlined_packet_tail=comparison == 'outlined-tail')})
+
+
+def variant_environment(variant, comparison='pointwise', inherited=None):
+    require(variant in ('off', 'on'), 'unknown Tile variant: ' + str(variant))
+    contract = comparison_contract(comparison)
+    env = {k: v for k, v in (os.environ if inherited is None else inherited).items()
+           if not k.startswith(('LUISA_', 'DYLD_'))}
+    env.update(FIXED_ENV)
+    fusion = contract['variant_semantics'][variant]['pointwise_fusion']
+    env['LUISA_SIMD_' + ('ENABLE' if fusion else 'DISABLE') + '_POINTWISE_FUSION'] = '1'
+    if comparison == 'outlined-tail':
+        # The off control deliberately exercises DISABLE precedence over ENABLE.
+        env['LUISA_SIMD_ENABLE_OUTLINED_PACKET_TAIL'] = '1'
+    if not contract['variant_semantics'][variant]['outlined_packet_tail']:
+        env['LUISA_SIMD_DISABLE_OUTLINED_PACKET_TAIL'] = '1'
+    return env
+
+
+def check_outlined_tail_ir(code, enabled):
+    """Check this runner's bounded pre-optimization LLVM contract, not machine code."""
+    code = re.sub(r';[^\n]*', '', code)
+    groups = {}
+    for match in re.finditer(r'^attributes\s+#(\d+)\s*=\s*\{([^{}]*)\}\s*$', code, re.MULTILINE):
+        require(match[1] not in groups, 'duplicate LLVM attribute group')
+        groups[match[1]] = match[2]
+
+    def attributes(suffix):
+        refs = re.findall(r'#(\d+)', suffix)
+        require(all(ref in groups for ref in refs), 'undefined LLVM attribute group')
+        text = suffix + ' ' + ' '.join(groups[ref] for ref in refs)
+        text = re.sub(r'"(?:\\.|[^"\\])*"', '', text)
+        return set(re.findall(r'\b(?:noinline|alwaysinline)\b', text))
+
+    def calls(name):
+        return list(re.finditer(r'\bcall\s+void\s+@' + re.escape(name) +
+                                r'\(([^()\n]*)\)([^\n]*)', code))
+
+    tail = calls('llm_rows')
+    require(len(tail) == 1, 'expected exactly one ordinary-body tail call')
+    require(re.search(r'(?:^|,)\s*i32\s+%packet\.tail\.lane\.count\s*$', tail[0][1]),
+            'ordinary-body call is not the narrow packet tail')
+    tail_attrs = attributes(tail[0][2])
+    require(('noinline' in tail_attrs) == enabled and 'alwaysinline' not in tail_attrs,
+            'tail callsite NoInline differs from outlined-tail variant')
+    full = calls('llm_rows.full_packet')
+    require(full, 'outlined-tail comparison has no full-packet calls')
+    require(all('noinline' not in attributes(call[2]) for call in full),
+            'NoInline leaked onto a full-packet call')
+    for name in ('llm_rows', 'llm_rows.full_packet'):
+        definitions = list(re.finditer(r'^define\s+[^\n]*@' + re.escape(name) +
+                                      r'\([^\n]*\)([^\n{]*)\{', code, re.MULTILINE))
+        require(len(definitions) == 1, 'missing or duplicate LLVM body definition: ' + name)
+        require('noinline' not in attributes(definitions[0][1]),
+                'NoInline must be callsite-only, not a body attribute: ' + name)
+    return dict(stage='pre_optimization_llvm', tail_call_count=1, tail_call_noinline=enabled,
+                full_packet_call_count=len(full), full_packet_noinline_calls=0,
+                body_function_noinline=False, full_packet_function_noinline=False)
 
 
 def save(path, value):
@@ -186,6 +256,8 @@ def check_realization(measurement, enabled):
 
 
 def capture(args):
+    contract = comparison_contract(getattr(args, 'comparison', 'pointwise'))
+    comparison = contract['comparison']
     require(platform.system() == 'Darwin' and platform.machine() == 'arm64', 'inspected native object path requires Darwin arm64')
     binary, source_root = args.binary.resolve(), args.source_root.resolve()
     require(binary.is_file() and source_root.is_dir(), 'missing binary/source root')
@@ -196,7 +268,7 @@ def capture(args):
                   performance_qualified=False, timing_not_comparative=True,
                   qualification='Diagnostic-only: no automatic performance acceptance, policy promotion, or cost calibration.',
                   cpu_threads=1, packet_width=8, block_size=32, local_lanes=8,
-                  host_before=host_observation(), cases=[])
+                  host_before=host_observation(), cases=[], **contract)
     manifest = directory / 'manifest.json'
     save(manifest, report)
     try:
@@ -243,20 +315,19 @@ def capture(args):
             for variant in ('off', 'on'):
                 folder = target / variant
                 folder.mkdir()
-                env = {k: v for k, v in os.environ.items() if not k.startswith(('LUISA_', 'DYLD_'))}
-                env.update(FIXED_ENV)
-                env['LUISA_SIMD_' + ('ENABLE' if variant == 'on' else 'DISABLE') + '_POINTWISE_FUSION'] = '1'
+                env = variant_environment(variant, comparison)
                 env.update(LUISA_TILE_BENCH_DUMP_SOURCE=str(folder / 'kernel.ll'), LUISA_SIMD_DUMP_ASSEMBLY_DIR=str(folder / 'object'))
                 output = folder / 'output.f32'
                 text = nr.command([binary, 'llm', op, ','.join(map(str, dims)), '1', '1', '3', '1', '1', output],
                                   folder, 'capture', env=env, timeout=300)
                 measurement = json.loads(text)
                 nr.check_metadata(measurement, 'cpu', op, dims, (1, 1), 3)
-                fields = check_realization(measurement, variant == 'on')
+                fields = check_realization(measurement, contract['variant_semantics'][variant]['pointwise_fusion'])
                 save(folder / 'measurement.json', measurement)
                 require([nr.array_digest(a) for a in nr.load_inputs(folder, case['input_shapes'])] == case['input_sha256'], 'capture input differs from baseline')
                 validation = nr.validate_output(np.fromfile(output, np.float32).reshape(case['output_shape']), expected)
                 code = (folder / 'kernel.ll').read_text()
+                codegen_checks = check_outlined_tail_ir(code, variant == 'on') if comparison == 'outlined-tail' else {}
                 symbol, abi = 'llm_rows.packet_batch.blocks', 0
                 if f'define dso_local void @{symbol}(' not in code:
                     symbol, abi = 'llm_rows.packet_batch', 2
@@ -276,7 +347,8 @@ def capture(args):
                     environment={k: v for k, v in env.items() if k.startswith('LUISA_') or k in FIXED_ENV},
                     object=str(objects[0]), object_sha256=nr.digest(objects[0]), llvm_sha256=nr.digest(folder / 'kernel.ll'),
                     assembly_sha256=nr.digest(folder / 'assembly.stdout.log'), system_imports=imports,
-                    capture_output_sha256=nr.digest(output), capture_timing_not_comparative=True)
+                    capture_output_sha256=nr.digest(output), capture_timing_not_comparative=True,
+                    codegen_checks=codegen_checks)
                 save(manifest, report)
             entry = dict(case['entries']['inductor'])
             base = Path(entry['library']).parent
@@ -311,6 +383,13 @@ def capture(args):
 def verify_manifest(path):
     manifest = json.loads(path.read_text())
     require(manifest.get('format') == 'native-pointwise-v1' and manifest.get('status') == 'captured', 'incomplete or unknown capture')
+    # Old v1 records predate the comparison field; do not rewrite their identity.
+    contract = comparison_contract(manifest.get('comparison', 'pointwise'))
+    if 'comparison' in manifest or 'variant_semantics' in manifest:
+        semantics = manifest.get('variant_semantics')
+        require(semantics == contract['variant_semantics'] and
+                all(type(value) is bool for policy in semantics.values() for value in policy.values()),
+                'comparison semantics changed')
     require(manifest['source_unchanged'] is True and manifest['closure_unchanged'] is True and manifest['runner_unchanged'] is True, 'capture identities changed')
     for key in ('artifact_sha256', 'runner_sha256', 'inherited_sha256', 'configuration_sha256', 'llvm_tools_sha256'):
         unchanged(manifest[key])
@@ -320,6 +399,20 @@ def verify_manifest(path):
     require([nr.case_name(c['operation'], c['dimensions']) for c in manifest['cases']] == manifest['selected_cases'], 'capture cohort changed')
     for case in manifest['cases']:
         require(set(case['entries']) == set(VARIANTS), 'missing capture variant')
+        if contract['comparison'] == 'outlined-tail':
+            for variant in ('off', 'on'):
+                entry = case['entries'][variant]
+                expected_env = variant_environment(variant, 'outlined-tail', {})
+                actual_env = entry['environment']
+                require(all(actual_env.get(k) == v for k, v in expected_env.items()), 'outlined-tail environment changed')
+                require(not set(actual_env).difference(expected_env).intersection({
+                    'LUISA_SIMD_DISABLE_POINTWISE_FUSION', 'LUISA_SIMD_DISABLE_FULL_PACKET_SPECIALIZATION',
+                    'LUISA_SIMD_DISABLE_OUTLINED_PACKET_TAIL'}), 'outlined-tail environment has a conflicting disable')
+                fields = check_realization(dict(operation=case['operation'], realization=entry['realization']), True)
+                require(fields == entry['realization_fields'], 'outlined-tail realization fields changed')
+                checks = check_outlined_tail_ir((Path(entry['capture']) / 'kernel.ll').read_text(), variant == 'on')
+                require(json.dumps(checks, sort_keys=True) == json.dumps(entry['codegen_checks'], sort_keys=True),
+                        'outlined-tail codegen checks changed')
     return manifest
 
 
@@ -346,6 +439,7 @@ def invoke_variant(helper, data, dims, samples_count, warmup_ms, target_ms, expe
 def replay(args):
     path = args.prepared.resolve() / 'manifest.json'
     manifest = verify_manifest(path)
+    contract = comparison_contract(manifest.get('comparison', 'pointwise'))
     manifest_sha256 = nr.digest(path)
     directory = args.output.resolve()
     directory.mkdir(parents=True, exist_ok=False)
@@ -358,7 +452,7 @@ def replay(args):
                   target_ms=1 if only_verify else args.target_ms, aligned_payload_bytes=64, per_allocation_guard_elements=128,
                   boundary='Common C++ timer: actual native entries, block traversal/reset, compiler-emitted libc/internal allocations included; Runtime/Python/JIT/caller allocations excluded.',
                   qualification='Fixed-candidate native-entry comparison with observed background load, not a quiet-machine claim or default-planner result. Guards are checked during each call; their released storage is not retained.',
-                  host_before=host_observation(), cases=[])
+                  host_before=host_observation(), cases=[], **contract)
     result_path = directory / 'results.json'
     save(result_path, report)
     try:
@@ -457,6 +551,8 @@ def main():
     for name in ('binary', 'source-root', 'baseline-manifest', 'full-build-log', 'output'):
         cap.add_argument('--' + name, type=Path, required=True)
     cap.add_argument('--cases', nargs='+', required=True, help='Canonical names, e.g. rope-17x66 rope-1024x4098; or all frozen baseline cases')
+    cap.add_argument('--comparison', choices=COMPARISONS, default='pointwise',
+                     help='off/on changes this feature; outlined-tail keeps pointwise fusion and full-packet specialization on')
     for name in ('verify', 'replay'):
         run = commands.add_parser(name)
         run.add_argument('--prepared', type=Path, required=True)

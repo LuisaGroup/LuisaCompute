@@ -715,9 +715,15 @@ int main(int argc, char *argv[]) {
             LUISA_ASSERT(text == "mma" || text == "reduce", "LUISA_TILE_BENCH_ATTENTION_QK must be mma or reduce; got '{}'.", text);
             attention_qk_reduction = text == "reduce";
         }
+        auto attention_pv_reduction = false;
+        if (auto value = std::getenv("LUISA_TILE_BENCH_ATTENTION_PV")) {
+            auto text = std::string_view{value};
+            LUISA_ASSERT(text == "mma" || text == "reduce", "LUISA_TILE_BENCH_ATTENTION_PV must be mma or reduce; got '{}'.", text);
+            attention_pv_reduction = text == "reduce";
+        }
         return luisa::test::tile_llm::benchmark(argc, argv, "metal",
                                                 {.threads_per_group = options.planner.threads_per_group, .lowering = Lowering::TIRX, .tirx = &options},
-                                                options.planner.metal_subgroup_reductions, options.forward_readonly_tile_loads, attention_qk_reduction);
+                                                options.planner.metal_subgroup_reductions, options.forward_readonly_tile_loads, attention_qk_reduction, attention_pv_reduction);
     }
     if (argc < 13 || argc > 37) {
         std::cerr << "Usage: benchmark_tile_tirx <cpu|metal> <gemm|gemm_relu|gemm_gelu|add|gelu_add|sigmoid_pair|gelu_pair|sum|softmax|rmsnorm|layernorm|residual_layernorm|cross_entropy> M N K BM BN BK samples sample-ms warmup-ms output.f32 [auto|worker|group] [pipeline-window:1|2] [scalar|subgroup-reduce|matrix|mpp|mpp-views] [vectorize|no-vectorize|auto-vectorize] [group-threads:auto|N] [copy-batch:1..16] [tvm|luisa|luisa-fast] [retain-subgroup-fences|elide-subgroup-fences] [cpu-stack-bytes:0..65536] [cpu-vector-lanes:16|32|64|128] [retain-input-snapshots|forward-input-views] [cpu-model:generic|native] [cpu-matrix:reference|cblas] [cpu-math:reference|accelerate] [shared-tiles:preserve|expensive-only]\n";

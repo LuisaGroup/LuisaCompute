@@ -1,6 +1,6 @@
 # Tile performance by compiler route
 
-Saved comparisons and validation checkpoints through September 10, 2026. These are separate experiments,
+Saved comparisons and validation checkpoints through September 13, 2026. These are separate experiments,
 not a cross-route leaderboard with one matched timing and math policy.
 See [current status](index.md) for the conclusion and remaining goal.
 
@@ -17,6 +17,56 @@ Report tables use medians of within-round p50s. A paired ratio is the median
 of same-round numerator/denominator ratios, **not** a ratio of the displayed
 medians. Ranges and counts of slower rounds are descriptive, not confidence
 intervals. No slow or failed row is discarded to improve the headline.
+
+### Top-K and sort now have multi-output cross-route coverage
+
+The September 13 {download}`ranking checkpoint
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260913-ranking/notes.md>`
+adds shared finite-FP32 values/int64 indices tests and a five-route benchmark:
+XIR/SIMD, XIR/Metal4, TIRx/Metal, eager Torch CPU and Torch MPS. The first
+screen completes **60/60 OK** across six R/N/K combinations, both directions,
+through width 1025. Full values, tie/index rules, input immutability and
+allocation guards are checked; a separate read-only NumPy oracle rechecks
+all 65 retained output pairs including the smoke run.
+
+These are still quadratic reference algorithms, not optimized selection or
+sorting. For descending Top-K at 128×257/K16, SIMD E2E is 6341.646 µs versus
+111.688 µs for Torch CPU. The large gap motivates better library algorithms
+in addition to mapping. Each route has only one visit/order, three samples
+and substantial desktop coactivity: the screen is not a balanced performance
+ranking or cost calibration. E2E, instrumented GPU intervals and no-counter
+command-buffer controls are retained separately; no pure CPU kernel time is
+claimed. The initial SIMD unit suite also retains a 300-second LLVM compile
+timeout; it is not converted into a numerical pass by the successful screen.
+
+The follow-up {download}`structured-map budget checkpoint
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260913-map-budget/notes.md>`
+records a shared representation repair: SIMD ranking now passes in
+22.69/25.87 seconds including JIT. This is not a kernel speedup. Metal4
+retains a 300-second timeout followed by a complete 473-assertion rerun;
+even tiny cases show seconds-scale completion jitter. Eighteen of twenty
+host test cases pass independently; two existing SSA-budget rejection tests
+still abort rather than returning an error. The complete host suite is not
+green, and no repaired ranking performance table is claimed.
+
+### Attention priority: contribution mapping, with device failures retained
+
+The {download}`Chinese attention mapping review
+<../../../../src/tile/ATTENTION_MAPPING_REVIEW.md>`
+separates existing cooperative/collective lowering, unmeasured matrix-initializer
+work, and the remaining phase-specific output/contribution distribution search.
+The new benchmark-only PV reduction switch is independent of QK and keeps
+MMA as the default. Four additional prefill/ragged-decode FP64 checks pass
+through SIMD; this does not promote the decomposition to a production policy.
+
+The September 13 {download}`attention execution checkpoint
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260913-attention-pv/notes.md>`
+attempted the existing QK-reduce/PV-MMA control at two long-KV shapes. It
+retains two native timeouts and a driver-reported MPS command-buffer GPU hang.
+Although the runner marked six records numerically valid, **the whole timing
+cohort is disqualified**. GPU experiments stopped before the PV-reduce timing
+arm; it is NotRun, not an inferred win or failure. Re-establish queue and
+completion stability before a balanced performance comparison or cost fit.
 
 ### Metal4 XIR route: correctness established, timing not yet stable
 
@@ -120,6 +170,33 @@ variants use LLVM22; their off objects differ from the September 9 LLVM21
 archive. Do not splice absolute timings across those compiler identities.
 This fixed-candidate evidence neither changes defaults nor calibrates costs,
 and makes no new Runtime, Metal, MPS or cross-route performance claim.
+
+### Tail-code and specialization experiments remain negative
+
+The September 10 {download}`outlined-tail experiment
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260910-outlined-tail/notes.md>`
+retains 24 cases / 432 visits with both pointwise fusion and full-packet
+specialization enabled. Only the real narrow-tail call-site `NoInline`
+policy differs. It does not establish a broad improvement; small RoPE
+regresses 4.62% in paired median time, losing all six rounds even though its
+wrapper frame shrinks from 2368 to 112 bytes. The candidate was withdrawn;
+its exact patch, tested source and actual native objects remain archived.
+This is not a deployed planner or compiler optimization.
+
+The separate {download}`six-case specialization-disabled experiment
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260910-no-specialization/notes.md>`
+also retains its negative results. All six fusion-on cases lose all six
+paired rounds against Inductor. Its A/B variable is still pointwise fusion,
+not specialization: do not divide times across these separate cohorts to
+claim a causal specialization effect. Together, the code evidence motivates
+distinguishing dynamic tail frequency, full-packet constant propagation and
+cold-code/frame impact in backend realization policy. Code size or stack
+size alone is not an adequate profitability model.
+
+Both experiments use fixed-candidate single-thread native-entry host-wall
+timing under recorded desktop background load, not default-planner E2E or
+quiet-machine measurements. The archives omit tensor payloads and are not
+self-contained numerical replay packages.
 
 ### Native row entries expose both broader wins and remaining gaps
 

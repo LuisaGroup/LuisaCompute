@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""Re-read native pointwise outputs and independently recompute paired ratios."""
+"""Audit native outputs, paired statistics and the preopt comparison contract."""
 from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import itertools
 import json
 import math
 from pathlib import Path
+import re
 import statistics
 
 import numpy as np
@@ -21,6 +23,155 @@ ORDERS = list(itertools.permutations(VARIANTS))
 def require(condition, message):
     if not condition:
         raise ValueError(message)
+
+
+def _semantics(comparison):
+    require(type(comparison) is str and comparison in ('pointwise', 'outlined-tail'), 'unknown comparison')
+    return {'off': {'pointwise_fusion': comparison == 'outlined-tail', 'outlined_packet_tail': False},
+            'on': {'pointwise_fusion': True, 'outlined_packet_tail': comparison == 'outlined-tail'}}
+
+
+def _flag(env, feature):
+    enable, disable = (env.get('LUISA_SIMD_' + prefix + '_' + feature) for prefix in ('ENABLE', 'DISABLE'))
+    require(all(value is None or (type(value) is str and value in ('0', '1')) for value in (enable, disable)),
+            'noncanonical feature flag: ' + feature)
+    return enable == '1' and disable != '1'
+
+
+def _read_llvm(entry, manifest):
+    path = Path(entry['capture']) / 'kernel.ll'
+    payload = path.read_bytes()
+    digest = hashlib.sha256(payload).hexdigest()
+    require(digest == entry['llvm_sha256'] == manifest['artifact_sha256'].get(str(path)),
+            'LLVM payload/entry/inventory hash mismatch')
+    return payload.decode('utf-8')
+
+
+def _tail_attributes(source, enabled):
+    # Independent bounded reader for the emitted preopt form. Quoted attribute
+    # strings and comments are not LLVM attribute keywords. Unsupported forms
+    # fail closed; this is not a general-purpose LLVM parser or machine-code audit.
+    source = re.sub(r'"(?:\\.|[^"\\])*"|;[^\n]*', '', source)
+    groups = {}
+    for line in re.finditer(r'^attributes\s+#(\d+)\s*=\s*\{([^{}]*)\}\s*$', source, re.M):
+        require(line[1] not in groups, 'duplicate attribute group')
+        groups[line[1]] = line[2]
+
+    def attrs(suffix):
+        words = suffix
+        for group in re.findall(r'#(\d+)', suffix):
+            require(group in groups, 'missing attribute group')
+            words += ' ' + groups[group]
+        return set(re.findall(r'\b(?:noinline|alwaysinline)\b', words))
+
+    calls = {'llm_rows': [], 'llm_rows.full_packet': []}
+    definitions = {}
+    for line in source.splitlines():
+        call = re.fullmatch(r'\s*(?:(?:tail|musttail|notail)\s+)?call\s+void\s+'
+                            r'@(llm_rows(?:\.full_packet)?)\(([^()]*)\)(.*)', line)
+        if call:
+            calls[call[1]].append((call[2], attrs(call[3])))
+        definition = re.fullmatch(r'define\s+[^@]*@(llm_rows(?:\.full_packet)?)\(([^()]*)\)([^{}]*)\{\s*', line)
+        if definition:
+            require(definition[1] not in definitions, 'duplicate body definition')
+            definitions[definition[1]] = attrs(definition[3])
+    require(set(definitions) == set(calls), 'missing body definition')
+    require(all('noinline' not in flags for flags in definitions.values()), 'function-level NoInline is forbidden')
+    require(len(calls['llm_rows']) == 1, 'expected one ordinary-body tail call')
+    operands, flags = calls['llm_rows'][0]
+    require(operands.split(',')[-1].strip() == 'i32 %packet.tail.lane.count', 'ordinary call is not the narrow tail')
+    require(('noinline' in flags) is enabled and 'alwaysinline' not in flags, 'incorrect tail callsite NoInline')
+    full = calls['llm_rows.full_packet']
+    require(full and all('noinline' not in flags for _, flags in full), 'missing full calls or full-call NoInline')
+    return dict(stage='pre_optimization_llvm', tail_call_count=1, tail_call_noinline=enabled,
+                full_packet_call_count=len(full), full_packet_noinline_calls=0,
+                body_function_noinline=False, full_packet_function_noinline=False)
+
+
+def comparison_checks(manifest, report, read_llvm=_read_llvm):
+    explicit = 'comparison' in manifest or 'comparison' in report
+    if explicit:
+        require('comparison' in manifest and 'comparison' in report, 'comparison label missing on one side')
+    comparison = manifest.get('comparison', 'pointwise')
+    expected = _semantics(comparison)
+    require(report.get('comparison', 'pointwise') == comparison, 'capture/replay comparison mismatch')
+    for document in (manifest, report):
+        if explicit:
+            # JSON comparison also distinguishes true/false from integer 1/0.
+            require(json.dumps(document.get('variant_semantics'), sort_keys=True) == json.dumps(expected, sort_keys=True),
+                    'wrong or nonboolean comparison semantics')
+        else:
+            require('variant_semantics' not in document, 'legacy comparison has undeclared semantics')
+    verified = []
+    for case in manifest['cases']:
+        require(set(case['entries']) == set(VARIANTS), 'missing comparison variant')
+        environments, checks = {}, {}
+        for variant in ('off', 'on'):
+            entry = case['entries'][variant]
+            env = entry['environment']
+            require(all(env.get(k) == value for k, value in manifest['fixed_environment'].items()), 'fixed environment changed')
+            for feature, key in (('POINTWISE_FUSION', 'pointwise_fusion'), ('OUTLINED_PACKET_TAIL', 'outlined_packet_tail')):
+                require(_flag(env, feature) is expected[variant][key], 'variant feature mismatch: ' + feature)
+            full = _flag(env, 'FULL_PACKET_SPECIALIZATION')
+            require(comparison != 'outlined-tail' or full, 'outlined-tail requires full specialization')
+            realization = entry['realization']
+            require('W8, 32 workers/block, 1 CPU workers;' in realization, 'execution mapping changed')
+            pairs = re.findall(r'\b([a-z_]+)=([^;]+)', realization)
+            fields = dict(pairs)
+            require(len(pairs) == len(fields), 'duplicate realization field')
+            required = dict(local_lanes='8', blocks_per_task='0', max_unrolled_tile_elements='64',
+                            unordered_reduction_partitions='4', load_reduction_fusion='false',
+                            expression_reduction_fusion='false', map_fusion='false', fast_math='false',
+                            custom_cost_policy='false', pointwise_fusion=str(expected[variant]['pointwise_fusion']).lower())
+            require(all(fields.get(k) == value for k, value in required.items()), 'fixed realization changed')
+            count = fields.get('full_packet_specializations', '')
+            require(count.isdigit() and ((int(count) > 0) is full), 'full specialization metadata disagrees with environment')
+            require(fields == entry['realization_fields'], 'realization fields disagree with text')
+            ignored = {'LUISA_TILE_BENCH_DUMP_SOURCE', 'LUISA_SIMD_DUMP_ASSEMBLY_DIR'}
+            if comparison == 'outlined-tail':
+                require(env.get('LUISA_SIMD_ENABLE_OUTLINED_PACKET_TAIL') == '1' and
+                        env.get('LUISA_SIMD_DISABLE_OUTLINED_PACKET_TAIL') == ('1' if variant == 'off' else None),
+                        'outlined-tail must change only the disable-precedence control')
+                ignored.add('LUISA_SIMD_DISABLE_OUTLINED_PACKET_TAIL')
+                checks[variant] = _tail_attributes(read_llvm(entry, manifest), variant == 'on')
+                require(json.dumps(checks[variant], sort_keys=True) == json.dumps(entry['codegen_checks'], sort_keys=True),
+                        'recorded codegen checks disagree with actual LLVM')
+            else:
+                ignored.update(('LUISA_SIMD_ENABLE_POINTWISE_FUSION', 'LUISA_SIMD_DISABLE_POINTWISE_FUSION'))
+            environments[variant] = {k: v for k, v in env.items() if k not in ignored}
+        require(environments['off'] == environments['on'], 'uncontrolled off/on environment difference')
+        verified.append(dict(operation=case['operation'], dimensions=case['dimensions'], codegen_checks=checks))
+    return dict(comparison=comparison, variant_semantics=expected, comparison_checks=verified)
+
+
+def comparison_mutation_checks(manifest, report, read_llvm=_read_llvm):
+    comparison = manifest.get('comparison', 'pointwise')
+    m, r = copy.deepcopy(manifest), copy.deepcopy(report)
+    # Upgrade only in-memory fixtures; never rewrite a legacy evidence record.
+    for document in (m, r):
+        document.update(comparison=comparison, variant_semantics=_semantics(comparison))
+    mutations = {
+        'unknown_comparison': lambda a, b: b.__setitem__('comparison', 'unknown'),
+        'mismatched_comparison': lambda a, b: b.__setitem__('comparison', 'outlined-tail' if comparison == 'pointwise' else 'pointwise'),
+        'missing_comparison': lambda a, b: b.pop('comparison'),
+        'nonboolean_semantics': lambda a, b: b['variant_semantics']['on'].__setitem__('pointwise_fusion', 1),
+        'wrong_variant_feature': lambda a, b: a['cases'][0]['entries']['on']['environment'].__setitem__('LUISA_SIMD_DISABLE_POINTWISE_FUSION', '1'),
+    }
+    if comparison == 'outlined-tail':
+        mutations.update({
+            'disabled_full_specialization': lambda a, b: a['cases'][0]['entries']['on']['environment'].__setitem__('LUISA_SIMD_DISABLE_FULL_PACKET_SPECIALIZATION', '1'),
+            'wrong_llvm_hash': lambda a, b: a['cases'][0]['entries']['off'].__setitem__('llvm_sha256', '0' * 64),
+            'wrong_tail_noinline_claim': lambda a, b: a['cases'][0]['entries']['off']['codegen_checks'].__setitem__('tail_call_noinline', True),
+        })
+    for name, change in mutations.items():
+        a, b = copy.deepcopy(m), copy.deepcopy(r)
+        change(a, b)
+        try:
+            comparison_checks(a, b, read_llvm)
+        except ValueError:
+            continue
+        raise ValueError('accepted comparison mutation: ' + name)
+    return list(mutations)
 
 
 def statistics_only(report, expected_cases):
@@ -116,6 +267,7 @@ def main():
                 require(nr.digest(path) == expected_sha, 'changed artifact: ' + path)
                 identity_checks += 1
     expected = [(c['operation'], tuple(c['dimensions'])) for c in manifest['cases']]
+    comparison = comparison_checks(manifest, report)
     summaries = statistics_only(report, expected)
     checks = []
     for case, result in zip(manifest['cases'], report['cases']):
@@ -137,8 +289,9 @@ def main():
                  replay_sha256=nr.digest(args.replay / 'results.json'), auditor_sha256=nr.digest(__file__),
                  native_output_checks=checks, summaries=summaries, identity_checks=identity_checks,
                  rejected_mutations=mutation_checks(report, expected),
+                 rejected_comparison_mutations=comparison_mutation_checks(manifest, report),
                  guard_caveat='Guards were checked during replay; not retained for post-hoc reinspection.',
-                 status='passed')
+                 status='passed', **comparison)
     nr.save(args.output, audit)
     for item in summaries:
         print(nr.case_name(item['operation'], item['dimensions']), item['summary_us'],

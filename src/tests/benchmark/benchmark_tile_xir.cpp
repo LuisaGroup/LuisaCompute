@@ -2,6 +2,7 @@
 // Host wall time, with compilation/allocation/upload excluded. No TVM dependency.
 #include "tile_xir_test_utils.h"
 #include "tile_llm_benchmark.h"
+#include "tile_rank_benchmark.h"
 #include <luisa/core/logging.h>
 #include <luisa/tile/runtime.h>
 #include <luisa/tile/bridge/xir/planner.h>
@@ -55,7 +56,7 @@ void samples(const char *name, span<const double> values) {
 }// namespace
 
 int main(int argc, char *argv[]) {
-    if (argc > 1 && std::string_view{argv[1]} == "llm") {
+    if (argc > 1 && (std::string_view{argv[1]} == "llm" || std::string_view{argv[1]} == "rank")) {
         auto planner = tile::bridge::xir::PlannerOptions{};
         // Diagnostic candidate control belongs to the benchmark, not a
         // kernel-name or environment special case in production planning.
@@ -63,6 +64,7 @@ int main(int argc, char *argv[]) {
         for (auto [name, value] : {std::pair{"LUISA_TILE_BENCH_XIR_LOCAL_LANES", &planner.local_lanes},
                                    std::pair{"LUISA_TILE_BENCH_XIR_BLOCK_SIZE", &planner.block_size},
                                    std::pair{"LUISA_TILE_BENCH_XIR_BLOCKS_PER_TASK", &planner.blocks_per_task},
+                                   std::pair{"LUISA_TILE_BENCH_XIR_REGION_WORK", &planner.max_unrolled_region_work},
                                    std::pair{"LUISA_TILE_BENCH_XIR_SEARCH_TASK_GRAIN", &search_grain}}) {
             if (auto setting = std::getenv(name)) {
                 auto text = std::string_view{setting};
@@ -95,6 +97,7 @@ int main(int argc, char *argv[]) {
             std::cerr << "LUISA_TILE_BENCH_XIR_BACKEND must be simd or metal4\n";
             return 1;
         }
+        if (std::string_view{argv[1]} == "rank") { return test::tile_rank::benchmark(argc, argv, backend, {.xir = &planner}); }
         return test::tile_llm::benchmark(argc, argv, backend, {.xir = &planner});
     }
     if (argc < 12 || argc > 14) {

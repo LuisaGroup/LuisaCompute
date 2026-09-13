@@ -112,4 +112,13 @@ int main(int argc, char *argv[]) {
         run(device, test::tile_llm::attention(1, 2, 1, 4, 5, 7, 3, 2, 3, true));
         run(device, test::tile_llm::attention(1, 2, 1, 1, 17, 33, 7, 1, 4, true));
     };
+    "tile_xir_llm_attention_pv_reduction_probe"_test = [&] {
+        // Prefill and ragged decode use the independent FP64 oracle and output
+        // guards, not bitwise comparison with a differently ordered MMA path.
+        for (auto qk_reduction : {false, true}) {
+            LUISA_INFO("Checking attention PV reduction probe with QK={}", qk_reduction ? "reduce" : "mma");
+            run(device, test::tile_llm::attention(1, 2, 1, 4, 5, 7, 3, 2, 3, qk_reduction, true));
+            run(device, test::tile_llm::attention(1, 2, 1, 1, 17, 33, 7, 1, 4, qk_reduction, true));
+        }
+    };
 }

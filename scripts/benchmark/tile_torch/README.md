@@ -81,6 +81,61 @@ Latest M1 Max evidence: [shape-held-out service policy, including small-case reg
 and [actual PyTorch dispatch / Xcode profiling](results/m1-max-20260903-profile.md).
 The reports include unsuccessful tuning choices and remaining library gaps.
 
+## Top-K and sort across SIMD and Metal
+
+`ranking.py` adds a separate multi-output ranking matrix. It exercises the
+existing finite-FP32, stable-index `topk`/`sort` library composition, currently
+quadratic reference code rather than tuned selection/sorting. The shared
+`tile_rank_test_utils.h` fixture also drives Runtime regression tests.
+Values are FP32 and indices are int64; both outputs, input immutability and
+all three allocations' guards are checked. Correctness tests additionally
+cover unique values, all-equal values and signed zero.
+
+Complete the configured **full build first**; this driver never builds:
+
+```bash
+cmake --build BUILD --parallel 6
+uv run --no-project --python 3.13 --with numpy --with torch==2.14.0 \
+  python scripts/benchmark/tile_torch/ranking.py \
+  --native xir-simd=BUILD/bin/benchmark_tile_xir \
+  --native xir-metal4=BUILD/bin/benchmark_tile_xir \
+  --native tirx-metal=BUILD/bin/benchmark_tile_native \
+  --torch cpu --torch mps \
+  --case topk:17,65,8 --case sort:17,65,65 --direction both \
+  --samples 5 --sample-ms 20 --warmup-ms 100 \
+  --metal4-device-timing \
+  --metal-device-timing BUILD/bin/libluisa-benchmark-metal-timing.dylib \
+  --output NEW_DIRECTORY
+```
+
+Without `--case`, ten R/N/K combinations cover K=1, small K, K near N,
+power-of-two boundaries and widths through 1025, in both directions. Add
+explicit larger widths with `--case topk:1,4097,32`; budget for the quadratic
+reference implementation. Native timeouts and errors remain in the
+predeclared matrix and do not suppress independent Torch baselines.
+Default rounds are twice the route count, balancing route position and pair
+precedence; a manually shortened run is a **screen**, not a balanced ranking.
+
+The timed input has 31 distinct dyadic values, including negatives and ties.
+This is not representative of every logits distribution. Tile and stable
+Torch sort require original-index tie order. Torch top-k may select different
+tied indices, but must return the exact sorted top-K value multiset, unique
+in-range indices and correct value/index correspondence. NaNs are outside
+this fixture's finite-value contract.
+
+Native and Torch results are warm synchronized **E2E** timings with
+preallocated outputs, not pure CPU kernel times. Optional Metal4 dispatch,
+legacy Metal compute-pass and no-counter command-buffer intervals are
+reported separately. Torch MPS CPU fallback is disabled. The `rank` mode of
+`benchmark_tile_native` means **TIRx/Metal**, not native MPP. Each native route
+runs in its own process, avoiding TVM/native LLVM coexistence.
+
+For a direct XIR diagnostic invocation, `LUISA_TILE_BENCH_XIR_REGION_WORK`
+overrides the shared planner's structured-map expansion budget (4096 by
+default; zero preserves the old element-only decision). Record this separately
+from algorithmic complexity or performance: it bounds duplicated map-body work,
+not native instructions, kernel cycles or the quadratic reference algorithm.
+
 ## Common LLM captures across SIMD and Metal
 
 `compare_llm.py` reuses the unit tests' Tile kernels, exports the exact native
@@ -116,11 +171,17 @@ choice, request input views and the same exact group width on both controls;
 also inspect the emitted source. An explicit view request enables only proved
 forwarding, not arbitrary removal of snapshots or an altered numerical policy.
 
-`--attention-qk reduce` is an explicit **benchmark-only** decomposition probe:
-it expresses QK as `reduce(query * key, d, add)` while retaining PV as `mma`.
-This tests whether different contraction access directions need different lane
-distributions. It is not a planner improvement or a new DSL primitive. The
-default remains `mma`; the native metadata must acknowledge an explicit probe.
+`--attention-qk reduce` and `--attention-pv reduce` are independent,
+explicit **benchmark-only** decomposition probes. QK becomes
+`reduce(query * key, d, add)`; PV becomes
+`acc * alpha + reduce(probability * value, n, add)`. Both default to `mma`.
+These test whether different contraction access directions need different lane
+distributions. They are not planner improvements or new DSL primitives.
+The native metadata must acknowledge each explicit probe; inherited probe
+environment settings are cleared. The probes may change floating-point
+evaluation order and must pass the same complete FP64 oracle, not a relaxed
+tolerance or a claim of bitwise identity. Inspect actual phase mappings and
+intermediate storage before attributing any timing difference to collectives.
 
 `--baseline FROZEN/bin/benchmark_tile_native --rounds 6` balances all six
 orders of old/new/Torch. Freeze all adjacent Luisa libraries together; the

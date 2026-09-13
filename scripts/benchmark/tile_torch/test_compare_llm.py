@@ -1,8 +1,12 @@
 import argparse
 import copy
+from contextlib import redirect_stderr
+import io
+import os
 import unittest
+from unittest.mock import patch
 
-from compare_llm import check_metadata, make_summary, parse_case, reference, shapes_for, validate_output
+from compare_llm import check_metadata, configure_probe_environment, make_summary, parse_arguments, parse_case, reference, shapes_for, validate_output
 
 
 class LlmBenchmarkTests(unittest.TestCase):
@@ -94,6 +98,94 @@ class LlmBenchmarkTests(unittest.TestCase):
                 check(bad, "reduce")
         with self.assertRaises(ValueError):
             check(row | dict(attention_qk="reduce"), "mma")
+
+    def test_attention_pv_default_backcompat_and_explicit_acknowledgment(self):
+        dims = (1, 2, 1, 1, 3, 4, 5)
+        inputs, output = shapes_for("attention", dims)
+        row = dict(implementation="tile_tirx_metal", backend="metal", precision="fp32", fast_math=False,
+                   relaxed_precision=False, runtime="luisa", timing="synchronized_host_wall",
+                   batch_policy="one_runtime_command_list_per_batch", operation="attention", dimensions=list(dims),
+                   attention_block=[1, 3], input_shapes=[list(s) for s in inputs], output_shape=list(output),
+                   correctness=dict(checks=2, elements_per_check=10, guard_elements_per_check=34, atol=5e-5, rtol=5e-5),
+                   repetitions=10, throughput_us=[1., 2.], latency_us=[3., 4.])
+        check = lambda result, **modes: check_metadata(result, "metal", "attention", dims, (1, 3), 2, **modes)
+        check(copy.deepcopy(row))  # Old binaries/artifacts need not report the default.
+        check(row | dict(attention_qk="mma", attention_pv="mma"))
+        check(row | dict(attention_pv="reduce"), attention_pv="reduce")
+        check(row | dict(attention_qk="reduce", attention_pv="reduce"), attention_qk="reduce", attention_pv="reduce")
+        check(row | dict(attention_qk="reduce", attention_pv="mma"), attention_qk="reduce")
+        for policy in (None, "mma", True, 1, "not_applicable", "invalid"):
+            candidate = row if policy is None else row | dict(attention_pv=policy)
+            with self.subTest(policy=policy), self.assertRaises(ValueError):
+                check(candidate, attention_pv="reduce")
+        with self.assertRaises(ValueError):
+            check(row | dict(attention_pv="reduce"))
+        # Neither an acknowledged PV probe nor its math-equivalent source
+        # decomposition relaxes the complete oracle and timing contract.
+        for key, value in (("repetitions", 0), ("throughput_us", [1.]), ("latency_us", [float("nan"), 1.]),
+                           ("correctness", row["correctness"] | dict(elements_per_check=9)),
+                           ("correctness", row["correctness"] | dict(guard_elements_per_check=0)),
+                           ("correctness", row["correctness"] | dict(atol=1e-2))):
+            candidate = row | dict(attention_pv="reduce") | {key: value}
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                check(candidate, attention_pv="reduce")
+
+    def test_attention_pv_non_attention_is_not_applicable(self):
+        row = dict(implementation="tile_tirx_metal", backend="metal", precision="fp32", fast_math=False,
+                   relaxed_precision=False, runtime="luisa", timing="synchronized_host_wall",
+                   batch_policy="one_runtime_command_list_per_batch", operation="rope", dimensions=[1, 4],
+                   attention_block=[1, 1], input_shapes=[[1, 4], [1, 2], [1, 2]], output_shape=[1, 4],
+                   correctness=dict(checks=2, elements_per_check=4, guard_elements_per_check=34, atol=5e-5, rtol=5e-5),
+                   repetitions=10, throughput_us=[1., 2.], latency_us=[3., 4.])
+        check = lambda result, **modes: check_metadata(result, "metal", "rope", (1, 4), (1, 1), 2, **modes)
+        check(copy.deepcopy(row))
+        check(row | dict(attention_pv="not_applicable"))
+        check(row | dict(attention_pv="not_applicable"), attention_pv="reduce")
+        for policy in (None, "mma", "reduce", True):
+            candidate = row if policy is None else row | dict(attention_pv=policy)
+            with self.subTest(policy=policy), self.assertRaises(ValueError):
+                check(candidate, attention_pv="reduce")
+
+    def test_attention_probe_parser_guards(self):
+        common = ["--native", "not-resolved-native", "--build-dir", "not-resolved-build", "--output", "not-created"]
+        attention = "attention:1,2,1,1,3,4,5"
+        with patch("compare_llm.subprocess.run") as process:
+            default = parse_arguments(common + ["--backend", "metal", "--case", attention])
+            self.assertEqual((default.attention_qk, default.attention_pv), ("mma", "mma"))
+            for qk in ("mma", "reduce"):
+                for pv in ("mma", "reduce"):
+                    selected = parse_arguments(common + ["--backend", "metal", "--case", attention,
+                                                         "--case", "rope:1,4", "--attention-qk", qk, "--attention-pv", pv])
+                    self.assertEqual((selected.attention_qk, selected.attention_pv), (qk, pv))
+            process.assert_not_called()  # Parsing never builds or launches.
+        invalid = [(["--backend", "cpu", "--case", attention, "--attention-pv", "reduce"], "PV decomposition"),
+                   (["--backend", "metal", "--case", "rope:1,4", "--attention-pv", "reduce"], "PV decomposition"),
+                   (["--backend", "metal", "--case", attention, "--attention-pv", "invalid"], "invalid choice"),
+                   (["--backend", "cpu", "--case", attention, "--attention-qk", "reduce"], "QK decomposition")]
+        for options, message in invalid:
+            output = io.StringIO()
+            with self.subTest(options=options), redirect_stderr(output), self.assertRaises(SystemExit):
+                parse_arguments(common + options)
+            self.assertIn(message, output.getvalue())
+
+    def test_attention_probe_environment_is_sanitized_and_independent(self):
+        common = ["--native", "unused", "--build-dir", "unused", "--output", "unused", "--backend", "metal",
+                  "--case", "attention:1,2,1,1,3,4,5"]
+        for qk in ("mma", "reduce"):
+            for pv in ("mma", "reduce"):
+                args = parse_arguments(common + ["--attention-qk", qk, "--attention-pv", pv])
+                inherited = {"LUISA_TILE_BENCH_ATTENTION_QK": "stale-qk", "LUISA_TILE_BENCH_ATTENTION_PV": "stale-pv",
+                             "LUISA_TILE_BENCH_UNRELATED": "stale", "LUISA_SIMD_WARP_WIDTH": "64"}
+                with self.subTest(qk=qk, pv=pv), patch.dict(os.environ, inherited, clear=True):
+                    removed = configure_probe_environment(args)
+                    self.assertEqual(removed, inherited)
+                    for key, mode in (("LUISA_TILE_BENCH_ATTENTION_QK", qk), ("LUISA_TILE_BENCH_ATTENTION_PV", pv)):
+                        if mode == "mma":
+                            self.assertNotIn(key, os.environ)
+                        else:
+                            self.assertEqual(os.environ[key], mode)
+                    self.assertNotIn("LUISA_TILE_BENCH_UNRELATED", os.environ)
+                    self.assertEqual(os.environ["LUISA_SIMD_WARP_WIDTH"], "8")
 
 
 if __name__ == "__main__":

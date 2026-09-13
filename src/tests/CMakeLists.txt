@@ -650,6 +650,27 @@ if (TARGET luisa-compute-backend-simd OR TARGET luisa-compute-backend-metal4)
         endif ()
     endforeach ()
 endif ()
+if (TARGET luisa-compute-backend-simd OR TARGET luisa-compute-backend-metal4 OR
+        (TARGET luisa-compute-backend-metal AND LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE AND LUISA_TILE_TVM_METAL_RUNTIME_LIBRARY))
+    # Runtime-only linkage keeps LLVM-backed XIR and TVM out of one executable.
+    luisa_compute_add_test(test_tile_xir_ranking unit/tile/bridge/test_xir_ranking.cpp)
+    foreach (_ranking_backend IN ITEMS simd metal4)
+        if (TARGET luisa-compute-backend-${_ranking_backend})
+            add_dependencies(test_tile_xir_ranking luisa-compute-backend-${_ranking_backend})
+            add_test(NAME test_tile_ranking_${_ranking_backend} COMMAND test_tile_xir_ranking ${_ranking_backend})
+            set_tests_properties(test_tile_ranking_${_ranking_backend} PROPERTIES
+                    LABELS "integration;integration_tile_xir;integration_${_ranking_backend}"
+                    TIMEOUT 300 FAIL_REGULAR_EXPRESSION "0 asserts;tests skipped")
+        endif ()
+    endforeach ()
+    if (TARGET luisa-compute-backend-metal AND LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE AND LUISA_TILE_TVM_METAL_RUNTIME_LIBRARY)
+        add_dependencies(test_tile_xir_ranking luisa-compute-backend-metal)
+        add_test(NAME test_tile_ranking_tirx_metal COMMAND test_tile_xir_ranking metal)
+        set_tests_properties(test_tile_ranking_tirx_metal PROPERTIES
+                LABELS "integration;integration_tile_tirx" TIMEOUT 300
+                FAIL_REGULAR_EXPRESSION "0 asserts;tests skipped")
+    endif ()
+endif ()
 if (TARGET luisa-compute-backend-metal4)
     luisa_compute_add_test(test_metal4_timing unit/runtime/test_metal4_timing.cpp
             LABELS "integration;integration_tile_xir;integration_metal4" ARGS metal4)

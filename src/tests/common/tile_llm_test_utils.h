@@ -116,7 +116,7 @@ enum class RowOp { RMS_NORM,
 // positions are the final Q positions in the KV sequence; Hq/Hkv implements GQA.
 [[nodiscard]] inline Case attention(int64_t batches, int64_t heads, int64_t kv_heads,
                                     int64_t queries, int64_t keys, int64_t channels, int64_t value_channels,
-                                    int64_t bq = 2, int64_t bk = 3, bool qk_reduction = false) {
+                                    int64_t bq = 2, int64_t bk = 3, bool qk_reduction = false, bool pv_reduction = false) {
     using namespace compute::tile;
     LUISA_ASSERT(batches > 0 && heads > 0 && kv_heads > 0 && heads % kv_heads == 0 && queries > 0 && keys >= queries && channels > 0 && value_channels > 0 && bq > 0 && bk > 0,
                  "Invalid attention shape");
@@ -139,9 +139,10 @@ enum class RowOp { RMS_NORM,
                 auto key = K.tile(coord(b0, kh, k0, 0), shape(b, h, n, d)).load();
                 auto value = V.tile(coord(b0, kh, k0, 0), shape(b, h, n, dv)).load();
                 step.stage("score");
-                // Benchmark-only decomposition probe. Keep the public DSL and
-                // PV contraction unchanged; production scheduling must choose
-                // its mapping from the contraction's access/layout contract.
+                // Independent benchmark-only QK/PV decomposition probes using
+                // the existing DSL, not production scheduling decisions. The
+                // unordered reductions can change floating-point evaluation
+                // order; the FP64 oracle below checks numerical agreement.
                 auto dot = [&] {
                     if (qk_reduction) { return reduce(query * key, d, add); }
                     return mma(query, key, zeros<float>(shape(b, h, m, n)));
@@ -154,7 +155,11 @@ enum class RowOp { RMS_NORM,
                 auto probability = ite(valid, exp(masked - next_max), 0.0f);
                 step.stage("update");
                 row_sum = row_sum * alpha + reduce(probability, n, add);
-                acc = mma(probability, value, acc * alpha);
+                if (pv_reduction) {
+                    acc = acc * alpha + reduce(probability * value, n, add);
+                } else {
+                    acc = mma(probability, value, acc * alpha);
+                }
                 row_max = next_max;
             }
             O(coord(b0, h0, q0, 0), shape(b, h, m, dv)).store(acc / row_sum);
