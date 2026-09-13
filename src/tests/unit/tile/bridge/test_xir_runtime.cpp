@@ -1214,7 +1214,7 @@ void packet_local_reductions(Device &device, int64_t count, int64_t width, uint3
     }
 }
 
-void mma_output_blocks(Device &device, int64_t rows, int64_t columns, int64_t terms, bool swapped, uint32_t max_unrolled_mma_terms = 0u) {
+void mma_output_blocks(Device &device, int64_t rows, int64_t columns, int64_t terms, bool swapped, uint32_t max_unrolled_mma_terms = 0u, bool rhs_transposed = false) {
     using namespace tile;
     // A zero logical contraction still uses valid nonempty Runtime bindings.
     auto physical_terms = std::max(terms, int64_t{1});
@@ -1223,7 +1223,7 @@ void mma_output_blocks(Device &device, int64_t rows, int64_t columns, int64_t te
                       for (auto &nest : parallel(shape(1))) {
                           static_cast<void>(nest);
                           auto lhs = a.tile(coord(0, 0), shape(m, k)).load();
-                          auto rhs = b.tile(coord(0, 0), shape(k, n)).load();
+                          auto rhs = b.tile(coord(0, 0), rhs_transposed ? shape(n, k) : shape(k, n)).load();
                           auto seed = c.tile(coord(0, 0), shape(m, n)).load();
                           // Eager snapshots must survive writes before the
                           // contraction; its output also aliases the seed view.
@@ -1233,27 +1233,34 @@ void mma_output_blocks(Device &device, int64_t rows, int64_t columns, int64_t te
                                                   mma(lhs, rhs, seed, {.allow_reassociation = false});
                           c(coord(0, 0), shape(m, n)).store(result);
                       }
-                  }).capture(tensor_shape(rows, physical_terms), tensor_shape(physical_terms, columns), tensor_shape(rows, columns));
+                  }).capture(tensor_shape(rows, physical_terms), rhs_transposed ? tensor_shape(columns, physical_terms) : tensor_shape(physical_terms, columns), tensor_shape(rows, columns));
     expect(kernel.valid());
     constexpr size_t pad = 17u;
     constexpr float guard = -731.25f;
     vector<float> input_a(rows * physical_terms + 2u * pad, guard), input_b(physical_terms * columns + 2u * pad, guard), input_c(rows * columns + 2u * pad, guard);
     for (int64_t i = 0; i < rows * physical_terms; i++) { input_a[pad + i] = i % 3 == 0 ? 1048576.0f : i % 3 == 1 ? 0.125f :
                                                                                                                     -1048576.0f; }
-    for (int64_t i = 0; i < physical_terms * columns; i++) { input_b[pad + i] = static_cast<float>((i * 5 + 3) % 13 - 6) * 0.125f; }
+    auto b_index = [&](int64_t k, int64_t n) { return pad + (rhs_transposed ? n * physical_terms + k : k * columns + n); };
+    for (int64_t k = 0; k < physical_terms; k++) {
+        for (int64_t n = 0; n < columns; n++) {
+            // Same logical values in both layouts; only physical indexing changes.
+            auto i = k * columns + n;
+            input_b[b_index(k, n)] = static_cast<float>((i * 5 + 3) % 13 - 6) * 0.125f;
+        }
+    }
     for (int64_t i = 0; i < rows * columns; i++) { input_c[pad + i] = static_cast<float>(i % 7 - 3) * 0.25f; }
     // Output (0, 0) distinguishes separate MUL + ADD (0) from FMA (-2^-46).
     // Keep the other columns' cancellation patterns to detect reassociation.
     input_a[pad] = std::bit_cast<float>(0x3f800001u);// 1 + 2^-23
     input_b[pad] = std::bit_cast<float>(0x3f7ffffeu);// 1 - 2^-23
     input_c[pad] = -1.0f;
-    for (int64_t k = 1; k < terms; k++) { input_b[pad + k * columns] = 0.0f; }
+    for (int64_t k = 1; k < terms; k++) { input_b[b_index(k, 0)] = 0.0f; }
     auto expected = input_c;
     for (int64_t row = 0; row < rows; row++) {
         for (int64_t column = 0; column < columns; column++) {
             auto sum = input_c[pad + row * columns + column];
             for (int64_t k = 0; k < terms; k++) {
-                auto lhs = input_a[pad + row * physical_terms + k], rhs = input_b[pad + k * columns + column];
+                auto lhs = input_a[pad + row * physical_terms + k], rhs = input_b[b_index(k, column)];
                 volatile float product = swapped ? rhs * lhs : lhs * rhs;
                 volatile float next = sum + product;// explicit noncontracted FP32 reference order
                 sum = next;
@@ -1269,7 +1276,8 @@ void mma_output_blocks(Device &device, int64_t rows, int64_t columns, int64_t te
         auto shader = compile(device, kernel, {.xir = &options});
         expect(static_cast<bool>(shader)) << shader.metadata().error;
         if (!shader) { continue; }
-        expect(shader.metadata().realization.find(format("requested_mma_output_block={}; blocked_mmas={};", width, width == 1u ? 0u : 1u)) != string::npos);
+        auto grouped = width != 1u && (!rhs_transposed || !swapped || terms == 1);
+        expect(shader.metadata().realization.find(format("requested_mma_output_block={}; blocked_mmas={};", width, grouped ? 1u : 0u)) != string::npos);
         auto rolled = terms > 64 || (max_unrolled_mma_terms != 0u && terms > max_unrolled_mma_terms);
         expect(shader.metadata().realization.find(format("requested_max_unrolled_mma_terms={}; rolled_mmas={}; mma_unroll_cost=unmodeled", max_unrolled_mma_terms, rolled ? 1u : 0u)) != string::npos);
         auto actual_a = input_a, actual_b = input_b, actual_c = input_c;
@@ -1277,7 +1285,7 @@ void mma_output_blocks(Device &device, int64_t rows, int64_t columns, int64_t te
                << shader(a.view(pad, rows * physical_terms), b.view(pad, physical_terms * columns), c.view(pad, rows * columns)).dispatch()
                << a.copy_to(span{actual_a}) << b.copy_to(span{actual_b}) << c.copy_to(span{actual_c}) << synchronize();
         for (size_t i = 0u; i < actual_c.size(); i++) {
-            expect(eq(std::bit_cast<uint32_t>(actual_c[i]), std::bit_cast<uint32_t>(expected[i]))) << "mma block=" << width << " output=" << i;
+            expect(eq(std::bit_cast<uint32_t>(actual_c[i]), std::bit_cast<uint32_t>(expected[i]))) << "mma block=" << width << " rhs_transposed=" << rhs_transposed << " output=" << i;
         }
         expect(actual_b == input_b);
         for (size_t i = 0u; i < actual_a.size(); i++) {
@@ -1391,6 +1399,7 @@ int main(int argc, char *argv[]) {
             // reads, cancellation, FMA distinction and eager alias snapshots.
             for (auto [terms, cap] : {std::pair{0, 1u}, {1, 1u}, {8, 8u}, {9, 8u}, {16, 1u}, {64, 8u}}) {
                 mma_output_blocks(device, 1, 5, terms, swapped, cap);
+                mma_output_blocks(device, 1, 5, terms, swapped, cap, true);
             }
         }
     };

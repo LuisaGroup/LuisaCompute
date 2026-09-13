@@ -665,7 +665,11 @@ struct TraversalEmissionPlan {
         }
         return true;
     };
-    auto broadcast_lhs = !lhs.contains(inner.dimension) && unit_stride(rhs);
+    // The grouped outputs have independent ordered accumulators. A broadcast
+    // LHS can be shared even when RHS projection has a non-unit logical
+    // stride (for example [output, contraction]); contiguity is not needed
+    // for legality. Retain the existing unit-stride symmetric candidate.
+    auto broadcast_lhs = !lhs.contains(inner.dimension) && rhs.contains(inner.dimension);
     if (!broadcast_lhs && (rhs.contains(inner.dimension) || !unit_stride(lhs))) { return plan; }
     if (options.max_unrolled_region_work != 0u) {
         // Potential per-block expansion, not an instruction count or a cycle

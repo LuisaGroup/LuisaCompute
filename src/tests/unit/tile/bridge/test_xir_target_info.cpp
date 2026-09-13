@@ -539,15 +539,16 @@ int main(int argc, char *argv[]) {
     "tile_xir_mma_output_blocking_preserves_storage_and_cost_admission"_test = [] {
         using namespace tile;
         auto fixture = [](uint32_t rows, uint32_t columns, uint32_t terms, uint32_t variant) {
+            auto transposed = variant == 2u || variant == 4u;
             return tile_kernel("mma_output_blocks", [=](TensorView<const float, 2> a, TensorView<const float, 2> b, TensorView<float, 2> c) {
                        auto m = axis("m", rows), n = axis("n", columns), k = axis("k", terms);
                        for (auto &nest : parallel(shape(1))) {
                            static_cast<void>(nest);
                            auto lhs = a.tile(coord(0, 0), shape(m, k)).load();
-                           auto rhs = b.tile(coord(0, 0), variant == 2u ? shape(n, k) : shape(k, n)).load();
+                           auto rhs = b.tile(coord(0, 0), transposed ? shape(n, k) : shape(k, n)).load();
                            auto seed = c.tile(coord(0, 0), shape(m, n)).load();
-                           auto value = variant == 1u ? mma(rhs, lhs, seed, {.allow_reassociation = false}) :
-                                                        mma(lhs, rhs, seed, {.allow_reassociation = false});
+                           auto value = variant == 1u || variant == 4u ? mma(rhs, lhs, seed, {.allow_reassociation = false}) :
+                                                                         mma(lhs, rhs, seed, {.allow_reassociation = false});
                            if (variant == 3u) {
                                for (auto &element : nest.serial(shape(rows * columns))) {
                                    auto row = element.index() / columns, column = element.index() % columns;
@@ -558,14 +559,14 @@ int main(int argc, char *argv[]) {
                            }
                        }
                    })
-                .capture(tensor_shape(rows, std::max(terms, 1u)), variant == 2u ? tensor_shape(columns, std::max(terms, 1u)) : tensor_shape(std::max(terms, 1u), columns), tensor_shape(rows, columns));
+                .capture(tensor_shape(rows, std::max(terms, 1u)), transposed ? tensor_shape(columns, std::max(terms, 1u)) : tensor_shape(std::max(terms, 1u), columns), tensor_shape(rows, columns));
         };
         auto text = [](const bx::NativeFunction &value) {
             string result;
             xir::XIRDebugPrinter{}.emit_function(result, value.function);
             return result;
         };
-        for (auto variant : {0u, 1u, 2u, 3u}) {
+        for (auto variant : {0u, 1u, 2u, 3u, 4u}) {
             for (auto size : {std::array<uint32_t, 3>{2u, 5u, 3u}, {2u, 35u, 17u}, {1u, 7u, 65u}}) {
                 auto kernel = fixture(size[0], size[1], size[2], variant);
                 auto baseline = check_resources(kernel);
@@ -579,9 +580,9 @@ int main(int argc, char *argv[]) {
                     expect(eq(plan.selected.mma_output_block, width));
                     expect_same_resources(candidate.resources, baseline.resources);
                     expect_same_resources(plan.selected.resources, candidate.resources);
-                    expect(eq(candidate.blocked_mmas, width == 1u || variant == 2u ? 0u : 1u));
+                    expect(eq(candidate.blocked_mmas, width == 1u || variant == 4u ? 0u : 1u));
                     expect(eq(plan.selected.cost.score, baseline_plan.selected.cost.score));// no invented speedup prior
-                    if (width == 1u || variant == 2u) { expect(text(candidate) == text(baseline)); }
+                    if (width == 1u || variant == 4u) { expect(text(candidate) == text(baseline)); }
                 }
                 auto budget = check_resources(kernel, {.max_unrolled_region_work = 1u, .mma_output_block = 4u});
                 if (budget) {
@@ -593,7 +594,7 @@ int main(int argc, char *argv[]) {
         // MMA K uses an additional unroll cap without changing the global
         // Tile threshold. Newly dynamic reads require explicit resource-plan
         // snapshots, even when output-block admission falls back.
-        for (auto variant : {0u, 2u, 3u}) {
+        for (auto variant : {0u, 2u, 3u, 4u}) {
             for (auto terms : {0u, 1u, 8u, 9u, 16u, 64u, 65u}) {
                 auto kernel = fixture(1u, 5u, terms, variant);
                 auto reference_plan = bx::plan(kernel.function(), {8u, 1u}, {.block_size = 64u});
@@ -609,9 +610,10 @@ int main(int argc, char *argv[]) {
                         if (!candidate || !planned) { continue; }
                         auto rolled = terms > 64u || (cap != 0u && terms > cap);
                         expect(eq(candidate.rolled_mmas, rolled ? 1u : 0u));
-                        // A trailing singleton K leaves transposed RHS unit-stride.
-                        auto strided = variant == 2u && terms != 1u;
-                        expect(eq(candidate.blocked_mmas, width == 1u || strided ? 0u : 1u));
+                        // Only the broadcast-LHS candidate accepts a strided
+                        // counterpart. The old symmetric candidate is unchanged.
+                        auto strided_lhs = variant == 4u && terms != 1u;
+                        expect(eq(candidate.blocked_mmas, width == 1u || strided_lhs ? 0u : 1u));
                         auto expected_resources = baseline.resources;
                         auto additional_roll = rolled && terms <= 64u;
                         if (additional_roll) {
@@ -630,15 +632,20 @@ int main(int argc, char *argv[]) {
                         if (reference_plan) { expect(eq(planned.selected.cost.score, reference_plan.selected.cost.score)); }
                         if (rolled == (terms > 64u)) { expect(text(candidate) == text(baseline)); }
                         if (terms == 9u && cap == 8u) {
-                            auto phis = 0u, selects = 0u;
+                            auto phis = 0u, indices = 0u, selects = 0u;
                             candidate.function->traverse_instructions([&](xir::Instruction *instruction) noexcept {
                                 phis += instruction->isa<xir::PhiInst>();
+                                indices += instruction->isa<xir::PhiInst>() && instruction->type()->is_int64();
                                 if (instruction->isa<xir::ArithmeticInst>()) {
                                     selects += static_cast<xir::ArithmeticInst *>(instruction)->op() == xir::ArithmeticOp::SELECT;
                                 }
                             });
                             expect(phis >= 2u);     // Runtime K index and accumulator, not counter-only metadata.
                             expect(eq(selects, 0u));// Dynamic operands use indexed loads, not an SSA SELECT chain.
+                            if (variant == 2u || variant == 4u) {
+                                auto groups = variant == 4u ? 5u : ceil_div(5u, width);
+                                expect(eq(indices, groups));// Actual K loop grouping, including the partial output block.
+                            }
                             expect(text(candidate) != text(baseline));
                         }
                     }
