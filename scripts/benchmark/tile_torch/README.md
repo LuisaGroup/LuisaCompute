@@ -220,6 +220,18 @@ three inputs and the complete output are checked. See the
 [attention native-entry checkpoint](results/m1-max-20260913-attention-native/notes.md)
 for the negative decomposition results and exact timing boundary.
 
+For Apple arm64/macOS 15+ diagnostic references,
+`native_attention_probe.py prepare --tile TILE/prepared.json --output NEW_PROBE
+--llvm LLVM_BIN_DIRECTORY` freezes that actual Tile object beside handwritten
+online NEON and dense Accelerate attention. Then use `replay --bundle
+NEW_PROBE/probe.json --variant online_neon|dense_accelerate --output NEW_RESULTS`.
+Both arms share the unchanged native timer; BLAS threading is set and queried
+on the calling thread. `selftest --output NEW_VALIDATION` runs 24 numerical/guard
+checks without timing loops. Run commands in externally supervised subprocesses
+with complete stdout/stderr capture and process-group timeouts. These references
+change reduction order/storage and are **not new Tile lowering paths**; see the
+[six-shape comparison and boundaries](results/m1-max-20260913-attention-native-reference/notes.md).
+
 `--baseline FROZEN/bin/benchmark_tile_native --rounds 6` balances all six
 orders of old/new/Torch. Freeze all adjacent Luisa libraries together; the
 driver prepends that directory to the baseline process's loader path. Pass

@@ -1,6 +1,6 @@
 # Attention execution mapping：现状、缺口与有界实验
 
-记录日期：2026-09-13。范围：当前源码静态审查与已归档实验；初稿为只读审查，后续 CPU 实验与模型修正见第 8–13 节。**未宣称已完成自动生产优化**。
+记录日期：2026-09-13。范围：当前源码静态审查与已归档实验；初稿为只读审查，后续 CPU 实验与模型修正见第 8–14 节。**未宣称已完成自动生产优化**。
 它是实现侧工作记录，不替代既有设计文档；不改动受保护的 matrix-initializer WIP。
 
 ## 1. 先分清三种状态
@@ -196,3 +196,55 @@ cap 导致的小 Tile 索引快照现在计入定义写入和动态读取。常�
 四项相关 CTest 和七项精确名称 host 回归通过；新增96组 plan/lower 配置与60个严格数值 runtime dispatch（含负控制，16次实际准入二维），覆盖交换/转置、奇数尾块、零K、budget fallback、small-SSA carry 和较大 snapshot 输出。Metal4 forwarding 通过构建，GPU 执行仍未验证。
 
 默认关闭且未加入自动 R/cap/二维搜索。后续应把这些候选纳入有资源约束、代码量/访存/phase 转换成本的联合选择，并用更多非 attention contraction 和 held-out 尺寸验证；这些局部收益不替代第5节的贡献维 ownership、split-KV 和跨 phase 映射能力。
+
+## 14. 原生参照量化了更大的 phase realization 缺口
+
+[六尺寸原生参照实验](../../scripts/benchmark/tile_torch/results/m1-max-20260913-attention-native-reference/notes.md)将当前实际 Tile ORC 对象与两种**手写、benchmark-only** CPU 实现放入同一原生计时器：KV16 online NEON，以及整头 dense Accelerate GEMV/GEMM。144 visits / 1008 samples 全量保留，输入、独立 FP64 oracle、guard 和线程协议逐次检查。它们不是新的 Tile lowering，也不是 Torch/MPS 成绩。
+
+三组 decode 的 NEON/Tile 配对时间比为0.189、0.151、0.237；Accelerate/Tile 为0.172、0.114、0.168，含 KV=8193。三组 prefill/batch 的差距也存在，完整数值见实验表。仅从这些数据不能把总差距归因于某个局部循环：两种参照都改变数据表示和求值顺序，online 还跳过全 masked 工作，dense 则物化完整 score。主机仍有用户/系统背景活动，不能用这批数值直接拟合微小成本系数。
+
+### 14.1 保留 contraction，才能选择不同的 phase 实现
+
+目前 [`_mma`](bridge/xir/lower.cpp) 仍掌握 typed axes、贡献域和 operand projection，随后降成 `_fold` / `_fold_many` 的标量乘加；到了 SIMD Schedule 再猜矩阵意图已太晚。现有小型 `MATRIX_LINALG_MUL` 也不是任意尺寸 BLAS 接口。应在这个边界选择实现，而不是识别 attention 名称。
+
+```text
+                typed MMA + math permission + access layout
+                               │
+             shared admission / resource / realization plan
+                    ┌──────────┴──────────┐
+             scalar/vector fallback   backend-owned MMA leaf
+                    │                 QK: vectorize contribution D
+                    │                 PV: vectorize output Dv
+                    └──────────┬──────────┘
+                    snapshot/layout transition costs
+                               │
+                       complete phase-graph choice
+```
+
+拟议的每 MMA descriptor 保留 batch/M/N/K 轴、dtype/accumulator type、各 operand stride/projection、math permission、结果 ownership、snapshot/packing 容量。后端可选择合法实现，默认保留当前 fallback；resource analysis、lowering 与 cost policy 消费同一个计划，不能 emitter 临时加数组。首版可限制静态 FP32、一个贡献轴、`local_lanes=1` 和同步单线程调用，之后扩展的是 realization 能力，不是 DSL primitive 数量。
+
+普通 XIR `CallInst` 当前不被 [SIMD schedule lowering](../backends/simd/schedule/xir_to_schedule.cpp) 接收。已有 launch-record callback 可借鉴，但不等于已支持 BLAS。若走 leaf-call，应使用 compiler-owned typed registry 和 backend/shader-owned descriptor 生命周期，仅准入已注册签名，其余调用继续拒绝；不要开放任意未解析外部符号。
+
+### 14.2 数学权限与物理 snapshot 是两道独立约束
+
+- 每个 MMA 必须直接检查 `MmaPolicy`。`allow_reassociation=false` 的候选不能偷偷改为 BLAS/FMA/tree，且任何策略都不能降输入精度。目前 kernel-wide fast-math guard 的 `OrderedReductionAnalysis` 只检查 REDUCE，不能用它代替 MMA 权限验证。探针的输入仅是受控、完整数值验证通过的样本；有限 FP32 仍可能 dot 溢出，不能据此证明所有输入等价。
+- leaf 读取定义时捕获的 SSA snapshot，不能在消费端重读可能已被修改的用户 buffer；seed 只读，输出写新鲜 storage，零贡献域保留 seed。现有 alias/snapshot 测试必须继续适用。
+- 现有 SIMD private-array interleave 要求封闭的 GEP/load/store 地址使用；把地址传入调用会改变准入。逐 program 连续数组与跨 program interleave 是不同物理 layout，packing、额外 live state 以及其它消费者的访问退化都必须计入，不能假设传一个指针就免费兼容。
+
+### 14.3 求解器要比较实现及边界成本，而不是给 BLAS 一个奖励系数
+
+对 phase `s` 的候选 `q_s`，扩展第5节的目标为：
+
+```text
+C_s(q_s) = calls_s · call_cost(q_s)
+         + pack_cost(bytes_s, source_layout, leaf_layout)
+         + compute_cost(shape_s, dtype_s, math_s, realization_s)
+         + local_state_cost(q_s)
+
+min Σ_s C_s(q_s) + Σ_(s→t) transition(q_s, q_t)
+s.t. coverage / dependencies / math permissions / live-memory capacities
+```
+
+这是待实现的成本分解，不是已校准公式；pack 与 transition 的归属须唯一，避免重复计数。backend policy 提供实现能力与系数，solver 只负责合法候选的枚举/剪枝/组合。现有 `ExecutionMmaWork` 可继续提供工作量，但需补每 MMA 的 shape/stride、call 数、packing bytes、实际实现 ID。
+
+尤其不能把本实验的“整头 BLAS attention”比率直接赋给每个 KV16 小 MMA：后者调用更频繁，输入/seed/snapshot 边界更多，可能完全抵消算术收益。下一步是先实现窄范围、可拒绝的 typed leaf/vector candidate，验证普通 GEMV/strided contraction 与 attention 的 held-out 尺寸，再测完整 attention 的实际 native-entry；自动选择与 Metal phase 映射仍是后续工作。

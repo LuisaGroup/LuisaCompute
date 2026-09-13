@@ -160,6 +160,19 @@ pair. Four CTests and seven exact-name host checks pass. Default selection
 is unchanged; this is neither automatic cost calibration nor a new
 Torch/MPS/Metal4 performance comparison.
 
+The {download}`native attention reference experiment
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260913-attention-native-reference/notes.md>`
+compares the actual Tile ORC entry with handwritten online NEON and dense
+Accelerate GEMV/GEMM at six shapes, including KV=8193, GQA and channel tails.
+All 144 visits / 1008 samples pass full independent FP64 checks and guards.
+At the three decode shapes, NEON takes **0.151–0.237×** Tile time and Accelerate
+**0.114–0.172×**, using the same native timer and confirmed calling-thread BLAS
+single-thread setting. These are diagnostic references, **not compiler gains**:
+the algorithms, reduction order and storage differ, and the host is not fully
+quiescent. They motivate separate contribution/output-axis realizations and
+explicit layout/call/packing costs; no automatic policy, Torch/MPS result or
+production default changes in this checkpoint.
+
 ### Metal4 XIR route: correctness established, timing not yet stable
 
 The September 10 {download}`target-info checkpoint <../../../../scripts/benchmark/tile_torch/results/m1-max-20260910-xir-target-info/README.md>`
