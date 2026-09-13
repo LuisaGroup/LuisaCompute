@@ -73,7 +73,7 @@ namespace luisa::test::tile_llm {
         LUISA_ASSERT(!error, "cannot inspect benchmark path {}: {}", path.string(), error.message());
         LUISA_ASSERT(!exists, "benchmark output/input export already exists: {}", path.string());
     };
-    for (auto suffix : {"", ".input0.f32", ".input1.f32", ".input2.f32"}) {
+    for (auto suffix : {"", ".input0.f32", ".input1.f32", ".input2.f32", ".expected.f64"}) {
         require_missing(output_path.string() + suffix);
     }
     auto elapsed = [](Clock::time_point start) { return std::chrono::duration<double, std::milli>{Clock::now() - start}.count(); };
@@ -92,7 +92,7 @@ namespace luisa::test::tile_llm {
         return rows(kind, dimensions[0], dimensions[1]);
     }();
     auto fixture_ms = elapsed(start);
-    auto write = [](const std::filesystem::path &path, span<const float> data) {
+    auto write = [](const std::filesystem::path &path, auto data) {
         std::ofstream file{path, std::ios::binary};
         file.write(reinterpret_cast<const char *>(data.data()), static_cast<std::streamsize>(data.size_bytes()));
         file.close();
@@ -100,7 +100,10 @@ namespace luisa::test::tile_llm {
     };
     // Export inputs even when a lowering is rejected, so a failed native
     // case does not silently remove the corresponding Torch measurement.
-    for (auto i = 0u; i < 3u; i++) { write(output_path.string() + ".input" + std::to_string(i) + ".f32", fixture.inputs[i]); }
+    for (auto i = 0u; i < 3u; i++) { write(output_path.string() + ".input" + std::to_string(i) + ".f32", span{fixture.inputs[i]}); }
+    // Freeze the independently computed oracle as well as the inputs. Native
+    // entry replay must not reconstruct semantics from a kernel name.
+    write(output_path.string() + ".expected.f64", span{fixture.expected});
     start = Clock::now();
     Context context{argv[0]};
     auto device = context.create_device(backend);
@@ -226,6 +229,8 @@ namespace luisa::test::tile_llm {
               << ",\"allocation_upload_ms\":" << upload_ms << ",\"cold_call_ms\":" << cold_ms << ",\"warmup_ms\":" << actual_warmup_ms
               << ",\"repetitions\":" << repetitions
               << ",\"repetition_policy\":" << std::quoted(fixed_repetitions == nullptr ? "adaptive_host_wall" : "fixed")
+              << ",\"source_kind\":\"tile_lowering_source\""
+              << ",\"dispatch\":[" << shader.metadata().dispatch_size.x << ',' << shader.metadata().dispatch_size.y << ',' << shader.metadata().dispatch_size.z << ']'
               << ",\"realization\":" << std::quoted(shader.metadata().realization)
               << ",\"correctness\":{\"checks\":2,\"elements_per_check\":" << fixture.expected.size()
               << ",\"guard_elements_per_check\":34,\"atol\":0.00005,\"rtol\":0.00005,\"max_abs_error\":" << max_error << '}'

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Prepare frozen migrated FP32 Tile ORC objects and replay native entries.
+"""Prepare frozen migrated/LLM FP32 Tile ORC objects and replay native entries.
 
 Preparation links actual captured objects, never recompiles their LLVM. Replay
 uses one common C++ timer and an ABBA sequence per cycle. No Runtime, Python,
 JIT or caller allocation executes inside that timer. Inputs and complete FP64
-oracles come from benchmark_tile_migrated, not operator-name reconstruction.
+oracles come from the C++ capture, not operator-name reconstruction.
 """
 from __future__ import annotations
 
@@ -68,10 +68,54 @@ def check_output(actual, expected, atol, rtol):
     return dict(elements=len(expected), max_abs_error=maximum, atol=atol, rtol=rtol)
 
 
+def capture_payloads(prefix, metadata, kind):
+    """Validate the emitted buffer ABI before admitting an object for replay."""
+    if kind == 'llm':
+        inputs, output = metadata.get('input_shapes'), metadata.get('output_shape')
+        if (not isinstance(inputs, list) or len(inputs) != 3 or
+                not isinstance(output, list)):
+            raise ValueError('expected three LLM input shapes and one output shape')
+        for shape in [*inputs, output]:
+            if not shape or any(type(d) is not int or d <= 0 for d in shape) or math.prod(shape) > 2**26:
+                raise ValueError('invalid LLM payload shape')
+        paths = [Path(str(prefix) + f'.input{i}.f32') for i in range(3)]
+        for path, shape in zip(paths, inputs):
+            if path.stat().st_size != 4 * math.prod(shape):
+                raise ValueError('LLM input byte extent mismatch')
+        output_path = prefix
+        if output_path.stat().st_size != 4 * math.prod(output):
+            raise ValueError('LLM output byte extent mismatch')
+        return paths, output_path
+    if kind != 'migrated':
+        raise ValueError('unsupported capture kind')
+    paths = [Path(str(prefix) + '.input0.f32')]
+    second = Path(str(prefix) + '.input1.f32')
+    if second.exists():
+        paths.append(second)
+    return paths, Path(str(prefix) + '.output.f32')
+
+
+def check_matched_metadata(left, right, kind):
+    common = ('operation', 'dimensions', 'precision', 'fast_math')
+    fields = common + (('attention_block', 'input_shapes', 'output_shape', 'source_reduction_policy',
+                        'relaxed_precision', 'requested_group_threads', 'requested_input_views', 'reduction_tree')
+                       if kind == 'llm' else ('source_schedule', 'block', 'input_distribution'))
+    for key in fields:
+        if key not in left or key not in right or left[key] != right[key]:
+            raise ValueError('source case differs: ' + key)
+    # QK/PV decomposition is the experiment variable, not silently normalized
+    # into one source schedule. Each prepared manifest retains both fields.
+    if kind == 'llm':
+        for entry in (left, right):
+            modes = ('mma', 'reduce') if entry['operation'] == 'attention' else ('not_applicable',)
+            if any(entry.get(key) not in modes for key in ('attention_qk', 'attention_pv')):
+                raise ValueError('missing/invalid LLM decomposition metadata')
+
+
 def prepare(args):
     directory = args.output.resolve()
     directory.mkdir(parents=True, exist_ok=False)
-    report = dict(status='preparing', format='native-tile-entry-v1', name=args.name, started_unix=time.time())
+    report = dict(status='preparing', format='native-tile-entry-v1', name=args.name, started_unix=time.time(), capture_kind=args.capture_kind)
     save(directory / 'prepared.json', report)
     try:
         if platform.system() != 'Darwin' or platform.machine() != 'arm64':
@@ -83,7 +127,9 @@ def prepare(args):
         if (metadata.get('implementation') != 'tile_xir_simd' or metadata.get('precision') != 'fp32' or
                 metadata.get('source_kind') != 'tile_lowering_source' or metadata.get('fast_math') is not False or
                 metadata.get('correctness', {}).get('checks') != 2):
-            raise ValueError('expected fully checked, strict FP32 migrated XIR capture')
+            raise ValueError('expected fully checked, strict FP32 XIR capture')
+        if args.capture_kind == 'llm':
+            check_matched_metadata(metadata, metadata, 'llm')
         dispatch = metadata['dispatch']
         if len(dispatch) != 3 or any(type(x) is not int or not 0 < x <= 0xffffffff for x in dispatch):
             raise ValueError('invalid actual dispatch metadata')
@@ -108,12 +154,8 @@ def prepare(args):
         if len(objects) != 1:
             raise ValueError('object directory must contain exactly one captured ORC object')
         original = [args.log.resolve(), source_path, objects[0], HELPER_SOURCE, ABI_HEADER, Path(__file__).resolve()]
-        inputs = [Path(str(prefix) + '.input0.f32')]
-        second = Path(str(prefix) + '.input1.f32')
-        if second.exists():
-            inputs.append(second)
+        inputs, output = capture_payloads(prefix, metadata, args.capture_kind)
         oracle = Path(str(prefix) + '.expected.f64')
-        output = Path(str(prefix) + '.output.f32')
         original += [*inputs, oracle, output]
         original_hashes = {str(p): sha(p) for p in original}
         for path in inputs:
@@ -133,15 +175,16 @@ def prepare(args):
         header = directory / 'backends/simd/llvm/llvm_schedule_codegen.h'
         header.parent.mkdir(parents=True)
         shutil.copy2(ABI_HEADER, header)
-        imports = command([LLVM / 'llvm-nm', '--undefined-only', '--just-symbol-name', directory / 'kernel.o'], directory, 'imports').split()
+        llvm = args.llvm.resolve(strict=True)
+        imports = command([llvm / 'llvm-nm', '--undefined-only', '--just-symbol-name', directory / 'kernel.o'], directory, 'imports').split()
         if set(imports) - ALLOWED_IMPORTS:
             raise ValueError('uninspected ORC imports: ' + str(imports))
-        exported = command([LLVM / 'llvm-nm', '--defined-only', '--extern-only', '--just-symbol-name', directory / 'kernel.o'], directory, 'exports').split()
+        exported = command([llvm / 'llvm-nm', '--defined-only', '--extern-only', '--just-symbol-name', directory / 'kernel.o'], directory, 'exports').split()
         if '_' + symbol not in exported:
             raise ValueError('LLVM entry is not exported by the actual captured object')
-        command(['clang++', '--version'], directory, 'compiler')
-        command(['clang++', '-dynamiclib', directory / 'kernel.o', '-o', directory / 'kernel.dylib'], directory, 'link')
-        command(['clang++', '-std=c++20', '-O3', '-dynamiclib', '-I' + str(directory), directory / 'native_tile_replay.cpp',
+        command([llvm / 'clang++', '--version'], directory, 'compiler')
+        command([llvm / 'clang++', '-dynamiclib', directory / 'kernel.o', '-o', directory / 'kernel.dylib'], directory, 'link')
+        command([llvm / 'clang++', '-std=c++20', '-O3', '-dynamiclib', '-I' + str(directory), directory / 'native_tile_replay.cpp',
                  '-o', directory / 'replay.dylib'], directory, 'helper')
         if original_hashes != {str(p): sha(p) for p in original}:
             raise ValueError('capture or helper source changed during preparation')
@@ -150,6 +193,7 @@ def prepare(args):
                       input_files=[f'input{i}.f32' for i in range(len(inputs))], output_elements=len(expected),
                       atol=check['atol'], rtol=check['rtol'], capture_correctness=validation,
                       original_sha256=original_hashes, imports=imports,
+                      tool_sha256={str(llvm / tool): sha(llvm / tool) for tool in ('clang++', 'llvm-nm')},
                       files={str(p.relative_to(directory)): sha(p) for p in sorted(directory.rglob('*'))
                              if p.is_file() and p.name != 'prepared.json'})
         save(directory / 'prepared.json', report)
@@ -190,9 +234,10 @@ def replay(args):
         entries = [verify(path) for path in manifests]
         if entries[0]['name'] == entries[1]['name']:
             raise ValueError('variant names must differ')
-        for key in ('operation', 'dimensions', 'precision', 'fast_math', 'source_schedule', 'block', 'input_distribution'):
-            if entries[0]['metadata'][key] != entries[1]['metadata'][key]:
-                raise ValueError('source case differs: ' + key)
+        kind = entries[0].get('capture_kind', 'migrated')
+        if entries[1].get('capture_kind', 'migrated') != kind:
+            raise ValueError('capture kinds differ')
+        check_matched_metadata(entries[0]['metadata'], entries[1]['metadata'], kind)
         for key in ('input_files', 'output_elements', 'atol', 'rtol'):
             if entries[0][key] != entries[1][key]:
                 raise ValueError('validation contract differs: ' + key)
@@ -276,6 +321,8 @@ def main():
     for name in ('prefix', 'log', 'objects', 'output'):
         prep.add_argument('--' + name, type=Path, required=True)
     prep.add_argument('--name', required=True)
+    prep.add_argument('--capture-kind', choices=('migrated', 'llm'), default='migrated')
+    prep.add_argument('--llvm', type=Path, default=LLVM, help='LLVM tools matching the captured object toolchain')
     run = subcommands.add_parser('replay')
     run.add_argument('--prepared', type=Path, action='append', required=True)
     run.add_argument('--output', type=Path, required=True)

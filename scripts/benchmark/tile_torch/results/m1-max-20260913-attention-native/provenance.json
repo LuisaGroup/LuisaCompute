@@ -1,0 +1,55 @@
+{
+  "checkpoint": "2026-09-13 attention native-entry diagnostic",
+  "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+  "main_head": "32bfbe106088895ed7cc676faba5f30e2364d019",
+  "origin_next": "036610c6eb8894cd2de84f4de5d3cd3d32707644",
+  "source_state": "Isolated export at 32bfbe106 plus the three listed C++ changes; upstream 19 commits and protected TIRx WIP excluded. No production emitter/default-policy changes in this experiment.",
+  "full_build_log": "full-build.log in evidence.tar.gz",
+  "source_cpp_sha256": {
+    "src/tests/common/tile_llm_benchmark.h": "ab8610c50abaf9e8023c105f90ae2e9b0458d5b955006e3c4f938589f010724b",
+    "src/tests/benchmark/benchmark_tile_xir.cpp": "331ca23176a0bcd28cce8e63e8059c09645c5b21f75c737d7f8b6d0099e88971",
+    "src/tests/unit/tile/bridge/test_xir_llm.cpp": "a59f0b0a0f98d2dfdec85e2d6d1ee86f5877b62057ef11ca526960c9e1e3cfba"
+  },
+  "build_configuration_sha256": "8924bf84b1e30cf2987cd3be84aa05d33cbed9a0145ebc155aae8ba90a4b7e2e",
+  "binary_sha256": {
+    "benchmark_tile_xir": "cc0c463dc6de5d3e50208919a6b4cfaff76e82a75356a453ac8a1192498bcae1",
+    "libSPIRV.16.3.0.dylib": "3370d2e5a2d0413ebb244bcf3c61a2de5a4ab717c5082bbb8a4a91b181a9879c",
+    "libSPIRV.16.dylib": "3370d2e5a2d0413ebb244bcf3c61a2de5a4ab717c5082bbb8a4a91b181a9879c",
+    "libSPIRV.dylib": "3370d2e5a2d0413ebb244bcf3c61a2de5a4ab717c5082bbb8a4a91b181a9879c",
+    "libglslang-default-resource-limits.16.3.0.dylib": "a30d97bf111bf5515285fd949584a9e31302ea96b6a95ce1b14b68eca3234bc8",
+    "libglslang-default-resource-limits.16.dylib": "a30d97bf111bf5515285fd949584a9e31302ea96b6a95ce1b14b68eca3234bc8",
+    "libglslang-default-resource-limits.dylib": "a30d97bf111bf5515285fd949584a9e31302ea96b6a95ce1b14b68eca3234bc8",
+    "libglslang.16.3.0.dylib": "5e5c639add33ecbd20ba0588c4e4a31e552c8cd5e15050f091dbeeeaec80acb5",
+    "libglslang.16.dylib": "5e5c639add33ecbd20ba0588c4e4a31e552c8cd5e15050f091dbeeeaec80acb5",
+    "libglslang.dylib": "5e5c639add33ecbd20ba0588c4e4a31e552c8cd5e15050f091dbeeeaec80acb5",
+    "libluisa-ast.dylib": "45f02ee0c96e927cde3f132412dcc1615b54e98e34922313d2b92be6f4cf6122",
+    "libluisa-benchmark-metal-timing.dylib": "42c15609176d6024a391e3e9c13ed7a08c1f8b79bbdcfc89841869742bccee3c",
+    "libluisa-core.dylib": "ad8b02d67f238ec5e19864e9ea9a255ac8f0a0468b4465c596a4998db627917e",
+    "libluisa-coro.dylib": "c6e53526bab8553a0b95be0295eec594629fa94e0c74bda7cc3d56e4399dc812",
+    "libluisa-dsl.dylib": "c9ffc0df9c025209d7b26f65dca0fe2009bcf5bc2852bb9b2b1aad08189a119a",
+    "libluisa-osl.dylib": "6e0acf684a90b7333b5678486590eb2538b0c12db86462653824309c2f8622b4",
+    "libluisa-runtime.dylib": "26d73d85f4a3f36da008695b066f2adb9243743d3bfdbc361dacec3fd5bc29bc",
+    "libluisa-tile-bridge-tirx.dylib": "1dc8e4ba1385fb9b340b207f2e72bb3d215dc927f74f63807f2806b2de10c5c3",
+    "libluisa-tile-bridge-xir.dylib": "eb8de1ea837e7bbe86f8f4d699df687bcfa11c50f6d233c075d3ca1bb119fdf8",
+    "libluisa-tile.dylib": "249a6ad062779154008c285e23041aa352c3836cc185754e3aadfe42ed2b56a4",
+    "libluisa-xir.dylib": "c67c46f32e8ecdb22308fcf562423a27c3a7a5a10a94ededd94e295d87d1fc6d"
+  },
+  "llvm_tools_sha256": {
+    "clang++": "25d1b513091cb8c430f5671f5ffe2d7ce1273c4f4b72fac695b65c5a3b6866c0",
+    "llvm-nm": "d0496bb3684f2d4fce1379d8f8da290eb9ba1d83d6f53981470b2d1cb7553c34"
+  },
+  "compiler_version": "Homebrew clang version 22.1.8\nTarget: arm64-apple-darwin25.6.0\nThread model: posix\nInstalledDir: /opt/homebrew/Cellar/llvm/22.1.8_2/bin\nConfiguration file: /opt/homebrew/Cellar/llvm/22.1.8_2/etc/clang/arm64-apple-darwin25.cfg\n",
+  "acceptance": {
+    "cpu_numerical": true,
+    "simd_native_replay": true,
+    "production_optimization": false,
+    "fresh_gpu_measurements": false,
+    "torch_performance_comparison": false,
+    "torch_worker_cpu_protocol_smoke": true
+  },
+  "exclusions": [
+    "No binaries for full Runtime environment closure; actual replay objects/dylibs and ABI helper retained.",
+    "Guard payloads are not retained; helper guards are execution receipts. Complete logical outputs are retained.",
+    "Temporary tensors from the worker protocol smoke are deleted by its driver; performance captures retain all tensors."
+  ]
+}

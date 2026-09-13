@@ -183,6 +183,28 @@ evaluation order and must pass the same complete FP64 oracle, not a relaxed
 tolerance or a claim of bitwise identity. Inspect actual phase mappings and
 intermediate storage before attributing any timing difference to collectives.
 
+The same controls are available through this driver with `--backend cpu|metal4`
+and `--native BUILD/bin/benchmark_tile_xir` (the executable itself takes
+`LUISA_TILE_BENCH_XIR_BACKEND=simd|metal4`). Non-attention cases in a mixed
+matrix do not inherit attention-only controls. Torch runs in an isolated process
+per visit: OS stdout/stderr, including native-library messages, are retained.
+Known GPU failure diagnostics invalidate all cohort comparisons even at exit
+code zero; remaining GPU visits are NotRun until queue health is re-established.
+The diagnostic list is not exhaustive. Fresh-worker startup is outside warm
+samples, but this changes the process-lifetime protocol of older reports.
+
+For actual single-thread SIMD entry replay, capture with
+`LUISA_TILE_BENCH_DUMP_SOURCE=OUTPUT.f32.source.txt` and
+`LUISA_SIMD_DUMP_ASSEMBLY_DIR=NEW_OBJECT_DIRECTORY`. The LLM entry also exports
+`OUTPUT.f32.expected.f64` and actual dispatch metadata. Prepare with
+`native_tile.py prepare --capture-kind llm --prefix OUTPUT.f32 --log LOG
+--objects NEW_OBJECT_DIRECTORY --output NEW_PREPARED_DIRECTORY --name VARIANT
+--llvm LLVM_BIN_DIRECTORY`, then use its ordinary two-entry `replay` command.
+This links the captured ORC object, not a recompiled LLVM approximation; all
+three inputs and the complete output are checked. See the
+[attention native-entry checkpoint](results/m1-max-20260913-attention-native/notes.md)
+for the negative decomposition results and exact timing boundary.
+
 `--baseline FROZEN/bin/benchmark_tile_native --rounds 6` balances all six
 orders of old/new/Torch. Freeze all adjacent Luisa libraries together; the
 driver prepends that directory to the baseline process's loader path. Pass

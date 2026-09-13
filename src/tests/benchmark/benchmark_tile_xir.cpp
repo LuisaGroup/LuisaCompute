@@ -56,6 +56,24 @@ void samples(const char *name, span<const double> values) {
 }// namespace
 
 int main(int argc, char *argv[]) {
+    auto attention_qk_reduction = false;
+    auto attention_pv_reduction = false;
+    auto attention = argc > 2 && std::string_view{argv[1]} == "llm" && std::string_view{argv[2]} == "attention";
+    for (auto [name, reduction] : {std::pair{"LUISA_TILE_BENCH_ATTENTION_QK", &attention_qk_reduction},
+                                   std::pair{"LUISA_TILE_BENCH_ATTENTION_PV", &attention_pv_reduction}}) {
+        if (auto setting = std::getenv(name)) {
+            if (!attention) {
+                std::cerr << name << " requires llm attention\n";
+                return 1;
+            }
+            auto text = std::string_view{setting};
+            if (text != "mma" && text != "reduce") {
+                std::cerr << name << " must be mma or reduce; got '" << text << "'\n";
+                return 1;
+            }
+            *reduction = text == "reduce";
+        }
+    }
     if (argc > 1 && (std::string_view{argv[1]} == "llm" || std::string_view{argv[1]} == "rank")) {
         auto planner = tile::bridge::xir::PlannerOptions{};
         // Diagnostic candidate control belongs to the benchmark, not a
@@ -98,7 +116,7 @@ int main(int argc, char *argv[]) {
             return 1;
         }
         if (std::string_view{argv[1]} == "rank") { return test::tile_rank::benchmark(argc, argv, backend, {.xir = &planner}); }
-        return test::tile_llm::benchmark(argc, argv, backend, {.xir = &planner});
+        return test::tile_llm::benchmark(argc, argv, backend, {.xir = &planner}, false, false, attention_qk_reduction, attention_pv_reduction);
     }
     if (argc < 12 || argc > 14) {
         std::cerr << "Usage: benchmark_tile_xir fp32 M N K samples sample-ms warmup-ms output.f32 tile-M tile-N tile-K [planned|canonical|reversed [block-workers]]\n";

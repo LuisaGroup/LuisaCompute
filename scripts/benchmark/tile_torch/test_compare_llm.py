@@ -1,12 +1,17 @@
 import argparse
 import copy
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 import io
+import json
 import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
-from compare_llm import check_metadata, configure_probe_environment, make_summary, parse_arguments, parse_case, reference, shapes_for, validate_output
+from compare_llm import capture_benchmark, check_metadata, configure_probe_environment, gpu_failure_diagnostics, main, make_summary, make_visit_plan, mark_remaining_gpu_visits_not_run, native_operation_environment, parse_arguments, parse_case, reference, run_torch_worker, shapes_for, validate_output
 
 
 class LlmBenchmarkTests(unittest.TestCase):
@@ -158,10 +163,13 @@ class LlmBenchmarkTests(unittest.TestCase):
                                                          "--case", "rope:1,4", "--attention-qk", qk, "--attention-pv", pv])
                     self.assertEqual((selected.attention_qk, selected.attention_pv), (qk, pv))
             process.assert_not_called()  # Parsing never builds or launches.
-        invalid = [(["--backend", "cpu", "--case", attention, "--attention-pv", "reduce"], "PV decomposition"),
-                   (["--backend", "metal", "--case", "rope:1,4", "--attention-pv", "reduce"], "PV decomposition"),
+        for backend in ("cpu", "metal4"):
+            selected = parse_arguments(common + ["--backend", backend, "--case", attention,
+                                                 "--attention-qk", "reduce", "--attention-pv", "reduce"])
+            self.assertEqual((selected.attention_qk, selected.attention_pv), ("reduce", "reduce"))
+        invalid = [(["--backend", "metal", "--case", "rope:1,4", "--attention-pv", "reduce"], "PV decomposition"),
                    (["--backend", "metal", "--case", attention, "--attention-pv", "invalid"], "invalid choice"),
-                   (["--backend", "cpu", "--case", attention, "--attention-qk", "reduce"], "QK decomposition")]
+                   (["--backend", "cpu", "--case", "rope:1,4", "--attention-qk", "reduce"], "QK decomposition")]
         for options, message in invalid:
             output = io.StringIO()
             with self.subTest(options=options), redirect_stderr(output), self.assertRaises(SystemExit):
@@ -186,6 +194,204 @@ class LlmBenchmarkTests(unittest.TestCase):
                             self.assertEqual(os.environ[key], mode)
                     self.assertNotIn("LUISA_TILE_BENCH_UNRELATED", os.environ)
                     self.assertEqual(os.environ["LUISA_SIMD_WARP_WIDTH"], "8")
+
+    def test_xir_attention_probe_backend_and_metadata(self):
+        common = ["--native", "unused", "--build-dir", "unused", "--output", "unused",
+                  "--case", "attention:1,2,1,1,3,4,5", "--attention-qk", "reduce", "--attention-pv", "reduce"]
+        dims = (1, 2, 1, 1, 3, 4, 5)
+        inputs, output = shapes_for("attention", dims)
+        for backend, runtime in (("cpu", "simd"), ("metal4", "metal4")):
+            args = parse_arguments(common + ["--backend", backend])
+            with patch.dict(os.environ, clear=True):
+                configure_probe_environment(args)
+                self.assertEqual(os.environ["LUISA_TILE_BENCH_XIR_BACKEND"], runtime)
+                self.assertEqual(os.environ["LUISA_TILE_BENCH_ATTENTION_QK"], "reduce")
+                self.assertEqual(os.environ["LUISA_TILE_BENCH_ATTENTION_PV"], "reduce")
+            row = dict(implementation="tile_xir_" + runtime, backend=backend, precision="fp32", fast_math=False,
+                       relaxed_precision=False, runtime="luisa", timing="synchronized_host_wall",
+                       batch_policy="one_runtime_command_list_per_batch", operation="attention", dimensions=list(dims),
+                       attention_qk="reduce", attention_pv="reduce", attention_block=[1, 3],
+                       input_shapes=[list(s) for s in inputs], output_shape=list(output),
+                       correctness=dict(checks=2, elements_per_check=10, guard_elements_per_check=34, atol=5e-5, rtol=5e-5),
+                       repetitions=10, throughput_us=[1., 2.], latency_us=[3., 4.])
+            check_metadata(row, backend, "attention", dims, (1, 3), 2, attention_qk="reduce", attention_pv="reduce")
+            del row["attention_pv"]
+            with self.assertRaises(ValueError):
+                check_metadata(row, backend, "attention", dims, (1, 3), 2, attention_qk="reduce", attention_pv="reduce")
+
+    def test_mixed_matrix_only_passes_decomposition_environment_to_attention(self):
+        environment = dict(LUISA_TILE_BENCH_ATTENTION_QK="reduce", LUISA_TILE_BENCH_ATTENTION_PV="reduce",
+                           LUISA_TILE_BENCH_XIR_BACKEND="metal4", LUISA_TILE_BENCH_GROUP_THREADS="64")
+        self.assertEqual(native_operation_environment(environment, "attention"), environment)
+        for operation in ("rmsnorm", "rope", "layernorm"):
+            filtered = native_operation_environment(environment, operation)
+            self.assertNotIn("LUISA_TILE_BENCH_ATTENTION_QK", filtered)
+            self.assertNotIn("LUISA_TILE_BENCH_ATTENTION_PV", filtered)
+            self.assertEqual(filtered["LUISA_TILE_BENCH_XIR_BACKEND"], "metal4")
+            self.assertEqual(filtered["LUISA_TILE_BENCH_GROUP_THREADS"], "64")
+        self.assertEqual(environment["LUISA_TILE_BENCH_ATTENTION_PV"], "reduce")
+
+
+class LlmProcessDiagnosticTests(unittest.TestCase):
+    def test_visit_plan_and_gpu_failure_stop_policy(self):
+        cases = [("rope", (1, 4)), ("rmsnorm", (17, 65))]
+        rows = make_visit_plan(cases, 2)
+        self.assertEqual(len(rows), 8)
+        self.assertEqual([row["path"] for row in rows[:4]], ["native", "torch", "torch", "native"])
+        self.assertTrue(all(row["status"] == "NotRun" and not row["valid"] for row in rows))
+        rows[0].update(status="Error", gpu_failure_diagnostics=[dict(excerpt="GPU Hang Error")])
+        self.assertFalse(mark_remaining_gpu_visits_not_run(rows, "cpu"))
+        self.assertTrue(mark_remaining_gpu_visits_not_run(rows, "metal4"))
+        self.assertTrue(all(row["status"] == "NotRun" and row["error"].startswith("not launched:") for row in rows[1:]))
+        self.assertEqual(len(make_visit_plan(cases[:1], 6, baseline=True)), 18)
+
+    def test_main_never_launches_remaining_gpu_arms_after_diagnostic(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ):
+            directory = Path(temporary)
+            binary = directory / "native"
+            binary.write_bytes(b"not an executable; subprocess mocked")
+            output = directory / "report"
+            args = parse_arguments(["--native", str(binary), "--build-dir", str(directory), "--output", str(output),
+                                    "--backend", "metal", "--case", "attention:1,2,1,1,3,4,5",
+                                    "--case", "rmsnorm:1,4", "--rounds", "2"])
+
+            def capture(command, environment, timeout, destination, stem, row):
+                row["gpu_failure_diagnostics"] = [dict(channel="stderr", excerpt="GPU Hang Error")]
+                raise RuntimeError("GPU failure diagnostic; entire cohort invalid")
+
+            with patch("compare_llm.parse_arguments", return_value=args), patch("compare_llm.artifact_hashes", return_value={}), \
+                    patch("compare_llm.platform.platform", return_value="test-platform"), \
+                    patch("compare_llm.subprocess.run", return_value=subprocess.CompletedProcess([], 0, "", "")), \
+                    patch("compare_llm.subprocess.check_output", return_value="test\n"), \
+                    patch("compare_llm.capture_benchmark", side_effect=capture) as native, \
+                    patch("compare_llm.run_torch_worker") as torch, redirect_stdout(io.StringIO()):
+                self.assertEqual(main(), 1)
+            native.assert_called_once()
+            torch.assert_not_called()
+            result = json.loads((output / "results.json").read_text())
+            self.assertEqual(len(result["results"]), 8)
+            self.assertEqual(result["results"][0]["status"], "Error")
+            self.assertTrue(all(row["status"] == "NotRun" for row in result["results"][1:]))
+            self.assertFalse(result["metadata"]["gpu_diagnostics_valid"])
+            self.assertFalse(result["metadata"]["cohort_valid"])
+            self.assertTrue(all(not row["complete"] for row in result["summary"]))
+
+    def test_known_diagnostics_and_normal_output(self):
+        failures = ["Caused GPU Hang Error (0x00000003)", "MTLCommandBufferErrorDomain Code=2",
+                    "MTLCommandBufferStatusError", "Execution of the command buffer was aborted",
+                    "Metal command buffer failed with error", "MPS backend out of memory",
+                    "Error Domain=AGXMetalG16X Code=3", "GPU Address Fault Error (0x1)",
+                    "Error: command buffer completion failed"]
+        for failure in failures:
+            for channel in ("stdout", "stderr"):
+                streams = {"stdout": b'{"valid":true}', "stderr": b""}
+                streams[channel] = failure.encode()
+                with self.subTest(failure=failure, channel=channel):
+                    found = gpu_failure_diagnostics(**streams)
+                    self.assertTrue(found)
+                    self.assertEqual(found[0]["channel"], channel)
+        normal = ["", "MPS allocated 128 MB; command buffer completed successfully",
+                  '{"backend":"metal","max_abs_error":0,"error":""}',
+                  "GPU validation passed; kernel max_abs_error=0; PASS"]
+        for text in normal:
+            with self.subTest(text=text):
+                self.assertEqual(gpu_failure_diagnostics(text, "ordinary warning: unused argument"), [])
+
+    def test_diagnostic_evidence_is_bounded(self):
+        found = gpu_failure_diagnostics(b"", (("prefix " * 100) + "GPU Hang Error\n").encode() * 100)
+        self.assertEqual(len(found), 16)
+        self.assertTrue(all(len(item["excerpt"]) <= 360 for item in found))
+        self.assertEqual(found[0]["line"], 1)
+
+    def test_zero_exit_fd_stderr_is_rejected_and_preserved(self):
+        # Real lightweight Python subprocess, no Torch import or device. An
+        # os.write(2) reproduces the C/C++ fd channel missed by redirect_stderr.
+        with tempfile.TemporaryDirectory() as temporary:
+            directory, row = Path(temporary), dict(valid=False)
+            command = [sys.executable, "-c", "import os; os.write(1,b'{\"valid\":true}'); os.write(2,b'Caused GPU Hang Error (0x3)\\n')"]
+            with self.assertRaisesRegex(RuntimeError, "entire cohort invalid"):
+                capture_benchmark(command, dict(os.environ), 5, directory, "torch", row)
+            self.assertEqual(row["process"]["exit_code"], 0)
+            self.assertFalse(row["valid"])
+            self.assertEqual((directory / "torch.stdout.log").read_bytes(), b'{"valid":true}')
+            self.assertEqual((directory / "torch.stderr.log").read_bytes(), b"Caused GPU Hang Error (0x3)\n")
+            self.assertTrue(json.loads((directory / "torch.process.json").read_text())["gpu_failure_diagnostics"])
+
+    def test_success_and_nonzero_failures_preserve_raw_output(self):
+        for code in (0, 1):
+            with self.subTest(code=code), tempfile.TemporaryDirectory() as temporary:
+                directory, row = Path(temporary), {}
+                process = Mock(returncode=code)
+                process.communicate.return_value = (b'{"valid":true}', b"ordinary informational message")
+                with patch("compare_llm.subprocess.Popen", return_value=process):
+                    if code:
+                        with self.assertRaises(subprocess.CalledProcessError):
+                            capture_benchmark(["fake"], {}, 5, directory, "visit", row)
+                    else:
+                        result = capture_benchmark(["fake"], {}, 5, directory, "visit", row)
+                        self.assertEqual(result.stdout, b'{"valid":true}')
+                self.assertEqual(row["gpu_failure_diagnostics"], [])
+                self.assertEqual((directory / "visit.stderr.log").read_bytes(), b"ordinary informational message")
+
+    def test_timeout_keeps_full_output_diagnostic_and_process_group_cleanup(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory, row = Path(temporary), {}
+            process = Mock(returncode=-9, pid=12345)
+            process.communicate.side_effect = [subprocess.TimeoutExpired(["fake"], 1, output=b"partial"),
+                                               (b"complete stdout", b"GPU Hang Error before timeout")]
+            with patch("compare_llm.subprocess.Popen", return_value=process), patch("compare_llm.os.killpg") as kill:
+                with self.assertRaises(subprocess.TimeoutExpired) as caught:
+                    capture_benchmark(["fake"], {}, 1, directory, "timeout", row)
+            if os.name == "posix":
+                kill.assert_called_once()
+                self.assertEqual(kill.call_args.args[0], 12345)
+            self.assertEqual(caught.exception.output, b"complete stdout")
+            self.assertTrue(row["process"]["timed_out"])
+            self.assertTrue(row["gpu_failure_diagnostics"])
+            self.assertEqual((directory / "timeout.stdout.log").read_bytes(), b"complete stdout")
+
+    def test_one_gpu_diagnostic_invalidates_other_case_summaries(self):
+        rows = [dict(operation=op, dimensions=[1, 4], round=r, path=p, valid=True,
+                     measurement=dict(throughput_us_p50=1., latency_us_p50=2.))
+                for op in ("rope", "swiglu") for r in range(2) for p in ("native", "torch")]
+        rows[0].update(valid=False, gpu_failure_diagnostics=[dict(excerpt="GPU Hang Error")])
+        summaries = make_summary(rows, 2)
+        self.assertEqual(len(summaries), 2)
+        self.assertTrue(all(not item["complete"] and "invalid_reason" in item for item in summaries))
+        self.assertTrue(all("throughput_us_p50" not in item for item in summaries))
+
+    def test_torch_worker_is_a_captured_process_with_explicit_inputs(self):
+        import hashlib
+        import numpy as np
+        with tempfile.TemporaryDirectory() as temporary:
+            directory, row = Path(temporary), {}
+            args = argparse.Namespace(backend="metal", samples=2, sample_ms=10, warmup_ms=20, threads=1,
+                                      timeout=15, metal_device_timing=None)
+            arrays = [np.ones((1, 4), np.float32), np.ones((1, 2), np.float32), np.ones((1, 2), np.float32)]
+            output = directory / "out.f32"
+
+            def capture(command, environment, timeout, destination, stem, record):
+                self.assertEqual(command[:3], [sys.executable, str(Path(__file__).resolve().with_name("compare_llm.py")), "--torch-worker"])
+                request = json.loads(Path(command[3]).read_text())
+                self.assertEqual(request["backend"], "metal")
+                self.assertEqual(request["timing"]["samples"], 2)
+                for path, array in zip(request["input_paths"], arrays):
+                    self.assertEqual(Path(path).read_bytes(), array.tobytes())
+                actual = np.array([[0, 0, 2, 2]], np.float32)
+                actual.tofile(output)
+                result = {key: request[key] for key in ("format", "operation", "dimensions", "backend", "input_sha256", "output_path")}
+                check = dict(elements=4, max_abs_error=0., atol=5e-5, rtol=5e-5)
+                result.update(output_shape=[1, 4], output_sha256=hashlib.sha256(output.read_bytes()).hexdigest(),
+                              torch_info=dict(version="test", git_version="test", config="test", mps_cpu_fallback=False),
+                              correctness=check,
+                              measurement=dict(repetitions=2, throughput_us=[1., 2.], latency_us=[3., 4.],
+                                               precision="fp32", expression="test", pre_timing_correctness=check))
+                return subprocess.CompletedProcess(command, 0, json.dumps(result).encode(), b"")
+
+            with patch("compare_llm.capture_benchmark", side_effect=capture) as process:
+                result = run_torch_worker("rope", (1, 4), arrays, args, directory, "torch", output, row)
+            process.assert_called_once()
+            self.assertEqual(result["measurement"]["throughput_us_p50"], 1.5)
 
 
 if __name__ == "__main__":

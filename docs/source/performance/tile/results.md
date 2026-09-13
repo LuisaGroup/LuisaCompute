@@ -68,6 +68,21 @@ cohort is disqualified**. GPU experiments stopped before the PV-reduce timing
 arm; it is NotRun, not an inferred win or failure. Re-establish queue and
 completion stability before a balanced performance comparison or cost fit.
 
+The subsequent CPU-only {download}`native-entry attention experiment
+<../../../../scripts/benchmark/tile_torch/results/m1-max-20260913-attention-native/notes.md>`
+captures all four QK/PV representations at two prefill/decode shapes (KV through
+2053), and validates 72 ABBA replay visits. With QK held fixed, replacing PV
+MMA by reduction costs **1.252–1.332×** on prefill and **1.060–1.129×** on
+decode. These are single-thread actual ORC-entry times, excluding Runtime,
+Python and caller allocations; they are not a new Torch/MPS comparison.
+MMA remains the default. Twelve further small correctness configurations cover
+triangular masks, batch/head sharing and tails with two patterns per shader.
+
+The LLM runner now isolates Torch in a subprocess so native-library stderr is
+captured even if Python reports success. Known GPU failure diagnostics invalidate
+the entire cohort and leave subsequent GPU visits NotRun. This closes the
+observed reporting loophole; it does not establish device recovery.
+
 ### Metal4 XIR route: correctness established, timing not yet stable
 
 The September 10 {download}`target-info checkpoint <../../../../scripts/benchmark/tile_torch/results/m1-max-20260910-xir-target-info/README.md>`
