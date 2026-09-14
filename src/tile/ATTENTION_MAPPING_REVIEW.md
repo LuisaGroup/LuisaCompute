@@ -782,6 +782,8 @@ Torch比较另用同时支持Tile与Inductor ABI的`native_rows`共同C++ timer�
 
 ### 21.17 full12 byte-private：纯 kernel 配对结果
 
+本轮 [最小原始结果包](../../scripts/benchmark/tile_torch/results/m1-max-20260914-byte-private-native/notes.md) 保留全部计时样本及原执行收据；完整输出／对象仍在说明所列本地原始目录，尚未全部归档，不称自包含运行闭包。
+
 在上述源码 freeze 上完成新的22组 full12/full11 配对和8组 Torch 配对；没有重用旧计时或删除异常样本。所有 capture、prepare、replay、Torch 阶段分别完成22/22、22/22、22/22、8/8。正式360次访问、1800个样本均通过完整FP64输出、guards与输入不变检查。计时口径沿用21.15：`native_tile` 测两个 Luisa 版本，另一组 `native_rows` 测 Luisa/Torch；两组分母不可混用。这里不是Runtime dispatch、Metal或MPS结果。
 
 下表为 **full12/full11 配对耗时比中位数**，小于1表示full12更快。RMS/Softmax均为129行；列名是显式 local lanes，物理packet宽度固定8、单worker，不是自动planner选出的配置。
