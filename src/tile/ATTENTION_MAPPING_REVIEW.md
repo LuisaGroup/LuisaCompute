@@ -763,3 +763,19 @@ Torch比较另用同时支持Tile与Inductor ABI的`native_rows`共同C++ timer�
 **性能目标尚未完成**：上述四种形状仍分别慢约20.5%、67.9%、38.0%、79.1%。两套timer cohort的分母不可混用；本轮只比较单线程native入口wall time，不是Runtime端到端、多核吞吐、GPU计时或MPS结果。尤其短行local8明显慢于local1，不能把“增大组内并行”当作通用改进。
 
 360个正式timed visits全部通过FP64完整输出、NaN初始化、guards和输入不变检查；Torch外露scratch也在原执行进程检查。离线归档核验可重读全部输出与1800个样本、重算30条边，但未持久化的guard/actual scratch bytes只保留原执行收据。该结果说明epoch修复在已测LLM形状上基本保留已有性能，不证明任意CFG完备，也没有定位剩余Torch差距的具体归因；后续仍需基于一般性资源/数据布局与代码生成机制优化。
+
+### 21.16 full12 byte-private：正确性门禁完成，性能待配对
+
+新 [byte-private gates 归档](../../scripts/benchmark/tile_torch/results/m1-max-20260914-byte-private-gates/notes.md) 封存了 freeze `71573837811263abe91d86a4c0b33bb425479e2bd5c2638e92d899a1afb56720` 的27文件源码及原始收据。核心改动对应 `c23dc2f8b`，但实验身份是 selected 的两文件覆盖、25文件继承，不能把整个 ROOT commit 当作被测 overlay。归档不含性能样本或二进制闭包。
+
+| 门禁 | full12 实际结果 |
+|---|---|
+| 完整构建 | passed，runner wall 17.80s；没有缩窄 target |
+| SIMD suite | 13/13 executables；CTest real 52.91s |
+| Tile SIMD runtime | 1 executable；31 tests / 5,207,697 asserts；52.64s |
+| focused host plan | 2 executables；34 tests / 364,142 asserts；0.68s |
+| 两个 TU syntax/tidy | 全部0 errors；memory 0 warnings，test 21 warnings |
+
+新增 bool/int8/uint8 私有数组回归检查 W2/4/8/16、空／部分／非前缀 masks、完整 byte 存储及退出快照。bool 以 i8 保存、以 i1 计算，连续 store 保留 inactive bytes；没有把硬件存储布局变成 DSL 限制。test 的新增 `cells` 初始化警告后紧接全数组 `fill(0xa5u)`，属于可能误报，原警告与源码均保留，不称零警告。
+
+这些结果只确认当前候选的正确性门禁，不代表性能已改善。下一步使用保留 full11 入口做新的独立配对；静态 gather/scatter 与连续 RMW 数量不是动态周期，也不要求所有 i8 fallback 消失。对应通用 planner 的工作量分类、不可重复计价和验证边界记录在 [private-access cost 提案](PRIVATE_ACCESS_COST_MODEL.md)，仍属未实现／未校准方案。

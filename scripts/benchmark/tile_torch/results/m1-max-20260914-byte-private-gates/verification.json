@@ -1,0 +1,34 @@
+{
+  "status": "verified",
+  "full12_freeze_sha256": "71573837811263abe91d86a4c0b33bb425479e2bd5c2638e92d899a1afb56720",
+  "parent_full11_freeze_sha256": "29ef908f51beadddedaac6cc85735f2c260cf86978c075bd0fb875707230099c",
+  "full12_source_files": 27,
+  "inherited_unchanged_files": 25,
+  "baseline_copies": 2,
+  "candidate_copies": 2,
+  "ctest_executables": [
+    13,
+    1,
+    2
+  ],
+  "tile_tests": 31,
+  "tile_assertions": 5207697,
+  "host_tests": 34,
+  "host_assertions": 364142,
+  "build_wall_seconds": 17.802968978881836,
+  "gate_wall_seconds": {
+    "test-full12-unit-simd": 52.95247507095337,
+    "test-full12-tile-simd": 52.664995193481445,
+    "test-full12-host-plan": 0.7382659912109375
+  },
+  "static_errors": 0,
+  "static_warnings": {
+    "tidy-byte-private-memory": 0,
+    "tidy-byte-private-codegen-test": 21
+  },
+  "preserved_cells_warning": true,
+  "native_execution_by_this_tool": false,
+  "performance_samples": 0,
+  "binary_closure_claim": false,
+  "archived_files": 126
+}
